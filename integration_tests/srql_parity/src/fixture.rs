@@ -209,10 +209,10 @@ const APP_RULES: [AppRule; 5] = [
 fn app_label(protocol_num: i32, dst_port: i32, src_ip: &str, dst_ip: &str) -> &'static str {
     let mut best: Option<(i32, usize, i64, &'static str)> = None;
     for rule in APP_RULES {
-        let matches = rule.protocol_num.map_or(true, |p| p == protocol_num)
-            && rule.dst_port.map_or(true, |p| p == dst_port)
-            && rule.src_cidr.map_or(true, |c| cidr_contains(c, src_ip))
-            && rule.dst_cidr.map_or(true, |c| cidr_contains(c, dst_ip));
+        let matches = rule.protocol_num.is_none_or(|p| p == protocol_num)
+            && rule.dst_port.is_none_or(|p| p == dst_port)
+            && rule.src_cidr.is_none_or(|c| cidr_contains(c, src_ip))
+            && rule.dst_cidr.is_none_or(|c| cidr_contains(c, dst_ip));
         if !matches {
             continue;
         }
@@ -226,7 +226,7 @@ fn app_label(protocol_num: i32, dst_port: i32, src_ip: &str, dst_ip: &str) -> &'
         .filter(|set| **set)
         .count();
         let rank = (rule.priority, specificity, -(rule.id as i64));
-        if best.map_or(true, |(bp, bs, bid, _)| {
+        if best.is_none_or(|(bp, bs, bid, _)| {
             rank.0 > bp
                 || (rank.0 == bp && rank.1 > bs)
                 || (rank.0 == bp && rank.1 == bs && rank.2 > bid)
