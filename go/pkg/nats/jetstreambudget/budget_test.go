@@ -116,7 +116,8 @@ func inventory() []inventoryStream {
 	}
 }
 
-// packagedUnits maps each size-owning service to the systemd unit that runs it.
+// packagedUnits maps each packaged size-owning service to its systemd unit.
+// Some Compose services, such as web-ng, are not distributed as system packages.
 func packagedUnits() map[string]string {
 	return map[string]string{
 		natsService:      "build/packaging/nats/systemd/serviceradar-nats.service",
@@ -125,7 +126,6 @@ func packagedUnits() map[string]string {
 		"flow-collector": "build/packaging/flow-collector/systemd/serviceradar-flow-collector.service",
 		"bmp-collector":  "build/packaging/bmp-collector/systemd/serviceradar-bmp-collector.service",
 		"core-elx":       "build/packaging/core-elx/systemd/serviceradar-core-elx.service",
-		"web-ng":         "build/packaging/web-ng/systemd/serviceradar-web-ng.service",
 	}
 }
 
@@ -975,12 +975,15 @@ func TestOldFixedAccountQuotaFailsPresets(t *testing.T) {
 }
 
 func TestPackagedUnitsLoadSizesFile(t *testing.T) {
-	for _, service := range sizeOwningServices() {
-		rel, ok := packagedUnits()[service]
-		if !ok {
-			t.Errorf("no packaged unit is mapped for size-owning service %s", service)
-			continue
-		}
+	units := packagedUnits()
+	services := make([]string, 0, len(units))
+	for service := range units {
+		services = append(services, service)
+	}
+	sort.Strings(services)
+
+	for _, service := range services {
+		rel := units[service]
 		unit, err := parseUnit(readRepoFile(t, rel))
 		if err != nil {
 			t.Errorf("%s: %v", rel, err)
