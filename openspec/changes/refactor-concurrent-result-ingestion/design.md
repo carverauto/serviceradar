@@ -189,7 +189,7 @@ interleaved rejected run followed by a complete run need regression coverage.
 Each queue and existing acknowledged lane reports pending/in-flight items and
 bytes, admission latency, execution duration, completions, rejections by reason,
 timeouts, crashes, and cancellation. Emit canonical protobuf metric envelopes
-through a bounded supervised metrics publisher on metrics.core.result_ingestion,
+through a bounded supervised metrics publisher on metrics.ingestion_lanes,
 confirm PubAck, and persist only through EventWriter in the configured telemetry
 backend. Audit NATS stream/permission coverage before rollout. Local :telemetry
 and Prometheus are supplementary, not the durable platform metric path.
