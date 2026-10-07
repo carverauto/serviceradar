@@ -147,6 +147,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/observability/template_seeder_test.exs",
     "test/serviceradar/observability/threat_intel_investigation_db_test.exs",
     "test/serviceradar/observability/zen_rule_test.exs",
+    "test/serviceradar/plugins/addon_assignment_uniqueness_db_test.exs",
     "test/serviceradar/plugins/addon_profile_ops_db_test.exs",
     "test/serviceradar/plugins/addon_rollout_db_test.exs",
     "test/serviceradar/plugins/addon_status_ingestor_test.exs",
