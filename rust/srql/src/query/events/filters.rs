@@ -174,7 +174,7 @@ pub(super) fn apply_filter<'a>(
         "span_id" => {
             query = apply_text_filter!(query, filter, col_span_id)?;
         }
-        "device_id" | "uid" | "source_device_uid" => {
+        "device_id" | "device_uid" | "uid" | "source_device_uid" => {
             query = apply_metadata_identity_filter(query, filter, EVENT_DEVICE_IDENTITY_KEYS)?;
         }
         "device_uid_exact" => {
@@ -859,6 +859,7 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
         "device_id"
+        | "device_uid"
         | "uid"
         | "source_device_uid"
         | "device_uid_exact"

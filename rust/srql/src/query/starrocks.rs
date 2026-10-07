@@ -1119,7 +1119,9 @@ fn filter_predicates(
             "severity_match" if severity_any => {}
             "severity_text" | "severity" | "level" if severity_any => severity_text = Some(filter),
             "severity_number" if severity_any => severity_number = Some(filter),
-            "device_id" | "uid" | "source_device_uid" if dataset.raw_table == "events" => {
+            "device_id" | "device_uid" | "uid" | "source_device_uid"
+                if dataset.raw_table == "events" =>
+            {
                 predicates.push(event_device_identity_filter_sql(filter, table, bounds)?)
             }
             _ => predicates.push(filter_sql(plan, filter)?),
@@ -5979,41 +5981,47 @@ mod tests {
 
     #[test]
     fn an_event_device_filter_anchors_a_canonical_uid_and_scans_only_for_a_raw_id() {
-        let canonical = translate(
-            &plan("in:events device_id:\"sr:device-0001\" time:last_1h"),
-            "serviceradar",
-        )
-        .expect("canonical");
-        assert!(
-            canonical.sql.contains(
-                "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (COALESCE(LOWER(src_endpoint_ip), '') IN ("
-            ),
-            "{}",
-            canonical.sql
-        );
-        // The raw-id scan names an identity key ahead of the value.
-        assert!(
-            !canonical.sql.contains("\"device\\\\_uid\"%"),
-            "{}",
-            canonical.sql
-        );
+        for field in ["device_id", "device_uid", "uid", "source_device_uid"] {
+            let canonical = translate(
+                &plan(&format!(
+                    "in:events {field}:sr:device-0001 sort:time:desc limit:50"
+                )),
+                "serviceradar",
+            )
+            .expect("canonical");
+            assert!(
+                canonical.sql.contains(
+                    "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (COALESCE(LOWER(src_endpoint_ip), '') IN ("
+                ),
+                "{}",
+                canonical.sql
+            );
+            // The raw-id scan names an identity key ahead of the value.
+            assert!(
+                !canonical.sql.contains("\"device\\\\_uid\"%"),
+                "{}",
+                canonical.sql
+            );
 
-        let raw = translate(
-            &plan("in:events device_id:\"Host_01.example.com\" time:last_1h"),
-            "serviceradar",
-        )
-        .expect("raw");
-        // Case-insensitive, with the LIKE wildcard in the value escaped.
-        assert!(
-            raw.sql.contains(
-                "LOWER(metadata) LIKE '%\"device\\\\_uid\"%\"host\\\\_01.example.com\"%'"
-            ),
-            "{}",
-            raw.sql
-        );
-        assert!(raw.sql.contains("LOWER(device) LIKE "), "{}", raw.sql);
-        assert!(raw.sql.contains("LOWER(unmapped) LIKE "), "{}", raw.sql);
-        assert!(raw.sql.contains("LOWER(observables) LIKE "), "{}", raw.sql);
+            let raw = translate(
+                &plan(&format!(
+                    "in:events {field}:\"Host_01.example.com\" time:last_1h"
+                )),
+                "serviceradar",
+            )
+            .expect("raw");
+            // Case-insensitive, with the LIKE wildcard in the value escaped.
+            assert!(
+                raw.sql.contains(
+                    "LOWER(metadata) LIKE '%\"device\\\\_uid\"%\"host\\\\_01.example.com\"%'"
+                ),
+                "{}",
+                raw.sql
+            );
+            assert!(raw.sql.contains("LOWER(device) LIKE "), "{}", raw.sql);
+            assert!(raw.sql.contains("LOWER(unmapped) LIKE "), "{}", raw.sql);
+            assert!(raw.sql.contains("LOWER(observables) LIKE "), "{}", raw.sql);
+        }
     }
 
     #[test]
