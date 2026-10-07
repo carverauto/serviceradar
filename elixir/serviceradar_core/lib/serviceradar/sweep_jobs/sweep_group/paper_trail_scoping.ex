@@ -26,6 +26,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup.PaperTrailScoping do
 
     alias Spark.Dsl.Transformer
 
+    @impl true
     def after?(AshPaperTrail.Resource.Transformers.VersionOnChange), do: true
     def after?(_), do: false
 

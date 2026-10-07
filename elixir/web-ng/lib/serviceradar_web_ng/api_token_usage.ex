@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNG.ApiTokenUsage do
   use GenServer, shutdown: to_timeout(second: 20)
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.ApiToken
 
   require Logger
 

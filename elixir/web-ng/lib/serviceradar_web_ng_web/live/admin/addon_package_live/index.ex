@@ -2367,10 +2367,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp assignment_success_message(1), do: "Add-on assigned to agent."
   defp assignment_success_message(count), do: "Add-on assigned to #{count} agents."
 
-  defp source_label(source) when is_atom(source), do: Atom.to_string(source)
-  defp source_label(source) when is_binary(source), do: source
-  defp source_label(_source), do: "unknown"
-
   defp update_policy_label(:track_latest_approved), do: "automatic updates"
   defp update_policy_label("track_latest_approved"), do: "automatic updates"
   defp update_policy_label(_), do: "version pinned"

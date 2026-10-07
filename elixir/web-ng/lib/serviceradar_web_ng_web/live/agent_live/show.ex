@@ -1418,12 +1418,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     end
   end
 
-  defp stale_drift(%AddonStatus{} = status),
-    do: {:stale, "Last reported #{status.state} at #{status.reported_at}; no current report."}
-
   defp addon_drift(_package, _assignment, nil, _agent) do
     {:assigned_not_installed, "Assignment exists, but the agent has not reported installed or active status."}
   end
+
+  defp stale_drift(%AddonStatus{} = status),
+    do: {:stale, "Last reported #{status.state} at #{status.reported_at}; no current report."}
 
   defp unhealthy_addon_status?(%AddonStatus{state: state, degradation_reason: reason}) do
     state = state |> to_string() |> String.downcase()

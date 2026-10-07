@@ -74,9 +74,4 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
     domains: @domains,
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0"
-
-  @doc """
-  Returns the list of Ash domains mounted on this router.
-  """
-  def domains, do: @domains
 end

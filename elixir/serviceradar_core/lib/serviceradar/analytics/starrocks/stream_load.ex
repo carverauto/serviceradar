@@ -69,7 +69,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   defp retry_load(
          %{
            request: request,
-           http: http,
+           http: _http,
            count: count,
            opts: opts,
            attempt: attempt,
