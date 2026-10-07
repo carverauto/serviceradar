@@ -22,6 +22,21 @@
 {{- $pluginBucket := default "serviceradar_plugins" $webNgPluginStorage.jetstreamBucket -}}
 {{- $fieldSurveyStore := default (dict) $webNg.fieldSurveyArtifactStore -}}
 {{- $fieldSurveyBucket := default "serviceradar_fieldsurvey" $fieldSurveyStore.jetstreamBucket -}}
+{{- $k8sInventory := default (dict) .Values.k8sInventory -}}
+{{- $k8sInventoryNats := default (dict) $k8sInventory.nats -}}
+{{- $k8sInventoryNodes := default (dict) $k8sInventory.nodes -}}
+{{- $k8sInventoryNatsEnabled := and (default false $k8sInventory.enabled) (eq (default "nats" $k8sInventory.publishMode) "nats") -}}
+{{- $k8sInventoryNodesEnabled := or (not (hasKey $k8sInventoryNodes "enabled")) $k8sInventoryNodes.enabled -}}
+{{- $k8sInventorySubject := default "inventory.k8s.public_endpoints" $k8sInventoryNats.subject -}}
+{{- $k8sInventoryStream := default "k8s_inventory" $k8sInventoryNats.stream -}}
+{{- if $k8sInventoryNatsEnabled -}}
+{{- if not (regexMatch `^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$` $k8sInventorySubject) -}}
+  {{- fail (printf "k8sInventory.nats.subject %q must be a concrete NATS subject without wildcards" $k8sInventorySubject) -}}
+{{- end -}}
+{{- if not (regexMatch `^[A-Za-z0-9_-]+$` $k8sInventoryStream) -}}
+  {{- fail (printf "k8sInventory.nats.stream %q must contain only letters, digits, underscores, or hyphens" $k8sInventoryStream) -}}
+{{- end -}}
+{{- end -}}
 {{- /*
 B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
 to render the core/datasvc/agent NATS ACL blocks below. The chart's
@@ -523,10 +538,18 @@ spec:
                 user: "CN=serviceradar-k8s-inventory,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["inventory.k8s.>", "\$JS.API.STREAM.INFO.k8s_inventory", "\$JS.API.STREAM.CREATE.k8s_inventory", "\$JS.API.>"]
+                    {{- if $k8sInventoryNatsEnabled }}
+                    allow: [{{ $k8sInventorySubject | quote }}{{ if $k8sInventoryNodesEnabled }}, "inventory.k8s.nodes"{{ end }}, {{ printf "\"\\$JS.API.STREAM.INFO.%s\"" $k8sInventoryStream }}, {{ printf "\"\\$JS.API.STREAM.CREATE.%s\"" $k8sInventoryStream }}, {{ printf "\"\\$JS.API.STREAM.UPDATE.%s\"" $k8sInventoryStream }}]
+                    {{- else }}
+                    allow: []
+                    {{- end }}
                   }
                   subscribe: {
-                    allow: ["\$JS.API.>", "_INBOX.>"]
+                    {{- if $k8sInventoryNatsEnabled }}
+                    allow: ["_INBOX.>"]
+                    {{- else }}
+                    allow: []
+                    {{- end }}
                   }
                 }
               },

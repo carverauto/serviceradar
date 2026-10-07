@@ -1,0 +1,91 @@
+suite: Kubernetes inventory NATS permissions
+templates:
+  - templates/nats.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: limits the inventory identity to its subjects, stream, and reply inboxes
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      k8sInventory.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.k8s\.public_endpoints", "inventory\.k8s\.nodes", "\\\$JS\.API\.STREAM\.INFO\.k8s_inventory", "\\\$JS\.API\.STREAM\.CREATE\.k8s_inventory", "\\\$JS\.API\.STREAM\.UPDATE\.k8s_inventory"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+
+  - it: scopes custom inventory subjects and streams without wildcard management access
+    template: templates/nats.yaml
+    set:
+      k8sInventory.enabled: true
+      k8sInventory.nats.subject: inventory.synthetic.endpoints
+      k8sInventory.nats.stream: synthetic_inventory
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.synthetic\.endpoints", "inventory\.k8s\.nodes", "\\\$JS\.API\.STREAM\.INFO\.synthetic_inventory", "\\\$JS\.API\.STREAM\.CREATE\.synthetic_inventory", "\\\$JS\.API\.STREAM\.UPDATE\.synthetic_inventory"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+
+  - it: omits the node subject when node inventory is disabled
+    template: templates/nats.yaml
+    set:
+      k8sInventory.enabled: true
+      k8sInventory.nodes.enabled: false
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["inventory\.k8s\.public_endpoints", "\\\$JS\.API\.STREAM\.INFO\.k8s_inventory"'
+
+  - it: grants no permissions when inventory is disabled
+    template: templates/nats.yaml
+    set:
+      k8sInventory.enabled: false
+      k8sInventory.nats.subject: invalid.>
+      k8sInventory.nats.stream: invalid.stream
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+
+  - it: grants no permissions in stdout mode and ignores dormant NATS values
+    template: templates/nats.yaml
+    set:
+      k8sInventory.enabled: true
+      k8sInventory.publishMode: stdout
+      k8sInventory.nats.subject: invalid.*
+      k8sInventory.nats.stream: invalid.stream
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-k8s-inventory,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+
+  - it: rejects wildcard subjects in NATS mode
+    template: templates/nats.yaml
+    set:
+      k8sInventory.enabled: true
+      k8sInventory.nats.subject: inventory.k8s.>
+    asserts:
+      - failedTemplate:
+          errorMessage: 'k8sInventory.nats.subject "inventory.k8s.>" must be a concrete NATS subject without wildcards'
+
+  - it: rejects invalid stream names in NATS mode
+    template: templates/nats.yaml
+    set:
+      k8sInventory.enabled: true
+      k8sInventory.nats.stream: invalid.stream
+    asserts:
+      - failedTemplate:
+          errorMessage: 'k8sInventory.nats.stream "invalid.stream" must contain only letters, digits, underscores, or hyphens'
