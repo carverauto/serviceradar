@@ -690,7 +690,7 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		return addonDeliveryTransientFailure
 	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
-		stateSnap.restore()
+		_ = stateSnap.restoreInto(addonStateDir(runtimeRoot, a.GetAddonId()))
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
 		}
@@ -880,6 +880,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after " + reason)
 		}
+		_ = restoreAddonStateFromRollback(runtimeRoot, a.GetAddonId(), addonStateRollbackPath(runtimeRoot, a.GetAddonId()))
 		p.logger.Warn().Err(err).Str("addon", a.GetAddonId()).Msg(reason)
 	}
 
@@ -920,9 +921,6 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	}
 	if err := install(ctx, req); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
-		if snap, loadErr := loadAddonStateRollback(req.StateSnapshotPath); loadErr == nil {
-			snap.restore()
-		}
 		return false
 	}
 	_ = os.Remove(req.StateSnapshotPath)

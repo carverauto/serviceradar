@@ -69,6 +69,21 @@ func rootOwnedNotWritableByCaller(info os.FileInfo) bool {
 	return !writableByUID(info, os.Getuid())
 }
 
+func writeAddonStateFileNoFollow(dir, name string, data []byte) error {
+	if !safeAddonSegment(name) {
+		return fmt.Errorf("%w: %q", ErrAddonUnsafePath, name)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, addonManifestMode)
+	if err != nil {
+		return fmt.Errorf("open addon state file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write addon state file: %w", err)
+	}
+	return nil
+}
+
 func writableByUID(info os.FileInfo, uid int) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {

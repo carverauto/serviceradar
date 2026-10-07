@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -286,7 +287,7 @@ func TestInstallAddonSystemdUnitsRejectsAgentWritableExecPath(t *testing.T) {
 func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 	root := t.TempDir()
 	unitDir := filepath.Join(root, "systemd")
-	stateDir := filepath.Join(root, "state")
+	stateDir := addonStateDir(root, "np")
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -348,6 +349,94 @@ func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 	}
 	if string(got) != string(previous) {
 		t.Fatalf("re-enable saw state %q, want previous %q", got, previous)
+	}
+}
+
+func TestInstallAddonSystemdUnitsIgnoresSnapshotDir(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	stateDir := addonStateDir(root, "np")
+	canary := t.TempDir()
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
+	installMockSystemctl(t, t.TempDir())
+
+	marker := filepath.Join(canary, "keep")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "pwned")
+	previous := []byte("{\n  \"mode\": \"v1\"\n}\n")
+	if err := os.WriteFile(filepath.Join(stateDir, "bumblebee-scan.json"), []byte("{\n  \"mode\": \"v2\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(persistedAddonStateRollback{
+		Dir:     canary,
+		Existed: false,
+		Files: map[string][]byte{
+			"bumblebee-scan.json": previous,
+			outside:               []byte("no"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath := addonStateRollbackPath(root, "np")
+	if err := os.WriteFile(snapshotPath, append(body, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	failScript := "#!/bin/sh\nset -eu\nif [ \"${1:-}\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(t.TempDir(), "unused"), []byte(failScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mockDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(failScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:       root,
+		PrivilegedRoot:    filepath.Join(root, "privileged"),
+		AddonID:           "np",
+		Version:           "2.0.0",
+		BinaryName:        "serviceradar-np",
+		ArtifactPath:      artPath,
+		ArtifactSHA256:    sha,
+		Signature:         sig,
+		Units:             []string{"serviceradar-np.service"},
+		Enable:            "serviceradar-np.service",
+		StateSnapshotPath: snapshotPath,
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("snapshot dir was removed: %v", err)
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatalf("absolute snapshot name was written: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(stateDir, "bumblebee-scan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(previous) {
+		t.Fatalf("state = %q, want previous bundle", got)
 	}
 }
 

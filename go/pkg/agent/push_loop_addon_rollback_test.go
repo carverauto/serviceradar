@@ -69,6 +69,85 @@ func newSystemdAddonPushLoop(t *testing.T) *PushLoop {
 	return NewPushLoop(&Server{config: &ServerConfig{}}, nil, 30*time.Second, logger.NewTestLogger())
 }
 
+func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-bumblebee-scan":       []byte("#!/bin/sh\nexit 0\n"),
+		"bumblebee-scan.json":               []byte("{\n  \"mode\": \"v1\"\n}\n"),
+		"serviceradar-bumblebee-scan.timer": []byte("[Timer]\nOnUnitActiveSec=6h\n"),
+	})
+	key := "addons/bumblebee/0.1.0"
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+	if _, err := stageAddonArtifact(context.Background(), store, root, &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Version:           "0.1.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(tgz),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
+		AddonId: "bumblebee",
+		Version: "0.1.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	v2 := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-bumblebee-scan":       []byte("#!/bin/sh\nexit 0\n"),
+		"bumblebee-scan.json":               []byte("{\n  \"mode\": \"v2\"\n}\n"),
+		"serviceradar-bumblebee-scan.timer": []byte("[Timer]\nOnUnitActiveSec=6h\n"),
+	})
+	v2key := "addons/bumblebee/0.2.0"
+	v2store := &fakeObjectStore{data: map[string][]byte{v2key: v2}}
+	pl := newSystemdAddonPushLoop(t)
+	installed := false
+	disposition := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		&proto.AddonAssignmentConfig{
+			AddonId:           "bumblebee",
+			Version:           "0.2.0",
+			ArtifactSignature: "sig",
+			ArtifactObjectKey: v2key,
+			ArtifactSha256:    sha256Hex(v2),
+			BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+		},
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		time.Now(),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
+			if _, err := stageAddonArtifact(context.Background(), v2store, root, &proto.AddonAssignmentConfig{
+				AddonId:           "bumblebee",
+				Version:           "0.2.0",
+				BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+				ArtifactObjectKey: v2key,
+				ArtifactSha256:    sha256Hex(v2),
+			}); err != nil {
+				return "", addonDeliveryPermanentFailure, err
+			}
+			return "", addonDeliverySucceeded, nil
+		},
+		func(context.Context, AddonSystemdInstallRequest) error {
+			installed = true
+			return nil
+		},
+	)
+	if disposition != addonDeliveryTransientFailure {
+		t.Fatalf("disposition = %v, want transient failure", disposition)
+	}
+	if installed {
+		t.Fatal("supervision mismatch reached install")
+	}
+	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
+	if state["mode"] != "v1" {
+		t.Fatalf("pre-install failure left candidate state in place: %#v", state)
+	}
+}
+
 func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	root := resolveAddonArtifactRoot(runtimeRoot)

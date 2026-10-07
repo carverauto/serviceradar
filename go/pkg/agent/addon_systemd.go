@@ -519,7 +519,7 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		return err
 	}
 
-	restoreState, err := loadAddonStateRestore(req.StateSnapshotPath)
+	restoreState, err := loadAddonStateRestore(req.RuntimeRoot, req.AddonID, req.StateSnapshotPath)
 	if err != nil {
 		cleanup()
 		return err

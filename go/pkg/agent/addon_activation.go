@@ -634,16 +634,54 @@ func loadAddonStateRollback(path string) (addonStateSnapshot, error) {
 	return addonStateSnapshot{dir: persisted.Dir, existed: persisted.Existed, files: persisted.Files}, nil
 }
 
-func loadAddonStateRestore(path string) (func(), error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return func() {}, nil
-	}
-	snap, err := loadAddonStateRollback(path)
-	if err != nil {
+func loadAddonStateRestore(runtimeRoot, addonID, snapshotPath string) (func(), error) {
+	if err := checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath); err != nil {
 		return nil, err
 	}
-	return snap.restore, nil
+	return func() {
+		_ = restoreAddonStateFromRollback(runtimeRoot, addonID, snapshotPath)
+	}, nil
+}
+
+func checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath string) error {
+	snapshotPath = strings.TrimSpace(snapshotPath)
+	if snapshotPath == "" {
+		return nil
+	}
+	want := addonStateRollbackPath(runtimeRoot, addonID)
+	if want == "" || filepath.Clean(snapshotPath) != filepath.Clean(want) {
+		return fmt.Errorf("%w: state snapshot", ErrAddonUnsafePath)
+	}
+	return nil
+}
+
+func restoreAddonStateFromRollback(runtimeRoot, addonID, snapshotPath string) error {
+	if err := checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath); err != nil {
+		return err
+	}
+	if strings.TrimSpace(snapshotPath) == "" {
+		return nil
+	}
+	snap, err := loadAddonStateRollback(addonStateRollbackPath(runtimeRoot, addonID))
+	if err != nil {
+		return err
+	}
+	return writeAddonStateFiles(addonStateDir(runtimeRoot, addonID), snap.files)
+}
+
+func writeAddonStateFiles(stateDir string, files map[string][]byte) error {
+	if stateDir == "" {
+		return fmt.Errorf("%w: addon state", ErrAddonUnsafePath)
+	}
+	for name, data := range files {
+		if !safeAddonSegment(name) {
+			continue
+		}
+		if err := writeAddonStateFileNoFollow(stateDir, name, data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type persistedAddonStateRollback struct {
@@ -652,27 +690,8 @@ type persistedAddonStateRollback struct {
 	Files   map[string][]byte `json:"files"`
 }
 
-func (s addonStateSnapshot) restore() {
-	if s.dir == "" {
-		return
-	}
-	if !s.existed {
-		_ = os.RemoveAll(s.dir)
-		return
-	}
-	entries, err := os.ReadDir(s.dir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	for _, entry := range entries {
-		if _, ok := s.files[entry.Name()]; ok || entry.IsDir() {
-			continue
-		}
-		_ = os.Remove(filepath.Join(s.dir, entry.Name()))
-	}
-	for name, data := range s.files {
-		_ = os.WriteFile(filepath.Join(s.dir, name), data, addonManifestMode)
-	}
+func (s addonStateSnapshot) restoreInto(stateDir string) error {
+	return writeAddonStateFiles(stateDir, s.files)
 }
 
 // StagedAddonArtifactPath returns the path to the retained artifact archive in a version directory.
