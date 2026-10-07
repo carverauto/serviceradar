@@ -812,4 +812,80 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                [provider, guest_ref]
              ).rows
   end
+
+  test "failed identifier or device lookups do not mint placeholder devices", %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    provider = "testhv-fail"
+    host_ref = "#{provider}:node:pve-fail-#{suffix}"
+    guest_ref = "#{provider}:guest:pve-fail-#{suffix}:vm:999"
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => provider,
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "name" => "pve-fail-#{suffix}",
+            "status" => "online",
+            "metadata" => %{"ip" => "192.0.2.#{rem(suffix, 200) + 10}/24"}
+          }
+        ],
+        "guests" => [
+          %{
+            "provider_ref" => guest_ref,
+            "host_provider_ref" => host_ref,
+            "name" => "vm-fail-#{suffix}",
+            "guest_type" => "vm",
+            "vmid" => 999,
+            "status" => "online"
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "#{provider}:guest-nic:pve-fail-#{suffix}:vm:999:net0",
+            "host_provider_ref" => host_ref,
+            "guest_provider_ref" => guest_ref,
+            "name" => "net0",
+            "mac_address" => "02:00:00:00:#{rem(suffix, 90) + 10}:99",
+            "ip_addresses" => ["192.0.2.#{rem(suffix, 200) + 20}/24"],
+            "source" => "config"
+          }
+        ]
+      }
+    }
+
+    # An unshared process cannot checkout a connection from the test sandbox,
+    # replicating a DB query failure / timeout.
+    parent = self()
+
+    spawn(fn ->
+      send(
+        parent,
+        {:ingest_result, HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)}
+      )
+    end)
+
+    assert_receive {:ingest_result, result}, 30_000
+    assert {:error, _reason} = result
+
+    # Assert no device or virtualization record was created
+    assert [] =
+             Repo.query!(
+               """
+               SELECT uid FROM platform.ocsf_devices
+               WHERE hostname IN ($1, $2)
+               """,
+               ["pve-fail-#{suffix}", "vm-fail-#{suffix}"]
+             ).rows
+
+    assert [] =
+             Repo.query!(
+               """
+               SELECT device_uid FROM platform.virtualization_hosts
+               WHERE provider = $1 AND provider_ref = $2
+               """,
+               [provider, host_ref]
+             ).rows
+  end
 end

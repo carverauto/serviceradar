@@ -567,5 +567,54 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     refute_receive {:source_upsert, %{vendor_camera_id: nil}}
   end
 
+  test "failed identity lookup does not mint a device and fails ingestion" do
+    parent = self()
+
+    source_upsert = fn attrs, _actor ->
+      send(parent, {:source_upsert, attrs})
+      {:ok, %{id: Ecto.UUID.generate()}}
+    end
+
+    profile_upsert = fn attrs, _actor ->
+      send(parent, {:profile_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    device_sync = fn descriptor, _status, _observed_at, _actor ->
+      send(parent, {:device_sync, descriptor})
+      :ok
+    end
+
+    payload = %{
+      "camera_descriptors" => [
+        %{
+          "vendor" => "synthetic-cam",
+          "camera_id" => "cam-lookup-fail",
+          "name" => "cam01.example.com",
+          "identity" => %{
+            "mac" => "02:00:00:00:11:22",
+            "ip" => "192.0.2.50"
+          }
+        }
+      ]
+    }
+
+    # Inject lookup error
+    failing_resolve = fn _descriptor, _status, _actor ->
+      {:error, {:identifier_lookup_failed, :db_timeout}}
+    end
+
+    assert {:error, {:identifier_lookup_failed, :db_timeout}} =
+             InventoryIngestor.ingest(payload, %{},
+               source_upsert: source_upsert,
+               profile_upsert: profile_upsert,
+               resolve_device_uid: failing_resolve,
+               device_sync: device_sync
+             )
+
+    refute_receive {:device_sync, _}
+    refute_receive {:source_upsert, _}
+  end
+
   defp preserve_explicit_device_uid(_descriptor, _status, _actor), do: nil
 end
