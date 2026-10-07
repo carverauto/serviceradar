@@ -53,7 +53,7 @@ func validatePrivilegedAddonRootOwnership(root string) error {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("%w: %s: %v", ErrAddonPrivilegedRootUnsafe, chain[i], err)
+			return fmt.Errorf("%w: %s: %w", ErrAddonPrivilegedRootUnsafe, chain[i], err)
 		}
 		sawDir = true
 		if !info.IsDir() || !rootOwnedNotWritableByCaller(info) {
@@ -71,7 +71,13 @@ func rootOwnedNotWritableByCaller(info os.FileInfo) bool {
 	if !ok || stat.Uid != 0 {
 		return false
 	}
-	return !writableByUID(info, os.Getuid())
+	// A real uid of 0 is already root. The setuid threat is a non-root caller
+	// (Getuid != 0, Geteuid == 0) who can write a parent and redirect the tree.
+	uid := os.Getuid()
+	if uid == 0 {
+		return true
+	}
+	return !writableByUID(info, uid)
 }
 
 func restoreAddonStateForCaller(runtimeRoot, addonID, snapshotPath string) error {

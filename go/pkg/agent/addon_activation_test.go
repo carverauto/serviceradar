@@ -38,6 +38,11 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	sampleAddonArtifactKey     = "addons/sample/linux-amd64"
+	stagedConfigOriginArtifact = "artifact"
+)
+
 var (
 	errFakeObjectNotFound        = errors.New("fake object store: key not found")
 	errUnexpectedAddonRedownload = errors.New("unchanged assignment should not fetch again")
@@ -75,7 +80,7 @@ func sha256Hex(b []byte) string {
 func TestStageAddonArtifactSuccess(t *testing.T) {
 	root := t.TempDir()
 	payload := []byte("#!/bin/sh\necho hi\n")
-	key := "addons/sample/linux-amd64"
+	key := sampleAddonArtifactKey
 	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
 
 	a := &proto.AddonAssignmentConfig{
@@ -131,7 +136,7 @@ func TestStageAddonArtifactSuccess(t *testing.T) {
 func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
 	root := t.TempDir()
 	payload := []byte("#!/bin/sh\necho hi\n")
-	key := "addons/sample/linux-amd64"
+	key := sampleAddonArtifactKey
 	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
 
 	a := &proto.AddonAssignmentConfig{
@@ -172,7 +177,7 @@ func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
 func TestStageAddonArtifactRefetchesWhenArchiveMissing(t *testing.T) {
 	root := t.TempDir()
 	payload := []byte("#!/bin/sh\necho hi\n")
-	key := "addons/sample/linux-amd64"
+	key := sampleAddonArtifactKey
 	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
 	a := &proto.AddonAssignmentConfig{
 		AddonId:           "sample",
@@ -891,7 +896,7 @@ func TestApplyStagedAddonRuntimeConfigUsesLegacyBaseNotMergedCurrent(t *testing.
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
-	if state["keep"] != "artifact" || state["mode"] != "next" {
+	if state["keep"] != stagedConfigOriginArtifact || state["mode"] != "next" {
 		t.Fatalf("merge used the overwritten current file: %#v", state)
 	}
 }
@@ -924,7 +929,7 @@ func TestApplyStagedAddonRuntimeConfigPrefersArtifactOverLegacyBase(t *testing.T
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
-	if state["from"] != "artifact" || state["mode"] != "new" {
+	if state["from"] != stagedConfigOriginArtifact || state["mode"] != "new" {
 		t.Fatalf("legacy base hid the retained artifact: %#v", state)
 	}
 }
@@ -969,7 +974,7 @@ func TestApplyStagedAddonRuntimeConfigAdoptsArtifactEqualToState(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(stateDir, "bumblebee-scan.json"))
-	if state["from"] != "artifact" || state["mode"] != "new" || state["flag"] != true {
+	if state["from"] != stagedConfigOriginArtifact || state["mode"] != "new" || state["flag"] != true {
 		t.Fatalf("artifact matching state was not adopted: %#v", state)
 	}
 }

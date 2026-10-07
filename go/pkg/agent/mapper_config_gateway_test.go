@@ -8,6 +8,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+const mapperTestUsername = "serviceradar"
+
 func TestGatewayMapperConfigPreservesTargetCredentials(t *testing.T) {
 	raw := []byte(`{"mapper":{"scheduled_jobs":[{
 		"name":"inventory-example","enabled":true,"type":"full","discovery_mode":"snmp_api",
@@ -132,7 +134,7 @@ func TestParseMapperJobCredsRoundTripsSNMPv3(t *testing.T) {
 	if creds.Version != "v3" {
 		t.Fatalf("version = %q", creds.Version)
 	}
-	if creds.Username != "serviceradar" {
+	if creds.Username != mapperTestUsername {
 		t.Fatalf("username = %q", creds.Username)
 	}
 	if creds.SecurityLevel != "authPriv" {
@@ -202,7 +204,7 @@ func TestBuildMapperEngineConfigIncludesMikroTikEndpoints(t *testing.T) {
 			{
 				Name:               "tonka01",
 				BaseURL:            "http://192.168.6.167/rest",
-				Username:           "serviceradar",
+				Username:           mapperTestUsername,
 				Password:           "secret",
 				InsecureSkipVerify: true,
 			},
@@ -235,7 +237,7 @@ func TestBuildMapperEngineConfigIncludesMikroTikEndpoints(t *testing.T) {
 		t.Fatalf("expected one MikroTik API in engine config, got %d", len(engineCfg.MikroTikAPIs))
 	}
 
-	if got := engineCfg.MikroTikAPIs[0].Username; got != "serviceradar" {
+	if got := engineCfg.MikroTikAPIs[0].Username; got != mapperTestUsername {
 		t.Fatalf("expected MikroTik username to be preserved, got %q", got)
 	}
 

@@ -1396,7 +1396,7 @@ func TestWriteSystemdResourceDropInRejectsSliceInjection(t *testing.T) {
 	systemdUnitDir = root
 	t.Cleanup(func() { systemdUnitDir = orig })
 
-	_, err := writeSystemdResourceDropIn("serviceradar-np.service", agentaddon.Resources{
+	err := writeSystemdResourceDropIn("serviceradar-np.service", agentaddon.Resources{
 		MemoryMaxBytes: 1024,
 		Slice:          "x\nExecStartPre=/tmp/pwn",
 	})

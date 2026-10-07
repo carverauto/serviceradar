@@ -78,6 +78,13 @@ func TestPrivilegedRootForSetuidInstallIgnoresCallerRoots(t *testing.T) {
 	}
 
 	owned := t.TempDir()
+	if os.Getuid() == 0 {
+		// A root test process owns its temp dir. The rejected case is a directory
+		// not owned by root, which is what a non-root caller can create.
+		if err := os.Chown(owned, 65534, 65534); err != nil {
+			t.Fatalf("chown caller-owned fixture: %v", err)
+		}
+	}
 	if err := validatePrivilegedAddonRootOwnership(owned); err == nil {
 		t.Fatal("caller-owned directory was accepted as the privileged addon root")
 	}

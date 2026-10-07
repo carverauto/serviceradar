@@ -406,6 +406,9 @@ func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUni
 	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
 		t.Fatalf("write binary: %v", err)
 	}
+	if err := os.WriteFile(StagedAddonArtifactPath(versionDir), payload, 0o644); err != nil {
+		t.Fatalf("retain artifact: %v", err)
+	}
 	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
 		AddonID:        id,
 		Version:        "1.1.0",
@@ -514,6 +517,9 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 	versionDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), netprobeTestAddonID, addonVersionsDir, "1.1.0")
 	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
 		t.Fatalf("write binary: %v", err)
+	}
+	if err := os.WriteFile(StagedAddonArtifactPath(versionDir), payload, 0o644); err != nil {
+		t.Fatalf("retain artifact: %v", err)
 	}
 	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
 		AddonID:        netprobeTestAddonID,
