@@ -118,6 +118,6 @@
 
 - [x] 6.1 Update the `EvaluationWorker`, `TickWorker`, and `Evaluation`
   moduledocs; the "do not delete the periodic pass" rationale stays.
-- [ ] 6.2 CHANGELOG entry under Unreleased. Deferred: CHANGELOG has no Unreleased
+- [x] 6.2 CHANGELOG entry under Unreleased. Deferred: CHANGELOG has no Unreleased
   section; entries are written per version at release time and `scripts/cut-release.sh`
   validates them by version.
