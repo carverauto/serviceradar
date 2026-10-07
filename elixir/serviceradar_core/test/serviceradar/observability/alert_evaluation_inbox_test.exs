@@ -297,6 +297,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   } do
     assert {:ok, keys} = Inbox.admit(:event, [event()])
     parent = self()
+    %{rows: [[parent_backend]]} = Repo.query!("SELECT pg_backend_pid()")
 
     {locker, monitor} =
       spawn_monitor(fn ->
@@ -319,8 +320,14 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
       # The expired poll transaction disconnects the connection it ran on, so
       # await from a child process and keep the test's owned connection usable
       # for the owner-progress assertions below.
-      waiter = Task.async(fn -> Completion.await(keys, 25) end)
-      assert {:error, :evaluation_completion_timeout} = Task.await(waiter, 5_000)
+      waiter =
+        Task.async(fn ->
+          %{rows: [[poll_backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          {poll_backend, Completion.await(keys, 25)}
+        end)
+
+      assert {poll_backend, {:error, :evaluation_completion_timeout}} = Task.await(waiter, 5_000)
+      refute poll_backend == parent_backend
     after
       send(locker, :release)
       assert_receive {:DOWN, ^monitor, :process, ^locker, :normal}, 5_000
