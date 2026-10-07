@@ -18,8 +18,13 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRetire do
   `mass_guard_failures`; one whose latest collection changes during the step is left at that
   point, and a re-run continues it.
 
-  The dry run counts both classes per source instance, before any retirement. `--execute`
-  requires retirement to be enabled in the device cleanup settings. It works in batches of
+  The dry run counts both classes per source instance, before any retirement, and does
+  not consult the remediation prevention gate. `--execute` first requires
+  `SourceIdentityRepair.prevention_deployed?/1` to hold (identifier conflict
+  replacement leaves `:device_id` alone and the duplicate sweep still blocks a
+  transitive component); otherwise it returns `remediation_prevention_not_deployed`
+  before reading settings. It then requires retirement to be enabled in the device
+  cleanup settings. It works in batches of
   `:source_batch_size` records (500 by default): each record's retirement or mark writes its
   manifest entry inside its transaction, and after each batch the harm checks run
   (`SourceIdVerification.finish_batch/4`). The step stops at the first check that fails, and
