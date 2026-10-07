@@ -19,6 +19,10 @@ callback_deployment =
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
 
+# web-ng consumes the shared alerts queue and must honor the same cutover
+# settings as standalone and embedded core consumers.
+config :serviceradar_core, ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
+
 if is_map(callback_deployment) do
   verifier_config =
     "SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE"

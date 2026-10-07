@@ -15,8 +15,37 @@ load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
 load("//build:elixir_quality.bzl", "elixir_quality")
 load("//build:world_snapshots.bzl", "world_snapshots")
+load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 
 package(default_visibility = ["//visibility:public"])
+
+# The generator operates on an isolated Ash domain, so unrelated resource drift
+# cannot become a migration in this change. The write-back target is the only
+# interface for generated outputs; never copy from the Bazel output cache.
+ash_schema(
+    name = "alert_evaluation_schema",
+    outs = [
+        "generated_alert_evaluation/lanes.json",
+        "generated_alert_evaluation/work.json",
+        "generated_alert_evaluation/receipts.json",
+        "generated_alert_evaluation/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:alert_evaluation_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_alert_evaluation_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.alert_evaluation_lanes/20261008111547.json": ":generated_alert_evaluation/lanes.json",
+        "priv/resource_snapshots/repo/platform.alert_evaluation_work/20261008111547.json": ":generated_alert_evaluation/work.json",
+        "priv/resource_snapshots/repo/platform.alert_evaluation_receipts/20261008111547.json": ":generated_alert_evaluation/receipts.json",
+        "priv/repo/migrations/20261008111547_add_alert_evaluation_inbox.exs": ":generated_alert_evaluation/migration.exs",
+    },
+    tags = ["manual"],
+)
 
 world_snapshots(
     name = "world_schema_snapshots",

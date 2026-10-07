@@ -1,65 +1,49 @@
-defmodule ServiceRadar.Observability.StatefulAlertEngineShardingTest do
-  @moduledoc """
-  Pure (DB-free) tests for the engine's rule sharding logic.
-
-  Sharding is what removes the single-GenServer serialization point: a rule's
-  entire state machine lives in exactly one shard, so disjoint rules no longer
-  contend on one process and their DB writes parallelize across shards. These
-  tests pin down the sharding contract that makes that safe.
-  """
+defmodule ServiceRadar.Observability.AlertEvaluationRuntimeConfigTest do
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
+
+  @names ~w(SERVICERADAR_ALERT_EVALUATION_MODE SERVICERADAR_ALERT_EVALUATION_ADMISSION_TIMEOUT_MS SERVICERADAR_ALERT_EVALUATION_BATCH_RECORDS SERVICERADAR_ALERT_EVALUATION_BATCH_WORK SERVICERADAR_ALERT_EVALUATION_PENDING_COUNT SERVICERADAR_ALERT_EVALUATION_PENDING_BYTES SERVICERADAR_ALERT_EVALUATION_RULE_COUNT SERVICERADAR_ALERT_EVALUATION_RULE_BYTES SERVICERADAR_ALERT_EVALUATION_REPLAY_DAYS SERVICERADAR_ALERT_EVALUATION_RECEIPT_DAYS)
 
   setup do
-    previous = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    previous = Map.new(@names, &{&1, System.get_env(&1)})
+    Enum.each(@names, &System.delete_env/1)
 
     on_exit(fn ->
-      case previous do
-        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
-        value -> Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, value)
-      end
+      Enum.each(previous, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
     end)
-
-    :ok
   end
 
-  test "shard_count honors configuration and falls back to a positive default" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 4)
-    assert StatefulAlertEngine.shard_count() == 4
+  test "startup defaults to prepared and requires receipt retention to cover replay" do
+    config = Rollout.runtime_config!()
+    assert config[:alert_evaluation_mode] == :prepared
+    assert config[:alert_evaluation_limits] == []
+    assert config[:alert_evaluation_receipt_days] >= config[:alert_evaluation_replay_days]
 
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 0)
-    assert StatefulAlertEngine.shard_count() > 0
+    System.put_env("SERVICERADAR_ALERT_EVALUATION_MODE", "draining")
+    System.put_env("SERVICERADAR_ALERT_EVALUATION_PENDING_COUNT", "120")
+    System.put_env("SERVICERADAR_ALERT_EVALUATION_REPLAY_DAYS", "8")
+    System.put_env("SERVICERADAR_ALERT_EVALUATION_RECEIPT_DAYS", "9")
+    config = Rollout.runtime_config!()
+    assert config[:alert_evaluation_mode] == :draining
+    assert config[:alert_evaluation_limits] == [pending_count: 120]
+    assert config[:alert_evaluation_receipt_days] == 9
 
-    Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
-    assert StatefulAlertEngine.shard_count() > 0
+    System.put_env("SERVICERADAR_ALERT_EVALUATION_RECEIPT_DAYS", "7")
+    assert_raise ArgumentError, fn -> Rollout.runtime_config!() end
   end
 
-  test "shard_for_rule_id is deterministic and within range" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 8)
-
-    rule_ids = for _ <- 1..200, do: Ash.UUID.generate()
-
-    for rule_id <- rule_ids do
-      shard = StatefulAlertEngine.shard_for_rule_id(rule_id)
-      assert shard in 0..7
-      # Same id always maps to the same shard (a rule never splits across shards).
-      assert shard == StatefulAlertEngine.shard_for_rule_id(rule_id)
+  test "invalid startup bounds and unknown modes fail before consumers start" do
+    for name <- @names -- ["SERVICERADAR_ALERT_EVALUATION_MODE"], value <- ["0", "-1", "1ms"] do
+      System.put_env(name, value)
+      assert_raise ArgumentError, fn -> Rollout.runtime_config!() end
+      System.delete_env(name)
     end
-  end
 
-  test "rule ids distribute across more than one shard" do
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 8)
-
-    for_result =
-      for _ <- 1..500 do
-        StatefulAlertEngine.shard_for_rule_id(Ash.UUID.generate())
-      end
-
-    shards = Enum.uniq(for_result)
-
-    # With 500 random ids and 8 shards, we expect the work to spread out; a
-    # single shard would mean no parallelism.
-    assert length(shards) > 1
+    System.put_env("SERVICERADAR_ALERT_EVALUATION_MODE", "automatic")
+    assert_raise ArgumentError, fn -> Rollout.runtime_config!() end
   end
 end

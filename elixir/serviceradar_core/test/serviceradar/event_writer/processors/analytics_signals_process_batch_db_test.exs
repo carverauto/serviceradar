@@ -1,12 +1,21 @@
 defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
+  alias ServiceRadar.Observability.AlertEvaluationWork
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
+  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
+  alias ServiceRadar.Observability.StatefulAlertEngine.Owner
+  alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  require Ash.Query
 
   @moduletag :integration
 
@@ -184,6 +193,131 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert {:ok, 1} = AnalyticsSignals.process_batch([reopened_message])
     refute_receive {:alert_evaluation_events, _}, 100
     refute_receive {:northbound_event, _}, 100
+  end
+
+  test "real durable admission preserves distinct transitions sharing an event row" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    on_exit(fn -> restore_env(:alert_evaluation_mode, mode) end)
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-transition-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    identity = "synthetic-assessment-#{Ash.UUID.generate()}"
+    opened = assessment_message(identity, "open", "active", "confirmed", "affected")
+    cleared = assessment_message(identity, "resolved", "resolved", "confirmed", "fixed")
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([cleared])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([opened])
+
+    assert [first, second, third] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.Query.sort(position: :asc)
+             |> Ash.read!(actor: actor)
+
+    assert Enum.map([first, second, third], & &1.position) == [1, 2, 3]
+    assert length(Enum.uniq(Enum.map([first, second, third], & &1.source_key))) == 3
+    assert length(Enum.uniq(Enum.map([first, second, third], & &1.payload["id"]))) == 1
+
+    assert [] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+
+    assert [] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+  end
+
+  test "a rejected transition stays replayable and its retry is admitted once" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    limits = Application.get_env(:serviceradar_core, :alert_evaluation_limits)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    Application.put_env(:serviceradar_core, :alert_evaluation_limits, pending_count: 1)
+
+    on_exit(fn ->
+      restore_env(:alert_evaluation_mode, mode)
+      restore_env(:alert_evaluation_limits, limits)
+    end)
+
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-rejection-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    assert {:ok, [_]} =
+             Inbox.admit(:event, [
+               %{
+                 id: Ash.UUID.generate(),
+                 time: DateTime.utc_now(),
+                 message: "synthetic capacity holder"
+               }
+             ])
+
+    message =
+      assessment_message(
+        "synthetic-retry-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+    assert {:error, _} = AnalyticsSignals.process_batch([message])
+    assert event_count(row) == 0
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+
+    assert [%{position: 2}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    assert event_count(row) == 1
   end
 
   test "northbound runner failure does not suppress the durable alert transition" do

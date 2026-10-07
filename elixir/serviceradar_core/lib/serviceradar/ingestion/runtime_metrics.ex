@@ -24,6 +24,16 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   @table __MODULE__
   @subject "metrics.ingestion_lanes"
   @publish_outage_reminder_every 60
+  @alert_health_ttl_ms 120_000
+  @alert_lanes [:alert_log, :alert_event, :alert_metric, :alert_maintenance]
+  @alert_health_gauges [
+    :pending_count,
+    :pending_bytes,
+    :in_flight_count,
+    :oldest_pending_ms,
+    :retrying_count,
+    :failed_count
+  ]
   @lanes [
     :flow_attribution,
     :retained_plugin_result,
@@ -35,7 +45,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :other_results,
     :status,
     :sync,
-    :service_state
+    :service_state,
+    :alert_log,
+    :alert_event,
+    :alert_metric,
+    :alert_maintenance
   ]
   @events [
     :state,
@@ -56,6 +70,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :publish_failure,
     :coalesced_interval,
     :crash,
+    :retry,
+    :failed,
     :other
   ]
   @reasons [
@@ -76,6 +92,9 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :sync_ingest_queue_full,
     :service_state_queue_full,
     :malformed_payload,
+    :store_unavailable,
+    :evaluation_failed,
+    :rule_inventory_full,
     :other
   ]
   @gauges [
@@ -89,7 +108,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :cancellation_ms,
     :worker_ms,
     :duration_ms,
-    :payload_bytes
+    :payload_bytes,
+    :oldest_pending_ms,
+    :retrying_count,
+    :failed_count
   ]
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -129,7 +151,14 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
     Enum.each(measurements, fn
       {name, value} when name in @gauges and is_number(value) and value >= 0 ->
-        :ets.insert(@table, {{:gauge, lane, name}, value})
+        sample =
+          if lane in @alert_lanes and name in @alert_health_gauges do
+            {value, System.monotonic_time(:millisecond)}
+          else
+            value
+          end
+
+        :ets.insert(@table, {{:gauge, lane, name}, sample})
 
       _ ->
         :ok
@@ -174,7 +203,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
     frame =
       state.pending ||
-        frame(:ets.tab2list(@table), state.reported, state.interval_start, now)
+        frame(fresh_samples(), state.reported, state.interval_start, now)
 
     {pending, reported, interval_start, outage_failures} =
       case frame do
@@ -224,6 +253,21 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
          interval_start: interval_start,
          outage_failures: outage_failures
      }}
+  end
+
+  # A recovery scan may move to a different core node. Stop refreshing that
+  # former sampler's global health gauges indefinitely. A held PubAck frame is
+  # already serialized and remains byte-identical despite sample expiration.
+  defp fresh_samples do
+    now = System.monotonic_time(:millisecond)
+
+    Enum.flat_map(:ets.tab2list(@table), fn
+      {key, {value, sampled_at}} ->
+        if now - sampled_at <= @alert_health_ttl_ms, do: [{key, value}], else: []
+
+      sample ->
+        [sample]
+    end)
   end
 
   defp frame([], _reported, _interval_start, _now), do: nil
@@ -310,6 +354,9 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   defp unit(:gauge, name) when name in [:pending_bytes, :in_flight_bytes, :payload_bytes],
     do: "bytes"
 
-  defp unit(:gauge, name) when name in [:pending_count, :in_flight_count], do: "entries"
+  defp unit(:gauge, name)
+       when name in [:pending_count, :in_flight_count, :retrying_count, :failed_count],
+       do: "entries"
+
   defp unit(:gauge, _name), do: "ms"
 end

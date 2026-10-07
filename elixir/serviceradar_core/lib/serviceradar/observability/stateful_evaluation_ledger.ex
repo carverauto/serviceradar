@@ -1,20 +1,20 @@
 defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   @moduledoc """
-  Which OCSF events have had their alert consequences applied: stateful rule
-  evaluation and promotion alerts.
+  Which OCSF events have had their stateful evaluation accepted and their
+  promotion callback applied.
 
-  EventWriter applies an event's consequences synchronously in the batch that
-  stores it, and records the event here only after they succeed:
+  EventWriter records this marker only after durable evaluation acceptance and
+  its synchronous promotion callback succeed:
 
       pending = StatefulEvaluationLedger.unevaluated(event_ids)
-      :ok = evaluate(pending)            # a failure fails the batch
+      :ok = evaluate(pending)            # rejection fails the batch
       :ok = StatefulEvaluationLedger.record(pending)
 
-  A redelivered batch therefore evaluates exactly the events its failed
-  delivery did not finish: at least once, and twice only if the process dies
-  between evaluating and recording. The ledger holds ids, not events, so it
-  works whichever telemetry backend stores the events. Rows are pruned after
-  three days, longer than any path by which an event id can arrive again.
+  This is not a completion receipt. The alert evaluation inbox and receipts
+  own ordered effects and replay safety; they deduplicate accepted occurrences
+  if a process dies before recording this marker. The marker holds ids, not
+  telemetry, and is pruned after three days. Completion receipts have a
+  separately configured retention covering the supported source replay horizon.
   """
 
   use Ash.Resource,

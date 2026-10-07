@@ -77,6 +77,8 @@ config :serviceradar_core, Oban,
        {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance},
        {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
         queue: :maintenance},
+       {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
+        queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}
      ]}

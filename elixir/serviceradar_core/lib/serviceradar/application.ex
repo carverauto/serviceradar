@@ -117,6 +117,10 @@ defmodule ServiceRadar.Application do
         # NATS JetStream connection supervisor (fault-tolerant with auto-reconnect)
         nats_connection_child(),
 
+        # Evaluation workers run on every core, so each node needs its own
+        # bounded JetStream metric accumulator rather than a coordinator ETS.
+        ingestion_metrics_child(),
+
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
 
@@ -180,6 +184,14 @@ defmodule ServiceRadar.Application do
 
     opts = [strategy: :one_for_one, name: ServiceRadar.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp ingestion_metrics_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) or
+         Application.get_env(:serviceradar_core, :event_writer_enabled, false) or
+         ServiceRadar.Observability.StatefulAlertEngine.Rollout.alert_consumer?() do
+      ServiceRadar.Ingestion.RuntimeMetrics
+    end
   end
 
   defp ensure_started(app) do

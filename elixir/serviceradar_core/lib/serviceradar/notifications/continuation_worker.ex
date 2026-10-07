@@ -178,6 +178,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
   # row cannot stop the tick from driving the rest.
   defp queued?({:ok, _job}, _kind, _id), do: true
   defp queued?(:ok, _kind, _id), do: true
+  defp queued?(:skipped, _kind, _id), do: false
 
   defp queued?({:error, reason}, kind, id) do
     Logger.error("notification continuation could not queue #{kind}",

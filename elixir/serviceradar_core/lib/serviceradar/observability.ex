@@ -45,6 +45,9 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.StatefulAlertRule
     resource ServiceRadar.Observability.StatefulAlertRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRuleState
+    resource ServiceRadar.Observability.AlertEvaluationLane
+    resource ServiceRadar.Observability.AlertEvaluationWork
+    resource ServiceRadar.Observability.AlertEvaluationReceipt
     resource ServiceRadar.Observability.StatefulEvaluationLedger
     resource ServiceRadar.Observability.SeasonalDisposition.ChronologicalState
     resource ServiceRadar.Observability.StatefulAlertRuleHistory

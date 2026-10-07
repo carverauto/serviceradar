@@ -95,6 +95,9 @@ config :serviceradar_core,
        :results_router_max_bytes,
        ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
 
+config :serviceradar_core,
+       ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
+
 if is_map(callback_deployment) do
   # Automation callback bearer verification is file-only: never accept HMAC
   # key material directly from an environment variable where process
@@ -1584,6 +1587,8 @@ if config_env() == :prod do
            # Cold-window pruning + manifest/bucket reconciliation (no-op when
            # cold-tier config is absent).
            {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
+           {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
+            queue: :maintenance},
            {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker,
             queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,

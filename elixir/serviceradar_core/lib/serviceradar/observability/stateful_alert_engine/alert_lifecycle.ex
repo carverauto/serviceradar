@@ -19,13 +19,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   suppression, rendering, and the retry rule are
   `ServiceRadar.Notifications.Dispatcher`'s, and through it the pure cores'.
 
-  Firing remains fail-open because `Alert.:needs_notification` can recover an
-  alert that was recorded before its first routing job was accepted. Resolution
-  is different: once an alert is terminal there is no later scan that can infer
-  that its previously notified channels are owed a close-out. The resolve
-  transition and its durable `:resolve` job therefore commit in one database
-  transaction. If the job insert fails, the alert transition rolls back so the
-  incident is not falsely terminal without its close-out work.
+  Durable evaluation commits history, alert changes and routing jobs with its
+  input receipt. Any write failure rolls back the owner transaction for retry.
+  Standalone firing keeps `Alert.:needs_notification` as its safety net. A
+  resolve transition always commits with its durable `:resolve` job, because a
+  terminal alert cannot be rediscovered as needing a close-out notification.
   """
 
   import ServiceRadar.Observability.StatefulAlertEngine.Bucketing
@@ -42,11 +40,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
+  alias ServiceRadar.Notifications.Dedupe
   alias ServiceRadar.Notifications.RoutingWorker
+  alias ServiceRadar.Observability.AdvisoryLocks
+  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
 
+  require Ash.Query
   require Logger
 
   def create_event_and_alert(rule, snapshot, record, now) do
@@ -243,12 +246,87 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     end
   end
 
-  def send_renotify(alert_id, _rule, _snapshot, _now) when is_binary(alert_id) do
+  def send_renotify(alert_id, rule, _snapshot, now) when is_binary(alert_id) do
+    case Repo.transaction(fn ->
+           actor = SystemActor.system(:alert_engine)
+
+           alert =
+             case Alert.get_by_id(alert_id, actor: actor) do
+               {:ok, alert} -> alert
+               {:error, reason} -> Repo.rollback(reason)
+             end
+
+           rule_id =
+             if is_map(rule), do: rule.id, else: (alert.metadata || %{})["incident_rule_id"]
+
+           case Ecto.UUID.cast(rule_id) do
+             {:ok, id} ->
+               case AdvisoryLocks.acquire_ordered([{:exclusive, Inbox.evaluation_key(id)}]) do
+                 :ok -> :ok
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+
+             :error ->
+               :ok
+           end
+
+           case renotify_in_transaction(alert_id, rule, now) do
+             :ok -> :ok
+             :skipped -> :skipped
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, :ok} ->
+        :ok
+
+      {:ok, :skipped} ->
+        :skipped
+
+      {:error, reason} ->
+        fail_in_transaction!(reason)
+        {:error, reason}
+    end
+  end
+
+  def send_renotify(_alert_id, _rule, _snapshot, _now), do: {:error, :missing_alert_id}
+
+  defp renotify_in_transaction(alert_id, rule, now) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
 
     with {:ok, alert} <- Alert.get_by_id(alert_id, actor: actor),
-         :ok <- enqueue_routing_result(alert.id, :renotify),
+         {:ok, cadence_rule} <- renotify_rule(alert, rule, actor) do
+      if renotify_due?(alert, cadence_rule, now) do
+        enqueue_renotify(alert, now, actor)
+      else
+        :skipped
+      end
+    end
+  end
+
+  defp renotify_rule(_alert, %{id: _} = rule, _actor), do: {:ok, rule}
+
+  defp renotify_rule(alert, _rule, actor) do
+    case Ecto.UUID.cast((alert.metadata || %{})["incident_rule_id"]) do
+      {:ok, id} -> Ash.get(StatefulAlertRule, id, actor: actor)
+      :error -> {:ok, nil}
+    end
+  end
+
+  defp renotify_due?(alert, %{enabled: true, renotify_seconds: seconds}, now)
+       when is_integer(seconds) and seconds > 0 do
+    alert.status in [:pending, :escalated] and
+      (is_nil(alert.suppressed_until) or DateTime.before?(alert.suppressed_until, now)) and
+      (is_nil(alert.snooze_until) or DateTime.before?(alert.snooze_until, now)) and
+      Dedupe.renotify_due?(alert.last_notification_at || alert.triggered_at, seconds, now)
+  end
+
+  defp renotify_due?(_alert, _rule, _now), do: false
+
+  defp enqueue_renotify(alert, now, actor) do
+    alert_id = alert.id
+
+    with :ok <- enqueue_routing_result(alert.id, :renotify),
          {:ok, _alert} <-
            alert
            |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
@@ -256,22 +334,30 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       # Bookkeeping advances only after the routing request is durable. If the
       # enqueue fails, the cadence remains due and the continuation scan tries
       # again on its next tick.
-      :ok
+      StatefulAlertRuleState
+      |> Ash.Query.filter(alert_id == ^alert_id)
+      |> Ash.bulk_update(:record_notification, %{last_notification_at: now},
+        actor: actor,
+        return_errors?: true,
+        stop_on_error?: true
+      )
+      |> case do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{errors: errors} -> {:error, errors}
+      end
     end
   end
 
-  def send_renotify(_alert_id, _rule, _snapshot, _now), do: {:error, :missing_alert_id}
-
-  # Never raises and never returns an error: see the "Notification" section of
-  # the moduledoc. A routing request that could not be enqueued is a logged
-  # notification failure, not a reason to abandon the incident record that the
-  # caller has already written.
+  # Owner transactions fail atomically. Standalone firing retains the existing
+  # first-notification safety net described in the module documentation.
   defp enqueue_routing(alert_id, lifecycle_reason) do
     case enqueue_routing_result(alert_id, lifecycle_reason) do
       :ok ->
         :ok
 
       {:error, reason} ->
+        fail_in_transaction!(reason)
+
         Logger.warning(
           "Failed to enqueue #{lifecycle_reason} notification routing for alert " <>
             "#{alert_id}: #{inspect(reason)}"
@@ -304,6 +390,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
               snapshot
 
             {:error, reason} ->
+              fail_in_transaction!(reason)
+
               Logger.warning(
                 "Failed to update incident metadata for alert #{snapshot.alert_id}: #{inspect(reason)}"
               )
@@ -312,6 +400,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
           end
 
         {:error, reason} ->
+          fail_in_transaction!(reason)
+
           Logger.warning(
             "Failed to load alert #{snapshot.alert_id} for incident metadata sync: #{inspect(reason)}"
           )
@@ -588,15 +678,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
     StatefulAlertRuleHistory
     |> Ash.Changeset.for_create(:record, params, actor: actor)
-    |> Ash.create()
-    |> case do
-      {:ok, _} ->
-        :ok
+    |> Ash.create!()
 
-      {:error, reason} ->
-        Logger.warning("Failed to record rule history: #{inspect(reason)}")
-        :error
-    end
+    :ok
   end
 
   def persist_snapshot(snapshot, rule, state) do
@@ -608,6 +692,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       bucket_seconds: rule.bucket_seconds,
       current_bucket_start: from_bucket_start(snapshot.current_bucket_start),
       bucket_counts: stringify_bucket_counts(snapshot.bucket_counts),
+      first_seen_at: snapshot.first_seen_at,
+      diagnostics: snapshot.diagnostics,
       last_seen_at: snapshot.last_seen_at,
       last_fired_at: snapshot.last_fired_at,
       last_notification_at: snapshot.last_notification_at,
@@ -617,14 +703,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
     StatefulAlertRuleState
     |> Ash.Changeset.for_create(:upsert, params, state.ash_opts)
-    |> Ash.create()
-    |> case do
-      {:ok, _} ->
-        :ok
+    |> Ash.create!()
 
-      {:error, reason} ->
-        Logger.warning("Failed to persist rule snapshot: #{inspect(reason)}")
-        :error
+    :ok
+  end
+
+  defp fail_in_transaction!(reason) do
+    if Repo.in_transaction?() do
+      # The durable owner catches this with the exact input ID and rolls back
+      # lifecycle work, outbox jobs and the completion receipt together.
+      raise "Alert lifecycle transaction failed: #{inspect(reason)}"
     end
   end
 end

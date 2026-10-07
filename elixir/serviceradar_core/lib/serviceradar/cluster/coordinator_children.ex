@@ -23,7 +23,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
       [
         cluster_health_child(),
         state_monitor_child(),
-        ingestion_metrics_child(),
         ingestion_lease_supervisor_child(),
         flow_lease_supervisor_child(),
         retained_plugin_lease_supervisor_child(),
@@ -94,12 +93,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp state_monitor_child do
     if enabled?("STATE_MONITOR_ENABLED", :state_monitor_enabled, true) do
       {ServiceRadar.Infrastructure.StateMonitor, []}
-    end
-  end
-
-  defp ingestion_metrics_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.Ingestion.RuntimeMetrics
     end
   end
 

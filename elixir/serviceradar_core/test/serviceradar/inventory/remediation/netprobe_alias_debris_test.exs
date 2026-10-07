@@ -124,15 +124,16 @@ defmodule ServiceRadar.Inventory.Remediation.NetprobeAliasDebrisTest do
       insert_alias_state(collector, ip, "stale")
     end
 
+    manifest_path =
+      Path.join(System.tmp_dir!(), "netprobe-alias-debris-#{Ash.UUID.generate()}.ndjson")
+
+    on_exit(fn -> File.rm(manifest_path) end)
+
     %{
       collector: collector,
       collector_ip: collector_ip,
       absorbed: absorbed,
-      manifest_path:
-        Path.join(
-          System.tmp_dir!(),
-          "netprobe-alias-debris-#{suffix}-#{:erlang.unique_integer([:positive])}.ndjson"
-        )
+      manifest_path: manifest_path
     }
   end
 

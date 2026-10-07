@@ -34,12 +34,14 @@ defmodule ServiceRadar.Events.HealthStateChangePipelineTest do
     entity_id = "pipeline-check-#{System.unique_integer([:positive])}"
 
     assert :ok = HealthWriter.write(transition(entity_id, :healthy, :unhealthy))
+    TestSupport.complete_alert_effects!()
     assert promoted_event_count(entity_id) == 1
     assert open_alert_count(entity_id) == 1
 
     # A second report of the same outage is promoted and evaluated too, but the
     # incident it belongs to is already open.
     assert :ok = HealthWriter.write(transition(entity_id, :healthy, :unhealthy))
+    TestSupport.complete_alert_effects!()
     assert promoted_event_count(entity_id) == 2
     assert open_alert_count(entity_id) == 1
   end

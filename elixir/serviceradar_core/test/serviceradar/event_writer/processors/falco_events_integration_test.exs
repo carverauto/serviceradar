@@ -180,6 +180,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     }
 
     assert {:ok, 1} = FalcoEvents.process_batch([message])
+    TestSupport.complete_alert_effects!()
 
     rule_id = to_string(rule.id)
 

@@ -88,6 +88,8 @@ config :serviceradar_core,
        :results_router_max_bytes,
        ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
 
+config :serviceradar_core, ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
+
 if is_map(callback_deployment) do
   envelope_key =
     "SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE"
@@ -1123,6 +1125,7 @@ if config_env() == :prod do
       {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
       # Drops evaluated-event ids past the redelivery window. Offset from the
       # 03:17 observability sweep.
+      {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, queue: :maintenance},
       {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker, queue: :maintenance},
       # Credential broker grants and secret resolution audits had no retention at
       # all: nothing destroys a grant and nothing calls its :expire transition, so
