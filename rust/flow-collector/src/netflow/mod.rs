@@ -109,6 +109,7 @@ pub struct NetflowHandler {
 impl NetflowHandler {
     pub fn new(
         max_templates: usize,
+        max_template_fields: usize,
         pending_flows: Option<&PendingFlowsCacheConfig>,
         default_sampling_rate: Option<u64>,
         sampling_rate_overrides: HashMap<IpAddr, u64>,
@@ -118,6 +119,7 @@ impl NetflowHandler {
         let pending_enabled = pending_flows.is_some();
         let mut builder = NetflowParserBuilder::default()
             .with_cache_size(max_templates)
+            .with_max_field_count(max_template_fields)
             .on_template_event(make_template_event_callback(pending_enabled));
 
         if let Some(pf) = pending_flows {
@@ -431,6 +433,7 @@ mod tests {
         let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
         let handler = NetflowHandler::new(
             128,
+            10_000,
             None,
             None,
             HashMap::new(),
@@ -478,6 +481,7 @@ mod tests {
         let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
         let handler = NetflowHandler::new(
             128,
+            10_000,
             None,
             Some(7),
             HashMap::new(),
@@ -551,5 +555,57 @@ mod tests {
     #[test]
     fn ignores_short_datagrams() {
         assert!(!is_sflow_datagram(&[0x00, 0x00, 0x00]));
+    }
+
+    #[test]
+    fn template_exceeding_max_template_fields_is_rejected() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        // Handler with tight field limit of 3 fields per template
+        let handler_bounded = NetflowHandler::new(
+            128,
+            3,
+            None,
+            None,
+            HashMap::new(),
+            Some(2),
+            Arc::clone(&metrics),
+        );
+        let peer: SocketAddr = "192.0.2.1:2055".parse().unwrap();
+
+        // 4 fields: exceeds the limit of 3
+        let four_fields = [(48u16, 4u16), (34, 4), (2, 4), (1, 4)];
+        let packet_four = v9_packet(1, Some(&four_fields), &[]);
+        handler_bounded.parse_datagram(&packet_four, packet_four.len(), peer);
+
+        // Subsequent data packet for template 256 cannot be decoded because template was rejected
+        let mut record = Vec::new();
+        for value in [1u32, 10, 1, 100] {
+            record.extend_from_slice(&value.to_be_bytes());
+        }
+        let data_packet = v9_packet(1, None, &record);
+        let decoded = handler_bounded.parse_datagram(&data_packet, data_packet.len(), peer);
+        assert!(
+            decoded.is_empty(),
+            "template with 4 fields should be rejected when max_template_fields is 3"
+        );
+
+        // Handler with field limit of 4 fields accepts the same template
+        let handler_sufficient = NetflowHandler::new(
+            128,
+            4,
+            None,
+            None,
+            HashMap::new(),
+            Some(2),
+            Arc::clone(&metrics),
+        );
+        handler_sufficient.parse_datagram(&packet_four, packet_four.len(), peer);
+        let decoded = handler_sufficient.parse_datagram(&data_packet, data_packet.len(), peer);
+        assert_eq!(
+            decoded.len(),
+            1,
+            "template with 4 fields should be accepted when max_template_fields is 4"
+        );
+        assert_eq!(decoded[0].bytes, 100);
     }
 }

@@ -256,6 +256,8 @@ pub struct IpfixTlsConfig {
     pub max_sources: usize,
     #[serde(default = "default_max_templates")]
     pub max_templates: usize,
+    #[serde(default = "default_max_template_fields")]
+    pub max_template_fields: usize,
     #[serde(default)]
     pub pending_flows: Option<PendingFlowsCacheConfig>,
     #[serde(default = "default_sampling_rate")]
@@ -310,6 +312,7 @@ impl IpfixTlsConfig {
         if !(16..=65535).contains(&self.max_message_size)
             || !(1..=10000).contains(&self.max_sources)
             || !(1..=10000).contains(&self.max_templates)
+            || !(1..=100_000).contains(&self.max_template_fields)
             || self.default_sampling_rate == 0
         {
             anyhow::bail!(
@@ -626,9 +629,17 @@ impl Config {
             if let ListenerConfig::Netflow {
                 default_sampling_rate,
                 sampling_rate_overrides,
+                max_templates,
+                max_template_fields,
                 ..
             } = listener
             {
+                if *max_templates == 0 || *max_templates > 10_000 {
+                    anyhow::bail!("listener[{}]: max_templates must be 1..=10,000", i);
+                }
+                if *max_template_fields == 0 || *max_template_fields > 100_000 {
+                    anyhow::bail!("listener[{}]: max_template_fields must be 1..=100,000", i);
+                }
                 if matches!(default_sampling_rate, Some(0)) {
                     anyhow::bail!("listener[{}]: default_sampling_rate must be > 0", i);
                 }
@@ -1285,6 +1296,9 @@ mod tests {
             ("max_message_size", serde_json::json!(65536)),
             ("max_sources", serde_json::json!(0)),
             ("max_templates", serde_json::json!(0)),
+            ("max_templates", serde_json::json!(10001)),
+            ("max_template_fields", serde_json::json!(0)),
+            ("max_template_fields", serde_json::json!(100_001)),
             ("default_sampling_rate", serde_json::json!(0)),
             ("pending_flows", serde_json::json!({"max_pending_flows": 0})),
         ] {
@@ -1364,6 +1378,54 @@ mod tests {
             // None means "leave the library default of 10_000 alone".
             ListenerConfig::Netflow { max_sources, .. } => assert_eq!(*max_sources, None),
             other => panic!("expected netflow listener, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn netflow_template_limits_validation() {
+        let base_json = |extra: &str| {
+            format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                    {extra}
+                }}]
+            }}"#
+            )
+        };
+
+        // Defaults are valid
+        let cfg: Config = serde_json::from_str(&base_json("")).unwrap();
+        assert!(cfg.validate().is_ok());
+
+        // Valid boundaries
+        for extra in [
+            r#", "max_templates": 1"#,
+            r#", "max_templates": 10000"#,
+            r#", "max_template_fields": 1"#,
+            r#", "max_template_fields": 100000"#,
+        ] {
+            let cfg: Config = serde_json::from_str(&base_json(extra)).unwrap();
+            assert!(cfg.validate().is_ok(), "extra={extra} should be valid");
+        }
+
+        // Invalid boundaries
+        for (extra, field) in [
+            (r#", "max_templates": 0"#, "max_templates"),
+            (r#", "max_templates": 10001"#, "max_templates"),
+            (r#", "max_template_fields": 0"#, "max_template_fields"),
+            (r#", "max_template_fields": 100001"#, "max_template_fields"),
+        ] {
+            let cfg: Config = serde_json::from_str(&base_json(extra)).unwrap();
+            let err = cfg.validate().unwrap_err().to_string();
+            assert!(
+                err.contains(field),
+                "extra={extra} expected error containing {field}, got: {err}"
+            );
         }
     }
 

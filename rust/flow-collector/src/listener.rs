@@ -230,6 +230,7 @@ pub fn build_handler(
         ListenerConfig::Netflow {
             allow_unauthenticated_templates,
             max_templates,
+            max_template_fields,
             pending_flows,
             default_sampling_rate,
             sampling_rate_overrides,
@@ -240,6 +241,7 @@ pub fn build_handler(
             metrics: Arc::clone(&metrics),
             parser: NetflowHandler::new(
                 *max_templates,
+                *max_template_fields,
                 pending_flows.as_ref(),
                 *default_sampling_rate,
                 sampling_rate_overrides.clone(),

@@ -1928,6 +1928,11 @@ flowCollector:
         # creating exporter IP, then the oldest source. Watch
         # flow_collector_sources against this number.
         max_sources: 10000
+        # Maximum template cache size per parser (default: 2000, bounds: 1..=10000).
+        # max_templates: 2000
+        # Maximum field count per template (default: 10000, bounds: 1..=100000).
+        # Caps field definitions per template to prevent memory exhaustion DoS.
+        # max_template_fields: 10000
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"
