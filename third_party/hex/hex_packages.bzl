@@ -237,7 +237,7 @@ HEX_PACKAGES = [
     ("ratio", "ratio", "4.0.1", "c60cbb3ccdff9ffa56e7d6d1654b5c70d9f90f4d753ab3a43a6bf40855b881ce"),
     ("reactor", "reactor", "1.0.7", "d5eddbdcdf1016d76d713c927741f6db21421271cea015b0d355d6b1097206a4"),
     ("redoc_ui_plug", "redoc_ui_plug", "0.2.1", "7be01db31f210887e9fc18f8fbccc7788de32c482b204623556e415ed1fe714b"),
-    ("req", "req", "0.7.4", "4b192d63253e8dcc6221ef992ea9ebef7d3555166e8423aa5b553e86bc3c69a2"),
+    ("req", "req", "0.7.5", "576853c4bf403faa3c1fa5d093e0759227083b78f8a6864c67d62c0a9c45514d"),
     ("rewrite", "rewrite", "1.3.0", "d111ac7ff3a58a802ef4f193bbd1831e00a9c57b33276e5068e8390a212714a5"),
     ("rustler", "rustler", "0.38.0", "704c03c1bf66be12b031c5a389347b91c81c5cb819a24b068b0de36fe4a5652a"),
     ("rustler_precompiled", "rustler_precompiled", "0.10.0", "c68c9dc732c12acfdf4a7fa06f4e6f48a641179e6be49a474c8a60809929c430"),

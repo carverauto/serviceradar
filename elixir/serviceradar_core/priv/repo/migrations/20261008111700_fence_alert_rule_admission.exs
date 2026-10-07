@@ -1,6 +1,10 @@
 defmodule ServiceRadar.Repo.Migrations.FenceAlertRuleAdmission do
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - this migration only creates
+  # trigger functions and triggers; the UPDATE statements below live inside
+  # those function bodies and run on future row writes, never as a
+  # synchronous backfill on the first-boot path.
   def up do
     # All writers, including raw SQL and AshEvents replay, share the short
     # admission boundary. This never acquires an evaluator's ownership fence.
