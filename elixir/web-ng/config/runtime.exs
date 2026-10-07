@@ -10,6 +10,10 @@ alias Swoosh.Adapters.Local
 
 require Logger
 
+# web-ng consumes the shared alerts queue and must honor the same cutover
+# settings as standalone and embedded core consumers.
+config :serviceradar_core, ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
+
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
