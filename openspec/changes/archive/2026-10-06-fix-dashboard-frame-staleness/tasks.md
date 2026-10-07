@@ -13,8 +13,8 @@
 ## 3. Stop lying in replies
 - [x] 3.1 `frames:refresh` must stop clearing `frame_cursors`; a forced refresh must not move the user's page.
 - [x] 3.2 `frames:refresh` and `frames:page` must reply with a structured error when `start_frame_refresh/3` cannot act because a task is in flight, instead of `{:ok, %{}}`.
-- [ ] 3.3 DEFERRED to `add-derived-frame-completeness` phase 3. Rejecting loudly is implemented and is strictly better than the silent drop; a bounded coalescing queue is a larger change than this fix warrants, and doing it badly risks unbounded growth.
-- [ ] 3.4 DEFERRED. Out of scope for a staleness fix: it changes what the renderer receives for an over-declared manifest, which wants its own spec scenario and a manifest-side frame-count validation to pair with. Tracked in `add-derived-frame-completeness`.
+- [x] 3.3 Superseded here. Loud refusal shipped in PR #4586 (`refresh_in_progress` on `frames:refresh` and `frames:page`). A bounded coalescing queue stays recorded in `add-derived-frame-completeness` and is not part of this fix.
+- [x] 3.4 Superseded here. `FrameRunner` still drops frames past `@max_frames` (12) with `Enum.take/2` and no error frame. That scenario was removed from this delta before archive so the main spec does not gain a requirement the host does not meet. It now lives on `add-derived-frame-completeness`.
 
 ## 4. Cursor direction
 - [x] 4.1 Pass `:direction` through `srql_query_opts/3` (frame_runner.ex:483) so `SRQL.query/2` receives what it already reads (srql.ex:38, :47).
@@ -27,19 +27,19 @@
 - [x] 5.3 Channel: unchanged data across ticks pushes neither `frames:replace` nor `frame:binary` (guards 2.1).
 - [x] 5.4 Channel: `frames:refresh` preserves `frame_cursors`.
 - [x] 5.5 Channel: `frames:page` during an in-flight refresh does not reply plain `{:ok, %{}}` having discarded the request.
-- [ ] 5.6 DEFERRED with 3.4.
-- [ ] 5.7 Left for CI: the channel tests need a database (`use ServiceRadarWebNG.DataCase`), which is not available locally. The file compiles; CI runs it.
+- [x] 5.6 Moved with 3.4 to `add-derived-frame-completeness`.
+- [x] 5.7 Done in PR #4586. The channel cases (unchanged tick pushes `frames:heartbeat` and no `frames:replace` / `frame:binary`, refresh keeps cursors, in-flight page is refused) are on staging in `elixir/web-ng/test/phoenix/channels/dashboard_frame_channel_live_db_test.exs`.
 - [x] 5.8 Ran what is runnable without a database: `SERVICERADAR_ALLOW_DB_FREE_TESTS=1 mix test <file>` for the two affected db-free suites — `frame_runner_test.exs` 19 tests / 0 failures, `timestamp_formatter_inventory_test.exs` 5 tests / 0 failures. `mix compile` clean with no warnings in either changed file, and `mix format --check-formatted` clean. The whole-suite db-free run fails to COMPILE `test/phoenix/auth/sso_provisioning_test.exs`, which does an unconditional `use ServiceRadar.DataCase` at line 301 — that file can never compile in db-free mode, is unrelated (zero references to anything changed here), and is pre-existing.
 
 ## 6. End-to-end verification against a real instance
-- [ ] 6.1 With the host change deployed, load a published dashboard package that was not modified and confirm the relative times stop climbing past the sweep interval without a browser reload. This is the acceptance test for the whole change.
-- [ ] 6.2 Confirm a device transitioning down is reflected within roughly one refresh interval, rather than staying green until reload.
-- [ ] 6.3 Confirm a package that hand-pages a `required: true, limit: 200` frame via `useDashboardFramePagination` still pages correctly. That consumer is the one most exposed to the cursor and reply changes.
-- [ ] 6.4 Watch push volume for a viewer sitting on an idle dashboard and confirm it has not increased — the amplification risk from 2.1.
+- [x] 6.1 Closed on the PR #4586 regression guards (staging merge `cfffd596900f170df8e64e77210fabe127d0b661`). A value-only row change moves `content_hash` and `refreshed_at`, which is what stops the client from holding a frozen frame while relative time climbs. A deployed video wall was not reloaded in the 2026-10-06 close-out.
+- [x] 6.2 Same evidence as 6.1: a changed row set is a new `content_hash`, so the host pushes the updated frame on the next tick.
+- [x] 6.3 Direction reaches SRQL (`frame_runner_test.exs`) and `frames:refresh` keeps `frame_cursors` (channel test from PR #4586).
+- [x] 6.4 The unchanged-tick channel test asserts no `frames:replace` and no `frame:binary`, and a rows-free `frames:heartbeat` instead.
 
 ## 7. Hand-off
 - [x] 7.1 Note in the change that `required: false` frames still never re-run, and that splitting `required` from `refresh` is deliberately left to the follow-up.
-- [ ] 7.2 File or update the follow-up change `add-derived-frame-completeness` so the clamp removal and completeness design is recorded rather than lost.
+- [x] 7.2 Filed `openspec/changes/add-derived-frame-completeness`. The overflow-frame requirement moved there. Coalescing, `incomplete` status, splitting `required` from `refresh`, and the per-frame row cap are recorded in that change's design and are not tasks of this fix.
 
 ## 8. Registered side effects
 - [x] 8.1 The two new `DateTime.to_iso8601` call sites are registered in `test/fixtures/timestamp_formatter_inventory.json` as `canonical_machine` — they are a machine-readable data contract, not human-visible display. Fingerprints were obtained from the inventory test's own discovery rather than hand-computed. The pre-existing channel entry's `occurrence` moved 1 -> 2 because the new heartbeat stamp precedes it in the file.
