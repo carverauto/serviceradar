@@ -27,10 +27,12 @@ sh_test(
         "$(rootpath //build/packaging/agent:scripts/postinstall.sh)",
         "$(rootpath //build/packaging/rperf:scripts/postinstall.sh)",
         "$(rootpath //build/packaging/rperf-checker:scripts/postinstall.sh)",
+        "$(rootpath //build/packaging/nats:nats_postinst)",
     ],
     data = [
         "//build/packaging/agent:scripts/postinstall.sh",
         "//build/packaging/rperf:scripts/postinstall.sh",
         "//build/packaging/rperf-checker:scripts/postinstall.sh",
+        "//build/packaging/nats:nats_postinst",
     ],
 )
