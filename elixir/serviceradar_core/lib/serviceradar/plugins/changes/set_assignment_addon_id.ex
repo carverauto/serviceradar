@@ -26,7 +26,21 @@ defmodule ServiceRadar.Plugins.Changes.SetAssignmentAddonId do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, _opts, _context) do
+    case Ash.Changeset.fetch_change(changeset, :addon_package_id) do
+      {:ok, package_id} when is_binary(package_id) ->
+        case load_addon_id(package_id) do
+          {:ok, addon_id} -> {:ok, Ash.Changeset.atomic_update(changeset, :addon_id, addon_id)}
+          {:error, _} -> {:not_atomic, "package add-on identifier could not be resolved"}
+        end
+
+      {:ok, _expression} ->
+        {:not_atomic, "package add-on identifier requires a concrete package ID"}
+
+      :error ->
+        :ok
+    end
+  end
 
   defp load_addon_id(nil), do: {:error, :missing_package}
 

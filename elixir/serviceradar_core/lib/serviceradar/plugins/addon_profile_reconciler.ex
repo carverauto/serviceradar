@@ -31,14 +31,17 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
           skip_counts: map(),
           upserted: non_neg_integer(),
           unchanged: non_neg_integer(),
+          assignment_conflicts: [map()],
           disabled: non_neg_integer()
         }
 
   @callback list_profile_assignments(String.t(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback list_manual_assignments(String.t(), [String.t()], map()) ::
               {:ok, [map()]} | {:error, term()}
-  @callback create_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback update_assignment(map(), map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback create_assignment(map(), map()) ::
+              {:ok, map()} | {:conflict, map()} | {:error, term()}
+  @callback update_assignment(map(), map(), map()) ::
+              {:ok, map()} | {:conflict, map()} | {:error, term()}
   @callback disable_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
 
   @spec preview(map(), keyword()) :: {:ok, map()} | {:error, [String.t()]}
@@ -66,7 +69,26 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
          {:ok, id} <- required_profile_id(profile),
          {:ok, existing} <- store.list_profile_assignments(id, actor),
          {:ok, stats} <- apply_plan(planned.assignments, existing, actor, store) do
-      {:ok, Map.merge(Map.delete(planned.summary, :assignments), stats)}
+      conflicts =
+        Enum.map(stats.assignment_conflicts, fn holder ->
+          skip_target(
+            holder,
+            "assignment_conflict",
+            "another enabled assignment owns this add-on"
+          )
+        end)
+
+      skipped_targets = planned.summary.skipped_targets ++ conflicts
+
+      summary =
+        planned.summary
+        |> Map.delete(:assignments)
+        |> Map.put(:desired_assignments, length(planned.assignments) - length(conflicts))
+        |> Map.put(:eligible_agents, length(planned.assignments) - length(conflicts))
+        |> Map.put(:skipped_targets, skipped_targets)
+        |> Map.put(:skip_counts, skip_counts(skipped_targets))
+
+      {:ok, Map.merge(summary, stats)}
     else
       {:error, errors} when is_list(errors) -> {:error, errors}
       {:error, reason} -> {:error, [inspect(reason)]}
@@ -147,35 +169,46 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
        %{
          upserted: upsert_stats.upserted,
          unchanged: upsert_stats.unchanged,
+         assignment_conflicts: Enum.reverse(upsert_stats.assignment_conflicts),
          disabled: disabled_count
        }}
     end
   end
 
   defp upsert_desired(desired_by_key, existing_by_key, actor, store) do
-    Enum.reduce_while(desired_by_key, {:ok, %{upserted: 0, unchanged: 0}}, fn {_key, spec},
-                                                                              {:ok, stats} ->
-      existing = Map.get(existing_by_key, spec.assignment_key)
+    Enum.reduce_while(
+      desired_by_key,
+      {:ok, %{upserted: 0, unchanged: 0, assignment_conflicts: []}},
+      fn {_key, spec}, {:ok, stats} ->
+        existing = Map.get(existing_by_key, spec.assignment_key)
 
-      cond do
-        is_nil(existing) ->
-          case store.create_assignment(spec, actor) do
-            {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
+        cond do
+          is_nil(existing) ->
+            case store.create_assignment(spec, actor) do
+              {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+              {:conflict, holder} -> {:cont, {:ok, record_assignment_conflict(stats, holder)}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
 
-        assignment_matches_spec?(existing, spec) ->
-          {:cont, {:ok, %{stats | unchanged: stats.unchanged + 1}}}
+          assignment_matches_spec?(existing, spec) ->
+            {:cont, {:ok, %{stats | unchanged: stats.unchanged + 1}}}
 
-        true ->
-          spec = %{spec | params: assignment_params_for_spec(existing, spec.params)}
+          true ->
+            spec = %{spec | params: assignment_params_for_spec(existing, spec.params)}
 
-          case store.update_assignment(existing, spec, actor) do
-            {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
+            case store.update_assignment(existing, spec, actor) do
+              {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+              {:conflict, holder} -> {:cont, {:ok, record_assignment_conflict(stats, holder)}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+        end
       end
-    end)
+    )
+  end
+
+  defp record_assignment_conflict(stats, holder) do
+    conflict = %{agent_uid: holder.agent_uid, assignment_id: holder.id, addon_id: holder.addon_id}
+    %{stats | assignment_conflicts: [conflict | stats.assignment_conflicts]}
   end
 
   defp disable_stale(desired_by_key, existing_by_key, actor, store) do
@@ -901,9 +934,11 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
     @impl true
     def create_assignment(spec, actor) do
-      AddonAssignment
-      |> Ash.Changeset.for_create(:create, spec_to_attrs(spec))
-      |> Ash.create(actor: actor, authorize?: true)
+      with :ok <- check_assignment_holder(spec, nil, actor) do
+        AddonAssignment
+        |> Ash.Changeset.for_create(:create, spec_to_attrs(spec))
+        |> Ash.create(actor: actor, authorize?: true)
+      end
     end
 
     @impl true
@@ -913,9 +948,32 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       # action rejects it (NoSuchInput), so drop it from the update changeset.
       attrs = Map.delete(spec_to_attrs(spec), :agent_uid)
 
-      existing
-      |> Ash.Changeset.for_update(:update, attrs)
-      |> Ash.update(actor: actor, authorize?: true)
+      with :ok <- check_assignment_holder(spec, existing.id, actor) do
+        existing
+        |> Ash.Changeset.for_update(:update, attrs)
+        |> Ash.update(actor: actor, authorize?: true)
+      end
+    end
+
+    defp check_assignment_holder(%{enabled: false}, _current_id, _actor), do: :ok
+
+    defp check_assignment_holder(spec, current_id, actor) do
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(
+        agent_uid == ^spec.agent_uid and addon_id == ^spec.addon_id and enabled == true
+      )
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, rows} ->
+          case Enum.find(rows, &(&1.id != current_id)) do
+            nil -> :ok
+            holder -> {:conflict, holder}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
 
     @impl true
