@@ -4,6 +4,10 @@ package agent
 
 import "fmt"
 
+func restoreAddonStateForCaller(runtimeRoot, addonID, snapshotPath string) error {
+	return restoreAddonStateFromRollback(runtimeRoot, addonID, snapshotPath)
+}
+
 func writeAddonStateFileNoFollow(dir, name string, data []byte) error {
 	return fmt.Errorf("%w: %s/%s (%d bytes)", ErrAddonPrivilegedRootUnsafe, dir, name, len(data))
 }

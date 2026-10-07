@@ -3,11 +3,16 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // PrivilegedRootForSetuidInstall is the only privileged add-on root the setuid
@@ -67,6 +72,92 @@ func rootOwnedNotWritableByCaller(info os.FileInfo) bool {
 		return false
 	}
 	return !writableByUID(info, os.Getuid())
+}
+
+func restoreAddonStateForCaller(runtimeRoot, addonID, snapshotPath string) error {
+	if os.Geteuid() == 0 && os.Getuid() != 0 {
+		if strings.TrimSpace(snapshotPath) == "" {
+			return nil
+		}
+		if err := checkAddonStateRollbackPath("", addonID, snapshotPath); err != nil {
+			return err
+		}
+		return restoreStateThroughAnchor("/var/lib", addonStateDir("", addonID))
+	}
+	return restoreAddonStateFromRollback(runtimeRoot, addonID, snapshotPath)
+}
+
+func restoreStateThroughAnchor(anchor, stateDir string) error {
+	rel, err := filepath.Rel(anchor, stateDir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("%w: state dir %s", ErrAddonUnsafePath, stateDir)
+	}
+	dirfd, err := openDirNoFollow(anchor, rel)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(dirfd) }()
+
+	data, err := readFileNoFollow(dirfd, ".serviceradar-state-rollback")
+	if err != nil {
+		return err
+	}
+	var persisted persistedAddonStateRollback
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return fmt.Errorf("decode addon state rollback: %w", err)
+	}
+	for name, content := range persisted.Files {
+		if !safeAddonSegment(name) {
+			continue
+		}
+		if err := writeFileNoFollow(dirfd, name, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func openDirNoFollow(anchor, rel string) (int, error) {
+	fd, err := unix.Open(anchor, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return -1, fmt.Errorf("open state anchor: %w", err)
+	}
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if !safeAddonSegment(part) {
+			_ = unix.Close(fd)
+			return -1, fmt.Errorf("%w: %q", ErrAddonUnsafePath, part)
+		}
+		next, err := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+		_ = unix.Close(fd)
+		if err != nil {
+			return -1, fmt.Errorf("open state dir %s: %w", part, err)
+		}
+		fd = next
+	}
+	return fd, nil
+}
+
+func readFileNoFollow(dirfd int, name string) ([]byte, error) {
+	fd, err := unix.Openat(dirfd, name, unix.O_RDONLY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open addon state rollback: %w", err)
+	}
+	f := os.NewFile(uintptr(fd), name)
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
+func writeFileNoFollow(dirfd int, name string, data []byte) error {
+	fd, err := unix.Openat(dirfd, name, unix.O_WRONLY|unix.O_CREAT|unix.O_TRUNC|unix.O_NOFOLLOW, addonManifestMode)
+	if err != nil {
+		return fmt.Errorf("open addon state file: %w", err)
+	}
+	f := os.NewFile(uintptr(fd), name)
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write addon state file: %w", err)
+	}
+	return nil
 }
 
 func writeAddonStateFileNoFollow(dir, name string, data []byte) error {

@@ -634,12 +634,12 @@ func loadAddonStateRollback(path string) (addonStateSnapshot, error) {
 	return addonStateSnapshot{dir: persisted.Dir, existed: persisted.Existed, files: persisted.Files}, nil
 }
 
-func loadAddonStateRestore(runtimeRoot, addonID, snapshotPath string) (func(), error) {
+func loadAddonStateRestore(runtimeRoot, addonID, snapshotPath string) (func() error, error) {
 	if err := checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath); err != nil {
 		return nil, err
 	}
-	return func() {
-		_ = restoreAddonStateFromRollback(runtimeRoot, addonID, snapshotPath)
+	return func() error {
+		return restoreAddonStateForCaller(runtimeRoot, addonID, snapshotPath)
 	}, nil
 }
 

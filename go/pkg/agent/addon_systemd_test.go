@@ -352,6 +352,86 @@ func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 	}
 }
 
+func TestInstallAddonSystemdUnitsDoesNotReenableWhenStateRestoreFails(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	stateDir := addonStateDir(root, "np")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
+
+	target := filepath.Join(root, "elsewhere")
+	if err := os.WriteFile(target, []byte("untouched"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(stateDir, "bumblebee-scan.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap := addonStateSnapshot{dir: stateDir, existed: true, files: map[string][]byte{"bumblebee-scan.json": []byte("v1")}}
+	snapshotPath, err := snap.writeRollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(root, "systemctl.log")
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [ \"${1:-}\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SYSTEMCTL_LOG", logPath)
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:       root,
+		PrivilegedRoot:    filepath.Join(root, "privileged"),
+		AddonID:           "np",
+		Version:           "2.0.0",
+		BinaryName:        "serviceradar-np",
+		ArtifactPath:      artPath,
+		ArtifactSHA256:    sha,
+		Signature:         sig,
+		Units:             []string{"serviceradar-np.service"},
+		Enable:            "serviceradar-np.service",
+		StateSnapshotPath: snapshotPath,
+	})
+	if err == nil {
+		t.Fatal("expected restore to fail")
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enables := 0
+	for _, line := range strings.Split(string(log), "\n") {
+		if strings.HasPrefix(line, "enable") {
+			enables++
+		}
+	}
+	if enables != 1 {
+		t.Fatalf("re-enabled after a failed state restore: %q", log)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "untouched" {
+		t.Fatalf("symlink target was written: %q", got)
+	}
+}
+
 func TestInstallAddonSystemdUnitsIgnoresSnapshotDir(t *testing.T) {
 	root := t.TempDir()
 	unitDir := filepath.Join(root, "systemd")

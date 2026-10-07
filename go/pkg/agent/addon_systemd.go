@@ -528,7 +528,9 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		if err := activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
 			_ = runSystemctl(ctx, "disable", "--now", enable)
 			cleanup()
-			restoreState()
+			if restoreErr := restoreState(); restoreErr != nil {
+				return restoreErr
+			}
 			if priorEnabled {
 				_ = runSystemctl(ctx, "enable", "--now", enable)
 			}
