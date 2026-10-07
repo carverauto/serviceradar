@@ -1444,7 +1444,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert context.source_url == "rtsp://camera.local/inventory/main"
     end
 
-    test "marks UniFi Protect bootstrap rtsps relays as insecure TLS before dispatch", %{
+    test "keeps TLS verification enabled for Protect relays without explicit opt-in", %{
       agent_id: agent_id
     } do
       {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
@@ -1454,11 +1454,11 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       fetcher = fn ^camera_source_id, ^stream_profile_id ->
         {:ok,
          %{
-           source_url_override: "rtsps://192.168.1.1:7441/front-door?enableSrtp",
+           source_url_override: "rtsps://host01.example.com:7441/main?enableSrtp",
            rtsp_transport: "tcp",
-           metadata: %{"source" => "protect-bootstrap"},
+           metadata: %{"source" => "protect-bootstrap", "insecure_skip_verify" => false},
            camera_source: %{
-             source_url: "rtsps://192.168.1.1:7441/front-door",
+             source_url: "rtsps://host01.example.com:7441/main",
              metadata: %{"plugin_id" => "unifi-protect-camera"}
            }
          }}
@@ -1479,10 +1479,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
       payload = Jason.decode!(command.payload_json)
 
-      assert payload["source_url"] == "rtsps://192.168.1.1:7441/front-door"
+      assert payload["source_url"] == "rtsps://host01.example.com:7441/main"
       assert payload["rtsp_transport"] == "tcp"
-      assert payload["insecure_skip_verify"] == true
-      assert context.source_url == "rtsps://192.168.1.1:7441/front-door"
+      refute Map.has_key?(payload, "insecure_skip_verify")
+      assert context.source_url == "rtsps://host01.example.com:7441/main"
     end
 
     test "sends a typed camera close relay command", %{agent_id: agent_id} do
