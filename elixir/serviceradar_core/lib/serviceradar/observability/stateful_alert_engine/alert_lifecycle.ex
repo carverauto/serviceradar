@@ -679,6 +679,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     StatefulAlertRuleHistory
     |> Ash.Changeset.for_create(:record, params, actor: actor)
     |> Ash.create!()
+
     :ok
   end
 
@@ -703,6 +704,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     StatefulAlertRuleState
     |> Ash.Changeset.for_create(:upsert, params, state.ash_opts)
     |> Ash.create!()
+
     :ok
   end
 
