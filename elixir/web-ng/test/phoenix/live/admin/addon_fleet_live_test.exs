@@ -642,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     :telemetry.attach(
       handler_id,
-      [:serviceradar, :repo, :query],
+      [:service_radar, :repo, :query],
       fn _event, _measurements, metadata, _config ->
         send(test_pid, {:repo_query, metadata.query})
       end,
@@ -712,6 +712,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       end
 
     socket = %Socket{
+      transport_pid: self(),
       assigns: %{
         __changed__: %{},
         current_scope: %ServiceRadarWebNG.Accounts.Scope{

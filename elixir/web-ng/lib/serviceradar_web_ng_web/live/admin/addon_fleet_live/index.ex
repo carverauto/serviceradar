@@ -668,6 +668,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
               </div>
               <p class="mt-1 text-xs text-sr-muted">Adjust the filters above.</p>
             </div>
+          <% else %>
             <%= if @use_stream? do %>
               <div id="addon-fleet-table" phx-update="stream" class="space-y-4">
                 <.agent_card
