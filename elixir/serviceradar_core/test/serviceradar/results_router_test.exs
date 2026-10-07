@@ -1011,6 +1011,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       "scan_id" => "scan-router-async",
       "agent_id" => "agent-router-async"
     }
+
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
     assert Keyword.keyword?(opts)
   end

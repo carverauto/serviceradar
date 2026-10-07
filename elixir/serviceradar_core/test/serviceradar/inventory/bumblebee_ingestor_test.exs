@@ -5,12 +5,12 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.BumblebeeDevicePosture
   alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.BumblebeeIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceRiskContribution
-  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
