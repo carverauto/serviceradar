@@ -15,8 +15,6 @@ fi
 mkdir -p /etc/serviceradar
 mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
-mkdir -p /var/lib/serviceradar/agent/versions
-mkdir -p /var/lib/serviceradar/agent/tmp
 mkdir -p /usr/lib/serviceradar/addons
 chmod 755 /usr/lib/serviceradar/addons
 chown root:root /usr/lib/serviceradar/addons
@@ -44,15 +42,11 @@ chown -R serviceradar:serviceradar /etc/serviceradar/sidecars
 # those directories while the add-on remains running makes its next write fail.
 chown serviceradar:serviceradar /var/lib/serviceradar
 chown -R serviceradar:serviceradar /var/lib/serviceradar/cache
-chown -R serviceradar:serviceradar /var/lib/serviceradar/agent
 chown -R serviceradar:serviceradar /var/lib/serviceradar/endpoint-inventory
 chmod 755 /etc/serviceradar/
 chmod 750 /etc/serviceradar/sidecars
 chmod 755 /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar/cache
-chmod 755 /var/lib/serviceradar/agent
-chmod 755 /var/lib/serviceradar/agent/versions
-chmod 755 /var/lib/serviceradar/agent/tmp
 chmod 750 /var/lib/serviceradar/endpoint-inventory
 
 if [ -x /usr/local/bin/serviceradar-agent-updater ]; then
@@ -62,8 +56,8 @@ fi
 
 # Privileged add-on binaries live under /usr/lib/serviceradar/addons. Without a
 # persistent bin_t fcontext, a later restorecon resets them to usr_t/lib_t and
-# systemd exec fails with status=203/EXEC. The legacy staging tree keeps its
-# context so already-installed hosts are not left unlabeled.
+# systemd exec fails with status=203/EXEC. Register the legacy staging context
+# for compatibility, but never mutate that service-writable tree as root.
 # Idempotent: skip add if the fcontext already exists.
 if command -v semanage >/dev/null 2>&1; then
     if ! semanage fcontext -l 2>/dev/null | grep -F '/usr/lib/serviceradar/addons' >/dev/null 2>&1; then
@@ -74,7 +68,7 @@ if command -v semanage >/dev/null 2>&1; then
     fi
 fi
 if command -v restorecon >/dev/null 2>&1; then
-    restorecon -Rv /usr/lib/serviceradar/addons /var/lib/serviceradar/agent/addons >/dev/null 2>&1 || true
+    restorecon -Rv /usr/lib/serviceradar/addons >/dev/null 2>&1 || true
 fi
 
 # netprobe is no longer shipped by the base agent package: its binary and the
@@ -83,27 +77,10 @@ fi
 # setuid agent-updater applies those file capabilities to the privileged
 # add-on binary per the add-on assignment's os_capabilities, not here.
 
-# Refresh the package-provided seed runtime on every install, but leave the
-# active current symlink alone unless it has never been initialized.
-if [ -x /usr/local/lib/serviceradar/agent/serviceradar-agent-seed ]; then
-    mkdir -p /var/lib/serviceradar/agent/versions/seed-installed
-    # The DIRECTORY, not just the files below. postinstall runs as root, so mkdir leaves it
-    # root:root while every parent is serviceradar:serviceradar. The agent runs as
-    # User=serviceradar and stages its next binary as serviceradar-agent.new inside this
-    # directory, so a root-owned directory makes it fail with "cp: cannot create regular file
-    # ...serviceradar-agent.new: Permission denied" and crash-loop on restart -- after a
-    # clean install that reported success.
-    chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed
-    cp /usr/local/lib/serviceradar/agent/serviceradar-agent-seed /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
-    chmod 0755 /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
-    chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
-    mv -Tf /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
-    chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent
-fi
-
-if [ ! -e /var/lib/serviceradar/agent/current ]; then
-    ln -sfn versions/seed-installed /var/lib/serviceradar/agent/current
-fi
+# The service runs build/packaging/agent/bin/serviceradar-agent as the
+# serviceradar user. That launcher validates the root-owned package seed, then
+# initializes or refreshes the writable runtime and current link without a
+# privileged process following paths controlled by the service account.
 
 # Reload systemd and manage service
 systemctl daemon-reload
