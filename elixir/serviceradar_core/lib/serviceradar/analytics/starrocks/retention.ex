@@ -33,6 +33,14 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   instead, which cannot be undone. A dataset that did not apply is therefore
   retried with capped backoff rather than given up on.
 
+  Applying is idempotent. A table that already keeps the wanted number of
+  partitions is not altered again, so a restart, or several core replicas each
+  running the applier, does not queue a redundant `ALTER`. StarRocks refuses a
+  property change while a schema change (for example an added column) is still
+  running on the table; that is recorded as `pending` and retried, not as a
+  failure. A warning is logged when a dataset's outcome changes, not on every
+  retry.
+
   Floors: every dataset keeps at least one day. Process attribution also never
   keeps fewer than two live partitions: correlation joins flows to observations
   across a skew window, which straddles midnight, so one partition would drop
@@ -72,6 +80,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
 
   @missing_table_error "this release has no warehouse table for the dataset yet; " <>
                          "the setting applies once it does"
+
+  @schema_change_in_progress "schema change operation is in progress"
 
   @initial_delay_ms 5_000
   @max_delay_ms 300_000
@@ -130,13 +140,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   @spec statements(keyword()) :: [String.t()]
   def statements(config) when is_list(config) do
     Enum.map(days_by_table(config), fn {table, days} -> alter_sql(table, days) end)
-  end
-
-  @doc "The statements that apply `days` to every table of one dataset."
-  @spec dataset_statements(atom(), integer()) :: [String.t()]
-  def dataset_statements(dataset, days) do
-    partitions = partitions(dataset, days)
-    Enum.map(tables_for(dataset), &alter_sql(&1, partitions))
   end
 
   @doc """
@@ -244,7 +247,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
        force: true,
        delay: Keyword.get(opts, :initial_delay_ms, @initial_delay_ms),
        interval: Keyword.get(opts, :interval_ms, @reconcile_interval_ms),
-       timer: nil
+       timer: nil,
+       retrying: false
      }}
   end
 
@@ -265,14 +269,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
       :ok ->
         initial = Keyword.get(state.opts, :initial_delay_ms, @initial_delay_ms)
         timer = Process.send_after(self(), :reconcile, state.interval)
-        %{state | force: false, delay: initial, timer: timer}
+        %{state | force: false, delay: initial, timer: timer, retrying: false}
 
       :retry ->
-        Logger.warning("Warehouse retention not fully applied, retrying in #{state.delay}ms")
+        # Warn when retrying starts; the backed-off retries that follow are
+        # debug, since each dataset's own outcome is logged when it changes.
+        if Map.get(state, :retrying, false) do
+          Logger.debug("Warehouse retention not fully applied, retrying in #{state.delay}ms")
+        else
+          Logger.warning("Warehouse retention not fully applied, retrying in #{state.delay}ms")
+        end
+
         timer = Process.send_after(self(), :reconcile, state.delay)
         # The start-up pass stays forced until one completes, so a warehouse
         # rebuilt while core was retrying still gets every dataset.
-        %{state | delay: next_delay(state.delay), timer: timer}
+        %{state | delay: next_delay(state.delay), timer: timer, retrying: true}
     end
   end
 
@@ -308,6 +319,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   defp reconcile_row({dataset, row}, force, query, store) do
     if force or needs_apply?(row) do
       outcome = apply_dataset(dataset, row.days, query)
+      maybe_log_outcome(dataset, row, outcome)
       maybe_record_outcome(store, row, outcome)
       if outcome.retry, do: :retry, else: :ok
     else
@@ -320,40 +332,97 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   end
 
   defp apply_dataset(dataset, days, query) do
-    case dataset_statements(dataset, days) do
+    partitions = partitions(dataset, days)
+
+    case tables_for(dataset) do
       [] ->
         %{status: "pending", error: @missing_table_error, days: nil, retry: false}
 
-      statements ->
-        statements
-        |> Enum.reduce_while(:ok, fn sql, :ok ->
-          case query.(sql) do
-            {:ok, _result} -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
+      tables ->
+        tables
+        |> Enum.reduce_while(:ok, fn table, :ok ->
+          case apply_table(table, partitions, query) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, table, reason}}
           end
         end)
         |> case do
           :ok ->
             %{status: "applied", error: nil, days: days, retry: false}
 
-          {:error, reason} ->
-            Logger.warning("StarRocks retention for #{dataset} not applied: #{inspect(reason)}")
-            %{status: failure_status(reason), error: format_error(reason), days: nil, retry: true}
+          {:error, table, reason} ->
+            %{
+              status: failure_status(reason),
+              error: format_error(table, reason),
+              days: nil,
+              retry: true
+            }
         end
     end
   end
 
-  # The Frontend did not answer: the value is still on its way. Anything else is
-  # the warehouse refusing it, which is retried too but shown as a failure.
+  # A table that already keeps `partitions` is left alone: an ALTER that changes
+  # nothing still has to wait behind any schema change running on the table.
+  defp apply_table(table, partitions, query) do
+    if live_partitions(table, query) == partitions do
+      :ok
+    else
+      case query.(alter_sql(table, partitions)) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # The table's current `partition_live_number`, or nil when it cannot be read;
+  # nil makes the caller issue the ALTER, which reports any real problem.
+  defp live_partitions(table, query) do
+    with {:ok, %{rows: rows}} when is_list(rows) <- query.("SHOW CREATE TABLE `#{table}`"),
+         [[_name, ddl | _] | _] when is_binary(ddl) <- rows,
+         [_, value] <- Regex.run(~r/"partition_live_number"\s*=\s*"(\d+)"/, ddl) do
+      String.to_integer(value)
+    else
+      _ -> nil
+    end
+  end
+
+  # The Frontend did not answer, or a schema change on the table has to finish
+  # first: the value is still on its way. Anything else is the warehouse
+  # refusing it, which is retried too but shown as a failure.
   defp failure_status(reason) when reason in [:connect_failed, :starrocks_mysql_not_started],
     do: "pending"
 
-  defp failure_status(_reason), do: "failed"
+  defp failure_status(reason) do
+    if schema_change_in_progress?(reason), do: "pending", else: "failed"
+  end
+
+  defp schema_change_in_progress?({:starrocks_mysql, message}) when is_binary(message),
+    do: String.contains?(message, @schema_change_in_progress)
+
+  defp schema_change_in_progress?(_reason), do: false
+
+  defp format_error(table, reason) do
+    if schema_change_in_progress?(reason) do
+      "a schema change is still running on #{table}; retention applies when it completes"
+    else
+      format_error(reason)
+    end
+  end
 
   defp format_error({:starrocks_mysql, message}) when is_binary(message), do: message
   defp format_error(:connect_failed), do: "the StarRocks Frontend did not answer"
   defp format_error(:starrocks_mysql_not_started), do: "the StarRocks connection is not started"
   defp format_error(reason), do: inspect(reason)
+
+  defp maybe_log_outcome(_dataset, _row, %{status: "applied"}), do: :ok
+
+  defp maybe_log_outcome(dataset, row, %{status: status, error: error}) do
+    if row.last_applied_status != status or row.last_applied_error != error do
+      Logger.warning("StarRocks retention for #{dataset} not applied (#{status}): #{error}")
+    end
+
+    :ok
+  end
 
   defp maybe_record_outcome(store, row, %{status: "applied", days: days}) do
     attrs = %{

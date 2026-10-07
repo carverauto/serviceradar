@@ -97,11 +97,41 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     end
   end
 
+  # The ALTERs the applier issued, in order. The `SHOW CREATE TABLE` reads that
+  # precede them are not changes to the warehouse.
   defp sent_sql do
     receive do
-      {:sql, sql} -> [sql | sent_sql()]
+      {:sql, "ALTER" <> _ = sql} -> [sql | sent_sql()]
+      {:sql, _read} -> sent_sql()
     after
       0 -> []
+    end
+  end
+
+  # A warehouse whose tables currently keep `live` partitions (by table name),
+  # answering ALTERs with `alter_result`.
+  defp warehouse_query(live, alter_result) do
+    parent = self()
+
+    fn sql ->
+      send(parent, {:sql, sql})
+
+      case Regex.run(~r/^SHOW CREATE TABLE `([^`]+)`$/, sql) do
+        [_, table] ->
+          ddl =
+            case Map.fetch(live, table) do
+              {:ok, n} ->
+                ~s|CREATE TABLE `#{table}` (...) PROPERTIES ("partition_live_number" = "#{n}")|
+
+              :error ->
+                "CREATE TABLE `#{table}` (...)"
+            end
+
+          {:ok, %{rows: [[table, ddl]]}}
+
+        nil ->
+          alter_result
+      end
     end
   end
 
@@ -219,6 +249,48 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
 
       assert %{last_applied_status: "failed", last_applied_error: "Unknown table 'mtr_traces'"} =
                FakeStore.row("mtr")
+    end
+
+    test "a table already keeping the wanted partitions is not altered again" do
+      start_supervised!({FakeStore, applied_rows()})
+      FakeStore.put("flows", %{last_applied_status: "pending"})
+
+      assert :ok =
+               Retention.reconcile(
+                 store: FakeStore,
+                 seeds: Env.default_retention_days(),
+                 query: warehouse_query(%{"ocsf_network_activity" => 365}, {:error, :unexpected})
+               )
+
+      assert sent_sql() == []
+      assert %{last_applied_status: "applied", last_applied_days: 365} = FakeStore.row("flows")
+    end
+
+    test "a schema change running on the table leaves the dataset pending, not failed" do
+      start_supervised!({FakeStore, applied_rows()})
+      FakeStore.put("flows", %{days: 90, last_applied_status: "pending"})
+
+      busy =
+        {:error,
+         {:starrocks_mysql,
+          "(1064) A schema change operation is in progress on the table ocsf_network_activity. " <>
+            "Please wait until the current operation completes."}}
+
+      assert :retry =
+               Retention.reconcile(
+                 store: FakeStore,
+                 seeds: Env.default_retention_days(),
+                 query: warehouse_query(%{"ocsf_network_activity" => 365}, busy)
+               )
+
+      assert sent_sql() == [
+               ~s|ALTER TABLE `ocsf_network_activity` SET ("partition_live_number" = "90")|
+             ]
+
+      assert %{last_applied_status: "pending", last_applied_days: 365, last_applied_error: error} =
+               FakeStore.row("flows")
+
+      assert error =~ "schema change is still running on ocsf_network_activity"
     end
 
     test "the applier retries an unanswering warehouse and applies a broadcast change without a restart" do
