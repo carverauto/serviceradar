@@ -418,7 +418,7 @@ is deleted after a grace period, unless the query asks for it with
 | Field | Aliases | Description |
 |-------|---------|-------------|
 | `id` | | Event identifier |
-| `device_id` | `uid`, `source_device_uid` | Associated device |
+| `device_id` | `uid`, `device_uid`, `source_device_uid` | Associated device |
 | `class_uid` | | OCSF class UID |
 | `category_uid` | | OCSF category UID |
 | `type_uid` | | OCSF type UID |
