@@ -2,7 +2,7 @@
 
 mod expressions;
 mod filters;
-mod literals;
+pub(super) mod literals;
 mod order;
 mod params;
 mod query;

@@ -31,6 +31,36 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     end
   end
 
+  test "flow encodings retain filterable source and attribution metadata" do
+    public_endpoint = %{
+      "service_name" => "example-service",
+      "gateway_name" => "example-gateway",
+      "namespace" => "example-namespace",
+      "exposure_class" => "Gateway",
+      "route_name" => "example-route"
+    }
+
+    payload = %{
+      "flow_source" => "netflow",
+      "attribution" => %{
+        "uid" => 1001,
+        "container_id" => "example-container",
+        "public_endpoint" => public_endpoint
+      }
+    }
+
+    for row <- [
+          %{id: "flow-example-02", ocsf_payload: payload},
+          %{"id" => "flow-example-02", "ocsf_payload" => payload}
+        ] do
+      assert [encoded] = Rows.encode(:flows, [row])
+      assert encoded["flow_source"] == "netflow"
+      assert encoded["uid"] == 1001
+      assert encoded["container_id"] == "example-container"
+      assert Jason.decode!(encoded["public_endpoint"]) == public_endpoint
+    end
+  end
+
   test "flow payloads prefer redacted commands and retain legacy commands" do
     for {attribution, expected} <- [
           {%{"redacted_cmdline" => "sshd -D", "cmdline" => "sshd -legacy"}, "sshd -D"},

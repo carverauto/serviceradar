@@ -218,6 +218,8 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "device_addr" | "device_address" => build_stats_device_addr_filter(filter, binds),
         "port" | "endpoint_port" => build_stats_bidirectional_port_filter(filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
+        "direction_label" => build_stats_text_filter("f.direction_label", filter, binds),
+        "dst_service_label" => build_stats_text_filter("f.dst_service_label", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
         "flow_source" | "collector" => build_stats_text_filter(FLOW_SOURCE_EXPR, filter, binds),
         "event_type" => build_stats_text_filter("f.ocsf_payload ->> 'event_type'", filter, binds),

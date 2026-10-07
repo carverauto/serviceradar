@@ -44,6 +44,12 @@ pub(super) fn apply_filter<'a>(
         "protocol_name" => {
             query = apply_text_filter!(query, filter, protocol_name)?;
         }
+        "direction_label" => {
+            query = apply_text_filter!(query, filter, direction_label)?;
+        }
+        "dst_service_label" => {
+            query = apply_text_filter!(query, filter, dst_service_label)?;
+        }
         "sampler_address" => {
             query = apply_text_filter!(query, filter, sampler_address)?;
         }

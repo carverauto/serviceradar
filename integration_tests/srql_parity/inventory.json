@@ -34,6 +34,10 @@
     }
   },
   "entries": [
+    {"id": "flows.details.five_tuple_aliases", "query": "in:flows {window_main} src_ip:192.0.2.200 dst_ip:198.51.100.99 src_port:40002 dst_port:22 proto:6 stats:\"count(*) as flow_count\" limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex"]},
+    {"id": "flows.filters.source_and_interfaces", "query": "in:flows {window_main} collector:netflow in_if_index:7 out_if_index:11 protocol_num:6 stats:\"count(*) as flow_count, sum(bytes_total) as total_bytes\" limit:1"},
+    {"id": "flows.filters.process_and_workload", "query": "in:flows {window_main} process_pid:4242 process_name:example-worker redacted_cmdline:\"example-worker --example\" container_id:example-container pod_name:example-pod namespace:example pod_uid:example-pod-uid container_name:example-container image_ref:example/image:1 runtime_source:example-runtime stats:\"count(*) as flow_count\" limit:1"},
+    {"id": "flows.filters.public_endpoint", "query": "in:flows {window_main} public_endpoint_service:example-service public_endpoint_gateway:example-gateway public_endpoint_class:gateway public_endpoint_namespace:example public_endpoint_route:example-route stats:\"count(*) as flow_count\" limit:1"},
     {"id": "metrics.snmp.rate_by_metric_name.one_device", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" if_index:7 bucket:5m agg:rate series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/interface_live/metrics_query.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},
     {"id": "metrics.snmp.rate_by_metric_name.two_gateways", "query": "in:snmp_metrics {window_main} metric_name:ifHCInOctets if_index:7 bucket:5m agg:rate series:metric_name limit:500"},
     {"id": "metrics.snmp.rate.32bit_wrap", "query": "in:snmp_metrics {window_main} metric_name:ifInOctets bucket:5m agg:rate series:metric_name limit:500"},

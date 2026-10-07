@@ -542,6 +542,8 @@ in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
 | `protocol_num` | `proto` | Protocol number |
 | `protocol_group` | `proto_group` | Protocol group |
 | `direction` | | Flow direction |
+| `direction_label` | | Flow direction label |
+| `dst_service_label` | | Destination service label |
 | `flow_source` | `collector` | Originating collector |
 | `app` | | Derived application classification label |
 | `sampler_address` | | Flow exporter / sampler address |

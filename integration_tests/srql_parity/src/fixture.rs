@@ -140,6 +140,10 @@ pub struct FlowRow {
     /// CNPG computes it at query time from the seeded rules, so parity pins
     /// this stamp against the SQL classifier.
     pub app: &'static str,
+    pub flow_source: &'static str,
+    pub input_snmp: i32,
+    pub output_snmp: i32,
+    pub attribution: Option<serde_json::Value>,
 }
 
 /// The app classification rules the harness seeds into CNPG
@@ -727,6 +731,33 @@ fn flow(id: String, time: DateTime<Utc>, index: i64) -> FlowRow {
             SOURCES[pick(SOURCES.len())],
             DESTINATIONS[pick(DESTINATIONS.len())],
         ),
+        flow_source: if index % 2 == 0 { "netflow" } else { "sflow" },
+        input_snmp: 7,
+        output_snmp: 11,
+        attribution: (index % 7 == 3).then(|| {
+            serde_json::json!({
+                "pid": 4242,
+                "uid": 1001,
+                "comm": "example-worker",
+                "redacted_cmdline": "example-worker --example",
+                "container_id": "example-container",
+                "workload_identity": {
+                    "pod_name": "example-pod",
+                    "pod_namespace": "example",
+                    "pod_uid": "example-pod-uid",
+                    "container_name": "example-container",
+                    "image": "example/image:1",
+                    "runtime_source": "example-runtime"
+                },
+                "public_endpoint": {
+                    "service_name": "example-service",
+                    "gateway_name": "example-gateway",
+                    "exposure_class": "gateway",
+                    "namespace": "example",
+                    "route_name": "example-route"
+                }
+            })
+        }),
     }
 }
 
@@ -919,7 +950,9 @@ pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<
     let columns = match backend {
         // `ocsf_payload` is NOT NULL on CNPG; `tcp_flags_labels` is what its label query reads.
         Backend::Cnpg => format!("\"time\", {shared}, tcp_flags_labels, ocsf_payload"),
-        Backend::StarRocks => format!("`time`, {shared}, id, device_uid, event_type, app"),
+        Backend::StarRocks => format!(
+            "`time`, {shared}, id, device_uid, event_type, app, agent_id, flow_source, input_snmp, output_snmp, pid, uid, comm, cmdline, container_id, workload_identity, public_endpoint"
+        ),
     };
     rows.chunks(BATCH_ROWS)
         .map(|chunk| {
@@ -957,11 +990,21 @@ pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<
                                 .map(text)
                                 .collect();
                             fields.push(format!("ARRAY[{}]::text[]", labels.join(", ")));
-                            fields.push(if row.attributed {
-                                r#"'{"event_type":"attributed_flow"}'::jsonb"#.into()
-                            } else {
-                                "'{}'::jsonb".into()
+                            let mut payload = serde_json::json!({
+                                "flow_source": row.flow_source,
+                                "agent_id": AGENT_1,
+                                "connection_info": {
+                                    "input_snmp": row.input_snmp,
+                                    "output_snmp": row.output_snmp
+                                }
                             });
+                            if row.attributed {
+                                payload["event_type"] = "attributed_flow".into();
+                            }
+                            if let Some(attribution) = &row.attribution {
+                                payload["attribution"] = attribution.clone();
+                            }
+                            fields.push(json_literal(Some(&payload.to_string())));
                         }
                         Backend::StarRocks => {
                             fields.push(opt_num(row.sampling_rate));
@@ -973,6 +1016,28 @@ pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<
                                 "NULL".into()
                             });
                             fields.push(text(row.app));
+                            fields.push(text(AGENT_1));
+                            fields.push(text(row.flow_source));
+                            fields.push(row.input_snmp.to_string());
+                            fields.push(row.output_snmp.to_string());
+                            for key in [
+                                "pid",
+                                "uid",
+                                "comm",
+                                "redacted_cmdline",
+                                "container_id",
+                                "workload_identity",
+                                "public_endpoint",
+                            ] {
+                                fields.push(
+                                    match row.attribution.as_ref().and_then(|a| a.get(key)) {
+                                        Some(value) if value.is_number() => value.to_string(),
+                                        Some(serde_json::Value::String(value)) => text(value),
+                                        Some(value) => text(&value.to_string()),
+                                        None => "NULL".into(),
+                                    },
+                                );
+                            }
                         }
                     }
                     format!("({})", fields.join(", "))

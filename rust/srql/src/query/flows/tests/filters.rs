@@ -578,3 +578,159 @@ fn device_addr_rejects_an_empty_address_list() {
         "expected an explicit empty-scope error, got: {err}"
     );
 }
+
+// The request compiler owns backend selection; these filters are emitted by
+// the flow detail link and the device flow facet/top-N controls.
+#[test]
+fn flow_detail_and_device_filters_compile_for_both_backends() {
+    let cases = [
+        ("proto", "6", "protocol_num"),
+        ("src_ip", "192.0.2.10", "src_endpoint_ip"),
+        ("dst_ip", "198.51.100.20", "dst_endpoint_ip"),
+        ("src_port", "42000", "src_endpoint_port"),
+        ("dst_port", "443", "dst_endpoint_port"),
+        ("protocol_num", "6", "protocol_num"),
+        ("src_endpoint_ip", "192.0.2.10", "src_endpoint_ip"),
+        ("dst_endpoint_ip", "198.51.100.20", "dst_endpoint_ip"),
+        ("dst_endpoint_port", "443", "dst_endpoint_port"),
+        ("protocol_name", "TCP", "protocol_name"),
+        ("protocol_group", "tcp", "protocol_num"),
+        ("direction_label", "ingress", "direction_label"),
+        ("dst_service_label", "https", "dst_service_label"),
+        ("app", "https", "app"),
+        ("sampler_address", "192.0.2.1", "sampler_address"),
+        ("flow_source", "netflow", "flow_source"),
+        ("collector", "netflow", "flow_source"),
+        ("event_type", "network_activity", "event_type"),
+        ("pid", "42", "pid"),
+        ("container_id", "example-container", "container_id"),
+        ("agent_id", "agent-example", "agent_id"),
+        ("pod_name", "example-pod", "workload_identity"),
+        ("pod_namespace", "example", "workload_identity"),
+        ("pod_uid", "pod-example", "workload_identity"),
+        ("container_name", "example-container", "workload_identity"),
+        ("image", "example/image", "workload_identity"),
+        ("runtime_source", "example-runtime", "workload_identity"),
+        ("service_name", "example-service", "public_endpoint"),
+        ("gateway_name", "example-gateway", "public_endpoint"),
+        ("exposure_class", "public", "public_endpoint"),
+        ("public_endpoint_namespace", "example", "public_endpoint"),
+        ("route_name", "example-route", "public_endpoint"),
+    ];
+    for mode in [Some("starrocks"), Some("starrocks_raw"), None] {
+        for (field, value, column) in cases {
+            let response = compile_filter_request(&format!("{field}:\"{value}\""), mode);
+            let predicate = response.sql.split_once(" WHERE ").expect("WHERE").1;
+            assert!(predicate.contains(column), "{mode:?} {field}: {predicate}");
+            if mode.is_some() {
+                assert!(predicate.contains(&format!("'{value}'")), "{predicate}");
+            } else if matches!(
+                field,
+                "proto" | "protocol_num" | "src_port" | "dst_port" | "dst_endpoint_port"
+            ) {
+                assert!(response.params.iter().any(|param| matches!(param, crate::query::BindParam::Int(n) if n.to_string() == value)), "{field}: {:?}", response.params);
+            } else {
+                assert!(response.params.iter().any(|param| matches!(param, crate::query::BindParam::Text(text) if text == value)), "{field}: {:?}", response.params);
+            }
+        }
+        let details = compile_filter_request(
+            "src_ip:192.0.2.10 dst_ip:198.51.100.20 src_port:42000 dst_port:443 proto:6",
+            mode,
+        );
+        let predicate = details.sql.split(" WHERE ").nth(1).expect("WHERE");
+        for column in [
+            "src_endpoint_ip",
+            "dst_endpoint_ip",
+            "src_endpoint_port",
+            "dst_endpoint_port",
+            "protocol_num",
+        ] {
+            assert!(predicate.contains(column), "{mode:?}: {predicate}");
+        }
+    }
+}
+
+#[test]
+fn flow_interface_and_process_aliases_compile_for_both_backends() {
+    for mode in [Some("starrocks"), Some("starrocks_raw"), None] {
+        for (field, canonical, value) in [
+            ("in_if_index", "input_snmp", "7"),
+            ("out_if_index", "output_snmp", "9"),
+            ("status", "attribution_status", "attributed"),
+            ("process_pid", "pid", "42"),
+            ("process", "comm", "worker"),
+            ("process_name", "comm", "worker"),
+            ("redacted_cmdline", "cmdline", "worker"),
+            ("namespace", "pod_namespace", "example"),
+            ("image_ref", "image", "example/image"),
+            ("uid", "device_id", "device-example"),
+        ] {
+            let alias = compile_filter_request(&format!("{field}:\"{value}\""), mode);
+            let canonical = compile_filter_request(&format!("{canonical}:\"{value}\""), mode);
+            assert_eq!(alias.sql, canonical.sql, "{mode:?} {field}");
+            assert_eq!(
+                serde_json::to_value(alias.params).unwrap(),
+                serde_json::to_value(canonical.params).unwrap(),
+                "{mode:?} {field}"
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_endpoint_and_catalog_filters_compile_for_both_backends() {
+    for mode in [Some("starrocks"), Some("starrocks_raw"), None] {
+        for (filter, contract) in [
+            ("ip:192.0.2.10", "src_endpoint_ip"),
+            ("endpoint_ip:198.51.100.20", "dst_endpoint_ip"),
+            ("port:443", "src_endpoint_port"),
+            ("endpoint_port:443", "dst_endpoint_port"),
+            ("cidr:192.0.2.0/24", "dst_endpoint_ip"),
+            ("src_tag:site:example", "src_prefix_tags"),
+            ("dst_tag:site:example", "dst_prefix_tags"),
+            ("tag:site:example", "src_prefix_tags"),
+            ("near:12.34,56.78,5km", "ST_DWithin"),
+            ("src_near:12.34,56.78,5km", "ST_DWithin"),
+            ("dst_near:12.34,56.78,5km", "ST_DWithin"),
+            ("threat_matched:true", "ip_threat_intel_cache"),
+            ("threat_matched:false", "ip_threat_intel_cache"),
+            ("threat_source:example_feed", "ip_threat_intel_cache"),
+            ("threat_observed_ip:192.0.2.10", "ip_threat_intel_cache"),
+            (
+                "threat_indicator:198.51.100.0/24",
+                "threat_intel_indicators",
+            ),
+            ("threat_indicator:198.51.100.20", "threat_intel_indicators"),
+            ("threat_severity:>3", "max_severity"),
+        ] {
+            let response = compile_filter_request(filter, mode);
+            let predicate = response.sql.split_once(" WHERE ").expect("WHERE").1;
+            let contract = if mode.is_some() && filter.starts_with("cidr:") {
+                "dst_ip_hex"
+            } else {
+                contract
+            };
+            assert!(
+                predicate.contains(contract),
+                "{mode:?} {filter}: {predicate}"
+            );
+            if mode.is_some() && (filter.contains("near:") || filter.starts_with("threat_")) {
+                assert!(
+                    predicate.contains("cnpg_platform.native_query("),
+                    "{predicate}"
+                );
+                assert!(predicate.contains("COALESCE("), "{predicate}");
+            }
+        }
+    }
+}
+
+fn compile_filter_request(filters: &str, mode: Option<&str>) -> crate::query::TranslateResponse {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".into());
+    let request = serde_json::from_value(serde_json::json!({
+        "query": format!("in:flows time:[2000-01-01T00:00:00Z,2000-01-02T00:00:00Z] {filters} sort:time:desc limit:5"),
+        "mode": mode,
+    })).expect("request");
+    crate::query::translate_request(&config, request)
+        .unwrap_or_else(|error| panic!("{mode:?} {filters}: {error}"))
+}

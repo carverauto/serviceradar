@@ -82,6 +82,9 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
       agent_id: "agent-example-01",
       pid: 9,
       comm: "nginx",
+      uid: 1001,
+      container_id: "example-container",
+      public_endpoint: %{"service_name" => "example-service"},
       bytes_in: 1200,
       attribution_version: 41
     }
@@ -101,6 +104,9 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
     assert payload["agent_id"] == "agent-example-01"
     [encoded] = Rows.encode(:flow_attribution, [payload |> Jason.encode!() |> Jason.decode!()])
     assert encoded["agent_id"] == "agent-example-01"
+    assert encoded["uid"] == 1001
+    assert encoded["container_id"] == "example-container"
+    assert Jason.decode!(encoded["public_endpoint"]) == %{"service_name" => "example-service"}
     assert "agent_id" in Attribution.load_columns()
     refute Map.has_key?(payload, "bytes_in")
   end
