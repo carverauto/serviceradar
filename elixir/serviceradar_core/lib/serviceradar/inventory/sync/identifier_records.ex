@@ -92,6 +92,11 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
     ]
   end
 
+  # Columns a conflicting identifier row may refresh. `:device_id` stays off
+  # this list: re-pointing ownership collapsed distinct devices. Remediation
+  # execute refuses to run when this list would reassign it.
+  def conflict_replace_fields, do: [:last_seen, :metadata]
+
   # Bulk upsert identifiers
   # DB connection's search_path determines the schema
   def bulk_upsert_identifiers(records) do
@@ -123,7 +128,7 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
         Repo.insert_all(
           DeviceIdentifier,
           chunk,
-          on_conflict: {:replace, [:last_seen, :metadata]},
+          on_conflict: {:replace, conflict_replace_fields()},
           conflict_target: [:identifier_type, :identifier_value, :partition]
         )
       end)

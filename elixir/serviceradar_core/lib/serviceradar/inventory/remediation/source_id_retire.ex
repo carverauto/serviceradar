@@ -29,6 +29,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRetire do
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceSuccession
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Remediation.SourceIdentityRepair
   alias ServiceRadar.Inventory.Remediation.SourceIdVerification
   alias ServiceRadar.Repo
 
@@ -50,7 +51,23 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRetire do
   """
 
   @doc false
+  def run(:execute, opts, manifest, actor) do
+    if SourceIdentityRepair.prevention_deployed?(opts) do
+      run_with_settings(:execute, opts, manifest, actor)
+    else
+      %{
+        execution_blocked: true,
+        execution_blocked_reason: "remediation_prevention_not_deployed",
+        halted: "remediation_prevention_not_deployed"
+      }
+    end
+  end
+
   def run(mode, opts, manifest, actor) do
+    run_with_settings(mode, opts, manifest, actor)
+  end
+
+  defp run_with_settings(mode, opts, manifest, actor) do
     case SourceIdVerification.settings(actor) do
       {:ok, settings} -> run(mode, opts, manifest, actor, settings)
       {:error, reason} -> %{errors: 1, error: inspect(reason)}
