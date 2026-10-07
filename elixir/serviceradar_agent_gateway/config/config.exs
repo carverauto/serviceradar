@@ -94,6 +94,9 @@ config :serviceradar_agent_gateway,
 
 config :serviceradar_core,
   ash_domains: [
+    ServiceRadar.Camera,
+    ServiceRadar.CompositeChecks,
+    ServiceRadar.Credentials,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
@@ -110,18 +113,17 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
+    ServiceRadar.NetworkConfig,
+    ServiceRadar.NetworkChanges,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
-    ServiceRadar.Credentials,
-    ServiceRadar.Camera,
+    ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Automation.Callbacks,
     ServiceRadar.Scans,
-    ServiceRadar.Security,
-    # Import environment specific config (if present)
-    ServiceRadar.Spatial
+    ServiceRadar.Security
   ]
 
 # The gateway joins the ERTS cluster and stays in the Horde registry CRDT mesh

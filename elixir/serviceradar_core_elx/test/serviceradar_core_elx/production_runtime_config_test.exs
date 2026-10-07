@@ -13,6 +13,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
+  @base_config Path.expand("../../config/config.exs", __DIR__)
   @prod_config Path.expand("../../config/prod.exs", __DIR__)
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
 
@@ -625,5 +626,12 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
       "public_key" => type <> " " <> Base.encode64(blob),
       "fingerprint" => "SHA256:" <> Base.encode64(:crypto.hash(:sha256, blob), padding: false)
     }
+  end
+
+  test "base config includes NetworkConfig and NetworkChanges in ash_domains" do
+    config = Config.Reader.read!(@base_config, env: :prod)
+    domains = config[:serviceradar_core][:ash_domains] || []
+    assert ServiceRadar.NetworkConfig in domains
+    assert ServiceRadar.NetworkChanges in domains
   end
 end
