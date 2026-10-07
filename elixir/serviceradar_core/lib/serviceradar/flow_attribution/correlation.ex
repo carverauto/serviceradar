@@ -175,6 +175,73 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   def batch_limit, do: @batch_limit
 
   @doc """
+  Bounded presence probe for observations inside the correlation window.
+
+  Counts at most one row (`0` or `1`). The shorter ingest-rate reading cannot
+  answer this: that window is smaller than the one the pass matches on.
+  """
+  @spec producer_rows_probe_sql(keyword()) :: String.t()
+  def producer_rows_probe_sql(opts \\ []) do
+    observations_table =
+      Keyword.get_lazy(opts, :observations_table, fn -> Env.table(@observations_table) end)
+
+    """
+    SELECT COUNT(*) AS producer_rows FROM (
+      SELECT 1
+      FROM #{observations_table}
+      WHERE observed_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{observations_window_seconds()} SECOND)
+      LIMIT 1
+    ) AS producer_rows
+    """
+  end
+
+  @doc """
+  Bounded probe for one shared endpoint between the pass's unattributed flows
+  and the observations it can match.
+
+  Uses the same flow limit, flow window, and observation window as the pass.
+  A blank normalized address is not an endpoint and cannot overlap. The result
+  is `0` or `1`.
+  """
+  @spec topology_overlap_probe_sql(keyword()) :: String.t()
+  def topology_overlap_probe_sql(opts \\ []) do
+    flows_table = Keyword.get_lazy(opts, :flows_table, fn -> Env.table(@flows_table) end)
+
+    observations_table =
+      Keyword.get_lazy(opts, :observations_table, fn -> Env.table(@observations_table) end)
+
+    batch_limit = Keyword.get(opts, :batch_limit, @batch_limit)
+    local = ip_norm("a.local_ip")
+    remote = ip_norm("a.remote_ip")
+    src = ip_norm("f.src_endpoint_ip")
+    dst = ip_norm("f.dst_endpoint_ip")
+
+    """
+    SELECT COUNT(*) AS topology_overlap FROM (
+      SELECT 1
+      FROM (
+        SELECT `partition`, src_endpoint_ip, dst_endpoint_ip, `time`, id
+        FROM #{flows_table}
+        WHERE `time` > DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{flows_window_minutes()} MINUTE)
+          AND pid IS NULL
+        ORDER BY `time` DESC, id DESC
+        LIMIT #{batch_limit}
+      ) AS f
+      INNER JOIN #{observations_table} AS a
+        ON a.`partition` = f.`partition`
+       AND a.observed_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{observations_window_seconds()} SECOND)
+       AND (
+         (#{local} = #{src} AND #{local} <> '')
+         OR (#{local} = #{dst} AND #{local} <> '')
+         OR (#{remote} = #{src} AND #{remote} <> '')
+         OR (#{remote} = #{dst} AND #{remote} <> '')
+       )
+      LIMIT 1
+    ) AS topology_overlap
+    """
+  end
+
+  @doc """
   The correlation statement.
 
   `agent_ips` is `[[agent_id, ip]]` and `backends` is

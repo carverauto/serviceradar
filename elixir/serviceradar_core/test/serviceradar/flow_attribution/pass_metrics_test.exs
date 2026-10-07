@@ -9,6 +9,8 @@ defmodule ServiceRadar.FlowAttribution.PassMetricsTest do
   # Each warehouse reading by the table it reads.
   defp warehouse(sql) do
     cond do
+      sql =~ "topology_overlap" -> {:ok, %{rows: [[0]]}}
+      sql =~ "producer_rows" -> {:ok, %{rows: [[1]]}}
       sql =~ "partitions_meta" -> {:ok, %{rows: [[2]]}}
       sql =~ "flow_process_attribution_observations" -> {:ok, %{rows: [[4, 2400]]}}
       sql =~ "ocsf_network_activity" -> {:ok, %{rows: [[1234]]}}
@@ -51,7 +53,30 @@ defmodule ServiceRadar.FlowAttribution.PassMetricsTest do
     assert value(rows, "flow_attribution_observation_lag_seconds") == 4.0
     assert value(rows, "flow_attribution_observation_ingest_rate") == 20.0
     assert value(rows, "flow_attribution_live_partitions") == 2.0
+    assert value(rows, "flow_attribution_diagnostic", %{"outcome" => "attributed"}) == 1.0
     assert Enum.all?(rows, &(&1.timestamp == ~U[2026-10-04 12:00:00.000000Z]))
+  end
+
+  test "an empty pass publishes one diagnostic outcome" do
+    # {matches, sampled flows, producer rows, overlap, outcome}
+    # Producer presence is decided before sampled flows, so neither side is
+    # no_producer_rows. Overlap is queried only once both sides are present.
+    cases = [
+      {%{}, 0, 0, :skip, "no_producer_rows"},
+      {%{}, 0, 4, :skip, "no_sampled_flows"},
+      {%{}, 2, 4, 0, "no_topology_overlap"},
+      {%{}, 2, 4, 1, "no_tuple_candidate"},
+      {%{0 => 2}, 2, 4, :skip, "candidate_unstamped"}
+    ]
+
+    for {by_rank, flows, producer, overlap, outcome} <- cases do
+      rows =
+        published_rows({:ok, 0}, 10, by_rank, fn sql ->
+          probe(sql, flows, producer, overlap)
+        end)
+
+      assert value(rows, "flow_attribution_diagnostic", %{"outcome" => outcome}) == 1.0
+    end
   end
 
   # A failing pass is exactly when the metrics matter; an unavailable reading
@@ -63,7 +88,32 @@ defmodule ServiceRadar.FlowAttribution.PassMetricsTest do
       end)
 
     assert value(rows, "flow_attribution_pass_duration_ms", %{"outcome" => "error"}) == 120_000.0
+    assert value(rows, "flow_attribution_diagnostic", %{"outcome" => "error"}) == 1.0
     refute value(rows, "flow_attribution_stamped")
     refute value(rows, "flow_attribution_flows_read")
+  end
+
+  defp probe(sql, flows, producer, overlap) do
+    cond do
+      sql =~ "topology_overlap" ->
+        if overlap == :skip,
+          do: {:error, :overlap_not_expected},
+          else: {:ok, %{rows: [[overlap]]}}
+
+      sql =~ "producer_rows" ->
+        {:ok, %{rows: [[producer]]}}
+
+      sql =~ "partitions_meta" ->
+        {:ok, %{rows: [[1]]}}
+
+      sql =~ "flow_process_attribution_observations" ->
+        {:ok, %{rows: [[1, 1]]}}
+
+      sql =~ "ocsf_network_activity" ->
+        {:ok, %{rows: [[flows]]}}
+
+      true ->
+        {:error, :unexpected_probe}
+    end
   end
 end

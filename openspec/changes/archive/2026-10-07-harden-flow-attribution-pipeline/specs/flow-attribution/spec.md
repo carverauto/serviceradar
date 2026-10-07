@@ -94,7 +94,7 @@ The core correlator SHALL preserve every deployed protocol- and topology-aware c
 - **AND** Gateway still ranks ahead of LoadBalancer, ExternalIP, and other candidates when comparing public endpoints with each other
 
 ### Requirement: Correlation Exposes Topology And Match Outcomes
-Every correlation pass SHALL emit bounded-cardinality diagnostics for sampled flows considered, current attributions considered by protocol, exact, wildcard-listener, relaxed UDP, node-SNAT, and public-endpoint candidates, ambiguous candidates, stamped rows, and flows with no eligible topology overlap. Exported metric labels MUST NOT include agent identifiers, process identifiers, IP addresses, ports, command lines, or other unbounded payload-derived values. Sampled diagnostic logs MAY include bounded agent and partition context.
+Every correlation pass SHALL publish one bounded diagnostic on the flow-attribution metric subject. The diagnostic outcome SHALL be exactly one of `attributed`, `candidate_unstamped`, `no_producer_rows`, `no_sampled_flows`, `no_topology_overlap`, `no_tuple_candidate`, or `error`. A pass whose quiet-outcome readings are missing SHALL omit that diagnostic rather than guess. The same pass SHALL also publish sampled flows considered, stamped rows, and match counts for the exact, listener-or-relaxed, node-SNAT, and public-endpoint strategies. Exported metric labels MUST NOT include agent identifiers, process identifiers, IP addresses, ports, command lines, partition names, or other unbounded payload-derived values. The pass-duration tag records only whether the pass completed, and it MUST NOT be reused as the attribution outcome. Sampled diagnostic logs MAY include bounded agent and partition context.
 
 #### Scenario: Sampled flow and attribution sets have no topology overlap
 - **GIVEN** current attribution rows exist for a netprobe host
@@ -107,7 +107,8 @@ Every correlation pass SHALL emit bounded-cardinality diagnostics for sampled fl
 #### Scenario: Candidates are considered but no row is stamped
 - **GIVEN** a correlation pass considers sampled flows and one or more attribution candidates
 - **WHEN** no candidate satisfies the applicable protocol-specific match contract
-- **THEN** the diagnostics distinguish considered flows, considered attributions, candidate strategies, and stamped-row count
+- **THEN** the diagnostics distinguish considered flows, candidate strategies, and a stamped-row count of zero
+- **AND** the pass outcome is `candidate_unstamped`
 - **AND** an operator can distinguish this outcome from a correlator that did not run
 
 #### Scenario: A row is stamped with a classified strategy
