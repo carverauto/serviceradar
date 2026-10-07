@@ -207,8 +207,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
           label: camera_label(source),
           detail: profile_label(profile),
           source_status: Map.get(source, :availability_status),
-          insecure_skip_verify:
-            insecure_skip_verify?(profile) or insecure_skip_verify?(source),
+          insecure_skip_verify: insecure_skip_verify?(profile) or insecure_skip_verify?(source),
           session: nil,
           error: nil
         }
