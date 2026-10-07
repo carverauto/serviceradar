@@ -25,8 +25,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   value has not been applied yet. A save broadcasts on
   `WarehouseRetentionNotifier.topic/0`, which triggers a reconcile at once; a
   timer reconciles too, so a lost broadcast only delays the apply. Each outcome
-  is recorded on the row (`applied`, `pending` while the Frontend does not
-  answer, `failed` when it answers with an error).
+  is recorded on the row (`applied`, `pending` while the value is still on
+  its way -- the Frontend does not answer or a schema change on the table
+  has to finish first -- `failed` when the warehouse refuses it).
 
   A warehouse Frontend is routinely slower to answer than core is to boot, and a
   value that never lands means partitions are dropped on the DDL default
