@@ -17,14 +17,15 @@
 package agent
 
 // systemd-service / systemd-timer supervision for native add-ons (delivery-models
-// task 3.1). A non-root agent stages a signed add-on bundle (addon_activation.go) whose
-// .service/.timer unit files ride inside the bundle, then asks the root-owned
-// serviceradar-agent-updater to install + enable exactly the units the control plane
-// names. The privileged systemctl operations run only inside the updater, against unit
-// files re-resolved under the controlled add-on staging root. This is the supervision
-// path for capability-granted long-running daemons (e.g. netprobe -> systemd-service)
-// and periodic scanners (e.g. Bumblebee -> systemd-timer); the timer's spooled output
-// is ingested by the consuming add-on's own spool service, not here.
+// task 3.1). A non-root agent stages a signed add-on bundle (addon_activation.go),
+// then asks the root-owned serviceradar-agent-updater to verify that artifact,
+// materialize it under the root-owned privileged tree, and install + enable exactly
+// the units the control plane names. The updater re-resolves those unit files from
+// the tree it just verified, not from the agent-writable staging root. This is the
+// supervision path for capability-granted long-running daemons (e.g. netprobe ->
+// systemd-service) and periodic scanners (e.g. Bumblebee -> systemd-timer); the
+// timer's spooled output is ingested by the consuming add-on's own spool service,
+// not here.
 
 import (
 	"context"

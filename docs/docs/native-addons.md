@@ -243,44 +243,58 @@ with that promotion; until then, use `in:events class_uid:4003`.
 
 ## On-host layout
 
-For pushed-artifact add-ons, the package-managed agent stages verified payloads under
-the agent runtime root. The default layout is:
+Pushed-artifact add-ons are downloaded into a staging tree under the agent runtime
+root. That tree is writable by the non-root agent. It is not where a
+systemd-supervised add-on executes.
 
 ```text
 /var/lib/serviceradar/agent/addons/
-  netprobe/
-    versions/0.2.18/
-      serviceradar-netprobe
-      serviceradar-netprobe.service
-      netprobe_ebpf.o
-    current -> versions/0.2.18
   workload-identity/
-    versions/0.1.2/
-      serviceradar-workload-identity
-      serviceradar-workload-identity.service
+    versions/<version>/
+      artifact.tar.gz
+    current -> versions/<version>
+    state/
       workload-identity.json
-    current -> versions/0.1.2
   anomaly/
-    versions/0.3.11/
+    versions/<version>/
       serviceradar-anomaly-addon
-    current -> versions/0.3.11
+    current -> versions/<version>
     state/
       checkpoint.json
 ```
 
-`state/` is the add-on's persistent state directory. The agent creates it (mode
-`0700`, owned by the agent user the sidecar also runs as) before every spawn and
-passes its path to the process as `SERVICERADAR_ADDON_STATE_DIR`. It sits beside
-`versions/` and `current`, so flipping `current` for an upgrade or rollback never
-touches it, and it is the place an add-on keeps anything that must outlive its own
-restarts. The anomaly add-on writes its re-warm checkpoint there by default; an
-operator only sets `checkpoint_path` to move it somewhere else.
+`state/` sits beside `versions/` and `current`, so an upgrade or rollback does not
+remove it. For an agent-sidecar add-on the agent creates it (mode `0700`, owned by
+the agent user the sidecar also runs as) before every spawn and passes its path as
+`SERVICERADAR_ADDON_STATE_DIR`. The anomaly add-on writes its re-warm checkpoint
+there by default; an operator only sets `checkpoint_path` to move it somewhere else.
+Systemd units that take an assignment config file read it from that state directory
+(workload-identity, Bumblebee, and endpoint inventory). A configuration-only change
+does not rewrite the privileged executable or the bundled unit files. netprobe's
+bootstrap file remains `/etc/serviceradar/sidecars/netprobe.json`.
 
-The `current` symlink is the activation boundary. The agent verifies the artifact,
-stages the versioned directory, applies required file capabilities through the
-updater when declared by the manifest, flips `current`, installs the systemd unit,
-and restarts the unit. Do not edit files in this tree by hand during normal
-operations; manual edits are overwritten by the next reconciliation.
+Systemd-supervised add-ons execute only from the root-owned tree the privileged
+updater materializes after it verifies the signed artifact itself:
+
+```text
+/usr/lib/serviceradar/addons/
+  netprobe/
+    versions/<version>/
+      serviceradar-netprobe
+      serviceradar-netprobe.service
+      netprobe_ebpf.o
+    current -> versions/<version>
+  workload-identity/
+    versions/<version>/
+      serviceradar-workload-identity
+      serviceradar-workload-identity.service
+    current -> versions/<version>
+```
+
+The updater applies declared file capabilities to that binary, switches the
+privileged `current` link, and installs unit files from that tree. A unit that would
+execute from the agent-writable staging tree is rejected. Do not edit either tree by
+hand; the next reconciliation overwrites manual edits.
 
 ## Operator quick start
 
@@ -324,8 +338,8 @@ Before calling an add-on release ready, verify all of these:
 - The release workflow produced signed artifacts, a published discovery index, OCI
   digest metadata, and package verification status.
 - The base agent release supports the add-on supervision model in the manifest.
-- A canary assignment installs the package, flips the `current` symlink, restarts the
-  unit, and reports fresh status.
+- A canary assignment installs the package, switches the active `current` link in
+  [On-host layout](#on-host-layout), restarts the unit, and reports fresh status.
 - The agent detail page shows no assignment drift, stale status, unsupported
   architecture, or unhealthy observed service.
 - The add-on's expected telemetry appears through SRQL and the relevant UI surface.
@@ -359,7 +373,7 @@ reviewing follow-up changes:
 | --- | --- | --- |
 | Edge anomaly detection | `pushed-artifact` with `agent-sidecar` supervision and `metric-feed:v1` input | Assign only to agents that collect sysmon or SNMP. The add-on defaults to `metric_feed.sources=["sysmon","snmp"]`; ICMP/timeseries feeds are opt-in. Capacity shed is reported as OCSF Event Log Activity with `status_code=anomaly_capacity_shed`, not as an anomaly verdict. |
 | Bumblebee exposure scanning | `pushed-artifact` or `os-package` with `systemd-timer` supervision | Keep the timer and spool model. The scanner should remain root-owned and dormant until assigned; the non-root agent should ingest bounded spool output only when an approved `AddonAssignment` enables the package. |
-| Host Network Visibility / netprobe | `pushed-artifact` with `systemd-service` supervision | Keep netprobe out of the base agent package. Its manifest declares Linux platform support, required file capabilities, systemd unit metadata, and eBPF/runtime files. The agent should activate the staged artifact, apply capabilities through the updater, install the unit, and report drift through `addon_statuses`. |
+| Host Network Visibility / netprobe | `pushed-artifact` with `systemd-service` supervision | Keep netprobe out of the base agent package. Its manifest declares Linux platform support, required file capabilities, systemd unit metadata, and eBPF/runtime files. Activation follows [On-host layout](#on-host-layout). The agent reports drift through `addon_statuses`. |
 | Remote access | `compiled-in` with `config-toggle`; RDP adapter is the separate `rdp` `pushed-artifact` / `ephemeral-helper` add-on | Remote access stays compiled in because the control-stream, HMAC, and session-recorder paths remain tightly coupled to the base agent. The per-session RDP helper ships through the native add-on pipeline, keeping the base-agent package boundary explicit. |
 
 These migration notes are coordination guardrails, not permission to bypass the
@@ -631,21 +645,22 @@ For a host-side spot check, compare the running process path with the activated
 version:
 
 ```bash
-readlink -f /var/lib/serviceradar/agent/addons/netprobe/current
+readlink -f /usr/lib/serviceradar/addons/netprobe/current
 readlink -f /proc/$(pidof serviceradar-netprobe)/exe
-readlink -f /var/lib/serviceradar/agent/addons/workload-identity/current
+readlink -f /usr/lib/serviceradar/addons/workload-identity/current
 readlink -f /proc/$(pidof serviceradar-workload-identity)/exe
 ```
 
-Those paths should point at the same versioned add-on directory. If the `current`
-symlink changed but the running executable still points at an older version, the
-systemd restart step failed or the host is running an older base agent that does not
-fully reconcile systemd-backed add-ons.
+Those paths should point at the same versioned directory under the privileged root
+in [On-host layout](#on-host-layout). The agent staging tree is not that root. If
+the privileged `current` link changed but the running executable still points at an
+older version, the systemd restart step failed or the host is running an older base
+agent that does not fully reconcile systemd-backed add-ons.
 
 ## Pause, pin, and rollback
 
-Operate add-ons through assignment and rollout state, not by hand-editing files under
-`/var/lib/serviceradar/agent/addons`.
+Operate add-ons through assignment and rollout state, not by hand-editing the
+staging tree or the privileged runtime in [On-host layout](#on-host-layout).
 
 - **Pause** stops new batches while preserving already-converged targets for
   diagnosis. **Resume** continues from persisted rollout state.

@@ -80,8 +80,8 @@ fi
 # netprobe is no longer shipped by the base agent package: its binary and the
 # cap_net_raw,cap_bpf,cap_perfmon setcap step moved into the netprobe add-on
 # delivery path (migrate-netprobe-to-native-addon §1.4). The root-owned
-# setuid agent-updater applies those file capabilities to the staged add-on
-# binary per the add-on assignment's os_capabilities, not here.
+# setuid agent-updater applies those file capabilities to the privileged
+# add-on binary per the add-on assignment's os_capabilities, not here.
 
 # Refresh the package-provided seed runtime on every install, but leave the
 # active current symlink alone unless it has never been initialized.

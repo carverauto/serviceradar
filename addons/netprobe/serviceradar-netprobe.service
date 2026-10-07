@@ -17,9 +17,8 @@ UMask=0027
 Slice=serviceradar.slice
 
 # Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so all
-# paths are the FIXED add-on staging layout produced by the agent's activation runtime
-# (resolveAddonArtifactRoot -> <release-runtime-root>/addons/<id>/current/), NOT the
-# manifest's install_path. Flags:
+# paths are the fixed privileged runtime (/usr/lib/serviceradar/addons/<id>/current),
+# NOT the agent-writable staging tree and NOT the manifest's install_path. Flags:
 #   --socket        netprobe binds this IPC socket; the agent connects as a client and pushes
 #                   the full VisibilityConfig (device bindings, DPI) over IPC.
 #   --config        the agent-written bootstrap (enabled + capture_interfaces + flow-table);

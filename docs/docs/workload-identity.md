@@ -203,10 +203,12 @@ On a host:
 ```bash
 sudo systemctl status serviceradar-workload-identity.service
 sudo journalctl -u serviceradar-workload-identity.service -n 100 --no-pager
-readlink -f /var/lib/serviceradar/agent/addons/workload-identity/current
 readlink -f /proc/$(pidof serviceradar-workload-identity)/exe
 sudo find /var/lib/serviceradar/workload-identity/spool -maxdepth 1 -type f -ls | tail
 ```
+
+That executable should match the privileged `current` link in
+[On-host layout](./native-addons.md#on-host-layout).
 
 For Kubernetes/containerd:
 
