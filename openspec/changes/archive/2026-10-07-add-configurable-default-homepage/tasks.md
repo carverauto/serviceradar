@@ -32,4 +32,4 @@ Owners: `ServiceRadar.Identity.HomepageDbTest` (4.5, 4.6) and `ServiceRadarWebNG
 
 ## 5. Docs
 - [x] 5.1 Operator docs: homepage precedence, the group priority rule, and the SSO path
-- [ ] 5.2 Release note for the D6 behavior change (the CHANGELOG has no unreleased section; the note is in the PR body for the release cut)
+- [x] 5.2 Release note for the D6 behavior change (the CHANGELOG has no unreleased section; the note is in the PR body for the release cut)
