@@ -184,9 +184,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
 
   defp restore_value(_field, value), do: value
 
-  defp normalize_id(id) when is_binary(id),
-    do: Record.canonical_source_id(id)
+  defp normalize_id(id) when is_binary(id), do: Record.canonical_source_id(id)
 
-  defp normalize_id(id) when not is_binary(id),
-    do: Record.canonical_source_id(id)
+  defp normalize_id(id) when not is_binary(id), do: Record.canonical_source_id(id)
 end
