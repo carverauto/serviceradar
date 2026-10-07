@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.BumblebeeDevicePosture
   alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.BumblebeeIngestor
@@ -58,6 +59,46 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
 
     assert contribution.source == "bumblebee"
     assert contribution.score == 80
+  end
+
+  test "binds result identity to the reporting agent", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    reporting_device = create_device!(actor, "bumblebee-reporting-device-#{unique}")
+    other_device = create_device!(actor, "bumblebee-other-device-#{unique}")
+    reporting_agent = "bumblebee-reporting-agent-#{unique}"
+    other_agent = "bumblebee-other-agent-#{unique}"
+    create_agent!(actor, reporting_agent, reporting_device.uid)
+    create_agent!(actor, other_agent, other_device.uid)
+
+    assert {:ok, _result} =
+             BumblebeeIngestor.ingest_scan(scan_payload(other_agent, unique), actor: actor)
+
+    payload =
+      reporting_agent
+      |> scan_payload(unique + 1, findings: [])
+      |> Map.put("agent_id", other_agent)
+      |> Map.put("device_uid", other_device.uid)
+
+    assert {:ok, _result} =
+             ResultIngestor.process_and_publish(%{
+               source: "results",
+               service_type: "bumblebee",
+               agent_id: reporting_agent,
+               message: Jason.encode!(payload)
+             })
+
+    assert {:ok, reporting_posture} =
+             BumblebeeDevicePosture.get_by_agent(reporting_agent, actor: actor)
+
+    assert reporting_posture.device_uid == reporting_device.uid
+
+    assert {:ok, other_posture} = BumblebeeDevicePosture.get_by_agent(other_agent, actor: actor)
+    assert other_posture.device_uid == other_device.uid
+    assert other_posture.active_finding_count == 1
+
+    finding = finding_by_agent!(other_agent, "finding-#{unique}")
+    assert finding.device_uid == other_device.uid
+    assert finding.status == "active"
   end
 
   test "backfills pending agent-only posture when the agent later resolves to a device", %{

@@ -992,7 +992,11 @@ defmodule ServiceRadar.ResultsRouterTest do
     ServiceRadar.TestSupport.start_ingestion_topology!()
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
 
-    payload = %{"scan_id" => "scan-router-async"}
+    payload = %{
+      "scan_id" => "scan-router-async",
+      "agent_id" => "payload-agent.example.com",
+      "device_uid" => "sr:payload-device"
+    }
 
     status = %{
       source: "results",
@@ -1003,7 +1007,11 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     GenServer.cast(ResultsRouter, {:results_update, status})
 
-    expected_payload = Map.put(payload, "agent_id", "agent-router-async")
+    expected_payload = %{
+      "scan_id" => "scan-router-async",
+      "agent_id" => "agent-router-async"
+    }
+
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
     assert Keyword.keyword?(opts)
   end
