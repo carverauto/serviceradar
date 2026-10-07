@@ -291,6 +291,66 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   end
 
   @tag sandbox: :unboxed
+  test "completion reports its deadline when a receipt read is blocked", %{
+    rule: rule,
+    actor: actor
+  } do
+    assert {:ok, keys} = Inbox.admit(:event, [event()])
+    parent = self()
+
+    {locker, monitor} =
+      spawn_monitor(fn ->
+        Repo.transaction(fn ->
+          Repo.query!("LOCK TABLE platform.alert_evaluation_receipts IN ACCESS EXCLUSIVE MODE")
+          send(parent, {:receipts_locked, self()})
+
+          receive do
+            :release -> :ok
+          after
+            15_000 -> raise "synthetic receipt lock was not released"
+          end
+        end)
+      end)
+
+    on_exit(fn -> if Process.alive?(locker), do: Process.exit(locker, :kill) end)
+    assert_receive {:receipts_locked, ^locker}, 5_000
+
+    try do
+      # The expired poll transaction disconnects the connection it ran on, so
+      # await from a child process and keep the test's owned connection usable
+      # for the owner-progress assertions below.
+      waiter = Task.async(fn -> Completion.await(keys, 25) end)
+      assert {:error, :evaluation_completion_timeout} = Task.await(waiter, 5_000)
+    after
+      send(locker, :release)
+      assert_receive {:DOWN, ^monitor, :process, ^locker, :normal}, 5_000
+    end
+
+    assert [%{position: 1}] = work(rule, actor)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, [%{disposition: :completed}]} = Completion.await(keys, 1_000)
+    assert [] = work(rule, actor)
+  end
+
+  @tag sandbox: :unboxed
+  test "completion preserves a store failure that occurs before its deadline" do
+    keys = [{Ash.UUID.generate(), "synthetic-missing-receipt"}]
+
+    Repo.query!(
+      "ALTER TABLE platform.alert_evaluation_receipts RENAME TO synthetic_unavailable_alert_receipts"
+    )
+
+    try do
+      assert {:error, reason} = Completion.await(keys, 5_000)
+      refute reason == :evaluation_completion_timeout
+    after
+      Repo.query!(
+        "ALTER TABLE platform.synthetic_unavailable_alert_receipts RENAME TO alert_evaluation_receipts"
+      )
+    end
+  end
+
+  @tag sandbox: :unboxed
   test "a blocked owner neither delays another rule nor loses its input when killed", %{
     rule: rule,
     actor: actor
