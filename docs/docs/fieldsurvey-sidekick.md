@@ -68,16 +68,22 @@ the daemon:
 cargo build -p serviceradar-fieldsurvey-sidekick --target aarch64-unknown-linux-gnu
 ```
 
-Copy the binary and packaging assets to the Pi, then install the systemd service
-(replace `<pi-user>` and `<PI_HOST>`):
+Generate a unique setup token without printing it, then copy the binary and
+packaging assets to the Pi (replace `<pi-user>` and `<PI_HOST>`):
 
 ```bash
+umask 077
+printf 'SERVICERADAR_SIDEKICK_API_TOKEN=%s\n' "$(openssl rand -hex 32)" \
+  > /tmp/fieldsurvey-sidekick.env
+printf 'RUST_LOG=serviceradar_fieldsurvey_sidekick=info,info\n' \
+  >> /tmp/fieldsurvey-sidekick.env
+
 scp target/aarch64-unknown-linux-gnu/debug/serviceradar-fieldsurvey-sidekick \
   <pi-user>@<PI_HOST>:/tmp/serviceradar-fieldsurvey-sidekick.new
 
 scp build/packaging/fieldsurvey-sidekick/config/fieldsurvey-sidekick.toml \
-  build/packaging/fieldsurvey-sidekick/config/fieldsurvey-sidekick.env.example \
   build/packaging/fieldsurvey-sidekick/systemd/serviceradar-fieldsurvey-sidekick.service \
+  /tmp/fieldsurvey-sidekick.env \
   <pi-user>@<PI_HOST>:/tmp/
 
 ssh <pi-user>@<PI_HOST> '
@@ -86,8 +92,11 @@ ssh <pi-user>@<PI_HOST> '
   sudo install -d -m 0755 /etc/serviceradar
   sudo install -m 0644 /tmp/fieldsurvey-sidekick.toml \
     /etc/serviceradar/fieldsurvey-sidekick.toml
-  sudo install -m 0600 /tmp/fieldsurvey-sidekick.env.example \
-    /etc/serviceradar/fieldsurvey-sidekick.env
+  if ! sudo test -f /etc/serviceradar/fieldsurvey-sidekick.env; then
+    sudo install -m 0600 /tmp/fieldsurvey-sidekick.env \
+      /etc/serviceradar/fieldsurvey-sidekick.env
+  fi
+  rm -f /tmp/fieldsurvey-sidekick.env
   sudo install -m 0644 /tmp/serviceradar-fieldsurvey-sidekick.service \
     /etc/systemd/system/serviceradar-fieldsurvey-sidekick.service
   sudo systemctl daemon-reload
@@ -95,9 +104,11 @@ ssh <pi-user>@<PI_HOST> '
 '
 ```
 
-Before field use, set a strong `SERVICERADAR_SIDEKICK_API_TOKEN` in
-`/etc/serviceradar/fieldsurvey-sidekick.env`, replacing the `change-me`
-placeholder.
+The service treats blank values and known placeholders such as `change-me` as
+unconfigured. Pairing and setup-token authentication remain disabled until a
+unique `SERVICERADAR_SIDEKICK_API_TOKEN` is present. Keep the local
+`/tmp/fieldsurvey-sidekick.env` in a secure location until pairing is complete,
+then delete it. Re-running the install preserves an existing token on the Pi.
 
 Runtime paths:
 
