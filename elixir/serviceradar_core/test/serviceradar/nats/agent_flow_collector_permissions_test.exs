@@ -49,10 +49,17 @@ defmodule ServiceRadar.NATS.AgentFlowCollectorPermissionsTest do
       assert {:error, :invalid_agent_id} = AgentFlowCollectorPermissions.permissions(nil)
     end
 
-    test "publish_allow scopes the host-slice subject to the agent only" do
+    test "publish_allow scopes data and stream management to the agent collector" do
       {:ok, perms} = AgentFlowCollectorPermissions.permissions("agent-42")
 
-      assert "flow.host-slice.agent-42" in perms.publish_allow
+      assert perms.publish_allow == [
+               "flow.host-slice.agent-42",
+               "$JS.API.STREAM.INFO.flows",
+               "$JS.API.STREAM.CREATE.flows",
+               "$JS.API.STREAM.UPDATE.flows",
+               "$JS.API.STREAM.INFO.events",
+               "$JS.API.STREAM.UPDATE.events"
+             ]
 
       # The other-agent slice and the publish wildcard for the slice
       # parent must never appear on the allow list.
@@ -68,13 +75,13 @@ defmodule ServiceRadar.NATS.AgentFlowCollectorPermissionsTest do
       assert "flow.attributed.>" in perms.publish_deny
     end
 
-    test "subscribe scopes to JS / inbox / agent-specific config channel only" do
+    test "subscribe scopes to inbox replies and the agent-specific config channel" do
       {:ok, perms} = AgentFlowCollectorPermissions.permissions("agent-42")
 
-      assert "config.flow-collector.agent-42.>" in perms.subscribe_allow
-      assert "$JS.API.>" in perms.subscribe_allow
-      assert "$JS.ACK.>" in perms.subscribe_allow
-      assert "_INBOX.>" in perms.subscribe_allow
+      assert perms.subscribe_allow == [
+               "_INBOX.>",
+               "config.flow-collector.agent-42.>"
+             ]
 
       # Agents are publish-only on the slice; subscribe must not grant
       # them sight of any other agent's slice or any attributed-flow

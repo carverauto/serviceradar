@@ -37,12 +37,12 @@ tests:
       analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     asserts:
       - equal:
-          path: spec.template.spec.volumes[3].name
+          path: spec.template.spec.volumes[2].name
           value: flow-collector-data
       - isNotNull:
-          path: spec.template.spec.volumes[3].emptyDir
+          path: spec.template.spec.volumes[2].emptyDir
       - isNull:
-          path: spec.template.spec.volumes[3].persistentVolumeClaim
+          path: spec.template.spec.volumes[2].persistentVolumeClaim
   # On any upgrade the PVC already exists (created during the prior
   # install's ordinary-resource phase), so the Job must claim it -- this is
   # what keeps the durable rehome/ownership markers persisting across
@@ -56,10 +56,10 @@ tests:
       upgrade: true
     asserts:
       - equal:
-          path: spec.template.spec.volumes[3].name
+          path: spec.template.spec.volumes[2].name
           value: flow-collector-data
       - equal:
-          path: spec.template.spec.volumes[3].persistentVolumeClaim.claimName
+          path: spec.template.spec.volumes[2].persistentVolumeClaim.claimName
           value: serviceradar-flow-collector-data
       - isNull:
-          path: spec.template.spec.volumes[3].emptyDir
+          path: spec.template.spec.volumes[2].emptyDir

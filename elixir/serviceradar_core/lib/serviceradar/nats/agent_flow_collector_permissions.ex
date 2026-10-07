@@ -97,14 +97,14 @@ defmodule ServiceRadar.NATS.AgentFlowCollectorPermissions do
     %{
       publish_allow: [
         "flow.host-slice." <> agent_id,
-        "$JS.API.>",
-        "$JS.ACK.>",
-        "_INBOX.>"
+        "$JS.API.STREAM.INFO.flows",
+        "$JS.API.STREAM.CREATE.flows",
+        "$JS.API.STREAM.UPDATE.flows",
+        "$JS.API.STREAM.INFO.events",
+        "$JS.API.STREAM.UPDATE.events"
       ],
       publish_deny: ["$SYS.>", "flow.attributed.>"],
       subscribe_allow: [
-        "$JS.API.>",
-        "$JS.ACK.>",
         "_INBOX.>",
         "config.flow-collector." <> agent_id <> ".>"
       ],

@@ -2,6 +2,9 @@
 {{- if not (.Values.flowCollector.config).metrics_addr }}
 {{- fail "flowCollector.config.metrics_addr is required so the readiness probe can call /readyz" }}
 {{- end }}
+{{- if (.Values.flowCollector.config).nats_creds_file }}
+{{- fail "flowCollector.config.nats_creds_file is unsupported; the chart uses the scoped flow-collector mTLS identity" }}
+{{- end }}
 {{- $data := default (dict) .Values.flowCollector.data -}}
 {{- $dataEnabled := true -}}
 {{- if hasKey $data "enabled" -}}
@@ -166,9 +169,6 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: nats-creds
-          mountPath: /etc/serviceradar/creds
-          readOnly: true
         {{- if .Values.flowCollector.ipfixTlsSecretName }}
         - name: ipfix-tls
           mountPath: /etc/serviceradar/ipfix-tls
@@ -200,25 +200,6 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-      - name: wait-for-nats-creds
-        image: alpine:3.20
-        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
-        command: ["/bin/sh", "-ec"]
-        args:
-        - |
-          i=0
-          until [ -f /etc/serviceradar/creds/platform.creds ]; do
-            i=$((i+1))
-            if [ "${i}" -ge 90 ]; then
-              echo "Timed out waiting for /etc/serviceradar/creds/platform.creds" >&2
-              exit 1
-            fi
-            sleep 2
-          done
-        volumeMounts:
-        - name: nats-creds
-          mountPath: /etc/serviceradar/creds
-          readOnly: true
       volumes:
       - name: flow-collector-config
         configMap:
@@ -233,9 +214,6 @@ spec:
         secret:
           secretName: {{ .Values.flowCollector.ipfixTlsSecretName | quote }}
       {{- end }}
-      - name: nats-creds
-        secret:
-          secretName: serviceradar-nats-creds
       - name: flow-collector-data
         # Pod-local scratch, deliberately NOT the PVC. The ready marker and the
         # ownership inventory are per-pod and disposable; the durable cutover

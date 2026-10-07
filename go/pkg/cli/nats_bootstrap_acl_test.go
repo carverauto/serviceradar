@@ -17,6 +17,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -79,8 +80,16 @@ func TestGenerateAgentFlowCollectorCreds_ScopedToAgentSubject(t *testing.T) {
 	claims := decodeUserClaims(t, creds.CredsFileContent)
 
 	pubAllow := claims.Pub.Allow
-	if !containsString(pubAllow, "flow.host-slice.agent-42") {
-		t.Errorf("publish allow missing flow.host-slice.agent-42: %v", pubAllow)
+	wantPubAllow := []string{
+		"flow.host-slice.agent-42",
+		"$JS.API.STREAM.INFO.flows",
+		"$JS.API.STREAM.CREATE.flows",
+		"$JS.API.STREAM.UPDATE.flows",
+		"$JS.API.STREAM.INFO.events",
+		"$JS.API.STREAM.UPDATE.events",
+	}
+	if !slices.Equal(pubAllow, wantPubAllow) {
+		t.Errorf("publish allow = %v, want %v", pubAllow, wantPubAllow)
 	}
 	for _, forbidden := range []string{
 		"flow.host-slice.>",
@@ -100,6 +109,13 @@ func TestGenerateAgentFlowCollectorCreds_ScopedToAgentSubject(t *testing.T) {
 	}
 
 	subAllow := claims.Sub.Allow
+	wantSubAllow := []string{
+		"_INBOX.>",
+		"config.flow-collector.agent-42.>",
+	}
+	if !slices.Equal(subAllow, wantSubAllow) {
+		t.Errorf("subscribe allow = %v, want %v", subAllow, wantSubAllow)
+	}
 	for _, forbidden := range []string{
 		"flow.host-slice.>",
 		"flow.host-slice.agent-42",
@@ -114,6 +130,35 @@ func TestGenerateAgentFlowCollectorCreds_ScopedToAgentSubject(t *testing.T) {
 	}
 	if !containsString(claims.Sub.Deny, "flow.attributed.>") {
 		t.Errorf("subscribe deny must contain flow.attributed.>: %v", claims.Sub.Deny)
+	}
+}
+
+func TestGenerateFlowCollectorCreds_ScopesSharedCollector(t *testing.T) {
+	seed := bootstrapTestAccount(t)
+
+	creds, err := generateFlowCollectorCreds("platform", seed)
+	if err != nil {
+		t.Fatalf("generateFlowCollectorCreds: %v", err)
+	}
+
+	claims := decodeUserClaims(t, creds.CredsFileContent)
+	wantPubAllow := []string{
+		"flow.host-slice.>",
+		"flow.raw.>",
+		"flows.raw.>",
+		"$JS.API.STREAM.INFO.flows",
+		"$JS.API.STREAM.CREATE.flows",
+		"$JS.API.STREAM.UPDATE.flows",
+		"$JS.API.STREAM.INFO.events",
+		"$JS.API.STREAM.UPDATE.events",
+	}
+	if !slices.Equal(claims.Pub.Allow, wantPubAllow) {
+		t.Errorf("publish allow = %v, want %v", claims.Pub.Allow, wantPubAllow)
+	}
+
+	wantSubAllow := []string{"_INBOX.>", "config.flow-collector.>"}
+	if !slices.Equal(claims.Sub.Allow, wantSubAllow) {
+		t.Errorf("subscribe allow = %v, want %v", claims.Sub.Allow, wantSubAllow)
 	}
 }
 
