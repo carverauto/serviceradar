@@ -45,6 +45,7 @@ fake_bin="${TMP_DIR}/bin"
 bazel_bin="${TMP_DIR}/bazel-bin"
 metadata_dir="${bazel_bin}/build/native_addons"
 mkdir -p "${fake_bin}" "${metadata_dir}"
+printf '%s\n' 'synthetic cosign public key fixture' >"${TMP_DIR}/cosign.pub"
 
 cat >"${metadata_dir}/fixture.metadata.json" <<'JSON'
 {
@@ -207,6 +208,7 @@ run_expected_failure() {
     BAZEL_BIN="${fake_bin}/bazel" \
     BAZEL_BIN_DIR="${bazel_bin}" \
     METADATA_DIR="${metadata_dir}" \
+    COSIGN_PUBLIC_KEY_FILE="${TMP_DIR}/cosign.pub" \
     OCI_REGISTRY="registry.example.test" \
     OCI_PROJECT="serviceradar" \
     VERIFY_NATIVE_ADDON_FIXTURE_MODE="${mode}" \
