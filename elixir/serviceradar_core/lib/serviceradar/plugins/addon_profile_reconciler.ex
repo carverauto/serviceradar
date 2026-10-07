@@ -935,9 +935,12 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     @impl true
     def create_assignment(spec, actor) do
       with :ok <- check_assignment_holder(spec, nil, actor) do
-        AddonAssignment
-        |> Ash.Changeset.for_create(:create, spec_to_attrs(spec))
-        |> Ash.create(actor: actor, authorize?: true)
+        case AddonAssignment
+             |> Ash.Changeset.for_create(:create, spec_to_attrs(spec))
+             |> Ash.create(actor: actor, authorize?: true) do
+          {:ok, assignment} -> {:ok, assignment}
+          {:error, error} -> map_enabled_conflict(error, spec, nil, actor)
+        end
       end
     end
 
@@ -949,11 +952,48 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       attrs = Map.delete(spec_to_attrs(spec), :agent_uid)
 
       with :ok <- check_assignment_holder(spec, existing.id, actor) do
-        existing
-        |> Ash.Changeset.for_update(:update, attrs)
-        |> Ash.update(actor: actor, authorize?: true)
+        case existing
+             |> Ash.Changeset.for_update(:update, attrs)
+             |> Ash.update(actor: actor, authorize?: true) do
+          {:ok, assignment} -> {:ok, assignment}
+          {:error, error} -> map_enabled_conflict(error, spec, existing.id, actor)
+        end
       end
     end
+
+    defp map_enabled_conflict(error, spec, current_id, actor) do
+      if spec.enabled != false and enabled_identity_conflict?(error) do
+        case check_assignment_holder(spec, current_id, actor) do
+          {:conflict, holder} -> {:conflict, holder}
+          _ -> {:error, error}
+        end
+      else
+        {:error, error}
+      end
+    end
+
+    defp enabled_identity_conflict?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+      Enum.any?(errors, &enabled_identity_conflict?/1)
+    end
+
+    defp enabled_identity_conflict?(%{identity: :one_enabled_per_agent_addon}), do: true
+    defp enabled_identity_conflict?(%{identity: "one_enabled_per_agent_addon"}), do: true
+
+    defp enabled_identity_conflict?(%{field: field, message: message})
+         when field in [:addon_package_id, :addon_id, :agent_uid, :enabled] and
+                is_binary(message) do
+      String.contains?(message, "already enabled for this agent")
+    end
+
+    defp enabled_identity_conflict?(%{message: message}) when is_binary(message) do
+      String.contains?(message, "one_enabled_per_agent_addon")
+    end
+
+    defp enabled_identity_conflict?(%{errors: errors}) when is_list(errors) do
+      Enum.any?(errors, &enabled_identity_conflict?/1)
+    end
+
+    defp enabled_identity_conflict?(_), do: false
 
     defp check_assignment_holder(%{enabled: false}, _current_id, _actor), do: :ok
 
