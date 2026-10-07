@@ -679,7 +679,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       handler_id,
       [:service_radar, :repo, :query],
       fn _event, _measurements, metadata, _config ->
-        send(test_pid, {:repo_query, metadata.query})
+        # :telemetry runs handlers synchronously in the emitter's process, so
+        # self() here is the querying process. Only attribute queries issued
+        # by this test process (the direct mount/handle_params/render calls
+        # below). Sandbox checkout/commit traffic and background or
+        # concurrent-test queries from other processes in the shared VM must
+        # not fail the disconnected zero-query assertion.
+        if self() == test_pid do
+          send(test_pid, {:repo_query, metadata.query})
+        end
       end,
       nil
     )
