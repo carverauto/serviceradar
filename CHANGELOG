@@ -1,3 +1,92 @@
+# ServiceRadar v1.4.85
+
+This release makes alert evaluation durable, closes a set of packaging,
+NATS and credential boundary gaps, and stops web-ng from running out of
+memory when interface metrics are toggled in bulk. Fresh installs pin
+StarRocks 4.1.3. Flow details, the Add-on Fleet page and the dashboard
+service count behave correctly at fleet scale.
+
+## Upgrade Notes
+
+- Helm `core.migrations.expectedVersion` is `20261008123047`. The
+  migrations since 1.4.84 add the durable alert evaluation inbox, keep
+  alert snapshot diagnostics, fence alert rule admission (PR #5473), and
+  grant the StarRocks reader the flow catalog filters (PR #5507).
+- StarRocks: `analytics.starrocks.imageTag` now defaults to `4.1.3`
+  (PR #5499). This pin is for fresh installs. An existing 3.5 cluster
+  must not jump straight to it. Keep your current tag in values until
+  you have upgraded through 4.0.14 following
+  `docs/starrocks-upgrade.md`, with a recoverable backup first.
+- Web-ng `/metrics` on the public listener now requires a bearer token
+  and returns 401 without one. Prometheus scrapes the new internal
+  listener on `metricsPort` (default `9090`), which is not exposed on
+  Ingress or Gateway. Helm and Compose generate the token and update
+  the scrape config. A custom scraper that hits the public port needs
+  the token (PR #5468).
+- Native add-ons run only from a root-owned tree under
+  `/usr/lib/serviceradar/addons`. The setuid agent updater verifies the
+  signed artifact before installing it, and unsigned or mismatched
+  add-ons are rejected (PR #5472).
+- Flow collectors authenticate with a scoped mTLS identity limited to
+  their data subjects and the `flows` stream. Docker installs created
+  by an older release must recreate the NATS credential and data
+  volumes together. The initializer fails closed with that instruction
+  (PR #5485).
+- Agent identities are read-only on DataService. Core and agent
+  gateway writers are unchanged (PR #5493).
+- RTSPS certificate verification is no longer turned off by UniFi
+  Protect metadata. Cameras with self-signed certificates need an
+  explicit `insecure_skip_verify` on the profile or source (PR #5502).
+- Packaged collectors and new edge bundles default RFC3164 syslog to
+  UTC, matching Helm and Compose (PR #5418).
+
+## Whats New
+
+**1.4.85**
+- Alerts: evaluation is admitted through a durable inbox with per-rule
+  ownership and completion receipts, so a restart does not lose or
+  double-evaluate a batch (PR #5473). Alert batches only route to
+  shards that own a matching rule (PR #5343). An expired receipt read
+  maps to a completion timeout (PR #5506).
+- Web-ng no longer runs out of memory when SNMP interface metrics are
+  toggled in quick succession. Config invalidation is coalesced and
+  rebuilt in a bounded worker (PR #5465). Alerts and NetFlows lists cap
+  their assigns at 100 rows (PR #5471).
+- Add-on Fleet paginates its agent list and loads only after connect
+  (PR #5508). The dashboard Network Health card counts distinct
+  services, matching `/services` (PR #5420). Alert details resolve by
+  id without a time window (PR #5422).
+- Flows: StarRocks flow filters and fields match CNPG, so flow details
+  no longer fail on `proto` (PR #5507). App classification happens
+  once at ingest with the operator rules (PR #5399).
+- Inventory: a failed DIRE identifier lookup no longer mints a device
+  (PR #5478). One-time source-id remediation steps with rollback and a
+  runbook (PR #5467).
+- StarRocks: fresh installs pin 4.1.3, with a staged upgrade runbook
+  (PR #5499). Stream Load follows the FE leader redirect when
+  reconciling load state (PR #5463). Core may publish
+  `metrics.event_writer.warehouse` (PR #5423).
+- Security and packaging: root-owned native add-on boundary (PR #5472);
+  NATS postinstall no longer evaluates environment files (PR #5481);
+  agent seed refresh stays unprivileged (PR #5482); Sidekick rejects
+  placeholder setup tokens (PR #5483); k8s inventory NATS access is
+  restricted (PR #5484); flow collector credentials are scoped
+  (PR #5485); Falco runtime certificate mounts are scoped (PR #5487);
+  DataService agent identities are read-only (PR #5493); RTSPS TLS
+  bypass must be explicit (PR #5502); broker grant scope is protected
+  (PR #5477); delegated package publish requires scopes (PR #5411).
+- Release: signed catalogs are bound to pushed tags (PR #5475), and
+  native add-on verification output is contained (PR #5417).
+- CLI: `edge install leaf` and `edge install collector` install the
+  latest GitHub release packages when `--version` is omitted (PR #5419,
+  PR #5421).
+- Web-ng `/metrics` requires a token or the internal port (PR #5468).
+  Compiler warnings are resolved and host `ash_domains` are complete
+  (PR #5505). Syslog RFC3164 defaults to UTC in packaged and edge
+  bundles (PR #5418).
+- Demo: the NetFlow v9/IPFIX listener accepts unauthenticated templates
+  in the demo values (PR #5474).
+
 # ServiceRadar v1.4.84
 
 This release fixes web-ng boot when GeoIP database download is enabled,
