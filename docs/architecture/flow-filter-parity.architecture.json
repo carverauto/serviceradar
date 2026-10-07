@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Flow filters with StarRocks enabled",
+    "quality_profile": "showcase",
+    "locale": "en"
+  },
+  "components": [
+    {
+      "id": "flow-ui",
+      "type": "frontend",
+      "label": "Flow details",
+      "sublabel": "SRQL filter links",
+      "pos": [
+        60,
+        140
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "flow-srql",
+      "type": "backend",
+      "label": "SRQL",
+      "sublabel": "Aliases and catalog filters",
+      "pos": [
+        420,
+        140
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "flow-warehouse",
+      "type": "database",
+      "label": "StarRocks",
+      "sublabel": "Flow rows and attribution",
+      "pos": [
+        810,
+        140
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "flow-catalog",
+      "type": "backend",
+      "label": "JDBC catalog",
+      "sublabel": "Read-only native_query",
+      "pos": [
+        1150,
+        140
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "flow-control",
+      "type": "database",
+      "label": "CNPG",
+      "sublabel": "PostGIS and threat catalog",
+      "pos": [
+        1150,
+        400
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "flow-collectors",
+      "type": "external",
+      "label": "Collectors",
+      "sublabel": "Flow observations",
+      "pos": [
+        60,
+        670
+      ],
+      "size": [
+        170,
+        70
+      ]
+    },
+    {
+      "id": "flow-jetstream",
+      "type": "messagebus",
+      "label": "JetStream",
+      "sublabel": "Durable telemetry stream",
+      "pos": [
+        420,
+        670
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "flow-writer",
+      "type": "backend",
+      "label": "EventWriter",
+      "sublabel": "Flow and metadata encoding",
+      "pos": [
+        810,
+        670
+      ],
+      "size": [
+        190,
+        70
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "flow-ui-query",
+      "from": "flow-ui",
+      "to": "flow-srql",
+      "label": "Query"
+    },
+    {
+      "id": "flow-query-warehouse",
+      "from": "flow-srql",
+      "to": "flow-warehouse",
+      "label": "Warehouse SQL"
+    },
+    {
+      "id": "flow-native-catalog",
+      "from": "flow-warehouse",
+      "to": "flow-catalog",
+      "label": "Catalog filters"
+    },
+    {
+      "id": "flow-catalog-postgres",
+      "from": "flow-catalog",
+      "to": "flow-control",
+      "label": "Scoped SELECT",
+      "labelDy": 24
+    },
+    {
+      "id": "flow-publish",
+      "from": "flow-collectors",
+      "to": "flow-jetstream",
+      "label": "Publish"
+    },
+    {
+      "id": "flow-consume",
+      "from": "flow-jetstream",
+      "to": "flow-writer",
+      "label": "Consume"
+    },
+    {
+      "id": "flow-persist",
+      "from": "flow-writer",
+      "to": "flow-warehouse",
+      "label": "Persist flow rows"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Backend parity",
+      "items": [
+        "Aliases address the same flow fields in both dialects.",
+        "Process, workload and public-endpoint metadata travel with warehouse rows."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Catalog boundary",
+      "items": [
+        "Catalog filters require StarRocks 4.1 or newer.",
+        "CNPG provides current state and PostGIS; telemetry stays in the warehouse."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Telemetry contract",
+      "items": [
+        "Every telemetry source publishes through JetStream.",
+        "When StarRocks is disabled, the complete CNPG telemetry backend remains available."
+      ]
+    }
+  ]
+}

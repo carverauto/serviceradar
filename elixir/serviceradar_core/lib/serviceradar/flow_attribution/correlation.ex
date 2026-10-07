@@ -68,7 +68,14 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
       WHEN 'loadbalancer' THEN 1
       WHEN 'externalip' THEN 1
       ELSE 2
-    END AS exposure_rank
+    END AS exposure_rank,
+    jsonb_strip_nulls(jsonb_build_object(
+      'namespace', pe.namespace,
+      'service_name', pe.service_name,
+      'gateway_name', pe.gateway_name,
+      'exposure_class', pe.exposure_class,
+      'route_name', pe.route_name
+    ))::text AS public_endpoint
   FROM platform.public_endpoints_current AS pe
   CROSS JOIN LATERAL jsonb_array_elements(
     CASE WHEN jsonb_typeof(pe.endpoint_targets) = 'array' THEN pe.endpoint_targets ELSE '[]'::jsonb END
@@ -171,7 +178,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   The correlation statement.
 
   `agent_ips` is `[[agent_id, ip]]` and `backends` is
-  `[[proto_num, vip_ip_norm, vip_port, backend_ip_norm, backend_port, exposure_rank]]`,
+  `[[proto_num, vip_ip_norm, vip_port, backend_ip_norm, backend_port, exposure_rank, public_endpoint]]`,
   as read from CNPG. Rows that are not well formed are left out. An empty input
   leaves its candidate families out of the statement.
 
@@ -197,7 +204,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
           agent_values && "agent_ips AS (SELECT * FROM (#{agent_values}) AS t(agent_id, ip))",
           backend_values &&
             "endpoint_backends AS (SELECT * FROM (#{backend_values}) AS " <>
-              "t(proto_num, vip_ip_norm, vip_port, backend_ip_norm, backend_port, exposure_rank))",
+              "t(proto_num, vip_ip_norm, vip_port, backend_ip_norm, backend_port, exposure_rank, public_endpoint))",
           "candidates AS (\n#{Enum.join(candidate_branches(agent_values, backend_values), "\nUNION ALL\n")}\n)",
           """
           ranked AS (
@@ -216,8 +223,8 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
     """
     WITH #{Enum.join(ctes, ",\n")}
-    SELECT id, `time`, attribution_version, `partition`, agent_id, pid, comm, cmdline,
-           container_id, workload_identity, match_rank
+    SELECT id, `time`, attribution_version, `partition`, agent_id, pid, uid, comm, cmdline,
+           container_id, workload_identity, public_endpoint, match_rank
     FROM ranked
     WHERE rn = 1 AND pid IS NOT NULL
     """
@@ -245,7 +252,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
     """
     observations AS (
       SELECT observed_at, `partition`, agent_id, proto, local_ip, local_port, remote_ip,
-             remote_port, pid, comm, cmdline, container_id, workload_identity,
+             remote_port, pid, uid, comm, cmdline, container_id, workload_identity,
              #{ip_norm("local_ip")} AS local_norm,
              #{ip_norm("remote_ip")} AS remote_norm
       FROM #{table}
@@ -385,13 +392,18 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
        "a.local_port = pe.backend_port",
        "((#{@wildcard_remote}) OR (a.remote_norm = f.#{peer_side}_norm AND " <>
          "(a.remote_port = f.#{peer_side}_endpoint_port OR a.remote_port = 0)))"
-     ]}
+     ], "pe.public_endpoint"}
   end
 
   defp branch_sql({rank, joins, conditions}) do
+    branch_sql({rank, joins, conditions, "NULL"})
+  end
+
+  defp branch_sql({rank, joins, conditions, public_endpoint}) do
     """
-    SELECT f.id, f.`time`, f.attribution_version, f.`partition`, a.agent_id, a.pid, a.comm,
-           a.cmdline, a.container_id, a.workload_identity, #{rank} AS match_rank,
+    SELECT f.id, f.`time`, f.attribution_version, f.`partition`, a.agent_id, a.pid, a.uid, a.comm,
+           a.cmdline, a.container_id, a.workload_identity, #{public_endpoint} AS public_endpoint,
+           #{rank} AS match_rank,
            abs(seconds_diff(f.`time`, a.observed_at)) AS time_delta_seconds, a.observed_at
     FROM recent_flows AS f
     #{Enum.join(joins, "\n")}
@@ -415,11 +427,19 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
   defp agent_ip_row(_row), do: nil
 
-  defp backend_row([proto, vip_ip, vip_port, backend_ip, backend_port, rank])
+  defp backend_row([proto, vip_ip, vip_port, backend_ip, backend_port, rank, public_endpoint])
        when is_integer(proto) and is_binary(vip_ip) and is_integer(vip_port) and
               is_binary(backend_ip) and
-              is_integer(backend_port) and is_integer(rank) do
-    [proto, literal(vip_ip), vip_port, literal(backend_ip), backend_port, rank]
+              is_integer(backend_port) and is_integer(rank) and is_binary(public_endpoint) do
+    [
+      proto,
+      literal(vip_ip),
+      vip_port,
+      literal(backend_ip),
+      backend_port,
+      rank,
+      literal(public_endpoint)
+    ]
   end
 
   defp backend_row(_row), do: nil

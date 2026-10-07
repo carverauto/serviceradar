@@ -135,6 +135,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "attribution_version" => field(row, :attribution_version),
       "agent_id" => stringify(field(row, :agent_id)),
       "pid" => field(row, :pid),
+      "uid" => field(row, :uid),
+      "container_id" => stringify(field(row, :container_id)),
+      "public_endpoint" => json_text(field(row, :public_endpoint)),
       "comm" => stringify(field(row, :comm)),
       "cmdline" => stringify(field(row, :cmdline)),
       "workload_identity" => json_text(field(row, :workload_identity))
@@ -170,6 +173,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "device_uid" => stringify(field(row, :device_uid) || field(row, :device_id) || "unknown"),
       "agent_id" => stringify(field(row, :agent_id) || payload_text(row, "agent_id")),
       "pid" => field(row, :pid) || map_get(attribution, "pid"),
+      "uid" => field(row, :uid) || map_get(attribution, "uid"),
+      "container_id" =>
+        stringify(field(row, :container_id) || map_get(attribution, "container_id")),
+      "public_endpoint" =>
+        json_text(field(row, :public_endpoint) || map_get(attribution, "public_endpoint")),
+      "flow_source" => stringify(field(row, :flow_source) || payload_text(row, "flow_source")),
       "comm" => stringify(field(row, :comm) || map_get(attribution, "comm")),
       "cmdline" =>
         stringify(

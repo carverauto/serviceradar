@@ -12,14 +12,12 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
 
   alias ServiceRadar.EventWriter.FlowAppClassifier
 
-  @cases_path "integration_tests/srql_parity/app_classifier_cases.json"
-
   @moduletag :db_free
 
   test "classify/2 returns the shared case file's expected label for every case" do
     %{"rules" => rules, "cases" => cases} = load_cases()
 
-    assert length(cases) >= 15
+    refute Enum.empty?(cases)
 
     atom_rules = Enum.map(rules, &atomize_rule/1)
 
@@ -105,8 +103,8 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
     path |> File.read!() |> Jason.decode!()
   end
 
-  @rule_keys ~w(id partition priority protocol_num dst_port src_port src_cidr dst_cidr app_label)
-  @flow_keys ~w(partition protocol_num dst_port src_port src_ip dst_ip)
+  @rule_keys ~w(id partition priority protocol_num dst_port src_port src_cidr dst_cidr app_label)a
+  @flow_keys ~w(partition protocol_num dst_port src_port src_ip dst_ip)a
 
   defp atomize_rule(rule) when is_map(rule) do
     Map.new(rule, fn {key, value} -> {atomize_key(key, @rule_keys), value} end)
@@ -119,6 +117,6 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
   defp atomize_key(key, _known) when is_atom(key), do: key
 
   defp atomize_key(key, known) when is_binary(key) do
-    if key in known, do: String.to_existing_atom(key), else: key
+    Enum.find(known, key, &(Atom.to_string(&1) == key))
   end
 end

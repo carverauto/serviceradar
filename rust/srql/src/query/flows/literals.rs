@@ -49,7 +49,7 @@ pub(super) fn normalize_device_uid_literal(input: &str) -> Result<String> {
 /// Validate a prefix-tag literal for JSONB containment filters.
 ///
 /// Tags are namespaced strings like `site:austin-dc` or `netbox:tag:iot`.
-pub(in crate::query::flows) fn normalize_tag_literal(raw: &str) -> Result<String> {
+pub(in crate::query) fn normalize_tag_literal(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(ServiceError::InvalidRequest("tag literal is empty".into()));
@@ -157,7 +157,7 @@ pub(in crate::query::flows) fn tag_filter_sql(
 
 /// Parsed proximity term: latitude, longitude, radius in meters.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(in crate::query::flows) struct NearPoint {
+pub(in crate::query) struct NearPoint {
     pub lat: f64,
     pub lng: f64,
     pub radius_m: f64,
@@ -166,7 +166,7 @@ pub(in crate::query::flows) struct NearPoint {
 /// Parse `near` filter values like `30.2672,-97.7431,50km` or `30.27,-97.74,5000m`.
 ///
 /// Default unit when omitted is kilometers. Supported suffixes: `km`, `m`, `mi`.
-pub(in crate::query::flows) fn normalize_near_literal(raw: &str) -> Result<NearPoint> {
+pub(in crate::query) fn normalize_near_literal(raw: &str) -> Result<NearPoint> {
     let trimmed = raw.trim().trim_matches('"').trim_matches('\'').trim();
     if trimmed.is_empty() {
         return Err(ServiceError::InvalidRequest(

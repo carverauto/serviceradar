@@ -162,6 +162,10 @@ data:
       ON platform.netflow_exporter_cache TO {{ $reader }};
     GRANT SELECT (sampler_address, if_index, if_name, if_speed_bps)
       ON platform.netflow_interface_cache TO {{ $reader }};
-    GRANT SELECT (ip, country_iso2, expires_at)
+    GRANT SELECT (ip, country_iso2, expires_at, location)
       ON platform.ip_geo_enrichment_cache TO {{ $reader }};
+    GRANT SELECT (ip, matched, expires_at, sources, max_severity)
+      ON platform.ip_threat_intel_cache TO {{ $reader }};
+    GRANT SELECT (indicator, expires_at)
+      ON platform.threat_intel_indicators TO {{ $reader }};
 {{- end }}

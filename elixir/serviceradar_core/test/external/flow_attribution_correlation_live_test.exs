@@ -24,8 +24,24 @@ defmodule ServiceRadar.External.FlowAttributionCorrelationLiveTest do
 
   @agent_ips [["agent-snat", "192.0.2.100"]]
   @backends [
-    [6, "203.0.113.10", 443, "192.0.2.70", 8443, 0],
-    [6, "203.0.113.10", 443, "192.0.2.71", 8443, 1]
+    [
+      6,
+      "203.0.113.10",
+      443,
+      "192.0.2.70",
+      8443,
+      0,
+      ~s({"service_name":"example-service","gateway_name":"example-gateway","namespace":"example","exposure_class":"gateway","route_name":"example-route"})
+    ],
+    [
+      6,
+      "203.0.113.10",
+      443,
+      "192.0.2.71",
+      8443,
+      1,
+      ~s({"service_name":"example-service","exposure_class":"loadbalancer"})
+    ]
   ]
 
   setup_all do
@@ -139,14 +155,15 @@ defmodule ServiceRadar.External.FlowAttributionCorrelationLiveTest do
 
     "SELECT DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{age} SECOND), 'default', #{proto}, " <>
       "'#{lip}', #{lport}, '#{rip}', #{rport}, '#{agent}', md5('#{agent}#{lip}#{lport}'), " <>
-      "#{pid}, 'proc-#{pid}', NULL, NULL, #{container}, NULL"
+      "#{pid}, 'proc-#{pid}', NULL, 1001, #{container}, NULL"
   end
 
   defp insert!(conn, table, selects),
     do: query!(conn, "INSERT INTO #{table} #{Enum.join(selects, " UNION ALL ")}")
 
   test "an exact tuple beats a wildcard listener", %{picks: picks} do
-    assert %{"pid" => 101, "match_rank" => 0} = picks["exact-over-wildcard"]
+    assert %{"pid" => 101, "uid" => 1001, "public_endpoint" => nil, "match_rank" => 0} =
+             picks["exact-over-wildcard"]
   end
 
   test "a wildcard listener matches server-side fan-in", %{picks: picks} do
@@ -174,7 +191,16 @@ defmodule ServiceRadar.External.FlowAttributionCorrelationLiveTest do
   end
 
   test "a Gateway public endpoint beats a LoadBalancer one", %{picks: picks} do
-    assert %{"pid" => 701, "match_rank" => 3} = picks["public-endpoint"]
+    assert %{"pid" => 701, "uid" => 1001, "match_rank" => 3, "public_endpoint" => endpoint} =
+             picks["public-endpoint"]
+
+    assert Jason.decode!(endpoint) == %{
+             "service_name" => "example-service",
+             "gateway_name" => "example-gateway",
+             "namespace" => "example",
+             "exposure_class" => "gateway",
+             "route_name" => "example-route"
+           }
   end
 
   test "a flow outside the correlation window stays unattributed", %{picks: picks} do

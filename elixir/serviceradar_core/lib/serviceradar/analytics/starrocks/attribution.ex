@@ -20,6 +20,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
     "attribution_version",
     "agent_id",
     "pid",
+    "uid",
+    "container_id",
+    "public_endpoint",
     "comm",
     "cmdline",
     "workload_identity"
@@ -39,6 +42,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
       "attribution_version" => version,
       "agent_id" => field(row, :agent_id),
       "pid" => field(row, :pid),
+      "uid" => field(row, :uid),
+      "container_id" => field(row, :container_id),
+      "public_endpoint" => field(row, :public_endpoint),
       "comm" => field(row, :comm),
       "cmdline" => field(row, :cmdline),
       "workload_identity" => field(row, :workload_identity)

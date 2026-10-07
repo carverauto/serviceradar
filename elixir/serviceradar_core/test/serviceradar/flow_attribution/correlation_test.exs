@@ -40,7 +40,20 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
         {:ok, %{rows: [["agent-o'brien\\", "192.0.2.1"]]}}
 
       sql =~ "public_endpoints_current" ->
-        {:ok, %{rows: [[6, "198.51.100.10", 443, "192.0.2.30", 8443, 0]]}}
+        {:ok,
+         %{
+           rows: [
+             [
+               6,
+               "198.51.100.10",
+               443,
+               "192.0.2.30",
+               8443,
+               0,
+               ~s({"service_name":"example-service"})
+             ]
+           ]
+         }}
 
       sql =~ "workload_identity_current" ->
         {:ok, %{rows: workload_rows}}
@@ -87,7 +100,9 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
     # The CNPG inputs reach the statement as escaped literals.
     assert_received {:starrocks, sql}
     assert sql =~ ~S|('agent-o\'brien\\', '192.0.2.1')|
-    assert sql =~ "(6, '198.51.100.10', 443, '192.0.2.30', 8443, 0)"
+
+    assert sql =~
+             ~s|(6, '198.51.100.10', 443, '192.0.2.30', 8443, 0, '{"service_name":"example-service"}')|
 
     # Workload identity is looked up for the matched container only.
     assert_received {:cnpg, workload_sql, [["default"], ["agent-a"], ["c1"]]}

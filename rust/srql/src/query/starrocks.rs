@@ -7,6 +7,7 @@ use crate::{
 use chrono::{SecondsFormat, Timelike, Utc};
 
 mod bmp_events;
+mod flow_filters;
 mod mtr;
 mod otel_metrics;
 mod traces;
@@ -2353,14 +2354,11 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
         }
     };
     if flow {
+        if let Some(sql) = flow_filters::row_field(field, &column) {
+            return Ok(sql);
+        }
         match field {
             "direction" => return Ok(column("direction")),
-            "attribution_status" => {
-                return Ok(format!(
-                    "CASE WHEN {} IS NULL THEN 'unmatched' ELSE 'attributed' END",
-                    column("pid")
-                ));
-            }
             "protocol_group" | "proto_group" => {
                 return Ok(FLOW_PROTOCOL_GROUP_SQL.replace("protocol_num", &column("protocol_num")));
             }
@@ -2432,7 +2430,7 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     }
     let fields = match dataset.raw_table {
         "ocsf_network_activity" => {
-            "id device_uid time event_type src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label app start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
+            "id device_uid agent_id time event_type flow_source uid container_id public_endpoint src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label app start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
         }
         "timeseries_metrics" => {
             "timestamp gateway_id series_key agent_id metric_name metric_type device_id value unit if_index partition scale is_delta counter_width target_device_ip tags usage_percent"
@@ -2588,7 +2586,7 @@ fn filters_on_flow_cidr(plan: &QueryPlan) -> bool {
         && plan
             .filters
             .iter()
-            .any(|filter| matches!(filter.field.as_str(), "src_cidr" | "dst_cidr"))
+            .any(|filter| matches!(filter.field.as_str(), "src_cidr" | "dst_cidr" | "cidr"))
 }
 
 /// A `src_cidr:<n>` / `dst_cidr:<n>` grouping field: the endpoint it groups and the
@@ -2865,33 +2863,10 @@ fn ip_hex_sql(ip: &str) -> String {
 
 fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     use crate::parser::FilterOp;
-    if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
-        match filter.field.as_str() {
-            "device_id" => return device_scope_sql(plan, filter),
-            "src_cidr" => return flow_cidr_filter_sql(filter, "src"),
-            "dst_cidr" => return flow_cidr_filter_sql(filter, "dst"),
-            "device_addr" | "device_address" => {
-                if !matches!(filter.op, FilterOp::Eq | FilterOp::In) {
-                    return Err(ServiceError::InvalidRequest(
-                        "device_addr supports equality and lists".into(),
-                    ));
-                }
-                let predicates = ["src_endpoint_ip", "dst_endpoint_ip", "sampler_address"]
-                    .iter()
-                    .map(|field| {
-                        filter_sql(
-                            plan,
-                            &Filter {
-                                field: (*field).into(),
-                                ..filter.clone()
-                            },
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                return Ok(format!("({})", predicates.join(" OR ")));
-            }
-            _ => {}
-        }
+    if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
+        && let Some(sql) = flow_filters::predicate(plan, filter)?
+    {
+        return Ok(sql);
     }
     if let Some(dataset) = dataset_for(&plan.entity)
         && let Some(predicate) = dataset_filter_sql(dataset, filter)?
@@ -6163,7 +6138,7 @@ mod tests {
     }
 
     #[test]
-    fn flow_and_metric_text_filters_are_unchanged() {
+    fn flow_text_filters_follow_cnpg_case_and_null_semantics() {
         let compiled = translate(
             &plan("in:flows time:last_1h !app:\"%HTTP%\""),
             "serviceradar",
@@ -6172,7 +6147,7 @@ mod tests {
         assert!(
             compiled
                 .sql
-                .contains("AND COALESCE(app, 'unknown') NOT LIKE '%HTTP%'"),
+                .contains("AND (COALESCE(app, 'unknown') IS NULL OR NOT LOWER(COALESCE(app, 'unknown')) LIKE '%http%')"),
             "{}",
             compiled.sql
         );

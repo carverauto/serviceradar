@@ -120,6 +120,50 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     refute sql =~ "network_credential_secrets"
   end
 
+  test "native query checks embedded CNPG relations rather than only the outer catalog name" do
+    native = fn inner ->
+      "SELECT ip FROM TABLE(cnpg_platform.native_query('" <>
+        String.replace(inner, "'", "''") <> "'))"
+    end
+
+    for inner <- [
+          "SELECT g.ip FROM platform.ip_geo_enrichment_cache g WHERE g.expires_at > NOW()",
+          "SELECT c.ip FROM platform.ip_threat_intel_cache c " <>
+            "JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator " <>
+            "WHERE c.sources && ARRAY['example_feed']::text[]",
+          "SELECT c.ip FROM platform.ip_threat_intel_cache c " <>
+            "WHERE c.sources && ARRAY['example FROM platform.users; --']::text[]",
+          "SELECT c.ip FROM platform.ip_threat_intel_cache c " <>
+            "WHERE c.sources && ARRAY['example cnpg_platform.native_query(']::text[]"
+        ] do
+      assert :ok == CatalogAllowlist.assert_sql_allowlisted(native.(inner))
+    end
+
+    assert {:error, {:not_allowlisted, "network_credential_secrets"}} =
+             CatalogAllowlist.assert_sql_allowlisted(
+               native.("SELECT ip FROM platform.network_credential_secrets")
+             )
+
+    assert {:error, {:not_allowlisted, "ip_geo_enrichment_cache"}} =
+             CatalogAllowlist.assert_sql_allowlisted(
+               native.("SELECT ip FROM ip_geo_enrichment_cache")
+             )
+
+    for inner <- [
+          "DELETE FROM platform.ip_geo_enrichment_cache RETURNING ip",
+          "SELECT ip FROM platform.ip_geo_enrichment_cache; SELECT 1",
+          "SELECT ip INTO copied FROM platform.ip_geo_enrichment_cache"
+        ] do
+      assert {:error, :invalid_starrocks_native_query} =
+               CatalogAllowlist.assert_sql_allowlisted(native.(inner))
+    end
+
+    assert {:error, :invalid_starrocks_native_query} =
+             CatalogAllowlist.assert_sql_allowlisted(
+               "SELECT ip FROM TABLE(cnpg_platform.native_query(other_query))"
+             )
+  end
+
   test "env config stays off and mint-no atoms from unknown dataset names" do
     keys = [
       "SERVICERADAR_STARROCKS_ENABLED",
