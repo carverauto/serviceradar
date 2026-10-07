@@ -1,7 +1,9 @@
 # Lab StarRocksCluster. Chart: starrocks/starrocks 1.11.7
 # Shared-nothing FE+BE. Not the hosted shared-data (CN + object storage) profile.
 #
-# Pin: StarRocks 3.5.21 (not 4.1-latest / not :latest).
+# Pin: StarRocks 4.1.6 (not 4.1-latest / not :latest).
+# Existing clusters: follow docs/starrocks-upgrade.md; do not apply both
+# FE and BE image changes together during a version upgrade.
 # Namespace: starrocks (baseline). Operator is a separate Helm release.
 #
 # Deploy (fresh cluster; an existing one follows README.md instead):
@@ -47,14 +49,14 @@ starrocksCluster:
   waitForFullRollout: true
   componentValues:
     image:
-      tag: "3.5.21"
+      tag: "4.1.6"
     runAsNonRoot: false
 
 starrocksFESpec:
   replicas: 3
   image:
     repository: starrocks/fe-ubuntu
-    tag: "3.5.21"
+    tag: "4.1.6"
   imagePullPolicy: IfNotPresent
   runAsNonRoot: false
   service:
@@ -126,7 +128,7 @@ starrocksBeSpec:
   replicas: 3
   image:
     repository: starrocks/be-ubuntu
-    tag: "3.5.21"
+    tag: "4.1.6"
   imagePullPolicy: IfNotPresent
   runAsNonRoot: false
   service:

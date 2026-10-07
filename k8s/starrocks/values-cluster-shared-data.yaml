@@ -12,6 +12,7 @@
 # initPassword is inherited from values-cluster.yaml (always layer both files):
 # the CN pods receive the same MYSQL_PWD as FE/BE, so the root-password Secret
 # must exist before the install and equal the live root password.
+# Existing clusters: use docs/starrocks-upgrade.md to roll CNs before FEs.
 #
 # run_mode cannot change on an existing cluster. Recreate starrocks-lab:
 #   helm uninstall starrocks-lab -n starrocks
@@ -47,7 +48,7 @@ starrocksCnSpec:
   replicas: 3
   image:
     repository: starrocks/cn-ubuntu
-    tag: "3.5.21"
+    tag: "4.1.6"
   imagePullPolicy: IfNotPresent
   runAsNonRoot: false
   service:
