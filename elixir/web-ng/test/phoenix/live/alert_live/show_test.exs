@@ -458,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       # time-windowed query, so scope the no-time-predicate proof to the
       # prefilled SRQL bar: an old alert outside any default window must
       # still resolve through the id-scoped detail query.
-      refute lv |> element("#srql-query-bar-editor") |> render_element() =~ "time:"
+      refute lv |> element("#srql-query-bar-editor") |> render() =~ "time:"
     end
 
     @tag :web_ng_shared_fixture_db
