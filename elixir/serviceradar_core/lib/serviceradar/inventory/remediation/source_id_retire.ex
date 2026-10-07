@@ -18,8 +18,13 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRetire do
   `mass_guard_failures`; one whose latest collection changes during the step is left at that
   point, and a re-run continues it.
 
-  The dry run counts both classes per source instance, before any retirement. `--execute`
-  requires retirement to be enabled in the device cleanup settings. It works in batches of
+  The dry run counts both classes per source instance, before any retirement, and does
+  not consult the remediation prevention gate. `--execute` first requires
+  `SourceIdentityRepair.prevention_deployed?/1` to hold (identifier conflict
+  replacement leaves `:device_id` alone and the duplicate sweep still blocks a
+  transitive component); otherwise it returns `remediation_prevention_not_deployed`
+  before reading settings. It then requires retirement to be enabled in the device
+  cleanup settings. It works in batches of
   `:source_batch_size` records (500 by default): each record's retirement or mark writes its
   manifest entry inside its transaction, and after each batch the harm checks run
   (`SourceIdVerification.finish_batch/4`). The step stops at the first check that fails, and
@@ -29,6 +34,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRetire do
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceSuccession
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Remediation.SourceIdentityRepair
   alias ServiceRadar.Inventory.Remediation.SourceIdVerification
   alias ServiceRadar.Repo
 
@@ -50,7 +56,23 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRetire do
   """
 
   @doc false
+  def run(:execute, opts, manifest, actor) do
+    if SourceIdentityRepair.prevention_deployed?(opts) do
+      run_with_settings(:execute, opts, manifest, actor)
+    else
+      %{
+        execution_blocked: true,
+        execution_blocked_reason: "remediation_prevention_not_deployed",
+        halted: "remediation_prevention_not_deployed"
+      }
+    end
+  end
+
   def run(mode, opts, manifest, actor) do
+    run_with_settings(mode, opts, manifest, actor)
+  end
+
+  defp run_with_settings(mode, opts, manifest, actor) do
     case SourceIdVerification.settings(actor) do
       {:ok, settings} -> run(mode, opts, manifest, actor, settings)
       {:error, reason} -> %{errors: 1, error: inspect(reason)}

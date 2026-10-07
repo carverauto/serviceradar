@@ -6,10 +6,15 @@
   occurrences, distinct normalized Armis IDs, repeated occurrences, conflicting
   repeated payloads, configured-query overlap, and invalid rows. Do not infer
   these values from active canonical inventory.
+  Out of scope for this repository change: a live collection is not a fixture.
+  The section 2 equations cover the same counts with synthetic rows.
 - [ ] 1.2 Classify distinct Armis IDs sharing canonical UID, MAC, serial,
   hostname, or IP as source-alias candidates; determine whether Armis supplies
   an authoritative alias/duplicate relation. Keep shared-IP-only matches out of
   any approval set.
+  Out of scope for this repository change: judging a live source's alias
+  relation needs a collection this repo does not capture. Shared canonical
+  ownership stays evidence, and shared IP stays out of any approval set.
 - [x] 1.3 Record the pre-change customer reconciliation baseline for source
   `0f001c87-ebbb-42c1-93a0-95b9ed61bb3c`, including the 3,295 multi-ID rows,
   46 metadata disagreements, source-ID freshness distribution, and merge audit
@@ -54,31 +59,49 @@
 
 ## 4. Automatic merge containment
 
-- [ ] 4.1 Inventory every writer that can merge devices, reassign identifiers,
+- [x] 4.1 Inventory every writer that can merge devices, reassign identifiers,
   or clear ownership, including Ash actions and raw Ecto conflict paths.
+  Writers: `MergeEngine` under the device-row lock, `DuplicateSweep` (pairs
+  only; larger components blocked before a write), `Resolver.source_refusal`,
+  `IdentifierRecords` (conflict replace is `:last_seen` and `:metadata`),
+  and `SourceIdRetire` (manifest entry in the same transaction).
+  `SourceIdentityRepair` classifies and does not write.
 - [x] 4.2 Add a shared source-authority preflight that blocks any pair or full
   transitive component with disjoint, non-empty current Armis ID sets for the
   same partition/source instance.
-- [ ] 4.3 Apply the preflight to ingest-time convergence, `MergeEngine`,
+- [x] 4.3 Apply the preflight to ingest-time convergence, `MergeEngine`,
   `DuplicateSweep`, repair paths, and raw reassignment writers. Persist blocked
   members, ID sets, evidence, initiator, and reason.
-- [ ] 4.4 Add concurrency tests proving the preflight and writes share an
+  The writers in 4.1 are the coverage. A blocked merge persists a
+  `source_block` decision.
+- [x] 4.4 Add concurrency tests proving the preflight and writes share an
   appropriate lock/transaction boundary and cannot pass on stale ID sets.
+  `source_succession_test.exs` injects a source id after the merge locks the
+  device rows and asserts the merge aborts with no tombstone.
 
 ## 5. Existing-data remediation
 
 - [x] 5.1 Extend the source identity repair dry-run to classify one-current-ID,
   multiple-current-ID, and no-current-ID canonical rows against one activated
   collection and the audit trail.
-- [ ] 5.2 Add bounded, idempotent apply actions only for approved safe cases.
+- [x] 5.2 Add bounded, idempotent apply actions only for approved safe cases.
   Preserve prior ownership/provenance in an append-only manifest and fail closed
   for every source-alias candidate without independent evidence.
+  Apply is `SourceIdRetire`: bounded batches, an append-only manifest, and an
+  immediate re-read. Execute returns `remediation_prevention_not_deployed`
+  before reading settings when identifier conflict replacement includes
+  `:device_id` or the duplicate sweep would merge a three-device component.
+  Dry-run does not consult that gate. Multiple current IDs stay in manual
+  review.
 - [x] 5.3 Re-read every changed identifier/device immediately and expose an
   explicit failure result for ownership or count drift.
 - [ ] 5.4 After the protected writer is deployed, execute an approved customer batch,
   wait for a new inbound collection, and verify both the collection membership
   and the next northbound per-ID ledger. Do not treat job success or stale
   aggregate counts as verification.
+  Out of scope for this repository change: executing a live batch is an
+  operator step after the prevention gate is deployed. Do not record that run
+  here.
 
 ## 6. Operator experience
 
@@ -97,13 +120,26 @@
 - [ ] 7.2 Add database tests for immutable collection binding, one disposition
   per source ID, all withholding reasons, stopped batches, idempotent reruns,
   retention, and legacy accounting-unavailable collections.
+  Still open: an idempotent rerun of a finalized northbound run, retention that
+  keeps unresolved conflict rows, and a legacy collection that stays
+  accounting-unavailable. Binding, one disposition, withholding, and a stopped
+  batch already have tests.
 - [ ] 7.3 Extend the hermetic Armis/DIRE E2E with query-overlap duplicates, two
   distinct IDs sharing hardware evidence, isolated two-device merge attempts,
   transitive components, and exact captured-operation/ledger parity.
+  Still open: the e2e does not name a transitive component or
+  captured-operation/ledger parity. The pair fence and the size block already
+  have unit owners; do not copy those into the e2e.
 - [ ] 7.4 Add UI tests for a fully reconciled run, a transport-successful but
   withheld run, stale/missing collection state, duplicate occurrences, and a
   stopped batch with unattempted IDs.
+  Still open: a fully reconciled run, and a stopped batch with a nonzero
+  unattempted count. The degraded funnel, duplicate examples, the accepted-by
+  Armis label, ledger export, and the accounting-unavailable label already
+  have LiveView coverage.
 - [ ] 7.5 Run focused Go and Elixir tests, then the repository Bazel test target.
   Verification must assert persisted per-ID outcomes from a run started after
   the merge-fence rollout, and must include an explicit failing branch for every
   expected equation.
+  The post-rollout live run is an operator check and is not a repository
+  artifact. The in-repo half is the pull request's focused tests and Bazel CI.

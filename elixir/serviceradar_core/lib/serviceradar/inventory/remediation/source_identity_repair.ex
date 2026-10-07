@@ -22,7 +22,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdentityRepair do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.Identity.DuplicateSweep
   alias ServiceRadar.Inventory.Identity.SourceRetirement
+  alias ServiceRadar.Inventory.Sync.IdentifierRecords
   alias ServiceRadar.Repo
 
   @default_limit 5_000
@@ -149,6 +151,38 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdentityRepair do
   end
 
   def dry_run(_source, _source_instance, _opts), do: {:error, :invalid_source_instance}
+
+  @doc """
+  Whether apply-mode remediation may change identifier rows.
+
+  Execute stays closed unless both of these hold:
+
+  * duplicate sweep still blocks a three-device transitive component before
+    any pair merge
+  * bulk identifier upsert does not replace `:device_id` on conflict
+
+  `opts` may pass `:conflict_replace`, the field list the upsert would
+  replace. Callers omit it and the live list is used. Dry-run does not call
+  this.
+  """
+  @spec prevention_deployed?(keyword()) :: boolean()
+  def prevention_deployed?(opts \\ []) when is_list(opts) do
+    replace = Keyword.get(opts, :conflict_replace, IdentifierRecords.conflict_replace_fields())
+
+    is_list(replace) and :device_id not in replace and sweep_blocks_transitive_component?()
+  end
+
+  defp sweep_blocks_transitive_component? do
+    entries = [
+      {{"partition-a", :mac, "000000000001"}, MapSet.new(["sr:a", "sr:b"])},
+      {{"partition-a", :mac, "000000000002"}, MapSet.new(["sr:b", "sr:c"])}
+    ]
+
+    case DuplicateSweep.classify_duplicate_components(entries) do
+      %{mergeable: [], blocked: [%{device_ids: ["sr:a", "sr:b", "sr:c"]}]} -> true
+      _other -> false
+    end
+  end
 
   @doc false
   def classify_row(row) do

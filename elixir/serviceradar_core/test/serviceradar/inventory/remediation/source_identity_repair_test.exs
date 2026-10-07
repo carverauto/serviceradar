@@ -108,4 +108,19 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdentityRepairTest do
     assert result.proposed_action == "manual_source_alias_or_overmerge_review"
     assert result.apply_eligible
   end
+
+  test "retirement execute stays available while sweep containment and identifier ownership hold" do
+    assert SourceIdentityRepair.prevention_deployed?()
+  end
+
+  test "execute fails before any retirement when identifier ownership can be reassigned" do
+    alias ServiceRadar.Inventory.Remediation.SourceIdRetire
+
+    result =
+      SourceIdRetire.run(:execute, [conflict_replace: [:last_seen, :device_id]], nil, :unused)
+
+    assert result.execution_blocked
+    assert result.execution_blocked_reason == "remediation_prevention_not_deployed"
+    assert result.halted == "remediation_prevention_not_deployed"
+  end
 end
