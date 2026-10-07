@@ -678,16 +678,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
     StatefulAlertRuleHistory
     |> Ash.Changeset.for_create(:record, params, actor: actor)
-    |> Ash.create()
-    |> case do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        fail_in_transaction!(reason)
-        Logger.warning("Failed to record rule history: #{inspect(reason)}")
-        :error
-    end
+    |> Ash.create!()
+    :ok
   end
 
   def persist_snapshot(snapshot, rule, state) do
@@ -710,15 +702,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
     StatefulAlertRuleState
     |> Ash.Changeset.for_create(:upsert, params, state.ash_opts)
-    |> Ash.create()
-    |> case do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to persist rule snapshot: #{inspect(reason)}")
-        :error
-    end
+    |> Ash.create!()
+    :ok
   end
 
   defp fail_in_transaction!(reason) do
