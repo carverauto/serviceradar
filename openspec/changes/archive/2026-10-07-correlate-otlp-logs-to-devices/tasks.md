@@ -23,4 +23,4 @@
 
 ## 5. Validate
 
-- [ ] 5.1 Run `openspec validate correlate-otlp-logs-to-devices --strict` and fix any issues.
+- [x] 5.1 Run `openspec validate correlate-otlp-logs-to-devices --strict` and fix any issues.
