@@ -67,12 +67,6 @@ SHALL NOT reply with success having done nothing.
 - **THEN** the frame's paging position SHALL be preserved
 - **AND** the request SHALL either be serviced or reported as failed
 
-#### Scenario: Declaring more frames than the host will run is reported
-- **GIVEN** a dashboard manifest declaring more data frames than the host is willing to evaluate concurrently
-- **WHEN** the dashboard is loaded
-- **THEN** the frames the host declines to run SHALL be reported to the renderer as errored frames
-- **AND** they SHALL NOT be silently omitted from the delivered set
-
 ### Requirement: Cursor direction is honoured
 When a dashboard package pages a frame, the host SHALL honour the direction of the
 request, so that requesting the previous page returns the previous page.
