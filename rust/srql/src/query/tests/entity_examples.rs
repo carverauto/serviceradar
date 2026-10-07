@@ -340,31 +340,38 @@ fn events_device_id_alias_exists_matches_event_metadata_not_device_metadata() {
     // event naming the device only inside its own metadata document was never
     // matched by the alias arm. Every event-side column in that subquery must
     // stay qualified with the outer `"ocsf_events"` table.
-    let query = r#"in:events device_id:"sr:device-1" time:last_24h"#;
-    let plan = plan_for(query);
+    for field in ["device_id", "device_uid", "uid", "source_device_uid"] {
+        let query = format!("in:events {field}:sr:device-0001 sort:time:desc limit:50");
+        let plan = plan_for(&query);
 
-    let (sql, _) = events::to_sql_and_params(&plan).expect("should build events device SQL");
-    let lower = sql.to_lowercase();
-    assert!(
-        lower.contains("from platform.ocsf_devices as d"),
-        "device_id lookup must keep the inventory-alias EXISTS, got: {sql}"
-    );
-    for column in [
-        "device",
-        "metadata",
-        "unmapped",
-        "observables",
-        "src_endpoint",
-        "dst_endpoint",
-    ] {
+        let (sql, _) = events::to_sql_and_params(&plan).expect("should build events device SQL");
+        let lower = sql.to_lowercase();
         assert!(
-            lower.contains(&format!("\"ocsf_events\".\"{column}\"::text ilike")),
-            "alias EXISTS must match the EVENT's {column} via the outer table reference, got: {sql}"
+            lower.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-0001'")
+                && lower.contains("device ->> 'uid' = 'sr:device-0001'"),
+            "{field} must select the canonical event identity, got: {sql}"
         );
         assert!(
-            !lower.contains(&format!("{column}::text ilike")),
-            "unqualified {column}::text inside the EXISTS binds to ocsf_devices when it carries the same column name, got: {sql}"
+            lower.contains("from platform.ocsf_devices as d"),
+            "device_id lookup must keep the inventory-alias EXISTS, got: {sql}"
         );
+        for column in [
+            "device",
+            "metadata",
+            "unmapped",
+            "observables",
+            "src_endpoint",
+            "dst_endpoint",
+        ] {
+            assert!(
+                lower.contains(&format!("\"ocsf_events\".\"{column}\"::text ilike")),
+                "alias EXISTS must match the EVENT's {column} via the outer table reference, got: {sql}"
+            );
+            assert!(
+                !lower.contains(&format!("{column}::text ilike")),
+                "unqualified {column}::text inside the EXISTS binds to ocsf_devices when it carries the same column name, got: {sql}"
+            );
+        }
     }
 }
 
