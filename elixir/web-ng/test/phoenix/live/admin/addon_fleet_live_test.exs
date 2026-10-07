@@ -666,7 +666,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     socket = %Socket{
       assigns: %{__changed__: %{}, flash: %{}, current_scope: scope},
-      private: %{live_temp: %{}, lifecycle: %Lifecycle{view: Index}},
+      private: %{live_temp: %{}, lifecycle: %Lifecycle{}},
+      router: ServiceRadarWebNGWeb.Router,
+      view: Index,
       endpoint: ServiceRadarWebNGWeb.Endpoint
     }
 
@@ -762,7 +764,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
           permissions: MapSet.new(["plugins.view"])
         }
       },
-      private: %{live_temp: %{}, lifecycle: %Lifecycle{view: Index}},
+      private: %{live_temp: %{}, lifecycle: %Lifecycle{}},
+      router: ServiceRadarWebNGWeb.Router,
+      view: Index,
       endpoint: ServiceRadarWebNGWeb.Endpoint
     }
 
