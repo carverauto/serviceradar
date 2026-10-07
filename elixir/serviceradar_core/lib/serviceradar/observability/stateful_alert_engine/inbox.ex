@@ -127,16 +127,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     require_capacity(pending, limits)
     insert(pending, signal)
 
-    pending
-    |> Enum.map(& &1.rule_id)
-    |> Enum.uniq()
-    |> Enum.each(fn rule_id ->
-      case EvaluationWorker.enqueue(rule_id) do
-        {:ok, _job} -> :ok
-        {:error, _reason} -> :ok
-      end
-    end)
-
     {Enum.map(candidates, &{&1.rule_id, &1.source_key}), length(pending)}
   end
 
