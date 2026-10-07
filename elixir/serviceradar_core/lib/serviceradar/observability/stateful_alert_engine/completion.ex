@@ -27,8 +27,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Completion do
       {:error, :evaluation_completion_timeout}
     else
       case Inbox.transact(min(remaining, 2_000), fn -> read_receipts(keys) end) do
-        {:ok, receipts} -> observe(keys, receipts, deadline)
-        {:error, _} = error -> error
+        {:ok, receipts} ->
+          observe(keys, receipts, deadline)
+
+        {:error, _} = error ->
+          # The database transaction shares this deadline. It can expire while
+          # reading receipts or restoring its timeouts and report a rollback.
+          if System.monotonic_time(:millisecond) >= deadline do
+            {:error, :evaluation_completion_timeout}
+          else
+            error
+          end
       end
     end
   end
