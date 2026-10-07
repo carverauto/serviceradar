@@ -278,6 +278,7 @@ type natsBootstrapPaths struct {
 	systemAccountPublicKeyPath string
 	systemCredsPath            string
 	platformCredsPath          string
+	flowCollectorCredsPath     string
 	platformAccountPublicKey   string
 }
 
@@ -436,6 +437,15 @@ func writePlatformAccountFiles(cfg *CmdConfig, paths *natsBootstrapPaths, result
 		return fmt.Errorf("write platform.creds: %w", err)
 	}
 
+	flowCollectorCreds, err := generateFlowCollectorCreds(platformAccount, platformResult.AccountSeed)
+	if err != nil {
+		return fmt.Errorf("generate flow collector creds: %w", err)
+	}
+	paths.flowCollectorCredsPath = filepath.Join(paths.outputDir, "flow-collector.creds")
+	if err := os.WriteFile(paths.flowCollectorCredsPath, []byte(flowCollectorCreds.CredsFileContent), 0600); err != nil {
+		return fmt.Errorf("write flow-collector.creds: %w", err)
+	}
+
 	platformJWTPath := filepath.Join(paths.jwtDir, platformResult.AccountPublicKey+".jwt")
 	if err := os.WriteFile(platformJWTPath, []byte(platformResult.AccountJWT), 0644); err != nil {
 		return fmt.Errorf("write platform account JWT: %w", err)
@@ -495,6 +505,7 @@ func outputNATSBootstrapJSON(result *natsBootstrapAPIResponse, paths *natsBootst
 		"system_account_public_key_path": paths.systemAccountPublicKeyPath,
 		"system_creds_path":              paths.systemCredsPath,
 		"platform_creds_path":            paths.platformCredsPath,
+		"flow_collector_creds_path":      paths.flowCollectorCredsPath,
 		"platform_account_public_key":    paths.platformAccountPublicKey,
 	}
 	if result.OperatorSeed != "" {
@@ -711,16 +722,9 @@ func GenerateAgentFlowCollectorCreds(
 	subject := "flow.host-slice." + agentID
 
 	permissions := &accounts.UserPermissions{
-		PublishAllow: []string{
-			subject,
-			"$JS.API.>",
-			"$JS.ACK.>",
-			"_INBOX.>",
-		},
+		PublishAllow: append([]string{subject}, flowCollectorStreamPermissions()...),
 		PublishDeny: []string{"$SYS.>", "flow.attributed.>"},
 		SubscribeAllow: []string{
-			"$JS.API.>",
-			"$JS.ACK.>",
 			"_INBOX.>",
 			"config.flow-collector." + agentID + ".>",
 		},
@@ -739,6 +743,40 @@ func GenerateAgentFlowCollectorCreds(
 		permissions,
 		expirationSeconds,
 	)
+}
+
+func generateFlowCollectorCreds(accountName string, accountSeed string) (*accounts.UserCredentials, error) {
+	permissions := &accounts.UserPermissions{
+		PublishAllow: append([]string{
+			"flow.host-slice.>",
+			"flow.raw.>",
+			"flows.raw.>",
+		}, flowCollectorStreamPermissions()...),
+		PublishDeny:   []string{"$SYS.>", "flow.attributed.>"},
+		SubscribeAllow: []string{"_INBOX.>", "config.flow-collector.>"},
+		SubscribeDeny:  []string{"$SYS.>", "flow.host-slice.>", "flow.attributed.>"},
+		AllowResponses: true,
+		MaxResponses:   16,
+	}
+
+	return accounts.GenerateUserCredentials(
+		accountName,
+		accountSeed,
+		"flow-collector",
+		accounts.CredentialTypeService,
+		permissions,
+		0,
+	)
+}
+
+func flowCollectorStreamPermissions() []string {
+	return []string{
+		"$JS.API.STREAM.INFO.flows",
+		"$JS.API.STREAM.CREATE.flows",
+		"$JS.API.STREAM.UPDATE.flows",
+		"$JS.API.STREAM.INFO.events",
+		"$JS.API.STREAM.UPDATE.events",
+	}
 }
 
 // GeneratePartitionCoreCreds issues a NATS user JWT scoped to a single

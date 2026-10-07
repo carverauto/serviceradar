@@ -1890,7 +1890,6 @@ flowCollector:
   # top-level flowCollector.streamReplicas key.
   config:
     nats_url: "tls://serviceradar-nats:4222"
-    nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "flows"
     # flows reservation. Unset: nats.jetstream.profile supplies it (small =
     # 8 GiB). The budget counts flows at this size and stream_replicas even

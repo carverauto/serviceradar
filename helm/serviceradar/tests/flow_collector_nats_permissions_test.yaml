@@ -1,0 +1,98 @@
+suite: Flow collector NATS permissions
+templates:
+  - templates/nats.yaml
+  - templates/flow-collector.yaml
+  - templates/flow-collector-bootstrap-configmap.yaml
+  - templates/flow-collector-bootstrap-job.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: limits collector identities to their data subjects streams and reply inboxes
+    template: templates/nats.yaml
+    set:
+      flowCollector.enabled: true
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["flows\.raw\.>", "flow\.host-slice\.>", "\\\$JS\.API\.STREAM\.INFO\.flows", "\\\$JS\.API\.STREAM\.CREATE\.flows", "\\\$JS\.API\.STREAM\.UPDATE\.flows", "\\\$JS\.API\.STREAM\.INFO\.events", "\\\$JS\.API\.STREAM\.UPDATE\.events"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-netflow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["flows\.raw\.>", "\\\$JS\.API\.STREAM\.INFO\.flows", "\\\$JS\.API\.STREAM\.CREATE\.flows", "\\\$JS\.API\.STREAM\.UPDATE\.flows", "\\\$JS\.API\.STREAM\.INFO\.events", "\\\$JS\.API\.STREAM\.UPDATE\.events"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
+
+  - it: scopes stream management to a custom configured stream
+    template: templates/nats.yaml
+    set:
+      flowCollector.enabled: true
+      flowCollector.config.stream_name: synthetic_flows
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+".*"\\\$JS\.API\.STREAM\.INFO\.synthetic_flows", "\\\$JS\.API\.STREAM\.CREATE\.synthetic_flows", "\\\$JS\.API\.STREAM\.UPDATE\.synthetic_flows"'
+
+  - it: grants no collector permissions when the collector is disabled
+    template: templates/nats.yaml
+    set:
+      flowCollector.enabled: false
+      flowCollector.config.stream_name: invalid.stream
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-flow-collector,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[\]\s+\}\s+subscribe: \{\s+allow: \[\]'
+
+  - it: rejects unsafe stream names when the collector is enabled
+    template: templates/nats.yaml
+    set:
+      flowCollector.enabled: true
+      flowCollector.config.stream_name: flows.>
+    asserts:
+      - failedTemplate:
+          errorMessage: 'flowCollector.config.stream_name "flows.>" must contain only letters, digits, underscores, or hyphens'
+
+  - it: uses the scoped mTLS identity instead of platform credentials
+    template: templates/flow-collector.yaml
+    set:
+      flowCollector.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nats-creds
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: nats-creds
+
+  - it: keeps platform credentials out of the bootstrap job
+    template: templates/flow-collector-bootstrap-job.yaml
+    set:
+      flowCollector.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nats-creds
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: nats-creds
+
+  - it: rejects credentials that bypass the scoped mTLS identity
+    template: templates/flow-collector.yaml
+    set:
+      flowCollector.enabled: true
+      flowCollector.config.nats_creds_file: /etc/serviceradar/creds/platform.creds
+    asserts:
+      - failedTemplate:
+          errorMessage: 'flowCollector.config.nats_creds_file is unsupported; the chart uses the scoped flow-collector mTLS identity'

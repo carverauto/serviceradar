@@ -1,4 +1,7 @@
 {{- if .Values.flowCollector.enabled }}
+{{- if (.Values.flowCollector.config).nats_creds_file }}
+{{- fail "flowCollector.config.nats_creds_file is unsupported; the chart uses the scoped flow-collector mTLS identity" }}
+{{- end }}
 {{- $data := default (dict) .Values.flowCollector.data -}}
 {{- $dataEnabled := true -}}
 {{- if hasKey $data "enabled" -}}
@@ -54,9 +57,6 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: nats-creds
-          mountPath: /etc/serviceradar/creds
-          readOnly: true
         - name: flow-collector-data
           mountPath: /var/lib/serviceradar
       volumes:
@@ -71,9 +71,6 @@ spec:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
 {{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "flow-collector.pem" "flow-collector-key.pem") | indent 12 }}
-      - name: nats-creds
-        secret:
-          secretName: serviceradar-nats-creds
       - name: flow-collector-data
       {{- if and $dataEnabled (not $data.existingClaim) .Release.IsInstall }}
         # Fresh install: serviceradar-flow-collector-data (flow-collector.yaml)

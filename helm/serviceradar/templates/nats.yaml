@@ -37,6 +37,13 @@
   {{- fail (printf "k8sInventory.nats.stream %q must contain only letters, digits, underscores, or hyphens" $k8sInventoryStream) -}}
 {{- end -}}
 {{- end -}}
+{{- $flowCollector := default (dict) .Values.flowCollector -}}
+{{- $flowCollectorConfig := default (dict) $flowCollector.config -}}
+{{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
+{{- $flowCollectorStream := default "flows" $flowCollectorConfig.stream_name -}}
+{{- if and $flowCollectorEnabled (not (regexMatch `^[A-Za-z0-9_-]+$` $flowCollectorStream)) -}}
+  {{- fail (printf "flowCollector.config.stream_name %q must contain only letters, digits, underscores, or hyphens" $flowCollectorStream) -}}
+{{- end -}}
 {{- /*
 B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
 to render the core/datasvc/agent NATS ACL blocks below. The chart's
@@ -483,10 +490,18 @@ spec:
                 user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "flow.host-slice.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                    {{- if $flowCollectorEnabled }}
+                    allow: ["flows.raw.>", "flow.host-slice.>", {{ printf "\"\\$JS.API.STREAM.INFO.%s\"" $flowCollectorStream }}, {{ printf "\"\\$JS.API.STREAM.CREATE.%s\"" $flowCollectorStream }}, {{ printf "\"\\$JS.API.STREAM.UPDATE.%s\"" $flowCollectorStream }}, "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.UPDATE.events"]
+                    {{- else }}
+                    allow: []
+                    {{- end }}
                   }
                   subscribe: {
-                    allow: ["\$JS.API.>", "_INBOX.>"]
+                    {{- if $flowCollectorEnabled }}
+                    allow: ["_INBOX.>"]
+                    {{- else }}
+                    allow: []
+                    {{- end }}
                   }
                 }
               },
@@ -494,10 +509,18 @@ spec:
                 user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                    {{- if $flowCollectorEnabled }}
+                    allow: ["flows.raw.>", {{ printf "\"\\$JS.API.STREAM.INFO.%s\"" $flowCollectorStream }}, {{ printf "\"\\$JS.API.STREAM.CREATE.%s\"" $flowCollectorStream }}, {{ printf "\"\\$JS.API.STREAM.UPDATE.%s\"" $flowCollectorStream }}, "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.UPDATE.events"]
+                    {{- else }}
+                    allow: []
+                    {{- end }}
                   }
                   subscribe: {
-                    allow: ["\$JS.API.>", "_INBOX.>"]
+                    {{- if $flowCollectorEnabled }}
+                    allow: ["_INBOX.>"]
+                    {{- else }}
+                    allow: []
+                    {{- end }}
                   }
                 }
               },
