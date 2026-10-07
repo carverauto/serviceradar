@@ -37,9 +37,9 @@ tests:
       # RWO PVC cannot attach to pods scheduled on different nodes, so this
       # is the one change that makes replicaCount > 1 possible at all.
       - equal:
-          path: spec.template.spec.volumes[3].name
+          path: spec.template.spec.volumes[2].name
           value: flow-collector-data
       - isNotNull:
-          path: spec.template.spec.volumes[3].emptyDir
+          path: spec.template.spec.volumes[2].emptyDir
       - isNull:
-          path: spec.template.spec.volumes[3].persistentVolumeClaim
+          path: spec.template.spec.volumes[2].persistentVolumeClaim
