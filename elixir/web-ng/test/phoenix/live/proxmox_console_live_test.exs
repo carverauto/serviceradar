@@ -87,23 +87,49 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
   end
 
   test "does not request a session with console-open but without credential-use permission", %{
-    conn: conn,
-    user: user
+    conn: conn
   } do
-    permissions = MapSet.new(["devices.console.open"])
-
-    # The disconnected render runs in the test process, while the connected
-    # LiveView mounts in its own process. Populate both RBAC cache tiers so the
-    # permission contraction is observed consistently across that boundary.
-    Process.put({:rbac_permissions, user.id}, permissions)
-    Cache.put(user.id, permissions)
-    on_exit(fn -> Cache.invalidate(user.id) end)
+    # The LiveView resolves the caller's authority from persistence through the
+    # per-mount scope, so the narrowing has to be a stored role profile like the
+    # API test: a cache-only entry is repopulated from the persisted authority
+    # (and can be invalidated by concurrent tests), which passed in isolation
+    # and failed in the full suite.
+    user =
+      persist_role_profile!(AshTestHelpers.viewer_user_fixture(), ["devices.console.open"])
 
     {:ok, _view, html} =
-      live(conn, ~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")
+      conn
+      |> log_in_user(user)
+      |> live(~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")
 
     assert html =~ "You do not have permission to open remote consoles."
     refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
+  end
+
+  defp persist_role_profile!(user, permissions) do
+    actor = AshTestHelpers.system_actor()
+
+    profile =
+      ServiceRadar.Identity.RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Proxmox console open only #{System.unique_integer([:positive])}",
+          description: "Console open without credential use",
+          permissions: permissions
+        },
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: actor)
+      |> Ash.update!()
+
+    Cache.put(updated.id, MapSet.new(permissions))
+    updated
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

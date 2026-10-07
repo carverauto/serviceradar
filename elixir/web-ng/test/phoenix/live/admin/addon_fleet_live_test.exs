@@ -11,13 +11,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   import Phoenix.LiveViewTest
 
   alias Phoenix.LiveView.Socket
+  alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index
+  alias ServiceRadarWebNGWeb.Settings.ShellHook
 
   require Ash.Query
 
@@ -25,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
   setup %{conn: conn} do
     user = admin_user_fixture()
-    %{conn: log_in_user(conn, user), actor: actor_for_user(user)}
+    %{conn: log_in_user(conn, user), actor: actor_for_user(user), user: user}
   end
 
   # GitHub #4454: addon_statuses rows are never deleted, so an agent's last
@@ -653,9 +656,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert_patch(view, "/settings/agents/addons/fleet")
   end
 
-  test "disconnected mount and render make no database queries", %{actor: actor} do
+  test "disconnected mount and render make no database queries", %{user: user} do
+    # Build the socket the LiveView runtime provides: a resolved Scope with a
+    # precomputed permissions MapSet (a bare actor map matches no RBAC.can?
+    # clause and falls into the put_flash branch), a flash assign, and a
+    # lifecycle for the stream setup in mount.
+    scope = Scope.for_user(user, permissions: Catalog.permissions_for_role(:admin))
+
     socket = %Socket{
-      assigns: %{__changed__: %{}, current_scope: actor},
+      assigns: %{__changed__: %{}, flash: %{}, current_scope: scope},
+      private: %{live_temp: %{}, lifecycle: %Phoenix.LiveView.Lifecycle{}},
       endpoint: ServiceRadarWebNGWeb.Endpoint
     }
 
@@ -681,6 +691,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
                "http://localhost/settings/agents/addons/fleet",
                socket
              )
+
+    # The Settings shell hook owns the shell assigns in production; run its
+    # on_mount so the direct render sees the same no-op defaults.
+    {:cont, socket} = ShellHook.on_mount(:default, %{}, %{}, socket)
 
     _html = render_component(&Index.render/1, socket.assigns)
 
@@ -727,7 +741,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
           rollout_state: nil,
           rollout_candidate_version: nil,
           rollout_previous_version: nil,
-          health: %{},
+          health: nil,
           attention: [],
           attention?: false
         }
@@ -737,11 +751,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       transport_pid: self(),
       assigns: %{
         __changed__: %{},
-        current_scope: %ServiceRadarWebNG.Accounts.Scope{
-          user: %ServiceRadar.Identity.User{timezone: "Etc/UTC"},
+        flash: %{},
+        current_scope: %Scope{
+          user: %ServiceRadar.Identity.User{
+            timezone: "Etc/UTC",
+            email: "fleet-stream@example.com",
+            role: :admin
+          },
           permissions: MapSet.new(["plugins.view"])
         }
       },
+      private: %{live_temp: %{}, lifecycle: %Phoenix.LiveView.Lifecycle{}},
       endpoint: ServiceRadarWebNGWeb.Endpoint
     }
 
@@ -765,6 +785,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert socket.assigns.use_stream? == true
     assert socket.assigns.agent_group_total == 105
     assert length(socket.assigns.paged_agent_groups) == 10
+
+    # The Settings shell hook owns the shell assigns in production; run its
+    # on_mount so the direct render sees the same no-op defaults.
+    {:cont, socket} = ShellHook.on_mount(:default, %{}, %{}, socket)
 
     # Render streamed cards and verify DOM attributes
     html = render_component(&Index.render/1, socket.assigns)
