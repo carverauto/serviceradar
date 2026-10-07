@@ -522,6 +522,10 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     # absent. Recovery commits those effects exactly once after lock release.
     assert alert_count(rule.id) == 0
     assert history_count(rule.id) == 0
+    # The kill DOWN fires when the owner process dies, but its database
+    # transaction rolls back asynchronously; the rule fence stays busy until
+    # that rollback finishes. Wait for the fence itself before advancing.
+    assert wait_until(fn -> fence_free?(rule.id) end, 5_000)
     assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
     assert alert_count(rule.id) == 1
     assert history_count(rule.id) == 1
@@ -1079,6 +1083,18 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
       log_provider: "example.collector",
       unmapped: %{}
     }
+  end
+
+  defp fence_free?(rule_id) do
+    Repo.transaction(fn ->
+      %{rows: [[free?]]} =
+        Repo.query!(
+          "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
+          [Inbox.evaluation_key(rule_id)]
+        )
+
+      free?
+    end) == {:ok, true}
   end
 
   defp wait_until(predicate, timeout_ms) do
