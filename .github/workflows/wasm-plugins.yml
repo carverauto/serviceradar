@@ -2,20 +2,14 @@ name: Publish Wasm Plugins
 
 on:
   # Republish Wasm plugins on every release tag so the published artifacts (and the
-  # versions surfaced in the Plugins Manager) track the code, instead of only on manual
-  # dispatch. Mirrors native-addons.yml, which republishes add-ons on the same `v*` tags.
+  # versions surfaced in the Plugins Manager) track the release code. Mirrors
+  # native-addons.yml, which republishes add-ons on the same `v*` tags.
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Optional extra tag to apply to published Wasm plugin artifacts."
-        required: false
-        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -50,32 +44,16 @@ jobs:
 
       - name: Enforce release tag source
         env:
-          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
           RELEASE_BASE_REF: origin/staging
         run: |
           set -euo pipefail
 
-          publish_tag="${INPUT_TAG}"
-          if [[ -z "${publish_tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
-            publish_tag="${GITHUB_REF#refs/tags/}"
-          fi
-          if [[ -z "${publish_tag}" || "${publish_tag}" != v* ]]; then
-            echo "Branch catalog dispatch: skipping release-tag source gate."
-            exit 0
-          fi
-
-          release_tag="${publish_tag}"
+          release_tag="${GITHUB_REF#refs/tags/}"
           ./scripts/validate-release-tag.sh "${release_tag}"
           expected_ref="refs/tags/${release_tag}"
-          # Tag-push must run on the annotated tag ref. workflow_dispatch may
-          # use staging (or another branch) to recover a failed tag publish so
-          # long as the tag still points at a staging-reachable release commit.
-          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
-            echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
+          if [[ "${GITHUB_EVENT_NAME}" != "push" || "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "Release tag ${release_tag} must be published by a push to ${expected_ref}, got ${GITHUB_EVENT_NAME}:${GITHUB_REF}" >&2
             exit 1
-          fi
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
-            echo "workflow_dispatch recovery for ${release_tag} from ${GITHUB_REF} (expected tag ref ${expected_ref})."
           fi
 
           git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
@@ -84,8 +62,9 @@ jobs:
           fi
 
           tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
-          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Unable to resolve commit for ${release_tag}" >&2
+          checkout_commit="$(git rev-parse HEAD^{commit})"
+          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ || "${checkout_commit}" != "${tag_commit}" ]]; then
+            echo "Checked-out commit ${checkout_commit} does not match ${release_tag} commit ${tag_commit}" >&2
             exit 1
           fi
           file_version="$(git show "${tag_commit}:VERSION")"
@@ -101,7 +80,7 @@ jobs:
             exit 1
           fi
 
-          echo "Validated ${release_tag} at ${tag_commit} from ${RELEASE_BASE_REF}."
+          echo "Validated ${release_tag} at checked-out commit ${tag_commit} from ${RELEASE_BASE_REF}."
 
       - name: Cache Bazel artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -175,10 +154,10 @@ jobs:
 
       - name: Publish Wasm plugin OCI artifacts
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          EXTRA_TAG: ${{ github.ref_name }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: github-signing-runner
-          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/tags/v.*$'
           COSIGN_KEY_REF: hashivault://cosign-release
           COSIGN_YES: "true"
           COSIGN_DOCKER_MEDIA_TYPES: "1"
@@ -211,7 +190,7 @@ jobs:
 
       - name: Generate import index
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          EXTRA_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
@@ -221,7 +200,7 @@ jobs:
 
       - name: Upload import index release asset
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          EXTRA_TAG: ${{ github.ref_name }}
           # ARC does not put the reserved GITHUB_TOKEN name in the step env.
           # GH_TOKEN is the name that actually arrives on serviceradar-signing.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

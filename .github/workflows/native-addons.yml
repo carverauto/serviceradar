@@ -2,37 +2,22 @@ name: Publish Native Add-ons
 
 on:
   # Republish native add-ons on every release tag so the published artifacts (and the
-  # versions surfaced in the add-ons UI) track the code, instead of only on manual dispatch.
+  # versions surfaced in the add-ons UI) track the release code.
   # Pairs with release.yml, which builds the images on the same `v*` tags.
   push:
     tags:
       - 'v*'
+  # Manual dispatch is reserved for the reviewed, ephemeral agent test artifact below.
+  # Production add-on catalogs are published only by the v* tag-push path.
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Publish add-ons or prepare a signed agent test artifact without publishing a release."
-        required: true
-        default: addons
-        type: choice
-        options:
-          - addons
-          - agent-test-artifact
       expected_commit:
-        description: "Full reviewed commit SHA, required for agent-test-artifact mode."
-        required: false
+        description: "Full reviewed commit SHA for the agent test artifact."
+        required: true
         type: string
-      tag:
-        description: "Optional extra tag to apply to published native add-on artifacts."
-        required: false
-        type: string
-      sign_branch_catalog:
-        description: "Sign workflow-dispatch branch catalogs for maintainer demo/import validation."
-        required: false
-        default: "false"
-        type: boolean
 
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.mode == 'agent-test-artifact' && 'agent-test-artifact' || 'addons' }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && 'agent-test-artifact' || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -41,7 +26,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'agent-test-artifact'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: serviceradar-signing
     environment: release
     env:
@@ -78,7 +63,7 @@ jobs:
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       # Used by the publish, import-index and release-asset steps, which must all agree on
       # the tag they are naming. Computed once here rather than repeated per step.
-      EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+      EXTRA_TAG: ${{ github.ref_name }}
 
     steps:
       - name: Checkout
@@ -88,32 +73,16 @@ jobs:
 
       - name: Enforce release tag source
         env:
-          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
           RELEASE_BASE_REF: origin/staging
         run: |
           set -euo pipefail
 
-          publish_tag="${INPUT_TAG}"
-          if [[ -z "${publish_tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
-            publish_tag="${GITHUB_REF#refs/tags/}"
-          fi
-          if [[ -z "${publish_tag}" || "${publish_tag}" != v* ]]; then
-            echo "Branch catalog dispatch: skipping release-tag source gate."
-            exit 0
-          fi
-
-          release_tag="${publish_tag}"
+          release_tag="${GITHUB_REF#refs/tags/}"
           ./scripts/validate-release-tag.sh "${release_tag}"
           expected_ref="refs/tags/${release_tag}"
-          # Tag-push must run on the annotated tag ref. workflow_dispatch may
-          # use staging (or another branch) to recover a failed tag publish so
-          # long as the tag still points at a staging-reachable release commit.
-          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
-            echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
+          if [[ "${GITHUB_EVENT_NAME}" != "push" || "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "Release tag ${release_tag} must be published by a push to ${expected_ref}, got ${GITHUB_EVENT_NAME}:${GITHUB_REF}" >&2
             exit 1
-          fi
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
-            echo "workflow_dispatch recovery for ${release_tag} from ${GITHUB_REF} (expected tag ref ${expected_ref})."
           fi
 
           git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
@@ -122,8 +91,9 @@ jobs:
           fi
 
           tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
-          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Unable to resolve commit for ${release_tag}" >&2
+          checkout_commit="$(git rev-parse HEAD^{commit})"
+          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ || "${checkout_commit}" != "${tag_commit}" ]]; then
+            echo "Checked-out commit ${checkout_commit} does not match ${release_tag} commit ${tag_commit}" >&2
             exit 1
           fi
           file_version="$(git show "${tag_commit}:VERSION")"
@@ -139,7 +109,7 @@ jobs:
             exit 1
           fi
 
-          echo "Validated ${release_tag} at ${tag_commit} from ${RELEASE_BASE_REF}."
+          echo "Validated ${release_tag} at checked-out commit ${tag_commit} from ${RELEASE_BASE_REF}."
 
       - name: Cache Bazel artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -223,7 +193,6 @@ jobs:
 
       - name: Publish native add-on OCI artifacts
         env:
-          SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
           # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=remote).
           # Every flag that differs forks the configuration, and a forked configuration
           # shares no remote cache entries with the one CI just warmed -- it rebuilds the
@@ -277,25 +246,11 @@ jobs:
 
           ./scripts/push_all_native_addons.sh "${push_args[@]}"
 
-          release_signing_refs_regex='^refs/(tags/v.*|heads/(staging|main|master))$'
-          should_sign="false"
-          if [[ "${GITHUB_REF:-}" =~ ${release_signing_refs_regex} ]]; then
-            should_sign="true"
-            export OPENBAO_SIGNING_ALLOWED_REFS_REGEX="${release_signing_refs_regex}"
-          elif [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" && "${SIGN_BRANCH_CATALOG:-false}" == "true" ]]; then
-            should_sign="true"
-            unset OPENBAO_SIGNING_ALLOWED_REFS_REGEX
-            echo "Signing workflow-dispatch branch catalog for maintainer demo/import validation: ${GITHUB_REF:-unknown-ref}."
-          fi
-
-          if [[ "${should_sign}" == "true" ]]; then
-            source ./scripts/ci/prepare-openbao-cosign-env.sh
-            ./scripts/sign-native-addon-publish.sh "${verify_tags[@]}"
-            ./scripts/verify-native-addon-publish.sh "${verify_tags[@]}"
-            unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
-          else
-            echo "Skipping OpenBao cosign signing for non-release ref '${GITHUB_REF:-}'. Set sign_branch_catalog=true on workflow_dispatch to sign a branch catalog for demo/import validation."
-          fi
+          export OPENBAO_SIGNING_ALLOWED_REFS_REGEX='^refs/tags/v.*$'
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          ./scripts/sign-native-addon-publish.sh "${verify_tags[@]}"
+          ./scripts/verify-native-addon-publish.sh "${verify_tags[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Generate import index
         env:
@@ -429,7 +384,7 @@ jobs:
           echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"
 
   agent_test_artifact:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'agent-test-artifact'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: serviceradar-signing
     environment: release
     permissions:
