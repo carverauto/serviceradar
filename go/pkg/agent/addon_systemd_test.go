@@ -18,6 +18,11 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -26,6 +31,7 @@ import (
 	"testing"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestValidateAddonUnitName(t *testing.T) {
@@ -116,69 +122,896 @@ func TestResolveStagedAddonUnitEscapeGuard(t *testing.T) {
 	}
 }
 
-func TestScalibrSystemdUnitRelabelsStagedBinary(t *testing.T) {
-	assertSystemdUnitRelabelsStagedBinary(t,
-		filepath.Join("..", "..", "..", "addons", "scalibr-endpoint-inventory",
-			"serviceradar-scalibr-endpoint-inventory.service"),
-		"/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory",
-	)
+func TestInstalledBundledUnitsExecuteFromPrivilegedRoot(t *testing.T) {
+	units := []struct {
+		name       string
+		addonID    string
+		relPath    string
+		wantBinary string
+	}{
+		{
+			name:       "netprobe",
+			addonID:    "netprobe",
+			relPath:    filepath.Join("..", "..", "..", "addons", "netprobe", "serviceradar-netprobe.service"),
+			wantBinary: "/usr/lib/serviceradar/addons/netprobe/current/serviceradar-netprobe",
+		},
+		{
+			name:       "bumblebee",
+			addonID:    "bumblebee",
+			relPath:    filepath.Join("..", "..", "..", "addons", "bumblebee-scan", "serviceradar-bumblebee-scan.service"),
+			wantBinary: "/usr/lib/serviceradar/addons/bumblebee/current/serviceradar-bumblebee-scan",
+		},
+		{
+			name:       "scalibr",
+			addonID:    "scalibr-endpoint-inventory",
+			relPath:    filepath.Join("..", "..", "..", "addons", "scalibr-endpoint-inventory", "serviceradar-scalibr-endpoint-inventory.service"),
+			wantBinary: "/usr/lib/serviceradar/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory",
+		},
+		{
+			name:       "workload-identity",
+			addonID:    "workload-identity",
+			relPath:    filepath.Join("..", "..", "..", "addons", "workload-identity", "serviceradar-workload-identity.service"),
+			wantBinary: "/usr/lib/serviceradar/addons/workload-identity/current/serviceradar-workload-identity",
+		},
+	}
+
+	for _, tc := range units {
+		t.Run(tc.name, func(t *testing.T) {
+			bundled, err := os.ReadFile(tc.relPath)
+			if err != nil {
+				t.Fatalf("read unit file %s: %v", tc.relPath, err)
+			}
+			unitName := filepath.Base(tc.relPath)
+			binary := filepath.Base(tc.wantBinary)
+			root := t.TempDir()
+			unitDir := filepath.Join(root, "systemd")
+			if err := os.MkdirAll(unitDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			origUnitDir := systemdUnitDir
+			systemdUnitDir = unitDir
+			t.Cleanup(func() { systemdUnitDir = origUnitDir })
+			installMockSystemctl(t, t.TempDir())
+
+			artPath, sha, sig := createTestSignedAddonTarball(t, binary, map[string][]byte{
+				unitName: bundled,
+			})
+			err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+				RuntimeRoot:    root,
+				PrivilegedRoot: filepath.Join(root, "privileged"),
+				AddonID:        tc.addonID,
+				Version:        "1.0.0",
+				BinaryName:     binary,
+				ArtifactPath:   artPath,
+				ArtifactSHA256: sha,
+				Signature:      sig,
+				Units:          []string{unitName},
+				Enable:         unitName,
+			})
+			if err != nil {
+				t.Fatalf("install bundled unit: %v", err)
+			}
+
+			installed, err := os.ReadFile(filepath.Join(unitDir, unitName))
+			if err != nil {
+				t.Fatalf("installed unit missing: %v", err)
+			}
+			paths := systemdUnitCommandPaths(installed)
+			if len(paths) == 0 {
+				t.Fatal("installed unit has no executable command")
+			}
+			for _, path := range paths {
+				for _, writable := range writableAddonRoots("") {
+					if pathIsWithin(filepath.Clean(path), writable) {
+						t.Fatalf("installed command %s executes from the agent-writable tree", path)
+					}
+				}
+			}
+			var execStart string
+			for _, raw := range strings.Split(joinSystemdContinuations(string(installed)), "\n") {
+				line := strings.TrimSpace(raw)
+				key, value, ok := strings.Cut(line, "=")
+				if ok && strings.TrimSpace(key) == "ExecStart" {
+					execStart, _ = systemdCommandPath(value)
+					break
+				}
+			}
+			if execStart != tc.wantBinary {
+				t.Fatalf("installed ExecStart = %q, want %q", execStart, tc.wantBinary)
+			}
+		})
+	}
 }
 
-func TestBumblebeeSystemdUnitRelabelsStagedBinary(t *testing.T) {
-	assertSystemdUnitRelabelsStagedBinary(t,
-		filepath.Join("..", "..", "..", "addons", "bumblebee-scan",
-			"serviceradar-bumblebee-scan.service"),
-		"/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan",
-	)
+func TestInstallAddonSystemdUnitsRejectsAgentWritableExecPath(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	installMockSystemctl(t, t.TempDir())
+
+	writableExec := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
+	publishedExec := "/var/lib/serviceradar/agent/addons/np/current/serviceradar-np"
+	for _, execPath := range []string{writableExec, publishedExec} {
+		t.Run(execPath, func(t *testing.T) {
+			unit := "[Service]\nExecStartPre=+/usr/bin/install -d /run/serviceradar\nExecStartPre=" + execPath + "\nExecStart=" + execPath + "\n"
+			artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+				"serviceradar-np.service": []byte(unit),
+			})
+			err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+				RuntimeRoot:    root,
+				PrivilegedRoot: filepath.Join(root, "privileged"),
+				AddonID:        "np",
+				Version:        "1.0.0",
+				BinaryName:     "serviceradar-np",
+				ArtifactPath:   artPath,
+				ArtifactSHA256: sha,
+				Signature:      sig,
+				Units:          []string{"serviceradar-np.service"},
+				Enable:         "serviceradar-np.service",
+			})
+			if !errors.Is(err, ErrAddonUnitExecPathUnsafe) {
+				t.Fatalf("want ErrAddonUnitExecPathUnsafe, got %v", err)
+			}
+			if _, statErr := os.Stat(filepath.Join(unitDir, "serviceradar-np.service")); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected unit was installed: %v", statErr)
+			}
+		})
+	}
+
+	preOnly := "[Service]\nExecStartPre=" + publishedExec + "\nExecStart=/bin/true\n"
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte(preOnly),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: filepath.Join(root, "privileged"),
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if !errors.Is(err, ErrAddonUnitExecPathUnsafe) {
+		t.Fatalf("ExecStartPre writable path: want ErrAddonUnitExecPathUnsafe, got %v", err)
+	}
 }
 
-func TestNetprobeSystemdUnitRelabelsStagedBinary(t *testing.T) {
-	assertSystemdUnitRelabelsStagedBinary(t,
-		filepath.Join("..", "..", "..", "addons", "netprobe",
-			"serviceradar-netprobe.service"),
-		"/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
-	)
-}
+func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	stateDir := addonStateDir(root, "np")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
 
-func TestWorkloadIdentitySystemdUnitRelabelsStagedBinary(t *testing.T) {
-	assertSystemdUnitRelabelsStagedBinary(t,
-		filepath.Join("..", "..", "..", "addons", "workload-identity",
-			"serviceradar-workload-identity.service"),
-		"/var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity",
-	)
-}
-
-func assertSystemdUnitRelabelsStagedBinary(t *testing.T, unitPath, stagedBinary string) {
-	t.Helper()
-	unitBytes, err := os.ReadFile(unitPath)
+	previous := []byte("{\n  \"mode\": \"v1\"\n}\n")
+	candidate := []byte("{\n  \"mode\": \"v2\"\n}\n")
+	statePath := filepath.Join(stateDir, "bumblebee-scan.json")
+	if err := os.WriteFile(statePath, candidate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap := addonStateSnapshot{dir: stateDir, existed: true, files: map[string][]byte{"bumblebee-scan.json": previous}}
+	snapshotPath, err := snap.writeRollback()
 	if err != nil {
-		t.Fatalf("read unit %s: %v", unitPath, err)
+		t.Fatal(err)
 	}
-	unit := string(unitBytes)
-	if !strings.Contains(unit, "ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t ") {
-		t.Fatal("unit must relabel the staged binary before exec (SELinux var_lib_t -> 203/EXEC)")
+
+	captured := filepath.Join(root, "captured-state")
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\ncmd=\"${1:-}\"\nif [ \"$cmd\" = \"enable\" ]; then\n  if [ ! -f \"$ENABLE_ONCE\" ]; then\n    touch \"$ENABLE_ONCE\"\n    exit 1\n  fi\n  cp \"$STATE_FILE\" \"$CAPTURED_STATE\"\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(unit, stagedBinary) {
-		t.Fatalf("unit ExecStartPre must target the staged current/ binary %s", stagedBinary)
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("ENABLE_ONCE", filepath.Join(root, "enabled-once"))
+	t.Setenv("STATE_FILE", statePath)
+	t.Setenv("CAPTURED_STATE", captured)
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:       root,
+		PrivilegedRoot:    filepath.Join(root, "privileged"),
+		AddonID:           "np",
+		Version:           "2.0.0",
+		BinaryName:        "serviceradar-np",
+		ArtifactPath:      artPath,
+		ArtifactSHA256:    sha,
+		Signature:         sig,
+		Units:             []string{"serviceradar-np.service"},
+		Enable:            "serviceradar-np.service",
+		StateSnapshotPath: snapshotPath,
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
 	}
-	if !unitAllowsChconOnStagedBinary(unit, stagedBinary) {
-		t.Fatalf("ProtectSystem=strict units must ReadWritePaths a prefix of %s so chcon can set bin_t", stagedBinary)
+	got, err := os.ReadFile(captured)
+	if err != nil {
+		t.Fatalf("previous unit was re-enabled without a state snapshot: %v", err)
+	}
+	if string(got) != string(previous) {
+		t.Fatalf("re-enable saw state %q, want previous %q", got, previous)
 	}
 }
 
-func unitAllowsChconOnStagedBinary(unit, stagedBinary string) bool {
-	for _, line := range strings.Split(unit, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "ReadWritePaths=") {
-			continue
+func TestInstallAddonSystemdUnitsDoesNotReenableWhenStateRestoreFails(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	stateDir := addonStateDir(root, "np")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
+
+	target := filepath.Join(root, "elsewhere")
+	if err := os.WriteFile(target, []byte("untouched"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(stateDir, "bumblebee-scan.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap := addonStateSnapshot{dir: stateDir, existed: true, files: map[string][]byte{"bumblebee-scan.json": []byte("v1")}}
+	snapshotPath, err := snap.writeRollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(root, "systemctl.log")
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [ \"${1:-}\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SYSTEMCTL_LOG", logPath)
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:       root,
+		PrivilegedRoot:    filepath.Join(root, "privileged"),
+		AddonID:           "np",
+		Version:           "2.0.0",
+		BinaryName:        "serviceradar-np",
+		ArtifactPath:      artPath,
+		ArtifactSHA256:    sha,
+		Signature:         sig,
+		Units:             []string{"serviceradar-np.service"},
+		Enable:            "serviceradar-np.service",
+		StateSnapshotPath: snapshotPath,
+	})
+	if err == nil {
+		t.Fatal("expected restore to fail")
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enables := 0
+	for _, line := range strings.Split(string(log), "\n") {
+		if strings.HasPrefix(line, "enable") {
+			enables++
 		}
-		for _, path := range strings.Fields(strings.TrimPrefix(line, "ReadWritePaths=")) {
-			if path == stagedBinary || strings.HasPrefix(stagedBinary, strings.TrimRight(path, "/")+"/") {
-				return true
+	}
+	if enables != 1 {
+		t.Fatalf("re-enabled after a failed state restore: %q", log)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "untouched" {
+		t.Fatalf("symlink target was written: %q", got)
+	}
+}
+
+func TestInstallAddonSystemdUnitsIgnoresSnapshotDir(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	stateDir := addonStateDir(root, "np")
+	canary := t.TempDir()
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
+	installMockSystemctl(t, t.TempDir())
+
+	marker := filepath.Join(canary, "keep")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "pwned")
+	previous := []byte("{\n  \"mode\": \"v1\"\n}\n")
+	if err := os.WriteFile(filepath.Join(stateDir, "bumblebee-scan.json"), []byte("{\n  \"mode\": \"v2\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(persistedAddonStateRollback{
+		Dir:     canary,
+		Existed: false,
+		Files: map[string][]byte{
+			"bumblebee-scan.json": previous,
+			outside:               []byte("no"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath := addonStateRollbackPath(root, "np")
+	if err := os.WriteFile(snapshotPath, append(body, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	failScript := "#!/bin/sh\nset -eu\nif [ \"${1:-}\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(t.TempDir(), "unused"), []byte(failScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mockDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(failScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:       root,
+		PrivilegedRoot:    filepath.Join(root, "privileged"),
+		AddonID:           "np",
+		Version:           "2.0.0",
+		BinaryName:        "serviceradar-np",
+		ArtifactPath:      artPath,
+		ArtifactSHA256:    sha,
+		Signature:         sig,
+		Units:             []string{"serviceradar-np.service"},
+		Enable:            "serviceradar-np.service",
+		StateSnapshotPath: snapshotPath,
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("snapshot dir was removed: %v", err)
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatalf("absolute snapshot name was written: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(stateDir, "bumblebee-scan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(previous) {
+		t.Fatalf("state = %q, want previous bundle", got)
+	}
+}
+
+func TestInstallAddonSystemdUnitsRequiresDigestBeforeExtract(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	artPath, _, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if !errors.Is(err, ErrAddonArtifactIncomplete) {
+		t.Fatalf("want ErrAddonArtifactIncomplete, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(priv, "np")); !os.IsNotExist(statErr) {
+		t.Fatalf("artifact extracted without a digest: %v", statErr)
+	}
+}
+
+func TestInstallAddonSystemdUnitsRestoresPreviousUnitWhenActivationFails(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+
+	logPath := filepath.Join(root, "systemctl.log")
+	failOnce := filepath.Join(root, "fail-once")
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\ncmd=\"${1:-}\"\nif [ \"$cmd\" = \"enable\" ] && [ ! -f \"$SYSTEMCTL_FAIL_ONCE\" ]; then\n  touch \"$SYSTEMCTL_FAIL_ONCE\"\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SYSTEMCTL_LOG", logPath)
+	t.Setenv("SYSTEMCTL_FAIL_ONCE", failOnce)
+
+	previous := []byte("[Service]\nExecStart=/usr/lib/serviceradar/addons/np/current/serviceradar-np\n")
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), previous, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	replacement := []byte("[Service]\nExecStart=/usr/lib/serviceradar/addons/np/current/serviceradar-np-v2\n")
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": replacement,
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "2.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
+	}
+	got, readErr := os.ReadFile(filepath.Join(unitDir, "serviceradar-np.service"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != string(previous) {
+		t.Fatalf("previous unit was not restored: %q", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(priv, "np", addonCurrentLink)); !os.IsNotExist(statErr) {
+		t.Fatalf("failed first privileged activation left current in place: %v", statErr)
+	}
+	log, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	disabled := false
+	reenabled := false
+	for _, line := range strings.Split(strings.TrimSpace(string(log)), "\n") {
+		if strings.HasPrefix(line, "disable --now") {
+			disabled = true
+		}
+		if disabled && strings.HasPrefix(line, "enable --now") {
+			reenabled = true
+		}
+	}
+	if !reenabled {
+		t.Fatalf("prior service was not re-enabled after activation failure: %s", log)
+	}
+}
+
+func TestInstallAddonSystemdUnitsSetcapTargetsPrivilegedBinary(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	installMockSystemctl(t, t.TempDir())
+
+	setcapLog := filepath.Join(root, "setcap.log")
+	setcapDir := t.TempDir()
+	setcapScript := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SETCAP_LOG\"\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(setcapDir, "setcap"), []byte(setcapScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", setcapDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SETCAP_LOG", setcapLog)
+
+	writableBin := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
+	if err := os.MkdirAll(filepath.Dir(writableBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(writableBin, []byte("replaced"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+		Capabilities:   []string{"CAP_NET_RAW"},
+	})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	log, readErr := os.ReadFile(setcapLog)
+	if readErr != nil {
+		t.Fatalf("setcap was not invoked: %v", readErr)
+	}
+	if !strings.Contains(string(log), priv) {
+		t.Fatalf("setcap did not target the privileged tree: %s", log)
+	}
+	if strings.Contains(string(log), writableBin) {
+		t.Fatalf("setcap targeted the agent-writable binary: %s", log)
+	}
+}
+
+func createTestSignedAddonTarball(t *testing.T, binName string, files map[string][]byte) (string, string, string) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	setReleaseVerificationKey(t, hex.EncodeToString(pub))
+
+	allFiles := make(map[string][]byte)
+	for k, v := range files {
+		allFiles[k] = v
+	}
+	if _, ok := allFiles[binName]; !ok {
+		allFiles[binName] = []byte("#!/bin/sh\nexit 0\n")
+	}
+
+	data := makeAddonTarGz(t, allFiles)
+	sum := sha256.Sum256(data)
+	sha := hex.EncodeToString(sum[:])
+	sig := hex.EncodeToString(ed25519.Sign(priv, data))
+
+	dir := t.TempDir()
+	artifactPath := filepath.Join(dir, "artifact.tar.gz")
+	if err := os.WriteFile(artifactPath, data, 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	return artifactPath, sha, sig
+}
+
+func installMockSystemctl(t *testing.T, dir string) {
+	t.Helper()
+	script := `#!/bin/sh
+set -eu
+cmd="${1:-}"
+case "$cmd" in
+  daemon-reload|enable|disable|start|stop|restart|reset-failed)
+    exit 0
+    ;;
+  show)
+    printf 'ActiveState=active\nSubState=running\nResult=success\n'
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestInstallAddonSystemdUnitsFailureVectors(t *testing.T) {
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+
+	baseReq := AddonSystemdInstallRequest{
+		RuntimeRoot:    t.TempDir(),
+		PrivilegedRoot: t.TempDir(),
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	}
+
+	t.Run("missing signature rejected", func(t *testing.T) {
+		req := baseReq
+		req.Signature = ""
+		if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonSignatureRequired) {
+			t.Fatalf("want ErrAddonSignatureRequired, got %v", err)
+		}
+	})
+
+	t.Run("invalid signature rejected", func(t *testing.T) {
+		req := baseReq
+		_, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
+		req.Signature = hex.EncodeToString(ed25519.Sign(otherPriv, []byte("tampered")))
+		if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonSignatureInvalid) {
+			t.Fatalf("want ErrAddonSignatureInvalid, got %v", err)
+		}
+	})
+
+	t.Run("sha256 digest mismatch rejected", func(t *testing.T) {
+		req := baseReq
+		req.ArtifactSHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+		if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+			t.Fatalf("want ErrAddonArtifactHashMismatch, got %v", err)
+		}
+	})
+
+	t.Run("missing artifact file rejected", func(t *testing.T) {
+		req := baseReq
+		req.ArtifactPath = filepath.Join(t.TempDir(), "nonexistent.tar.gz")
+		if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonArtifactMissing) {
+			t.Fatalf("want ErrAddonArtifactMissing, got %v", err)
+		}
+	})
+
+	t.Run("path traversal rejected", func(t *testing.T) {
+		badIDs := []string{"../escape", "sub/dir", "", ".."}
+		for _, bad := range badIDs {
+			req := baseReq
+			req.AddonID = bad
+			if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonUnsafePath) {
+				t.Fatalf("AddonID=%q: want ErrAddonUnsafePath, got %v", bad, err)
+			}
+
+			req = baseReq
+			req.Version = bad
+			if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonUnsafePath) {
+				t.Fatalf("Version=%q: want ErrAddonUnsafePath, got %v", bad, err)
+			}
+
+			req = baseReq
+			req.BinaryName = bad
+			if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonUnsafePath) {
+				t.Fatalf("BinaryName=%q: want ErrAddonUnsafePath, got %v", bad, err)
 			}
 		}
+
+		badUnits := []string{"../escape.service", "sub/dir.service", "evil.conf"}
+		for _, bad := range badUnits {
+			req := baseReq
+			req.Units = []string{bad}
+			req.Enable = bad
+			if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonUnitNameUnsafe) {
+				t.Fatalf("Units=%q: want ErrAddonUnitNameUnsafe, got %v", bad, err)
+			}
+		}
+	})
+}
+
+func TestInstallAddonSystemdUnitsStagedFileReplacementResistance(t *testing.T) {
+	root := t.TempDir()
+	privRoot := filepath.Join(root, "privileged-addons")
+	stagingRoot := resolveAddonArtifactRoot(root)
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return false
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+
+	mockDir := t.TempDir()
+	installMockSystemctl(t, mockDir)
+
+	authenticContent := "[Service]\nExecStart=/usr/lib/serviceradar/addons/np/current/serviceradar-np\n"
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte(authenticContent),
+	})
+
+	stagingVerDir := filepath.Join(stagingRoot, "np", addonVersionsDir, "1.0.0")
+	if err := os.MkdirAll(stagingVerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stagedArtPath := filepath.Join(stagingVerDir, "artifact.tar.gz")
+	artBytes, err := os.ReadFile(artPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedArtPath, artBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tamperedUnit := filepath.Join(stagingVerDir, "serviceradar-np.service")
+	if err := os.WriteFile(tamperedUnit, []byte("[Service]\nExecStart=/tmp/malicious\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: privRoot,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   stagedArtPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	}
+
+	if err := InstallAddonSystemdUnits(context.Background(), req); err != nil {
+		t.Fatalf("InstallAddonSystemdUnits failed: %v", err)
+	}
+
+	installedUnit, err := os.ReadFile(filepath.Join(unitDir, "serviceradar-np.service"))
+	if err != nil {
+		t.Fatalf("read installed unit: %v", err)
+	}
+	if string(installedUnit) != authenticContent {
+		t.Fatalf("installed unit compromised by staged file replacement: got %q, want %q", string(installedUnit), authenticContent)
+	}
+
+	if err := os.WriteFile(stagedArtPath, []byte("tampered-archive-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+		t.Fatalf("want ErrAddonArtifactHashMismatch on tampered archive, got %v", err)
+	}
+}
+
+func TestInstallAddonSystemdUnitsLifecycle(t *testing.T) {
+	root := t.TempDir()
+	privRoot := filepath.Join(root, "privileged-addons")
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+
+	mockDir := t.TempDir()
+	installMockSystemctl(t, mockDir)
+
+	// Step 1: Initial activation of v1.0.0
+	art1, sha1, sig1 := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+		"np.json":                 []byte(`{"mode":"prod"}`),
+	})
+
+	req1 := AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: privRoot,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   art1,
+		ArtifactSHA256: sha1,
+		Signature:      sig1,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	}
+
+	if err := InstallAddonSystemdUnits(context.Background(), req1); err != nil {
+		t.Fatalf("Install v1.0.0 failed: %v", err)
+	}
+
+	v1Dir := filepath.Join(privRoot, "np", addonVersionsDir, "1.0.0")
+	if info, err := os.Stat(v1Dir); err != nil || !info.IsDir() {
+		t.Fatalf("v1.0.0 directory not created: %v", err)
+	}
+	curTarget, ok := readAddonCurrentTarget(filepath.Join(privRoot, "np"))
+	if !ok || curTarget != filepath.Join(addonVersionsDir, "1.0.0") {
+		t.Fatalf("current target = %q, want versions/1.0.0", curTarget)
+	}
+	if _, err := os.Stat(filepath.Join(unitDir, "serviceradar-np.service")); err != nil {
+		t.Fatalf("unit not installed in systemd dir: %v", err)
+	}
+
+	// Step 2: Re-configuration writes to state/ without modifying privRoot
+	stageTestAddonFiles(t, resolveAddonArtifactRoot(root), "np", map[string]string{
+		"np.json":                           `{"mode":"prod"}`,
+		".serviceradar-config-base-np.json": `{"mode":"prod"}`,
+	})
+	cfgAssignment := &proto.AddonAssignmentConfig{
+		AddonId:    "np",
+		ConfigJson: []byte(`{"mode":"debug","extra":"val"}`),
+	}
+	if err := applyStagedAddonRuntimeConfig(root, cfgAssignment); err != nil {
+		t.Fatalf("applyStagedAddonRuntimeConfig failed: %v", err)
+	}
+	stateConfigFile := filepath.Join(addonStateDir(root, "np"), "np.json")
+	stateData, err := os.ReadFile(stateConfigFile)
+	if err != nil {
+		t.Fatalf("read state config file: %v", err)
+	}
+	if !strings.Contains(string(stateData), "debug") {
+		t.Fatalf("state config not updated: %s", string(stateData))
+	}
+	privData, err := os.ReadFile(filepath.Join(v1Dir, "np.json"))
+	if err != nil {
+		t.Fatalf("read privileged config file: %v", err)
+	}
+	if strings.Contains(string(privData), "debug") {
+		t.Fatalf("privileged root was modified by reconfiguration!")
+	}
+
+	// Step 3: Rollback on failed activation of v2.0.0
+	art2, sha2, sig2 := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service":     []byte("[Service]\nExecStart=/bin/true\n"),
+		"serviceradar-np-new.service": []byte("[Service]\nExecStart=/bin/false\n"),
+	})
+
+	failScript := `#!/bin/sh
+set -eu
+cmd="${1:-}"
+if [ "$cmd" = "enable" ]; then
+  exit 1
+fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(failScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	req2 := AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: privRoot,
+		AddonID:        "np",
+		Version:        "2.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   art2,
+		ArtifactSHA256: sha2,
+		Signature:      sig2,
+		Units:          []string{"serviceradar-np.service", "serviceradar-np-new.service"},
+		Enable:         "serviceradar-np.service",
+	}
+
+	if err := InstallAddonSystemdUnits(context.Background(), req2); err == nil {
+		t.Fatal("expected Install v2.0.0 to fail when systemctl fails")
+	}
+
+	curTarget, ok = readAddonCurrentTarget(filepath.Join(privRoot, "np"))
+	if !ok || curTarget != filepath.Join(addonVersionsDir, "1.0.0") {
+		t.Fatalf("after failed install, current target = %q, want versions/1.0.0", curTarget)
+	}
+
+	if _, err := os.Stat(filepath.Join(unitDir, "serviceradar-np-new.service")); !os.IsNotExist(err) {
+		t.Fatalf("newly created unit was not cleaned up on failure: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(unitDir, "serviceradar-np.service")); err != nil {
+		t.Fatalf("pre-existing unit was deleted: %v", err)
+	}
 }
 
 func TestStagedAddonExecutablesSelectsBinariesOnly(t *testing.T) {
@@ -282,14 +1115,41 @@ func TestTimerCandidateActivationReevaluatesBackingServiceHealth(t *testing.T) {
 
 func TestTimerCandidateActivationRejectsUnbundledServiceBeforeInstallation(t *testing.T) {
 	root := t.TempDir()
-	stageTestAddonUnit(t, resolveAddonArtifactRoot(root), "serviceradar-np.timer",
-		"[Timer]\nUnit=unrelated-host.service\n")
+	privRoot := filepath.Join(root, "privileged-addons")
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+
+	mockDir := t.TempDir()
+	installMockSystemctl(t, mockDir)
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.timer": []byte("[Timer]\nUnit=unrelated-host.service\n"),
+	})
+
 	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
-		RuntimeRoot: root, AddonID: "np", Units: []string{"serviceradar-np.timer"},
-		Enable: "serviceradar-np.timer", RunTimerNow: true,
+		RuntimeRoot:    root,
+		PrivilegedRoot: privRoot,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.timer"},
+		Enable:         "serviceradar-np.timer",
+		RunTimerNow:    true,
 	})
 	if !errors.Is(err, ErrAddonSystemdEnableNotListed) {
 		t.Fatalf("unbundled backing service was not rejected before host writes: %v", err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(privRoot, "np", addonCurrentLink)); !os.IsNotExist(err) {
+		t.Fatalf("expected current link to be removed after rejected install: %v", err)
 	}
 }
 
@@ -326,6 +1186,7 @@ case "$command" in
     printf inactive > "$TIMER_FIXTURE_STATE"
     ;;
   enable) ;;
+  daemon-reload) ;;
   restart)
     if [ "$1" = --no-block ]; then
       [ "${TIMER_FIXTURE_FAIL:-}" != queue ] || exit 1
@@ -526,5 +1387,88 @@ func TestRenderSystemdResourceDropIn(t *testing.T) {
 	}
 	if !strings.Contains(partial, "MemoryMax=1024") {
 		t.Errorf("MemoryMax should appear:\n%s", partial)
+	}
+}
+
+func TestWriteSystemdResourceDropInRejectsSliceInjection(t *testing.T) {
+	root := t.TempDir()
+	orig := systemdUnitDir
+	systemdUnitDir = root
+	t.Cleanup(func() { systemdUnitDir = orig })
+
+	err := writeSystemdResourceDropIn("serviceradar-np.service", agentaddon.Resources{
+		MemoryMaxBytes: 1024,
+		Slice:          "x\nExecStartPre=/tmp/pwn",
+	})
+	if !errors.Is(err, ErrAddonSystemdSliceUnsafe) {
+		t.Fatalf("want ErrAddonSystemdSliceUnsafe, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "serviceradar-np.service.d")); !os.IsNotExist(statErr) {
+		t.Fatalf("injected drop-in was written: %v", statErr)
+	}
+}
+
+func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	unitDir := filepath.Join(root, "systemd")
+	dropInDir := filepath.Join(unitDir, "serviceradar-np.service.d")
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	operator := []byte("[Service]\nNice=5\n")
+	previous := []byte("[Service]\nMemoryMax=1\n")
+	if err := os.WriteFile(filepath.Join(dropInDir, "99-operator.conf"), operator, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropInDir, systemdDropInFileName), previous, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
+
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\ncmd=\"${1:-}\"\nif [ \"$cmd\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+		Resources:      agentaddon.Resources{MemoryMaxBytes: 2048, Slice: "serviceradar.slice"},
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
+	}
+	gotOp, err := os.ReadFile(filepath.Join(dropInDir, "99-operator.conf"))
+	if err != nil {
+		t.Fatalf("operator drop-in removed: %v", err)
+	}
+	if string(gotOp) != string(operator) {
+		t.Fatalf("operator drop-in = %q", gotOp)
+	}
+	gotPrev, err := os.ReadFile(filepath.Join(dropInDir, systemdDropInFileName))
+	if err != nil {
+		t.Fatalf("previous resource drop-in removed: %v", err)
+	}
+	if string(gotPrev) != string(previous) {
+		t.Fatalf("resource drop-in = %q, want previous bytes", gotPrev)
 	}
 }

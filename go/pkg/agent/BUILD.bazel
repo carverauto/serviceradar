@@ -16,6 +16,8 @@ go_library(
         "addon_cgroup_root_other.go",
         "addon_delivery.go",
         "addon_otlp_relay.go",
+        "addon_privileged_root_unix.go",
+        "addon_privileged_root_windows.go",
         "addon_systemd.go",
         "addon_telemetry.go",
         "adhoc_scan.go",
@@ -178,7 +180,60 @@ go_library(
         "@org_golang_google_protobuf//proto",
         "@org_golang_x_crypto//ssh",
         "@org_uber_go_mock//gomock",
-    ],
+    ] + select({
+        "@io_bazel_rules_go//go/platform:aix": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:android": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:darwin": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:dragonfly": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:freebsd": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:illumos": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:ios": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:js": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:nacl": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:netbsd": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:openbsd": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:osx": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:plan9": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:qnx": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:solaris": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:wasip1": [
+            "@org_golang_x_sys//unix",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 go_test(
@@ -190,6 +245,7 @@ go_test(
         "addon_config_contract_test.go",
         "addon_delivery_test.go",
         "addon_otlp_relay_test.go",
+        "addon_privileged_root_unix_test.go",
         "addon_systemd_test.go",
         "adhoc_scan_test.go",
         "automation_launch_envelope_resolver_test.go",

@@ -25,7 +25,6 @@ import (
 	"testing"
 	"time"
 
-	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -70,6 +69,149 @@ func newSystemdAddonPushLoop(t *testing.T) *PushLoop {
 	return NewPushLoop(&Server{config: &ServerConfig{}}, nil, 30*time.Second, logger.NewTestLogger())
 }
 
+func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-bumblebee-scan":       []byte("#!/bin/sh\nexit 0\n"),
+		"bumblebee-scan.json":               []byte("{\n  \"mode\": \"v1\"\n}\n"),
+		"serviceradar-bumblebee-scan.timer": []byte("[Timer]\nOnUnitActiveSec=6h\n"),
+	})
+	key := "addons/bumblebee/0.1.0"
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+	if _, err := stageAddonArtifact(context.Background(), store, root, &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Version:           "0.1.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(tgz),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
+		AddonId: "bumblebee",
+		Version: "0.1.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	v2 := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-bumblebee-scan":       []byte("#!/bin/sh\nexit 0\n"),
+		"bumblebee-scan.json":               []byte("{\n  \"mode\": \"v2\"\n}\n"),
+		"serviceradar-bumblebee-scan.timer": []byte("[Timer]\nOnUnitActiveSec=6h\n"),
+	})
+	v2key := "addons/bumblebee/0.2.0"
+	v2store := &fakeObjectStore{data: map[string][]byte{v2key: v2}}
+	pl := newSystemdAddonPushLoop(t)
+	installed := false
+	disposition := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		&proto.AddonAssignmentConfig{
+			AddonId:           "bumblebee",
+			Version:           "0.2.0",
+			ArtifactSignature: "sig",
+			ArtifactObjectKey: v2key,
+			ArtifactSha256:    sha256Hex(v2),
+			BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+		},
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		time.Now(),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
+			if _, err := stageAddonArtifact(context.Background(), v2store, root, &proto.AddonAssignmentConfig{
+				AddonId:           "bumblebee",
+				Version:           "0.2.0",
+				BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+				ArtifactObjectKey: v2key,
+				ArtifactSha256:    sha256Hex(v2),
+			}); err != nil {
+				return "", addonDeliveryPermanentFailure, err
+			}
+			return "", addonDeliverySucceeded, nil
+		},
+		func(context.Context, AddonSystemdInstallRequest) error {
+			installed = true
+			return nil
+		},
+	)
+	if disposition != addonDeliveryTransientFailure {
+		t.Fatalf("disposition = %v, want transient failure", disposition)
+	}
+	if installed {
+		t.Fatal("supervision mismatch reached install")
+	}
+	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
+	if state["mode"] != "v1" {
+		t.Fatalf("pre-install failure left candidate state in place: %#v", state)
+	}
+}
+
+func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	stage := func(version string, config []byte) {
+		t.Helper()
+		tgz := makeAddonTarGz(t, map[string][]byte{
+			"serviceradar-bumblebee-scan":         []byte("#!/bin/sh\nexit 0\n"),
+			"bumblebee-scan.json":                 config,
+			"serviceradar-bumblebee-scan.service": []byte("[Service]\nExecStart=/bin/true\n"),
+		})
+		key := "addons/bumblebee/" + version
+		store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+		a := &proto.AddonAssignmentConfig{
+			AddonId:           "bumblebee",
+			Version:           version,
+			BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+			ArtifactObjectKey: key,
+			ArtifactSha256:    sha256Hex(tgz),
+		}
+		if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+			t.Fatalf("stage %s: %v", version, err)
+		}
+	}
+	v1 := []byte("{\n  \"mode\": \"v1\"\n}\n")
+	stage("0.1.0", v1)
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
+		AddonId: "bumblebee",
+		Version: "0.1.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pl := newSystemdAddonPushLoop(t)
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Version:           "0.2.0",
+		ArtifactSignature: "sig",
+		ConfigJson:        []byte(`{"mode":"v2"}`),
+	}
+	disposition := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		a,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		time.Now(),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
+			stage("0.2.0", []byte("{\n  \"mode\": \"v2\"\n}\n"))
+			return "", addonDeliverySucceeded, nil
+		},
+		func(context.Context, AddonSystemdInstallRequest) error {
+			return errAgentUpdaterUnavailable
+		},
+	)
+	if disposition != addonDeliveryTransientFailure {
+		t.Fatalf("disposition = %v, want transient failure", disposition)
+	}
+	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
+	if state["mode"] != "v1" {
+		t.Fatalf("failed activation left the new state config in place: %#v", state)
+	}
+}
+
 func TestTimerActivationIsRequestedOnlyForANewVersion(t *testing.T) {
 	timer := "serviceradar-netprobe.timer"
 	for _, tc := range []struct {
@@ -94,11 +236,10 @@ func TestTimerActivationIsRequestedOnlyForANewVersion(t *testing.T) {
 			}
 			pl := newSystemdAddonPushLoop(t)
 			called := false
-			install := func(_ context.Context, _ string, _ []string, _ string,
-				_ agentaddon.Resources, fresh bool) error {
+			install := func(_ context.Context, req AddonSystemdInstallRequest) error {
 				called = true
-				if fresh != tc.wantFresh {
-					t.Fatalf("fresh timer execution = %v, want %v", fresh, tc.wantFresh)
+				if req.RunTimerNow != tc.wantFresh {
+					t.Fatalf("fresh timer execution = %v, want %v", req.RunTimerNow, tc.wantFresh)
 				}
 				return nil
 			}
@@ -138,7 +279,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 
 	pl := newSystemdAddonPushLoop(t)
 	installAttempted := false
-	failingInstall := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources, _ bool) error {
+	failingInstall := func(_ context.Context, _ AddonSystemdInstallRequest) error {
 		installAttempted = true
 		return errAgentUpdaterUnavailable
 	}
@@ -175,7 +316,7 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 	})
 
 	pl := newSystemdAddonPushLoop(t)
-	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources, _ bool) error {
+	install := func(_ context.Context, _ AddonSystemdInstallRequest) error {
 		t.Error("install must not run when the staged bundle has no units")
 		return nil
 	}
@@ -208,9 +349,9 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	pl := newSystemdAddonPushLoop(t)
 	var gotUnits []string
 	var gotEnable string
-	okInstall := func(_ context.Context, _ string, units []string, enable string, _ agentaddon.Resources, _ bool) error {
-		gotUnits = units
-		gotEnable = enable
+	okInstall := func(_ context.Context, req AddonSystemdInstallRequest) error {
+		gotUnits = req.Units
+		gotEnable = req.Enable
 		return nil
 	}
 
@@ -264,6 +405,9 @@ func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUni
 	versionDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), id, addonVersionsDir, "1.1.0")
 	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
 		t.Fatalf("write binary: %v", err)
+	}
+	if err := os.WriteFile(StagedAddonArtifactPath(versionDir), payload, 0o644); err != nil {
+		t.Fatalf("retain artifact: %v", err)
 	}
 	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
 		AddonID:        id,
@@ -374,12 +518,16 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
 		t.Fatalf("write binary: %v", err)
 	}
+	if err := os.WriteFile(StagedAddonArtifactPath(versionDir), payload, 0o644); err != nil {
+		t.Fatalf("retain artifact: %v", err)
+	}
 	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
 		AddonID:        netprobeTestAddonID,
 		Version:        "1.1.0",
 		BinaryName:     "serviceradar-netprobe",
 		ArtifactObject: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
 		ArtifactSHA256: sha,
+		Signature:      "test-signature",
 	}); err != nil {
 		t.Fatalf("write stage metadata: %v", err)
 	}
@@ -388,6 +536,7 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 		Version:        "1.1.0",
 		BinaryName:     "serviceradar-netprobe",
 		ArtifactSHA256: sha,
+		Signature:      "test-signature",
 		Units:          []string{netprobeTestUnit},
 		Enable:         netprobeTestUnit,
 	}); err != nil {
@@ -400,6 +549,7 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 		BinaryPath:        "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
 		ArtifactObjectKey: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
 		ArtifactSha256:    sha,
+		ArtifactSignature: "test-signature",
 	}
 	pl := newSystemdAddonPushLoop(t)
 	pl.rememberSystemdAddon(netprobeTestAddonID, []string{netprobeTestUnit})
@@ -429,7 +579,7 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 			deliveries++
 			return filepath.Join(versionDir, "serviceradar-netprobe"), addonDeliverySucceeded, nil
 		},
-		func(context.Context, string, []string, string, agentaddon.Resources, bool) error {
+		func(context.Context, AddonSystemdInstallRequest) error {
 			installs++
 			return nil
 		},
@@ -443,15 +593,9 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 	}
 }
 
-// The SELinux relabel must run from the AGENT, before the units are installed.
-//
-// serviceradar-agent-updater is setuid-root and owned by the RPM: a release
-// activation replaces the agent but never the updater, so hosts that have
-// self-updated for months still run their original updater. When the relabel lived
-// only inside the updater, every such host left its staged add-on binaries labelled
-// var_lib_t and systemd failed each start with 203/EXEC. Relabelling here keeps the
-// fix with the component that actually updates.
-func TestReconcileStagedSystemdUnitsRelabelsBeforeInstall(t *testing.T) {
+// Privileged artifact metadata (version, binary, digest, signature, artifact path)
+// is passed to the root-owned updater so it can verify and materialize the runtime.
+func TestReconcileStagedSystemdUnitsPassesArtifactMetadataToUpdater(t *testing.T) {
 	const id = "netprobe"
 
 	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
@@ -459,26 +603,21 @@ func TestReconcileStagedSystemdUnitsRelabelsBeforeInstall(t *testing.T) {
 	})
 
 	pl := newSystemdAddonPushLoop(t)
-
-	var order []string
-	var relabelledRoot, relabelledAddon string
-
-	pl.relabelStagedAddonExecutables = func(root, addonID string) {
-		order = append(order, "relabel")
-		relabelledRoot, relabelledAddon = root, addonID
-	}
-
-	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources, _ bool) error {
-		order = append(order, "install")
+	var gotReq AddonSystemdInstallRequest
+	install := func(_ context.Context, req AddonSystemdInstallRequest) error {
+		gotReq = req
 		return nil
 	}
 
+	wantSHA := sha256Hex([]byte("netprobe-1.1.0"))
+	wantSig := "test-sig"
 	pl.reconcileStagedSystemdUnits(
 		context.Background(),
 		&proto.AddonAssignmentConfig{
-			AddonId:        id,
-			Version:        "1.1.0",
-			ArtifactSha256: sha256Hex([]byte("netprobe-1.1.0")),
+			AddonId:           id,
+			Version:           "1.1.0",
+			ArtifactSha256:    wantSHA,
+			ArtifactSignature: wantSig,
 		},
 		addonSupervisionSystemdService,
 		runtimeRoot,
@@ -486,14 +625,16 @@ func TestReconcileStagedSystemdUnitsRelabelsBeforeInstall(t *testing.T) {
 		install,
 	)
 
-	if len(order) != 2 || order[0] != "relabel" || order[1] != "install" {
-		t.Fatalf("call order = %v, want [relabel install]; a relabel after enable --now "+
-			"still leaves the first start at 203/EXEC", order)
+	if gotReq.AddonID != id {
+		t.Fatalf("got AddonID = %q, want %q", gotReq.AddonID, id)
 	}
-	if relabelledAddon != id {
-		t.Fatalf("relabelled addon = %q, want %q", relabelledAddon, id)
+	if gotReq.Version != "1.1.0" {
+		t.Fatalf("got Version = %q, want 1.1.0", gotReq.Version)
 	}
-	if relabelledRoot != runtimeRoot {
-		t.Fatalf("relabelled runtime root = %q, want %q", relabelledRoot, runtimeRoot)
+	if gotReq.ArtifactSHA256 != wantSHA {
+		t.Fatalf("got ArtifactSHA256 = %q, want %q", gotReq.ArtifactSHA256, wantSHA)
+	}
+	if gotReq.Signature != wantSig {
+		t.Fatalf("got Signature = %q, want %q", gotReq.Signature, wantSig)
 	}
 }

@@ -65,12 +65,9 @@ operator can see when enrichment falls back or is incomplete.
 
 ## Deployment model
 
-For pushed-artifact add-on installs, the active binary is loaded through the add-on
-activation symlink:
-
-```bash
-/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe
-```
+For pushed-artifact installs, the active binary is the privileged `current` link in
+[On-host layout](./native-addons.md#on-host-layout), not a path under the
+agent-writable staging tree.
 
 Production deployments should run it as a native add-on systemd unit under
 `serviceradar.slice`, not as a child process of `serviceradar-agent`. The agent still
@@ -235,9 +232,11 @@ On an agent host:
 sudo systemctl status serviceradar-netprobe.service
 sudo journalctl -u serviceradar-netprobe.service -n 100 --no-pager
 sudo ss -plunt
-readlink -f /var/lib/serviceradar/agent/addons/netprobe/current
 readlink -f /proc/$(pidof serviceradar-netprobe)/exe
 ```
+
+That executable should match the privileged `current` link in
+[On-host layout](./native-addons.md#on-host-layout).
 
 Confirm the metrics endpoint if enabled:
 

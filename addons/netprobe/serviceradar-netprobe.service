@@ -17,9 +17,8 @@ UMask=0027
 Slice=serviceradar.slice
 
 # Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so all
-# paths are the FIXED add-on staging layout produced by the agent's activation runtime
-# (resolveAddonArtifactRoot -> <release-runtime-root>/addons/<id>/current/), NOT the
-# manifest's install_path. Flags:
+# paths are the fixed privileged runtime (/usr/lib/serviceradar/addons/<id>/current),
+# NOT the agent-writable staging tree and NOT the manifest's install_path. Flags:
 #   --socket        netprobe binds this IPC socket; the agent connects as a client and pushes
 #                   the full VisibilityConfig (device bindings, DPI) over IPC.
 #   --config        the agent-written bootstrap (enabled + capture_interfaces + flow-table);
@@ -29,15 +28,10 @@ Slice=serviceradar.slice
 #   --ebpf-object   the compiled BPF object shipped flat in the bundle (data_entries). Required:
 #                   continuous capture refuses to start without it after the Phase 3 eBPF
 #                   cutover (rust/netprobe/src/main.rs); IPC config cannot enable capture later.
-# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
-# label (status=203/EXEC). Relabel immediately before start. The + prefix runs
-# as PID 1 (full caps), not as a child of serviceradar-agent. Missing chcon
-# (non-SELinux) is ignored.
-ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe >/dev/null 2>&1 || true'
-ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe \
+ExecStart=/usr/lib/serviceradar/addons/netprobe/current/serviceradar-netprobe \
     --socket /run/serviceradar/netprobe/ipc.sock \
     --config /etc/serviceradar/sidecars/netprobe.json \
-    --ebpf-object /var/lib/serviceradar/agent/addons/netprobe/current/netprobe_ebpf.o \
+    --ebpf-object /usr/lib/serviceradar/addons/netprobe/current/netprobe_ebpf.o \
     --drop-user serviceradar
 
 # /run/serviceradar/netprobe holds the IPC socket; /var/lib/serviceradar/netprobe is the

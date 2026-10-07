@@ -22,8 +22,8 @@ package agent
 // capabilities the add-on's manifest declares (requires.os_capabilities), e.g.
 // netprobe's cap_net_raw / cap_bpf / cap_perfmon for eBPF + AF_XDP capture. The agent
 // itself never gains those capabilities; the privileged setcap runs only inside the
-// root-owned updater, against a binary the updater re-resolves under the controlled
-// add-on staging root.
+// root-owned updater, against the verified binary the updater materialized under the
+// root-owned add-on runtime.
 
 import (
 	"context"
@@ -76,10 +76,11 @@ var (
 
 // AddonCapabilityRequest describes a privileged setcap of one staged add-on binary.
 type AddonCapabilityRequest struct {
-	RuntimeRoot  string   // agent release runtime root ("" -> package default)
-	AddonID      string   // add-on id (a single safe path segment)
-	BinaryName   string   // staged binary filename (a single safe path segment)
-	Capabilities []string // requested Linux capabilities (validated against the allowlist)
+	RuntimeRoot    string   // agent release runtime root ("" -> package default)
+	PrivilegedRoot string   // privileged add-on runtime root ("" -> /usr/lib/serviceradar/addons)
+	AddonID        string   // add-on id (a single safe path segment)
+	BinaryName     string   // staged binary filename (a single safe path segment)
+	Capabilities   []string // requested Linux capabilities (validated against the allowlist)
 }
 
 // normalizeAddonCapabilities lower-cases, trims, de-duplicates, and validates the
@@ -120,10 +121,10 @@ func setcapCapabilityString(caps []string) string {
 	return strings.Join(caps, ",") + addonCapabilityActionSuffix
 }
 
-// resolveStagedAddonBinaryForCapabilities resolves the absolute path of a staged
-// add-on binary (via its `current` symlink) under the controlled add-on staging root,
-// validating each control-plane-supplied segment and confirming the resolved real path
-// stays inside the add-on's own directory before any privileged operation touches it.
+// resolveStagedAddonBinaryForCapabilities resolves the absolute path of an add-on
+// binary (via its `current` symlink) under the root-owned privileged runtime only.
+// A missing privileged binary fails closed: file capabilities are never applied to
+// the agent-writable staging tree.
 func resolveStagedAddonBinaryForCapabilities(req AddonCapabilityRequest) (string, error) {
 	if !safeAddonSegment(req.AddonID) {
 		return "", fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, req.AddonID)
@@ -132,35 +133,69 @@ func resolveStagedAddonBinaryForCapabilities(req AddonCapabilityRequest) (string
 		return "", fmt.Errorf("%w: binary %q", ErrAddonUnsafePath, req.BinaryName)
 	}
 
-	addonDir := filepath.Join(resolveAddonArtifactRoot(req.RuntimeRoot), req.AddonID)
-	currentBin := filepath.Join(addonDir, addonCurrentLink, req.BinaryName)
-
-	// Resolve the `current` symlink to the real versioned file; this also fails closed
-	// if the binary does not exist yet.
-	real, err := filepath.EvalSymlinks(currentBin)
-	if err != nil {
-		return "", fmt.Errorf("resolve staged addon binary: %w", err)
+	privRoot := resolvePrivilegedAddonRoot(req.PrivilegedRoot, req.RuntimeRoot)
+	if capabilityRootOverlapsWritable(privRoot, req.RuntimeRoot) {
+		return "", fmt.Errorf("%w: %s", ErrAddonCapabilityBinaryEscape, privRoot)
 	}
 
-	// Defense in depth: the resolved file must live under the add-on's own directory,
-	// so a tampered `current` symlink cannot redirect setcap at an arbitrary binary.
-	addonDirReal, err := filepath.EvalSymlinks(addonDir)
-	if err != nil {
-		return "", fmt.Errorf("resolve addon dir: %w", err)
+	privAddonDir := filepath.Join(privRoot, req.AddonID)
+	privCurrentBin := filepath.Join(privAddonDir, addonCurrentLink, req.BinaryName)
+	if _, err := os.Stat(privCurrentBin); err != nil {
+		return "", fmt.Errorf("resolve privileged addon binary: %w", err)
 	}
-	if real != addonDirReal && !strings.HasPrefix(real, addonDirReal+string(os.PathSeparator)) {
+
+	real, err := filepath.EvalSymlinks(privCurrentBin)
+	if err != nil {
+		return "", fmt.Errorf("resolve privileged addon binary: %w", err)
+	}
+
+	privAddonDirReal, err := filepath.EvalSymlinks(privAddonDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve privileged addon dir: %w", err)
+	}
+	if !pathIsWithin(real, privAddonDirReal) {
 		return "", fmt.Errorf("%w: %s", ErrAddonCapabilityBinaryEscape, real)
+	}
+	for _, root := range writableAddonRoots(req.RuntimeRoot) {
+		if pathIsWithin(real, root) {
+			return "", fmt.Errorf("%w: %s", ErrAddonCapabilityBinaryEscape, real)
+		}
 	}
 
 	info, err := os.Stat(real)
 	if err != nil {
-		return "", fmt.Errorf("stat staged addon binary: %w", err)
+		return "", fmt.Errorf("stat privileged addon binary: %w", err)
 	}
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("%w: %s", ErrAddonBinaryNotRegular, real)
 	}
 
 	return real, nil
+}
+
+func writableAddonRoots(runtimeRoot string) []string {
+	roots := []string{resolveAddonArtifactRoot(""), resolveAddonArtifactRoot(runtimeRoot)}
+	out := make([]string, 0, len(roots))
+	seen := make(map[string]bool, len(roots))
+	for _, root := range roots {
+		clean := filepath.Clean(root)
+		if seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		out = append(out, clean)
+	}
+	return out
+}
+
+func capabilityRootOverlapsWritable(privRoot, runtimeRoot string) bool {
+	priv := filepath.Clean(privRoot)
+	for _, root := range writableAddonRoots(runtimeRoot) {
+		if pathIsWithin(priv, root) || pathIsWithin(root, priv) {
+			return true
+		}
+	}
+	return false
 }
 
 // ApplyAddonCapabilities is the privileged operation invoked inside the root-owned
@@ -189,32 +224,6 @@ func ApplyAddonCapabilities(ctx context.Context, req AddonCapabilityRequest) err
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("apply addon capabilities via setcap: %w", err)
-	}
-
-	return nil
-}
-
-// applyStagedAddonCapabilitiesViaUpdater is the agent-side half: it validates the
-// requested capabilities up front (so a bad request fails before any exec), locates the
-// root-owned, package-owned updater, and invokes it to perform the privileged setcap.
-// The non-root agent never applies capabilities itself.
-func applyStagedAddonCapabilitiesViaUpdater(ctx context.Context, addonID, binaryName string, caps []string) error {
-	normalized, err := normalizeAddonCapabilities(caps)
-	if err != nil {
-		return err
-	}
-
-	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath("addon-id", "addon-binary", "addon-capabilities")
-	if err != nil {
-		return fmt.Errorf("locate agent updater for capability application: %w", err)
-	}
-
-	if err := runAgentUpdaterCommand(ctx, updaterPath,
-		"--addon-id", addonID,
-		"--addon-binary", binaryName,
-		"--addon-capabilities", strings.Join(normalized, ","),
-	); err != nil {
-		return fmt.Errorf("agent-updater capability application failed: %w", err)
 	}
 
 	return nil

@@ -55,11 +55,10 @@ func TestSetcapCapabilityString(t *testing.T) {
 }
 
 func TestResolveStagedAddonBinaryForCapabilities(t *testing.T) {
-	tmp := t.TempDir()
-	addonsRoot := filepath.Join(tmp, addonsDirName)
-	stageTestAddon(t, addonsRoot, "1.0.0", []byte("np-binary"))
+	priv := t.TempDir()
+	stageTestAddon(t, priv, "1.0.0", []byte("np-binary"))
 
-	req := AddonCapabilityRequest{RuntimeRoot: tmp, AddonID: "np", BinaryName: "serviceradar-np-addon"}
+	req := AddonCapabilityRequest{PrivilegedRoot: priv, AddonID: "np", BinaryName: "serviceradar-np-addon"}
 	got, err := resolveStagedAddonBinaryForCapabilities(req)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -68,7 +67,14 @@ func TestResolveStagedAddonBinaryForCapabilities(t *testing.T) {
 		t.Fatalf("resolved base = %q, want serviceradar-np-addon", filepath.Base(got))
 	}
 	if data, err := os.ReadFile(got); err != nil || string(data) != "np-binary" {
-		t.Fatalf("resolved path is not the staged binary: data=%q err=%v", data, err)
+		t.Fatalf("resolved path is not the privileged binary: data=%q err=%v", data, err)
+	}
+
+	writable := t.TempDir()
+	stageTestAddon(t, filepath.Join(writable, addonsDirName), "1.0.0", []byte("replaced"))
+	writableReq := AddonCapabilityRequest{RuntimeRoot: writable, AddonID: "np", BinaryName: "serviceradar-np-addon"}
+	if _, err := resolveStagedAddonBinaryForCapabilities(writableReq); err == nil {
+		t.Fatal("agent-writable binary was accepted for setcap")
 	}
 }
 
@@ -87,7 +93,8 @@ func TestResolveStagedAddonBinaryRejectsUnsafeSegments(t *testing.T) {
 
 func TestResolveStagedAddonBinaryEscapeGuard(t *testing.T) {
 	tmp := t.TempDir()
-	addonDir := filepath.Join(tmp, addonsDirName, "np")
+	priv := filepath.Join(tmp, "privileged")
+	addonDir := filepath.Join(priv, "np")
 	if err := os.MkdirAll(addonDir, 0o755); err != nil {
 		t.Fatalf("mkdir addon dir: %v", err)
 	}
@@ -105,8 +112,21 @@ func TestResolveStagedAddonBinaryEscapeGuard(t *testing.T) {
 		t.Fatalf("symlink current->outside: %v", err)
 	}
 
-	req := AddonCapabilityRequest{RuntimeRoot: tmp, AddonID: "np", BinaryName: "serviceradar-np-addon"}
+	req := AddonCapabilityRequest{PrivilegedRoot: priv, AddonID: "np", BinaryName: "serviceradar-np-addon"}
 	if _, err := resolveStagedAddonBinaryForCapabilities(req); !errors.Is(err, ErrAddonCapabilityBinaryEscape) {
 		t.Fatalf("want ErrAddonCapabilityBinaryEscape, got %v", err)
+	}
+
+	runtime := t.TempDir()
+	writable := resolveAddonArtifactRoot(runtime)
+	if err := os.MkdirAll(filepath.Join(writable, "np", addonCurrentLink), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(writable, "np", addonCurrentLink, "serviceradar-np-addon"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overlap := AddonCapabilityRequest{RuntimeRoot: runtime, PrivilegedRoot: writable, AddonID: "np", BinaryName: "serviceradar-np-addon"}
+	if _, err := resolveStagedAddonBinaryForCapabilities(overlap); !errors.Is(err, ErrAddonCapabilityBinaryEscape) {
+		t.Fatalf("writable privileged root: want ErrAddonCapabilityBinaryEscape, got %v", err)
 	}
 }

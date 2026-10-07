@@ -236,6 +236,15 @@ func stageAddonArtifactWithClient(
 		return "", fmt.Errorf("create addon version dir: %w", err)
 	}
 
+	// Retain the verified downloaded artifact as a bounded staging input (Task 1.1).
+	artifactName := "artifact.tar.gz"
+	if !isGzipArtifact(data) {
+		artifactName = "artifact.bin"
+	}
+	if err := writeAddonFileAtomic(filepath.Join(versionDir, artifactName), data, addonManifestMode); err != nil {
+		return "", fmt.Errorf("retain addon artifact: %w", err)
+	}
+
 	// A pushed artifact is either a bare executable (single-binary add-ons) or a gzip
 	// tarball bundling the binary plus its manifest/config and any systemd unit files.
 	// The sha256/signature above covered the raw artifact bytes either way; the tarball
@@ -293,7 +302,11 @@ func stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA,
 	}
 
 	info, err := os.Stat(filepath.Join(versionDir, binName))
-	return err == nil && info.Mode().IsRegular()
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	archive, err := os.Stat(StagedAddonArtifactPath(versionDir))
+	return err == nil && archive.Mode().IsRegular()
 }
 
 func writeAddonStageMetadata(versionDir string, meta addonStageMetadata) error {
@@ -360,51 +373,338 @@ func addonAssignmentConfigSHA256(configJSON []byte) string {
 }
 
 func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentConfig) error {
-	configJSON := bytes.TrimSpace(a.GetConfigJson())
-	if len(configJSON) == 0 {
-		return nil
-	}
-
 	addonID := strings.TrimSpace(a.GetAddonId())
 	if !safeAddonSegment(addonID) {
 		return fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
 	}
 
+	configJSON := bytes.TrimSpace(a.GetConfigJson())
 	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
 	configName, err := selectStagedAddonRuntimeConfig(currentDir, addonID)
 	if err != nil {
+		if len(configJSON) == 0 && errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
 	if configName == "" {
 		return nil
 	}
 
-	configPath := filepath.Join(currentDir, configName)
-	basePath := filepath.Join(currentDir, ".serviceradar-config-base-"+configName)
-
-	baseConfig, err := os.ReadFile(basePath)
-	if errors.Is(err, os.ErrNotExist) {
-		baseConfig, err = os.ReadFile(configPath)
-		if err != nil {
-			return fmt.Errorf("read staged addon config: %w", err)
-		}
-		if err := writeAddonFileAtomic(basePath, baseConfig, addonManifestMode); err != nil {
-			return fmt.Errorf("preserve staged addon config base: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("read staged addon config base: %w", err)
+	stateDir := addonStateDir(runtimeRoot, addonID)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return fmt.Errorf("create addon state dir: %w", err)
 	}
 
-	mergedConfig, err := mergeAddonRuntimeConfig(baseConfig, configJSON)
+	configPath := filepath.Join(currentDir, configName)
+	stateConfigPath := filepath.Join(stateDir, configName)
+	basePath := filepath.Join(stateDir, addonConfigBaseName(configName))
+	versionDir, err := addonCurrentVersionDir(runtimeRoot, addonID)
 	if err != nil {
 		return err
 	}
 
-	if err := writeAddonFileAtomic(configPath, mergedConfig, addonManifestMode); err != nil {
+	// The bundle is the retained artifact, or the legacy version-dir base when the
+	// state base has not been seeded yet. current/ is not a bundle: a previous merge
+	// overwrites it.
+	bundled, bundleChanged, err := loadAddonConfigBundle(versionDir, configName, basePath)
+	if err != nil {
+		return err
+	}
+	if bundleChanged {
+		if err := writeAddonFileAtomic(basePath, bundled, addonManifestMode); err != nil {
+			return fmt.Errorf("preserve staged addon config base: %w", err)
+		}
+	}
+
+	if len(configJSON) == 0 {
+		if !bundleChanged {
+			if _, err := os.Stat(stateConfigPath); err == nil {
+				return nil
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat addon state config: %w", err)
+			}
+		}
+		if err := writeAddonFileAtomic(stateConfigPath, bundled, addonManifestMode); err != nil {
+			return fmt.Errorf("seed staged addon runtime config: %w", err)
+		}
+		return nil
+	}
+
+	mergedConfig, err := mergeAddonRuntimeConfig(bundled, configJSON)
+	if err != nil {
+		return err
+	}
+
+	// Write to writable state directory outside executable tree (Task 2.2).
+	if err := writeAddonFileAtomic(stateConfigPath, mergedConfig, addonManifestMode); err != nil {
 		return fmt.Errorf("write staged addon runtime config: %w", err)
 	}
 
+	// Also write to currentDir in agent staging area for consistency with local discovery/inspectors.
+	_ = writeAddonFileAtomic(configPath, mergedConfig, addonManifestMode)
+
 	return nil
+}
+
+func addonConfigBaseName(configName string) string {
+	return ".serviceradar-config-base-" + configName
+}
+
+func addonCurrentVersionDir(runtimeRoot, addonID string) (string, error) {
+	addonDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID)
+	target, ok := readAddonCurrentTarget(addonDir)
+	if !ok {
+		return "", fmt.Errorf("read addon current: %w", os.ErrNotExist)
+	}
+	return filepath.Join(addonDir, target), nil
+}
+
+// loadAddonConfigBundle returns the pristine bundle. A missing state base is
+// seeded from the legacy version-dir base, then from the retained artifact.
+// Later bundles come from that artifact. current/ is never the bundle.
+func loadAddonConfigBundle(versionDir, configName, basePath string) ([]byte, bool, error) {
+	artifact, haveArtifact, err := readRetainedAddonConfig(versionDir, configName)
+	if err != nil {
+		return nil, false, err
+	}
+	saved, err := os.ReadFile(basePath)
+	if errors.Is(err, os.ErrNotExist) {
+		if haveArtifact {
+			return artifact, true, nil
+		}
+		if legacy, ok, legacyErr := readLegacyAddonConfigBase(versionDir, configName); legacyErr != nil || ok {
+			return legacy, true, legacyErr
+		}
+		extracted, readErr := os.ReadFile(filepath.Join(versionDir, configName))
+		if readErr != nil {
+			return nil, false, fmt.Errorf("read staged addon config: %w", readErr)
+		}
+		return extracted, true, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read staged addon config base: %w", err)
+	}
+	if haveArtifact && !bytes.Equal(saved, artifact) {
+		return artifact, true, nil
+	}
+	return saved, false, nil
+}
+
+func readLegacyAddonConfigBase(versionDir, configName string) ([]byte, bool, error) {
+	data, err := os.ReadFile(filepath.Join(versionDir, addonConfigBaseName(configName)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read legacy addon config base: %w", err)
+	}
+	return data, true, nil
+}
+
+func readRetainedAddonConfig(versionDir, configName string) ([]byte, bool, error) {
+	data, err := os.ReadFile(filepath.Join(versionDir, "artifact.tar.gz"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read retained addon artifact: %w", err)
+	}
+	member, err := readTarGzMember(data, configName)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return member, true, nil
+}
+
+func readTarGzMember(data []byte, name string) ([]byte, error) {
+	if !isGzipArtifact(data) {
+		return nil, os.ErrNotExist
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("open addon tarball: %w", err)
+	}
+	defer func() { _ = gz.Close() }()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, os.ErrNotExist
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read addon tarball: %w", err)
+		}
+		if hdr.Name != name {
+			continue
+		}
+		content, err := io.ReadAll(io.LimitReader(tr, maxAddonTarballFileBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("read addon tarball entry %q: %w", name, err)
+		}
+		if int64(len(content)) > maxAddonTarballFileBytes {
+			return nil, fmt.Errorf("%w: %q exceeds per-file limit", ErrAddonTarballTooLarge, name)
+		}
+		return content, nil
+	}
+}
+
+type addonStateSnapshot struct {
+	dir     string
+	existed bool
+	files   map[string][]byte
+}
+
+func snapshotAddonStateDir(runtimeRoot, addonID string) (addonStateSnapshot, error) {
+	dir := addonStateDir(runtimeRoot, addonID)
+	snap := addonStateSnapshot{dir: dir, files: map[string][]byte{}}
+	if dir == "" {
+		return snap, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return snap, nil
+	}
+	if err != nil {
+		return snap, fmt.Errorf("read addon state dir: %w", err)
+	}
+	snap.existed = true
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return snap, fmt.Errorf("read addon state file %s: %w", entry.Name(), err)
+		}
+		snap.files[entry.Name()] = data
+	}
+	return snap, nil
+}
+
+func addonStateRollbackPath(runtimeRoot, addonID string) string {
+	dir := addonStateDir(runtimeRoot, addonID)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, ".serviceradar-state-rollback")
+}
+
+func (s addonStateSnapshot) writeRollback() (string, error) {
+	path := ""
+	if s.dir != "" {
+		path = filepath.Join(s.dir, ".serviceradar-state-rollback")
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return "", fmt.Errorf("create addon state dir: %w", err)
+	}
+	body, err := json.Marshal(persistedAddonStateRollback{
+		Dir:     s.dir,
+		Existed: s.existed,
+		Files:   s.files,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode addon state rollback: %w", err)
+	}
+	if err := writeAddonFileAtomic(path, append(body, '\n'), addonManifestMode); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func loadAddonStateRollback(path string) (addonStateSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return addonStateSnapshot{}, fmt.Errorf("read addon state rollback: %w", err)
+	}
+	var persisted persistedAddonStateRollback
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return addonStateSnapshot{}, fmt.Errorf("decode addon state rollback: %w", err)
+	}
+	if persisted.Files == nil {
+		persisted.Files = map[string][]byte{}
+	}
+	return addonStateSnapshot{dir: persisted.Dir, existed: persisted.Existed, files: persisted.Files}, nil
+}
+
+func loadAddonStateRestore(runtimeRoot, addonID, snapshotPath string) (func() error, error) {
+	if err := checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath); err != nil {
+		return nil, err
+	}
+	return func() error {
+		return restoreAddonStateForCaller(runtimeRoot, addonID, snapshotPath)
+	}, nil
+}
+
+func checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath string) error {
+	snapshotPath = strings.TrimSpace(snapshotPath)
+	if snapshotPath == "" {
+		return nil
+	}
+	want := addonStateRollbackPath(runtimeRoot, addonID)
+	if want == "" || filepath.Clean(snapshotPath) != filepath.Clean(want) {
+		return fmt.Errorf("%w: state snapshot", ErrAddonUnsafePath)
+	}
+	return nil
+}
+
+func restoreAddonStateFromRollback(runtimeRoot, addonID, snapshotPath string) error {
+	if err := checkAddonStateRollbackPath(runtimeRoot, addonID, snapshotPath); err != nil {
+		return err
+	}
+	if strings.TrimSpace(snapshotPath) == "" {
+		return nil
+	}
+	snap, err := loadAddonStateRollback(addonStateRollbackPath(runtimeRoot, addonID))
+	if err != nil {
+		return err
+	}
+	return writeAddonStateFiles(addonStateDir(runtimeRoot, addonID), snap.files)
+}
+
+func writeAddonStateFiles(stateDir string, files map[string][]byte) error {
+	if stateDir == "" {
+		return fmt.Errorf("%w: addon state", ErrAddonUnsafePath)
+	}
+	for name, data := range files {
+		if !safeAddonSegment(name) {
+			continue
+		}
+		if err := writeAddonStateFileNoFollow(stateDir, name, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type persistedAddonStateRollback struct {
+	Dir     string            `json:"dir"`
+	Existed bool              `json:"existed"`
+	Files   map[string][]byte `json:"files"`
+}
+
+func (s addonStateSnapshot) restoreInto(stateDir string) error {
+	return writeAddonStateFiles(stateDir, s.files)
+}
+
+// StagedAddonArtifactPath returns the path to the retained artifact archive in a version directory.
+func StagedAddonArtifactPath(versionDir string) string {
+	gz := filepath.Join(versionDir, "artifact.tar.gz")
+	if _, err := os.Stat(gz); err == nil {
+		return gz
+	}
+	bin := filepath.Join(versionDir, "artifact.bin")
+	if _, err := os.Stat(bin); err == nil {
+		return bin
+	}
+	return gz
 }
 
 func selectStagedAddonRuntimeConfig(dir, addonID string) (string, error) {

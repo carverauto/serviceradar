@@ -133,12 +133,11 @@ func (p *PushLoop) pruneAddonCache(keep map[string]bool) {
 }
 
 // stageAndCapability stages a pushed-artifact add-on (fetch + verify + versioned stage +
-// atomic current symlink) and applies its declared Linux file capabilities to the staged
-// binary via the root-owned agent-updater, rolling `current` back to the prior version if
-// capability application fails. It returns the resolved binary path; for non-pushed
-// delivery it returns the assignment's binary_path unchanged. A non-nil error means the
-// add-on must not be (re)activated this round; the caller decides the fallback for its
-// supervision model.
+// atomic current symlink). File capabilities are applied later, only to the verified
+// root-owned copy, by InstallAddonSystemdUnits. It returns the resolved binary path; for
+// non-pushed delivery it returns the assignment's binary_path unchanged. A non-nil error
+// means the add-on must not be (re)activated this round; the caller decides the fallback
+// for its supervision model.
 func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) (string, error) {
 	// compiled_in / os_package rely on binary_path already being present on the host.
 	if delivery != addonDeliveryPushedArtifact || a.GetArtifactObjectKey() == "" {
@@ -157,11 +156,6 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	httpClient := p.gatewayAddonHTTPClient(a)
 
 	root := resolveAddonArtifactRoot("")
-	addonDir := filepath.Join(root, a.GetAddonId())
-	// Capture the currently-active version before staging so a failed capability
-	// application can roll `current` back to it.
-	priorTarget, _ := readAddonCurrentTarget(addonDir)
-
 	resolved, err := stageAddonArtifactWithClient(ctx, store, httpClient, root, a)
 	if err != nil {
 		return "", err
@@ -171,21 +165,6 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 		p.logger.Warn().
 			Str("addon", a.GetAddonId()).
 			Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
-	}
-
-	// Apply the manifest's declared Linux file capabilities to the freshly staged binary
-	// via the root-owned agent-updater (the non-root agent never applies them itself).
-	if caps := a.GetOsCapabilities(); len(caps) > 0 {
-		if capErr := applyStagedAddonCapabilitiesViaUpdater(ctx, a.GetAddonId(), addonBinaryName(a), caps); capErr != nil {
-			if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
-				p.logger.Error().
-					Err(rbErr).
-					Str("addon", a.GetAddonId()).
-					Msg("Failed to roll back add-on after capability application failure")
-			}
-
-			return "", capErr
-		}
 	}
 
 	return resolved, nil
@@ -664,6 +643,14 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	deliver deliverAddonArtifactFn,
 	install installUnitsFn,
 ) addonDeliveryDisposition {
+	if strings.TrimSpace(a.GetArtifactSignature()) == "" {
+		p.logger.Error().
+			Str("addon", a.GetAddonId()).
+			Msg("Privileged systemd add-on activation requires a signed artifact; rejecting unsigned assignment")
+		p.recordAddonDeliveryFailure(a, ErrAddonSignatureRequired, now)
+		return addonDeliveryPermanentFailure
+	}
+
 	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" &&
 		p.systemdAddonAssignmentCurrent(a, runtimeRoot) && runtimeReady(ctx, a, supervision) {
 		p.logger.Debug().
@@ -685,7 +672,25 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		return disposition
 	}
 
+	stateSnap, snapErr := snapshotAddonStateDir(runtimeRoot, a.GetAddonId())
+	if snapErr != nil {
+		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on state snapshot failure")
+		}
+		p.logSidecarDeliveryFailure(a, snapErr, addonDeliveryTransientFailure,
+			"Systemd add-on state snapshot failed; rolled current back")
+		return addonDeliveryTransientFailure
+	}
+	if _, persistErr := stateSnap.writeRollback(); persistErr != nil {
+		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on state snapshot failure")
+		}
+		p.logSidecarDeliveryFailure(a, persistErr, addonDeliveryTransientFailure,
+			"Systemd add-on state snapshot failed; rolled current back")
+		return addonDeliveryTransientFailure
+	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		_ = stateSnap.restoreInto(addonStateDir(runtimeRoot, a.GetAddonId()))
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
 		}
@@ -702,10 +707,12 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	}
 
 	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install) {
-		// Unit discovery/install failure: treat as transient (the agent-updater may be
-		// momentarily unavailable) so the ack defers and the install is retried promptly.
+		// Install failure restores state inside the updater before it re-enables the
+		// previous unit. A metadata-write failure leaves the new unit enabled, so this
+		// path must not put the previous state file back under it.
 		return addonDeliveryTransientFailure
 	}
+	_ = os.Remove(addonStateRollbackPath(runtimeRoot, a.GetAddonId()))
 
 	p.clearAddonDeliveryFailure(a.GetAddonId())
 
@@ -853,7 +860,7 @@ func systemdUnitActive(ctx context.Context, unit string) bool {
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
 // agent-updater. Indirected so reconcileStagedSystemdUnits's rollback paths are testable
 // without the updater.
-type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources, runTimerNow bool) error
+type installUnitsFn func(ctx context.Context, req AddonSystemdInstallRequest) error
 
 // reconcileStagedSystemdUnits installs + enables the freshly staged add-on's systemd units
 // and, on any discovery/selection/install failure, rolls `current` back to priorTarget so a
@@ -873,6 +880,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after " + reason)
 		}
+		_ = restoreAddonStateFromRollback(runtimeRoot, a.GetAddonId(), addonStateRollbackPath(runtimeRoot, a.GetAddonId()))
 		p.logger.Warn().Err(err).Str("addon", a.GetAddonId()).Msg(reason)
 	}
 
@@ -892,32 +900,30 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		return false
 	}
 
-	// Relabel here, in the agent, and not only inside the root-owned updater.
-	//
-	// The agent self-updates (the packaged /usr/local/bin/serviceradar-agent is a shim
-	// that execs the staged release), but serviceradar-agent-updater is a setuid-root
-	// binary owned by the RPM and is NEVER replaced by a release activation. A host
-	// that has self-updated for months still runs whatever updater its original package
-	// shipped, so a privileged fix added to the updater simply never arrives: hosts in
-	// the field were still on the pre-1.4.39 updater, whose install path has no relabel
-	// at all, leaving every staged binary var_lib_t and every start at 203/EXEC.
-	//
-	// The agent's own uid owns the staged tree and can relabel it, so doing it here
-	// makes the fix travel with the component that actually updates. The updater still
-	// relabels too when it is new enough; chcon is idempotent and both calls are
-	// best-effort, so this is additive, never a regression on a host without SELinux.
-	relabel := p.relabelStagedAddonExecutables
-	if relabel == nil {
-		relabel = relabelStagedAddonExecutables
-	}
-	relabel(runtimeRoot, a.GetAddonId())
-
-	version := addonStagedVersion(a, strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())))
+	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
+	version := addonStagedVersion(a, wantSHA)
+	versionDir := filepath.Join(root, a.GetAddonId(), addonVersionsDir, version)
 	runTimerNow := supervision == addonSupervisionSystemdTimer && filepath.Base(priorTarget) != version
-	if err := install(ctx, a.GetAddonId(), units, enable, addonResourcesFromProto(a.GetResources()), runTimerNow); err != nil {
+	req := AddonSystemdInstallRequest{
+		RuntimeRoot:       runtimeRoot,
+		AddonID:           a.GetAddonId(),
+		Version:           version,
+		BinaryName:        addonBinaryName(a),
+		ArtifactPath:      StagedAddonArtifactPath(versionDir),
+		ArtifactSHA256:    wantSHA,
+		Signature:         strings.TrimSpace(a.GetArtifactSignature()),
+		Units:             units,
+		Enable:            enable,
+		Resources:         addonResourcesFromProto(a.GetResources()),
+		Capabilities:      a.GetOsCapabilities(),
+		RunTimerNow:       runTimerNow,
+		StateSnapshotPath: addonStateRollbackPath(runtimeRoot, a.GetAddonId()),
+	}
+	if err := install(ctx, req); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return false
 	}
+	_ = os.Remove(req.StateSnapshotPath)
 
 	if wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())); wantSHA != "" {
 		version := addonStagedVersion(a, wantSHA)
