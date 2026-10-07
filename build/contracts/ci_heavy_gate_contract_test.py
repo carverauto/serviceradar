@@ -91,6 +91,7 @@ ASYNC_ON_EXIT_ALLOWED_SOURCES = {
     "test/serviceradar/integrations/armis_northbound_runner_test.exs",
     "test/serviceradar/inventory/agent_link_repair_worker_test.exs",
     "test/serviceradar/notifications/dispatcher_delivery_test.exs",
+    "test/serviceradar/inventory/remediation/netprobe_alias_debris_test.exs",
 }
 DATABASE_BOOTSTRAP_SOURCE = (
     "test/serviceradar/cluster/database_bootstrap_integration_test.exs"
@@ -1799,6 +1800,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             },
             "test/serviceradar/notifications/dispatcher_delivery_test.exs": {
                 "on_exit(fn -> RateLimiter.reset(channel.id) end)": 2,
+            },
+            "test/serviceradar/inventory/remediation/netprobe_alias_debris_test.exs": {
+                "on_exit(fn -> File.rm(manifest_path) end)": 1,
             },
         }
 
