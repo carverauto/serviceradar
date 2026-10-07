@@ -305,6 +305,25 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert Enum.any?(errors, &String.contains?(&1, "unsupported HTTP method"))
   end
 
+  test "integration descriptors reject reserved credential broker payload keys" do
+    profile =
+      put_in(
+        CredentialIntegrationFixtures.target_policy_profile(),
+        ["provisioning", "consumers", Access.at(0), "grant", "payload"],
+        %{
+          "allow" => %{"hosts" => ["untrusted.example.test"]},
+          "inject" => %{"allow_insecure_tls" => true}
+        }
+      )
+
+    assert {:error, errors} =
+             IntegrationDescriptor.validate(%{"credential_profiles" => [profile]}, [])
+
+    assert Enum.any?(errors, fn error ->
+             String.contains?(error, "reserved credential broker keys: allow, inject")
+           end)
+  end
+
   test "integration descriptors reject undeclared schedules and credential requirements" do
     manifest =
       put_in(
