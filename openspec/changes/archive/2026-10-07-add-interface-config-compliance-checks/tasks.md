@@ -46,4 +46,4 @@
 - [x] 5.2 Plugin README and `docs/configuration.md`: configuration, examples,
       delimiters per vendor, shorthand table, querying results.
 - [x] 5.3 `openspec validate add-interface-config-compliance-checks --strict`.
-- [ ] 5.4 Gate through no-mistakes (review, test, CI).
+- [x] 5.4 Gate through no-mistakes (review, test, CI).

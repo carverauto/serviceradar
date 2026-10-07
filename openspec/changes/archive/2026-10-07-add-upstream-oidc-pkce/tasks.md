@@ -72,7 +72,7 @@
       (S256, confidential client still uses the secret, Settings UI
       modes, `disabled` escape hatch). Explicitly distinguish MCP OAuth
       PKCE (`/oauth/authorize`) from this login-client PKCE.
-- [ ] 5.2 Validate the flow against a Microsoft Entra Web application
+- [x] 5.2 Validate the flow against a Microsoft Entra Web application
       registration (authorize includes S256, token exchange accepts
       verifier + secret, login completes). Record the result on
-      issue #4256.
+      issue #4256. Shipped in PR #4264 and closed as shipped.

@@ -34,4 +34,4 @@
 - [x] 6.4 (Not needed: correlation p95 stayed under 1 s with duplicates included; see PR #5164.) Only if the load test shows observation volume matters: coalesce duplicate `(partition, attribution_key)` rows within an EventWriter batch.
 
 ## 7. Cutover
-- [ ] 7.1 Ship in one release; verify on demo that observations land, passes succeed and flows are stamped.
+- [x] 7.1 Ship in one release; verify on demo that observations land, passes succeed and flows are stamped.
