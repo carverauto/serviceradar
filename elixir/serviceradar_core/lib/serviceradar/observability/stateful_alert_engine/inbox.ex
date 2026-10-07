@@ -23,6 +23,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   alias ServiceRadar.Repo
 
   require Ash.Query
+  require Logger
 
   @defaults %{
     admission_timeout_ms: 2_000,
@@ -127,7 +128,40 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     require_capacity(pending, limits)
     insert(pending, signal)
 
+    pending
+    |> Enum.map(& &1.rule_id)
+    |> Enum.uniq()
+    |> Enum.each(&enqueue_hint/1)
+
     {Enum.map(candidates, &{&1.rule_id, &1.source_key}), length(pending)}
+  end
+
+  # Hints commit with the source transaction, but a failed hint insert must
+  # not poison that transaction or discard the authoritative accepted work.
+  defp enqueue_hint(rule_id) do
+    Repo.query!("SAVEPOINT alert_evaluation_hint")
+
+    result =
+      try do
+        EvaluationWorker.enqueue(rule_id)
+      rescue
+        error -> {:error, error}
+      catch
+        kind, reason -> {:error, {kind, reason}}
+      end
+
+    case result do
+      {:ok, _job} ->
+        Repo.query!("RELEASE SAVEPOINT alert_evaluation_hint")
+
+      {:error, _reason} ->
+        Repo.query!("ROLLBACK TO SAVEPOINT alert_evaluation_hint")
+        Repo.query!("RELEASE SAVEPOINT alert_evaluation_hint")
+        RuntimeMetrics.store_failure()
+        Logger.warning("Alert evaluation wake-up deferred to durable recovery")
+    end
+
+    :ok
   end
 
   @doc "Configured admission bounds; these apply to retries and direct callers alike."

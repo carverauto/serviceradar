@@ -494,12 +494,14 @@ defmodule ServiceRadar.TestSupportSandboxTest do
         stateful_rule.id
       end)
 
-    for table <- ~w(alert_evaluation_work alert_evaluation_receipts stateful_alert_rule_states) do
-      assert Repo.query!(
-               "SELECT count(*) FROM platform.#{table} WHERE rule_id = $1",
-               [Ecto.UUID.dump!(rule_id)]
-             ).rows == [[0]]
-    end
+    TestSupport.with_repo_owner(%{async: false}, fn ->
+      for table <- ~w(alert_evaluation_work alert_evaluation_receipts stateful_alert_rule_states) do
+        assert Repo.query!(
+                 "SELECT count(*) FROM platform.#{table} WHERE rule_id = $1",
+                 [Ecto.UUID.dump!(rule_id)]
+               ).rows == [[0]]
+      end
+    end)
   end
 
   defp with_probe_table(fun) do

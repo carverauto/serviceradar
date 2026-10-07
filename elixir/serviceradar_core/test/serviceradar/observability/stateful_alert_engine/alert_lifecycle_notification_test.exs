@@ -116,6 +116,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
     assert {:ok, alert_id} =
              AlertLifecycle.create_event_and_alert(rule, snapshot(rule), record(now), now)
 
+    AlertLifecycle.sync_active_incident(
+      %{snapshot(rule) | alert_id: alert_id},
+      rule,
+      now,
+      reset?: true
+    )
+
     Repo.query!("UPDATE platform.alerts SET last_notification_at = $1 WHERE id = $2", [
       DateTime.shift(now, hour: -2),
       Ecto.UUID.dump!(alert_id)

@@ -103,6 +103,57 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   end
 
   @tag sandbox: :unboxed
+  test "a failed wake-up insert preserves accepted work and a usable source transaction", %{
+    rule: rule,
+    actor: actor
+  } do
+    input = event()
+    worker = Oban.Worker.to_string(EvaluationWorker)
+
+    Repo.query!(
+      "ALTER TABLE platform.oban_jobs ADD CONSTRAINT synthetic_alert_hint_fault " <>
+        "CHECK (worker <> '#{worker}' OR args->>'rule_id' IS DISTINCT FROM '#{rule.id}')"
+    )
+
+    keys =
+      try do
+        assert {:ok, keys} =
+                 Repo.transaction(fn ->
+                   assert {:ok, keys} = Inbox.admit(:event, [input])
+                   assert [_] = work(rule, actor)
+                   assert %{rows: [[1]]} = Repo.query!("SELECT 1")
+
+                   assert %{rows: [[0]]} =
+                            Repo.query!(
+                              "SELECT count(*) FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = $2",
+                              [worker, rule.id]
+                            )
+
+                   keys
+                 end)
+
+        keys
+      after
+        Repo.query!("ALTER TABLE platform.oban_jobs DROP CONSTRAINT synthetic_alert_hint_fault")
+      end
+
+    assert [_] = work(rule, actor)
+    assert {:error, :evaluation_completion_timeout} = Completion.await(keys, 25)
+    assert :ok = RecoveryWorker.perform(%Oban.Job{})
+    assert %{failure: 0} = Oban.drain_queue(queue: :alerts, with_recursion: true)
+    assert {:ok, [%{disposition: :completed}]} = Completion.await(keys, 1_000)
+    assert [] = work(rule, actor)
+    assert {:ok, ^keys} = Inbox.admit(:event, [input])
+    assert [] = work(rule, actor)
+    assert {:ok, :empty} = Owner.advance(rule.id)
+
+    assert [%{bucket_counts: %{"1767225600" => 1}}] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+  end
+
+  @tag sandbox: :unboxed
   test "recovery replaces discarded, missing and abandoned wake-ups without losing accepted input",
        %{
          rule: rule,
