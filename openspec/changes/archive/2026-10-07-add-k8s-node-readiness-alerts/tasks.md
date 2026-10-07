@@ -88,10 +88,11 @@
       the alert title instead, so route on `alert.title` `contains` for a
       role-specific page. Set `device_uid` when an inventory device hostname
       matches the Node name.
-- [ ] 3.4 Seeder / engine tests covering open, recover, and role in the title.
+- [x] 3.4 Seeder / engine tests covering open, recover, and role in the title.
       The message template and the group-key stability it buys are covered by
       `RecordRenderTemplateTest`; an end-to-end pass through the seeded rule
-      still needs the database fixture.
+      still needs the database fixture. State machine transitions covered in
+      `state_machine_resolution_retry_test.exs` (PR #4338).
 
 ## 4. Notification routing gap
 
