@@ -117,7 +117,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           |> load_fleet(socket.assigns.filters, socket.assigns.agent_page)
 
         {:error, reason} ->
-          put_flash(socket, :error, "Rollout action failed: #{AddonRollouts.format_error(reason)}")
+          put_flash(
+            socket,
+            :error,
+            "Rollout action failed: #{AddonRollouts.format_error(reason)}"
+          )
       end
 
     {:noreply, socket}
@@ -184,7 +188,25 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
         do: MapSet.delete(expanded, key),
         else: MapSet.put(expanded, key)
 
-    {:noreply, assign(socket, :expanded_rows, expanded)}
+    socket = assign(socket, :expanded_rows, expanded)
+
+    socket =
+      if socket.assigns[:use_stream?] do
+        case String.split(key, "|") do
+          [agent_uid, _addon_id] ->
+            case Enum.find(socket.assigns.paged_agent_groups, &(&1.agent_uid == agent_uid)) do
+              nil -> socket
+              group -> stream_insert(socket, :agent_groups, group)
+            end
+
+          _ ->
+            socket
+        end
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   defp assign_unloaded_fleet(socket) do
@@ -203,6 +225,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     |> assign(:categories, @categories)
     |> assign(:agent_options, [])
     |> assign(:addon_options, [])
+    |> assign(:use_stream?, false)
+    |> stream_configure(:agent_groups, dom_id: &"agent-card-#{dom_id_segment(&1.agent_uid)}")
+    |> stream(:agent_groups, [])
     |> apply_filters(default_filters(), 1)
   end
 
@@ -237,6 +262,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     groups = group_rows_by_agent(rows)
     page_size = @agent_page_size
     page = clamp_page(page, length(groups), page_size)
+    paged_groups = paginated_items(groups, page, page_size)
+    use_stream? = length(groups) > 100 or length(rows) > 100
 
     socket
     |> assign(:filters, filters)
@@ -245,8 +272,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     |> assign(:agent_group_total, length(groups))
     |> assign(:agent_page, page)
     |> assign(:agent_page_size, page_size)
-    |> assign(:paged_agent_groups, paginated_items(groups, page, page_size))
+    |> assign(:paged_agent_groups, paged_groups)
     |> assign(:summary, AddonFleet.summary(rows))
+    |> assign(:use_stream?, use_stream?)
+    |> then(fn s ->
+      if use_stream? do
+        stream(s, :agent_groups, paged_groups, reset: true)
+      else
+        s
+      end
+    end)
   end
 
   defp default_filters do
@@ -634,159 +669,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
               <p class="mt-1 text-xs text-sr-muted">Adjust the filters above.</p>
             </div>
           <% else %>
-            <div id="addon-fleet-table" class="space-y-4">
-              <article
-                :for={group <- @paged_agent_groups}
-                data-role="agent-addon-card"
-                data-agent-uid={group.agent_uid}
-                class="overflow-hidden rounded-xl border border-sr-line bg-sr-surface"
-              >
-                <header class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line bg-sr-subtle/30 px-4 py-3">
-                  <div class="min-w-0">
-                    <h2
-                      data-role="agent-card-label"
-                      class="truncate text-base font-semibold text-sr-ink"
-                      title={group.agent_label}
-                    >
-                      {group.agent_label}
-                    </h2>
-                    <div class="font-mono text-[11px] text-sr-muted">{group.agent_uid}</div>
-                  </div>
-                  <div class="flex flex-wrap items-center justify-end gap-2 text-xs">
-                    <.ui_badge size="sm" variant="ghost">{length(group.rows)} add-ons</.ui_badge>
-                    <.ui_badge size="sm" variant="ghost">{group.managed} managed</.ui_badge>
-                    <.ui_badge :if={group.unavailable > 0} size="sm" variant="warning">
-                      {group.unavailable} unavailable
-                    </.ui_badge>
-                    <.ui_badge :if={group.attention > 0} size="sm" variant="error">
-                      {group.attention} need attention
-                    </.ui_badge>
-                    <.ui_badge
-                      :if={group.attention == 0 and group.unavailable == 0}
-                      size="sm"
-                      variant="success"
-                    >
-                      no active alerts
-                    </.ui_badge>
-                  </div>
-                </header>
-
-                <div class="sr-ui-table-shell">
-                  <table class={ui_table_class(size: "sm")}>
-                    <thead>
-                      <tr class="text-xs uppercase tracking-wide text-sr-muted">
-                        <th class="w-8"></th>
-                        <th>Add-on</th>
-                        <th>Version</th>
-                        <th>Desired</th>
-                        <th>Runtime</th>
-                        <th>Last observed</th>
-                        <th>Health</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <%= for row <- group.rows do %>
-                        <% expanded? = MapSet.member?(@expanded_rows, row_key(row)) %>
-                        <tr
-                          data-role="fleet-row"
-                          class={["hover:bg-sr-subtle/30", row.attention? && "bg-error/5"]}
-                        >
-                          <td class="align-top">
-                            <.ui_icon_button
-                              type="button"
-                              phx-click="toggle_details"
-                              phx-value-row={row_key(row)}
-                              aria-expanded={to_string(expanded?)}
-                              aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"}
-                              size="xs"
-                              variant="ghost"
-                            >
-                              <.icon
-                                name={
-                                  if expanded?, do: "hero-chevron-down", else: "hero-chevron-right"
-                                }
-                                class="size-4"
-                              />
-                            </.ui_icon_button>
-                          </td>
-                          <td class="min-w-[13rem] align-top">
-                            <div class="font-medium">{row.addon_name}</div>
-                            <div class="text-xs font-mono text-sr-muted">{row.addon_id}</div>
-                            <.ui_badge :if={row.collector?} size="xs" variant="ghost">
-                              collector
-                            </.ui_badge>
-                          </td>
-                          <td class="min-w-[10rem] align-top"><.version_cell row={row} /></td>
-                          <td class="align-top">
-                            <div class="flex flex-col items-start gap-1">
-                              <.ui_badge
-                                size="sm"
-                                variant={package_status_badge_variant(row.package_status)}
-                              >
-                                {package_status_label(row.package_status)}
-                              </.ui_badge>
-                              <.ui_badge
-                                data-role={"assignment-#{row.management_mode}"}
-                                size="sm"
-                                variant={assigned_badge_variant(row)}
-                              >
-                                {assigned_label(row)}
-                              </.ui_badge>
-                            </div>
-                          </td>
-                          <td class="align-top">
-                            <.ui_badge size="sm" variant={running_badge_variant(row)}>
-                              {running_label(row)}
-                            </.ui_badge>
-                            <button
-                              :if={row.degradation_reason}
-                              type="button"
-                              class={[
-                                "mt-1 block text-left text-xs underline decoration-dotted",
-                                diagnostic_link_class(row.degradation_reason)
-                              ]}
-                              phx-click="toggle_details"
-                              phx-value-row={row_key(row)}
-                            >
-                              diagnostics
-                            </button>
-                          </td>
-                          <td class="align-top text-xs text-sr-muted">
-                            <div>
-                              <.user_time
-                                id={"admin-addon-fleet-#{dom_id_segment(row.agent_uid)}-#{dom_id_segment(row.addon_id)}-reported-at"}
-                                value={row.reported_at}
-                                timezone={@current_scope.user.timezone || "Etc/UTC"}
-                                style={:compact}
-                              />
-                            </div>
-                            <div
-                              :if={row.collector? and row.last_scan_at}
-                              class="text-sr-muted"
-                            >
-                              scan
-                              <.user_time
-                                id={"admin-addon-fleet-#{dom_id_segment(row.agent_uid)}-#{dom_id_segment(row.addon_id)}-last-scan-at"}
-                                value={row.last_scan_at}
-                                timezone={@current_scope.user.timezone || "Etc/UTC"}
-                                style={:compact}
-                              />
-                            </div>
-                          </td>
-                          <td class="min-w-[14rem] align-top">
-                            <.health_cell row={row} />
-                          </td>
-                        </tr>
-                        <tr :if={expanded?} class="bg-sr-subtle/20">
-                          <td></td>
-                          <td colspan="6" class="py-3"><.row_details row={row} /></td>
-                        </tr>
-                      <% end %>
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-            </div>
+            <%= if @use_stream? do %>
+              <div id="addon-fleet-table" phx-update="stream" class="space-y-4">
+                <.agent_card
+                  :for={{dom_id, group} <- @streams.agent_groups}
+                  id={dom_id}
+                  group={group}
+                  expanded_rows={@expanded_rows}
+                  current_scope={@current_scope}
+                />
+              </div>
+            <% else %>
+              <div id="addon-fleet-table" class="space-y-4">
+                <.agent_card
+                  :for={group <- @paged_agent_groups}
+                  id={"agent-card-#{dom_id_segment(group.agent_uid)}"}
+                  group={group}
+                  expanded_rows={@expanded_rows}
+                  current_scope={@current_scope}
+                />
+              </div>
+            <% end %>
             <.pagination_controls
               :if={@agent_group_total > @agent_page_size}
               id_prefix="addon-fleet-agents"
@@ -873,7 +776,166 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
-  attr :row, :map, required: true
+  attr(:id, :string, required: true)
+  attr(:group, :map, required: true)
+  attr(:expanded_rows, :any, required: true)
+  attr(:current_scope, :any, required: true)
+
+  defp agent_card(assigns) do
+    ~H"""
+    <article
+      id={@id}
+      data-role="agent-addon-card"
+      data-agent-uid={@group.agent_uid}
+      class="overflow-hidden rounded-xl border border-sr-line bg-sr-surface"
+    >
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line bg-sr-subtle/30 px-4 py-3">
+        <div class="min-w-0">
+          <h2
+            data-role="agent-card-label"
+            class="truncate text-base font-semibold text-sr-ink"
+            title={@group.agent_label}
+          >
+            {@group.agent_label}
+          </h2>
+          <div class="font-mono text-[11px] text-sr-muted">{@group.agent_uid}</div>
+        </div>
+        <div class="flex flex-wrap items-center justify-end gap-2 text-xs">
+          <.ui_badge size="sm" variant="ghost">{length(@group.rows)} add-ons</.ui_badge>
+          <.ui_badge size="sm" variant="ghost">{@group.managed} managed</.ui_badge>
+          <.ui_badge :if={@group.unavailable > 0} size="sm" variant="warning">
+            {@group.unavailable} unavailable
+          </.ui_badge>
+          <.ui_badge :if={@group.attention > 0} size="sm" variant="error">
+            {@group.attention} need attention
+          </.ui_badge>
+          <.ui_badge
+            :if={@group.attention == 0 and @group.unavailable == 0}
+            size="sm"
+            variant="success"
+          >
+            no active alerts
+          </.ui_badge>
+        </div>
+      </header>
+
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
+              <th class="w-8"></th>
+              <th>Add-on</th>
+              <th>Version</th>
+              <th>Desired</th>
+              <th>Runtime</th>
+              <th>Last observed</th>
+              <th>Health</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for row <- @group.rows do %>
+              <% expanded? = MapSet.member?(@expanded_rows, row_key(row)) %>
+              <tr
+                data-role="fleet-row"
+                class={["hover:bg-sr-subtle/30", row.attention? && "bg-error/5"]}
+              >
+                <td class="align-top">
+                  <.ui_icon_button
+                    type="button"
+                    phx-click="toggle_details"
+                    phx-value-row={row_key(row)}
+                    aria-expanded={to_string(expanded?)}
+                    aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"}
+                    size="xs"
+                    variant="ghost"
+                  >
+                    <.icon
+                      name={if expanded?, do: "hero-chevron-down", else: "hero-chevron-right"}
+                      class="size-4"
+                    />
+                  </.ui_icon_button>
+                </td>
+                <td class="min-w-[13rem] align-top">
+                  <div class="font-medium">{row.addon_name}</div>
+                  <div class="text-xs font-mono text-sr-muted">{row.addon_id}</div>
+                  <.ui_badge :if={row.collector?} size="xs" variant="ghost">
+                    collector
+                  </.ui_badge>
+                </td>
+                <td class="min-w-[10rem] align-top"><.version_cell row={row} /></td>
+                <td class="align-top">
+                  <div class="flex flex-col items-start gap-1">
+                    <.ui_badge
+                      size="sm"
+                      variant={package_status_badge_variant(row.package_status)}
+                    >
+                      {package_status_label(row.package_status)}
+                    </.ui_badge>
+                    <.ui_badge
+                      data-role={"assignment-#{row.management_mode}"}
+                      size="sm"
+                      variant={assigned_badge_variant(row)}
+                    >
+                      {assigned_label(row)}
+                    </.ui_badge>
+                  </div>
+                </td>
+                <td class="align-top">
+                  <.ui_badge size="sm" variant={running_badge_variant(row)}>
+                    {running_label(row)}
+                  </.ui_badge>
+                  <button
+                    :if={row.degradation_reason}
+                    type="button"
+                    class={[
+                      "mt-1 block text-left text-xs underline decoration-dotted",
+                      diagnostic_link_class(row.degradation_reason)
+                    ]}
+                    phx-click="toggle_details"
+                    phx-value-row={row_key(row)}
+                  >
+                    diagnostics
+                  </button>
+                </td>
+                <td class="align-top text-xs text-sr-muted">
+                  <div>
+                    <.user_time
+                      id={"admin-addon-fleet-#{dom_id_segment(row.agent_uid)}-#{dom_id_segment(row.addon_id)}-reported-at"}
+                      value={row.reported_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                    />
+                  </div>
+                  <div
+                    :if={row.collector? and row.last_scan_at}
+                    class="text-sr-muted"
+                  >
+                    scan
+                    <.user_time
+                      id={"admin-addon-fleet-#{dom_id_segment(row.agent_uid)}-#{dom_id_segment(row.addon_id)}-last-scan-at"}
+                      value={row.last_scan_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                    />
+                  </div>
+                </td>
+                <td class="min-w-[14rem] align-top">
+                  <.health_cell row={row} />
+                </td>
+              </tr>
+              <tr :if={expanded?} class="bg-sr-subtle/20">
+                <td></td>
+                <td colspan="6" class="py-3"><.row_details row={row} /></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </article>
+    """
+  end
+
+  attr(:row, :map, required: true)
 
   # Version state rendered as an honest comparison: both sides shown for drift,
   # nothing fabricated when a side is missing (never "drift: 0.0.0").
@@ -917,8 +979,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
-  attr :rollout, :map, required: true
-  attr :timezone, :string, required: true
+  attr(:rollout, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp rollout_details(assigns) do
     targets = Enum.sort_by(assigns.rollout.targets, &{&1.batch_index, &1.agent_uid})
@@ -1007,7 +1069,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
-  attr :row, :map, required: true
+  attr(:row, :map, required: true)
 
   defp health_cell(assigns) do
     health = assigns.row.health || AddonRolloutView.fleet_health(assigns.row)
@@ -1033,8 +1095,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
-  attr :row, :map, required: true
-  attr :health, :map, required: true
+  attr(:row, :map, required: true)
+  attr(:health, :map, required: true)
 
   defp health_action(%{health: %{action: :review_rollout}, row: %{rollout_id: id}} = assigns) when is_binary(id) do
     ~H"""
@@ -1077,7 +1139,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
-  attr :row, :map, required: true
+  attr(:row, :map, required: true)
 
   defp row_details(assigns) do
     ~H"""
@@ -1152,9 +1214,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :any, required: true
-  attr :tone, :string, default: "neutral"
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:tone, :string, default: "neutral")
 
   defp stat_card(assigns) do
     ~H"""
@@ -1206,7 +1268,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp running_badge_variant(_row), do: "error"
 
   defp running_label(%{running_state: nil}), do: "not reported"
+
   defp running_label(%{observation_stale?: true, running_state: state}), do: "stale: last #{state}"
+
   defp running_label(%{running_state: state}), do: state
 
   defp category_badge_variant(:healthy), do: "success"

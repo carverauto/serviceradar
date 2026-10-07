@@ -273,7 +273,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      primary? true
+
+      pagination keyset?: true,
+                 required?: false,
+                 default_limit: 250,
+                 max_page_size: 5000
+    end
 
     read :by_uid do
       argument :uid, :string, allow_nil?: false

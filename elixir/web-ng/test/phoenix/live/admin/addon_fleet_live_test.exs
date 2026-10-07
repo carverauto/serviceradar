@@ -10,11 +10,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Phoenix.LiveView.Socket
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadarWebNG.Plugins.AddonFleet
+  alias ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index
 
   require Ash.Query
 
@@ -80,7 +83,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
        %{conn: conn, actor: actor} do
     unique = System.unique_integer([:positive])
     gateway = gateway_fixture(%{id: "fleet-gw2-#{unique}", component_id: "fleet-comp2-#{unique}"})
-    agent = agent_fixture(gateway, %{uid: "fleet-agent2-#{unique}", name: "Fleet Agent Two #{unique}"})
+
+    agent =
+      agent_fixture(gateway, %{uid: "fleet-agent2-#{unique}", name: "Fleet Agent Two #{unique}"})
 
     # Up to date: assigned == running == latest approved.
     current_addon = "fleet-current-#{unique}"
@@ -122,7 +127,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   } do
     unique = System.unique_integer([:positive])
     addon_id = "fleet-disabled-history-#{unique}"
-    gateway = gateway_fixture(%{id: "fleet-disabled-gw-#{unique}", component_id: "fleet-disabled-#{unique}"})
+
+    gateway =
+      gateway_fixture(%{
+        id: "fleet-disabled-gw-#{unique}",
+        component_id: "fleet-disabled-#{unique}"
+      })
 
     agent =
       agent_fixture(gateway, %{
@@ -181,8 +191,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     end)
 
     unique = System.unique_integer([:positive])
-    gateway = gateway_fixture(%{id: "fleet-required-gw-#{unique}", component_id: "fleet-required-#{unique}"})
-    agent = agent_fixture(gateway, %{uid: "fleet-required-agent-#{unique}", name: "Required Runtime Agent"})
+
+    gateway =
+      gateway_fixture(%{
+        id: "fleet-required-gw-#{unique}",
+        component_id: "fleet-required-#{unique}"
+      })
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "fleet-required-agent-#{unique}",
+        name: "Required Runtime Agent"
+      })
 
     report_status!(agent.uid, "otel-collector", state: "running", active: true, version: "0.1.1")
 
@@ -195,11 +215,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     refute fleet_html =~ "running, unassigned"
   end
 
-  test "shows failed rollout evidence and the authorized retry control", %{conn: conn, actor: actor} do
+  test "shows failed rollout evidence and the authorized retry control", %{
+    conn: conn,
+    actor: actor
+  } do
     unique = System.unique_integer([:positive])
     addon_id = "fleet-rollout-evidence-#{unique}"
-    gateway = gateway_fixture(%{id: "fleet-rollout-gw-#{unique}", component_id: "fleet-rollout-#{unique}"})
-    agent = agent_fixture(gateway, %{uid: "fleet-rollout-agent-#{unique}", name: "Rollout Evidence Agent"})
+
+    gateway =
+      gateway_fixture(%{
+        id: "fleet-rollout-gw-#{unique}",
+        component_id: "fleet-rollout-#{unique}"
+      })
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "fleet-rollout-agent-#{unique}",
+        name: "Rollout Evidence Agent"
+      })
 
     previous = create_addon_package!(actor, addon_id, "1.0.0")
     candidate = create_addon_package!(actor, addon_id, "1.1.0")
@@ -300,7 +333,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   } do
     unique = System.unique_integer([:positive])
     addon_id = "fleet-rollout-profile-#{unique}"
-    gateway = gateway_fixture(%{id: "fleet-profile-gw-#{unique}", component_id: "fleet-profile-#{unique}"})
+
+    gateway =
+      gateway_fixture(%{
+        id: "fleet-profile-gw-#{unique}",
+        component_id: "fleet-profile-#{unique}"
+      })
 
     agent =
       agent_fixture(gateway, %{
@@ -391,8 +429,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     unique = System.unique_integer([:positive])
     addon_id = "fleet-rollout-pages-#{unique}"
-    gateway = gateway_fixture(%{id: "fleet-pages-gw-#{unique}", component_id: "fleet-pages-#{unique}"})
-    agent = agent_fixture(gateway, %{uid: "fleet-pages-agent-#{unique}", name: "Pages Agent #{unique}"})
+
+    gateway =
+      gateway_fixture(%{id: "fleet-pages-gw-#{unique}", component_id: "fleet-pages-#{unique}"})
+
+    agent =
+      agent_fixture(gateway, %{uid: "fleet-pages-agent-#{unique}", name: "Pages Agent #{unique}"})
 
     previous = create_addon_package!(actor, addon_id, "1.0.0")
     candidate = create_addon_package!(actor, addon_id, "1.1.0")
@@ -474,7 +516,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert has_element?(lv, "button", "Page 3 of 3")
 
     removed_ids = Enum.take(finished_ids, 2)
-    assert {2, _} = ServiceRadar.Repo.delete_all(from(r in AddonRollout, where: r.id in ^removed_ids))
+
+    assert {2, _} =
+             ServiceRadar.Repo.delete_all(from(r in AddonRollout, where: r.id in ^removed_ids))
 
     render_click(lv, "refresh")
 
@@ -585,6 +629,136 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     render_click(view, "clear_filters", %{})
     assert_patch(view, "/settings/agents/addons/fleet")
+  end
+
+  test "disconnected mount and render make no database queries", %{actor: actor} do
+    socket = %Socket{
+      assigns: %{__changed__: %{}, current_scope: actor},
+      endpoint: ServiceRadarWebNGWeb.Endpoint
+    }
+
+    test_pid = self()
+    handler_id = "test-repo-query-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        send(test_pid, {:repo_query, metadata.query})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, socket} = Index.mount(%{}, %{}, socket)
+
+    assert {:noreply, socket} =
+             Index.handle_params(
+               %{},
+               "http://localhost/settings/agents/addons/fleet",
+               socket
+             )
+
+    _html = render_component(&Index.render/1, socket.assigns)
+
+    refute_received {:repo_query, _}
+    assert socket.assigns.fleet_loaded? == false
+    assert socket.assigns.all_rows == []
+  end
+
+  test "switches to stream rendering when the fleet exceeds 100 rows, preserving card selectors and details toggle" do
+    rows =
+      for n <- 1..105 do
+        label = n |> Integer.to_string() |> String.pad_leading(3, "0")
+        uid = "fleet-stream-agent-#{label}"
+
+        %{
+          agent_uid: uid,
+          agent_label: "Fleet Agent #{label} (#{uid})",
+          addon_id: "stream-addon",
+          addon_name: "Stream Addon",
+          package_id: "pkg-1",
+          assigned_version: "1.0.0",
+          latest_approved_version: "1.0.0",
+          content_hash: "sha256:synthetic",
+          package_status: :approved,
+          verification_status: "verified",
+          approved?: true,
+          assigned?: true,
+          enabled?: true,
+          management_mode: :assignment,
+          running_state: "running",
+          running_version: "1.0.0",
+          active?: true,
+          degradation_reason: nil,
+          reported_at: ~U[2026-06-15 00:00:00Z],
+          last_health_at: ~U[2026-06-15 00:00:00Z],
+          last_scan_at: nil,
+          collector?: false,
+          version_status: {:up_to_date, "1.0.0", true},
+          stale_assignments: [],
+          category: :healthy,
+          reason_code: "desired_runtime_healthy",
+          evidence_age_seconds: 0,
+          rollout_id: nil,
+          rollout_state: nil,
+          rollout_candidate_version: nil,
+          rollout_previous_version: nil,
+          health: %{},
+          attention: [],
+          attention?: false
+        }
+      end
+
+    socket = %Socket{
+      transport_pid: self(),
+      assigns: %{
+        __changed__: %{},
+        current_scope: %ServiceRadarWebNG.Accounts.Scope{
+          user: %ServiceRadar.Identity.User{timezone: "Etc/UTC"},
+          permissions: MapSet.new(["plugins.view"])
+        }
+      },
+      endpoint: ServiceRadarWebNGWeb.Endpoint
+    }
+
+    assert {:ok, socket} = Index.mount(%{}, %{}, socket)
+
+    # Populate loaded fleet state with >100 rows
+    socket =
+      socket
+      |> Phoenix.Component.assign(:fleet_loaded?, true)
+      |> Phoenix.Component.assign(:all_rows, rows)
+      |> Phoenix.Component.assign(:agent_options, AddonFleet.agents(rows))
+      |> Phoenix.Component.assign(:addon_options, AddonFleet.addon_ids(rows))
+
+    assert {:noreply, socket} =
+             Index.handle_params(
+               %{},
+               "http://localhost/settings/agents/addons/fleet",
+               socket
+             )
+
+    assert socket.assigns.use_stream? == true
+    assert socket.assigns.agent_group_total == 105
+    assert length(socket.assigns.paged_agent_groups) == 10
+
+    # Render streamed cards and verify DOM attributes
+    html = render_component(&Index.render/1, socket.assigns)
+
+    assert html =~ ~s(id="addon-fleet-table")
+    assert html =~ ~s(phx-update="stream")
+    assert count_occurrences(html, ~s(data-role="agent-addon-card")) == 10
+    assert html =~ "Showing 1-10 of 105"
+
+    # Test toggling details preserves expansion and updates stream
+    first_key = "fleet-stream-agent-001|stream-addon"
+
+    assert {:noreply, socket} =
+             Index.handle_event("toggle_details", %{"row" => first_key}, socket)
+
+    assert MapSet.member?(socket.assigns.expanded_rows, first_key)
   end
 
   defp fleet_path(params), do: "/settings/agents/addons/fleet?" <> URI.encode_query(params)

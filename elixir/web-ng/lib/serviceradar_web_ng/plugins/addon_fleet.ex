@@ -451,7 +451,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   end
 
   defp assignment_rank(assignment, package_index) do
-    package = assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
+    package =
+      assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
 
     {
       version_rank(package && package.version),
@@ -473,7 +474,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp stale_assignment_infos(stale, package_index) do
     Enum.map(stale, fn assignment ->
-      package = assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
+      package =
+        assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
 
       %{
         version: package && package.version,
@@ -655,7 +657,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   end
 
   defp freshness_seconds do
-    Application.get_env(:serviceradar_web_ng, :addon_status_freshness_seconds, @default_freshness_seconds)
+    Application.get_env(
+      :serviceradar_web_ng,
+      :addon_status_freshness_seconds,
+      @default_freshness_seconds
+    )
   end
 
   defp convergence_seconds do
@@ -763,13 +769,30 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   end
 
   defp agents_by_uid(scope, limit) do
+    page_opts = if limit, do: [limit: limit], else: []
+
     Agent
     |> Ash.Query.for_read(:read)
-    |> maybe_limit(limit)
-    |> read(scope)
+    |> Ash.Query.sort(uid: :asc)
+    |> read_paged_agents(scope, page_opts)
     |> Map.new(fn agent -> {agent.uid, agent} end)
   rescue
     _ -> %{}
+  end
+
+  defp read_paged_agents(query, scope, []) do
+    read(query, scope)
+  end
+
+  defp read_paged_agents(query, scope, page_opts) do
+    opts = if scope, do: [scope: scope, page: page_opts], else: [page: page_opts]
+
+    case Ash.read(query, opts) do
+      {:ok, %Ash.Page.Keyset{results: results}} -> results
+      {:ok, %Ash.Page.Offset{results: results}} -> results
+      {:ok, results} when is_list(results) -> results
+      {:error, _} -> []
+    end
   end
 
   defp maybe_limit(query, nil), do: query
@@ -810,6 +833,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   end
 
   defp package_sort_key(%AddonPackage{imported_at: nil, inserted_at: inserted_at}), do: inserted_at
+
   defp package_sort_key(%AddonPackage{imported_at: imported_at}), do: imported_at
 
   defp package_approved?(%AddonPackage{status: :approved}), do: true
@@ -820,6 +844,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   end
 
   defp package_name(%AddonPackage{name: name}, _addon_id) when is_binary(name) and name != "", do: name
+
   defp package_name(_package, addon_id), do: addon_id
 
   defp agent_label(agent) do
