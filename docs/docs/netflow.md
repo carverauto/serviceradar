@@ -326,8 +326,8 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 
 **Per-listener parameters:**
 - `buffer_size`: UDP socket receive buffer (default: 65,536) — applies to both `netflow` and `sflow` listeners
-- `max_templates` (netflow only): Template cache size per source (default: 2,000)
-- `max_template_fields` (netflow only): Max fields per template for security (default: 10,000)
+- `max_templates` (netflow only): Template cache size per source (1–10,000, default 2,000)
+- `max_template_fields` (netflow only): Max fields per template for security (1–100,000, default 10,000)
 - `pending_flows` (netflow only): Optional cache for flow data that arrives before its template. Fields: `max_pending_flows` (1–10,000, default 256), `max_entries_per_template` (1–100,000, default 1,024), `max_entry_size_bytes` (1–65,531, default 65,531), `ttl_secs` (1–3,600, default 300)
 - `max_samples_per_datagram` (sflow only): Optional cap on samples parsed per datagram
 
