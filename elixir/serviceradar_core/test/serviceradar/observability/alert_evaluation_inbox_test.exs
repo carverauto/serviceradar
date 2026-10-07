@@ -316,7 +316,11 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert_receive {:receipts_locked, ^locker}, 5_000
 
     try do
-      assert {:error, :evaluation_completion_timeout} = Completion.await(keys, 25)
+      # The expired poll transaction disconnects the connection it ran on, so
+      # await from a child process and keep the test's owned connection usable
+      # for the owner-progress assertions below.
+      waiter = Task.async(fn -> Completion.await(keys, 25) end)
+      assert {:error, :evaluation_completion_timeout} = Task.await(waiter, 5_000)
     after
       send(locker, :release)
       assert_receive {:DOWN, ^monitor, :process, ^locker, :normal}, 5_000
