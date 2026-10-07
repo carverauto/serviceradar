@@ -1,0 +1,21 @@
+suite: DataService agent authorization
+templates:
+  - templates/serviceradar-config.yaml
+tests:
+  - it: keeps both agent identities read-only while core remains a writer
+    asserts:
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "spiffe://[^"]+/ns/[^"]+/sa/serviceradar-agent", "role": "reader"'
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "CN=serviceradar-agent,[^"]+", "role": "reader"'
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "CN=serviceradar-core,[^"]+", "role": "writer"'
+      - notMatchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "spiffe://[^"]+/ns/[^"]+/sa/serviceradar-agent", "role": "writer"'
+      - notMatchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "CN=serviceradar-agent,[^"]+", "role": "writer"'
