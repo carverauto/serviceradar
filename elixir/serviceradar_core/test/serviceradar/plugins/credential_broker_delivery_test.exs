@@ -123,6 +123,44 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
     assert grant.id == "grant-old"
   end
 
+  test "re-minting preserves scheme and request-body restrictions" do
+    expired = DateTime.shift(DateTime.utc_now(), minute: -10)
+
+    request_body = %{
+      "mode" => "bound_bytes",
+      "sha256" => String.duplicate("a", 64),
+      "source" => "plugin.body",
+      "content_type" => "application/json",
+      "max_bytes" => 1024,
+      "max_mutations" => 1
+    }
+
+    payload =
+      grant_payload(expired, %{
+        "allow" => %{
+          "schemes" => ["https"],
+          "methods" => ["POST"],
+          "paths" => ["=/api/v1/actions"],
+          "hosts" => ["api.example.test"],
+          "ports" => [443],
+          "request_body" => request_body
+        }
+      })
+
+    {_refreshed, _grant} =
+      CredentialBrokerDelivery.refresh_embedded_grant(%{"credential_broker" => payload},
+        grant_issuer: issuer_returning(),
+        grant_loader: refuse_loader()
+      )
+
+    assert_receive {:issued, attrs, _issued}
+    assert attrs.allowed_schemes == ["https"]
+    assert attrs.allowed_methods == ["POST"]
+    assert attrs.allowed_hosts == ["api.example.test"]
+    assert attrs.allowed_ports == [443]
+    assert attrs.request_body_policy == request_body
+  end
+
   test "fresh payload whose persisted grant is missing or inactive is re-minted" do
     future = DateTime.shift(DateTime.utc_now(), minute: 10)
     params = %{"credential_broker" => grant_payload(future)}

@@ -394,6 +394,11 @@ Nothing about this path hands raw secret material to the sandboxed plugin.
    placeholder such as `api_token_secret_ref`. No secret value is in the row,
    and no grant is minted here: the row records the scope a grant will be
    issued for, without a grant id or expiry.
+   Manifest `grant.payload` maps may add consumer-specific fields such as
+   `auth_method` or `cache`. They cannot redefine canonical grant fields such
+   as the secret or rule reference, consumer, target, injection settings,
+   allow-list, TTL, schema, grant ID, or expiry; ServiceRadar rejects those
+   descriptors and enforces the same boundary when serializing a grant.
 3. **Delivery.** At agent config generation, core resolves
    `<field>_secret_ref` to `<field>` for host-brokered paths, and writes an audit
    row for the resolution. Agents that resolve by binding receive the scope

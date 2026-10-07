@@ -128,6 +128,36 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
            }
   end
 
+  test "payload extensions cannot replace canonical grant fields" do
+    attrs = %{
+      secret_ref: "credentialref:network-credential-secret:#{@secret_id}",
+      grant_type: "plugin_credential",
+      consumer_kind: :plugin,
+      consumer_id: "example-inventory",
+      purpose: "device_inventory",
+      resolution_location: :agent,
+      allowed_hosts: ["api.example.test"],
+      inject: %{"type" => "http_header", "name" => "Authorization"}
+    }
+
+    for key <- CredentialBrokerGrant.reserved_payload_keys() do
+      assert_raise ArgumentError, ~r/reserved keys: #{key}/, fn ->
+        CredentialBrokerGrant.to_payload(attrs, %{key => %{"overridden" => true}})
+      end
+    end
+
+    payload =
+      CredentialBrokerGrant.to_payload(attrs, %{
+        "auth_method" => "api_token",
+        "cache" => %{"scope" => "assignment"}
+      })
+
+    assert payload["auth_method"] == "api_token"
+    assert payload["cache"] == %{"scope" => "assignment"}
+    assert payload["allow"]["hosts"] == ["api.example.test"]
+    assert payload["inject"] == %{"type" => "http_header", "name" => "Authorization"}
+  end
+
   test "payload derives expiry for non-persisted attrs" do
     payload =
       CredentialBrokerGrant.to_payload(%{
