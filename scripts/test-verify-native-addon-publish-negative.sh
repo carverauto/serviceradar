@@ -21,6 +21,22 @@
 
 set -euo pipefail
 
+if ! command -v jq >/dev/null 2>&1 && [[ -n "${TEST_SRCDIR:-}" ]]; then
+  case "$(uname -m)" in
+    x86_64|amd64) jq_repository="jq_linux_amd64" ;;
+    aarch64|arm64) jq_repository="jq_linux_arm64" ;;
+    *) jq_repository="" ;;
+  esac
+  if [[ -n "${jq_repository}" ]]; then
+    jq_binary="$(find -L "${TEST_SRCDIR}" -type f -path "*${jq_repository}/*" -perm -111 -print -quit)"
+    if [[ -n "${jq_binary}" ]]; then
+      mkdir -p "${TEST_TMPDIR}/jq-bin"
+      ln -sf "${jq_binary}" "${TEST_TMPDIR}/jq-bin/jq"
+      export PATH="${TEST_TMPDIR}/jq-bin:${PATH}"
+    fi
+  fi
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/native-addon-verify-negative.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -29,12 +45,16 @@ fake_bin="${TMP_DIR}/bin"
 bazel_bin="${TMP_DIR}/bazel-bin"
 metadata_dir="${bazel_bin}/build/native_addons"
 mkdir -p "${fake_bin}" "${metadata_dir}"
+printf '%s\n' 'synthetic cosign public key fixture' >"${TMP_DIR}/cosign.pub"
 
 cat >"${metadata_dir}/fixture.metadata.json" <<'JSON'
 {
   "repository_name": "serviceradar-addon-fixture",
   "artifact_type": "application/vnd.serviceradar.native-addon.bundle.v1+zip",
-  "bundle_media_type": "application/zip"
+  "bundle_media_type": "application/zip",
+  "artifacts": [
+    {"os": "linux", "arch": "amd64", "tarball_file": "fixture.linux.amd64.tar.gz"}
+  ]
 }
 JSON
 
@@ -73,6 +93,21 @@ if [[ "$1" == "manifest" && "$2" == "fetch" && "$3" == "--descriptor" ]]; then
 fi
 
 if [[ "$1" == "manifest" && "$2" == "fetch" ]]; then
+  artifact_title="fixture.linux.amd64.tar.gz"
+  extra_layers=""
+  if [[ "${VERIFY_NATIVE_ADDON_FIXTURE_MODE:-}" == "path-traversal" ]]; then
+    extra_layers=',
+      {
+        "mediaType": "application/vnd.serviceradar.native-addon.artifact.v1+gzip",
+        "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "annotations": {"org.opencontainers.image.title": "../../outside.tar.gz"}
+      },
+      {
+        "mediaType": "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex",
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "annotations": {"org.opencontainers.image.title": "../../outside.tar.gz.sig"}
+      }'
+  fi
   cat <<JSON
 {
   "content": {
@@ -86,13 +121,13 @@ if [[ "$1" == "manifest" && "$2" == "fetch" ]]; then
       {
         "mediaType": "application/vnd.serviceradar.native-addon.artifact.v1+gzip",
         "digest": "${artifact_digest}",
-        "annotations": {"org.opencontainers.image.title": "fixture.linux.amd64.tar.gz"}
+        "annotations": {"org.opencontainers.image.title": "${artifact_title}"}
       },
       {
         "mediaType": "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex",
         "digest": "${signature_digest}",
-        "annotations": {"org.opencontainers.image.title": "fixture.linux.amd64.tar.gz.sig"}
-      }
+        "annotations": {"org.opencontainers.image.title": "${artifact_title}.sig"}
+      }${extra_layers}
     ]
   }
 }
@@ -101,6 +136,9 @@ JSON
 fi
 
 if [[ "$1" == "blob" && "$2" == "fetch" && "$3" == "--output" ]]; then
+  if [[ -n "${VERIFY_NATIVE_ADDON_BLOB_FETCH_MARKER:-}" ]]; then
+    : >"${VERIFY_NATIVE_ADDON_BLOB_FETCH_MARKER}"
+  fi
   output="$4"
   ref="$5"
   case "${ref}" in
@@ -163,17 +201,31 @@ chmod +x "${fake_bin}/bazel" "${fake_bin}/oras" "${fake_bin}/cosign" "${fake_bin
 run_expected_failure() {
   local mode="$1"
   local log_file="${TMP_DIR}/${mode}.log"
+  local blob_fetch_marker="${TMP_DIR}/${mode}.blob-fetch"
 
   echo "CHECK verify-before-release rejects ${mode} fixture"
   if PATH="${fake_bin}:${PATH}" \
     BAZEL_BIN="${fake_bin}/bazel" \
     BAZEL_BIN_DIR="${bazel_bin}" \
     METADATA_DIR="${metadata_dir}" \
+    COSIGN_PUBLIC_KEY_FILE="${TMP_DIR}/cosign.pub" \
     OCI_REGISTRY="registry.example.test" \
     OCI_PROJECT="serviceradar" \
     VERIFY_NATIVE_ADDON_FIXTURE_MODE="${mode}" \
+    VERIFY_NATIVE_ADDON_BLOB_FETCH_MARKER="${blob_fetch_marker}" \
     "${REPO_ROOT}/scripts/verify-native-addon-publish.sh" "fixture-tag" >"${log_file}" 2>&1; then
     echo "  VIOLATION verifier accepted ${mode} fixture" >&2
+    sed 's/^/    /' "${log_file}" >&2
+    return 1
+  fi
+
+  if [[ "${mode}" == "path-traversal" && -e "${blob_fetch_marker}" ]]; then
+    echo "  VIOLATION verifier fetched a blob before rejecting an unsafe title" >&2
+    return 1
+  fi
+  if [[ "${mode}" == "path-traversal" ]] &&
+     ! grep -q "unsafe native add-on artifact title" "${log_file}"; then
+    echo "  VIOLATION verifier rejected traversal for an unexpected reason" >&2
     sed 's/^/    /' "${log_file}" >&2
     return 1
   fi
@@ -183,5 +235,6 @@ run_expected_failure() {
 
 run_expected_failure unsigned
 run_expected_failure tampered
+run_expected_failure path-traversal
 
 echo "verify-before-release negative tests passed"

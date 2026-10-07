@@ -74,11 +74,20 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
 print(data["repository_name"])
 print(data["artifact_type"])
 print(data["bundle_media_type"])
+for artifact in data.get("artifacts", []):
+    title = artifact.get("tarball_file")
+    if title:
+        print(f"ARTIFACT\t{title}")
 PY
 )
     repository_name="${meta[0]}"
     artifact_type="${meta[1]}"
     bundle_media_type="${meta[2]}"
+    expected_artifact_titles=()
+    for line in "${meta[@]:3}"; do
+      [[ "${line}" == ARTIFACT$'\t'* ]] || continue
+      expected_artifact_titles+=("${line#*$'\t'}")
+    done
     repo="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}"
     ref="${repo}:${tag}"
 
@@ -100,19 +109,41 @@ PY
     # Per-arch pushed-artifact tarballs: verify each tarball against its agent-release
     # ed25519 signature, pairing layers by title (<tarball> and <tarball>.sig).
     artifact_count=0
+    seen_artifact_titles=()
+    artifact_digests=()
+    artifact_signature_digests=()
     while IFS=$'\t' read -r title digest; do
       [[ -n "${title}" ]] || continue
+      if [[ ! "${title}" =~ ^[A-Za-z0-9._-]+\.tar\.gz$ ]]; then
+        echo "error: ${ref} has unsafe native add-on artifact title: ${title}" >&2
+        exit 1
+      fi
+      expected=false
+      for expected_title in "${expected_artifact_titles[@]}"; do
+        if [[ "${title}" == "${expected_title}" ]]; then
+          expected=true
+          break
+        fi
+      done
+      if [[ "${expected}" != true ]]; then
+        echo "error: ${ref} has unexpected native add-on artifact title: ${title}" >&2
+        exit 1
+      fi
+      for seen_title in "${seen_artifact_titles[@]}"; do
+        if [[ "${title}" == "${seen_title}" ]]; then
+          echo "error: ${ref} has duplicate native add-on artifact title: ${title}" >&2
+          exit 1
+        fi
+      done
+      seen_artifact_titles+=("${title}")
       sig_digest="$(jq -r --arg t "${title}.sig" --arg m "${_ARTIFACT_SIGNATURE_MEDIA_TYPE}" \
         '.layers[] | select(.mediaType == $m and (.annotations["org.opencontainers.image.title"] == $t)) | .digest' <<<"${content}" | head -n1)"
       if [[ -z "${sig_digest}" || "${sig_digest}" == "null" ]]; then
         echo "error: ${ref} artifact ${title} is missing its signature layer" >&2
         exit 1
       fi
-      tarball_path="${TMP_DIR}/${title}"
-      sig_path="${TMP_DIR}/${title}.sig"
-      "${ORAS_BIN}" blob fetch --output "${tarball_path}" "${repo}@${digest}" >/dev/null
-      "${ORAS_BIN}" blob fetch --output "${sig_path}" "${repo}@${sig_digest}" >/dev/null
-      "${ARTIFACT_SIGNATURE_TOOL}" verify --artifact "${tarball_path}" --signature "@${sig_path}"
+      artifact_digests+=("${digest}")
+      artifact_signature_digests+=("${sig_digest}")
       artifact_count=$((artifact_count + 1))
     done < <(jq -r --arg m "${_ARTIFACT_MEDIA_TYPE}" \
       '.layers[] | select(.mediaType == $m) | [.annotations["org.opencontainers.image.title"], .digest] | @tsv' <<<"${content}")
@@ -120,6 +151,18 @@ PY
       echo "error: ${ref} has no per-arch native add-on artifact layers" >&2
       exit 1
     fi
+    if ((artifact_count != ${#expected_artifact_titles[@]})); then
+      echo "error: ${ref} native add-on artifact count mismatch: expected ${#expected_artifact_titles[@]}, got ${artifact_count}" >&2
+      exit 1
+    fi
+
+    for ((artifact_index = 0; artifact_index < artifact_count; artifact_index++)); do
+      tarball_path="${TMP_DIR}/artifact-${artifact_index}.tar.gz"
+      sig_path="${TMP_DIR}/artifact-${artifact_index}.tar.gz.sig"
+      "${ORAS_BIN}" blob fetch --output "${tarball_path}" "${repo}@${artifact_digests[artifact_index]}" >/dev/null
+      "${ORAS_BIN}" blob fetch --output "${sig_path}" "${repo}@${artifact_signature_digests[artifact_index]}" >/dev/null
+      "${ARTIFACT_SIGNATURE_TOOL}" verify --artifact "${tarball_path}" --signature "@${sig_path}"
+    done
     echo "  verified ${artifact_count} per-arch artifact signature(s)"
 
     if cosign_init_verify_args; then
