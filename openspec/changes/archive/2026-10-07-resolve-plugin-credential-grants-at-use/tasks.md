@@ -17,4 +17,4 @@
 - [x] 4.1 Integration: resolve by binding mints once and reuses; disabled rule, changed secret, wrong agent, foreign assignment, unknown binding all deny and audit
 - [x] 4.2 Integration: legacy agent config still carries a grant and resolves; repeated config generation reuses it
 - [x] 4.3 Agent test: binding-only config resolves; legacy embedded grant still resolves
-- [ ] 4.4 Measure: grants minted per agent per day before and after on a lab deployment (after the core and agent release reaches a lab deployment)
+- [x] 4.4 Measure: grants minted per agent per day before and after on a lab deployment (after the core and agent release reaches a lab deployment)
