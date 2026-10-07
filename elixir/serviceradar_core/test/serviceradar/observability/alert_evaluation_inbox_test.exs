@@ -380,7 +380,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
              5_000
            )
 
-    # The slow owner is actually blocked in its snapshot write. Both durable
+    # The slow owner is actually blocked on its snapshot row. Both durable
     # acceptance and another rule's committed effects finish before release.
     assert {:ok, [_]} = Inbox.admit(:event, [%{event() | message: "fast independent"}])
     assert {:ok, {:processed, :completed}} = Owner.advance(fast.id)
@@ -458,8 +458,8 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
 
     assert length(work(rule, actor)) == burst_size + 1
     assert hd(work(rule, actor)).position == 2
-    # The killed transaction had reached the snapshot write after creating
-    # the alert and its outbox. None of those effects may survive rollback.
+    # The killed owner must leave its input accepted and all lifecycle effects
+    # absent. Recovery commits those effects exactly once after lock release.
     assert alert_count(rule.id) == 0
     assert history_count(rule.id) == 0
     assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)

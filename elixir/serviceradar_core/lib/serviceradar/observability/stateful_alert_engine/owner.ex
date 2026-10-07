@@ -279,6 +279,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
   defp restore(table, rule_id) do
     StatefulAlertRuleState
     |> Ash.Query.for_read(:by_rule, %{rule_id: rule_id})
+    # Acquire snapshot locks before lifecycle/history writes. Otherwise a
+    # blocked snapshot update can hold new Timescale chunk DDL locks and
+    # stall unrelated rules that write history in that same time range.
+    |> Ash.Query.lock(:for_update)
     |> Ash.read!(actor: Inbox.actor())
     |> Enum.each(fn row -> :ets.insert(table, {{rule_id, row.group_key}, normalize(row)}) end)
   end
