@@ -94,7 +94,7 @@ func TestAuthorizeMethod(t *testing.T) {
 func TestReaderRoleAllowsDownloadsAndRejectsEveryWriteMethod(t *testing.T) {
 	s, _ := setupServer(t)
 
-	assert.NoError(t, s.authorizeMethod("/proto.DataService/DownloadObject", RoleReader))
+	require.NoError(t, s.authorizeMethod("/proto.DataService/DownloadObject", RoleReader))
 
 	writeMethods := []string{
 		"/proto.KVService/Put",
