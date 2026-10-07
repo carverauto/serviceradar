@@ -143,7 +143,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
     result =
       try do
-        EvaluationWorker.enqueue(rule_id)
+        insert_hint(rule_id)
       rescue
         error -> {:error, error}
       catch
@@ -162,6 +162,30 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     end
 
     :ok
+  end
+
+  # Admission is serialized by the short admission mutex. Coalesce wake-ups
+  # here without Oban's unique-insert nested transaction: its exception path
+  # marks the enclosing DBConnection transaction failed even after a SQL
+  # savepoint rollback. Bulk insertion uses Oban's public API and stays inside
+  # our savepoint. A racing recovery hint is harmless under the owner fence.
+  defp insert_hint(rule_id) do
+    worker = Oban.Worker.to_string(EvaluationWorker)
+
+    case Repo.query!(
+           "SELECT id FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = $2 " <>
+             "AND state IN ('available', 'scheduled', 'retryable') LIMIT 1",
+           [worker, rule_id]
+         ) do
+      %{rows: [[_id]]} ->
+        {:ok, :already_scheduled}
+
+      %{rows: []} ->
+        case Oban.insert_all([EvaluationWorker.new(%{"rule_id" => rule_id})]) do
+          [job] -> {:ok, job}
+          other -> {:error, {:evaluation_hint_insert, other}}
+        end
+    end
   end
 
   @doc "Configured admission bounds; these apply to retries and direct callers alike."
