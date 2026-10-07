@@ -1119,7 +1119,9 @@ fn filter_predicates(
             "severity_match" if severity_any => {}
             "severity_text" | "severity" | "level" if severity_any => severity_text = Some(filter),
             "severity_number" if severity_any => severity_number = Some(filter),
-            "device_id" | "uid" | "source_device_uid" if dataset.raw_table == "events" => {
+            "device_id" | "device_uid" | "uid" | "source_device_uid"
+                if dataset.raw_table == "events" =>
+            {
                 predicates.push(event_device_identity_filter_sql(filter, table, bounds)?)
             }
             _ => predicates.push(filter_sql(plan, filter)?),
