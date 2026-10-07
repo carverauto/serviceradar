@@ -412,6 +412,13 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       - name: serviceradar-certs
         secret:
           secretName: serviceradar-runtime-certs
+          items:
+            - key: root.pem
+              path: root.pem
+            - key: falcosidekick.pem
+              path: falcosidekick.pem
+            - key: falcosidekick-key.pem
+              path: falcosidekick-key.pem
 
     extraVolumeMounts:
       - name: serviceradar-certs

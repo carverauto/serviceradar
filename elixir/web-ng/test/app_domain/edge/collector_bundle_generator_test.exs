@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       refute Enum.any?(file_names, &String.contains?(&1, "/certs/"))
     end
 
-    test "uses the shared runtime cert secret in generated values and deploy script" do
+    test "projects only the required files from the shared runtime cert secret" do
       {:ok, tarball} =
         CollectorBundleGenerator.create_tarball(
           sample_falcosidekick_package(),
@@ -41,8 +41,20 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       values_yaml = find_file(files, "falcosidekick.yaml")
       deploy_script = find_file(files, "deploy.sh")
       readme = find_file(files, "README.md")
+      values = YamlElixir.read_from_string!(values_yaml)
+      cert_volume = Enum.find(values["extraVolumes"], &(&1["name"] == "serviceradar-certs"))
 
       assert values_yaml =~ "secretName: serviceradar-runtime-certs"
+
+      assert cert_volume["secret"] == %{
+               "secretName" => "serviceradar-runtime-certs",
+               "items" => [
+                 %{"key" => "root.pem", "path" => "root.pem"},
+                 %{"key" => "falcosidekick.pem", "path" => "falcosidekick.pem"},
+                 %{"key" => "falcosidekick-key.pem", "path" => "falcosidekick-key.pem"}
+               ]
+             }
+
       assert values_yaml =~ "cacertfile: /etc/serviceradar/certs/root.pem"
       assert values_yaml =~ "templatedfields:"
 
@@ -54,6 +66,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       refute values_yaml =~ "serviceradar-falcosidekick-certs"
       refute values_yaml =~ "/etc/serviceradar/certs/ca-chain.pem"
+      refute values_yaml =~ "root-key.pem"
+      refute values_yaml =~ "jwt-secret"
+      refute values_yaml =~ "api-key"
 
       assert deploy_script =~ ~s(SECRET_NAME="serviceradar-runtime-certs")
       assert deploy_script =~ ~s(kubectl get secret "$SECRET_NAME" --namespace "$NAMESPACE")

@@ -147,10 +147,16 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       deploy_script = find_file(file_map, "deploy.sh")
 
       assert values_yaml =~ "secretName: serviceradar-runtime-certs"
+      assert values_yaml =~ "- key: root.pem"
+      assert values_yaml =~ "- key: falcosidekick.pem"
+      assert values_yaml =~ "- key: falcosidekick-key.pem"
       assert values_yaml =~ "/etc/serviceradar/certs/root.pem"
       assert deploy_script =~ ~s(SECRET_NAME="serviceradar-runtime-certs")
       refute deploy_script =~ "kubectl create secret generic"
       refute values_yaml =~ "serviceradar-falcosidekick-certs"
+      refute values_yaml =~ "root-key.pem"
+      refute values_yaml =~ "jwt-secret"
+      refute values_yaml =~ "api-key"
     end
 
     test "rejects bundle download when collector capability is disabled", %{conn: _conn} do

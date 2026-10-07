@@ -209,6 +209,12 @@ helm upgrade --install <release-name> falcosecurity/falcosidekick \
   --set-string config.otlp.metrics.extraenvvars.OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY=/etc/serviceradar/certs/falcosidekick-key.pem \
   --set extraVolumes[0].name=serviceradar-certs \
   --set extraVolumes[0].secret.secretName=serviceradar-runtime-certs \
+  --set-string 'extraVolumes[0].secret.items[0].key=root.pem' \
+  --set-string 'extraVolumes[0].secret.items[0].path=root.pem' \
+  --set-string 'extraVolumes[0].secret.items[1].key=falcosidekick.pem' \
+  --set-string 'extraVolumes[0].secret.items[1].path=falcosidekick.pem' \
+  --set-string 'extraVolumes[0].secret.items[2].key=falcosidekick-key.pem' \
+  --set-string 'extraVolumes[0].secret.items[2].path=falcosidekick-key.pem' \
   --set extraVolumeMounts[0].name=serviceradar-certs \
   --set extraVolumeMounts[0].mountPath=/etc/serviceradar/certs \
   --set extraVolumeMounts[0].readOnly=true
@@ -398,13 +404,34 @@ config:
     keyfile: /etc/serviceradar/certs/falcosidekick-key.pem
 ```
 
-Run the sidecar on the Compose network:
+Create a dedicated volume containing only the three certificates used by
+Falcosidekick. The copy runs as root so it can read the shared private key, then
+hands the minimal volume to the Falcosidekick image's UID 1234:
+
+```bash
+docker volume create serviceradar_falcosidekick-certs
+docker run --rm \
+  -v serviceradar_cert-data:/source:ro \
+  -v serviceradar_falcosidekick-certs:/dest \
+  alpine:3.20 sh -ec '
+    rm -rf /dest/*
+    cp /source/root.pem /dest/root.pem
+    cp /source/falcosidekick.pem /dest/falcosidekick.pem
+    cp /source/falcosidekick-key.pem /dest/falcosidekick-key.pem
+    chown -R 1234:1234 /dest
+    chmod 0444 /dest/root.pem /dest/falcosidekick.pem
+    chmod 0400 /dest/falcosidekick-key.pem
+  '
+```
+
+Run the sidecar on the Compose network with only that volume mounted:
 
 ```bash
 docker run --rm --name falcosidekick \
+  --user 1234:1234 \
   --network serviceradar-net \
   -p 2801:2801 \
-  -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
+  -v serviceradar_falcosidekick-certs:/etc/serviceradar/certs:ro \
   -v "$PWD/docker/compose/falcosidekick.compose.yaml:/etc/falcosidekick/config.yaml:ro" \
   falcosecurity/falcosidekick:latest \
   -c /etc/falcosidekick/config.yaml
