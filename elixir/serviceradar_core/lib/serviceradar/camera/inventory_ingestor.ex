@@ -63,15 +63,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   def ingest(_payload, _status, _opts), do: :ok
 
   defp ingest_descriptor(descriptor, context) do
-    descriptor =
-      resolve_descriptor_device_uid(
-        descriptor,
-        context.status,
-        context.actor,
-        context.resolve_device_uid
-      )
-
-    with :ok <-
+    with {:ok, descriptor} <-
+           resolve_descriptor_device_uid(
+             descriptor,
+             context.status,
+             context.actor,
+             context.resolve_device_uid
+           ),
+         :ok <-
            context.device_sync.(
              descriptor,
              context.status,
@@ -1599,31 +1598,47 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     explicit_uid = descriptor_device_uid(descriptor)
 
     case resolve_device_uid.(descriptor, status, actor) do
+      {:error, _} = error ->
+        error
+
+      {:ok, value} when is_binary(value) and value != "" ->
+        apply_resolved_camera_device_uid(descriptor, explicit_uid, value, actor)
+
+      {:ok, nil} ->
+        {:ok, descriptor}
+
       value when is_binary(value) and value != "" ->
-        cond do
-          blank?(explicit_uid) ->
-            Map.put(descriptor, "device_uid", value)
-
-          value == explicit_uid and not reusable_camera_device_uid?(explicit_uid, actor) ->
-            maybe_replace_descriptor_device_uid(
-              descriptor,
-              fallback_camera_device_uid_from_identity(descriptor, actor)
-            )
-
-          value == explicit_uid ->
-            descriptor
-
-          IdentityReconciler.serviceradar_uuid?(value) and
-              (replace_explicit_camera_uid?(explicit_uid, descriptor) or
-                 not reusable_camera_device_uid?(explicit_uid, actor)) ->
-            Map.put(descriptor, "device_uid", value)
-
-          true ->
-            descriptor
-        end
+        apply_resolved_camera_device_uid(descriptor, explicit_uid, value, actor)
 
       _ ->
-        descriptor
+        {:ok, descriptor}
+    end
+  end
+
+  defp apply_resolved_camera_device_uid(descriptor, explicit_uid, value, actor) do
+    cond do
+      blank?(explicit_uid) ->
+        {:ok, Map.put(descriptor, "device_uid", value)}
+
+      value == explicit_uid and not reusable_camera_device_uid?(explicit_uid, actor) ->
+        case fallback_camera_device_uid_from_identity(descriptor, actor) do
+          {:ok, fallback_uid} ->
+            {:ok, Map.put(descriptor, "device_uid", fallback_uid)}
+
+          {:error, _} = error ->
+            error
+        end
+
+      value == explicit_uid ->
+        {:ok, descriptor}
+
+      IdentityReconciler.serviceradar_uuid?(value) and
+          (replace_explicit_camera_uid?(explicit_uid, descriptor) or
+             not reusable_camera_device_uid?(explicit_uid, actor)) ->
+        {:ok, Map.put(descriptor, "device_uid", value)}
+
+      true ->
+        {:ok, descriptor}
     end
   end
 
@@ -1661,15 +1676,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       ids = IdentityReconciler.extract_strong_identifiers(update)
 
       case resolve_camera_identity(ids, update, descriptor, actor) do
-        {:error, {:identifier_lookup_failed, _}} = error ->
-          error
-
         {:ok, uid} when is_binary(uid) and uid != "" ->
           if reusable_camera_device_uid?(uid, actor) do
             {:ok, uid}
           else
             fallback_generated_camera_uid(ids, update, descriptor, actor)
           end
+
+        {:ok, nil} ->
+          fallback_generated_camera_uid(ids, update, descriptor, actor)
+
+        {:error, _} = error ->
+          error
 
         _ ->
           fallback_generated_camera_uid(ids, update, descriptor, actor)
@@ -1687,6 +1705,15 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         {:ok, uid} when is_binary(uid) and uid != "" ->
           {:ok, uid}
 
+        {:ok, nil} ->
+          IdentityReconciler.resolve_device_id(update, actor: actor)
+
+        {:error, :not_found} ->
+          IdentityReconciler.resolve_device_id(update, actor: actor)
+
+        {:error, _} = error ->
+          error
+
         _ ->
           IdentityReconciler.resolve_device_id(update, actor: actor)
       end
@@ -1701,21 +1728,49 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp default_resolve_device_uid(descriptor, status, actor) do
     case resolve_identity_from_hints(descriptor, status, actor) do
-      {:ok, uid} when is_binary(uid) and uid != "" -> uid
-      _ -> nil
+      {:ok, uid} when is_binary(uid) and uid != "" -> {:ok, uid}
+      {:ok, nil} -> {:ok, nil}
+      {:error, _} = error -> error
+      _ -> {:ok, nil}
     end
   end
 
   defp resolve_identity_from_hints(descriptor, _status, actor) when is_map(descriptor) do
-    with {:error, _reason} <- lookup_device_uid_from_existing_source(descriptor, actor),
-         {:ok, update} <- identity_update_from_descriptor(descriptor) do
-      update
-      |> IdentityReconciler.extract_strong_identifiers()
-      |> resolve_camera_identity(update, descriptor, actor)
-    else
-      {:ok, uid} -> {:ok, uid}
-      {:error, {:identifier_lookup_failed, _}} = error -> error
-      _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+    case lookup_device_uid_from_existing_source(descriptor, actor) do
+      {:ok, uid} ->
+        {:ok, uid}
+
+      {:error, {:source_lookup_failed, _}} = error ->
+        error
+
+      _ ->
+        case identity_update_from_descriptor(descriptor) do
+          {:ok, update} ->
+            ids = IdentityReconciler.extract_strong_identifiers(update)
+
+            case resolve_camera_identity(ids, update, descriptor, actor) do
+              {:ok, uid} when is_binary(uid) and uid != "" ->
+                {:ok, uid}
+
+              {:ok, nil} ->
+                lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+
+              {:error, _} = error ->
+                error
+
+              _ ->
+                lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+            end
+
+          {:error, :no_identity_hints} ->
+            lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+
+          {:error, _} = error ->
+            error
+
+          _ ->
+            lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+        end
     end
   end
 
@@ -1751,6 +1806,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             {:error, :agent_managed_source_device}
           end
 
+        {:ok, []} ->
+          {:error, :not_found}
+
+        {:error, reason} ->
+          {:error, {:source_lookup_failed, reason}}
+
         _ ->
           {:error, :not_found}
       end
@@ -1766,7 +1827,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       {:ok, uid} when is_binary(uid) and uid != "" ->
         {:ok, uid}
 
-      {:error, {:identifier_lookup_failed, _}} = error ->
+      {:ok, nil} ->
+        {:ok, IdentityReconciler.generate_deterministic_device_id(ids)}
+
+      {:error, _} = error ->
         error
 
       _ ->
@@ -1776,9 +1840,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp resolve_weak_camera_identity(update, descriptor, actor) when is_map(update) do
     case IdentityReconciler.resolve_device_id(update, actor: actor) do
-      {:ok, uid} when is_binary(uid) and uid != "" -> {:ok, uid}
-      {:error, {:identifier_lookup_failed, _}} = error -> error
-      _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+      {:ok, uid} when is_binary(uid) and uid != "" ->
+        {:ok, uid}
+
+      {:ok, nil} ->
+        lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
+
+      {:error, _} = error ->
+        error
+
+      _ ->
+        lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
     end
   end
 
@@ -1945,6 +2017,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
     case Ash.read(query, actor: actor) do
       {:ok, [%{uid: uid} | _]} when is_binary(uid) and uid != "" -> {:ok, uid}
+      {:ok, []} -> {:error, :not_found}
+      {:error, reason} -> {:error, {:device_lookup_failed, reason}}
       _ -> {:error, :not_found}
     end
   end

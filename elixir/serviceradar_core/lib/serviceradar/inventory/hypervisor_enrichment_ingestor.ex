@@ -307,10 +307,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     with :ok <- validate_source_scoped_identities(records),
          :ok <- validate_trusted_proxmox_source_binding(records, opts),
          records = discard_untrusted_proxmox_device_uids(records),
-         records = resolve_existing_device_uids(records, actor),
+         {:ok, records} <- resolve_existing_device_uids(records, actor),
          records = normalize_host_management_ips(records),
          {:ok, records} <- ensure_inventory_devices(records, actor),
-         records = resolve_existing_device_uids(records, actor),
+         {:ok, records} <- resolve_existing_device_uids(records, actor),
          records = propagate_resolved_device_uids(records),
          {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
          host_rows = link_refs(records.hosts, cluster_ids, %{}),
@@ -869,43 +869,48 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       end)
       |> Enum.filter(&present?/1)
 
-    integration_identity = integration_identity_by_ref(records)
-    network_identity = network_identity_by_guest(records.network_interfaces, actor)
-    host_network_identity = network_identity_by_host(records, actor)
-    devices = lookup_devices(current_uids, names, actor)
+    with {:ok, integration_identity} <- integration_identity_by_ref(records),
+         {:ok, network_identity} <- network_identity_by_guest(records.network_interfaces, actor),
+         {:ok, host_network_identity} <- network_identity_by_host(records, actor),
+         {:ok, devices} <- lookup_devices(current_uids, names, actor) do
+      guest_identity_maps = [integration_identity, network_identity]
+      host_identity_maps = [integration_identity, host_network_identity]
 
-    guest_identity_maps = [integration_identity, network_identity]
-    host_identity_maps = [integration_identity, host_network_identity]
-
-    Map.merge(records, %{
-      hosts: Enum.map(records.hosts, &resolve_record_device_uid(&1, devices, host_identity_maps)),
-      guests:
-        Enum.map(records.guests, fn record ->
-          resolve_record_device_uid(
-            record,
-            devices,
-            guest_identity_maps,
-            actor,
-            :managed_child_asset
-          )
-        end),
-      host_disks:
-        Enum.map(records.host_disks, &resolve_record_device_uid(&1, devices, host_identity_maps)),
-      network_interfaces:
-        Enum.map(records.network_interfaces, fn record ->
-          if present?(Map.get(record, :guest_provider_ref)) do
-            resolve_record_device_uid(
-              record,
-              devices,
-              guest_identity_maps,
-              actor,
-              :managed_child_asset
-            )
-          else
-            resolve_record_device_uid(record, devices, host_identity_maps)
-          end
-        end)
-    })
+      {:ok,
+       Map.merge(records, %{
+         hosts:
+           Enum.map(records.hosts, &resolve_record_device_uid(&1, devices, host_identity_maps)),
+         guests:
+           Enum.map(records.guests, fn record ->
+             resolve_record_device_uid(
+               record,
+               devices,
+               guest_identity_maps,
+               actor,
+               :managed_child_asset
+             )
+           end),
+         host_disks:
+           Enum.map(
+             records.host_disks,
+             &resolve_record_device_uid(&1, devices, host_identity_maps)
+           ),
+         network_interfaces:
+           Enum.map(records.network_interfaces, fn record ->
+             if present?(Map.get(record, :guest_provider_ref)) do
+               resolve_record_device_uid(
+                 record,
+                 devices,
+                 guest_identity_maps,
+                 actor,
+                 :managed_child_asset
+               )
+             else
+               resolve_record_device_uid(record, devices, host_identity_maps)
+             end
+           end)
+       })}
+    end
   end
 
   defp ensure_inventory_devices(records, actor) do
@@ -1275,7 +1280,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp available_status?(_status), do: false
 
-  defp lookup_devices([], [], _actor), do: %{by_uid: %{}, by_name: %{}}
+  defp lookup_devices([], [], _actor), do: {:ok, %{by_uid: %{}, by_name: %{}}}
 
   defp lookup_devices(uids, names, _actor) do
     uids = Enum.uniq(uids)
@@ -1290,23 +1295,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     case Repo.query(device_lookup_sql(), [uids, names]) do
       {:ok, %{rows: rows}} ->
-        %{
-          by_uid: Map.new(rows, fn [uid, _name, _hostname] -> {uid, uid} end),
-          by_name:
-            rows
-            |> Enum.flat_map(fn [uid, name, hostname] ->
-              [
-                {normalize_lookup_key(name), uid},
-                {normalize_lookup_key(hostname), uid}
-              ]
-            end)
-            |> Enum.reject(fn {key, _uid} -> is_nil(key) end)
-            |> Map.new()
-        }
+        {:ok,
+         %{
+           by_uid: Map.new(rows, fn [uid, _name, _hostname] -> {uid, uid} end),
+           by_name:
+             rows
+             |> Enum.flat_map(fn [uid, name, hostname] ->
+               [
+                 {normalize_lookup_key(name), uid},
+                 {normalize_lookup_key(hostname), uid}
+               ]
+             end)
+             |> Enum.reject(fn {key, _uid} -> is_nil(key) end)
+             |> Map.new()
+         }}
 
       {:error, reason} ->
         Logger.warning("Hypervisor enrichment device lookup failed: #{inspect(reason)}")
-        %{by_uid: %{}, by_name: %{}}
+        {:error, {:device_lookup_failed, reason}}
     end
   end
 
@@ -1349,23 +1355,30 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> Enum.uniq()
 
     if wanted == [] do
-      %{}
+      {:ok, %{}}
     else
-      identifier_to_device = lookup_identifier_devices(wanted)
+      case lookup_identifier_devices(wanted) do
+        {:ok, identifier_to_device} ->
+          identity_map =
+            Enum.reduce(entries, %{}, fn {ref, values, partition}, acc ->
+              uid =
+                Enum.find_value(
+                  values,
+                  &Map.get(identifier_to_device, {:integration_id, &1, partition})
+                )
 
-      Enum.reduce(entries, %{}, fn {ref, values, partition}, acc ->
-        uid =
-          Enum.find_value(
-            values,
-            &Map.get(identifier_to_device, {:integration_id, &1, partition})
-          )
+              if is_binary(uid) and uid != "" do
+                Map.put_new(acc, ref, uid)
+              else
+                acc
+              end
+            end)
 
-        if is_binary(uid) and uid != "" do
-          Map.put_new(acc, ref, uid)
-        else
-          acc
-        end
-      end)
+          {:ok, identity_map}
+
+        {:error, _} = error ->
+          error
+      end
     end
   end
 
@@ -1441,16 +1454,25 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp network_identity_by_host(records, actor) do
     host_macs = host_macs_by_ref(records.network_interfaces)
 
-    Enum.reduce(records.hosts, %{}, fn record, acc ->
+    Enum.reduce_while(records.hosts, {:ok, %{}}, fn record, {:ok, acc} ->
       ref = Map.get(record, :provider_ref)
       macs = Map.get(host_macs, ref, [])
 
-      with [_ | _] <- macs,
-           uid when is_binary(uid) <-
-             lookup_device_by_macs(macs, metadata_partition(record), actor) do
-        Map.put(acc, ref, uid)
-      else
-        _ -> acc
+      case macs do
+        [_ | _] ->
+          case lookup_device_by_macs(macs, metadata_partition(record), actor) do
+            {:ok, uid} when is_binary(uid) and uid != "" ->
+              {:cont, {:ok, Map.put(acc, ref, uid)}}
+
+            {:ok, nil} ->
+              {:cont, {:ok, acc}}
+
+            {:error, _} = error ->
+              {:halt, error}
+          end
+
+        _ ->
+          {:cont, {:ok, acc}}
       end
     end)
   end
@@ -1467,9 +1489,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       })
 
     case IdentityReconciler.lookup_by_strong_identifiers(ids, actor) do
-      {:ok, uid} when is_binary(uid) and uid != "" -> uid
-      {:error, {:identifier_lookup_failed, _}} = error -> error
-      _ -> nil
+      {:ok, uid} when is_binary(uid) and uid != "" -> {:ok, uid}
+      {:ok, nil} -> {:ok, nil}
+      {:error, _} = error -> error
+      _ -> {:ok, nil}
     end
   end
 
@@ -1504,23 +1527,30 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       end)
 
     if identities == [] do
-      %{}
+      {:ok, %{}}
     else
       identifiers =
         identities
         |> Enum.map(&Map.take(&1, [:type, :value, :partition]))
         |> Enum.uniq()
 
-      identifier_to_device = lookup_identifier_devices(identifiers)
+      case lookup_identifier_devices(identifiers) do
+        {:ok, identifier_to_device} ->
+          identity_map =
+            Enum.reduce(identities, %{}, fn identity, acc ->
+              key = {identity.type, identity.value, identity.partition}
 
-      Enum.reduce(identities, %{}, fn identity, acc ->
-        key = {identity.type, identity.value, identity.partition}
+              case Map.get(identifier_to_device, key) do
+                uid when is_binary(uid) and uid != "" -> Map.put_new(acc, identity.guest_ref, uid)
+                _ -> acc
+              end
+            end)
 
-        case Map.get(identifier_to_device, key) do
-          uid when is_binary(uid) and uid != "" -> Map.put_new(acc, identity.guest_ref, uid)
-          _ -> acc
-        end
-      end)
+          {:ok, identity_map}
+
+        {:error, _} = error ->
+          error
+      end
     end
   end
 
@@ -1531,16 +1561,17 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     case Repo.query(identifier_lookup_sql(), [types, values, partitions]) do
       {:ok, %{rows: rows}} ->
-        Map.new(rows, fn [type, value, partition, device_id] ->
-          {{identifier_type_atom(type), value, partition || "default"}, device_id}
-        end)
+        {:ok,
+         Map.new(rows, fn [type, value, partition, device_id] ->
+           {{identifier_type_atom(type), value, partition || "default"}, device_id}
+         end)}
 
       {:error, reason} ->
         Logger.warning(
           "Hypervisor enrichment device identifier lookup failed: #{inspect(reason)}"
         )
 
-        %{}
+        {:error, {:identifier_lookup_failed, reason}}
     end
   end
 
