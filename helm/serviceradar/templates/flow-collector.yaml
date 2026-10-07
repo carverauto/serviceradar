@@ -5,6 +5,9 @@
 {{- if (.Values.flowCollector.config).nats_creds_file }}
 {{- fail "flowCollector.config.nats_creds_file is unsupported; the chart uses the scoped flow-collector mTLS identity" }}
 {{- end }}
+{{- if (.Values.flowCollector.config).template_store }}
+{{- fail "flowCollector.config.template_store is unsupported; shared template persistence is retired" }}
+{{- end }}
 {{- $data := default (dict) .Values.flowCollector.data -}}
 {{- $dataEnabled := true -}}
 {{- if hasKey $data "enabled" -}}

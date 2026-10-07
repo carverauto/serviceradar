@@ -183,6 +183,7 @@ async fn receive_session(
     // retained state across reconnects, and no state shared by two identities.
     let handler = NetflowHandler::new(
         config.max_templates,
+        config.max_template_fields,
         config.pending_flows.as_ref(),
         Some(config.default_sampling_rate),
         HashMap::new(),

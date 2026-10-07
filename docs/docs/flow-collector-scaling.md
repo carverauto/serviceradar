@@ -17,8 +17,9 @@ Template-free NetFlow v5 and sFlow UDP remain available.
 Before upgrading:
 
 1. Remove all `template_store` overrides, including retained Helm values.
-   Non-null shared-store configuration fails startup with a migration error.
-   The collector never reads, writes or deletes old KV entries.
+   Non-null shared-store configuration fails startup with a migration error,
+   and Helm chart rendering fails fast. The collector never reads, writes or deletes
+   old KV entries.
 2. Configure mutually authenticated native IPFIX TLS/TCP for capable exporters.
    Approve each client certificate's SHA-256 leaf fingerprint explicitly.
 3. For UDP-only devices, set `allow_unauthenticated_templates: true` on the
@@ -110,6 +111,7 @@ are supported through message-length framing.
 | `max_message_size` | 65535 | 16-65535 bytes |
 | `max_sources` | 128 | 1-10000 observation domains per session |
 | `max_templates` | 2000 | 1-10000 templates per domain |
+| `max_template_fields` | 10000 | 1-100000 fields per template |
 | `exporters` | required | 1-4096 fingerprints; IDs 1-64 ASCII characters |
 | `pending_flows` | disabled | At most 10000 pending flows, TTL at most 3600s |
 
@@ -121,7 +123,9 @@ The bootstrap Helm Job establishes stream ownership before pods start. TCP
 load balancing keeps each session on one pod; new sessions can use other
 replicas but start cold. More replicas spread sessions; higher CPU/memory
 limits supply per-pod headroom. Size memory for the product of admitted
-sessions, observation domains, templates and pending records.
+sessions, observation domains, templates (`max_templates`, default 2000, bounds
+1..=10000), fields per template (`max_template_fields`, default 10000, bounds
+1..=100000), and pending records.
 
 Each listener has a bounded publisher channel (`channel_size`, default 10000)
 feeding the common JetStream publisher (`batch_size` 100,

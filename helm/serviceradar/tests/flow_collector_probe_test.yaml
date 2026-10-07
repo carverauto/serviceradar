@@ -34,3 +34,15 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "flowCollector.config.metrics_addr is required so the readiness probe can call /readyz"
+  - it: fails when retired template_store is configured
+    set:
+      flowCollector.enabled: true
+      analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
+      flowCollector.config.metrics_addr: "0.0.0.0:50046"
+      flowCollector.config.template_store:
+        kv_bucket: "test_templates"
+    template: flow-collector.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "flowCollector.config.template_store is unsupported; shared template persistence is retired"
