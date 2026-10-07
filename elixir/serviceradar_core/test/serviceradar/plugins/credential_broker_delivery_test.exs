@@ -2,6 +2,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
 
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
@@ -129,7 +130,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
     request_body = %{
       "mode" => "bound_bytes",
       "sha256" => String.duplicate("a", 64),
-      "source" => "plugin.body",
+      "source" => RequestBodyPolicy.bound_body_source(),
       "content_type" => "application/json",
       "max_bytes" => 1024,
       "max_mutations" => 1
