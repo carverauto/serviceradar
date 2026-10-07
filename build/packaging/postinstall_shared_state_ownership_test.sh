@@ -3,13 +3,16 @@ set -euo pipefail
 
 for script in "$@"; do
     if awk '
-        /^[[:space:]]*chown[[:space:]]+-R[[:space:]]+/ {
+        /^[[:space:]]*(chown|chmod)[[:space:]]+/ {
             line = $0
             sub(/[[:space:]]*#.*/, "", line)
             gsub(/"/, "", line)
-            if (line ~ /\/var\/lib\/serviceradar[[:space:]]*$/ ||
-                line ~ /\$\{?serviceradar_var_dir\}?[[:space:]]*$/) {
-                print FILENAME ": unsafe recursive ownership change: " $0
+            recursive = line ~ /(^|[[:space:]])--recursive([[:space:]]|$)/ ||
+                line ~ /(^|[[:space:]])-[A-Za-z]*R[A-Za-z]*([[:space:]]|$)/
+            shared_root = line ~ /\/(etc|var\/lib)\/serviceradar\/?([[:space:]]|$)/ ||
+                line ~ /\$\{?serviceradar_(etc|var)_dir\}?\/?([[:space:]]|$)/
+            if (recursive && shared_root) {
+                print FILENAME ": unsafe recursive shared-state permission change: " $0
                 failed = 1
             }
         }

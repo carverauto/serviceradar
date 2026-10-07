@@ -967,6 +967,20 @@ flowCollector:
     # 8 GiB) supplies it inside the render-time JetStream budget.
     stream_max_age_secs: 7200
     stream_replicas: 3
+    # Demo devices export NetFlow v9/IPFIX over UDP and cannot present
+    # client certificates. Template-based UDP is dropped unless this
+    # listener opts in. security.mode stays mtls: that authenticates the
+    # collector to NATS, not the exporter. A spoofed source address on
+    # this listener can replace another exporter's templates.
+    listeners:
+      - protocol: "sflow"
+        listen_addr: "0.0.0.0:6343"
+        subject: "flows.raw.sflow"
+      - protocol: "netflow"
+        allow_unauthenticated_templates: true
+        listen_addr: "0.0.0.0:2055"
+        subject: "flows.raw.netflow"
+        max_sources: 10000
   # Persist rehome marker + ready file across Recreate / pod replacement.
   # JetStream holds flow durability; this PVC is only for local cutover state.
   data:

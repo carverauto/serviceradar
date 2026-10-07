@@ -8,7 +8,6 @@ root_path() {
 }
 
 serviceradar_etc_dir="$(root_path /etc/serviceradar)"
-serviceradar_var_dir="$(root_path /var/lib/serviceradar)"
 
 validate_partition_id() {
     case "$1" in
@@ -36,21 +35,17 @@ if [ -z "$postinstall_root" ]; then
     fi
 fi
 
-# Create required directories
-mkdir -p "$serviceradar_etc_dir"
-mkdir -p "$serviceradar_var_dir"
-
-# Set permissions
-if [ -z "$postinstall_root" ]; then
-    chown -R serviceradar:serviceradar "$serviceradar_etc_dir"
+# Older packages made this shared configuration directory service-owned.
+# Repair the directory itself without changing ownership of any package's files.
+if [ -L "$serviceradar_etc_dir" ]; then
+    echo "Error: refusing symlinked $serviceradar_etc_dir" >&2
+    exit 1
 fi
-chmod -R 755 "$serviceradar_etc_dir"
-# if the certs dir exists, set permissions
-if [ -d "$serviceradar_etc_dir/certs" ]; then
+if [ -d "$serviceradar_etc_dir" ]; then
     if [ -z "$postinstall_root" ]; then
-        chown -R serviceradar:serviceradar "$serviceradar_etc_dir/certs"
+        chown root:root "$serviceradar_etc_dir"
     fi
-    chmod -R 755 "$serviceradar_etc_dir/certs"
+    chmod 755 "$serviceradar_etc_dir"
 fi
 
 # Render the partition_id placeholder in the NATS server / cloud-template
@@ -63,7 +58,7 @@ fi
 #
 # Source of truth: SERVICERADAR_OTX_PARTITION. We honor either an exported
 # env var (set by the installer / config-management tool) or a sysconfig-
-# style file at /etc/serviceradar/nats.env. This matches the
+# style assignment in /etc/serviceradar/nats.env. This matches the
 # `EnvironmentFile=-/etc/serviceradar/*.env` convention used by every other
 # ServiceRadar systemd unit (core-elx, agent-gateway, etc.). The
 # value defaults to "default" — the same fallback used by
@@ -76,9 +71,52 @@ fi
 # config(noreplace) ownership and mode. The `grep -q` guard makes
 # substitution idempotent: once the placeholder is gone, re-runs (e.g. apt
 # reinstall) are no-ops and will not clobber a rendered file.
-if [ -f "$serviceradar_etc_dir/nats.env" ]; then
-    # shellcheck disable=SC1091
-    . "$serviceradar_etc_dir/nats.env"
+nats_env="$serviceradar_etc_dir/nats.env"
+if [ -L "$nats_env" ]; then
+    echo "Error: refusing symlinked $nats_env" >&2
+    exit 1
+fi
+if [ -f "$nats_env" ]; then
+    if ! file_partition="$(awk '
+        function trim(value) {
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            return value
+        }
+        {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            if (line == "" || line ~ /^#/) next
+            sub(/^export[[:space:]]+/, "", line)
+            if (line ~ /^SERVICERADAR_OTX_PARTITION[[:space:]]*=/) {
+                count++
+                sub(/^SERVICERADAR_OTX_PARTITION[[:space:]]*=[[:space:]]*/, "", line)
+                value = trim(line)
+                first = substr(value, 1, 1)
+                last = substr(value, length(value), 1)
+                if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
+                    value = substr(value, 2, length(value) - 2)
+                } else if (first == "\"" || last == "\"" || first == "\047" || last == "\047") {
+                    invalid = 1
+                }
+                partition = value
+            } else if (line ~ /^SERVICERADAR_OTX_PARTITION([[:space:]]|$)/) {
+                invalid = 1
+            }
+        }
+        END {
+            if (count > 1 || invalid) exit 1
+            if (count == 1) print partition
+        }
+    ' "$nats_env")"; then
+        echo "Error: invalid SERVICERADAR_OTX_PARTITION assignment in $nats_env" >&2
+        exit 1
+    fi
+    if [ -n "$file_partition" ]; then
+        SERVICERADAR_OTX_PARTITION="$file_partition"
+    elif grep -Eq '^[[:space:]]*(export[[:space:]]+)?SERVICERADAR_OTX_PARTITION[[:space:]]*=' "$nats_env"; then
+        SERVICERADAR_OTX_PARTITION=""
+    fi
 fi
 : "${SERVICERADAR_OTX_PARTITION:=default}"
 validate_partition_id "$SERVICERADAR_OTX_PARTITION"

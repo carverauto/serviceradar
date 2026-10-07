@@ -603,6 +603,27 @@ if "prune: true" in sync_policy:
 if "selfHeal: true" in sync_policy:
     raise SystemExit("zero-touch demo release automation must not overwrite live drift")
 
+native_dispatch = native_addons_workflow[
+    native_addons_workflow.index("  workflow_dispatch:"):
+    native_addons_workflow.index("concurrency:")
+]
+for fragment in (
+    "expected_commit:",
+    'description: "Full reviewed commit SHA for the agent test artifact."',
+    "required: true",
+):
+    if fragment not in native_dispatch:
+        raise SystemExit(f"native add-on agent-test dispatch is missing: {fragment}")
+for forbidden in ("mode:", "tag:", "sign_branch_catalog"):
+    if forbidden in native_dispatch:
+        raise SystemExit(f"native add-on dispatch still exposes production publishing control: {forbidden}")
+if "  workflow_dispatch:" in wasm_plugins_workflow:
+    raise SystemExit("Wasm production publisher still permits manual dispatch")
+if "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')" not in native_addons_workflow:
+    raise SystemExit("native production publisher is not restricted to v* tag pushes")
+if "if: github.event_name == 'workflow_dispatch'" not in native_addons_workflow:
+    raise SystemExit("native reviewed agent-test artifact dispatch was not preserved")
+
 for worker_name, worker in (
     ("native add-on", native_addons_workflow),
     ("Wasm plugin", wasm_plugins_workflow),
@@ -613,19 +634,14 @@ for worker_name, worker in (
     if not source_gate_start < cache_start < upload_start:
         raise SystemExit(f"{worker_name} release source gate does not precede publication")
     source_gate = worker[source_gate_start:cache_start]
-    if 'if [[ "${GITHUB_EVENT_NAME}" != "push" ]]' in source_gate:
-        raise SystemExit(f"{worker_name} release source gate lets dispatch bypass release tags")
     for fragment in (
-        "INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}",
-        'publish_tag="${INPUT_TAG}"',
-        'if [[ -z "${publish_tag}" && "${GITHUB_REF}" == refs/tags/* ]]',
-        'publish_tag="${GITHUB_REF#refs/tags/}"',
-        'if [[ -z "${publish_tag}" || "${publish_tag}" != v* ]]',
-        "Branch catalog dispatch: skipping release-tag source gate.",
-        'release_tag="${publish_tag}"',
+        'release_tag="${GITHUB_REF#refs/tags/}"',
         './scripts/validate-release-tag.sh "${release_tag}"',
         'expected_ref="refs/tags/${release_tag}"',
-        'if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]',
+        'if [[ "${GITHUB_EVENT_NAME}" != "push" || "${GITHUB_REF}" != "${expected_ref}" ]]',
+        'tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"',
+        'checkout_commit="$(git rev-parse HEAD^{commit})"',
+        '"${checkout_commit}" != "${tag_commit}"',
         'file_version="$(git show "${tag_commit}:VERSION")"',
         'if [[ "${release_tag}" != "v${file_version}" ]]',
         "git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging",
@@ -633,6 +649,18 @@ for worker_name, worker in (
     ):
         if fragment not in source_gate:
             raise SystemExit(f"{worker_name} release source gate is missing: {fragment}")
+
+    for forbidden in (
+        "github.event.inputs.tag",
+        "Branch catalog dispatch",
+        "workflow_dispatch recovery",
+        "unset OPENBAO_SIGNING_ALLOWED_REFS_REGEX",
+    ):
+        if forbidden in worker:
+            raise SystemExit(f"{worker_name} publisher retains unsafe dispatch behavior: {forbidden}")
+    if "OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/tags/v.*$'" not in worker and \
+       "export OPENBAO_SIGNING_ALLOWED_REFS_REGEX='^refs/tags/v.*$'" not in worker:
+        raise SystemExit(f"{worker_name} OpenBao signing is not restricted to release tags")
 
     for fragment in (
         "fetch_release()",

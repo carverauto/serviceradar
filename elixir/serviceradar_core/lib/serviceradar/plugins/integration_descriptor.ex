@@ -7,6 +7,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   only this bounded, validated data and the package's JSON configuration schema.
   """
 
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialParameterTemplate
   alias ServiceRadar.Plugins.MapUtils
 
@@ -1088,6 +1089,24 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
                   ["#{path}.payload cannot reference its own grant" | errors]
                 else
                   errors
+                end
+
+              reserved_keys =
+                normalized
+                |> Map.keys()
+                |> Enum.map(&to_string/1)
+                |> Enum.filter(&(&1 in CredentialBrokerGrant.reserved_payload_keys()))
+                |> Enum.uniq()
+                |> Enum.sort()
+
+              errors =
+                if reserved_keys == [] do
+                  errors
+                else
+                  [
+                    "#{path}.payload contains reserved credential broker keys: #{Enum.join(reserved_keys, ", ")}"
+                    | errors
+                  ]
                 end
 
               {normalized, errors}

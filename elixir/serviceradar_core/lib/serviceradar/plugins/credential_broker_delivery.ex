@@ -35,11 +35,6 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   # be reused; otherwise it is re-minted. Keeps agents from receiving material
   # that expires in-flight.
   @default_min_remaining_seconds 60
-  # Keys produced by CredentialBrokerGrant.to_payload/2; anything else on the
-  # stored payload (e.g. "auth_method", "cache") is caller extras we preserve
-  # across re-mints.
-  @payload_keys ~w(schema grant_id grant_type credential_rule_id credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
-
   @type refresh_result :: {map(), CredentialBrokerGrant.t() | map() | nil}
 
   @doc """
@@ -348,10 +343,12 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
          target_id: string_value(target, "id"),
          agent_id: string_value(target, "agent_id") || Keyword.get(opts, :agent_id),
          resolution_location: resolution_location(payload),
+         allowed_schemes: list_value(allow, "schemes"),
          allowed_methods: list_value(allow, "methods"),
          allowed_paths: list_value(allow, "paths"),
          allowed_hosts: list_value(allow, "hosts"),
          allowed_ports: list_value(allow, "ports"),
+         request_body_policy: map_value(allow, "request_body") || %{},
          inject: map_value(payload, "inject") || %{},
          ttl_seconds: int_value(payload, "ttl_seconds", 300)
        }
@@ -395,7 +392,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   defp payload_extras(payload) do
     payload
     |> MapUtils.stringify_keys_or_empty()
-    |> Map.drop(@payload_keys)
+    |> Map.drop(CredentialBrokerGrant.reserved_payload_keys())
   end
 
   defp default_actor, do: SystemActor.system(:plugin_credential_delivery)

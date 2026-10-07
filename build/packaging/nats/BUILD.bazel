@@ -1,5 +1,6 @@
 load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//build/packaging:packages.bzl", "PACKAGES")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -12,4 +13,11 @@ exports_files([
 serviceradar_package_from_config(
     name = "nats",
     config = PACKAGES["nats"],
+)
+
+sh_test(
+    name = "postinstall_security_test",
+    srcs = ["scripts/postinstall_security_test.sh"],
+    args = ["$(rootpath :nats_postinst)"],
+    data = [":nats_postinst"],
 )

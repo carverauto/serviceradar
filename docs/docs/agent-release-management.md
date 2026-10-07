@@ -25,8 +25,9 @@ Before using release management in production:
 ## Prepare a reviewed agent test artifact
 
 For an unpublished base-agent build, dispatch `.github/workflows/native-addons.yml`
-with `mode=agent-test-artifact` from the reviewed branch and set `expected_commit`
-to its full commit SHA. The workflow rejects a mismatch with its own SHA. Operators
+from the reviewed branch and set `expected_commit` to its full commit SHA. Manual
+dispatch is reserved for this test artifact; production add-on catalogs are published
+only from release tag pushes. The workflow rejects a mismatch with its own SHA. Operators
 must configure the HTTPS `AGENT_TEST_ARTIFACT_BASE_URL` variable in the protected
 `release` environment; dispatch inputs cannot choose an arbitrary artifact origin.
 

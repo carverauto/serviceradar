@@ -23,6 +23,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   @schema_v1 "serviceradar.edge_credential_broker_grant.v1"
   @schema_v2 "serviceradar.edge_credential_broker_grant.v2"
+  @reserved_payload_keys ~w(
+    schema grant_id grant_type credential_rule_id credential_secret_ref consumer target
+    resolution_location inject allow ttl_seconds expires_at
+  )
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
 
   @fields [
@@ -497,6 +501,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   @doc "Build the versioned wire payload used by agents and plugins."
   def to_payload(grant_or_attrs, extras \\ %{}) when is_map(grant_or_attrs) do
+    extras = validate_payload_extras!(extras)
     inject = value(grant_or_attrs, :inject) || %{}
     allow = allow_payload(grant_or_attrs)
     request_body_policy = normalize_request_body_policy!(grant_or_attrs)
@@ -524,9 +529,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       "ttl_seconds" => int_value(grant_or_attrs, :ttl_seconds, 300),
       "expires_at" => iso8601(expires_at)
     }
-    |> deep_merge(extras)
+    |> Map.merge(extras)
     |> compact_map()
   end
+
+  @doc "Canonical grant fields that caller-provided payload extensions may not replace."
+  def reserved_payload_keys, do: @reserved_payload_keys
 
   @doc """
   Validate an already-loaded grant against broker call context.
@@ -683,12 +691,25 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(value), do: value
 
-  defp deep_merge(map, extras) when is_map(extras) do
-    Map.merge(map, extras, fn
-      _key, left, right when is_map(left) and is_map(right) -> deep_merge(left, right)
-      _key, _left, right -> right
-    end)
+  defp validate_payload_extras!(extras) when is_map(extras) do
+    collisions =
+      extras
+      |> Map.keys()
+      |> Enum.map(&to_string/1)
+      |> Enum.filter(&(&1 in @reserved_payload_keys))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    if collisions != [] do
+      raise ArgumentError,
+            "credential broker payload extensions contain reserved keys: #{Enum.join(collisions, ", ")}"
+    end
+
+    extras
   end
+
+  defp validate_payload_extras!(_extras),
+    do: raise(ArgumentError, "credential broker payload extensions must be a map")
 
   defp compact_map(map) do
     map
