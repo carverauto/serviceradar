@@ -194,6 +194,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
     end
   rescue
     error -> Repo.rollback({:evaluation_failed, work.id, error})
+  catch
+    :throw, {DBConnection, connection, {:evaluation_failed, _, _} = failure} ->
+      throw({DBConnection, connection, failure})
+
+    :throw, {DBConnection, connection, reason} ->
+      # Keep the actual queued-work identity when Ash rolls back internally,
+      # so the worker can persist retry backoff after this transaction ends.
+      throw({DBConnection, connection, {:evaluation_failed, work.id, reason}})
   end
 
   defp evaluate_active(work) do

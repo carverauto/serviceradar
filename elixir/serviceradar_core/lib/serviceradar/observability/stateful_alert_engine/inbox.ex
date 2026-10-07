@@ -233,6 +233,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     |> Ash.Query.limit(limit + 1)
     |> Ash.read!(actor: actor())
     |> Page.unwrap!()
+  catch
+    :throw, {DBConnection, connection, reason} ->
+      # Ash may roll back with its query instead of raising. Preserve the
+      # transaction rollback while exposing the admission failure contract.
+      throw({DBConnection, connection, {:store_unavailable, reason}})
   end
 
   defp candidates(rules, records, limit) do
