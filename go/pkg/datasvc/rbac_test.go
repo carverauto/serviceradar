@@ -91,6 +91,30 @@ func TestAuthorizeMethod(t *testing.T) {
 	})
 }
 
+func TestReaderRoleAllowsDownloadsAndRejectsEveryWriteMethod(t *testing.T) {
+	s, _ := setupServer(t)
+
+	require.NoError(t, s.authorizeMethod("/proto.DataService/DownloadObject", RoleReader))
+
+	writeMethods := []string{
+		"/proto.KVService/Put",
+		"/proto.KVService/PutIfAbsent",
+		"/proto.KVService/PutMany",
+		"/proto.KVService/Update",
+		"/proto.KVService/Delete",
+		"/proto.DataService/UploadObject",
+		"/proto.DataService/DeleteObject",
+	}
+
+	for _, method := range writeMethods {
+		t.Run(method, func(t *testing.T) {
+			err := s.authorizeMethod(method, RoleReader)
+			require.Error(t, err)
+			assert.Equal(t, codes.PermissionDenied, status.Code(err))
+		})
+	}
+}
+
 func TestCheckRBAC(t *testing.T) {
 	s, _ := setupServer(t)
 
