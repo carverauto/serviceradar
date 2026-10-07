@@ -237,7 +237,7 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   defp handle_bumblebee_results(status) do
     with {:ok, payload} <- decode_payload(status[:message]) do
       payload
-      |> Map.put_new("agent_id", status[:agent_id])
+      |> bind_result_identity(status)
       |> BumblebeeIngestor.ingest_scan()
     end
   end
@@ -245,9 +245,15 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   defp handle_endpoint_inventory_results(status, _opts) do
     with {:ok, payload} <- decode_payload(status[:message]) do
       payload
-      |> Map.put_new("agent_id", status[:agent_id])
+      |> bind_result_identity(status)
       |> EndpointInventoryIngestorQueue.ingest_now()
     end
+  end
+
+  defp bind_result_identity(payload, status) do
+    payload
+    |> Map.drop([:agent_id, :device_uid, "device_uid"])
+    |> Map.put("agent_id", status[:agent_id])
   end
 
   defp schedule_sync_ingestion(status) do
