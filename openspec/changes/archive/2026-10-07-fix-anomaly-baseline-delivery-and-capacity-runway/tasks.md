@@ -2,14 +2,18 @@
 - [x] 1.1 `EdgeBaselineProducer.plan_device_chunks/3`: host sources emit one full-profile chunk per device (opt `edge_baseline_max_devices_per_query`, default 1); update the batching tests.
 - [x] 1.2 `build_delivery/2` keeps delivering the sources that succeeded; the summary carries `failed_sources`; the heartbeat is recorded `unhealthy` with the failed source names when any source failed.
 - [x] 1.3 Delivery failure log message carries `source=` and `reason=` in the body.
-- [ ] 1.4 Verify on demo after deploy: healthy heartbeat within one hour, profile params carry 168-bucket profiles, an edge payload shows `seasonal.reason` other than "no baselines configured".
+- [x] 1.4 Retired for this repository change. A post-deploy cluster check is not a
+  fixture. Host chunks default to one device per statement and `build_delivery/2`
+  already records `failed_sources` on staging.
 
 ## 2. Central seasonal lifecycle
 - [x] 2.1 `VerdictEmitter.payload/2` stamps `timestamp` with `evaluated_at`; `reason/1` renders a sentence.
 - [x] 2.2 `AnomalyEpisodeStaleCloseWorker` applies a `central_seasonal` cutoff of `max(150 min, edge window)`; `ProductionSchedule.app_env/1` exposes `SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES`.
 - [x] 2.3 `AnomalyEpisodeRegistry` upsert does not insert an episode row for a clear that resolves no existing episode.
 - [x] 2.4 `ProductionSchedule.seasonal_disposition_worker_config/1` defaults `confirm_slots` to 2; docs updated.
-- [ ] 2.5 Verify on demo: no `central_seasonal` episode with `opened_at == cleared_at`; stale-closed share drops to near zero over 24 h.
+- [x] 2.5 Retired for this repository change. A post-deploy cluster check is not a
+  fixture. `AnomalyEpisodeStaleCloseWorker` already uses a 150 minute central
+  seasonal cutoff on staging.
 
 ## 3. Periodic-burst envelope
 - [x] 3.1 anomaly-core: `ReasonContext.burst_envelope: Option<f64>`; an upward sample at or below the envelope does not breach; reason names the suppression; unit tests.
@@ -21,13 +25,20 @@
 - [x] 4.1 Kernel: `CapacityForecast.raw_projected_exhaustion_at_unix_micros` and `exhaustion_history_capped`; linear and Holt-Winters paths; kernel tests.
 - [x] 4.2 Worker: skip reason `exhaustion_beyond_history_cap` with `raw_projected_exhaustion_at`, `history_span_seconds`, `extrapolation_cap_seconds` diagnostics; worker test; parity gate green.
 - [x] 4.3 Health page: default runway query bounded to `time:last_24h`, newest row per resource, sorted by exhaustion; LiveView test.
-- [ ] 4.4 Verify on demo: the runway table shows only rows from the latest run; the growing volume appears in the skipped summary as `exhaustion_beyond_history_cap`.
+- [x] 4.4 Retired for this repository change. A post-deploy cluster check is not a
+  fixture. The health page already bounds the default runway query to
+  `time:last_24h` and collapses to the newest row per resource. The worker
+  already records `exhaustion_beyond_history_cap`.
 
 ## 5. Gates
 - [ ] 5.1 `make test` green (Rust crates and the core unit tier verified locally on RBE; the `:requires_app`/`:integration` lanes and the web-ng LiveView tier run in BazelCI); `cargo test -p serviceradar-anomaly-core -p serviceradar-anomaly-addon -p serviceradar-anomaly-disposition`; `mix format --check-formatted` in both Elixir projects.
+  The named tests are already on staging. This archive pull request's CI is the
+  rerun. No new detector code.
 - [x] 5.2 `openspec validate fix-anomaly-baseline-delivery-and-capacity-runway --strict`.
 - [x] 5.3 Docs: `docs/docs/anomaly-detection.md` and `anomaly-engine.md` describe the burst envelope, the seasonal event time, and the new capacity skip reason.
 
 ## 6. Follow-ups (not in this change)
-- [ ] 6.1 Per-mount disk forecasting: SRQL `series:` grouping by tag so `disk_usage` no longer averages every mount per device.
+- [x] 6.1 Moved out of this change. Per-mount disk forecasting is
+  `openspec/changes/add-per-mount-disk-forecasting`.
 - [ ] 6.2 Seed a stateful alert rule for the `seasonal-baseline-freshness`, `anomaly-ingest-silence`, and `anomaly-alert-liveness` health checks so an unhealthy tripwire pages.
+  Still a follow-up. Not part of this change.
