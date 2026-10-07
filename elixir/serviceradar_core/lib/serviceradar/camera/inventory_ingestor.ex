@@ -1664,13 +1664,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             )))
   end
 
-  defp maybe_replace_descriptor_device_uid(descriptor, {:ok, uid})
-       when is_binary(uid) and uid != "" do
-    Map.put(descriptor, "device_uid", uid)
-  end
-
-  defp maybe_replace_descriptor_device_uid(descriptor, _result), do: descriptor
-
   defp fallback_camera_device_uid_from_identity(descriptor, actor) when is_map(descriptor) do
     with {:ok, update} <- identity_update_from_descriptor(descriptor) do
       ids = IdentityReconciler.extract_strong_identifiers(update)
