@@ -133,7 +133,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     |> Enum.each(fn rule_id ->
       case EvaluationWorker.enqueue(rule_id) do
         {:ok, _job} -> :ok
-        {:error, reason} -> Repo.rollback({:evaluation_enqueue_failed, reason})
+        {:error, _reason} -> :ok
       end
     end)
 

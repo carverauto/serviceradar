@@ -109,31 +109,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
   end
 
   defp cleanup_owned(rule_id, snapshot_id, cutoff) do
-    case Ash.get(StatefulAlertRuleState, snapshot_id, actor: Inbox.actor()) do
-      {:ok, %{rule_id: ^rule_id} = snapshot} ->
-        stale? = is_nil(snapshot.last_seen_at) or DateTime.before?(snapshot.last_seen_at, cutoff)
+    snapshot = Ash.get!(StatefulAlertRuleState, snapshot_id, actor: Inbox.actor())
+    if snapshot.rule_id == rule_id do
+      stale? = is_nil(snapshot.last_seen_at) or DateTime.before?(snapshot.last_seen_at, cutoff)
 
-        cooled? =
-          is_nil(snapshot.cooldown_until) or
-            DateTime.before?(snapshot.cooldown_until, DateTime.utc_now())
+      cooled? =
+        is_nil(snapshot.cooldown_until) or
+          DateTime.before?(snapshot.cooldown_until, DateTime.utc_now())
 
-        # Pending accepted work needs this authoritative state even if the
-        # source timestamp is old. An open incident must retain its identity.
-        if stale? and cooled? and is_nil(oldest(rule_id)) and terminal_alert?(snapshot.alert_id) do
-          Ash.destroy!(snapshot, actor: Inbox.actor())
-          :deleted
-        else
-          :kept
-        end
-
-      {:ok, nil} ->
+      if stale? and cooled? and is_nil(oldest(rule_id)) and terminal_alert?(snapshot.alert_id) do
+        Ash.destroy!(snapshot, actor: Inbox.actor())
+        :deleted
+      else
         :kept
-
-      {:ok, _other_rule} ->
-        :kept
-
-      {:error, reason} ->
-        Repo.rollback(reason)
+      end
+    else
+      :kept
     end
   end
 
