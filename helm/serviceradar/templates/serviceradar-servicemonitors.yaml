@@ -127,7 +127,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: serviceradar-flow-collector
+      app.kubernetes.io/name: serviceradar-flow-collector-metrics
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace | quote }}

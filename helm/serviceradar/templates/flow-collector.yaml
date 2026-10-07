@@ -1,6 +1,6 @@
 {{- if .Values.flowCollector.enabled }}
-{{- if not (.Values.flowCollector.config).metrics_addr }}
-{{- fail "flowCollector.config.metrics_addr is required so the readiness probe can call /readyz" }}
+{{- if and .Values.flowCollector.service.ports.metrics.enabled (not (.Values.flowCollector.config).metrics_addr) }}
+{{- fail "flowCollector.config.metrics_addr is required when flowCollector.service.ports.metrics is enabled" }}
 {{- end }}
 {{- if (.Values.flowCollector.config).nats_creds_file }}
 {{- fail "flowCollector.config.nats_creds_file is unsupported; the chart uses the scoped flow-collector mTLS identity" }}
@@ -152,14 +152,14 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          # /readyz (not /metrics) reflects publisher readiness. /metrics
-          # answers 200 as soon as the HTTP server binds, before the
-          # publisher has connected to NATS. /readyz checks the publisher
-          # marker file, so a new pod is not Ready until it can publish.
-          # metrics_addr is required above: there is no file-probe fallback.
-          httpGet:
-            path: /readyz
-            port: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
+          # Readiness checks the publisher marker file directly via an exec probe,
+          # so a new pod is not Ready until it can publish to NATS, and the probe
+          # path is completely isolated from network socket saturation.
+          exec:
+            command:
+            - test
+            - -f
+            - {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" | quote }}
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
@@ -233,6 +233,8 @@ metadata:
   name: serviceradar-flow-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-flow-collector
+    app.kubernetes.io/component: flow-collector-ingress
   {{- with .Values.flowCollector.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -279,12 +281,26 @@ spec:
     targetPort: {{ .Values.flowCollector.service.ports.ipfixTls.targetPort | default 4740 }}
     protocol: TCP
   {{- end }}
-  {{- if .Values.flowCollector.service.ports.metrics.enabled }}
+{{- if .Values.flowCollector.service.ports.metrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-flow-collector-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-flow-collector-metrics
+    app.kubernetes.io/component: flow-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: serviceradar-flow-collector
+  ports:
   - name: metrics
     port: {{ .Values.flowCollector.service.ports.metrics.port | default 50046 }}
     targetPort: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
     protocol: {{ .Values.flowCollector.service.ports.metrics.protocol | default "TCP" }}
-  {{- end }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
