@@ -5078,15 +5078,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    old_time = DateTime.utc_now() |> DateTime.shift(day: -30) |> DateTime.truncate(:second)
-
     alert =
       AshTestHelpers.alert_fixture(%{
         device_uid: uid,
         title: "Historical Warning Alert",
-        severity: :warning,
-        triggered_at: old_time
+        severity: :warning
       })
+
+    # Alert.trigger always stamps triggered_at itself and does not accept it
+    # as input, so backdate through the same Repo UPDATE the dashboard
+    # retention test uses to prove old-alert history behavior.
+    old_time = DateTime.utc_now() |> DateTime.shift(day: -30) |> DateTime.truncate(:second)
+
+    Repo.query!(
+      """
+      UPDATE platform.alerts
+      SET triggered_at = $2, created_at = $2
+      WHERE id = $1
+      """,
+      [Ecto.UUID.dump!(alert.id), old_time]
+    )
+
+    alert = %{alert | triggered_at: old_time}
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=alerts")
     html = render_until(view, "Historical Warning Alert")

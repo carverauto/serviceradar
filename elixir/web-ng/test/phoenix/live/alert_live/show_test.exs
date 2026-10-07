@@ -452,8 +452,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
 
       {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/alerts/#{alert.id}")
 
-      assert has_element?(lv, ~s(#srql-search-input[value='in:alerts id:"#{alert.id}"']))
-      refute render(lv) =~ "time:last_7d"
+      assert has_element?(lv, ~s(#srql-query-bar-editor[value='in:alerts id:"#{alert.id}"']))
+
+      # The alert stream pane beside the detail view keeps its own
+      # time-windowed query, so scope the no-time-predicate proof to the
+      # prefilled SRQL bar: an old alert outside any default window must
+      # still resolve through the id-scoped detail query.
+      refute lv |> element("#srql-query-bar-editor") |> render_element() =~ "time:"
     end
 
     @tag :web_ng_shared_fixture_db
