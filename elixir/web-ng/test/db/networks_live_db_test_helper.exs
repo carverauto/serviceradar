@@ -34,7 +34,14 @@ ExUnit.configure(
 # resolution tests, 1 device alerts-tab test); they are tagged into this
 # lane alongside this bump since both files were already in the lane srcs.
 # 2449 + 4 + 2 + 3 = 2458, with no lowering, removal, bypass, or exclusion.
-expected_selected_tests = 2458
+# The rebase onto staging 21fd58b9f (fleet-pagination feature #5508) adds
+# +2 lane-selected tests in addon_fleet_live_test.exs (disconnected mount
+# makes no queries; >100-row stream rendering), both covered by the file's
+# existing @moduletag with no skip/exclude. Staging's other test deltas
+# select outside this lane (:db_free ash_domains/oban additions) or net to
+# zero (collector bundle generator rename). 2458 + 2 = 2460; hosted BazelCI
+# must confirm the runtime count.
+expected_selected_tests = 2460
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
