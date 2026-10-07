@@ -79,7 +79,27 @@ check; do not continue to the next phase or silently roll back.
    state. Record this evidence privately before starting the next hop. If image
    creation or synchronization fails, the next hop must not begin.
 
-For the second hop, use 4.1.3 in the compute image and atomic frontend patch.
+For the second hop, repeat steps 1-4 with target 4.1.3 under the same compute-first, follower-before-leader, image-synchronization, and backup/health prerequisites. The compute image patch is:
+
+   ```sh
+   kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
+     --type merge -p '{"spec":{"starRocksCnSpec":{"image":"starrocks/cn-ubuntu:4.1.3"}}}'
+   ```
+
+   for shared-data, or:
+
+   ```sh
+   kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
+     --type merge -p '{"spec":{"starRocksBeSpec":{"image":"starrocks/be-ubuntu:4.1.3"}}}'
+   ```
+
+   for shared-nothing. The atomic frontend patch is:
+
+   ```sh
+   kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
+     --type merge -p '{"spec":{"starRocksFeSpec":{"image":"starrocks/fe-ubuntu:4.1.3","updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}}'
+   ```
+
 At completion, persist the final 4.1.3 pins in the Helm release using its
 existing profile and operational overrides, with
 `initPassword.isInstall=false`. Verify the rendered changes first: no storage,
