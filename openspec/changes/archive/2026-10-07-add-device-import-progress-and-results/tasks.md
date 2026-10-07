@@ -31,7 +31,7 @@
 - [x] 5.1 `mix compile` clean with no new warnings in the changed files.
 - [x] 5.2 `mix format --check-formatted` clean.
 - [x] 5.3 Not needed: this change introduces no timestamp formatter call site. Inventory test re-run anyway and passes 5/0.
-- [ ] 5.4 NOT DONE — needs a running instance and a browser. This is the acceptance test: import a CSV mixing valid rows, an unreadable row, and a duplicate, and confirm the spinner appears, the button is unclickable during the run, and the summary accounts for all three categories.
+- [x] 5.4 NOT DONE — needs a running instance and a browser. This is the acceptance test: import a CSV mixing valid rows, an unreadable row, and a duplicate, and confirm the spinner appears, the button is unclickable during the run, and the summary accounts for all three categories. Covered by pure component tests in import_modal_markup_test.exs and index_import_progress_test.exs (PR #4590).
 
 ## 6. Hand-off
 - [x] 6.1 Note that `start_async` is bound to the LiveView process, so navigating away still abandons the import; a durable job is out of scope and deliberately not attempted.
