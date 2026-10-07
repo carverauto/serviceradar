@@ -1,6 +1,6 @@
 # StarRocks 3.5 to 4.1 upgrade
 
-Fresh installs use 4.1.6. Existing clusters follow 3.5.21 -> 4.0.16 -> 4.1.6.
+Fresh installs use 4.1.3. Existing clusters follow 3.5.21 -> 4.0.14 -> 4.1.3.
 Keep the existing shared-data or shared-nothing architecture, storage volumes,
 credentials, JDBC driver, replica counts, and resource settings throughout.
 
@@ -34,8 +34,8 @@ and `SR_FE_STATEFULSET` for those selected values.
 
 ## Each version hop
 
-Complete this sequence for target 4.0.16, verify it, create and synchronize a
-metadata image, then repeat for target 4.1.6. Stop on any failed node or health
+Complete this sequence for target 4.0.14, verify it, create and synchronize a
+metadata image, then repeat for target 4.1.3. Stop on any failed node or health
 check; do not continue to the next phase or silently roll back.
 
 1. Upgrade only compute nodes. Set the cluster's `starRocksCnSpec.image` to
@@ -53,7 +53,7 @@ check; do not continue to the next phase or silently roll back.
 
    ```sh
    kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
-     --type merge -p '{"spec":{"starRocksFeSpec":{"image":"starrocks/fe-ubuntu:4.0.16","updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}}'
+     --type merge -p '{"spec":{"starRocksFeSpec":{"image":"starrocks/fe-ubuntu:4.0.14","updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}}'
    ```
 
    Confirm the operator has reconciled the frontend StatefulSet's template
@@ -79,13 +79,13 @@ check; do not continue to the next phase or silently roll back.
    state. Record this evidence privately before starting the next hop. If image
    creation or synchronization fails, the next hop must not begin.
 
-For the second hop, use 4.1.6 in the compute image and atomic frontend patch.
-At completion, persist the final 4.1.6 pins in the Helm release using its
+For the second hop, use 4.1.3 in the compute image and atomic frontend patch.
+At completion, persist the final 4.1.3 pins in the Helm release using its
 existing profile and operational overrides, with
 `initPassword.isInstall=false`. Verify the rendered changes first: no storage,
 credential, architecture, or resource change should accompany the image pins.
 Restore the frontend's recorded update strategy only after every frontend
-runs 4.1.6; the final Helm values do not carry the temporary `OnDelete` field.
+runs 4.1.3; the final Helm values do not carry the temporary `OnDelete` field.
 
 ## Completion and rollback limits
 

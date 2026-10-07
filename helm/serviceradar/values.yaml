@@ -2842,9 +2842,9 @@ analytics:
     # analytics object store (DuckDB/StarRocks), never the CNPG Barman destination.
     profile: sharedNothing
     operatorChartVersion: "1.11.7"
-    # Fresh installs target 4.1.6. Existing 3.5 clusters must follow
-    # docs/starrocks-upgrade.md through 4.0.16 before applying these pins.
-    imageTag: "4.1.6"
+    # Fresh installs target 4.1.3. Existing 3.5 clusters must follow
+    # docs/starrocks-upgrade.md through 4.0.14 before applying these pins.
+    imageTag: "4.1.3"
     # The warehouse database core and web read, load and retain through. The
     # chart does not create the schema: every file under priv/starrocks pins
     # the name `serviceradar`, so changing this requires rewriting the DDL to
