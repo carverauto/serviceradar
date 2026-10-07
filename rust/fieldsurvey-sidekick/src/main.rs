@@ -5,7 +5,7 @@ use serviceradar_fieldsurvey_sidekick::config::SidekickConfig;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -50,6 +50,12 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(config.listen_addr)
         .await
         .with_context(|| format!("failed to bind {}", config.listen_addr))?;
+
+    if config.api_token.is_none() {
+        warn!(
+            "setup token is not configured; pairing and setup-token authentication are disabled"
+        );
+    }
 
     info!(
         listen_addr = %config.listen_addr,
