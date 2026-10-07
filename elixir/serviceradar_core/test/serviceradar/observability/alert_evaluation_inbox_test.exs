@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   use ServiceRadar.DataCase, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: MetricPublisher
   alias Serviceradar.Metric.V1.MetricBatch
@@ -317,13 +318,19 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert_receive {:receipts_locked, ^locker}, 5_000
 
     try do
-      # The expired poll transaction disconnects the connection it ran on, so
-      # await from a child process and keep the test's owned connection usable
-      # for the owner-progress assertions below.
+      # Tasks inherit the caller's sandbox ownership. Give the deadline-bound
+      # poll its own unboxed connection so a disconnect cannot poison the
+      # test's connection before the owner-progress assertions below.
       waiter =
         Task.async(fn ->
-          %{rows: [[poll_backend]]} = Repo.query!("SELECT pg_backend_pid()")
-          {poll_backend, Completion.await(keys, 25)}
+          :ok = Sandbox.checkout(Repo, sandbox: false)
+
+          try do
+            %{rows: [[poll_backend]]} = Repo.query!("SELECT pg_backend_pid()")
+            {poll_backend, Completion.await(keys, 25)}
+          after
+            Sandbox.checkin(Repo)
+          end
         end)
 
       assert {poll_backend, {:error, :evaluation_completion_timeout}} = Task.await(waiter, 5_000)
