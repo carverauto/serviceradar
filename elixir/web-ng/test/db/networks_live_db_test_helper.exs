@@ -24,15 +24,17 @@ ExUnit.configure(
 # the grep. The pin therefore tracks the guard-observed width from the CI
 # summary, not the lexical model; the arithmetic gap between the two
 # is a model limit, not an attribution to chase in-tree.
-# The in-cluster WebNgDbDiagnostic observed 2449 selected at the 6d1d38f
+# The in-cluster WebNgDbDiagnostic observed 2449 selected at the 678e43e
 # tree with failures confined to two behavioral assertions (neither
-# selectional). A static audit of that tree shows no selectional change:
-# module-tagged `test "` counts are identical (2030 across 222 files),
-# per-test tag counts match file-by-file, and every staging-side addition
-# in the rebase window is `:db_free`. The +1 is runtime-observed generative
-# growth, so the pin moves 2448 -> 2449 with no lowering, removal,
-# bypass, or exclusion.
-expected_selected_tests = 2449
+# selectional). The rebase onto newer staging after that head added
+# lane-selected tests this pin must cover: +4 in metrics_controller_test
+# (the /metrics auth split: 6 added, 2 renamed away, all module-tagged)
+# and +2 in log_live/index_test (limit-clamp tests, explicitly tagged).
+# Staging also added 3 tests with no lane tag at all (2 alert-detail
+# resolution tests, 1 device alerts-tab test); they are tagged into this
+# lane alongside this bump since both files were already in the lane srcs.
+# 2449 + 4 + 2 + 3 = 2458, with no lowering, removal, bypass, or exclusion.
+expected_selected_tests = 2458
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

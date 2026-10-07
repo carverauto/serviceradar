@@ -445,6 +445,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "alert detail resolution" do
+    @tag :web_ng_shared_fixture_db
     test "detail query contains no time predicate", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -455,6 +456,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       refute render(lv) =~ "time:last_7d"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "falls back to database when SRQL returns no results", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture(%{title: "Fallback Database Alert"})

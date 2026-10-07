@@ -5062,6 +5062,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Reached"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device alerts tab lists alerts and links resolve to alert details", %{conn: conn} do
     uid = "test-device-alerts-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
