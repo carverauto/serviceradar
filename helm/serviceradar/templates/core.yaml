@@ -5,11 +5,11 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate4 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
-{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
-{{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
@@ -660,7 +660,7 @@ spec:
         - name: DATASVC_PORT
           value: "50057"
         - name: DATASVC_SEC_MODE
-          value: {{ default "spiffe" .Values.kv.secMode | quote }}
+          value: {{ default "mtls" .Values.kv.secMode | quote }}
         - name: DATASVC_SSL
           value: "true"
         - name: DATASVC_CERT_DIR

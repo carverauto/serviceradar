@@ -17,13 +17,16 @@
 package grpc
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -232,7 +235,7 @@ func TestSpiffeProvider(t *testing.T) {
 
 		assert.NotNil(t, provider)
 
-		if provider != nil {
+		if err == nil && provider != nil {
 			err := provider.Close()
 			if err != nil {
 				t.Fatalf("Expected Close to succeed, got error: %v", err)
@@ -441,3 +444,47 @@ func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
 }
 
 */
+
+// Capture only warnings while retaining the ordinary test logger for other levels.
+type warningCaptureLogger struct {
+	logger.Logger
+	output zerolog.Logger
+}
+
+func (l warningCaptureLogger) Warn() *zerolog.Event { return l.output.Warn() }
+
+func TestSecurityProviderDeprecationWarning(t *testing.T) {
+	for _, tc := range []struct {
+		mode       models.SecurityMode
+		deprecated bool
+	}{
+		{SecurityModeSpiffe, true}, {models.SecurityMode("SPIFFE"), true},
+		{SecurityModeNone, false}, {SecurityModeMTLS, false},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			var output bytes.Buffer
+			log := warningCaptureLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			provider, err := NewSecurityProvider(ctx, &models.SecurityConfig{
+				Mode: tc.mode, WorkloadSocket: "unix:" + filepath.Join(t.TempDir(), "absent.sock"),
+			}, log)
+			if err == nil && provider != nil {
+				require.NoError(t, provider.Close())
+			}
+			if !tc.deprecated {
+				assert.Empty(t, output.String())
+				return
+			}
+			require.Error(t, err, "warning must precede the unavailable Workload API")
+			var event struct {
+				Level   string `json:"level"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(output.Bytes(), &event))
+			assert.Equal(t, "warn", event.Level)
+			assert.Contains(t, event.Message, "deprecated")
+			assert.Contains(t, event.Message, "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+		})
+	}
+}

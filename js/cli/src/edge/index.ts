@@ -41,6 +41,9 @@ export function printEdgeHelp(): void {
     serviceradar-cli edge package revoke   <id> --instance <url> [--reason <text>] [--json]
     serviceradar-cli edge package download <id> --instance <url> --token <onboarding-token> [-o file]
 
+  Package security defaults to mtls. The spire mode is deprecated;
+  see https://docs.serviceradar.cloud/docs/migrating-off-spire.
+
   Edge sites (local NATS leaf per site):
     serviceradar-cli edge site create --instance <url> --name <name> [--slug <slug>] [--json]
     serviceradar-cli edge site list   --instance <url> [--json]

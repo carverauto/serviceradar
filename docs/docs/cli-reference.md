@@ -2,6 +2,10 @@
 title: ServiceRadar CLI
 ---
 
+:::warning Deprecated SPIRE runtime
+SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
+:::
+
 # ServiceRadar CLI
 
 The `srctl` command-line tool bundles the day-to-day administrative
@@ -116,9 +120,9 @@ Generates an RS256 keypair for signing API JWTs and updates `core.json`.
 | `-bits` | RSA key size in bits (default `2048`). |
 | `-force` | Overwrite existing RS256 keys if present. |
 
-## `spire-join-token`
+## `spire-join-token` (deprecated)
 
-Requests a SPIRE join token from the core API, and optionally registers a
+Legacy command for a retired API route; do not use it for new onboarding. It requested a SPIRE join token from the core API and optionally registered a
 downstream (nested) SPIRE server entry.
 
 ```bash

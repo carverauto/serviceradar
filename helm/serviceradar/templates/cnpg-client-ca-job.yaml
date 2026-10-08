@@ -1,7 +1,7 @@
 {{- if and .Values.cnpg.clientCAFromCerts .Values.cnpg.clientCASecret }}
 {{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "Chart" .Chart "service" "tools") -}}
-{{- $pg := default (dict) .Values.spire.postgres -}}
-{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $pg := include "serviceradar.effectiveSpirePostgres" . | fromYaml -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 ---
 apiVersion: v1
 kind: ServiceAccount

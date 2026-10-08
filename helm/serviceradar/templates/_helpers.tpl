@@ -189,7 +189,7 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 
 {{- define "serviceradar.kvEnv" -}}
 {{- $vals := .Values -}}
-{{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
+{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.kv.trustDomain -}}
 {{- $serverID := include "serviceradar.kvServerSPIFFEID" . -}}
 {{- if not $vals.kv.enabled }}
 {{- else }}
@@ -240,16 +240,16 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- define "serviceradar.kvServerSPIFFEID" -}}
 {{- $vals := .Values -}}
 {{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $datasvcSA := default "serviceradar-datasvc" $vals.spire.datasvcServiceAccount -}}
-{{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
+{{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "datasvc")) -}}
+{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.kv.trustDomain -}}
 {{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $datasvcSA) $vals.kv.serverSPIFFEID -}}
 {{- end -}}
 
 {{- define "serviceradar.coreServerSPIFFEID" -}}
 {{- $vals := .Values -}}
 {{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $trustDomain := default $vals.spire.trustDomain $vals.coreClient.trustDomain -}}
-{{- $coreSA := default "serviceradar-core" $vals.spire.coreServiceAccount -}}
+{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.coreClient.trustDomain -}}
+{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "core")) -}}
 {{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
 {{- end -}}
 
@@ -262,8 +262,8 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- define "serviceradar.coreEnv" -}}
 {{- $vals := .Values -}}
 {{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $trustDomain := default $vals.spire.trustDomain $vals.coreClient.trustDomain -}}
-{{- $coreSA := default "serviceradar-core" $vals.spire.coreServiceAccount -}}
+{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.coreClient.trustDomain -}}
+{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "core")) -}}
 {{- $serverID := default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
 - name: CORE_ADDRESS
   value: "{{ include "serviceradar.coreAddress" . }}"
@@ -607,14 +607,14 @@ not transaction-pooler safe. The pooler host is used only by workload templates
 that opt into cnpg.pooler.route.<workload>.
 */}}
 {{- define "serviceradar.cnpgClusterName" -}}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- default "cnpg" $cnpg.clusterName -}}
 {{- end -}}
 
 {{- define "serviceradar.cnpgDirectHost" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
-{{- default (printf "%s-rw.%s.svc.cluster.local" $clusterName .Release.Namespace) $cnpg.host -}}
+{{- default (printf "%s-rw.%s.svc.cluster.local" $clusterName (include "serviceradar.cnpgNamespace" .)) $cnpg.host -}}
 {{- end -}}
 
 {{- define "serviceradar.cnpgPoolerName" -}}
@@ -628,7 +628,7 @@ that opt into cnpg.pooler.route.<workload>.
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $pooler := default (dict) $cnpg.pooler -}}
 {{- $poolerName := include "serviceradar.cnpgPoolerName" . -}}
-{{- default (printf "%s.%s.svc.cluster.local" $poolerName .Release.Namespace) $pooler.host -}}
+{{- default (printf "%s.%s.svc.cluster.local" $poolerName (include "serviceradar.cnpgNamespace" .)) $pooler.host -}}
 {{- end -}}
 
 {{- define "serviceradar.cnpgWorkloadHost" -}}
@@ -1423,4 +1423,64 @@ unset, so web-ng keeps its configured default.
 {{- with $endpoints.natsLeafHost -}}
 tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- end -}}
+{{- end -}}
+
+{{/* Neutral values retain the legacy SPIRE account and trust-domain fallbacks. */}}
+{{- define "serviceradar.componentServiceAccount" -}}
+{{- $component := .component -}}
+{{- $values := .values -}}
+{{- $legacyKeys := dict "core" "coreServiceAccount" "webNg" "webNgServiceAccount" "datasvc" "datasvcServiceAccount" "agent" "serviceradarAgentServiceAccount" "logCollector" "logCollectorServiceAccount" "rperfChecker" "rperfCheckerServiceAccount" "trapd" "trapdServiceAccount" "flowCollector" "flowCollectorServiceAccount" "bmpCollector" "bmpCollectorServiceAccount" "otel" "otelServiceAccount" "flowgger" "flowggerServiceAccount" -}}
+{{- $defaults := dict "core" "serviceradar-core" "webNg" "serviceradar-web-ng" "datasvc" "serviceradar-datasvc" "agent" "serviceradar-agent" "logCollector" "serviceradar-log-collector" "rperfChecker" "serviceradar-rperf-checker" "trapd" "serviceradar-trapd" "flowCollector" "serviceradar-flow-collector" "bmpCollector" "serviceradar-bmp-collector" "otel" "serviceradar-otel" "flowgger" "serviceradar-flowgger" -}}
+{{- $neutral := get (default (dict) $values.serviceAccounts) $component -}}
+{{- $legacy := get (default (dict) $values.spire) (get $legacyKeys $component) -}}
+{{- if eq $component "agent" -}}
+  {{- $legacy = default $legacy (default (dict) $values.agent).serviceAccount -}}
+{{- end -}}
+{{- default (default (get $defaults $component) $legacy) $neutral -}}
+{{- end -}}
+
+{{- define "serviceradar.trustDomain" -}}
+{{- default (default "carverauto.dev" (default (dict) .spire).trustDomain) .trustDomain -}}
+{{- end -}}
+
+{{/* Nullable shared keys let neutral overrides win without masking legacy-only inputs. */}}
+{{- define "serviceradar.effectiveCNPG" -}}
+{{- $cnpg := deepCopy (default (dict) .Values.cnpg) -}}
+{{- $spire := default (dict) .Values.spire -}}
+{{- $pg := default (dict) $spire.postgres -}}
+{{- $legacyActive := and (default false $spire.enabled) (default false $pg.enabled) -}}
+{{- $defaults := dict "clusterName" "cnpg" "instances" 3 "storageClass" "" "storageSize" "100Gi" -}}
+{{- range $key, $builtIn := $defaults -}}
+  {{- if or (not (hasKey $cnpg $key)) (eq (get $cnpg $key | toJson) "null") -}}
+    {{- $fallback := $builtIn -}}
+    {{- if and $legacyActive (hasKey $pg $key) -}}
+      {{- $fallback = get $pg $key -}}
+    {{- end -}}
+    {{- $_ := set $cnpg $key $fallback -}}
+  {{- end -}}
+{{- end -}}
+{{- $cnpg | toYaml -}}
+{{- end -}}
+
+{{- define "serviceradar.cnpgNamespace" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $spire := default (dict) .Values.spire -}}
+{{- $pg := default (dict) $spire.postgres -}}
+{{- $legacyNamespace := .Release.Namespace -}}
+{{- if and (default false $spire.enabled) (default false $pg.enabled) -}}
+  {{- $legacyNamespace = default .Release.Namespace $spire.namespace -}}
+{{- end -}}
+{{- default $legacyNamespace $cnpg.namespace -}}
+{{- end -}}
+
+{{- define "serviceradar.effectiveSpirePostgres" -}}
+{{- $pg := deepCopy (default (dict) .Values.spire.postgres) -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
+{{- range $key := list "clusterName" "instances" "storageClass" "storageSize" -}}
+  {{- $_ := set $pg $key (get $cnpg $key) -}}
+{{- end -}}
+{{- with $cnpg.imageName -}}
+  {{- $_ := set $pg "imageName" . -}}
+{{- end -}}
+{{- $pg | toYaml -}}
 {{- end -}}

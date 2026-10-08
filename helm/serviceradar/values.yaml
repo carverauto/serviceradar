@@ -175,6 +175,7 @@ kv:
   configSource: file
   bucket: serviceradar-datasvc
   address: serviceradar-datasvc:50057
+  # The spiffe value is deprecated; use mtls.
   secMode: mtls
   trustDomain: ""
   serverSPIFFEID: ""
@@ -964,6 +965,7 @@ gobgp:
     port: 179
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
+  # The spiffe value is deprecated; use mtls.
   secMode: mtls
   trustDomain: ""
   serverSPIFFEID: ""
@@ -971,10 +973,12 @@ coreClient:
   certDir: /etc/serviceradar/certs
 cnpg:
   enabled: true
-  clusterName: cnpg
-  instances: 3
-  storageClass: ""
-  storageSize: 100Gi
+  # Null retains the active legacy SPIRE cluster setting, then the shown default.
+  clusterName: null # cnpg
+  namespace: null # release namespace; legacy spire.namespace for its active cluster
+  instances: null # 3
+  storageClass: null # global storage policy
+  storageSize: null # 100Gi
   # Hosted control plane always sets this. Leave empty for OSS installs that
   # still want CNPG to inherit node RAM; set requireResources=true to fail
   # closed instead of scheduling with no requests.
@@ -1460,6 +1464,7 @@ webNg:
   datasvc:
     host: "serviceradar-datasvc"
     port: 50057
+    # The spiffe value is deprecated; use mtls.
     secMode: "mtls"
     certDir: "/etc/serviceradar/certs"
     certName: "web"
@@ -2069,6 +2074,21 @@ configSync:
     role: ""
     extraArgs: ""
     extraEnv: {}
+# Neutral workload identity overrides. Blank values retain deprecated spire.* fallbacks.
+trustDomain: ""
+serviceAccounts:
+  core: ""
+  webNg: ""
+  datasvc: ""
+  agent: ""
+  logCollector: ""
+  rperfChecker: ""
+  trapd: ""
+  flowCollector: ""
+  bmpCollector: ""
+  otel: ""
+  flowgger: ""
+# Deprecated: SPIRE runtime support will be removed in a later phase.
 spire:
   enabled: false
   namespace: ""
@@ -3001,6 +3021,7 @@ analytics:
       fePasswordSecretName: ""
       fePasswordSecretKey: password
 
+# Deprecated runtime selector. Filesystem certificate URI SAN names are unchanged.
 spiffe:
   mode: "filesystem"
   trustDomain: "serviceradar.local"

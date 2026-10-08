@@ -165,7 +165,7 @@ spec:
     spec:
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-log-collector") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
-      serviceAccountName: {{ .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" }}
+      serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
       - name: wait-for-cert-files
@@ -345,7 +345,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" }}
+  name: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) }}
   labels:
     app.kubernetes.io/part-of: serviceradar
 {{- if (default (dict) .Values.logCollector).externalService }}

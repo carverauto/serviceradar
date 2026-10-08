@@ -1883,6 +1883,8 @@ if config_env() == :prod do
     tls_config =
       case datasvc_sec_mode do
         "spiffe" ->
+          ServiceRadar.SPIFFE.warn_if_deprecated(datasvc_sec_mode, spiffe_mode)
+
           spiffe_cert_dir = System.get_env("DATASVC_SPIFFE_CERT_DIR")
           spiffe_opts = if spiffe_cert_dir, do: [cert_dir: spiffe_cert_dir], else: []
 

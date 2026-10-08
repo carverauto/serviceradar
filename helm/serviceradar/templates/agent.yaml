@@ -7,7 +7,7 @@
 {{- if or (not (hasKey $gate2 "enabled")) $gate2.enabled }}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentGatewayVals := default (dict) .Values.agentGateway -}}
-{{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $agentSA := include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "agent") -}}
 {{- $agentResources := default (dict) $agentVals.resources -}}
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
 {{- $agentEBPF := default (dict) (get $agentVals "ebpf") -}}

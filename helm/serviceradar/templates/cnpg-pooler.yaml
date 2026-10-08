@@ -1,4 +1,4 @@
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $pooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgEnabled := true -}}
 {{- if hasKey $cnpg "enabled" -}}
@@ -17,7 +17,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
   name: {{ $poolerName | quote }}
-  namespace: {{ .Release.Namespace | quote }}
+  namespace: {{ include "serviceradar.cnpgNamespace" . | quote }}
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: cnpg-pooler

@@ -83,7 +83,7 @@ To deploy edge agents:
 - Edge agents communicate only via gRPC (no ERTS/Erlang distribution)
 - Internal service-to-service traffic uses mTLS by default
 - Default Kubernetes installs use deployment-managed certificates published into a Kubernetes Secret and mounted into workloads
-- SPIFFE/SPIRE remains available as an explicit opt-in mode when operators want workload identities
+- SPIFFE/SPIRE runtime support is deprecated; existing explicit opt-in configurations remain compatible during phase one
 - Isolation is enforced by deployment boundaries and database credentials
 
 For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge-agents.md).
@@ -158,7 +158,11 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `observability.grafana.dashboards.enabled` | Create Grafana dashboard ConfigMaps for the ServiceRadar dashboard folder | `true` |
 | `observability.grafana.dashboards.labels` | Grafana sidecar discovery labels for dashboard ConfigMaps | `grafana_dashboard: "1"` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
-| `spire.enabled` | Enable SPIRE identity plane | `false` |
+| `spire.enabled` | Deprecated SPIRE identity plane | `false` |
+| `serviceAccounts.<component>` | Neutral workload account; blank retains the legacy SPIRE account/default | `""` |
+| `trustDomain` | Neutral trust domain; blank retains `spire.trustDomain` | `""` |
+| `cnpg.clusterName`, `cnpg.instances`, `cnpg.storageClass`, `cnpg.storageSize` | Neutral cluster overrides; null retains an active legacy SPIRE cluster setting before built-in defaults | `null` |
+| `cnpg.namespace` | Cluster namespace; blank retains the active legacy namespace or release namespace | `null` |
 | `webNg.adminEmail` | Bootstrap admin email | `root@localhost` |
 | `webNg.adminPasswordForceSync` | Enable bootstrap secret rotation handling; see [Bootstrap Admin Access](../../docs/docs/auth-configuration.md#bootstrap-admin-access-self-hosted). | `false` |
 | `webNg.auth.forceLocalLogin` | Break-glass switch that permits local password login regardless of SSO enforcement. Leave false for normal installs; use the per-user Local password login toggle instead. | `false` |
@@ -311,7 +315,7 @@ for the failure mode and recovery instructions.
 - A pre-install hook also generates the runtime certificate bundle and publishes it to `certs.runtimeSecretName` (default `serviceradar-runtime-certs`).
 - The chart does not generate image pull secrets. Published images pull anonymously, so none is required; set `image.registryPullSecret=""` to drop the default `registry-carverauto-dev-cred` reference, or create that secret (or override the name) when pulling through an authenticated mirror. Keep a real secret name there if you enable `argocdImageUpdater.pullSecretReader`, whose Role needs one.
 - The in-cluster agent writes mutable checker config, cache files, and managed release payloads under `/var/lib/serviceradar`; keep the default PVC-backed `agent.*Storage` settings enabled in Kubernetes production environments.
-- SPIFFE/SPIRE is optional. Enable it with `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
+- SPIFFE/SPIRE is deprecated. Existing opt-in installs can retain `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
 - When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
 
@@ -368,6 +372,8 @@ core:
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
 ```
+
+All `spire.*` and `spiffe.*` settings and the `spiffe` value of `kv.secMode`, `coreClient.secMode` and `webNg.datasvc.secMode` are deprecated. The chart emits a warning in its install/upgrade notes when these modes are selected. See [Migrating off SPIRE](https://docs.serviceradar.cloud/docs/migrating-off-spire). Neutral account keys cover core, webNg, datasvc, agent, logCollector, rperfChecker, trapd, flowCollector, bmpCollector, otel and flowgger. Shared cluster overrides apply to both active CNPG render paths; SPIRE datastore credentials remain under `spire.postgres`.
 
 ## Network Requirements
 

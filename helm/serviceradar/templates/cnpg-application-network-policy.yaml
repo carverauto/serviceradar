@@ -1,4 +1,4 @@
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $applicationAccess := default (dict) $cnpg.applicationAccess -}}
 {{- $networkPolicy := default (dict) .Values.networkPolicy -}}
 {{- $networkPolicyIngress := default (dict) $networkPolicy.ingress -}}

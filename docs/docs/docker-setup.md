@@ -2,6 +2,10 @@
 title: Docker Setup
 ---
 
+:::warning Deprecated SPIRE runtime
+SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
+:::
+
 # Docker Setup
 
 Use Docker Compose to run the full ServiceRadar platform stack (core-elx, agent-gateway, web-ng, NATS JetStream, CNPG, Dgraph) with mTLS enabled by default.

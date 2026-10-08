@@ -1,0 +1,9 @@
+{{- $kv := default (dict) .Values.kv -}}
+{{- $coreClient := default (dict) .Values.coreClient -}}
+{{- $web := default (dict) .Values.webNg -}}
+{{- $datasvc := default (dict) $web.datasvc -}}
+{{- if or .Values.spire.enabled (eq (lower (default "" $kv.secMode)) "spiffe") (eq (lower (default "" $coreClient.secMode)) "spiffe") (eq (lower (default "" $datasvc.secMode)) "spiffe") (eq .Values.spiffe.mode "workload_api") }}
+WARNING: SPIFFE/SPIRE runtime support is deprecated. Use mTLS with the deployment-managed CA.
+Migration guide: https://docs.serviceradar.cloud/docs/migrating-off-spire
+Existing spiffe:// certificate URI identities remain supported.
+{{- end }}

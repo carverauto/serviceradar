@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
       gateway_id: params["gateway_id"],
       partition_id: partition_id,
       site: partition_id,
-      security_mode: params["security_mode"] || "spire",
+      security_mode: params["security_mode"] || "mtls",
       selectors: params["selectors"] || [],
       checker_kind: params["checker_kind"],
       checker_config_json: params["checker_config_json"],

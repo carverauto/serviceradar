@@ -41,6 +41,17 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert package.component_id == "test-gateway-001"
       assert package.component_type == :gateway
       assert package.status == :issued
+      assert package.security_mode == :mtls
+    end
+
+    test "database defaults new packages to mTLS" do
+      result =
+        ServiceRadar.Repo.query!(
+          "INSERT INTO platform.edge_onboarding_packages (label) VALUES ($1) RETURNING security_mode",
+          ["Synthetic SQL package"]
+        )
+
+      assert result.rows == [["mtls"]]
     end
 
     test "creates package with default issued status" do

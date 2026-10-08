@@ -56,6 +56,17 @@ defmodule ServiceRadar.SPIFFE do
   # SPIFFE ID URI prefix
   @spiffe_uri_prefix "spiffe://"
 
+  @doc "Logs the startup deprecation notice for SPIRE runtime configuration."
+  def warn_if_deprecated(security_mode, certificate_mode) do
+    if String.downcase(String.trim(to_string(security_mode || ""))) == "spiffe" or
+         certificate_mode == :workload_api do
+      Logger.warning(
+        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. " <>
+          "See https://docs.serviceradar.cloud/docs/migrating-off-spire"
+      )
+    end
+  end
+
   @doc """
   Returns SSL/TLS options for ERTS distribution with SPIFFE certificates.
 

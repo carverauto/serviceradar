@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "SPIRE deprecation: phase one",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "configuration",
+      "label": "Configuration compatibility"
+    },
+    {
+      "id": "delivery",
+      "label": "Implementation and evidence"
+    }
+  ],
+  "mainPath": [
+    "values",
+    "compatibility",
+    "deprecation",
+    "proof",
+    "review"
+  ],
+  "nodes": [
+    {
+      "id": "values",
+      "lane": "configuration",
+      "col": 0,
+      "type": "frontend",
+      "label": "Operator values",
+      "sublabel": "Neutral or legacy keys",
+      "width": 160
+    },
+    {
+      "id": "compatibility",
+      "lane": "configuration",
+      "col": 1,
+      "type": "backend",
+      "label": "Resolve identity",
+      "sublabel": "Preserve cluster and accounts",
+      "width": 160
+    },
+    {
+      "id": "deprecation",
+      "lane": "delivery",
+      "col": 2,
+      "type": "security",
+      "label": "Deprecate SPIRE",
+      "sublabel": "Warn; keep explicit opt-in",
+      "width": 160,
+      "yOffset": 15
+    },
+    {
+      "id": "proof",
+      "lane": "delivery",
+      "col": 3,
+      "type": "backend",
+      "label": "Prove compatibility",
+      "sublabel": "RBE and hosted DB tests",
+      "width": 160,
+      "yOffset": 15
+    },
+    {
+      "id": "review",
+      "lane": "delivery",
+      "col": 4,
+      "type": "external",
+      "label": "Review phase one",
+      "sublabel": "Separate PR to staging",
+      "width": 160,
+      "yOffset": 15
+    }
+  ],
+  "edges": [
+    {
+      "from": "values",
+      "to": "compatibility",
+      "label": "neutral wins",
+      "role": "main"
+    },
+    {
+      "from": "compatibility",
+      "to": "deprecation",
+      "label": "retain old paths",
+      "role": "main"
+    },
+    {
+      "from": "deprecation",
+      "to": "proof",
+      "label": "test defaults",
+      "role": "main"
+    },
+    {
+      "from": "proof",
+      "to": "review",
+      "label": "green checks",
+      "role": "main"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "New installs",
+      "items": [
+        "Onboarding defaults to mTLS across API, Ash, DB and CLI",
+        "Default Helm render has no SPIRE sockets or resources"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Existing installs",
+      "items": [
+        "Explicit SPIRE configuration still works with warnings",
+        "Cluster identity, credentials and certificate URI names remain intact"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Later phases",
+      "items": [
+        "Runtime removal and strict rejection require a separate PR",
+        "Manifest, CRD and dependency deletion are deferred"
+      ]
+    }
+  ]
+}

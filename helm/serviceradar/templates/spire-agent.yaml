@@ -11,7 +11,7 @@
   {{- $skipKubeletVerification = $agentVals.skipKubeletVerification }}
 {{- end }}
 {{- $bundle := default "spire-bundle" .Values.spire.bundleConfigMap }}
-{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $trustDomain := (include "serviceradar.trustDomain" .Values) }}
 {{- $clusterName := .Values.spire.clusterName }}
 {{- $tokenAudience := .Values.spire.tokenAudience | default "https://kubernetes.default.svc" }}
 ---

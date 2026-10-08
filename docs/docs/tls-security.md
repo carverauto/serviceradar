@@ -3,9 +3,13 @@ sidebar_position: 4
 title: TLS Security
 ---
 
+:::warning Deprecated SPIRE runtime
+SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
+:::
+
 # TLS Security
 
-ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. Certificates are issued by SPIFFE/SPIRE in Kubernetes and by the Compose certificate generator in Docker.
+ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. The Helm chart and Docker Compose issue certificates through the deployment-managed CA. SPIFFE/SPIRE issuance is deprecated compatibility for explicitly opted-in Kubernetes installs.
 
 ## Summary
 
@@ -42,7 +46,7 @@ certificate generator that issues the runtime mTLS certificates for you:
 
 This option is the right choice for clusters that do not run SPIRE.
 
-### Option B: SPIFFE/SPIRE workload identities
+### Option B: SPIFFE/SPIRE workload identities (deprecated)
 
 For environments that want short-lived, automatically rotated SVIDs, the chart
 can deploy and integrate SPIRE.
@@ -94,8 +98,7 @@ docker compose up -d
 
 ### Kubernetes
 
-Use either the in-chart certificate generator (default) or SPIFFE/SPIRE for
-workload identities, as described in [Kubernetes Certificate
+Use the in-chart certificate generator for new deployments. Existing SPIFFE/SPIRE deployments can migrate to it, as described in [Kubernetes Certificate
 Options](#kubernetes-certificate-options). No manual certificate management is
 required for most installs.
 

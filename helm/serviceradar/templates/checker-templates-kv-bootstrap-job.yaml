@@ -19,7 +19,7 @@ spec:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}
+      serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}
       containers:
         - name: kv-bootstrap
           image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}

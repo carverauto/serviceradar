@@ -5,7 +5,7 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate0 := default (dict) .Values.webNg -}}
 {{- if or (not (hasKey $gate0 "enabled")) $gate0.enabled }}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
@@ -121,7 +121,7 @@
 {{- $sshCaSignerWeb := true -}}
 {{- if hasKey $sshCaSignerWorkloads "web" -}}{{- $sshCaSignerWeb = get $sshCaSignerWorkloads "web" -}}{{- end -}}
 {{- $sshCaSignerWebEnabled := and $sshCaSignerEnabled $sshCaSignerWeb -}}
-{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
 {{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
@@ -132,7 +132,7 @@
 {{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
 {{- $datasvcCertName := default "web" $datasvc.certName -}}
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
-{{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
+{{- $webNgSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "webNg")) -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}

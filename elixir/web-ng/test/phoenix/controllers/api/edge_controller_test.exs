@@ -148,6 +148,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert result["package"]["package_id"]
       assert result["package"]["label"] == "new-gateway"
       assert result["package"]["component_type"] == "gateway"
+      assert result["package"]["security_mode"] == "mtls"
       assert result["package"]["partition_id"] == "datacenter-1"
       assert result["package"]["site"] == "datacenter-1"
       assert result["package"]["status"] == "issued"
@@ -159,6 +160,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       params = %{
         "label" => "new-partition-agent",
         "component_type" => "agent",
+        "security_mode" => "spire",
         "partition_id" => "edge-partition-1"
       }
 

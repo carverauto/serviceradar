@@ -163,7 +163,7 @@
 {{- end -}}
 {{- $hasBmpCollectorExternalPorts := gt (len $bmpCollectorExternalPorts) 0 -}}
 {{- $hasGobgpExternalCIDRs := gt (len $gobgpExternalCIDRs) 0 -}}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgEnabled := true -}}
 {{- if hasKey $cnpg "enabled" -}}
   {{- $cnpgEnabled = $cnpg.enabled -}}

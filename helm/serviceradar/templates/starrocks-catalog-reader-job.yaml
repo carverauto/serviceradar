@@ -17,7 +17,7 @@
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- $cat := default (dict) $sr.catalog -}}
 {{- if and $sr.enabled $cat.enabled }}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $reader := default "serviceradar_starrocks_reader" $cat.user -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
 {{- $database := default "serviceradar" $cnpg.database -}}
