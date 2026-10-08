@@ -362,14 +362,17 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
     # First, try to find by external_id
     case find_user_by_external_id(external_id, actor) do
       {:ok, user} ->
-        {:ok, user}
+        active_user(user)
 
       {:error, :not_found} ->
         # Try to find by email
         case User.get_by_email(email, actor: actor) do
-          {:ok, user} ->
+          {:ok, %User{status: :active} = user} ->
             # Link existing user to gateway
             link_user_to_gateway(user, external_id, actor)
+
+          {:ok, %User{}} ->
+            {:error, :user_inactive}
 
           {:error, _} ->
             # Create new user (JIT provisioning)
@@ -377,6 +380,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
         end
     end
   end
+
+  defp active_user(%User{status: :active} = user), do: {:ok, user}
+  defp active_user(%User{}), do: {:error, :user_inactive}
 
   defp find_user_by_external_id(nil, _actor), do: {:error, :not_found}
 

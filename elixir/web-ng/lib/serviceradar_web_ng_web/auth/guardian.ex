@@ -55,14 +55,17 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   Loads a user from the subject claim.
 
   Extracts the user ID from the "user:<uuid>" format and loads
-  the user from the database.
+  the user from the database. A user who is no longer active is refused, so a
+  token minted before deactivation stops authenticating on its next use, on
+  every path that resolves the user from claims (session, bearer, LiveView).
   """
   @impl Guardian
   def resource_from_claims(%{"sub" => "user:" <> id}) do
     actor = SystemActor.system(:guardian)
 
     case Ash.get(User, id, actor: actor) do
-      {:ok, user} -> {:ok, user}
+      {:ok, %User{status: :active} = user} -> {:ok, user}
+      {:ok, _user} -> {:error, :user_inactive}
       {:error, _} -> {:error, :user_not_found}
     end
   end

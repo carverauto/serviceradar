@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
     resource_module: ServiceRadar.Identity.User
 
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.Auth.TokenRevocation
 
   require Ash.Query
 
@@ -145,8 +146,12 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
         |> Ash.Changeset.for_update(:deactivate, %{}, scope: scope)
         |> Ash.update(scope: scope)
         |> case do
-          {:ok, updated} -> json(conn, user_to_json(updated))
-          {:error, error} -> {:error, error}
+          {:ok, updated} ->
+            TokenRevocation.end_user_sessions(updated.id, :user_deactivated)
+            json(conn, user_to_json(updated))
+
+          {:error, error} ->
+            {:error, error}
         end
 
       {:error, error} ->

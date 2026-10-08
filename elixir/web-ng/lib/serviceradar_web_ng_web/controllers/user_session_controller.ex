@@ -62,12 +62,8 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   defp update_password(conn, user, scope, user_params) do
     case Accounts.update_user_password(user, user_params, scope: scope) do
       {:ok, _user} ->
-        # Revoke all tokens for this user - password change invalidates all sessions
-        TokenRevocation.revoke_all_for_user(user.id, reason: :password_changed)
-
-        # After password change, user should re-authenticate
-        # Broadcast disconnect to any other LiveView sessions
-        UserAuth.disconnect_sessions([user.id])
+        # A password change ends every session; the user signs in again.
+        TokenRevocation.end_user_sessions(user.id, :password_changed)
 
         conn
         |> put_flash(:info, "Password updated successfully! Please sign in again.")

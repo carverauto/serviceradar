@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Identity.AuthSettings
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.UserAuth
@@ -100,6 +101,56 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
              UserAuth.on_mount(:require_authenticated, %{}, get_session(conn), socket)
 
     assert to_string(updated_socket.assigns.current_scope.user.email) == email
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "passive proxy refuses an inactive mapped user without creating a session", %{
+    conn: conn
+  } do
+    put_auth_settings(%{
+      is_enabled: true,
+      mode: :passive_proxy,
+      jwt_header_name: "authorization",
+      jwt_public_key_pem: @rsa_public_pem,
+      jwt_jwks_url: nil,
+      jwt_issuer: @issuer,
+      jwt_audience: @audience
+    })
+
+    actor = system_actor()
+    unique = System.unique_integer([:positive])
+    email = "gateway-inactive-#{unique}@example.com"
+    external_id = "gateway|inactive-#{unique}"
+
+    {:ok, user} =
+      User.provision_sso_user(
+        %{
+          email: email,
+          display_name: "Gateway Inactive User",
+          external_id: external_id,
+          provider: :gateway
+        },
+        actor: actor
+      )
+
+    {:ok, _inactive_user} = User.deactivate(user, actor: actor)
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> fetch_flash()
+      |> put_private(:phoenix_format, "html")
+      |> put_req_header(
+        "authorization",
+        "Bearer " <>
+          signed_token(%{"email" => to_string(user.email), "sub" => external_id})
+      )
+      |> GatewayAuth.call([])
+
+    assert conn.halted
+    assert redirected_to(conn) == ~p"/users/log-in"
+    refute get_session(conn, "user_token")
+    refute conn.assigns[:current_scope]
   end
 
   test "valid gateway token requires mapped email and subject claims", %{conn: conn} do

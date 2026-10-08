@@ -122,8 +122,11 @@ defmodule ServiceRadarWebNGWeb.Api.UserControllerTest do
   end
 
   describe "POST /api/admin/users/:id/deactivate" do
-    test "deactivates a user", %{conn: conn, scope: scope} do
+    @tag :web_ng_shared_fixture_db
+    test "deactivates a user and ends their sessions", %{conn: conn, scope: scope} do
       user = AshTestHelpers.user_fixture()
+      issued_before = DateTime.shift(DateTime.utc_now(), minute: -1)
+      ServiceRadarWebNGWeb.Endpoint.subscribe("users_sessions:#{user.id}")
 
       conn = post(conn, ~p"/api/admin/users/#{user.id}/deactivate")
       result = json_response(conn, 200)
@@ -132,6 +135,11 @@ defmodule ServiceRadarWebNGWeb.Api.UserControllerTest do
 
       {:ok, reloaded} = Ash.get(User, user.id, scope: scope)
       assert reloaded.status == :inactive
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
+
+      assert {:error, _revoked} =
+               ServiceRadarWebNG.Auth.TokenRevocation.check_user_revoked(user.id, issued_before)
     end
   end
 

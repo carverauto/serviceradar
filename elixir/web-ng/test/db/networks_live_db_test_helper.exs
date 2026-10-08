@@ -41,7 +41,17 @@ ExUnit.configure(
 # select outside this lane (:db_free ash_domains/oban additions) or net to
 # zero (collector bundle generator rename). 2458 + 2 = 2460; hosted BazelCI
 # must confirm the runtime count.
-expected_selected_tests = 2460
+# PR #5524 (de742e6399) adds +4 lane-selected tests, each covered by its
+# file's existing @moduletag :web_ng_shared_fixture_db with no skip/exclude:
+# LocalTest "deactivate_user ends the user's sessions", GuardianTest
+# "a token issued before deactivation stops verifying", TokenRevocationTest
+# "keeps the user marker beyond the longest configurable token lifetime",
+# and GatewayAuthPolicyTest "passive proxy refuses an inactive mapped user
+# without creating a session". The Api.UserControllerTest change is a
+# rename/strengthening of the existing "deactivates a user" case in an
+# already-tagged module, not a new selection. 2460 + 4 = 2464, with no
+# lowering, removal, bypass, or exclusion.
+expected_selected_tests = 2464
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

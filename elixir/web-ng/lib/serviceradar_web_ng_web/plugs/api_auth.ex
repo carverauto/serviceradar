@@ -212,6 +212,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       {:ok, conn} ->
         {:ok, conn}
 
+      {:error, :unauthorized} ->
+        {:error, :unauthorized}
+
       {:error, :not_found} ->
         # Fall back to legacy static API keys
         validate_legacy_api_key(conn, key)
@@ -224,7 +227,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     token_prefix = String.slice(token, 0, 8)
 
     case find_api_token(token_hash, token_prefix) do
-      {:ok, api_token} ->
+      {:ok, %{user: %{status: :active}} = api_token} ->
         # Record the usage
         record_token_usage(api_token, conn)
 
@@ -239,6 +242,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
           |> assign(:api_token_scope, api_token.scope)
 
         {:ok, conn}
+
+      {:ok, _api_token} ->
+        {:error, :unauthorized}
 
       {:error, :not_found} ->
         {:error, :not_found}
