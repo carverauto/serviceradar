@@ -44,6 +44,10 @@ check; do not continue to the next phase or silently roll back.
    Leave `starRocksFeSpec.image` at the previous version. Wait for the entire
    compute StatefulSet to finish its sequential rollout. Check every node's
    SQL version and `Alive` value, and verify ingestion and telemetry reads.
+   Before relying on `kubectl rollout status`, confirm the operator has
+   reconciled the requested image into the compute StatefulSet template and
+   its controller has observed that generation. Otherwise the command can
+   report completion for the previous image revision.
    For shared-nothing, apply the upstream tablet-balancing compatibility
    configuration before the hop and restore the recorded original values only
    after every backend is alive; see the upstream upgrade procedure below.
@@ -79,7 +83,37 @@ check; do not continue to the next phase or silently roll back.
    state. Record this evidence privately before starting the next hop. If image
    creation or synchronization fails, the next hop must not begin.
 
-For the second hop, repeat steps 1-4 with target 4.1.3 under the same compute-first, follower-before-leader, image-synchronization, and backup/health prerequisites. The compute image patch is:
+   Check the actual log wording: version 4.0 reports `push succeeded`, while
+   upstream examples use `push successful`. A checkpoint worker can already
+   hold the image it created, leaving fewer pending push recipients than there
+   are followers. Require every pending push to succeed, then independently
+   verify that every follower holds the new frontend image generation and the
+   leader's StarMgr image generation. A log match alone is insufficient.
+
+5. After all frontends run the completed hop's version and metadata-image
+   synchronization has passed, restore the recorded frontend update strategy
+   **without changing its image**, before requesting the next compute image.
+   Operator 1.11.7 with `waitForFullRollout=true` blocks compute reconciliation
+   while the frontend uses `OnDelete`: it checks `currentRevision` against
+   `updateRevision` and reports that rollout status requires `RollingUpdate`,
+   even when every frontend pod is updated and Ready.
+
+   If the original cluster specification omitted `updateStrategy`, remove the
+   temporary override to restore the default `RollingUpdate` strategy:
+
+   ```sh
+   kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
+     --type merge -p '{"spec":{"starRocksFeSpec":{"updateStrategy":null}}}'
+   ```
+
+   If the original specification had an explicit strategy, restore that
+   recorded value instead. Re-query the StatefulSet strategy, unchanged
+   frontend image, pod identities, and rollout status. This normalization
+   must not restart a frontend or happen while frontend versions are mixed.
+   Keep `waitForFullRollout` enabled. For the next frontend hop, again set
+   `OnDelete` and its new image atomically before restarting any pod.
+
+For the second hop, repeat steps 1-5 with target 4.1.3 under the same compute-first, follower-before-leader, image-synchronization, and backup/health prerequisites. The compute image patch is:
 
    ```sh
    kubectl --context "$SR_CONTEXT" -n "$SR_NAMESPACE" patch starrockscluster "$SR_CLUSTER" \
@@ -104,16 +138,17 @@ At completion, persist the final 4.1.3 pins in the Helm release using its
 existing profile and operational overrides, with
 `initPassword.isInstall=false`. Verify the rendered changes first: no storage,
 credential, architecture, or resource change should accompany the image pins.
-Restore the frontend's recorded update strategy only after every frontend
-runs 4.1.3; the final Helm values do not carry the temporary `OnDelete` field.
+Restore the frontend's recorded update strategy after every frontend runs
+4.1.3 and its metadata image has synchronized, as in step 5. Explicitly remove
+or replace the temporary cluster override and verify the resulting
+StatefulSet strategy; omitting `OnDelete` from Helm values does not prove that
+a manually added field was removed from the live cluster.
 
 ## Completion and rollback limits
 
 Verify actual SQL versions on every node and confirm new telemetry arrives
 after the rollout, not merely that pods are Ready. Exercise an existing JDBC
-catalog query and a `native_query` SELECT on an allowed control-plane relation.
-`native_query` is available starting in 4.1 and allows flow catalog filters to
-retain PostgreSQL's array, inet, and PostGIS semantics.
+catalog query on an allowed control-plane relation.
 
 Never use `helm rollback` blindly for this upgrade: it can restore incompatible
 images and restart components in the wrong order. After a cluster has reached
@@ -127,5 +162,4 @@ supported downgrade, preserving its required component order.
 - [Upgrade procedure and metadata synchronization](https://docs.starrocks.io/docs/deployment/manage_deployment/upgrade/)
 - [4.0 release notes](https://docs.starrocks.io/releasenotes/release-4.0/)
 - [4.1 release notes and downgrade limits](https://docs.starrocks.io/releasenotes/release-4.1/)
-- [JDBC native_query contract](https://docs.starrocks.io/docs/sql-reference/sql-functions/table-functions/native_query/)
 - [Operator 1.11.7 component update strategies](https://github.com/StarRocks/starrocks-kubernetes-operator/blob/v1.11.7/pkg/apis/starrocks/v1/component_type.go)
