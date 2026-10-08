@@ -9,6 +9,7 @@ exports_files([
     "prepare-flow-collector-rollback.sh",
     "check-rust-vendor-tracked.py",
     "ci/configure-srql-fixture.sh",
+    "ci/unless_docs_only.sh",
     "push_all_images.sh",
     "swiftlint_bazel.sh",
     "test-native-addon-version-bumps.sh",

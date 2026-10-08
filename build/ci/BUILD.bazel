@@ -4,8 +4,30 @@ load("@rules_python//python:py_test.bzl", "py_test")
 
 exports_files([
     "BUILD.bazel",
+    "detect_docs_only.py",
     "large_ingestion_gate_contract.v1",
 ])
+
+py_library(
+    name = "detect_docs_only_lib",
+    srcs = ["detect_docs_only.py"],
+    visibility = ["//visibility:public"],
+)
+
+py_binary(
+    name = "detect_docs_only",
+    srcs = ["detect_docs_only.py"],
+    visibility = ["//visibility:public"],
+    deps = [":detect_docs_only_lib"],
+)
+
+py_test(
+    name = "detect_docs_only_test",
+    size = "small",
+    srcs = ["detect_docs_only_test.py"],
+    data = ["//scripts:ci/unless_docs_only.sh"],
+    deps = [":detect_docs_only_lib"],
+)
 
 py_library(
     name = "large_ingestion_gate",

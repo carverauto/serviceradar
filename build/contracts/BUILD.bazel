@@ -47,6 +47,7 @@ py_test(
         "//build:integration_tests.bzl",
         "//build:starlark_sources",
         "//build/ci:BUILD.bazel",
+        "//build/ci:detect_docs_only.py",
         "//build/ci:large_ingestion_gate",
         "//build/ci:large_ingestion_gate_contract.v1",
         "//build/ci:wait_for_large_ingestion_gate",
@@ -55,6 +56,9 @@ py_test(
         "//build/schema_template:BUILD.bazel",
         "//build/schema_template:replay_env.bzl",
         "//config/environments:ci.textproto",
+        "//docs:BUILD.bazel",
+        "//docs:cosign.pub",
+        "//docs:lint_placeholder.sh",
         "//elixir/serviceradar_core:BUILD.bazel",
         "//elixir/serviceradar_core:config/test.exs",
         "//elixir/serviceradar_core:config/test_database_guard.exs",
@@ -85,6 +89,10 @@ py_test(
         "//rust/integration-db:src/bin/observe_connections.rs",
         "//rust/integration-db:src/connection_observer.rs",
         "//rust/integration-db:srcs",
+        "//scripts:ci/unless_docs_only.sh",
+    ],
+    deps = [
+        "//build/ci:detect_docs_only_lib",
     ],
 )
 

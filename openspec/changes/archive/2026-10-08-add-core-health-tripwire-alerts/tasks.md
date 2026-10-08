@@ -8,4 +8,4 @@
 
 ## 3. Docs and verification
 - [x] 3.1 `docs/docs/anomaly-detection.md` names the alert under Silence Tripwires.
-- [ ] 3.2 Post-deploy on demo: run the freshness worker over RPC with an empty heartbeat loader, confirm one critical alert opens for `seasonal-baseline-freshness`, run it normally, confirm the alert resolves.
+- [x] 3.2 Post-deploy on demo: run the freshness worker over RPC with an empty heartbeat loader, confirm one critical alert opens for `seasonal-baseline-freshness`, run it normally, confirm the alert resolves.

@@ -446,6 +446,8 @@ actions:
       # Cert server. in cluster.
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
 
+      GIT_BASE_BRANCH: "staging"
+
     # Redirects work to pods in the self hosted cluster.
     self_hosted: true
 
@@ -480,14 +482,15 @@ actions:
       disk: "40GB"
 
     steps:
+      - run: python3 build/ci/detect_docs_only.py
       - run: >-
-          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          scripts/ci/unless_docs_only.sh bazel run -c opt --config=ci //build/ci:verify_git_metadata --
           --expected-commit "$(git rev-parse HEAD)"
-      - run: bazel run -c opt --config=ci //build/ci:git_checkout_regression
+      - run: scripts/ci/unless_docs_only.sh bazel run -c opt --config=ci //build/ci:git_checkout_regression
       # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
       # See buildbuddy_setup_docker_auth.sh for details
       - run: >-
-          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
+          scripts/ci/unless_docs_only.sh bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
       # The one full //... invocation. Unit tests run here. Integration and
       # acceptance tests are filtered out of execution. Their compile happens
@@ -495,7 +498,7 @@ actions:
       #
       # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
       - run: >-
-          bazel test -c opt --config=ci --//build:enable_integration_tests
+          scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests
           //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
@@ -516,6 +519,8 @@ actions:
       - run: |
           set -euo pipefail
           umask 077
+
+          [ -e "${DOCS_ONLY_MARKER:-/tmp/serviceradar-docs-only-marker}" ] && { echo "docs-only change: BazelCI database lifecycle skipped"; exit 0; }
 
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
@@ -779,7 +784,7 @@ actions:
       # repo from scratch rather than reusing what the earlier steps just built. This step
       # therefore matches the unit sweep's flags exactly.
       - run: >-
-          bazel test -c opt --config=ci --//build:enable_integration_tests
+          scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=benchmark
           --test_output=errors
           //...
@@ -797,6 +802,7 @@ actions:
       # outside the workspace recycle limit, same as the per-runner disk cache.
       - run: |
           set -euo pipefail
+          [ -e "${DOCS_ONLY_MARKER:-/tmp/serviceradar-docs-only-marker}" ] && { echo "docs-only change: BazelCI Go race tests skipped"; exit 0; }
           race_output_base=/home/buildbuddy/output-base-race
           set +e
           bazel --output_base="$race_output_base" test -c opt --config=ci //go/... \

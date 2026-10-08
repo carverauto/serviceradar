@@ -82,12 +82,22 @@ function createMockWebSocketClass() {
   }
 }
 
+const mountedHooks = []
+
+function mountHook(hook) {
+  mountedHooks.push(hook)
+  CameraRelayStatusStream.mounted.call(hook)
+}
+
 const originalWindow = globalThis.window
 const originalDocument = globalThis.document
 const originalFetch = globalThis.fetch
 const originalWebSocket = globalThis.WebSocket
 
 afterEach(() => {
+  for (const hook of mountedHooks.splice(0)) {
+    CameraRelayStatusStream.destroyed.call(hook)
+  }
   globalThis.window = originalWindow
   globalThis.document = originalDocument
   globalThis.fetch = originalFetch
@@ -96,7 +106,138 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+
+async function mountWebRtcViewer() {
+  vi.useFakeTimers()
+  const element = buildHookElement()
+  element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
+  element.dataset.webrtcSignalingPath = "/api/camera-relay-sessions/test/webrtc/session"
+  const video = new EventTarget()
+  video.dataset = {}
+  video.classList = {toggle() {}}
+  video.play = vi.fn(() => Promise.resolve())
+  element.roles.set("video-element", video)
+
+  class PeerConnection extends EventTarget {
+    constructor() {
+      super()
+      this.connectionState = "new"
+      this.iceConnectionState = "new"
+      this.closed = false
+    }
+    async setRemoteDescription() {}
+    async createAnswer() { return {type: "answer", sdp: "v=0\r\nm=video"} }
+    async setLocalDescription() {}
+    close() { this.closed = true }
+  }
+
+  const MockWebSocket = createMockWebSocketClass()
+  globalThis.WebSocket = MockWebSocket
+  globalThis.window = {
+    location: new URL("https://example.com/devices/test"),
+    RTCPeerConnection: PeerConnection,
+    WebSocket: MockWebSocket,
+    VideoDecoder: function VideoDecoder() {},
+  }
+  globalThis.document = {querySelector: () => null}
+  globalThis.fetch = vi.fn(async (_url, options) => ({
+    ok: true,
+    json: async () => options.method === "POST" && !options.body
+      ? {data: {viewer_session_id: "viewer-ice-test", offer_sdp: "v=0\r\nm=video"}}
+      : {data: {signaling_state: "answer_applied"}},
+  }))
+  const hook = {...CameraRelayStatusStream, el: element}
+  mountHook(hook)
+  await vi.advanceTimersByTimeAsync(0)
+  return {hook, video, peer: hook.viewer.peerConnection, sockets: MockWebSocket.instances, element}
+}
+
 describe("CameraRelayStatusStream", () => {
+  it.each(["stalled", "connected_without_media", "negotiated_track_without_media"])(
+    "opens websocket media within eight seconds when WebRTC is %s",
+    async (scenario) => {
+      const {hook, peer, sockets, video} = await mountWebRtcViewer()
+      if (scenario === "connected_without_media") {
+        peer.connectionState = "connected"
+        peer.dispatchEvent(new Event("connectionstatechange"))
+      } else if (scenario === "negotiated_track_without_media") {
+        const track = new Event("track")
+        track.streams = [{}]
+        peer.dispatchEvent(track)
+      }
+      await vi.advanceTimersByTimeAsync(7999)
+      expect(sockets).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(sockets).toHaveLength(2)
+      expect(sockets[0].closed).toBe(true)
+      expect(sockets[1].url).toBe("wss://example.com/v1/camera-relay-sessions/test/stream")
+      expect(peer.closed).toBe(true)
+      expect(video.srcObject).toBeNull()
+      expect(hook.viewer.socket).toBe(sockets[1])
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test",
+        expect.objectContaining({method: "DELETE"})
+      )
+    }
+  )
+
+  it("falls back immediately on ICE failure even while connectionState stays connecting", async () => {
+    const {hook, peer, sockets} = await mountWebRtcViewer()
+    peer.connectionState = "connecting"
+    peer.iceConnectionState = "failed"
+    peer.dispatchEvent(new Event("iceconnectionstatechange"))
+    expect(sockets).toHaveLength(2)
+    expect(hook.viewer.socket).toBe(sockets[1])
+    peer.connectionState = "failed"
+    peer.dispatchEvent(new Event("connectionstatechange"))
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(sockets).toHaveLength(2)
+  })
+
+  it("falls back on its server-side viewer closure and ignores another viewer's closure", async () => {
+    const {hook, peer, sockets} = await mountWebRtcViewer()
+    const statusSocket = sockets[0]
+    const closed = {
+      type: "camera_relay_webrtc_closed",
+      relay_session_id: "relay-test",
+      viewer_session_id: "another-viewer",
+      reason: "webrtc viewer connection failed",
+    }
+    statusSocket.emit("message", {data: JSON.stringify(closed)})
+    expect(sockets).toHaveLength(1)
+    closed.viewer_session_id = "viewer-ice-test"
+    statusSocket.emit("message", {data: JSON.stringify(closed)})
+    expect(sockets).toHaveLength(2)
+    expect(hook.viewer.socket).toBe(sockets[1])
+    expect(peer.closed).toBe(true)
+  })
+
+  it("keeps WebRTC once video starts playing and cancels the deadline on close", async () => {
+    const {hook, peer, video, sockets} = await mountWebRtcViewer()
+    const track = new Event("track")
+    track.streams = [{}]
+    peer.dispatchEvent(track)
+    peer.connectionState = "connected"
+    peer.dispatchEvent(new Event("connectionstatechange"))
+    video.dispatchEvent(new Event("playing"))
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(sockets).toHaveLength(1)
+    expect(video.srcObject).toBe(track.streams[0])
+    CameraRelayStatusStream.destroyed.call(hook)
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(sockets).toHaveLength(1)
+    expect(peer.closed).toBe(true)
+  })
+
+  it("never opens a fallback socket after the viewer is destroyed during stalled ICE", async () => {
+    const {hook, peer, sockets} = await mountWebRtcViewer()
+    CameraRelayStatusStream.destroyed.call(hook)
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(sockets).toHaveLength(1)
+    expect(sockets[0].closed).toBe(true)
+    expect(peer.closed).toBe(true)
+  })
+
   it("renders an explicit unsupported-browser state when no playback transport is usable", () => {
     const element = buildHookElement()
 
@@ -111,7 +252,7 @@ describe("CameraRelayStatusStream", () => {
       player: null,
     }
 
-    CameraRelayStatusStream.mounted.call(hook)
+    mountHook(hook)
 
     expect(element.roles.get("transport-status").textContent).toBe("Browser playback unsupported")
     expect(element.roles.get("player-status").textContent).toBe(
@@ -203,7 +344,7 @@ describe("CameraRelayStatusStream", () => {
       player: null,
     }
 
-    CameraRelayStatusStream.mounted.call(hook)
+    mountHook(hook)
     await Promise.resolve()
     await Promise.resolve()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -294,7 +435,7 @@ describe("CameraRelayStatusStream", () => {
       player: null,
     }
 
-    CameraRelayStatusStream.mounted.call(hook)
+    mountHook(hook)
     await Promise.resolve()
     await Promise.resolve()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -394,9 +535,9 @@ describe("CameraRelayStatusStream", () => {
         player: null,
       }
 
-      CameraRelayStatusStream.mounted.call(hook)
+      mountHook(hook)
       await Promise.resolve()
-      await vi.runAllTimersAsync()
+      await vi.advanceTimersByTimeAsync(1000)
       await Promise.resolve()
       await Promise.resolve()
 
@@ -502,9 +643,9 @@ describe("CameraRelayStatusStream", () => {
         player: null,
       }
 
-      CameraRelayStatusStream.mounted.call(hook)
+      mountHook(hook)
       await Promise.resolve()
-      await vi.runAllTimersAsync()
+      await vi.advanceTimersByTimeAsync(1000)
       await Promise.resolve()
       await Promise.resolve()
 
@@ -598,7 +739,7 @@ describe("CameraRelayStatusStream", () => {
       player: null,
     }
 
-    CameraRelayStatusStream.mounted.call(hook)
+    mountHook(hook)
     await Promise.resolve()
     await Promise.resolve()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -649,7 +790,7 @@ describe("CameraRelayStatusStream", () => {
         player: {close() {}},
       }
 
-      CameraRelayStatusStream.mounted.call(hook)
+      mountHook(hook)
 
       expect(MockWebSocket.instances).toHaveLength(1)
 

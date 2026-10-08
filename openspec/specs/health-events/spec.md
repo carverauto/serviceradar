@@ -1,8 +1,10 @@
 # health-events Specification
 
 ## Purpose
-TBD - created by archiving change remove-nats-internal-events. Update Purpose after archive.
+Track internal component health, record lifecycle transitions as durable health events in CNPG, mirror telemetry transitions to JetStream, and promote core health state changes into actionable alerts.
+
 ## Requirements
+
 ### Requirement: Internal health events are persisted directly in CNPG
 The system SHALL persist internal state/health transitions as `HealthEvent` records in CNPG without routing them through NATS.
 `HealthEvent` is current-state history owned by the control plane. The OCSF event and internal
@@ -57,3 +59,20 @@ operation does not fail.
 - **AND** the transition's OCSF event and internal log SHALL be retained durably and published when NATS is reachable again
 - **AND** the transition SHALL not fail due to NATS connectivity
 
+### Requirement: Core health transitions are promoted and alert
+The internal health log SHALL carry a structured `health` attribute block (entity type, entity id, old state, new state, reason). A seeded event rule SHALL promote every core health transition into a `health.core.state_change` event, and a seeded managed stateful rule SHALL open one critical incident per core check when it becomes unhealthy and SHALL recover it when the check becomes healthy again.
+
+#### Scenario: A dead baseline producer pages
+- **GIVEN** the seasonal-baseline freshness check records unhealthy
+- **WHEN** the health log is promoted
+- **THEN** a critical alert opens for the check id `seasonal-baseline-freshness`
+
+#### Scenario: Recovery resolves the incident
+- **GIVEN** an open incident for a core check
+- **WHEN** the check records healthy
+- **THEN** the incident recovers and no new incident opens
+
+#### Scenario: Checks are independent incidents
+- **GIVEN** two core checks unhealthy at once
+- **WHEN** the rule evaluates both transitions
+- **THEN** two incidents exist, one per check id

@@ -27,5 +27,5 @@
 - [x] 5.1 Add focused unit coverage for provenance parsing, exact binding matches, mismatches, missing bindings, and malformed agent-path headers.
 - [x] 5.2 Add database regression coverage proving a mismatched enrolled agent cannot alter or delete another synthetic cluster's rows, including a bound envelope carrying a foreign per-endpoint `cluster_id` that must cause zero inserts, updates, resurrections, or deletions.
 - [x] 5.3 Add transfer coverage proving the old agent loses authority atomically and the replacement gains it.
-- [ ] 5.4 Run the affected remote CI targets and the no-mistakes pipeline; inspect BuildBuddy invocations with `bb view <invocationId>` from the primary checkout.
-- [ ] 5.5 Validate one authorized and one rejected synthetic snapshot through the supported remote path after rollout, with explicit failure branches and post-run row queries.
+- [x] 5.4 Run the affected remote CI targets and the no-mistakes pipeline; inspect BuildBuddy invocations with `bb view <invocationId>` from the primary checkout.
+- [x] 5.5 Validate one authorized and one rejected synthetic snapshot through the supported remote path after rollout, with explicit failure branches and post-run row queries.
