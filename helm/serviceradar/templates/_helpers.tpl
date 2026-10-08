@@ -846,7 +846,18 @@ a bare number is bytes and why a fraction fails). Kubernetes units are
 case-sensitive: Gi is 2^30 and G is 10^9.
 */}}
 {{- define "serviceradar.quantityBytes" -}}
-{{- $raw := trim (toString .) -}}
+{{- /* fromYaml decodes every number as float64, so an integer size that crossed
+       the effectiveCNPG round-trip arrives as e.g. 1.073741824e+11. Accept
+       whole floats exactly (as natsSizeBytes does); fractions still fail. */ -}}
+{{- $raw := "" -}}
+{{- if kindIs "float64" . -}}
+{{- if ne (floor .) . -}}
+{{- fail (printf "storage size %v must be a whole number; use e.g. 1536Gi instead of 1.5Ti" .) -}}
+{{- end -}}
+{{- $raw = printf "%.0f" . -}}
+{{- else -}}
+{{- $raw = trim (toString .) -}}
+{{- end -}}
 {{- if contains "." $raw -}}
 {{- fail (printf "storage size %q must be a whole number; use e.g. 1536Gi instead of 1.5Ti" $raw) -}}
 {{- end -}}
