@@ -88,6 +88,30 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
     end
   end
 
+  for index <- [DashboardIndex, CameraIndex],
+      event <- [
+        :camera_relay_webrtc_closed,
+        :camera_relay_chunk,
+        :camera_relay_viewer_chunk,
+        :unexpected_relay_event
+      ] do
+    test "#{inspect(index)} keeps its socket on #{event}", %{relay_id: relay_id, tile: tile} do
+      socket = socket(%{camera_preview_tiles: [tile], camera_tiles: [tile]})
+
+      message =
+        {unquote(event),
+         %{
+           relay_session_id: relay_id,
+           viewer_id: Ecto.UUID.generate(),
+           transport: "membrane_webrtc",
+           reason: "viewer closed webrtc signaling session"
+         }}
+
+      assert unquote(index).handle_info(message, socket) == {:noreply, socket}
+      refute_received {:relay_session_fetched, _}
+    end
+  end
+
   defp socket(assigns) do
     %Socket{
       assigns:
