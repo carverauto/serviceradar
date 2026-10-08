@@ -3,6 +3,10 @@ sidebar_position: 8
 title: Helm Deployment and Configuration
 ---
 
+:::warning Deprecated SPIRE runtime
+SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
+:::
+
 This guide shows how to deploy ServiceRadar via the bundled Helm chart. For sweep behavior, tuning, and concepts, see [Network Sweeps](./network-sweeps.md) and [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 :::note Chart version
@@ -102,10 +106,10 @@ JetStream sizing values
 - Agent release object cleanup is enabled by default through `objectStoreRetention`; it keeps the most recently imported release plus any releases still referenced by active rollout state.
 - `bmpCollector` is scaled to `3` pods in the example profile, but its dedicated causal-overlay stream still uses `bmpCollector.config.streamReplicas=1`. That is an explicit sizing choice, not a pod-level HA limitation.
 
-Key values: workload identity (`spire`)
+Key values: workload identity (`spire`, deprecated)
 - `spire.enabled` defaults to `false`. The chart still issues runtime mTLS
   certificates without SPIRE (see [TLS Security](./tls-security.md)).
-- Set `spire.enabled=true` to provision SPIFFE/SPIRE workload identities, and
+- Existing opt-in installs can retain `spire.enabled=true` during deprecation, and
   set `spire.trustDomain` to your environment's trust domain.
 
 Key values: topology graph (`dgraph`, `graph`)

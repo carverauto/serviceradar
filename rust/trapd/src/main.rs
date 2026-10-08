@@ -576,6 +576,10 @@ async fn serve_with_spiffe(
     workload_socket: &str,
     trust_domain: &str,
 ) -> Result<()> {
+    warn!(
+        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
+    );
+
     let credentials = spiffe::load_server_credentials(workload_socket, trust_domain)
         .await
         .context("failed to load SPIFFE credentials for trapd gRPC server")?;

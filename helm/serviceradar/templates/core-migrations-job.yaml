@@ -5,9 +5,9 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate6 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate6 "enabled")) $gate6.enabled }}
-{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}

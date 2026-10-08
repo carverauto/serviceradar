@@ -1,6 +1,8 @@
 suite: CNPG extension hook ordering
 templates:
   - templates/cnpg-extension-update-job.yaml
+release:
+  namespace: synthetic-namespace
 tests:
   - it: runs extension preparation before core migrations
     asserts:
@@ -13,3 +15,32 @@ tests:
       - equal:
           path: metadata.annotations["helm.sh/hook-weight"]
           value: "-5"
+  - it: addresses an active legacy cluster
+    set:
+      spire.enabled: true
+      spire.postgres.enabled: true
+      spire.postgres.clusterName: legacy-example-db
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGHOST
+            value: legacy-example-db-rw.synthetic-namespace.svc.cluster.local
+  - it: addresses the same neutral cluster as the legacy cluster renderer
+    set:
+      spire.enabled: true
+      spire.postgres.enabled: true
+      spire.postgres.clusterName: legacy-example-db
+      cnpg.clusterName: synthetic-db
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGHOST
+            value: synthetic-db-rw.synthetic-namespace.svc.cluster.local
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: synthetic-db-ca
+            secret:
+              secretName: synthetic-db-ca

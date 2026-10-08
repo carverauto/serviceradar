@@ -3556,6 +3556,7 @@ name = "kvutil"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "pem 3.0.6",
  "prost",
  "serde",

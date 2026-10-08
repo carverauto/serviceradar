@@ -30,7 +30,7 @@ spec:
     spec:
       restartPolicy: Never
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
-      serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+      serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "flowCollector")) }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: bootstrap

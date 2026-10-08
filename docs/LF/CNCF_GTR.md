@@ -133,10 +133,10 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Security
 
 * Please provide a link to the project’s cloud native [security self assessment](https://tag-security.cncf.io/community/assessments/).  
-  - Not yet filed; current posture documented in `SECURITY.md` and `docs/docs/spiffe-identity.md`.
+  - Not yet filed; current posture documented in `SECURITY.md` and `docs/docs/tls-security.md`.
 * Please review the [Cloud Native Security Tenets](https://github.com/cncf/tag-security/blob/main/community/resources/security-whitepaper/secure-defaults-cloud-native-8.md) from TAG Security.  
     * How are you satisfying the tenets of cloud native security projects?  
-      - mTLS everywhere via SPIFFE, least-privilege service accounts, secure defaults on Helm (CNPG/TLS/edge proxy), SBOM + dependency updates.  
+      - mTLS everywhere via the deployment-managed CA (SPIFFE/SPIRE is deprecated and not a supported posture; see `docs/docs/tls-security.md` and `docs/docs/migrating-off-spire.md`), least-privilege service accounts, secure defaults on Helm (CNPG/TLS/edge proxy), SBOM + dependency updates.  
     * Describe how each of the cloud native principles apply to your project.  
       - Declarative configs (Helm/KV), automated identity bootstrapping (SPIRE), immutable container builds via Bazel, and observable OTEL signals.  
     * How do you recommend users alter security defaults in order to "loosen" the security of the project? Please link to any documentation the project has written concerning these use cases.  

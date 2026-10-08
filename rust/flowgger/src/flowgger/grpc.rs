@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use log::{error, info};
+use log::{error, info, warn};
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic_health::{ServingStatus, server::health_reporter};
 
@@ -215,6 +215,10 @@ async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
 }
 
 async fn serve_with_spiffe(addr: SocketAddr, cfg: SpiffeSettings) -> Result<()> {
+    warn!(
+        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
+    );
+
     let credentials = spiffe::load_server_credentials(&cfg.workload_socket, &cfg.trust_domain)
         .await
         .context("failed to load SPIFFE credentials for flowgger gRPC server")?;

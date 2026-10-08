@@ -3,14 +3,18 @@ sidebar_position: 4
 title: TLS Security
 ---
 
+:::warning Deprecated SPIRE runtime
+SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
+:::
+
 # TLS Security
 
-ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. Certificates are issued by SPIFFE/SPIRE in Kubernetes and by the Compose certificate generator in Docker.
+ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. The Helm chart and Docker Compose issue certificates through the deployment-managed CA. SPIFFE/SPIRE issuance is deprecated compatibility for explicitly opted-in Kubernetes installs.
 
 ## Summary
 
 - **Edge agents** connect to Agent-Gateway via gRPC mTLS on port 50052.
-- **Core services** use SPIFFE identities for service-to-service mTLS.
+- **Core services** use deployment-managed mTLS identities (existing `spiffe://` certificate URI SANs remain supported).
 - **Caddy / Ingress** terminates external TLS and forwards traffic to web-ng.
 
 For deployment-specific TLS setup, see:
@@ -42,12 +46,12 @@ certificate generator that issues the runtime mTLS certificates for you:
 
 This option is the right choice for clusters that do not run SPIRE.
 
-### Option B: SPIFFE/SPIRE workload identities
+### Option B: SPIFFE/SPIRE workload identities (deprecated)
 
-For environments that want short-lived, automatically rotated SVIDs, the chart
-can deploy and integrate SPIRE.
+For existing opt-in installs, the chart can deploy and integrate SPIRE as deprecated
+compatibility (see [Migrating off SPIRE](./migrating-off-spire.md)).
 
-- `spire.enabled` defaults to **`false`**. Set it to `true` to deploy the SPIRE
+- `spire.enabled` defaults to **`false`**. Existing installs can retain `spire.enabled=true` during deprecation to keep the SPIRE
   server, SPIRE agent, and the `ClusterSPIFFEID` resources that bind workloads
   to SPIFFE identities.
 - `spire.trustDomain` sets the SPIFFE trust domain (for example
@@ -60,7 +64,7 @@ can deploy and integrate SPIRE.
 - `spire.bundleConfigMap` names the ConfigMap that distributes the SPIRE trust
   bundle to workloads.
 
-When SPIRE is enabled, core services use SPIFFE identities for
+When SPIRE remains enabled during deprecation, core services use SPIFFE identities for
 service-to-service mTLS; no manual certificate management is required for most
 installs.
 
@@ -94,8 +98,7 @@ docker compose up -d
 
 ### Kubernetes
 
-Use either the in-chart certificate generator (default) or SPIFFE/SPIRE for
-workload identities, as described in [Kubernetes Certificate
+Use the in-chart certificate generator for new deployments. Existing SPIFFE/SPIRE deployments can migrate to it, as described in [Kubernetes Certificate
 Options](#kubernetes-certificate-options). No manual certificate management is
 required for most installs.
 

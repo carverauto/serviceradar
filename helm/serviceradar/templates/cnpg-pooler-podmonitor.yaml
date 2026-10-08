@@ -1,4 +1,4 @@
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $pooler := default (dict) $cnpg.pooler -}}
 {{- $monitoring := default (dict) $pooler.monitoring -}}
 {{- $podMonitor := default (dict) $monitoring.podMonitor -}}
@@ -16,7 +16,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: {{ printf "%s-pgbouncer" $poolerName | quote }}
-  namespace: {{ .Release.Namespace | quote }}
+  namespace: {{ include "serviceradar.cnpgNamespace" . | quote }}
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: cnpg-pooler

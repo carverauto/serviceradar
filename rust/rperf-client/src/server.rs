@@ -196,6 +196,10 @@ impl RPerfTestOrchestrator {
                     info!("TLS configured with mTLS enabled");
                 }
                 SecurityMode::Spiffe => {
+                    warn!(
+                        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
+                    );
+
                     let workload_socket = security
                         .workload_socket
                         .as_deref()

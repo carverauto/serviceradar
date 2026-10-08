@@ -337,10 +337,10 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
 
     attribute :security_mode, :atom do
-      default :spire
+      default :mtls
       public? true
       constraints one_of: [:spire, :mtls]
-      description "Security mode for edge identity"
+      description "Security mode for edge identity (SPIRE is deprecated)"
     end
 
     attribute :downstream_entry_id, :string do

@@ -12,7 +12,7 @@
 {{- if not $d.enabled -}}
 {{- $tlsMode = default "disable" (default (dict) $d.external).tlsMode -}}
 {{- end -}}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . }}
 apiVersion: batch/v1
 kind: Job

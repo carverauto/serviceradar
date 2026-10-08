@@ -79,7 +79,7 @@ spec:
       {{- end }}
     spec:
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-bmp-collector") | nindent 6 }}
-      serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
+      serviceAccountName: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "bmpCollector")) }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       securityContext:
         fsGroup: 1001
@@ -206,7 +206,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
+  name: {{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "bmpCollector")) }}
   labels:
     app.kubernetes.io/part-of: serviceradar
 {{- end }}

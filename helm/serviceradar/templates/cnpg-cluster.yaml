@@ -1,4 +1,4 @@
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $coldTier := default (dict) .Values.coldTier -}}
 {{- $coldExportRole := default (dict) $coldTier.exportRole -}}
 {{- $coldExportRoleName := default "cold_reader" $coldExportRole.name -}}
@@ -8,7 +8,7 @@
 {{- $spirePg := default (dict) $spire.postgres -}}
 {{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
 {{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (not $spiffeCnpgManaged) }}
-{{- $ns := .Release.Namespace -}}
+{{- $ns := include "serviceradar.cnpgNamespace" . -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
 {{- $backup := default (dict) $cnpg.backup -}}
 {{- $barman := default (dict) $backup.barmanObjectStore -}}

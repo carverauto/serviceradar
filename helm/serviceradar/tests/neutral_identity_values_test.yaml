@@ -1,0 +1,88 @@
+suite: Neutral identity values and legacy compatibility
+templates:
+  - templates/core.yaml
+  - templates/agent.yaml
+  - templates/serviceradar-config.yaml
+  - templates/core-rbac.yaml
+  - templates/spire-clusterspiffeids.yaml
+release:
+  namespace: synthetic-namespace
+tests:
+  - it: defaults a blank datasvc mode to mtls
+    template: templates/core.yaml
+    set:
+      kv.secMode: ""
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATASVC_SEC_MODE
+            value: mtls
+  - it: uses the neutral core account in the workload
+    template: templates/core.yaml
+    set:
+      serviceAccounts.core: synthetic-core
+      spire.coreServiceAccount: legacy-core
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: synthetic-core
+  - it: uses the neutral core account in its RBAC binding
+    template: templates/core-rbac.yaml
+    set:
+      serviceAccounts.core: synthetic-core
+      spire.coreServiceAccount: legacy-core
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: synthetic-core
+  - it: keeps the legacy core account when no neutral account is supplied
+    template: templates/core.yaml
+    set:
+      spire.coreServiceAccount: legacy-core
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: legacy-core
+  - it: registers the same neutral account and trust domain in SPIRE
+    template: templates/spire-clusterspiffeids.yaml
+    set:
+      spire.enabled: true
+      trustDomain: synthetic.example.test
+      spire.trustDomain: legacy.example.test
+      serviceAccounts.core: synthetic-core
+      spire.coreServiceAccount: legacy-core
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-core-synthetic-namespace
+    asserts:
+      - matchRegex:
+          path: spec.spiffeIDTemplate
+          pattern: '^spiffe://synthetic[.]example[.]test/ns/synthetic-namespace/sa/synthetic-core$'
+      - matchRegex:
+          path: spec.podSelector.matchLabels.app
+          pattern: serviceradar-core
+  - it: applies a neutral agent account to its actual workload
+    template: templates/agent.yaml
+    set:
+      serviceAccounts.agent: synthetic-agent
+      agent.serviceAccount: legacy-agent
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: synthetic-agent

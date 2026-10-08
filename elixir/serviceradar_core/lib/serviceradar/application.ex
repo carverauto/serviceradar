@@ -54,6 +54,11 @@ defmodule ServiceRadar.Application do
 
   @impl true
   def start(_type, _args) do
+    ServiceRadar.SPIFFE.warn_if_deprecated(
+      System.get_env("DATASVC_SEC_MODE"),
+      :serviceradar_core |> Application.get_env(:spiffe, []) |> Keyword.get(:mode, :filesystem)
+    )
+
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)

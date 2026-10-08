@@ -11,7 +11,7 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 - Phoenix LiveView web UI (`elixir/web-ng/`) is served through an edge proxy (Caddy or Gateway API) and talks to the core API; legacy Next.js code remains in `web/` for reference only.
 - CNPG/Timescale stores high-volume telemetry; SRQL and the core ingest layer both target Postgres hypertables (docs/docs/architecture.md).
 - NATS JetStream is the bulk ingestion backbone for logs, flows, events, and metrics. All telemetry MUST traverse JetStream first and be persisted into CNPG by the `event_writer` consumer pipeline; collectors and agents never write metrics directly to the database (the legacy sysmon gRPC `StreamStatus` direct-to-DB path is being migrated — see `openspec/changes/add-causal-anomaly-detection`). Some internal coordination may still use `datasvc` (planned to be phased out by 1.1.0), but services do not depend on nats-kv for service configuration.
-- SPIFFE/SPIRE handles workload identity and issues the mTLS credentials that every internal gRPC/HTTP hop relies on.
+- Deployment-managed mTLS is the supported workload identity model. SPIFFE/SPIRE runtime issuance is deprecated; existing spiffe:// URI SAN naming remains supported.
 - Tooling: Docker Compose + Helm/Kubernetes for deployments, Make + Bazel for builds/tests, GitHub Actions CI, Discord for community + alert webhooks.
 
 ## Project Conventions
@@ -28,7 +28,7 @@ ServiceRadar is layered (docs/docs/architecture.md):
 - **User Edge**: Phoenix web UI -> edge proxy (Caddy or Gateway API); the proxy terminates TLS and routes `/api/*` to web-ng.
 - **Service Layer**: core-elx handles control-plane APIs and webhooks while web-ng embeds SRQL for analytics queries against CNPG.
 - **Monitoring Layer**: Agent-gateway receives mTLS gRPC streams from edge agents; edge agents run embedded engines and Wasm plugins.
-- **Identity Plane**: SPIRE server/controller/workload agents mint SPIFFE identities used for every mutual-TLS hop.
+- **Identity Plane**: the deployment-managed CA issues mTLS certificates. SPIRE server/controller/workload agents remain deprecated compatibility.
 - **Data Layer**: CNPG/Timescale hypertables capture raw events; SRQL and the registry build MV pipelines (device tables, planner, etc.).
 Edge proxies terminate TLS and route traffic; the control plane compiles configuration and delivers it to agents over gRPC (no KV-based service configuration).
 
@@ -52,12 +52,12 @@ Edge proxies terminate TLS and route traffic; the control plane compiles configu
 - Monitoring focus: SNMP/LLDP/CDP discovery, OTEL metrics, syslog ingestion, network mapper graph, Dusk node health, and specialized rule engines (README.md).
 - Device pipeline: In demo, Armis faker → sync → core → CNPG maintains 50–70k canonical devices; runbook in docs/docs/agents.md covers pausing sync, truncating tables, recreating the MV, and verifying counts.
 - Configuration delivery: agents enroll with agent-gateway over mTLS gRPC (`Hello`) and fetch effective config from the control plane (`GetConfig`).
-- Identity & security: SPIRE-issued certs + mTLS across services in Kubernetes; Docker Compose uses non-SPIFFE mTLS bootstrapping. JWTs are used for user/API traffic.
+- Identity & security: Deployment-managed CA certificates + mTLS across Kubernetes and Docker Compose; SPIRE issuance is deprecated. JWTs are used for user/API traffic.
 - Analytics: SRQL gives a key:value DSL that maps to CNPG SQL; device registry/search planner keep hot-path reads in memory while CNPG handles historical queries.
 
 ## Important Constraints
 - Must operate across unreliable links; gateways continue orchestrating agents locally and buffer until core connectivity returns.
-- All internal RPCs require mTLS. SPIFFE/SPIRE is supported in Kubernetes; Docker Compose uses non-SPIFFE mTLS bootstrapping (docs/docs/tls-security.md).
+- All internal RPCs require mTLS. SPIFFE/SPIRE runtime support is deprecated; Kubernetes and Docker Compose use deployment-managed certificates (docs/docs/tls-security.md).
 - Core is the policy enforcement point—JWT/JWKS must stay in sync with clients or the web UI cannot reach APIs.
 - CNPG datasets (device_updates/unified_devices) must stay pruned to keep queries fast and storage bounded; follow the reset procedure before reseeding demo data.
 - All metrics/telemetry MUST be ingested via NATS JetStream and the `event_writer` pipeline; collectors and agents MUST NOT write metrics directly to CNPG. This keeps every metric stream subscribable for real-time consumers (anomaly detection, the causal engine) instead of being invisible until it lands in a hypertable.
@@ -67,7 +67,7 @@ Edge proxies terminate TLS and route traffic; the control plane compiles configu
 - **CNPG / TimescaleDB** – primary telemetry database and analytics engine.
 - **NATS JetStream** – bulk ingestion streams for logs/events/flows.
 - **Edge proxy (Caddy or Gateway API)** - terminates TLS and routes traffic to web-ng and core (docs/docs/architecture.md).
-- **SPIFFE/SPIRE** – identity plane issuing certs for all workloads (docs/docs/spiffe-identity.md, docs/docs/spire-onboarding-plan.md).
+- **SPIFFE/SPIRE** - deprecated runtime compatibility; see docs/docs/migrating-off-spire.md.
 - **Discord/Webhooks** – alert delivery target from the core service (README.md).
 - **NetBox/Armis/edge tooling** – sync integrations and faker workloads supplying device data (docs/docs/agents.md, docs/docs/netbox.md).
 - **Docker, Kubernetes, Helm, Bazel, Make, GitHub Actions** – build/test/deploy toolchain referenced throughout README.md and docs/docs/installation.md.

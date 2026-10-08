@@ -2,6 +2,10 @@
 title: Troubleshooting Guide
 ---
 
+:::warning Deprecated SPIRE runtime
+SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
+:::
+
 # Troubleshooting Guide
 
 Use this guide as a first stop when onboarding or operating ServiceRadar. Each section lists fast diagnostics, common failure modes, and references for deeper dives.
@@ -40,7 +44,7 @@ Edge agents are Go binaries that run on monitored hosts outside the Kubernetes c
   ```bash
   openssl x509 -in /etc/serviceradar/certs/svid.pem -noout -subject
   ```
-- **CA mismatch**: Ensure the agent's CA bundle matches the cluster's SPIRE trust domain.
+- **CA mismatch**: Ensure the agent's CA bundle matches the deployment's issuing CA and certificate identity configuration.
 
 ### Registration Issues
 

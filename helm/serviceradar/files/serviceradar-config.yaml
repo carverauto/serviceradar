@@ -1,14 +1,14 @@
 {{- $lb := "{{" -}}
 {{- $rb := "}}" -}}
-{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $trustDomain := include "serviceradar.trustDomain" .Values -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
-{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+{{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "datasvc")) -}}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $pluginHTTPTrustedCAFiles := list "/etc/serviceradar/certs/root.pem" -}}
 {{- if hasKey $agentVals "pluginHTTPTrustedCAFiles" -}}
   {{- $pluginHTTPTrustedCAFiles = get $agentVals "pluginHTTPTrustedCAFiles" -}}
 {{- end -}}
-{{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $agentSA := include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "agent") -}}
 {{- $gatewayVals := default (dict) .Values.agentGateway -}}
 {{- $gatewayService := default (dict) $gatewayVals.service -}}
 {{- $gatewayPort := default 50052 $gatewayService.port -}}
@@ -25,10 +25,10 @@
   {{- $searchPath = printf "%s,ag_catalog" $appSchema -}}
 {{- end -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
-{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
-{{- $logCollectorSA := .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" -}}
-{{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
-{{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $logCollectorSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) -}}
+{{- $rperfCheckerSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "rperfChecker")) -}}
+{{- $trapdSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "trapd")) -}}
 {{- $serverVals := default (dict) .Values.spire.server -}}
 {{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
 {{- /*
@@ -59,7 +59,7 @@ data:
       "grpc_addr": ":50052",
       "api_key": "",
       "cnpg": {
-        "host": "{{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) .Values.cnpg.host }}",
+        "host": "{{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName (include "serviceradar.cnpgNamespace" .)) .Values.cnpg.host }}",
         "port": {{ default 5432 .Values.cnpg.port }},
         "database": "{{ default "serviceradar" .Values.cnpg.database }}",
         "username": "{{ default "serviceradar" .Values.cnpg.username }}",
@@ -1000,13 +1000,13 @@ data:
           "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
         {{- end }}
           "allowed_client_identities": [
-            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}",
+            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}",
             "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           ]
         },
         "rbac": {
           "roles": [
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "writer"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "reader"},
             {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},

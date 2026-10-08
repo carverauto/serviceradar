@@ -40,27 +40,14 @@ extension is a NOTICE in PostgreSQL, not an error, and each ALTER runs on its ow
 fresh connection because TimescaleDB refuses to update in a session that has already
 loaded the old module.
 */ -}}
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgEnabled := include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true" -}}
 {{- $extUpdate := default (dict) $cnpg.extensionUpdate -}}
 {{- $extUpdateEnabled := include "serviceradar.boolDefaultTrue" (list $extUpdate "enabled") | eq "true" -}}
 {{- $managed := list "timescaledb" "postgis" "postgis_raster" "postgis_topology" "age" "vector" -}}
 {{- $extList := default $managed $extUpdate.extensions -}}
-{{- /* Resolve the cluster this job must actually talk to, mirroring the condition that
-       decides WHICH template renders the Cluster. Two do, and they are mutually
-       exclusive: spire-postgres.yaml when spire.postgres is on (demo-staging, where the
-       cluster is named cnpg-staging), otherwise cnpg-cluster.yaml. Deriving the host
-       from .Values.cnpg alone pointed this job at cnpg-rw in the spire case -- a service
-       that does not exist there -- so it would have failed every staging upgrade. */ -}}
-{{- $spire := default (dict) .Values.spire -}}
-{{- $spirePg := default (dict) $spire.postgres -}}
-{{- $spirePgActive := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
-{{- $targetNamespace := .Release.Namespace -}}
-{{- if $spirePgActive -}}
-  {{- $cnpgClusterName = default "cnpg" $spirePg.clusterName -}}
-  {{- $targetNamespace = default .Release.Namespace $spire.namespace -}}
-{{- end -}}
+{{- $targetNamespace := include "serviceradar.cnpgNamespace" . -}}
 {{- $targetHost := default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName $targetNamespace) $cnpg.host -}}
 {{- /* The cluster's CA is a Secret, and a Secret cannot be mounted across namespaces.
        If the active cluster lives elsewhere, this job cannot verify TLS to it, and

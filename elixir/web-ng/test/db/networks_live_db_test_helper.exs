@@ -52,7 +52,14 @@ ExUnit.configure(
 # already-tagged module, not a new selection. 2460 + 4 = 2464, with no
 # lowering, removal, bypass, or exclusion.
 # Async routing-list loading adds one lane-selected BMP LiveView case.
-expected_selected_tests = 2465
+# PR #5532 (chore/5413-deprecate-spire-phase-one) adds +1 lane-selected test,
+# covered by the file's existing @moduletag :web_ng_shared_fixture_db with no
+# skip/exclude: OnboardingPackageTest "database defaults new packages to mTLS"
+# (raw-SQL RETURNING check for the new migration default). The
+# EdgeControllerTest change only strengthens existing cases (new asserts, no
+# new test blocks). 2465 + 1 = 2466, with no lowering, removal, bypass, or
+# exclusion.
+expected_selected_tests = 2466
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

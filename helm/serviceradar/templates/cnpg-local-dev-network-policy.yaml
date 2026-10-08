@@ -1,4 +1,4 @@
-{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $localDevAccess := default (dict) $cnpg.localDevAccess -}}
 {{- $allowedCIDRs := default (list) $localDevAccess.allowedCIDRs -}}
 {{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (default false $localDevAccess.enabled) (gt (len $allowedCIDRs) 0) }}

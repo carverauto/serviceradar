@@ -60,6 +60,10 @@ impl KvClient {
                     .map_err(|e| KvError::Other(e.into()))?
             }
             "spiffe" => {
+                log::warn!(
+                    "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
+                );
+
                 let trust_domain =
                     std::env::var("KV_TRUST_DOMAIN").map_err(|e| KvError::Other(e.into()))?;
                 let workload_socket = std::env::var("KV_WORKLOAD_SOCKET")

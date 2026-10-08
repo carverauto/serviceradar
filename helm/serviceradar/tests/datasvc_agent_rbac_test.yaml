@@ -19,3 +19,16 @@ tests:
       - notMatchRegex:
           path: data["datasvc.json"]
           pattern: '"identity": "CN=serviceradar-agent,[^"]+", "role": "writer"'
+  - it: authorizes the neutral agent account under the neutral trust domain
+    set:
+      trustDomain: synthetic.example.test
+      spire.trustDomain: legacy.example.test
+      serviceAccounts.agent: synthetic-agent
+      spire.serviceradarAgentServiceAccount: legacy-agent
+    asserts:
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"identity": "spiffe://synthetic[.]example[.]test/ns/[^"]+/sa/synthetic-agent", "role": "reader"'
+      - notMatchRegex:
+          path: data["datasvc.json"]
+          pattern: 'spiffe://legacy[.]example[.]test/'

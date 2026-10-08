@@ -1,0 +1,40 @@
+suite: SPIRE runtime deprecation notices
+templates:
+  - templates/NOTES.txt
+tests:
+  - it: leaves ordinary mTLS installs free of SPIRE warnings
+    asserts:
+      - notMatchRegexRaw:
+          pattern: 'WARNING:.*deprecated'
+  - it: warns when SPIRE is enabled
+    set:
+      spire.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING:.*deprecated'
+      - matchRegexRaw:
+          pattern: 'https://docs.serviceradar.cloud/docs/migrating-off-spire'
+  - it: warns for a SPIFFE KV client without enabling SPIRE workloads
+    set:
+      kv.secMode: spiffe
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING:.*deprecated'
+  - it: warns for a SPIFFE core client
+    set:
+      coreClient.secMode: spiffe
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING:.*deprecated'
+  - it: warns for a SPIFFE web datasvc client
+    set:
+      webNg.datasvc.secMode: spiffe
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING:.*deprecated'
+  - it: warns for the Workload API certificate provider
+    set:
+      spiffe.mode: workload_api
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING:.*deprecated'

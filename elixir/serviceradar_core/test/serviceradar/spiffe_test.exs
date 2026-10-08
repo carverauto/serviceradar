@@ -3,6 +3,33 @@ defmodule ServiceRadar.SPIFFETest do
 
   alias ServiceRadar.SPIFFE
 
+  describe "runtime deprecation notice" do
+    test "warns for explicit SPIFFE and Workload API starts" do
+      for {security_mode, certificate_mode} <- [
+            {" SPIFFE ", :filesystem},
+            {"mtls", :workload_api}
+          ] do
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            SPIFFE.warn_if_deprecated(security_mode, certificate_mode)
+          end)
+
+        assert log =~ "[warning]"
+        assert log =~ "SPIFFE/SPIRE runtime support is deprecated"
+        assert log =~ "/docs/migrating-off-spire"
+      end
+    end
+
+    test "filesystem mTLS does not warn about its URI SAN names" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          SPIFFE.warn_if_deprecated("mtls", :filesystem)
+        end)
+
+      refute log =~ "deprecated"
+    end
+  end
+
   describe "parse_spiffe_id/1" do
     test "parses valid SPIFFE ID with partition" do
       spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"

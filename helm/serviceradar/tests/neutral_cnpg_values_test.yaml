@@ -1,0 +1,65 @@
+suite: Shared CNPG configuration keeps legacy cluster identity
+templates:
+  - templates/cnpg-cluster.yaml
+  - templates/spire-postgres.yaml
+release:
+  namespace: synthetic-namespace
+tests:
+  - it: keeps the native built-in defaults
+    template: templates/cnpg-cluster.yaml
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: metadata.name
+          value: cnpg
+      - equal:
+          path: spec.instances
+          value: 3
+      - equal:
+          path: spec.storage.size
+          value: 100Gi
+  - it: preserves a legacy-only cluster name capacity and instance count
+    template: templates/spire-postgres.yaml
+    set:
+      spire.enabled: true
+      spire.postgres.enabled: true
+      spire.postgres.clusterName: legacy-example-db
+      spire.postgres.instances: 2
+      spire.postgres.storageSize: 80Gi
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: metadata.name
+          value: legacy-example-db
+      - equal:
+          path: spec.instances
+          value: 2
+      - equal:
+          path: spec.storage.size
+          value: 80Gi
+  - it: lets neutral fields override the active legacy cluster
+    template: templates/spire-postgres.yaml
+    set:
+      spire.enabled: true
+      spire.postgres.enabled: true
+      spire.postgres.clusterName: legacy-example-db
+      cnpg.clusterName: synthetic-db
+      cnpg.instances: 1
+      cnpg.storageSize: 40Gi
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: metadata.name
+          value: synthetic-db
+      - equal:
+          path: spec.instances
+          value: 1
+      - equal:
+          path: spec.storage.size
+          value: 40Gi

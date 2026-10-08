@@ -5,7 +5,7 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate7 := default (dict) .Values.datasvc -}}
 {{- if or (not (hasKey $gate7 "enabled")) $gate7.enabled }}
-{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+{{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "datasvc")) -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $datasvcData := default (dict) (get $datasvc "data") -}}
 {{- $datasvcDataEnabled := ne false (get $datasvcData "enabled") -}}
