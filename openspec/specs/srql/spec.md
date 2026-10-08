@@ -629,11 +629,12 @@ Every parser alias for `merge_audit`, `device_revival_audit`, `device_identifier
 - **THEN** the request SHALL be rejected as forbidden
 
 ### Requirement: MTR Hops SRQL Entity
-The SRQL service SHALL expose `platform.mtr_hops` as the `in:mtr_hops` query entity, supporting time-range filtering, field equality and pattern filters, and `stats:` aggregations grouped by hop address, ASN, ASN organization, or hop number.
 
-Supported filter fields: `trace_id` (UUID equality), `addr` (text, supports `%` wildcards), `hostname` (text, supports `%` wildcards), `asn` (integer equality), `asn_org` (text, supports `%` wildcards), `hop_number` (integer equality and range).
+The SRQL service SHALL expose `platform.mtr_hops` as the `in:mtr_hops` query entity, supporting time-range filtering, field equality and pattern filters, and `stats:` aggregations grouped by hop address, ASN, ASN organization, hop number, target address, or device identifier.
 
-Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`, `sum`, `count`, and the two-argument aggregates `loss_ratio(<sent>, <received>)` and `wavg(<value>, <weight>)`. Aggregatable columns: `loss_pct`, `avg_us`, `min_us`, `max_us`, `jitter_us`, `sent`, `received`. Supported `by` grouping fields: `addr`, `asn`, `asn_org`, `hop_number`, and `time:<duration>` (time-bucket grouping; not emitted by the query builder).
+Supported filter fields: `trace_id` (UUID equality), `addr` (text, supports `%` wildcards), `hostname` (text, supports `%` wildcards), `asn` (integer equality), `asn_org` (text, supports `%` wildcards), `hop_number` (integer equality and range), `target_ip` (text, supports `%` wildcards), `device_id` (text equality).
+
+Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`, `sum`, `count`, and the two-argument aggregates `loss_ratio(<sent>, <received>)` and `wavg(<value>, <weight>)`. Aggregatable columns: `loss_pct`, `avg_us`, `min_us`, `max_us`, `jitter_us`, `sent`, `received`. Supported `by` grouping fields: `addr`, `asn`, `asn_org`, `hop_number`, `target_ip`, `device_id`, and `time:<duration>` (time-bucket grouping; not emitted by the query builder).
 
 Default ordering: `time DESC, id DESC`. Stats queries order by the first aggregated alias descending by default.
 
@@ -650,25 +651,17 @@ Default ordering: `time DESC, id DESC`. Stats queries order by the first aggrega
 - **WHEN** a client sends `in:mtr_hops trace_id:some-uuid sort:hop_number:asc`
 - **THEN** SRQL returns all hop rows for that trace in hop-number order with full per-hop fields
 
+#### Scenario: Device-scoped hop aggregation
+- **WHEN** a client sends `in:mtr_hops time:last_24h target_ip:192.0.2.10 stats:loss_ratio(sent, received) as loss by addr`
+- **THEN** SRQL returns per-address loss aggregated only over hops from traces targeting that address
+
 #### Scenario: Unsupported filter field is rejected
-- **WHEN** a client sends `in:mtr_hops device_id:some-id`
+- **WHEN** a client sends `in:mtr_hops gateway_id:some-id`
 - **THEN** SRQL returns an `InvalidRequest` error naming the unsupported field
 
 #### Scenario: Time range limits hop rows
 - **WHEN** a client sends `in:mtr_hops time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z]`
 - **THEN** only hop rows with `time >= 2026-01-01T00:00:00Z AND time < 2026-01-02T00:00:00Z` are returned
-
-### Requirement: MTR Traces Rejects stats Clauses
-The SRQL service SHALL return an `InvalidRequest` error when a `stats:` clause is present on an `in:mtr_traces` query instead of silently ignoring it.
-
-#### Scenario: stats clause on mtr_traces returns error
-- **WHEN** a client sends `in:mtr_traces stats:count() by device_id`
-- **THEN** SRQL returns an `InvalidRequest` error indicating that `stats:` is not supported for `mtr_traces`
-- **AND** no result rows are returned
-
-#### Scenario: mtr_traces without stats clause succeeds
-- **WHEN** a client sends `in:mtr_traces device_id:some-id time:last_1h`
-- **THEN** SRQL returns trace rows normally without error
 
 ### Requirement: OTel services catalog entity
 SRQL SHALL expose the OTel service catalog as `in:otel_services`, returning `service_name`, `signals`, `last_seen`, `logs_last_seen`, `traces_last_seen` and `metrics_last_seen`.
@@ -808,38 +801,46 @@ SRQL SHALL provide `in:deduplication_tasks` as a read-only entity backed by `pla
 - **WHEN** a client queries `in:deduplication_tasks status:distinct`
 - **THEN** the row SHALL report `resolved_by`, `resolved_at` and `resolution_note`
 
-### Requirement: SRQL Exposes Distro-Aware Vulnerability Assessment And Evidence
+### Requirement: Hop metrics can be scoped to the devices they were measured against
 
-SRQL endpoint package and vulnerability-assessment projections SHALL expose and
-filter lifecycle, assessment, disposition, provider namespace, distro/release,
-source and binary package identity, winning authority, source generation/as-of
-time, freshness, fixed version, applicability reason, and conflict or unmet
-environment evidence.
+The SRQL service SHALL accept `target_ip` and `device_id` as filter fields on `in:mtr_hops`, so hop-level loss and latency can be restricted to a chosen set of devices.
 
-#### Scenario: Query confirmed affected packages
+Hop rows SHALL carry the target attribution of the trace they belong to. Without it, hop metrics and device identity sit on opposite sides of a join SRQL cannot cross, and no fleet-scoped hop aggregate is expressible at all.
 
-- **GIVEN** endpoint package assessments include confirmed, candidate, and historical rows
-- **WHEN** an operator filters for active confirmed affected assessments
-- **THEN** SRQL SHALL return only rows satisfying all three states
-- **AND** each row SHALL include the winning authority and package/version evidence
+`target_ip` SHALL be treated as the reliable attribution key. On the bulk-scheduled path a trace's `device_id` holds the originating command's identifier rather than a device uid, so grouping by `device_id` alone yields one row per command and answers nothing. `device_id` remains available because it is a true device uid on the single-run path.
 
-#### Scenario: Query candidates separately
+#### Scenario: Hop loss scoped to one device
+- **WHEN** a client sends `in:mtr_hops time:last_24h target_ip:192.0.2.10 stats:loss_ratio(sent, received) as loss by addr`
+- **THEN** only hops from traces targeting that address are aggregated
 
-- **GIVEN** endpoint package candidates exist because distro evidence is missing, stale, conflicting, or under investigation
-- **WHEN** an operator filters by candidate assessment
-- **THEN** SRQL SHALL return those rows with the applicability reason and relevant source freshness or conflict evidence
-- **AND** it SHALL NOT label them as confirmed findings
+#### Scenario: Hop metrics scoped to a set of devices
+- **WHEN** a client filters `in:mtr_hops` by a list of target addresses
+- **THEN** the aggregate covers only those targets
 
-#### Scenario: Security finding query excludes candidates
+#### Scenario: Grouping by device_id on bulk-scheduled traces is documented as unreliable
+- **GIVEN** traces produced by the bulk scheduler
+- **WHEN** a caller groups hop metrics by `device_id`
+- **THEN** the grouping reflects originating commands rather than devices
+- **AND** the catalog and error text direct the caller to `target_ip`
 
-- **GIVEN** active candidates and confirmed endpoint Vulnerability Findings exist
-- **WHEN** an operator queries the security-finding projection for endpoint vulnerabilities
-- **THEN** the result SHALL contain confirmed durable findings only
-- **AND** candidates SHALL remain available through the endpoint package/match projection
+### Requirement: Trace-level aggregation yields reach rate per target
 
-#### Scenario: Risk and count semantics are explicit
+The SRQL service SHALL support `stats:` aggregation on `in:mtr_traces`, grouping by `target_ip`, `device_id`, `agent_id` or `protocol`, and SHALL make the proportion of traces reaching their target derivable from trace counts and `target_reached`.
 
-- **GIVEN** an SRQL query requests endpoint vulnerability counts or device vulnerability risk
-- **WHEN** the query is evaluated
-- **THEN** confirmed-active counts and risk SHALL use only active confirmed affected assessments
-- **AND** candidates or non-affected dispositions SHALL be included only when the query explicitly requests them
+This answers a question hop-level data cannot: a trace that never reaches its target has no terminal hop to measure, so the fact that a device is unreachable is only visible at trace level. It is the endpoint signal, as distinct from which path segment is lossy.
+
+The previous blanket refusal of `stats:` on this entity SHALL be replaced. Its error text advised callers to use `in:mtr_hops` for hop-level analytics, which was not a usable alternative because that entity could not name a device.
+
+#### Scenario: Reach rate per target
+- **WHEN** a client sends `in:mtr_traces time:last_24h stats:count() as traces by target_ip`
+- **THEN** SRQL returns per-target trace counts
+- **AND** the reached proportion is derivable for each target
+
+#### Scenario: A stats clause on mtr_traces is no longer refused outright
+- **WHEN** a client sends a grouped `stats:` query against `in:mtr_traces`
+- **THEN** it is aggregated rather than rejected
+
+#### Scenario: An unsupported grouping is still refused
+- **WHEN** a client groups `in:mtr_traces` by a field the entity does not support
+- **THEN** SRQL returns an invalid-request error naming the field
+- **AND** it does not silently return raw rows
