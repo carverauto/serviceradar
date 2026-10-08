@@ -14,7 +14,7 @@ ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. T
 ## Summary
 
 - **Edge agents** connect to Agent-Gateway via gRPC mTLS on port 50052.
-- **Core services** use SPIFFE identities for service-to-service mTLS.
+- **Core services** use deployment-managed mTLS identities (existing `spiffe://` certificate URI SANs remain supported).
 - **Caddy / Ingress** terminates external TLS and forwards traffic to web-ng.
 
 For deployment-specific TLS setup, see:
@@ -48,10 +48,10 @@ This option is the right choice for clusters that do not run SPIRE.
 
 ### Option B: SPIFFE/SPIRE workload identities (deprecated)
 
-For environments that want short-lived, automatically rotated SVIDs, the chart
-can deploy and integrate SPIRE.
+For existing opt-in installs, the chart can deploy and integrate SPIRE as deprecated
+compatibility (see [Migrating off SPIRE](./migrating-off-spire.md)).
 
-- `spire.enabled` defaults to **`false`**. Set it to `true` to deploy the SPIRE
+- `spire.enabled` defaults to **`false`**. Existing installs can retain `spire.enabled=true` during deprecation to keep the SPIRE
   server, SPIRE agent, and the `ClusterSPIFFEID` resources that bind workloads
   to SPIFFE identities.
 - `spire.trustDomain` sets the SPIFFE trust domain (for example
@@ -64,7 +64,7 @@ can deploy and integrate SPIRE.
 - `spire.bundleConfigMap` names the ConfigMap that distributes the SPIRE trust
   bundle to workloads.
 
-When SPIRE is enabled, core services use SPIFFE identities for
+When SPIRE remains enabled during deprecation, core services use SPIFFE identities for
 service-to-service mTLS; no manual certificate management is required for most
 installs.
 

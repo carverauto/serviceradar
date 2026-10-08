@@ -146,7 +146,7 @@ variable). A minimal config looks like this:
 | Field | Description |
 |-------|-------------|
 | `listen_addr` | Address/port the checker's gRPC server binds to (`50081`). |
-| `security.mode` | `mtls`, `spiffe`, or `none`. Production uses `mtls`. |
+| `security.mode` | `mtls`, `spiffe` (deprecated), or `none`. Production uses `mtls`. |
 | `security.cert_dir` | Directory holding the certificates; relative `tls.*` paths resolve against it. |
 | `security.tls` | Certificate, key, and CA files for mTLS (required when `mode` is `mtls`). |
 | `default_poll_interval` | Default seconds between tests, used when a target omits `poll_interval`. |

@@ -73,10 +73,10 @@ chart these are emitted automatically when `kv.enabled` is true:
 |----------|---------|
 | `CONFIG_SOURCE` | Config source selector (`file` is the default). |
 | `KV_ADDRESS` | Datasvc gRPC address (default `serviceradar-datasvc:50057`). |
-| `KV_SEC_MODE` | `mtls`, `spiffe`, or `none` (production uses `mtls`). |
+| `KV_SEC_MODE` | `mtls`, `spiffe` (deprecated), or `none` (production uses `mtls`). |
 | `KV_CERT_DIR` | Directory holding KV client certificates. |
 | `KV_CERT_FILE` / `KV_KEY_FILE` / `KV_CA_FILE` | mTLS materials for the KV connection. |
-| `KV_TRUST_DOMAIN` / `KV_WORKLOAD_SOCKET` | SPIFFE settings, used when `KV_SEC_MODE` is `spiffe`. |
+| `KV_TRUST_DOMAIN` / `KV_WORKLOAD_SOCKET` | SPIFFE settings, used when `KV_SEC_MODE` is `spiffe` (deprecated). |
 | `KV_SERVER_NAME` / `KV_SERVER_SPIFFE_ID` | Expected server identity for verification. |
 
 On standalone hosts these are set in the systemd unit for each service. For
