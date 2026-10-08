@@ -1,0 +1,16 @@
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "migration_collision_lib",
+    srcs = ["migration_collision.py"],
+)
+
+py_test(
+    name = "migration_collision_test",
+    size = "small",
+    srcs = ["migration_collision_test.py"],
+    deps = [":migration_collision_lib"],
+)

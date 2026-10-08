@@ -759,6 +759,39 @@ The same rules apply to the second workflow release (`buildbuddy-workflows-2`)
 and farm01's workflow replicas: they mount their own instances of the same
 shared-cache layout from `//k8s/buildbuddy/values-workflows.yaml`.
 
+## Ecto migration versions
+
+New files in `elixir/serviceradar_core/priv/repo/migrations/` take their version
+from the current UTC time:
+
+    date -u +%Y%m%d%H%M%S
+
+That value is the numeric prefix of the filename. Taking the next number after
+the newest file already on the branch collides with another open pull request:
+each request's own tree is unique, both checks stay green, and the duplicate
+shows up only once the second request merges. Ecto then refuses to migrate,
+and schema-manifest generation fails on later pull requests.
+
+`.github/workflows/migration-collision-guard.yml` compares the pull request
+with the latest `origin/staging`. The staging tip the branch was cut from can
+be hours behind, so the check fetches `origin/staging` and merges that tip
+with the pull request head. It fails when two files in the merged tree share
+a version, a `defmodule` name, or identical bytes, and the message names every
+file. A push of `staging` compares that commit with itself: a clean tree
+passes, and a duplicate that has just landed fails.
+
+Helm `core.migrations.expectedVersion` tracks the newest migration version.
+`//helm/serviceradar:migrations_expected_version_test` names the value to
+commit. Leave the chart value for that test to set.
+
+### Recovery when two versions already landed
+
+Keep the file that merged first. A database may already have recorded that
+version. Rename each later file to a free UTC timestamp, preserving the order
+those later files had relative to each other. Leave the file body unchanged.
+Bump `core.migrations.expectedVersion` only when the newest version changed.
+Leave a migration that has already been applied on its recorded version.
+
 ## Why the schema baseline cannot be replayed
 
 Context for the `mix serviceradar.db.migrate` rule in `AGENTS.md`.

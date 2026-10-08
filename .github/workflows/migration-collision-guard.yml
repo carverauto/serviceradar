@@ -1,0 +1,46 @@
+# Parallel pull requests can each add an Ecto migration whose version, module
+# name, or bytes collide only after both merge. BazelCI's manifest check sees
+# the pull request head, so each side stays green and the duplicate breaks
+# every later run. This job merges the pull request with the latest
+# origin/staging and fails in seconds, naming the files.
+#
+# The pull request base is the staging tip the branch was cut from. Fetch
+# origin/staging in the job so a migration that landed on staging after the
+# branch was cut is part of the comparison.
+name: Migration collision guard
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  migration-collisions:
+    name: Migration collisions
+    runs-on: arc-runner-set
+    steps:
+      # The pull request head, not GitHub's synthetic merge commit. merge-tree
+      # below applies latest staging itself. fetch-depth 0 so both parents of a
+      # staging merge commit are present when this runs on push.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v5.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check migrations against latest staging
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin staging
+          python3 build/migration_collision/migration_collision.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --base origin/staging \
+            --head HEAD
