@@ -315,15 +315,26 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     test "applier_health reports whether a retention applier GenServer is running" do
       refute Retention.applier_health().running?
 
-      start_supervised!(
-        {Retention,
-         name: Retention,
-         subscribe: false,
-         store: FakeStore,
-         initial_delay_ms: 60_000,
-         seeds: Env.default_retention_days(),
-         query: warehouse_query(%{}, {:ok, %{}})}
-      )
+      # Started through an explicit child spec: Retention.child_spec/1 returns
+      # nil while the warehouse is disabled (as it is in this sandbox), so the
+      # {Retention, opts} tuple form cannot start it here.
+      start_supervised!({FakeStore, applied_rows()})
+
+      start_supervised!(%{
+        id: Retention,
+        start:
+          {Retention, :start_link,
+           [
+             [
+               name: Retention,
+               subscribe: false,
+               store: FakeStore,
+               initial_delay_ms: 60_000,
+               seeds: Env.default_retention_days(),
+               query: warehouse_query(%{}, {:ok, %{}})
+             ]
+           ]}
+      })
 
       health = Retention.applier_health()
       assert health.running?
