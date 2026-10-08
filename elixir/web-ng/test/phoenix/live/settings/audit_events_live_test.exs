@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.SRQL
 
+  require Logger
+
   @moduletag :web_ng_shared_fixture_db
 
   @filter_defaults %{
@@ -57,22 +59,45 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
     live_event = record(DateTime.shift(DateTime.utc_now(), second: 1), marker)
     handler_id = {__MODULE__, make_ref()}
     test_pid = self()
+    # Test-only timing probe for the 250ms debounce vs the 1000ms window
+    # below: a monotonic send stamp plus side-channel numeric observations
+    # scoped strictly to view.pid. No waits, ordering, timeout, or assertion
+    # changes; diagnostics log even when the original assertion fails.
+    diag_t0_ms = System.monotonic_time(:millisecond)
 
     :telemetry.attach(
       handler_id,
       [:service_radar, :repo, :query],
-      fn _event, _measurements, metadata, _config ->
+      fn _event, measurements, metadata, _config ->
         if self() == view.pid and String.contains?(metadata.query, "security_events") do
           send(test_pid, :audit_read)
+
+          send(
+            test_pid,
+            {:audit_diag, audit_diag_elapsed(diag_t0_ms), measurements}
+          )
         end
       end,
       nil
     )
 
-    on_exit(fn -> :telemetry.detach(handler_id) end)
+    diag_tracer = start_audit_diag_tracer(view.pid, test_pid, diag_t0_ms)
+
+    on_exit(fn ->
+      :telemetry.detach(handler_id)
+      :erlang.trace(view.pid, false, [:receive])
+      send(diag_tracer, :audit_diag_stop)
+    end)
 
     for _ <- 1..50, do: send(view.pid, {:security_event, live_event})
-    assert_receive :audit_read, 1_000
+
+    try do
+      assert_receive :audit_read, 1_000
+    after
+      log_audit_diag(diag_t0_ms)
+      :erlang.trace(view.pid, false, [:receive])
+    end
+
     assert hd(row_ids(view)) == live_event.id
     refute_receive :audit_read, 350
 
@@ -218,6 +243,101 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
     |> LazyHTML.query("#audit-events-rows tr[id]")
     |> LazyHTML.attribute("id")
     |> Enum.map(&String.replace_prefix(&1, "audit-event-", ""))
+  end
+
+  # --- Test-only timing diagnostics (keyset-paging debounce probe) ------------
+  # Helpers for the single instrumented assert above. They record monotonic
+  # millisecond offsets scoped to view.pid and log one compact numeric line.
+  # Missing stages report -1. No HTML, mailbox, SQL, or payload contents.
+  defp audit_diag_elapsed(t0_ms), do: System.monotonic_time(:millisecond) - t0_ms
+
+  defp start_audit_diag_tracer(view_pid, test_pid, t0_ms) do
+    tracer = spawn(fn -> audit_diag_trace_loop(view_pid, test_pid, t0_ms, %{}) end)
+    :erlang.trace(view_pid, true, [{:tracer, tracer}, :receive])
+    tracer
+  end
+
+  defp audit_diag_trace_loop(view_pid, test_pid, t0_ms, seen) do
+    receive do
+      {:trace, ^view_pid, :receive, :refresh_events} ->
+        if Map.has_key?(seen, :refresh_recv) do
+          audit_diag_trace_loop(view_pid, test_pid, t0_ms, seen)
+        else
+          now_ms = audit_diag_elapsed(t0_ms)
+          send(test_pid, {:audit_trace, :refresh_recv, now_ms})
+          audit_diag_trace_loop(view_pid, test_pid, t0_ms, Map.put(seen, :refresh_recv, now_ms))
+        end
+
+      {:trace, ^view_pid, :receive, {:security_event, _}} ->
+        if Map.has_key?(seen, :first_recv) do
+          audit_diag_trace_loop(view_pid, test_pid, t0_ms, seen)
+        else
+          now_ms = audit_diag_elapsed(t0_ms)
+          send(test_pid, {:audit_trace, :first_recv, now_ms})
+          audit_diag_trace_loop(view_pid, test_pid, t0_ms, Map.put(seen, :first_recv, now_ms))
+        end
+
+      {:trace, _, :receive, _} ->
+        audit_diag_trace_loop(view_pid, test_pid, t0_ms, seen)
+
+      :audit_diag_stop ->
+        :ok
+    end
+  end
+
+  defp log_audit_diag(t0_ms) do
+    window_ms = audit_diag_elapsed(t0_ms)
+
+    acc = %{
+      query_done: 0,
+      first_recv_ms: -1,
+      refresh_recv_ms: -1,
+      queue_ms: -1,
+      query_ms: -1,
+      decode_ms: -1,
+      total_ms: -1
+    }
+
+    acc = drain_audit_diag(acc)
+
+    Logger.info(
+      "audit_diag window_ms=#{window_ms} query_done=#{acc.query_done} " <>
+        "first_recv_ms=#{acc.first_recv_ms} refresh_recv_ms=#{acc.refresh_recv_ms} " <>
+        "queue_ms=#{acc.queue_ms} query_ms=#{acc.query_ms} " <>
+        "decode_ms=#{acc.decode_ms} total_ms=#{acc.total_ms}"
+    )
+  end
+
+  defp drain_audit_diag(acc) do
+    receive do
+      {:audit_diag, _elapsed_ms, measurements} when is_map(measurements) ->
+        drain_audit_diag(%{
+          acc
+          | query_done: 1,
+            queue_ms: diag_native_ms(measurements, :queue_time),
+            query_ms: diag_native_ms(measurements, :query_time),
+            decode_ms: diag_native_ms(measurements, :decode_time),
+            total_ms: diag_native_ms(measurements, :total_time)
+        })
+
+      {:audit_trace, :first_recv, ms} when is_integer(ms) ->
+        drain_audit_diag(%{acc | first_recv_ms: ms})
+
+      {:audit_trace, :refresh_recv, ms} when is_integer(ms) ->
+        drain_audit_diag(%{acc | refresh_recv_ms: ms})
+    after
+      0 -> acc
+    end
+  end
+
+  defp diag_native_ms(measurements, key) do
+    case Map.fetch(measurements, key) do
+      {:ok, value} when is_integer(value) ->
+        System.convert_time_unit(value, :native, :millisecond)
+
+      _ ->
+        -1
+    end
   end
 
   defp record(at, actor, attrs \\ %{}) do
