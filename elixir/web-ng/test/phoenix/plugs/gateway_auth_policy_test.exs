@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Identity.AuthSettings
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.UserAuth
@@ -120,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
     external_id = "gateway|inactive-#{unique}"
 
     {:ok, user} =
-      ServiceRadar.Identity.User.provision_sso_user(
+      User.provision_sso_user(
         %{
           email: email,
           display_name: "Gateway Inactive User",
@@ -130,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
         actor: actor
       )
 
-    {:ok, _inactive_user} = ServiceRadar.Identity.User.deactivate(user, actor: actor)
+    {:ok, _inactive_user} = User.deactivate(user, actor: actor)
 
     conn =
       conn
