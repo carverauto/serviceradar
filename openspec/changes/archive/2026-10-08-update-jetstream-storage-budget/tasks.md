@@ -17,14 +17,14 @@
 - [x] 2.3 Expose every EventWriter stream size as
       `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
       environment and read in `serviceradar_core_elx/config/runtime.exs`.
-- [ ] 2.4 Expose `webNg.pluginStorage.jetstreamMaxBucketBytes`
+- [x] 2.4 Expose `webNg.pluginStorage.jetstreamMaxBucketBytes`
       (`PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES`) and
       `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, rendered into
       the web-ng environment; read the fieldsurvey value in web-ng
       `runtime.exs` into `:field_survey_artifact_store`. The Elixir side
       (`FIELD_SURVEY_JS_MAX_BUCKET_BYTES`, 1 GiB default) is done; the chart
       values ship with section 3.
-- [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
+- [x] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
       `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`. The Elixir side (1 GiB
       default) is done; the chart value ships with section 3.
 - [x] 2.6 EventWriter fallback sizes for the shared streams: read
@@ -88,7 +88,7 @@
       `ensure_bucket`): same rule instead of returning `:exists` untouched.
 - [x] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
       rule.
-- [ ] 4.7 Tests per owner: for discard-new buckets an existing unlimited bucket
+- [x] 4.7 Tests per owner: for discard-new buckets an existing unlimited bucket
       gets the cap when its data fits, and when it does not `max_bytes` is left
       unchanged, the values are logged and a later write still succeeds; for
       discard-old streams a full stream shrinks, evicts the oldest messages
@@ -216,10 +216,10 @@
 
 ## 7. Verification
 
-- [ ] 7.1 `make test` green.
-- [ ] 7.2 Upgrade a v1.4.73 install with flow-collector enabled and default
+- [x] 7.1 `make test` green.
+- [x] 7.2 Upgrade a v1.4.73 install with flow-collector enabled and default
       values on a scratch cluster: render passes, datasvc shrinks, every
       stream places, `nats server report jetstream` shows reserved below 85%.
-- [ ] 7.3 On a scratch cluster with expandable storage, follow the runbook
+- [x] 7.3 On a scratch cluster with expandable storage, follow the runbook
       from `small` to `medium` and confirm the StatefulSet is recreated, the
       PVCs are the same objects and larger, and every NATS pod is ready.
