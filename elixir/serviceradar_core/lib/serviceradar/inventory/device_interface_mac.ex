@@ -41,7 +41,7 @@ defmodule ServiceRadar.Inventory.DeviceInterfaceMac do
 
       upsert? true
       upsert_identity :unique_device_mac
-      upsert_fields [:last_seen]
+      upsert_fields [:last_seen, :partition]
 
       change fn changeset, _context ->
         now = DateTime.utc_now()

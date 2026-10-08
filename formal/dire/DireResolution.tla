@@ -170,8 +170,12 @@ Issued == {a \in SrcIds : absence[a] # "Unissued"}
 \* such a pair (merge_guard_violation/4).
 DistinctAgents(a, b) == AgentHeld(a) # {} /\ AgentHeld(b) # {} /\ AgentHeld(a) \cap AgentHeld(b) = {}
 
-\* AliasGuard.same_chassis?/5: one record's own interface table claims a MAC the other holds.
-SameChassis(a, b) == ifClaims[a] \cap MacsHeld(b) # {} \/ ifClaims[b] \cap MacsHeld(a) # {}
+\* AliasGuard.same_chassis?/5: each record's own interface table claims a MAC the other
+\* holds. Reciprocal evidence is required because either reporting device can supply an
+\* untrusted one-sided claim. The code additionally scopes each side's claims to the
+\* device's own partition; the model abstracts partitions (single-partition assumption),
+\* so only the reciprocal shape is expressed here.
+SameChassis(a, b) == ifClaims[a] \cap MacsHeld(b) # {} /\ ifClaims[b] \cap MacsHeld(a) # {}
 
 \* AliasGuard.distinct_identified_devices?/3 (#4609), on post-registration ownership o.
 DistinctIdentifiedIn(o, a, b) == IdsHeldIn(o, a) # {} /\ IdsHeldIn(o, b) # {} /\ ~SameChassis(a, b)

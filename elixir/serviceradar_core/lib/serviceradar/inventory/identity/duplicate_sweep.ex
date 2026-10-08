@@ -622,25 +622,19 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   defp normalize_partition(partition) when partition in [nil, ""], do: "default"
   defp normalize_partition(partition), do: partition
 
-  # One chassis reached at two addresses becomes two device rows anchored by
-  # DIFFERENT interface MACs, so they share no identifier and every other group
-  # source here correctly finds nothing. The evidence that they are one device is
-  # that one of them reports the other's anchor MAC on its OWN interface table,
-  # over authenticated SNMP.
+  # One chassis reached at two addresses can become two device rows anchored by
+  # different interface MACs. Treat the rows as the same chassis only when each
+  # side reports the other's anchor MAC on its own interface table. A one-sided
+  # claim is insufficient because the reporting device controls that evidence.
   #
   # This is not "merge on a shared MAC" -- a MAC merely OBSERVED (a neighbour or
   # ARP table entry, especially an interface MAC seen by mapper) is not identity.
   # The distinction is ownership: a neighbour table says what a device can see,
   # an interface table says what it IS.
   #
-  # Chosen over calling AliasGuard from BatchResolver, and the measurement is why.
-  # On a 126-device deployment that alternative would have merged 6 pairs, and 5
-  # of them had NO MAC evidence on either side -- four keyed on a `fe80::`
-  # link-local alias, which is not unique beyond a link.
-  # `distinct_strong_identity_conflict?/3` cannot stop those: it returns false
-  # when either side has no MACs, because unknown is not distinct. This source
-  # merges only where positive hardware evidence exists, which on the same
-  # deployment was exactly one pair -- the chassis.
+  # This source remains narrower than calling AliasGuard from BatchResolver:
+  # link-local aliases and rows with missing hardware evidence cannot create a
+  # merge candidate.
   defp interface_mac_chassis_groups do
     import Ecto.Query
 
@@ -656,7 +650,9 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
           where: di.device_id != im.device_id,
           where: not like(im.device_id, "serviceradar:%"),
           where: not like(di.device_id, "serviceradar:%"),
-          select: {im.mac, im.device_id, di.device_id, di.partition}
+          select:
+            {im.mac, im.device_id, di.device_id, im.partition, di.partition, owner.partition,
+             other.partition}
         )
       )
 
@@ -669,18 +665,53 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   # the writer: tap/veth/dummy addresses are synthesised, not hardware, and that
   # guarantee must not depend on which rows the query happens to return.
   @spec interface_mac_chassis_groups_from_rows([
-          {String.t(), String.t(), String.t(), String.t()}
+          {
+            String.t(),
+            String.t(),
+            String.t(),
+            String.t() | nil,
+            String.t() | nil,
+            String.t() | nil,
+            String.t() | nil
+          }
         ]) :: [{{String.t(), atom(), String.t()}, MapSet.t()}]
   def interface_mac_chassis_groups_from_rows(rows) when is_list(rows) do
     rows
-    |> Enum.reject(fn {mac, _owner, _other, _partition} ->
-      Mac.locally_administered_mac?(mac)
+    |> Enum.filter(fn {mac, _owner, _other, interface_partition, identifier_partition,
+                       owner_partition, other_partition} ->
+      partitions =
+        Enum.map(
+          [interface_partition, identifier_partition, owner_partition, other_partition],
+          &normalize_partition/1
+        )
+
+      not Mac.locally_administered_mac?(mac) and length(Enum.uniq(partitions)) == 1
     end)
-    |> Enum.map(fn {mac, owner, other, partition} ->
-      {{partition, :interface_mac_chassis, mac}, MapSet.new([owner, other])}
+    |> Enum.group_by(fn {_mac, owner, other, _interface_partition, identifier_partition,
+                         _owner_partition, _other_partition} ->
+      {first, second} = ordered_pair(owner, other)
+      {normalize_partition(identifier_partition), first, second}
     end)
-    |> Enum.uniq()
+    |> Enum.flat_map(fn {{partition, first, second}, claims} ->
+      directions =
+        MapSet.new(claims, fn {_mac, owner, other, _interface_partition, _identifier_partition,
+                               _owner_partition, _other_partition} ->
+          {owner, other}
+        end)
+
+      if MapSet.member?(directions, {first, second}) and
+           MapSet.member?(directions, {second, first}) do
+        evidence_mac = claims |> Enum.map(&elem(&1, 0)) |> Enum.min()
+        [{{partition, :interface_mac_chassis, evidence_mac}, MapSet.new([first, second])}]
+      else
+        []
+      end
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
   end
+
+  defp ordered_pair(left, right) when left <= right, do: {left, right}
+  defp ordered_pair(left, right), do: {right, left}
 
   @doc false
   def automatic_merge_identifier_types do

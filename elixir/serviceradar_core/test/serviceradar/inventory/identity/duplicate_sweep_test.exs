@@ -4,55 +4,84 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
   alias ServiceRadar.Inventory.Identity.DuplicateSweep
 
   describe "interface_mac_chassis_groups_from_rows/1" do
-    test "pairs a chassis that reports another device's anchor MAC on its own interface" do
-      # One chassis reached at two addresses becomes two device rows anchored by
-      # DIFFERENT interface MACs (farm01: WAN ...C721, LAN ...C72B). They share no
-      # identifier, so every other grouping here correctly finds nothing. The
-      # evidence that they are one device is that one of them reports the other's
-      # anchor MAC on its OWN interface table.
-      rows = [{"F492BF75C721", "sr:lan-side", "sr:wan-side", "default"}]
+    test "pairs a chassis only when both devices claim the other's anchor MAC" do
+      rows = [
+        {"001122334455", "sr:lan-side", "sr:wan-side", "default", "default", "default",
+         "default"},
+        {"00AABBCCDDEE", "sr:wan-side", "sr:lan-side", "default", "default", "default", "default"}
+      ]
 
-      assert [{{"default", :interface_mac_chassis, "F492BF75C721"}, members}] =
+      assert [{{"default", :interface_mac_chassis, "001122334455"}, members}] =
                DuplicateSweep.interface_mac_chassis_groups_from_rows(rows)
 
       assert MapSet.equal?(members, MapSet.new(["sr:lan-side", "sr:wan-side"]))
     end
 
-    test "never merges on a locally-administered interface MAC" do
-      # tap/veth/dummy/bridge addresses are synthesised, not hardware. The writer
-      # already refuses them; asserting it here too means the guarantee does not
-      # depend on which rows the query happens to return.
+    test "rejects a one-sided interface claim" do
       rows = [
-        {"026E4E5C1314", "sr:host", "sr:guest", "default"},
-        {"F692BF75C721", "sr:a", "sr:b", "default"},
-        {"7A806C33A1F4", "sr:c", "sr:d", "default"}
+        {"001122334455", "sr:reporter", "sr:target", "default", "default", "default", "default"}
       ]
 
       assert DuplicateSweep.interface_mac_chassis_groups_from_rows(rows) == []
     end
 
-    test "collapses duplicate evidence for the same pair" do
-      # A chassis reports many interfaces; several may match the same other
-      # device. That is one pair, not several.
+    test "never merges on a locally-administered interface MAC" do
       rows = [
-        {"F492BF75C721", "sr:lan", "sr:wan", "default"},
-        {"F492BF75C721", "sr:lan", "sr:wan", "default"}
+        {"021122334455", "sr:host", "sr:guest", "default", "default", "default", "default"},
+        {"06AABBCCDDEE", "sr:a", "sr:b", "default", "default", "default", "default"},
+        {"0A1122334455", "sr:c", "sr:d", "default", "default", "default", "default"}
       ]
 
-      assert [{{"default", :interface_mac_chassis, "F492BF75C721"}, _}] =
+      assert DuplicateSweep.interface_mac_chassis_groups_from_rows(rows) == []
+    end
+
+    test "collapses duplicate reciprocal evidence for the same pair" do
+      rows = [
+        {"001122334455", "sr:lan", "sr:wan", "default", "default", "default", "default"},
+        {"001122334455", "sr:lan", "sr:wan", "default", "default", "default", "default"},
+        {"00AABBCCDDEE", "sr:wan", "sr:lan", "default", "default", "default", "default"}
+      ]
+
+      assert [{{"default", :interface_mac_chassis, "001122334455"}, _}] =
                DuplicateSweep.interface_mac_chassis_groups_from_rows(rows)
     end
 
-    test "keeps universal and drops locally-administered in the same batch" do
+    test "keeps reciprocal universal claims and drops locally-administered claims" do
       rows = [
-        {"F492BF75C72B", "sr:keep-a", "sr:keep-b", "default"},
-        {"026E4E5C1314", "sr:drop-a", "sr:drop-b", "default"}
+        {"001122334455", "sr:keep-a", "sr:keep-b", "default", "default", "default", "default"},
+        {"00AABBCCDDEE", "sr:keep-b", "sr:keep-a", "default", "default", "default", "default"},
+        {"021122334455", "sr:drop-a", "sr:drop-b", "default", "default", "default", "default"},
+        {"0A1122334455", "sr:drop-b", "sr:drop-a", "default", "default", "default", "default"}
       ]
 
-      assert [{{"default", :interface_mac_chassis, "F492BF75C72B"}, members}] =
+      assert [{{"default", :interface_mac_chassis, "001122334455"}, members}] =
                DuplicateSweep.interface_mac_chassis_groups_from_rows(rows)
 
       assert MapSet.equal?(members, MapSet.new(["sr:keep-a", "sr:keep-b"]))
+    end
+
+    test "rejects a mismatch at every partition boundary" do
+      forward =
+        {"001122334455", "sr:a", "sr:b", "default", "default", "default", "default"}
+
+      reciprocal =
+        {"00AABBCCDDEE", "sr:b", "sr:a", "default", "default", "default", "default"}
+
+      for tuple_index <- 3..6 do
+        mismatched = put_elem(reciprocal, tuple_index, "edge")
+
+        assert DuplicateSweep.interface_mac_chassis_groups_from_rows([forward, mismatched]) == []
+      end
+    end
+
+    test "returns the same reciprocal evidence regardless of row order" do
+      rows = [
+        {"001122334455", "sr:a", "sr:b", "default", "default", "default", "default"},
+        {"00AABBCCDDEE", "sr:b", "sr:a", "default", "default", "default", "default"}
+      ]
+
+      assert DuplicateSweep.interface_mac_chassis_groups_from_rows(rows) ==
+               DuplicateSweep.interface_mac_chassis_groups_from_rows(Enum.reverse(rows))
     end
   end
 

@@ -138,9 +138,9 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     error
   end
 
-  # Whether one device's OWN interface table claims a MAC the other device is
-  # anchored by -- the tell that these are two addresses of one chassis rather
-  # than two pieces of hardware.
+  # Whether both devices' own-interface tables claim the MAC anchoring the other
+  # device. Reciprocal evidence is required because either reporting device can
+  # supply an untrusted one-sided claim.
   #
   # This NARROWS a veto; it is not a merge rule. The merge it unblocks still
   # requires its own evidence: a confirmed IP alias. Without that alias nothing
@@ -148,30 +148,37 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   # collapse two devices.
   #
   # The veto exists because disjoint MACs are the network-agnostic tell that a
-  # recycled IP has rebound to different hardware. An own-interface claim is
-  # direct evidence that it has NOT: the chassis itself, over authenticated
-  # SNMP, reports that MAC as one of its interfaces.
-  #
-  # Measured before shipping, on a 126-device deployment: this narrowing changes
-  # the outcome for exactly ONE device pair -- the router whose WAN and LAN
-  # addresses had become two devices -- and that pair claims each other's MACs in
-  # BOTH directions, because SNMP polled both addresses and got the same
-  # interface table.
+  # recycled IP has rebound to different hardware. Reciprocal own-interface
+  # claims are direct evidence that the addresses belong to one chassis.
   #
   # Cost is two indexed lookups on device_identifiers, which holds a few rows per
   # device. It deliberately does NOT read platform.discovered_interfaces, which
-  # stores ~98 rows per interface state and would be unusable at 50k-1M devices.
+  # is a high-cardinality state table and is unsuitable for this hot guard.
   defp same_chassis?(device_a, device_b, macs_a, macs_b, actor) do
-    claims?(device_a, macs_b, actor) or claims?(device_b, macs_a, actor)
+    claims?(device_a, macs_b, actor) and claims?(device_b, macs_a, actor)
   end
 
   defp claims?(device_id, other_macs, actor) do
-    other_macs != [] and
+    with true <- other_macs != [],
+         {:ok, partition} <- device_partition(device_id, actor) do
       not MapSet.disjoint?(
-        InterfaceMacs.registered_values(device_id, actor),
+        InterfaceMacs.registered_values(device_id, partition, actor),
         MapSet.new(other_macs)
       )
+    else
+      _ -> false
+    end
   end
+
+  defp device_partition(device_id, actor) do
+    case Device.get_by_uid(device_id, false, actor: actor) do
+      {:ok, %{partition: partition}} -> {:ok, normalize_partition(partition)}
+      _ -> :error
+    end
+  end
+
+  defp normalize_partition(partition) when partition in [nil, ""], do: "default"
+  defp normalize_partition(partition), do: partition
 
   defp device_macs(device_id, actor) do
     query_opts = if actor, do: [actor: actor], else: []

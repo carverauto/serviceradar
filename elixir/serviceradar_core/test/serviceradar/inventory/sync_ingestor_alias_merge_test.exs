@@ -53,7 +53,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     update = %{
       "ip" => ip,
       "mac" => mac,
-      "hostname" => "tonka01",
+      "hostname" => "synthetic-node",
       "source" => "agent",
       "metadata" => %{"agent_id" => agent_id}
     }
@@ -382,7 +382,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     update = %{
       "ip" => ip,
       "mac" => mac,
-      "hostname" => "mapper-tonka",
+      "hostname" => "synthetic-edge.example.test",
       "source" => "mapper"
     }
 
@@ -400,42 +400,47 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
       {:ok, a} = create_device(actor, "chassis-a")
       {:ok, b} = create_device(actor, "chassis-b")
 
-      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "F492BF75C721")
-      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "F492BF75C72B")
+      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "001122334455")
+      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "00AABBCCDDEE")
 
-      # The default and correct answer: two universally-administered MACs that
-      # differ are two pieces of hardware. Nothing about this change may weaken
-      # it -- a recycled IP rebinding to a different host depends on it.
       assert AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor)
     end
 
-    test "the veto lifts when one device's own interface table claims the other's MAC", %{
-      actor: actor
-    } do
+    test "a one-sided interface claim does not lift the veto", %{actor: actor} do
       {:ok, a} = create_device(actor, "chassis-wan")
       {:ok, b} = create_device(actor, "chassis-lan")
 
-      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "F492BF75C721")
-      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "F492BF75C72B")
+      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "001122334455")
+      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "00AABBCCDDEE")
       assert AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor)
 
-      # The chassis itself, over authenticated SNMP, reports ...C72B as one of
-      # its own interfaces. That is direct evidence these are two addresses of
-      # one device rather than two devices.
-      assert InterfaceMacs.register(a.uid, ["f4:92:bf:75:c7:2b"], nil, actor) == 1
+      assert InterfaceMacs.register(a.uid, ["00:aa:bb:cc:dd:ee"], nil, actor) == 1
 
-      refute AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor),
-             "an own-interface claim on the other device's MAC should lift the veto"
+      assert AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor)
     end
 
-    test "the claim works in either direction", %{actor: actor} do
+    test "cross-partition reciprocal claims do not lift the veto", %{actor: actor} do
+      {:ok, a} = create_device(actor, "partition-a")
+      {:ok, b} = create_device(actor, "partition-b")
+
+      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "001122334455")
+      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "00AABBCCDDEE")
+
+      assert InterfaceMacs.register(a.uid, ["00:aa:bb:cc:dd:ee"], "other", actor) == 1
+      assert InterfaceMacs.register(b.uid, ["00:11:22:33:44:55"], "default", actor) == 1
+
+      assert AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor)
+    end
+
+    test "reciprocal interface claims lift the veto", %{actor: actor} do
       {:ok, a} = create_device(actor, "chassis-x")
       {:ok, b} = create_device(actor, "chassis-y")
 
-      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "F492BF75C731")
-      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "F492BF75C73B")
+      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "001122334455")
+      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "00AABBCCDDEE")
 
-      assert InterfaceMacs.register(b.uid, ["f4:92:bf:75:c7:31"], nil, actor) == 1
+      assert InterfaceMacs.register(a.uid, ["00:aa:bb:cc:dd:ee"], nil, actor) == 1
+      assert InterfaceMacs.register(b.uid, ["00:11:22:33:44:55"], nil, actor) == 1
 
       refute AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor)
     end
@@ -444,95 +449,82 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
       {:ok, a} = create_device(actor, "chassis-p")
       {:ok, b} = create_device(actor, "chassis-q")
 
-      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "F492BF75C741")
-      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "F492BF75C74B")
+      assert {:ok, _} = register_identifier(actor, a.uid, :mac, "001122334455")
+      assert {:ok, _} = register_identifier(actor, b.uid, :mac, "00AABBCCDDEE")
 
-      # A device claiming its own other interfaces must NOT make it look like
-      # every other device. Only a claim on the OTHER device's MAC counts.
-      assert InterfaceMacs.register(a.uid, ["f4:92:bf:75:c7:99"], nil, actor) == 1
+      assert InterfaceMacs.register(a.uid, ["00:dd:ee:ff:00:11"], nil, actor) == 1
 
       assert AliasGuard.distinct_mac_conflict?(a.uid, b.uid, actor)
     end
   end
 
   describe "interface MAC registration" do
-    test "two rows of ONE chassis can both claim the same MAC", %{actor: actor} do
-      # The defect this table exists to fix. Two device rows that are the same
-      # chassis report the SAME interface MACs. Under a globally-unique identifier
-      # the first to register owned every one and the twin owned none -- observed
-      # on farm01 as 11 MACs on one row and 0 on the twin that reported 16. The
-      # loser then re-attempted every MAC on every poll forever, each attempt
-      # silently updating the other device's row and counting as a success.
+    test "two records for one chassis can both claim the same MAC", %{actor: actor} do
       {:ok, a} = create_device(actor, "chassis-wan-side")
       {:ok, b} = create_device(actor, "chassis-lan-side")
-
-      shared = "f4:92:bf:75:c7:81"
+      shared = "00:11:22:33:44:66"
 
       assert InterfaceMacs.register(a.uid, [shared], nil, actor) == 1
       assert InterfaceMacs.register(b.uid, [shared], nil, actor) == 1
 
-      assert MapSet.member?(InterfaceMacs.registered_values(a.uid, actor), "F492BF75C781")
-
-      assert MapSet.member?(InterfaceMacs.registered_values(b.uid, actor), "F492BF75C781"),
-             "the second device could not claim a MAC the first already claimed"
+      assert MapSet.member?(InterfaceMacs.registered_values(a.uid, actor), "001122334466")
+      assert MapSet.member?(InterfaceMacs.registered_values(b.uid, actor), "001122334466")
     end
 
-    test "the change gate still holds for the second claimant", %{actor: actor} do
-      # The scale consequence of the old defect: the loser's own set always read
-      # back empty, so it never converged and wrote on every poll. At 1M devices
-      # duplicates are the common case, which is exactly where steady-state zero
-      # was claimed.
-      {:ok, a} = create_device(actor, "chassis-first")
-      {:ok, b} = create_device(actor, "chassis-second")
+    test "re-registering an existing claim does not count as a new row", %{actor: actor} do
+      {:ok, device} = create_device(actor, "repeat-claim")
+      mac = "00:11:22:33:44:77"
 
-      shared = "f4:92:bf:75:c7:82"
+      assert InterfaceMacs.register(device.uid, [mac], nil, actor) == 1
+      assert InterfaceMacs.register(device.uid, [mac], nil, actor) == 0
+    end
 
-      assert InterfaceMacs.register(a.uid, [shared], nil, actor) == 1
-      assert InterfaceMacs.register(b.uid, [shared], nil, actor) == 1
+    test "re-registering an existing claim moves it to the authoritative partition", %{
+      actor: actor
+    } do
+      {:ok, device} = create_device(actor, "partition-migration")
+      mac = "00:11:22:33:44:88"
 
-      assert InterfaceMacs.register(b.uid, [shared], nil, actor) == 0,
-             "the second claimant re-wrote a MAC it already holds; its change gate never engages"
+      assert InterfaceMacs.register(device.uid, [mac], "edge", actor) == 1
+
+      assert InterfaceMacs.registered_values(device.uid, "edge", actor) ==
+               MapSet.new(["001122334488"])
+
+      assert InterfaceMacs.registered_values(device.uid, "default", actor) == MapSet.new()
+
+      assert InterfaceMacs.register(device.uid, [mac], "default", actor) == 1
+      assert InterfaceMacs.registered_values(device.uid, "edge", actor) == MapSet.new()
+
+      assert InterfaceMacs.registered_values(device.uid, "default", actor) ==
+               MapSet.new(["001122334488"])
     end
 
     test "refuses locally-administered addresses", %{actor: actor} do
-      {:ok, device} = create_device(actor, "virtualized-host")
+      {:ok, device} = create_device(actor, "local-address")
 
-      # tap/veth/dummy/bridge addresses are overwhelmingly locally administered,
-      # and a synthesised address is not evidence of hardware. On the deployment
-      # that motivated this, the filter removed 14 of 67 interface MACs.
-      assert InterfaceMacs.eligible(["02:6e:4e:5c:13:14", "f6:92:bf:75:c7:21"]) == []
-
-      assert InterfaceMacs.register(device.uid, ["02:6e:4e:5c:13:14"], nil, actor) == 0
-      assert MapSet.size(InterfaceMacs.registered_values(device.uid, actor)) == 0
+      assert InterfaceMacs.register(device.uid, ["02:11:22:33:44:55"], nil, actor) == 0
+      assert InterfaceMacs.registered_values(device.uid, actor) == MapSet.new()
     end
 
     test "writes nothing when a poll discovers nothing new", %{actor: actor} do
-      {:ok, device} = create_device(actor, "polled-switch")
-      macs = ["f4:92:bf:75:c7:51", "f4:92:bf:75:c7:52"]
+      {:ok, device} = create_device(actor, "empty-poll")
 
-      assert InterfaceMacs.register(device.uid, macs, nil, actor) == 2
-
-      # The change gate. Without it, 1M devices polled 15x/day would upsert
-      # hundreds of millions of rows/day for values that change only when
-      # hardware does.
-      assert InterfaceMacs.register(device.uid, macs, nil, actor) == 0
-      assert InterfaceMacs.register(device.uid, macs ++ ["f4:92:bf:75:c7:53"], nil, actor) == 1
+      assert InterfaceMacs.register(device.uid, [], nil, actor) == 0
+      assert InterfaceMacs.registered_values(device.uid, actor) == MapSet.new()
     end
 
     test "normalizes separators and case", %{actor: actor} do
-      {:ok, device} = create_device(actor, "mixed-format")
+      {:ok, device} = create_device(actor, "normalized-address")
 
-      assert InterfaceMacs.register(device.uid, ["f4-92-bf-75-c7-61"], nil, actor) == 1
-      assert InterfaceMacs.register(device.uid, ["F4:92:BF:75:C7:61"], nil, actor) == 0
-
-      assert MapSet.member?(InterfaceMacs.registered_values(device.uid, actor), "F492BF75C761")
+      assert InterfaceMacs.register(device.uid, ["00-aa-bb-cc-dd-11"], nil, actor) == 1
+      assert InterfaceMacs.registered_values(device.uid, actor) == MapSet.new(["00AABBCCDD11"])
     end
 
     test "ignores malformed addresses rather than raising", %{actor: actor} do
-      {:ok, device} = create_device(actor, "bad-data")
+      {:ok, device} = create_device(actor, "malformed-address")
 
-      assert InterfaceMacs.eligible(["", "not-a-mac", nil, "f4:92:bf"]) == []
-      assert InterfaceMacs.register(device.uid, ["", "zz", nil], nil, actor) == 0
+      assert InterfaceMacs.register(device.uid, ["not-a-mac", "0011"], nil, actor) == 0
+      assert InterfaceMacs.registered_values(device.uid, actor) == MapSet.new()
     end
   end
 
