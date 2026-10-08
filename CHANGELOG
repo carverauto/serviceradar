@@ -1,3 +1,109 @@
+# ServiceRadar v1.4.86
+
+This release revokes sessions when an account is deactivated, tightens
+flow-collector and inventory identity boundaries, and restores camera
+playback when WebRTC fails. SNMP config changes reach the agents that
+consume them, and StarRocks retention waits out concurrent schema changes.
+
+## Upgrade Notes
+
+- Remove retired `flowCollector.config.template_store` settings before
+  upgrading. Helm rendering and collector startup now reject shared
+  template persistence. NetFlow/IPFIX listeners also enforce bounded
+  template counts and a configurable `max_template_fields` limit
+  (PR #5515).
+- Flow-collector readiness now uses the publisher's ready-marker file.
+  Metrics use a separate ClusterIP Service, so a stalled metrics listener
+  cannot hold the collector unready. Custom probes and ServiceMonitors
+  should follow the updated chart (PR #5520).
+- Deactivating an account revokes its tokens and disconnects its LiveView
+  sessions. Inactive accounts are rejected by Guardian, gateway auth and
+  API-token auth. Password changes also end existing sessions (PR #5524).
+- The migrations included here preserve deleted dashboard report history
+  and improve lock-timeout diagnostics during public-to-platform schema
+  relocation (PR #4995, PR #5522). Helm
+  `core.migrations.expectedVersion` remains `20261008123047`.
+- Source-id retirement fails closed when the merge-prevention safeguards
+  are absent. Live reconciliation and operator cleanup remain separate
+  work; this release does not perform a cleanup batch (PR #5516).
+
+## Features
+
+- Flow-attribution metrics report diagnostic outcomes that distinguish
+  missing producer rows, missing sampled flows, missing topology overlap,
+  unmatched tuples and unstamped candidates from successful attribution
+  and errors (PR #5492).
+- Device event queries accept `device_uid` alongside the existing identity
+  aliases in both StarRocks and CNPG. The Events Explorer offers the field
+  in its SRQL filter catalog (PR #5518, PR #5529).
+
+## Fixes
+
+- StarRocks retention skips redundant partition-count changes and treats
+  an in-progress schema change as pending work with backed-off retries.
+  Repeated retention warnings are suppressed until the state changes
+  (PR #5514).
+- Device-scoped SNMP invalidations reach the reporting agent and matching
+  profile pollers without rebuilding unrelated agents' configs. Unknown
+  ownership and legacy all-agent profiles retain fleet-wide fallback;
+  coalescing and retries preserve undelivered owners (PR #5531).
+- Camera details and dashboard cameras fall back to websocket playback
+  when ICE fails, the WebRTC session closes, or media has not started
+  within eight seconds. Playback is marked live only when the video
+  element starts playing (PR #5535).
+- Edge collector credential provisioning and ready attachment are atomic,
+  with rollback on failure; bundles support optional TLS. Web-ng preserves
+  deleted dashboard report history and fixes GodView stream deduplication,
+  collapse and first-hop routing (PR #4995).
+- Database bootstrap lock timeouts identify the object and blocking
+  sessions when relocating sequences, views and materialized views as
+  well as tables (PR #5522).
+
+## Security
+
+- Account deactivation and password changes revoke existing sessions;
+  inactive users cannot regain access through gateway or API-token auth
+  (PR #5524).
+- Inventory results use the reporting agent's envelope identity, ignoring
+  payload-supplied agent and device identifiers (PR #5519).
+- NetFlow/IPFIX template field and template counts are bounded. The
+  metrics listener has reserved probe capacity, per-peer connection caps
+  and bounded header and request handling (PR #5515, PR #5520).
+- Privileged agent updater helpers use trusted absolute paths instead of
+  caller-controlled `PATH` lookups (PR #5534).
+- Web-ng tightens actor and role-profile authorization, keeps attributed
+  flow reads on StarRocks, and recursively redacts secrets in copied JSON
+  while preserving its structure (PR #4995).
+
+## Docs and CI
+
+- Web-ng ExUnit suites run in explicit unit, shared-fixture database and
+  topology lanes with exact-count guards (PR #4995). The blocked-owner
+  alert inbox regression waits for advisory-fence release after process
+  death without weakening its assertion (PR #5528).
+- Migration collision checks compare against latest staging and reject
+  duplicate versions, modules and identical migration content (PR #5530).
+- Docs-only changes skip heavy BazelCI work (PR #5533). GodView animation
+  acceptance checks judge frame gaps in the live loop (PR #5539).
+- No-mistakes Test and CI instructions forbid raw Bazel event and
+  execution-log artifacts that can expose remote authentication headers
+  (PR #5536).
+- The StarRocks upgrade runbook clarifies inter-hop reconciliation,
+  frontend strategy restoration and image-generation verification
+  (PR #5527).
+- OpenSpec archives and main specifications now record completed anomaly
+  baseline delivery and capacity runway, distro-aware vulnerability matching,
+  core-health tripwire alerts, authenticated Kubernetes snapshot identity,
+  anomaly drift/warmup, per-mount disk forecasting, and declarative dashboards
+  with device-scoped MTR diagnostics. These are documentation promotions,
+  not new runtime implementations in this release (PR #5521, PR #5537,
+  PR #5538, PR #5540, PR #5541, PR #5542, PR #5543).
+- Dependency updates include Kubernetes Go modules 0.37.1, `ultragraph`
+  0.9.5, `deep_causality_data_structures` 0.10.18, `xz` 0.5.17,
+  `mediacommon/v2` 2.9.5, `hyper-util` 0.1.21 and docs `source-map-js`
+  1.2.2 (PR #5525, PR #4423, PR #4424, PR #4885, PR #4886, PR #4892,
+  PR #5526).
+
 # ServiceRadar v1.4.85
 
 This release makes alert evaluation durable, closes a set of packaging,
