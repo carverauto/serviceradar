@@ -134,4 +134,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
       assert "proto" in attributed.numeric_fields
     end
   end
+
+  describe "events entity catalog registration" do
+    test "includes device_uid and identity aliases in events filter fields" do
+      events = Enum.find(Catalog.entities(), &(&1.id == "events"))
+      assert events
+      assert "device_uid" in events.filter_fields
+      assert "device_id" in events.filter_fields
+      assert "uid" in events.filter_fields
+      assert "source_device_uid" in events.filter_fields
+    end
+  end
 end
