@@ -63,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
            |> LazyHTML.from_fragment()
            |> LazyHTML.query("#services-tab-loading[role='status']")
            |> Enum.any?()
+
     assert has_element?(view, "#service-cards", "UniFi Protect Camera")
     assert has_element?(view, "#service-cards", "camera check healthy")
     assert has_element?(view, "#services-tab-content:not([hidden])")

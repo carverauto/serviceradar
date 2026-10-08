@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.IndexTest do
            |> LazyHTML.from_fragment()
            |> LazyHTML.query("#bmp-tab-loading[role='status']")
            |> Enum.any?()
+
     assert has_element?(view, "#bmp-event-route-a", "192.0.2.1")
     assert has_element?(view, "#bmp-tab-content:not([hidden])")
     refute has_element?(view, "#bmp-tab-loading")
