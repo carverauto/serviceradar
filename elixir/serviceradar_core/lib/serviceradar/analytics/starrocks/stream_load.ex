@@ -110,7 +110,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         }
 
         Logger.warning(
-          "StarRocks Stream Load attempt failed",
+          "StarRocks Stream Load attempt failed: dataset=#{metadata.dataset} table=#{metadata.table} label=#{metadata.label} attempt=#{attempt}/#{@max_attempts} host=#{uri.host}:#{uri.port} reason=#{inspect(reason)}",
           Keyword.new(Map.put(metadata, :reason, inspect(reason))) ++ [rows: count]
         )
 
@@ -174,6 +174,15 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
 
       {:ok, %{status: status, body: response_body}} when status in 200..299 ->
         {interpret_load(response_body, opts[:label], count, budget_opts(opts, deadline)), request}
+
+      {:ok, %{status: status, body: response_body}} ->
+        if is_binary(response_body) and response_body != "" do
+          Logger.warning(
+            "StarRocks Stream Load HTTP error response: status=#{status} table=#{opts[:table]} label=#{opts[:label]} body=#{response_body}"
+          )
+        end
+
+        {{:error, {:http_status, status, opts[:label]}}, request}
 
       {:ok, %{status: status}} ->
         {{:error, {:http_status, status, opts[:label]}}, request}
@@ -249,6 +258,20 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
 
   defp interpret_load(%{"Status" => "Label Already Exists"}, label, expected_count, opts) do
     reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
+  end
+
+  defp interpret_load(%{"Status" => "LABEL_ALREADY_EXISTS"}, label, expected_count, opts) do
+    reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
+  end
+
+  defp interpret_load(%{"Message" => msg} = payload, label, expected_count, opts)
+       when is_binary(msg) do
+    if msg =~ "has already been used" or msg =~ "Label Already Exists" or
+         msg =~ "LABEL_ALREADY_EXISTS" do
+      reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
+    else
+      {:error, {:load_status, Map.get(payload, "Status"), msg, label}}
+    end
   end
 
   defp interpret_load(%{"Status" => status} = payload, label, _expected_count, _opts) do
@@ -454,8 +477,10 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
           redirect: false,
           request_timeout: timeout,
           receive_timeout: timeout,
-          pool_timeout: min(5_000, timeout),
-          connect_options: [timeout: min(5_000, timeout)]
+          finch: [
+            pool_timeout: min(5_000, timeout),
+            conn_opts: [transport_opts: [timeout: min(5_000, timeout)]]
+          ]
         )
       end
 
