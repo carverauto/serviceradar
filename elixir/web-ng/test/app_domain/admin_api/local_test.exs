@@ -28,8 +28,12 @@ defmodule ServiceRadarWebNG.AdminApi.LocalTest do
     assert {:error, _revoked} =
              ServiceRadarWebNG.Auth.TokenRevocation.check_user_revoked(user.id, issued_before)
 
-    assert {:ok, %User{status: :active}} = Local.reactivate_user(scope, user.id)
+    assert {:ok, %User{status: :active} = reactivated} = Local.reactivate_user(scope, user.id)
     assert {:error, :user_revoked} = Guardian.verify_token(token, token_type: "access")
+
+    wait_until_next_unix_second()
+    assert {:ok, fresh_token, _fresh_claims} = Guardian.create_access_token(reactivated)
+    assert {:ok, _fresh_user, _claims} = Guardian.verify_token(fresh_token, token_type: "access")
   end
 
   test "update_user rolls back earlier changes when a later update fails", %{scope: scope} do
@@ -71,6 +75,14 @@ defmodule ServiceRadarWebNG.AdminApi.LocalTest do
 
     assert {:ok, users} = Local.list_users(scope, %{"limit" => 1})
     assert length(users) == 1
+  end
+
+  # JWT `iat` is whole seconds. A token minted in the same second as the
+  # deactivation marker is still before `revoked_before`.
+  defp wait_until_next_unix_second do
+    start = System.system_time(:second)
+    Process.sleep(1_100)
+    if System.system_time(:second) == start, do: Process.sleep(1_000)
   end
 
   defp role_profile_fixture do
