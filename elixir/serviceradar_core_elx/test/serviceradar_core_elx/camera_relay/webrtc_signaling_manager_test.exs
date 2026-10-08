@@ -319,6 +319,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
 
   test "releases a viewer whose sink crashed inside the relay pipeline" do
     relay_session_id = Ecto.UUID.generate()
+    :ok = RelayPubSub.subscribe(relay_session_id)
     server_name = unique_server_name()
 
     manager =
@@ -343,6 +344,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
                     %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_session_id, reason: reason}}
 
     assert reason == "webrtc viewer connection failed"
+
+    assert_receive {:camera_relay_webrtc_closed,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      viewer_id: ^viewer_session_id,
+                      reason: "webrtc viewer connection failed"
+                    }}
 
     assert {:error, :viewer_session_not_found} =
              WebRTCSignalingManager.close_session(relay_session_id, viewer_session_id, server: server_name)

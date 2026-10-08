@@ -15,6 +15,7 @@ import {
   selectRelayPlaybackTransport,
 } from "./player"
 
+const WEBRTC_MEDIA_DEADLINE_MS = 8000
 const WEBRTC_CREATE_RETRY_DELAY_MS = 1000
 const WEBRTC_CREATE_MAX_ATTEMPTS = 60
 const STREAM_RECONNECT_DELAY_MS = 1000
@@ -156,6 +157,9 @@ export class CameraRelayViewer {
     this.statusSocketKeepaliveTimer = null
     this.peerConnection = null
     this.webrtcViewerSessionId = null
+    this.webrtcMediaTimer = null
+    this.webrtcVideo = null
+    this.webrtcPlayingHandler = null
     this.chunkCount = 0
     this.byteCount = 0
     this.destroyedFlag = false
@@ -379,52 +383,25 @@ export class CameraRelayViewer {
         throw new Error("WebRTC offer was not returned for this relay session")
       }
 
+      if (this.destroyedFlag || this.transportSelection.selectedTransport !== CAMERA_RELAY_WEBRTC_TRANSPORT) {
+        this.releaseWebRtcViewer(viewerSessionId)
+        return
+      }
+
       this.webrtcViewerSessionId = viewerSessionId
       this.peerConnection = new window.RTCPeerConnection({
         iceServers: session.ice_servers || this.webrtcIceServers || [],
       })
 
-      this.peerConnection.addEventListener("track", (event) => {
-        const video = this.getVideo()
+      const peerConnection = this.peerConnection
+      const isCurrentViewer = this.watchWebRtcMedia(peerConnection)
 
-        if (video && event.streams?.[0]) {
-          video.srcObject = event.streams[0]
-          video.play?.().catch(() => {})
-        }
-
-        this.report("player-status", "WebRTC media track attached")
-        this.setState(CAMERA_VIEWER_STATES.PLAYING, {transport: CAMERA_RELAY_WEBRTC_TRANSPORT})
-      })
-
-      this.peerConnection.addEventListener("connectionstatechange", () => {
-        const connectionState = this.peerConnection?.connectionState || "unknown"
-        this.report("transport-status", `WebRTC connection state: ${connectionState}`)
-
-        if (connectionState === "connected") {
-          this.report("player-status", "WebRTC relay connected")
-        }
-
-        if (connectionState === "failed" || connectionState === "disconnected") {
-          this.useWebsocketFallback(`WebRTC ${connectionState}; falling back to websocket viewer`)
-        }
-      })
-
-      this.peerConnection.addEventListener("icecandidate", (event) => {
-        if (!event.candidate || !this.webrtcViewerSessionId) {
-          return
-        }
-
-        void fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/candidates`, {
-          method: "POST",
-          headers: jsonHeaders(),
-          credentials: "same-origin",
-          body: JSON.stringify({candidate: event.candidate.toJSON()}),
-        })
-      })
-
-      await this.peerConnection.setRemoteDescription({type: "offer", sdp: offerSdp})
-      const answer = await this.peerConnection.createAnswer()
-      await this.peerConnection.setLocalDescription(answer)
+      await peerConnection.setRemoteDescription({type: "offer", sdp: offerSdp})
+      if (!isCurrentViewer()) return
+      const answer = await peerConnection.createAnswer()
+      if (!isCurrentViewer()) return
+      await peerConnection.setLocalDescription(answer)
+      if (!isCurrentViewer()) return
 
       const answerResponse = await fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/answer`, {
         method: "POST",
@@ -434,6 +411,7 @@ export class CameraRelayViewer {
       })
 
       const answerBody = await answerResponse.json()
+      if (!isCurrentViewer()) return
 
       if (!answerResponse.ok) {
         throw new Error(answerBody?.message || "WebRTC answer was rejected")
@@ -444,6 +422,76 @@ export class CameraRelayViewer {
     } catch (error) {
       this.useWebsocketFallback(error.message || "WebRTC viewer setup failed")
     }
+  }
+
+  watchWebRtcMedia(peerConnection) {
+    const isCurrentViewer = () => !this.destroyedFlag && this.peerConnection === peerConnection
+    this.webrtcMediaTimer = setTimeout(() => {
+      if (isCurrentViewer()) {
+        this.useWebsocketFallback("WebRTC media did not start; falling back to websocket viewer")
+      }
+    }, WEBRTC_MEDIA_DEADLINE_MS)
+
+    peerConnection.addEventListener("track", (event) => this.attachWebRtcTrack(peerConnection, event))
+
+    peerConnection.addEventListener("connectionstatechange", () => {
+      if (!isCurrentViewer()) return
+      const connectionState = peerConnection.connectionState || "unknown"
+      this.report("transport-status", `WebRTC connection state: ${connectionState}`)
+
+      if (connectionState === "connected") {
+        this.report("player-status", "WebRTC relay connected")
+      }
+
+      if (connectionState === "failed" || connectionState === "disconnected") {
+        this.useWebsocketFallback(`WebRTC ${connectionState}; falling back to websocket viewer`)
+      }
+    })
+
+    peerConnection.addEventListener("iceconnectionstatechange", () => {
+      if (isCurrentViewer() && peerConnection.iceConnectionState === "failed") {
+        this.useWebsocketFallback("WebRTC ICE failed; falling back to websocket viewer")
+      }
+    })
+
+    peerConnection.addEventListener("icecandidate", (event) => {
+      if (!isCurrentViewer() || !event.candidate || !this.webrtcViewerSessionId) {
+        return
+      }
+
+      void fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/candidates`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({candidate: event.candidate.toJSON()}),
+      })
+    })
+    return isCurrentViewer
+  }
+
+  attachWebRtcTrack(peerConnection, event) {
+    const isCurrentViewer = () => !this.destroyedFlag && this.peerConnection === peerConnection
+    if (!isCurrentViewer()) return
+    const video = this.getVideo()
+
+    if (video && event.streams?.[0]) {
+      if (this.webrtcVideo && this.webrtcPlayingHandler) {
+        this.webrtcVideo.removeEventListener("playing", this.webrtcPlayingHandler)
+      }
+      this.webrtcVideo = video
+      this.webrtcPlayingHandler = () => {
+        if (!isCurrentViewer()) return
+        clearTimeout(this.webrtcMediaTimer)
+        this.webrtcMediaTimer = null
+        this.report("player-status", "WebRTC live media playing")
+        this.setState(CAMERA_VIEWER_STATES.PLAYING, {transport: CAMERA_RELAY_WEBRTC_TRANSPORT})
+      }
+      video.addEventListener("playing", this.webrtcPlayingHandler, {once: true})
+      video.srcObject = event.streams[0]
+      video.play?.().catch(() => {})
+    }
+
+    this.report("player-status", "WebRTC media track attached")
   }
 
   async createWebRtcViewerSession() {
@@ -489,26 +537,37 @@ export class CameraRelayViewer {
 
   destroyWebRtc() {
     const viewerSessionId = this.webrtcViewerSessionId
-
-    if (this.peerConnection) {
-      this.peerConnection.close()
-      this.peerConnection = null
-    }
-
+    const peerConnection = this.peerConnection
+    clearTimeout(this.webrtcMediaTimer)
+    this.webrtcMediaTimer = null
+    this.peerConnection = null
     this.webrtcViewerSessionId = null
 
+    const video = this.webrtcVideo || (peerConnection ? this.getVideo() : null)
+    if (this.webrtcPlayingHandler) {
+      this.webrtcVideo.removeEventListener("playing", this.webrtcPlayingHandler)
+    }
+    if (video) video.srcObject = null
+    this.webrtcVideo = null
+    this.webrtcPlayingHandler = null
+
+    peerConnection?.close()
+    this.releaseWebRtcViewer(viewerSessionId)
+  }
+
+  releaseWebRtcViewer(viewerSessionId) {
     if (viewerSessionId && this.webrtcSignalingPath) {
-      void fetch(`${this.webrtcSignalingPath}/${viewerSessionId}`, {
+      void Promise.resolve(fetch(`${this.webrtcSignalingPath}/${viewerSessionId}`, {
         method: "DELETE",
         headers: jsonHeaders(),
         credentials: "same-origin",
         keepalive: true,
-      })
+      })).catch(() => {})
     }
   }
 
   useWebsocketFallback(reason) {
-    if (this.destroyedFlag) {
+    if (this.destroyedFlag || this.transportSelection.selectedTransport !== CAMERA_RELAY_WEBRTC_TRANSPORT) {
       return
     }
 
@@ -529,6 +588,8 @@ export class CameraRelayViewer {
       detectBrowserPlaybackCapabilities(window)
     )
 
+    this.destroyWebRtc()
+
     if (!fallbackSelection.supported || !this.streamPath) {
       this.report("transport-status", "WebRTC viewer unavailable")
       this.report("player-status", reason)
@@ -536,7 +597,6 @@ export class CameraRelayViewer {
       return
     }
 
-    this.destroyWebRtc()
     this.transportSelection = fallbackSelection
     this.player = this.buildPlayer()
     this.report("player-status", reason)
@@ -554,6 +614,13 @@ export class CameraRelayViewer {
         this.report("transport-status", "Browser stream sent invalid payload")
       }
 
+      return
+    }
+
+    if (payload.type === "camera_relay_webrtc_closed") {
+      if (this.webrtcViewerSessionId && payload.viewer_session_id === this.webrtcViewerSessionId) {
+        this.useWebsocketFallback(payload.reason || "WebRTC viewer closed; falling back to websocket viewer")
+      }
       return
     }
 
