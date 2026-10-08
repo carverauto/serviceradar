@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
   @table :revoked_tokens
   @cleanup_interval to_timeout(hour: 1)
   @default_ttl_seconds 30 * 24 * 60 * 60
+  @user_marker_ttl_seconds 366 * 24 * 60 * 60
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -67,7 +68,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
       reason: reason,
       revoked_at: revoked_before,
       revoked_before: revoked_before,
-      expires_at: DateTime.add(revoked_before, default_ttl_ms(), :millisecond)
+      expires_at: DateTime.add(revoked_before, user_marker_ttl_ms(), :millisecond)
     }
 
     case persist_entry(entry) do
@@ -80,6 +81,35 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
         Logger.warning("Failed to persist token revocation", jti: entry.jti, reason: inspect(reason))
         error
     end
+  end
+
+  @doc """
+  Revokes every Guardian token issued to a user and disconnects their live
+  sockets. The broadcast still runs when persistence fails so connected
+  sessions end immediately; callers retain the inactive-user check as the
+  durable authorization boundary for deactivation.
+  """
+  @spec end_user_sessions(String.t(), atom()) :: :ok
+  def end_user_sessions(user_id, reason) when is_binary(user_id) and is_atom(reason) do
+    case revoke_all_for_user(user_id, reason: reason) do
+      :ok ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning("User session revocation failed",
+          user_id: user_id,
+          reason: reason,
+          error: inspect(error)
+        )
+    end
+
+    topic = "users_sessions:#{user_id}"
+
+    Phoenix.PubSub.broadcast(
+      ServiceRadarWebNG.PubSub,
+      topic,
+      %Phoenix.Socket.Broadcast{topic: topic, event: "disconnect", payload: %{}}
+    )
   end
 
   @spec check_user_revoked(String.t(), DateTime.t() | integer() | binary() | nil) ::
@@ -131,6 +161,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
   end
 
   defp default_ttl_ms, do: @default_ttl_seconds * 1000
+  defp user_marker_ttl_ms, do: @user_marker_ttl_seconds * 1000
 
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, @cleanup_interval)

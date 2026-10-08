@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   alias ServiceRadar.Identity.RoleProfilePolicy
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.AdminApi.LocalParams
+  alias ServiceRadarWebNG.Auth.TokenRevocation
 
   require Ash.Query
 
@@ -74,10 +75,13 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   @impl true
   def deactivate_user(scope, id) do
-    with {:ok, user} <- Ash.get(User, id, scope: scope) do
-      user
-      |> Ash.Changeset.for_update(:deactivate, %{}, scope: scope)
-      |> Ash.update(scope: scope)
+    with {:ok, user} <- Ash.get(User, id, scope: scope),
+         {:ok, user} <-
+           user
+           |> Ash.Changeset.for_update(:deactivate, %{}, scope: scope)
+           |> Ash.update(scope: scope) do
+      TokenRevocation.end_user_sessions(user.id, :user_deactivated)
+      {:ok, user}
     end
   end
 
