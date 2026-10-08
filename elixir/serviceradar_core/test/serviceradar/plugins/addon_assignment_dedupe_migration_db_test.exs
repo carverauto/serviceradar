@@ -99,13 +99,14 @@ defmodule ServiceRadar.Plugins.AddonAssignmentDedupeMigrationDbTest do
       [rollout_id, loser_id, uid, ctx.addon_id, ctx.package_id]
     )
 
-    Repo.query!("SAVEPOINT before_assignment_cleanup")
-
+    # Let the sandbox own the savepoint around the whole cleanup. Each query
+    # outside a Repo transaction has its own sandbox savepoint, whose release
+    # also releases a manually nested savepoint.
     assert_raise Postgrex.Error, ~r/Resolve active rollouts on shadowed add-on assignments/, fn ->
-      Enum.each(Migration.cleanup_statements(), &Repo.query!/1)
+      Repo.transaction(fn ->
+        Enum.each(Migration.cleanup_statements(), &Repo.query!/1)
+      end)
     end
-
-    Repo.query!("ROLLBACK TO SAVEPOINT before_assignment_cleanup")
 
     assert %{rows: rows} =
              Repo.query!(
