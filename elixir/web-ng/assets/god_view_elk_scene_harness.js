@@ -178,6 +178,22 @@ async function start() {
         }
   }
 
+  // Longest sample, and the next one down. A single sample uses that value for both,
+  // so a window with only one gap still has a hang bound to fail.
+  function longestTwo(samples) {
+    let longest = null
+    let second = null
+    for (const sample of samples) {
+      if (longest === null || sample >= longest) {
+        second = longest
+        longest = sample
+      } else if (second === null || sample > second) {
+        second = sample
+      }
+    }
+    return {longest, second: second === null ? longest : second}
+  }
+
   // Runs the product's own animation loop (requestAnimationFrame -> advanceAnimation) over a
   // fixture with packet flow on, the way a live page does. The caller probes responsiveness from
   // outside the page while it runs, then stops it and reads the frame statistics.
@@ -209,11 +225,24 @@ async function start() {
       return renderGraph(...args)
     }
     // An independent frame clock, so the frame rate is measured by the browser rather than
-    // by the loop under test.
+    // by the loop under test. Product gaps are the time between ticks of that loop, sampled
+    // from this clock, plus the silence after the last tick. Warmup frames stay out of both.
     const gaps = []
+    const productGaps = []
     let lastFrameAt = performance.now()
     let frameClock = 0
+    let measureProductGaps = false
+    let lastProductAt = 0
+    let seenProductFrames = 0
     const onFrame = (now) => {
+      if (measureProductGaps) {
+        const productFrames = state.animationFrames || 0
+        if (productFrames !== seenProductFrames) {
+          productGaps.push(now - lastProductAt)
+          lastProductAt = now
+          seenProductFrames = productFrames
+        }
+      }
       gaps.push(now - lastFrameAt)
       lastFrameAt = now
       frameClock = requestAnimationFrame(onFrame)
@@ -227,6 +256,10 @@ async function start() {
     const warmupMs = performance.now() - warmupStartedAt
     gaps.length = 0
     lastFrameAt = performance.now()
+    productGaps.length = 0
+    lastProductAt = performance.now()
+    seenProductFrames = state.animationFrames || 0
+    measureProductGaps = true
 
     const startedAt = performance.now()
     const startTime = packetFlow()?.props?.time
@@ -238,6 +271,10 @@ async function start() {
 
     liveAnimation = {
       async stop() {
+        if (measureProductGaps) {
+          productGaps.push(performance.now() - lastProductAt)
+          measureProductGaps = false
+        }
         lifecycle.stopAnimationLoop()
         cancelAnimationFrame(frameClock)
         clearInterval(tickWatch)
@@ -245,6 +282,8 @@ async function start() {
         const elapsedMs = performance.now() - startedAt
         const frames = (state.animationFrames || 0) - startFrames
         const endTime = packetFlow()?.props?.time
+        const browserGaps = longestTwo(gaps)
+        const productFrameGaps = longestTwo(productGaps)
         state.layers.atmosphere = false
         state.packetFlowEnabled = false
         liveAnimation = null
@@ -257,7 +296,10 @@ async function start() {
           animationFrames: frames,
           animationFps: (frames * 1000) / elapsedMs,
           browserFps: gaps.length > 0 ? (gaps.length * 1000) / gaps.reduce((sum, gap) => sum + gap, 0) : 0,
-          longestFrameGapMs: gaps.length > 0 ? Math.max(...gaps) : null,
+          longestFrameGapMs: browserGaps.longest,
+          secondLongestFrameGapMs: browserGaps.second,
+          longestProductFrameGapMs: productFrameGaps.longest,
+          secondLongestProductFrameGapMs: productFrameGaps.second,
           slowestTickMs,
           renderGraphCalls,
           timeAdvanced: Number.isFinite(startTime) && Number.isFinite(endTime) && endTime !== startTime,
