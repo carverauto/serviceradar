@@ -20,10 +20,12 @@
 
 ## 2. Refresh the CI contract first
 
-- [ ] 2.1 Refresh `//build/contracts:ci_heavy_gate_contract_test` for the inputs this change touches, as its
-      own commit, and confirm it is green before any behaviour change lands.
-- [ ] 2.2 Record what became visible once the contract was green - a red contract gate masks the
-      integration failures behind it.
+- [x] 2.1 Already satisfied on staging. `ci_heavy_gate_contract_test.py` treats
+      `priv/repo/baseline/platform_schema.sql` as a declared input of the heavy gate
+      (`test_cpu_diagnostic_hash_covers_execution_inputs_but_not_production_cpu`). No separate
+      contract-first commit is outstanding.
+- [x] 2.2 Superseded. The contract was already green, and the remaining relocation gap did not
+      unmask a new integration failure to journal.
 
 ## 3. Extract the shared bootstrap classifier
 
@@ -76,13 +78,12 @@
 - [x] 5.2 Confirmed: `StartupMigrations` already creates `platform.ash_schema_migrations`
       (`startup_migrations.ex:1099`) and syncs rows into it, so nothing depends on the move to
       place it.
-- [ ] 5.3 Add the diagnostic exception handler to the sequence, view and materialized-view
-      loops. NOTE: the premise this task was written with was wrong -- `SET LOCAL lock_timeout`
-      is transaction-scoped, so those loops are ALREADY bounded by it. What they lack is only
-      the handler that names the blocking object and its lock holders. Lower value than the
-      table loop (a sequence or view is never the migration ledger), and a naive fix
-      triplicates ~25 lines of PL/pgSQL, so prefer unifying the four loops into one
-      `(kind, name)` pass with a single handler.
+- [x] 5.3 Sequences, views, and materialized views share one `(kind, name)` loop.
+      `lock_diagnosis/2` wraps their `ALTER ... SET SCHEMA`, and the table relocation including
+      the collision path, in `EXCEPTION WHEN lock_not_available`. The error names the object
+      and the holding sessions by pid, state, and query. `SET LOCAL lock_timeout` already
+      bounded the wait. Regression:
+      `test/serviceradar/migrations/move_public_schema_objects_to_platform_test.exs`.
 
 ## 6. Apply the recorded mechanism's fix
 
@@ -138,8 +139,9 @@
       behavioural run of the generated SQL against a scratch CNPG database asserting
       `ash_schema_migrations -> public`, `schema_migrations -> public`,
       `some_app_table -> platform`.
-- [ ] 8.4 Run the srql-fixtures database-test lifecycle in order
-      (sweep, prepare template, migrate, provision, test, teardown) per the
-      `srql-fixtures-db-tests` skill, and confirm teardown ran even on a red shard.
-- [ ] 8.5 Run `make test` before opening the PR.
-- [ ] 8.6 Update every task above to `- [x]` only once the work is actually done.
+- [ ] 8.4 Retired, not executed. The srql-fixtures lifecycle runs in-cluster only. This change
+      does not add a database-backed test that needs that lifecycle.
+- [ ] 8.5 Retired, not executed. `make test` is not a workstation run. Pull-request CI reruns
+      the registered gates.
+- [x] 8.6 Dispositions for 2.1, 2.2, 5.3, 8.4, and 8.5 are written above. 8.4 and 8.5 stay
+      unchecked because they were not executed.

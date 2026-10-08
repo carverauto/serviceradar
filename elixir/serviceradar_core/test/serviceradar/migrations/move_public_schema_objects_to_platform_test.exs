@@ -60,5 +60,52 @@ defmodule ServiceRadar.Migrations.MovePublicSchemaObjectsToPlatformTest do
 
       refute sql =~ "ALTER TABLE public.ash_schema_migrations"
     end
+
+    test "a lock timeout names the sequence, view, or materialized view it could not move" do
+      sql = Migration.move_objects_sql(["schema_migrations"])
+
+      for {class, catalog} <- [
+            {"SEQUENCE", "pg_sequences"},
+            {"VIEW", "pg_views"},
+            {"MATERIALIZED VIEW", "pg_matviews"}
+          ] do
+        assert sql =~ catalog
+
+        assert diagnoses_lock_timeout?(sql, class),
+               "expected #{class} relocation to name the object and its lock holders"
+      end
+    end
+  end
+
+  # The generated statement is the migration. A class is diagnosed when its
+  # ALTER sits in a lock_not_available handler that reports pid, state, and query.
+  defp diagnoses_lock_timeout?(sql, class) do
+    literal = "ALTER #{class} public.%I SET SCHEMA platform"
+    unified = "ALTER %s public.%I SET SCHEMA platform"
+
+    cond do
+      String.contains?(sql, literal) ->
+        handler_names_holder?(sql, literal)
+
+      String.contains?(sql, unified) and String.contains?(sql, "'#{class}'") ->
+        handler_names_holder?(sql, unified)
+
+      true ->
+        false
+    end
+  end
+
+  defp handler_names_holder?(sql, alter) do
+    case :binary.match(sql, alter) do
+      :nomatch ->
+        false
+
+      {pos, length} ->
+        rest = binary_part(sql, pos + length, byte_size(sql) - pos - length)
+        window = rest |> String.split("END LOOP", parts: 2) |> hd()
+
+        String.contains?(window, "EXCEPTION WHEN lock_not_available") and
+          String.contains?(window, "pid=%s state=%s query=%s")
+    end
   end
 end
