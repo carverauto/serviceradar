@@ -905,6 +905,18 @@ npm.npm_translate_lock(
 )
 use_repo(npm, "web_ng_npm")
 
+# The real CLI acceptance lane needs only YAML; dashboard tooling is lazy-loaded.
+# Reuse the version and integrity already recorded in js/cli/package-lock.json.
+npm.npm_import(
+    name = "cli_yaml",
+    package = "yaml",
+    version = "2.9.0",
+    integrity = "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==",
+    link_packages = {"js/cli": ["yaml"]},
+    root_package = "js/cli",
+)
+use_repo(npm, "cli_yaml", "cli_yaml__links")
+
 # --- External binary artifacts ----------------------------------------------
 
 http_file = use_repo_rule(

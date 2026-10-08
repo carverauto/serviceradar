@@ -1,6 +1,32 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library")
+load("@cli_yaml__links//:defs.bzl", "npm_link_imported_package")
 
 package(default_visibility = ["//visibility:public"])
+
+npm_link_imported_package(name = "node_modules")
+
+js_library(
+    name = "plugin_config_sources",
+    srcs = glob(["src/**/*.ts"]),
+    deps = [":node_modules/yaml"],
+)
+
+# Execute the production entry point for plugin admin acceptance. The bundle
+# leaves dashboard-only imports external; package publication still uses tsc.
+js_binary(
+    name = "plugin_config_cli",
+    entry_point = "//elixir/web-ng/assets:plugin_config_cli.mjs",
+)
+
+# Consumers resolve the executable through its provider, independent of the
+# rules_js launcher's output layout.
+genrule(
+    name = "plugin_config_cli_runfiles_path",
+    outs = ["plugin_config_cli.runfiles-path"],
+    cmd = "printf '%s\\n' '$(rootpath :plugin_config_cli)' > $@",
+    tools = [":plugin_config_cli"],
+)
 
 filegroup(
     name = "srcs",

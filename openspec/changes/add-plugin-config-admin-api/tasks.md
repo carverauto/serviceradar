@@ -31,7 +31,7 @@
 - [ ] 6. Demo playbook
   - [x] 6.1 Check in `playbooks/demo-plugins.yaml` with non-secret params and env var names
   - [x] 6.2 Document apply against demo.serviceradar.cloud
-  - [ ] 6.3 Prove apply against demo (or local-web-ng) and show assignments/rules via the API
+  - [ ] 6.3 Prove apply through real web-ng HTTP and CNPG using hosted synthetic fixtures, and show assignments/rules via the API
 
 - [x] 7. Docs
   - [x] 7.1 Update `docs/docs/credentials.md` so it no longer claims there is no REST surface
@@ -50,12 +50,20 @@
   stub admin API: the playbook at that revision
   planned correctly; this is not verification of the current playbook.
 
-## Why 6.3 stays open
+## Remaining acceptance proof
 
-A live apply needs this branch deployed (demo runs staging, which lacks the
-new routes) plus real demo secret values and a product API token. That is a
-post-merge rollout step: merge, release, roll demo, then run
-`serviceradar-cli plugin apply --file playbooks/demo-plugins.yaml` with the
-demo env vars set and confirm via
-`plugin assignments/rules/controllers list`. No secrets belong in git at any
-point.
+The admin routes are now on staging; their absence is no longer a blocker.
+The existing canned CLI server and controller stubs do not prove that apply
+persists configuration through the real API.
+
+The approved replacement for the one-time deployment smoke test is
+`//elixir/web-ng:plugin_config_cli_db_test`, run by hosted BuildBuddy against
+the guarded lifecycle's disposable CNPG clone. It builds the real CLI on RBE,
+starts the real HTTP endpoint, applies invented credentials, a scoped rule,
+an Ansible controller and a plugin assignment, then reads them back through
+the CLI. A second apply removes the secret environment values and verifies
+stable resource identities, unchanged encrypted material and no duplicate
+assignment. No monitored deployment is modified.
+
+Task 6.3 remains unchecked until that hosted execution passes. Record its
+invocation and actual result before completing the checklist and archiving.
