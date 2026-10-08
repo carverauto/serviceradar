@@ -170,12 +170,31 @@ already exist there rather than being added under cutover pressure.
 - [x] 9.4 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only` clean.
       Elixir Quality (web-ng) green in CI on PR #4565 (3m6s); `mix format
       --check-formatted` also clean locally on both changed files.
-- [ ] 9.5 Verify each panel query returns correct aggregates against synthetic MTR
+- [x] 9.5 Verify each panel query returns correct aggregates against synthetic MTR
       data, including a group with zero probes sent (expect NULL, not zero) and a
       group whose hops sent unequal probe counts (expect the ratio-of-sums result
       to differ from the mean-of-ratios result).
-- [ ] 9.6 Verify the built-in dashboard renders every panel, and that a second
+      Executed by `SystemReportsDbTest` "mtr path analytics panel queries
+      aggregate synthetic hops" (8 tests, 0 failures in that file). Each shipped
+      panel query is scoped to TEST-NET `192.0.2.203`, compiled with SRQL mode
+      nil so the SQL is the CNPG formula, and run against inserted rows. The
+      shared hop (`192.0.2.185`, 100 sent/100 received plus 1 sent/0 received)
+      returns loss `100/101`, which is the ratio of sums, not the mean of the
+      stored percentages (50). The hop with zero probes sent (`192.0.2.186`)
+      returns NULL loss and NULL weighted latency. Two traces, one reached and
+      one missed, return reach rate 0.5 and count 2. The one-hour trend of those
+      same rows is `100/101`. StarRocks row execution is not part of this
+      fixture; its formula is the same CASE and is already asserted as SQL text
+      in the srql crate.
+- [x] 9.6 Verify the built-in dashboard renders every panel, and that a second
       startup does not duplicate it.
+      "creates both built-in dashboards when absent" asserts the seeded panel
+      titles equal the shipped titles, not only the count. "does not overwrite
+      an existing dashboard on reseed", "does not remove an operator-added
+      panel", and "concurrent startup seeding creates each dashboard once and
+      every seeder succeeds" cover the second startup. Non-overlapping layouts
+      are asserted in `system_reports_test.exs`. The file run for 9.5 includes
+      these cases.
 - [x] 9.7 Verify a `stats:` clause against each module from section 5 errors
       rather than returning rows. Asserted by
       `entities_without_aggregation_refuse_a_stats_clause`, which exercises all six
