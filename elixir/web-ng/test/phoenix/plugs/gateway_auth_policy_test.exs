@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
       |> GatewayAuth.call([])
 
     assert conn.halted
-    assert conn.status == 401
+    assert redirected_to(conn) == ~p"/users/log-in"
     refute get_session(conn, "user_token")
     refute conn.assigns[:current_scope]
   end
