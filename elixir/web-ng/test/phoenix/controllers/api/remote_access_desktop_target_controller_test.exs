@@ -323,6 +323,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
 
     {:ok, assigned} =
       User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
+
     RBAC.invalidate_user_cache(assigned.id)
     RBAC.clear_process_cache()
     assigned
