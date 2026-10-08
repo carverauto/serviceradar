@@ -190,7 +190,7 @@ impl HealthIndex {
         }
         // Build Fenwick partial sums in O(N), after releasing the old resource lock.
         for i in 1..result.counts.len() {
-            let parent = i + (i & i.wrapping_neg());
+            let parent = i + i.isolate_lowest_one();
             if parent < result.counts.len() {
                 for column in 0..3 {
                     result.counts[parent][column] += result.counts[i][column];
@@ -264,7 +264,7 @@ impl HealthIndex {
                     self.counts[position][column] =
                         self.counts[position][column] - old[column] + new[column];
                 }
-                position += position & position.wrapping_neg();
+                position += position.isolate_lowest_one();
             }
         }
         self.revision = revision;
@@ -336,7 +336,7 @@ impl HealthIndex {
             for (i, count) in result.iter_mut().enumerate() {
                 *count += self.counts[end][i];
             }
-            end -= end & end.wrapping_neg();
+            end -= end.isolate_lowest_one();
         }
         result
     }
