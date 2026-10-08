@@ -243,7 +243,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
           slot.callers,
           max(slot.follow_coalesced, 1),
           0,
-          slot.follow_scope
+          merge_scope(slot.scope, slot.follow_scope)
         )
 
       true ->

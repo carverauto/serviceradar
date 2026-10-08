@@ -100,6 +100,46 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidatorTest do
     refute_received {:timer, _}
   end
 
+  test "exhausted retries keep failed and pending owners in the follow-up" do
+    parent = self()
+    attach(parent)
+
+    {_pid, server} =
+      start_invalidator(parent,
+        push: fn type, scope ->
+          send(parent, {:scope_pushed, type, scope, self()})
+
+          receive do
+            :continue -> :ok
+          end
+        end
+      )
+
+    ConfigInvalidator.request(server, :snmp, scope: ["agent-01"])
+    fire_when_scheduled(server)
+    assert_receive {:scope_pushed, :snmp, _, first_worker}
+    ConfigInvalidator.request(server, :snmp, scope: ["agent-02"])
+    _ = :sys.get_state(server)
+    Process.exit(first_worker, :kill)
+    assert_receive {:telemetry, _, %{status: :killed}}
+    fire_when_scheduled(server)
+    assert_receive {:scope_pushed, :snmp, retry_scope, retry_worker}
+    assert retry_scope == MapSet.new([{:agent, "agent-01"}, {:agent, "agent-02"}])
+    ConfigInvalidator.request(server, :snmp, scope: ["agent-03"])
+    _ = :sys.get_state(server)
+    Process.exit(retry_worker, :kill)
+    assert_receive {:telemetry, _, %{status: :killed}}
+    fire_when_scheduled(server)
+    assert_receive {:scope_pushed, :snmp, follow_scope, follow_worker}
+
+    assert follow_scope ==
+             MapSet.new([{:agent, "agent-01"}, {:agent, "agent-02"}, {:agent, "agent-03"}])
+
+    send(follow_worker, :continue)
+    assert_receive {:telemetry, _, %{status: :ok}}
+    refute_received {:timer, _}
+  end
+
   test "50 rapid snmp invalidates coalesce to one rebuild" do
     parent = self()
     attach(parent)
