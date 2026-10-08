@@ -34,6 +34,64 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+func useSystemctlFixture(t *testing.T, path string) {
+	t.Helper()
+	original := systemctlCommandPath
+	systemctlCommandPath = path
+	t.Cleanup(func() { systemctlCommandPath = original })
+}
+
+func useSetcapFixture(t *testing.T, path string) {
+	t.Helper()
+	original := setcapCommandPath
+	setcapCommandPath = path
+	t.Cleanup(func() { setcapCommandPath = original })
+}
+
+func TestPrivilegedSystemToolsIgnoreCallerPATH(t *testing.T) {
+	trustedDir := t.TempDir()
+	callerDir := t.TempDir()
+	trustedSystemctlLog := filepath.Join(trustedDir, "systemctl.log")
+	callerSystemctlLog := filepath.Join(callerDir, "systemctl.log")
+	trustedChconLog := filepath.Join(trustedDir, "chcon.log")
+	callerChconLog := filepath.Join(callerDir, "chcon.log")
+
+	writeCommandFixture(t, filepath.Join(trustedDir, "systemctl"), trustedSystemctlLog)
+	writeCommandFixture(t, filepath.Join(callerDir, "systemctl"), callerSystemctlLog)
+	writeCommandFixture(t, filepath.Join(trustedDir, "chcon"), trustedChconLog)
+	writeCommandFixture(t, filepath.Join(callerDir, "chcon"), callerChconLog)
+
+	useSystemctlFixture(t, filepath.Join(trustedDir, "systemctl"))
+	originalChcon := chconCommandPath
+	chconCommandPath = filepath.Join(trustedDir, "chcon")
+	t.Cleanup(func() { chconCommandPath = originalChcon })
+	t.Setenv("PATH", callerDir)
+
+	if err := runSystemctl(context.Background(), "daemon-reload"); err != nil {
+		t.Fatalf("run trusted systemctl: %v", err)
+	}
+	relabelPathAsBinT("/synthetic/addon")
+
+	for _, path := range []string{trustedSystemctlLog, trustedChconLog} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("trusted helper was not executed: %v", err)
+		}
+	}
+	for _, path := range []string{callerSystemctlLog, callerChconLog} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("caller PATH helper executed: %s", path)
+		}
+	}
+}
+
+func writeCommandFixture(t *testing.T, path, logPath string) {
+	t.Helper()
+	script := "#!/bin/sh\n: > " + logPath + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidateAddonUnitName(t *testing.T) {
 	ok := []string{"serviceradar-netprobe.service", "serviceradar-bumblebee-scan.timer"}
 	for _, name := range ok {
@@ -320,6 +378,7 @@ func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
 	t.Setenv("ENABLE_ONCE", filepath.Join(root, "enabled-once"))
 	t.Setenv("STATE_FILE", statePath)
 	t.Setenv("CAPTURED_STATE", captured)
@@ -389,6 +448,7 @@ func TestInstallAddonSystemdUnitsDoesNotReenableWhenStateRestoreFails(t *testing
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
 	t.Setenv("SYSTEMCTL_LOG", logPath)
 
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
@@ -485,6 +545,7 @@ func TestInstallAddonSystemdUnitsIgnoresSnapshotDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
 
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
@@ -564,6 +625,7 @@ func TestInstallAddonSystemdUnitsRestoresPreviousUnitWhenActivationFails(t *test
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
 	t.Setenv("SYSTEMCTL_LOG", logPath)
 	t.Setenv("SYSTEMCTL_FAIL_ONCE", failOnce)
 
@@ -638,6 +700,7 @@ func TestInstallAddonSystemdUnitsSetcapTargetsPrivilegedBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", setcapDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSetcapFixture(t, filepath.Join(setcapDir, "setcap"))
 	t.Setenv("SETCAP_LOG", setcapLog)
 
 	writableBin := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
@@ -731,6 +794,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(dir, "systemctl"))
 }
 
 func TestInstallAddonSystemdUnitsFailureVectors(t *testing.T) {
@@ -1216,6 +1280,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(dir, "systemctl"))
 	t.Setenv("TIMER_FIXTURE_STATE", state)
 	t.Setenv("TIMER_FIXTURE_RUN", run)
 	t.Setenv("TIMER_FIXTURE_SERVICE", service)
@@ -1434,6 +1499,7 @@ func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
 
 	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
 		t.Fatal(err)
