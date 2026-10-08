@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
      |> assign(:limit, @default_limit)
      |> assign(:summary, empty_summary())
      |> assign(:bmp_live?, false)
+     |> assign(:tab_loading, true)
      |> assign(:current_params, %{})
      |> stream(:bmp_events, [], dom_id: &bmp_event_dom_id/1)
      |> SRQLPage.init("bmp_events", default_limit: @default_limit)}
@@ -31,18 +32,24 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
+    # Return navigation state before reading the routing list.
     live? = next_bmp_live_state(socket, params)
-
-    socket = SRQLPage.load_list(socket, params, uri, :bmp_events, default_limit: @default_limit, max_limit: @max_limit)
-
-    summary = compute_summary(socket.assigns.bmp_events)
 
     {:noreply,
      socket
-     |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
-     |> assign(:summary, summary)
      |> assign(:bmp_live?, live?)
-     |> assign(:current_params, params)}
+     |> assign(:current_params, params)
+     |> assign(:current_uri, uri)
+     |> SRQLPage.sync_from_params(params, uri, default_limit: @default_limit, max_limit: @max_limit)
+     |> then(fn socket ->
+       if connected?(socket) do
+         socket
+         |> assign(:tab_loading, true)
+         |> tap(fn _ -> send(self(), {:load_bmp_list, params}) end)
+       else
+         socket
+       end
+     end)}
   end
 
   # Live tailing survives only on the head of the same result set: a cursor
@@ -131,6 +138,28 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
   end
 
   @impl true
+  def handle_info({:load_bmp_list, params}, socket) do
+    if Map.get(socket.assigns, :current_params, %{}) == params do
+      uri = Map.get(socket.assigns, :current_uri)
+
+      socket =
+        SRQLPage.load_list(socket, params, uri, :bmp_events,
+          default_limit: @default_limit,
+          max_limit: @max_limit
+        )
+
+      summary = compute_summary(socket.assigns.bmp_events)
+
+      {:noreply,
+       socket
+       |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
+       |> assign(:summary, summary)
+       |> assign(:tab_loading, false)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:causal_signal_ingested, _event}, socket) do
     # Causal signal batches carry BMP routing rows, so an ingest pulse can
     # surface newly arrived BMP events — but only while live tailing is on.
@@ -211,86 +240,105 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
           </.ui_button>
         </div>
 
-        <.summary_cards summary={@summary} />
+        <div
+          :if={@tab_loading}
+          id="bmp-tab-loading"
+          role="status"
+          class="space-y-3 py-6 text-xs text-sr-muted"
+        >
+          <div class="flex items-center gap-2">
+            <.ui_spinner size="sm" />
+            <span>Loading...</span>
+          </div>
+          <div aria-hidden="true" class="space-y-3 animate-pulse">
+            <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+            <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+            <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+          </div>
+        </div>
 
-        <.ui_panel>
-          <:header>
-            <div class="min-w-0">
-              <div class="text-sm font-semibold tracking-tight text-sr-ink">BMP Stream</div>
-              <div class="text-xs leading-relaxed text-sr-muted">
-                {if @bmp_live?,
-                  do: "Streaming newest BMP routing updates.",
-                  else: "Newest BMP routing events first."}
+        <div id="bmp-tab-content" hidden={@tab_loading}>
+          <.summary_cards summary={@summary} />
+
+          <.ui_panel>
+            <:header>
+              <div class="min-w-0">
+                <div class="text-sm font-semibold tracking-tight text-sr-ink">BMP Stream</div>
+                <div class="text-xs leading-relaxed text-sr-muted">
+                  {if @bmp_live?,
+                    do: "Streaming newest BMP routing updates.",
+                    else: "Newest BMP routing events first."}
+                </div>
               </div>
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <div class="text-xs text-sr-muted tabular-nums">
+                  {length(@bmp_events)} row{if length(@bmp_events) == 1, do: "", else: "s"}
+                </div>
+                <.live_toggle_button
+                  id="bmp-live-toggle"
+                  toggle_event="toggle_bmp_live"
+                  live?={@bmp_live?}
+                  start_title="Start live BMP streaming"
+                  pause_title="Pause live BMP streaming"
+                />
+              </div>
+            </:header>
+
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm", zebra: true)}>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Severity</th>
+                    <th>Router</th>
+                    <th>Peer</th>
+                    <th>Prefix</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody id="bmp-events" phx-update="stream">
+                  <tr :if={length(@bmp_events) == 0}>
+                    <td colspan="7" class="text-center text-sr-muted py-8">
+                      No BMP events found.
+                    </td>
+                  </tr>
+                  <%= for {dom_id, event} <- @streams.bmp_events do %>
+                    <tr id={dom_id}>
+                      <td class="whitespace-nowrap text-xs">
+                        <.bmp_event_time
+                          id={"#{dom_id}-time"}
+                          value={event["time"] || event[:time]}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
+                      </td>
+                      <td>
+                        <.ui_badge size="sm" variant="ghost">
+                          {event["event_type"] || event[:event_type] || "unknown"}
+                        </.ui_badge>
+                      </td>
+                      <td>{event["severity_id"] || event[:severity_id] || "—"}</td>
+                      <td>{event["router_ip"] || event[:router_ip] || "—"}</td>
+                      <td>{event["peer_ip"] || event[:peer_ip] || "—"}</td>
+                      <td>{event["prefix"] || event[:prefix] || "—"}</td>
+                      <td class="max-w-xl truncate">{event["message"] || event[:message] || "—"}</td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
             </div>
-            <div class="flex flex-wrap items-center justify-end gap-2">
-              <div class="text-xs text-sr-muted tabular-nums">
-                {length(@bmp_events)} row{if length(@bmp_events) == 1, do: "", else: "s"}
-              </div>
-              <.live_toggle_button
-                id="bmp-live-toggle"
-                toggle_event="toggle_bmp_live"
-                live?={@bmp_live?}
-                start_title="Start live BMP streaming"
-                pause_title="Pause live BMP streaming"
+
+            <div class="mt-4 pt-4 border-t border-sr-line">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                limit={@limit}
+                current_page={Map.get(assigns, :pagination_page, 1)}
+                result_count={length(@bmp_events)}
               />
             </div>
-          </:header>
-
-          <div class="sr-ui-table-shell">
-            <table class={ui_table_class(size: "sm", zebra: true)}>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Type</th>
-                  <th>Severity</th>
-                  <th>Router</th>
-                  <th>Peer</th>
-                  <th>Prefix</th>
-                  <th>Message</th>
-                </tr>
-              </thead>
-              <tbody id="bmp-events" phx-update="stream">
-                <tr :if={length(@bmp_events) == 0}>
-                  <td colspan="7" class="text-center text-sr-muted py-8">
-                    No BMP events found.
-                  </td>
-                </tr>
-                <%= for {dom_id, event} <- @streams.bmp_events do %>
-                  <tr id={dom_id}>
-                    <td class="whitespace-nowrap text-xs">
-                      <.bmp_event_time
-                        id={"#{dom_id}-time"}
-                        value={event["time"] || event[:time]}
-                        timezone={@current_scope.user.timezone || "Etc/UTC"}
-                      />
-                    </td>
-                    <td>
-                      <.ui_badge size="sm" variant="ghost">
-                        {event["event_type"] || event[:event_type] || "unknown"}
-                      </.ui_badge>
-                    </td>
-                    <td>{event["severity_id"] || event[:severity_id] || "—"}</td>
-                    <td>{event["router_ip"] || event[:router_ip] || "—"}</td>
-                    <td>{event["peer_ip"] || event[:peer_ip] || "—"}</td>
-                    <td>{event["prefix"] || event[:prefix] || "—"}</td>
-                    <td class="max-w-xl truncate">{event["message"] || event[:message] || "—"}</td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="mt-4 pt-4 border-t border-sr-line">
-            <.ui_pagination
-              prev_cursor={Map.get(@pagination, "prev_cursor")}
-              next_cursor={Map.get(@pagination, "next_cursor")}
-              limit={@limit}
-              current_page={Map.get(assigns, :pagination_page, 1)}
-              result_count={length(@bmp_events)}
-            />
-          </div>
-        </.ui_panel>
+          </.ui_panel>
+        </div>
       </div>
     </Layouts.app>
     """

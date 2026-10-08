@@ -21,20 +21,39 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.View do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <Summary.render summary={@summary} has_filter={@has_filter} timezone={@timezone} />
+          <div
+            :if={@tab_loading}
+            id="services-tab-loading"
+            role="status"
+            class="space-y-3 py-6 text-xs text-sr-muted"
+          >
+            <div class="flex items-center gap-2">
+              <.ui_spinner size="sm" />
+              <span>Loading...</span>
+            </div>
+            <div aria-hidden="true" class="space-y-3 animate-pulse">
+              <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+              <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+              <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+            </div>
+          </div>
 
-          <.ui_panel>
-            <:header>
-              <div class="min-w-0">
-                <div class="text-sm font-semibold">Active Service Checks</div>
-                <div class="text-xs text-sr-muted">
-                  Latest plugin check per service (sorted with failures first).
+          <div id="services-tab-content" hidden={@tab_loading}>
+            <Summary.render summary={@summary} has_filter={@has_filter} timezone={@timezone} />
+
+            <.ui_panel>
+              <:header>
+                <div class="min-w-0">
+                  <div class="text-sm font-semibold">Active Service Checks</div>
+                  <div class="text-xs text-sr-muted">
+                    Latest plugin check per service (sorted with failures first).
+                  </div>
                 </div>
-              </div>
-            </:header>
+              </:header>
 
-            <CardGrid.render cards={@streams.service_cards} timezone={@timezone} />
-          </.ui_panel>
+              <CardGrid.render cards={@streams.service_cards} timezone={@timezone} />
+            </.ui_panel>
+          </div>
         </div>
       </div>
     </Layouts.app>

@@ -60,6 +60,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
   end
 
   describe "run_concurrently/2" do
+    test "admits at most four panel loaders at a time" do
+      parent = self()
+      supervisor = start_supervised!(Task.Supervisor)
+
+      jobs =
+        for n <- 1..8 do
+          {n,
+           fn ->
+             send(parent, {:panel_started, self()})
+
+             receive do
+               :release -> n
+             end
+           end, :default}
+        end
+
+      task = Task.Supervisor.async_nolink(supervisor, fn -> NetflowRuntime.run_concurrently(jobs) end)
+
+      first_wave =
+        for _ <- 1..4 do
+          assert_receive {:panel_started, pid}
+          pid
+        end
+
+      refute_receive {:panel_started, _pid}
+      Enum.each(first_wave, &send(&1, :release))
+
+      for _ <- 1..4 do
+        assert_receive {:panel_started, pid}
+        send(pid, :release)
+      end
+
+      assert Task.await(task) == Map.new(1..8, &{&1, &1})
+    end
+
     test "returns every loader's result under its key" do
       assert NetflowRuntime.run_concurrently([
                {:ports, fn -> [443, 53] end, []},

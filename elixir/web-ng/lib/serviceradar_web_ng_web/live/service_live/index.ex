@@ -30,25 +30,29 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:params, %{})
      |> assign(:refresh_pending, false)
      |> assign(:service_state_reconciled, false)
+     |> assign(:tab_loading, true)
      |> SRQLPage.init("services", default_limit: @default_limit)
      |> stream(:service_cards, [])}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
+    # Defer reads and reconciliation until after the connected shell renders.
     params = Data.ensure_default_query(params, @default_query)
 
-    # Plugin reconciliation and the service-card state read run on the
-    # connected render only; the static render is discarded on connect.
-    if connected?(socket) do
-      socket =
-        socket
-        |> maybe_reconcile_plugin_assignments()
-        |> load_services(params, uri)
+    socket =
+      socket
+      |> assign(:params, params)
+      |> assign(:current_uri, uri)
+      |> SRQLPage.sync_from_params(params, uri, default_limit: @default_limit, max_limit: @max_limit)
 
-      {:noreply, update_service_cards(socket)}
+    if connected?(socket) do
+      {:noreply,
+       socket
+       |> assign(:tab_loading, true)
+       |> tap(fn _ -> send(self(), {:load_services_data, params}) end)}
     else
-      {:noreply, load_services(socket, params, uri)}
+      {:noreply, socket}
     end
   end
 
@@ -90,6 +94,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   @impl true
+  def handle_info({:load_services_data, params}, socket) do
+    if Map.get(socket.assigns, :params, %{}) == params do
+      socket =
+        socket
+        |> maybe_reconcile_plugin_assignments()
+        |> load_services(params, Map.get(socket.assigns, :current_uri))
+        |> update_service_cards()
+
+      {:noreply, assign(socket, :tab_loading, false)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:service_status_updated, _status}, socket) do
     {:noreply, schedule_refresh(socket)}
   end
