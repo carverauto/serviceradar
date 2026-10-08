@@ -6,11 +6,30 @@ defmodule ServiceRadarWebNG.AdminApi.LocalTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AdminApi.Local
+  alias ServiceRadarWebNG.Auth.Guardian
 
   @moduletag :web_ng_shared_fixture_db
 
   setup do
     %{scope: Scope.for_user(admin_user_fixture())}
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "deactivate_user ends the user's sessions", %{scope: scope} do
+    user = viewer_user_fixture()
+    assert {:ok, token, _claims} = Guardian.create_access_token(user)
+    issued_before = DateTime.shift(DateTime.utc_now(), minute: -1)
+    ServiceRadarWebNGWeb.Endpoint.subscribe("users_sessions:#{user.id}")
+
+    assert {:ok, %User{status: :inactive}} = Local.deactivate_user(scope, user.id)
+
+    assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
+
+    assert {:error, _revoked} =
+             ServiceRadarWebNG.Auth.TokenRevocation.check_user_revoked(user.id, issued_before)
+
+    assert {:ok, %User{status: :active}} = Local.reactivate_user(scope, user.id)
+    assert {:error, :user_revoked} = Guardian.verify_token(token, token_type: "access")
   end
 
   test "update_user rolls back earlier changes when a later update fails", %{scope: scope} do

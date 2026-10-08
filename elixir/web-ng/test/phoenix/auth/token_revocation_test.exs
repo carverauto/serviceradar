@@ -59,6 +59,14 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
       marker_jti = "user:#{user_id}:all"
       assert {:error, :revoked} = TokenRevocation.check_revoked(marker_jti)
     end
+
+    @tag :web_ng_shared_fixture_db
+    test "keeps the user marker beyond the longest configurable token lifetime", %{user_id: user_id} do
+      assert :ok = TokenRevocation.revoke_all_for_user(user_id)
+      assert {:ok, marker} = TokenRevocation.get_revocation_info("user:#{user_id}:all")
+
+      assert DateTime.diff(marker.expires_at, marker.revoked_at, :day) >= 366
+    end
   end
 
   describe "check_user_tokens_revoked/2" do

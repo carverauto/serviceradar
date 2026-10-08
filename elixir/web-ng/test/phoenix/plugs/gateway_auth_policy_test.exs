@@ -102,6 +102,42 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
     assert to_string(updated_socket.assigns.current_scope.user.email) == email
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "passive proxy refuses an inactive mapped user without creating a session", %{conn: conn} do
+    put_auth_settings(%{
+      is_enabled: true,
+      mode: :passive_proxy,
+      jwt_header_name: "authorization",
+      jwt_public_key_pem: @rsa_public_pem,
+      jwt_jwks_url: nil,
+      jwt_issuer: @issuer,
+      jwt_audience: @audience
+    })
+
+    user = ServiceRadarWebNG.AshTestHelpers.viewer_user_fixture()
+    actor = system_actor()
+
+    user
+    |> Ash.Changeset.for_update(:update, %{external_id: "gateway|inactive"}, actor: actor)
+    |> Ash.update!(actor: actor)
+    |> ServiceRadar.Identity.User.deactivate(actor: actor)
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> put_private(:phoenix_format, "html")
+      |> put_req_header(
+        "authorization",
+        "Bearer " <> signed_token(%{"email" => to_string(user.email), "sub" => "gateway|inactive"})
+      )
+      |> GatewayAuth.call([])
+
+    assert conn.halted
+    assert conn.status == 401
+    refute get_session(conn, "user_token")
+    refute conn.assigns[:current_scope]
+  end
+
   test "valid gateway token requires mapped email and subject claims", %{conn: conn} do
     put_auth_settings(%{
       is_enabled: true,
