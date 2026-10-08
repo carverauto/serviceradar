@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler
 
+  @moduletag :db_free
+
   setup do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
 
@@ -134,6 +136,37 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "close_reason" => "viewer idle timeout",
              "preferred_playback_transport" => "membrane_webrtc"
            } = Jason.decode!(payload)
+  end
+
+  test "forwards relay-scoped WebRTC closures without stopping the relay stream" do
+    relay_session_id = Ecto.UUID.generate()
+    viewer_session_id = Ecto.UUID.generate()
+    state = %{relay_session_id: relay_session_id}
+    :ok = ServiceRadar.Camera.RelayPubSub.subscribe(relay_session_id)
+
+    :ok =
+      ServiceRadar.Camera.RelayPubSub.viewer_leave(relay_session_id, viewer_session_id, %{
+        transport: "membrane_webrtc",
+        reason: "webrtc viewer connection failed"
+      })
+
+    assert_receive {:camera_relay_webrtc_closed, payload}
+    assert {:push, {:text, json}, ^state} =
+             CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_closed, payload}, state)
+
+    assert %{
+             "type" => "camera_relay_webrtc_closed",
+             "relay_session_id" => ^relay_session_id,
+             "viewer_session_id" => ^viewer_session_id,
+             "reason" => "webrtc viewer connection failed"
+           } = Jason.decode!(json)
+
+    unrelated = %{payload | relay_session_id: Ecto.UUID.generate()}
+    assert {:ok, ^state} =
+             CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_closed, unrelated}, state)
+
+    :ok = ServiceRadar.Camera.RelayPubSub.viewer_leave(relay_session_id, Ecto.UUID.generate())
+    refute_receive {:camera_relay_webrtc_closed, _}
   end
 
   @tag :db_free
