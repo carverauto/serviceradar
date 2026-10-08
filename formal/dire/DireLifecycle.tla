@@ -3,7 +3,7 @@
 (* The DIRE device lifecycle as the Elixir code implements it today.        *)
 (* See openspec/specs/dire-formal-model; the design is D1-D8 in             *)
 (* openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md, and *)
-(* D5, D6, D10-D13 in openspec/changes/add-source-id-succession/design.md.  *)
+(* D5, D6, D10-D13 in openspec/changes/archive/2026-10-08-add-source-id-succession/design.md.  *)
 (*                                                                          *)
 (* Every action names the function it models. Known defects are switches in *)
 (* Bugs: an action takes its defective branch only when its switch is on.   *)

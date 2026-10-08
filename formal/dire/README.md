@@ -6,7 +6,7 @@ record per physical device, whatever its address, and whatever id its source rep
 under. The verification requirements are `openspec/specs/dire-formal-model`; the design is
 `openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md`, and the source id
 change (re-keying, retirement, succession, the grace delete and the sweep's restore) is D10 of
-`openspec/changes/add-source-id-succession/design.md`.
+`openspec/changes/archive/2026-10-08-add-source-id-succession/design.md`.
 
 Run them all with `bazel test --config=remote //formal/dire/...`; `make test` runs them too.
 
@@ -162,7 +162,7 @@ paths.
 
 Each switch is a defect today's code has, confirmed against the code before it was added.
 `CurrentBugs.tla` lists them for every configuration and trace that describes today's code.
-Each is fixed by a decision in `openspec/changes/add-source-id-succession/design.md`, or
+Each is fixed by a decision in `openspec/changes/archive/2026-10-08-add-source-id-succession/design.md`, or
 listed there as an open question until one is made; a new defect gets a row here.
 
 No switch is open today: `ResolutionBugs` and `LifecycleBugs` are both empty, and every switch
