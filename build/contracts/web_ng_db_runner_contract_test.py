@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "//elixir/web-ng:networks_live_db_test"
 SHARED_FIXTURE_SOURCES = {
+    "test/app_domain/admin_api/local_test.exs",
     "test/app_domain/bootstrap/admin_user_test.exs",
     "test/app_domain/dashboards/dashboard_export_round_trip_db_test.exs",
     "test/app_domain/dashboards/group_access_db_test.exs",
@@ -18,7 +19,9 @@ SHARED_FIXTURE_SOURCES = {
     "test/app_domain/extension_fleet_db_test.exs",
     "test/app_domain/otel_services_access_db_test.exs",
     "test/app_domain/topology/runtime_supervision_test.exs",
+    "test/phoenix/auth/guardian_test.exs",
     "test/phoenix/auth/sso_provisioning_test.exs",
+    "test/phoenix/auth/token_revocation_test.exs",
     "test/phoenix/channels/dashboard_frame_channel_live_db_test.exs",
     "test/phoenix/channels/topology_tile_channel_live_db_test.exs",
     "test/phoenix/controllers/api/admin_authorization_test.exs",
@@ -29,11 +32,13 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
     "test/phoenix/controllers/api/oauth_scope_authorization_db_test.exs",
     "test/phoenix/controllers/api/plugin_package_controller_test.exs",
+    "test/phoenix/controllers/api/user_controller_test.exs",
     "test/phoenix/controllers/api/validation_run_controller_test.exs",
     "test/phoenix/controllers/dashboard_package_asset_controller_test.exs",
     "test/phoenix/controllers/dashboard_package_publish_controller_test.exs",
     "test/phoenix/controllers/dashboard_package_read_controller_test.exs",
     "test/phoenix/controllers/saml_controller_test.exs",
+    "test/phoenix/plugs/gateway_auth_policy_test.exs",
     "test/phoenix/live/admin/addon_fleet_live_test.exs",
     "test/phoenix/live/admin/dashboard_package_live_test.exs",
     "test/phoenix/live/alert_live/show_test.exs",
