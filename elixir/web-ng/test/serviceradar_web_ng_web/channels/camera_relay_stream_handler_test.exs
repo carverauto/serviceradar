@@ -8,6 +8,17 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
   @moduletag :db_free
 
   setup do
+    # The :db_free lane runs without the application supervision tree, so
+    # ServiceRadar.PubSub is absent. Start the real PubSub (house pattern
+    # from config_cache_test) so the relay subscribe/broadcast boundary
+    # exercises actual delivery instead of raising on an unknown registry.
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    case Process.whereis(ServiceRadar.PubSub) do
+      nil -> start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      _pid -> :ok
+    end
+
     previous_enabled = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
 
     previous_ice_servers =
