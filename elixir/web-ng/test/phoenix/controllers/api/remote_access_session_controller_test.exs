@@ -2,9 +2,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers,
-    only: [admin_user_fixture: 0, viewer_user_fixture: 0]
+    only: [admin_user_fixture: 0, system_actor: 0, viewer_user_fixture: 0]
 
   alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub
@@ -1424,9 +1427,28 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   end
 
   defp put_test_permissions(user, permissions) do
-    # The legacy process-dict injection this replaced is dead: permissions
-    # resolve through the shared ETS cache, so narrow them there.
-    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new(permissions))
+    actor = system_actor()
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Remote access permissions #{System.unique_integer([:positive])}",
+          description: "Protocol-specific permission fixture",
+          permissions: permissions
+        },
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    {:ok, updated} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
+
+    # Requests resolve persisted authority; a cache entry alone can be replaced
+    # by the authenticated scope's fresh permission lookup.
+    RBAC.invalidate_user_cache(updated.id)
+    updated
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

@@ -53,6 +53,8 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     repo ServiceRadar.Repo
     schema "platform"
 
+    identity_wheres_to_sql one_enabled_per_agent_addon: "enabled = true"
+
     references do
       reference :addon_package, on_delete: :delete
     end
@@ -483,5 +485,9 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
 
   identities do
     identity :unique_source_key, [:source, :source_key]
+
+    identity :one_enabled_per_agent_addon, [:agent_uid, :addon_id],
+      where: expr(enabled == true),
+      message: "add-on is already enabled for this agent; disable the current assignment first"
   end
 end

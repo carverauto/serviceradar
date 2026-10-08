@@ -6,6 +6,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.RemoteAccessDesktopTarget
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Guardian
 
   @moduletag :web_ng_shared_fixture_db
@@ -23,8 +26,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
       restore_env(:remote_access_desktop_targets, previous_targets)
     end)
 
+    # Admin authority comes from the persisted admin role profile, which the
+    # production plug resolves per request. No cache-only permission writes:
+    # they are not the authority production reads.
     user = admin_user_fixture()
-    put_test_permissions(user, ["devices.remote_access.rdp.open"])
 
     {:ok, token, _claims} = Guardian.create_access_token(user)
     conn = Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
@@ -164,7 +169,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
   end
 
   test "requires the RDP open permission instead of SSH", %{conn: conn, user: user} do
-    put_test_permissions(user, ["devices.remote_access.ssh.open"])
+    # Narrow through the persisted authority production reads: an explicit
+    # role profile holding only the SSH permission, so the effective
+    # authority genuinely lacks the RDP permission.
+    restrict_user!(user, ["devices.remote_access.ssh.open"])
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -183,9 +191,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
   end
 
   describe "admin target management" do
-    test "creates and lists registered targets without exposing plaintext credential material", %{conn: conn, user: user} do
-      put_test_permissions(user, ["settings.edge.manage"])
-
+    test "creates and lists registered targets without exposing plaintext credential material", %{conn: conn} do
       target_name = "Admin Desktop #{System.unique_integer([:positive])}"
 
       conn =
@@ -227,8 +233,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
       assert Enum.any?(body["data"], &(Map.get(&1, "id") == target["id"]))
     end
 
-    test "updates and disables registered targets", %{conn: conn, user: user} do
-      put_test_permissions(user, ["settings.edge.manage"])
+    test "updates and disables registered targets", %{conn: conn} do
       target_name = "Patch Desktop #{System.unique_integer([:positive])}"
 
       assert {:ok, target} =
@@ -264,7 +269,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
 
     test "rejects authenticated users without settings.edge.manage", %{conn: _conn} do
       viewer = viewer_user_fixture()
-      put_test_permissions(viewer, ["devices.remote_access.rdp.open"])
+      # The viewer holds the RDP permission through the persisted authority,
+      # so the 403 below proves the manage guard denies, not a missing login
+      # or a missing RDP grant.
+      restrict_user!(viewer, ["devices.remote_access.rdp.open"])
       {:ok, token, _claims} = Guardian.create_access_token(viewer)
 
       conn =
@@ -275,9 +283,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
       assert conn.status == 403
     end
 
-    test "rejects invalid admin target parameters", %{conn: conn, user: user} do
-      put_test_permissions(user, ["settings.edge.manage"])
-
+    test "rejects invalid admin target parameters", %{conn: conn} do
       conn =
         post(conn, ~p"/api/admin/remote-access/desktop-targets", %{
           "name" => "Bad Port",
@@ -292,10 +298,35 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
     end
   end
 
-  defp put_test_permissions(user, permissions) do
-    # The legacy process-dict injection this replaced is dead: permissions
-    # resolve through the shared ETS cache, so narrow them there.
-    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new(permissions))
+  # Narrows a user through the persisted authority production reads: an
+  # explicit role profile plus cache invalidation, mirroring the shared
+  # restrict_user pattern in api_endpoint_integration_test.exs. Cache-only
+  # writes are not used: the shared ETS cache is wiped by concurrent suites'
+  # invalidations, so such writes are silently lost and production falls
+  # back to the unrestricted persisted authority.
+  defp restrict_user!(user, permissions) do
+    actor = SystemActor.system(:remote_access_desktop_target_rbac_test)
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "rdp-deny-#{System.unique_integer([:positive])}",
+          description: "RDP denial fixture",
+          permissions: permissions
+        },
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    {:ok, assigned} =
+      User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
+
+    RBAC.invalidate_user_cache(assigned.id)
+    RBAC.clear_process_cache()
+    assigned
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

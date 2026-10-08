@@ -1,6 +1,10 @@
 defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment do
   @moduledoc """
   Prevents an agent from receiving two enabled assignments for the same add-on.
+
+  This read supplies a friendly error for every source. The resource's partial
+  identity and database unique index enforce the same invariant for atomic
+  updates and concurrent writes, which cannot rely on a read-before-write check.
   """
 
   use Ash.Resource.Validation
@@ -16,9 +20,7 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment do
 
   @impl true
   def validate(changeset, _opts, _context) do
-    source = changed_or_current(changeset, :source) || :manual
-
-    if changed_or_current(changeset, :enabled) == false or source != :manual do
+    if changed_or_current(changeset, :enabled) == false do
       :ok
     else
       reject_duplicate_enabled_assignment(changeset)
@@ -75,9 +77,7 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment do
 
     AddonAssignment
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      agent_uid == ^agent_uid and addon_id == ^addon_id and enabled == true and source == :manual
-    )
+    |> Ash.Query.filter(agent_uid == ^agent_uid and addon_id == ^addon_id and enabled == true)
     |> Ash.read(actor: actor)
   end
 
