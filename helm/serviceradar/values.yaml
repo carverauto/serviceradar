@@ -733,6 +733,12 @@ core:
     # //helm/serviceradar:migrations_expected_version_test -- do not hand-edit;
     # the gate will tell you the value to use.
     #
+    # New migration files take a current UTC timestamp
+    # (`date -u +%Y%m%d%H%M%S`). Taking the next number after the newest file
+    # on the branch collides once another pull request merges. The collision
+    # check and the recovery steps are in docs/agent-runbooks.md under
+    # "Ecto migration versions".
+    #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
     expectedVersion: "20261008123047"
