@@ -72,8 +72,8 @@ var (
 	// ErrAddonCapabilityBinaryEscape is returned when a staged add-on binary path
 	// resolves outside its add-on directory (symlink-escape guard).
 	ErrAddonCapabilityBinaryEscape = errors.New("addon binary resolves outside its staging directory")
-	// ErrSetcapUnavailable is returned when the setcap tool is not on PATH (e.g. libcap
-	// is not installed on the host).
+	// ErrSetcapUnavailable is returned when the setcap tool is not available at its
+	// trusted absolute path (e.g. libcap is not installed on the host).
 	ErrSetcapUnavailable = errors.New("setcap tool not available")
 	// ErrAddonBinaryNotRegular is returned when a resolved staged add-on binary is not
 	// a regular file (so it must not be setcap'd).

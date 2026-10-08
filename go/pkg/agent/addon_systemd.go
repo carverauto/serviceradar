@@ -69,7 +69,8 @@ var systemdUnitDir = "/etc/systemd/system" //nolint:gochecknoglobals // tunable 
 const systemdUnitFileMode = 0o644
 
 var (
-	// ErrSystemctlUnavailable is returned when systemctl is not on PATH (no systemd).
+	// ErrSystemctlUnavailable is returned when systemctl is not available at its
+	// trusted absolute path (no systemd).
 	ErrSystemctlUnavailable = errors.New("systemctl not available")
 	// ErrAddonSystemdNoUnits is returned when an install/uninstall is requested with no
 	// unit names.
