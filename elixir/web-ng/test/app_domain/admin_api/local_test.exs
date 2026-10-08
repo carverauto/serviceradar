@@ -29,9 +29,21 @@ defmodule ServiceRadarWebNG.AdminApi.LocalTest do
              ServiceRadarWebNG.Auth.TokenRevocation.check_user_revoked(user.id, issued_before)
 
     # The next authenticated browser request with the pre-deactivation token
-    # is unauthenticated: session, bearer, and LiveView paths all resolve
-    # through Guardian.verify_token/2.
-    assert {:error, _reason} = Guardian.verify_token(token, token_type: "access")
+    # is unauthenticated: run the actual session request plug with the old
+    # token in the session and assert the request resolves to no user with
+    # the session token cleared.
+    request_conn =
+      Plug.Test.conn(:get, "/")
+      |> Map.replace!(
+        :secret_key_base,
+        ServiceRadarWebNGWeb.Endpoint.config(:secret_key_base)
+      )
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_session("user_token", token)
+      |> ServiceRadarWebNGWeb.UserAuth.fetch_current_scope_for_user([])
+
+    assert request_conn.assigns.current_scope.user == nil
+    assert Plug.Conn.get_session(request_conn, "user_token") == nil
 
     assert {:ok, %User{status: :active} = reactivated} = Local.reactivate_user(scope, user.id)
     assert {:error, :user_revoked} = Guardian.verify_token(token, token_type: "access")
