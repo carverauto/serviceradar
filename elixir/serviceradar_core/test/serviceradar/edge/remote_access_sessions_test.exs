@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Repo
 
@@ -76,9 +77,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     :ok
   end
 
-  test "falls back to the discovering sync service when the device has no owning agent" do
+  test "resolves a sync-inventoried device through authoritative source provenance" do
     uid = unique_uid("sync-scope")
-    insert_device!(uid, metadata: %{"sync_service_id" => "agent-sync-scope"})
+    source = insert_integration_source!("sync-scope", "agent-sync-scope", "blue")
+    insert_device!(uid, partition: "blue")
+    insert_source_identifier!(uid, source.id, "blue")
 
     assert {:ok, %{session: session}} =
              RemoteAccessSessions.request_open(
@@ -89,6 +92,42 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
 
     assert session.agent_id == "agent-sync-scope"
+  end
+
+  test "does not route from device metadata agent keys" do
+    uid = unique_uid("metadata-route")
+
+    insert_device!(uid,
+      metadata: %{
+        "sync_service_id" => Ecto.UUID.generate(),
+        "agent_id" => "metadata-agent",
+        "source_agent_id" => "metadata-source-agent",
+        "discovered_by_agent_id" => "metadata-discovery-agent"
+      }
+    )
+
+    assert {:error, :missing_agent_scope} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present"},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+  end
+
+  test "does not route through source provenance from another partition" do
+    uid = unique_uid("cross-partition-source")
+    source = insert_integration_source!("cross-partition", "agent-other-partition", "red")
+    insert_device!(uid, partition: "blue")
+    insert_source_identifier!(uid, source.id, "red")
+
+    assert {:error, :missing_agent_scope} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present"},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
   end
 
   test "attach tickets are single-use and credential material is not persisted in metadata" do
@@ -2183,12 +2222,49 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
         vendor_name: "Linux",
         agent_id: Keyword.get(opts, :agent_id),
         gateway_id: Keyword.get(opts, :gateway_id),
+        partition: Keyword.get(opts, :partition, "default"),
         is_available: true,
         metadata: Keyword.get(opts, :metadata, %{}),
         first_seen_time: now,
         last_seen_time: now
       }
     ])
+  end
+
+  defp insert_integration_source!(label, agent_id, partition) do
+    id = Ecto.UUID.generate()
+
+    {1, _} =
+      Repo.insert_all("integration_sources", [
+        %{
+          id: Ecto.UUID.dump!(id),
+          name: "Synthetic source #{label} #{System.unique_integer([:positive])}",
+          source_type: "custom",
+          endpoint: "https://#{label}.example.invalid",
+          agent_id: agent_id,
+          partition: partition,
+          sync_status: "idle"
+        }
+      ])
+
+    %{id: id}
+  end
+
+  defp insert_source_identifier!(device_uid, source_id, partition) do
+    {:ok, _identifier} =
+      DeviceIdentifier.register(
+        %{
+          device_id: device_uid,
+          identifier_type: :integration_id,
+          identifier_value: "synthetic:source:#{source_id}:device",
+          partition: partition,
+          confidence: :strong,
+          source: "synthetic-test",
+          verified: true,
+          metadata: %{"sync_service_id" => source_id}
+        },
+        actor: @system_actor
+      )
   end
 
   defp insert_user!(label, opts \\ []) do

@@ -165,7 +165,10 @@ defmodule ServiceRadar.Inventory.DeviceFactsTest do
   test "rejects the identity-bearing keys", %{device: device} do
     # Listed here rather than read from reserved_keys/0, so that a key dropped from the
     # reserved list fails this test instead of leaving the loop above one key shorter.
-    for key <- ~w(armis_device_id integration_id mac ip hostname switch_port_attachment) do
+    for key <- ~w(
+          armis_device_id integration_id mac ip hostname switch_port_attachment
+          sync_service_id agent_id source_agent_id discovered_by_agent_id
+        ) do
       assert {:error, error} = write(device, %{key => "1001"})
       assert Exception.message(error) =~ "#{key} is reserved"
     end
