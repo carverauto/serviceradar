@@ -201,7 +201,8 @@ async fn main() -> Result<()> {
     // Lives independently of the publisher so a scrape failure can never
     // backpressure flow ingestion. Its /readyz handler reads the same
     // marker path the publisher's mark_publisher_ready/clear_publisher_ready
-    // write, so the Helm readinessProbe reflects true publisher readiness
+    // write. The Helm readinessProbe checks that marker file directly via
+    // an exec probe, so pod readiness reflects true publisher readiness
     // rather than just "the metrics HTTP server has bound its socket".
     if let Some(addr) = config.metrics_addr.clone() {
         let prom_metrics = all_metrics.clone();

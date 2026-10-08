@@ -57,8 +57,8 @@ case "$args" in
   *'get deployment serviceradar-flow-collector -o jsonpath={.spec.replicas}'*)
     printf '1'
     ;;
-  *'readinessProbe.httpGet.path'*)
-    printf '/readyz'
+  *'readinessProbe.exec.command'*)
+    printf '[test -f /var/lib/serviceradar/flow-collector.ready]'
     ;;
   *'containers[?(@.name=="flow-collector")].image'*)
     printf 'registry.example/flow:new'

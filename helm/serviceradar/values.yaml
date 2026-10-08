@@ -1903,10 +1903,10 @@ flowCollector:
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
     ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
     # Serves the Prometheus exposition on /metrics and the /readyz
-    # readiness probe. Must agree with
-    # service.ports.metrics.targetPort below. Required by the chart:
-    # an empty value fails rendering because readiness is always httpGet
-    # /readyz (there is no file-probe fallback).
+    # endpoint. Must agree with
+    # service.ports.metrics.targetPort below. Required when
+    # service.ports.metrics is enabled; the readiness probe itself is an
+    # exec check of ready_state_path and needs no metrics listener.
     metrics_addr: "0.0.0.0:50046"
     # Shared template persistence is retired. Remove any previous override;
     # a non-null template_store fails collector startup. TLS state is per session.

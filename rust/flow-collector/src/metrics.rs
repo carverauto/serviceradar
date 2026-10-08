@@ -3,14 +3,14 @@ use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{interval, timeout};
 
 pub struct ListenerMetrics {
@@ -530,13 +530,29 @@ pub fn render_prometheus(listeners: &[Arc<ListenerMetrics>]) -> String {
     out
 }
 
-/// Maximum simultaneous in-flight `/metrics` connections. Prometheus
+/// Maximum simultaneous in-flight general `/metrics` connections. Prometheus
 /// scrape rates rarely exceed 1 conn/sec; the cap is a defensive ceiling
 /// against a misbehaving or hostile scraper holding many connections
 /// open. Excess connections are rejected immediately so the FD is freed,
 /// rather than queued (which would let an attacker exhaust file
 /// descriptors by just opening sockets).
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
+
+/// Reserved connection permits dedicated to readiness probes (`/readyz`).
+/// Ensures probe requests can be served even if all general connections
+/// are saturated by slow or misbehaving scrapers.
+const RESERVED_PROBE_PERMITS: usize = 4;
+
+/// Maximum simultaneous connections from a single non-loopback peer IP.
+/// Prevents a single host from exhausting the concurrency pool.
+const MAX_CONCURRENT_CONNECTIONS_PER_PEER: usize = 8;
+
+/// Maximum number of header lines permitted in a request.
+const MAX_HEADER_COUNT: usize = 32;
+
+/// Total deadline for reading the request line and all header lines.
+/// Bounds slowloris attacks that dribble bytes within the per-line `READ_TIMEOUT`.
+const TOTAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Maximum bytes read from a single `/metrics` request (request line +
 /// headers). A correctly formed Prometheus scrape is under 1 KiB; 8 KiB
@@ -556,6 +572,62 @@ const READ_TIMEOUT: Duration = Duration::from_secs(3);
 /// client with a closed receive window cannot pin a server task forever.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
+#[derive(Clone)]
+struct PeerTracker {
+    counts: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    max_per_peer: usize,
+}
+
+struct PeerPermit {
+    counts: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    ip: IpAddr,
+}
+
+impl Drop for PeerPermit {
+    fn drop(&mut self) {
+        if self.ip.is_loopback() {
+            return;
+        }
+        let mut map = self.counts.lock().expect("peer tracker lock poisoned");
+        if let Some(entry) = map.get_mut(&self.ip) {
+            if *entry <= 1 {
+                map.remove(&self.ip);
+            } else {
+                *entry -= 1;
+            }
+        }
+    }
+}
+
+impl PeerTracker {
+    fn new(max_per_peer: usize) -> Self {
+        Self {
+            counts: Arc::new(Mutex::new(HashMap::new())),
+            max_per_peer,
+        }
+    }
+
+    fn try_acquire(&self, ip: IpAddr) -> Option<PeerPermit> {
+        if ip.is_loopback() {
+            return Some(PeerPermit {
+                counts: Arc::clone(&self.counts),
+                ip,
+            });
+        }
+        let mut map = self.counts.lock().expect("peer tracker lock poisoned");
+        let count = map.entry(ip).or_insert(0);
+        if *count >= self.max_per_peer {
+            None
+        } else {
+            *count += 1;
+            Some(PeerPermit {
+                counts: Arc::clone(&self.counts),
+                ip,
+            })
+        }
+    }
+}
+
 /// Spawn a tiny HTTP server on `addr` that serves the Prometheus
 /// exposition at `GET /metrics` and publisher readiness at `GET /readyz`.
 /// Any other path returns 404. Hand-rolled HTTP/1.1 to avoid pulling
@@ -574,14 +646,14 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 ///
 /// Defensive measures:
 /// * Per-connection read/write timeouts (see [`READ_TIMEOUT`],
-///   [`WRITE_TIMEOUT`]).
+///   [`WRITE_TIMEOUT`]) and overall request timeout ([`TOTAL_REQUEST_TIMEOUT`]).
 /// * Bounded total request size (see [`MAX_REQUEST_BYTES`]) so a
 ///   slowloris client can't keep a connection alive by trickling
 ///   bytes within the per-read timeout.
+/// * Bounded header count (see [`MAX_HEADER_COUNT`]).
 /// * Bounded concurrent connections (see [`MAX_CONCURRENT_CONNECTIONS`])
-///   via a semaphore. New connections beyond the cap are dropped
-///   immediately rather than queued, so a hostile scraper cannot
-///   exhaust file descriptors just by opening sockets.
+///   with reserved probe permits (see [`RESERVED_PROBE_PERMITS`]).
+/// * Per-peer connection limit (see [`MAX_CONCURRENT_CONNECTIONS_PER_PEER`]).
 pub async fn run_prometheus_server(
     addr: String,
     listeners: Vec<Arc<ListenerMetrics>>,
@@ -591,11 +663,16 @@ pub async fn run_prometheus_server(
         .await
         .map_err(|e| anyhow::anyhow!("bind metrics server on {}: {}", addr, e))?;
     info!(
-        "Prometheus metrics endpoint listening on http://{}/metrics (max_concurrent={})",
-        addr, MAX_CONCURRENT_CONNECTIONS
+        "Prometheus metrics endpoint listening on http://{}/metrics (max_concurrent={}, reserved_probe={}, max_per_peer={})",
+        addr,
+        MAX_CONCURRENT_CONNECTIONS,
+        RESERVED_PROBE_PERMITS,
+        MAX_CONCURRENT_CONNECTIONS_PER_PEER
     );
 
-    let limiter = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
+    let general_limiter = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
+    let probe_limiter = Arc::new(Semaphore::new(RESERVED_PROBE_PERMITS));
+    let peer_tracker = PeerTracker::new(MAX_CONCURRENT_CONNECTIONS_PER_PEER);
 
     loop {
         let (conn, peer) = match socket.accept().await {
@@ -606,28 +683,47 @@ pub async fn run_prometheus_server(
             }
         };
 
-        // Fast-fail when we're at capacity — drop the connection so the FD
-        // is released immediately. Queueing would let an attacker exhaust
-        // ulimit by opening N+1 sockets and walking away.
-        let permit = match Arc::clone(&limiter).try_acquire_owned() {
-            Ok(p) => p,
-            Err(_) => {
+        // Enforce per-peer connection cap for non-loopback clients.
+        let peer_permit = match peer_tracker.try_acquire(peer.ip()) {
+            Some(p) => p,
+            None => {
                 debug!(
-                    "metrics server at concurrency limit ({}); dropping conn from {}",
-                    MAX_CONCURRENT_CONNECTIONS, peer
+                    "metrics peer {} reached concurrency limit ({}); dropping conn",
+                    peer.ip(),
+                    MAX_CONCURRENT_CONNECTIONS_PER_PEER
                 );
                 drop(conn);
                 continue;
             }
         };
 
+        // Fast-fail when we're at capacity — drop the connection so the FD
+        // is released immediately. Queueing would let an attacker exhaust
+        // ulimit by opening N+1 sockets and walking away.
+        // Try general capacity first, falling back to reserved probe capacity.
+        let (permit, is_probe) = match Arc::clone(&general_limiter).try_acquire_owned() {
+            Ok(p) => (p, false),
+            Err(_) => match Arc::clone(&probe_limiter).try_acquire_owned() {
+                Ok(p) => (p, true),
+                Err(_) => {
+                    debug!(
+                        "metrics server at concurrency limit ({}+{}); dropping conn from {}",
+                        MAX_CONCURRENT_CONNECTIONS, RESERVED_PROBE_PERMITS, peer
+                    );
+                    drop(conn);
+                    continue;
+                }
+            },
+        };
+
         let listeners = listeners.clone();
         let ready_path = ready_path.clone();
         tokio::spawn(async move {
-            // Permit is held for the lifetime of this task and released on
+            // Permits are held for the lifetime of this task and released on
             // drop, regardless of how serve_one exits.
-            let _permit = permit;
-            if let Err(e) = serve_one(conn, &listeners, &ready_path).await {
+            let _permit: OwnedSemaphorePermit = permit;
+            let _peer_permit: PeerPermit = peer_permit;
+            if let Err(e) = serve_one(conn, &listeners, &ready_path, is_probe).await {
                 warn!("metrics conn from {} error: {}", peer, e);
             }
         });
@@ -683,6 +779,7 @@ async fn serve_one(
     conn: tokio::net::TcpStream,
     listeners: &[Arc<ListenerMetrics>],
     ready_path: &Path,
+    is_probe_permit: bool,
 ) -> io::Result<()> {
     let (read_half, mut write_half) = conn.into_split();
     // `take` caps how many bytes the BufReader can pull from the socket.
@@ -693,39 +790,78 @@ async fn serve_one(
     let bounded = read_half.take(MAX_REQUEST_BYTES);
     let mut reader = BufReader::new(bounded);
 
-    // Request line, with both a per-read timeout and (via `bounded`) a
-    // bytes cap.
-    let mut request_line = String::new();
-    let n = match timeout(READ_TIMEOUT, reader.read_line(&mut request_line)).await {
-        Ok(r) => r?,
+    // Read the request line and headers bounded by both per-read timeout and TOTAL_REQUEST_TIMEOUT.
+    let read_result = timeout(TOTAL_REQUEST_TIMEOUT, async {
+        let mut request_line = String::new();
+        let n = match timeout(READ_TIMEOUT, reader.read_line(&mut request_line)).await {
+            Ok(r) => r?,
+            Err(_) => {
+                debug!("metrics request-line read timed out");
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "request-line timeout",
+                ));
+            }
+        };
+        if n == 0 {
+            // EOF before request line — client disconnected or hit MAX_REQUEST_BYTES.
+            return Ok(None);
+        }
+
+        // Drain headers (until empty line) so we don't leave the socket in a
+        // weird half-read state. Enforce MAX_HEADER_COUNT.
+        let mut header_count = 0;
+        loop {
+            header_count += 1;
+            if header_count > MAX_HEADER_COUNT {
+                debug!(
+                    "metrics request exceeded max header count ({})",
+                    MAX_HEADER_COUNT
+                );
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "too many header lines",
+                ));
+            }
+
+            let mut header = String::new();
+            let m = match timeout(READ_TIMEOUT, reader.read_line(&mut header)).await {
+                Ok(r) => r?,
+                Err(_) => {
+                    debug!("metrics header read timed out");
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "header timeout"));
+                }
+            };
+            if m == 0 || header == "\r\n" || header == "\n" {
+                break;
+            }
+        }
+        Ok(Some(request_line))
+    })
+    .await;
+
+    let request_line = match read_result {
+        Ok(Ok(Some(line))) => line,
+        Ok(Ok(None)) => return Ok(()),
+        Ok(Err(_)) => return Ok(()),
         Err(_) => {
-            debug!("metrics request-line read timed out");
+            debug!("metrics total request read timed out");
             return Ok(());
         }
     };
-    if n == 0 {
-        // EOF before request line — client disconnected or hit MAX_REQUEST_BYTES.
+
+    let path = request_line.split_whitespace().nth(1).unwrap_or("/");
+
+    // A connection admitted under a reserved probe permit may only request /readyz.
+    // Drop non-probe requests immediately to preserve probe slots.
+    if is_probe_permit && !path.starts_with("/readyz") {
+        debug!(
+            "metrics server dropping non-readyz path {:?} on probe permit",
+            path
+        );
         return Ok(());
     }
 
-    // Drain headers (until empty line) so we don't leave the socket in a
-    // weird half-read state. Same per-line timeout and the same shared
-    // bytes cap as the request line.
-    loop {
-        let mut header = String::new();
-        let m = match timeout(READ_TIMEOUT, reader.read_line(&mut header)).await {
-            Ok(r) => r?,
-            Err(_) => {
-                debug!("metrics header read timed out");
-                return Ok(());
-            }
-        };
-        if m == 0 || header == "\r\n" || header == "\n" {
-            break;
-        }
-    }
-
-    let path = request_line.split_whitespace().nth(1).unwrap_or("/");
     let (status, body) = if path.starts_with("/readyz") {
         // Same file Publisher::mark_publisher_ready/clear_publisher_ready
         // write on the connect/disconnect path -- this is what makes the
@@ -1141,6 +1277,142 @@ mod tests {
             out.contains(
                 r#"flow_collector_flows_converted_total{protocol="sflow",listen_addr="0.0.0.0:6343"} 99"#
             )
+        );
+    }
+
+    #[test]
+    fn peer_tracker_limits_concurrent_connections_per_non_loopback_ip() {
+        let tracker = PeerTracker::new(8);
+        let external_ip: IpAddr = "192.0.2.1".parse().unwrap();
+
+        let mut permits = Vec::new();
+        for _ in 0..8 {
+            let permit = tracker.try_acquire(external_ip);
+            assert!(permit.is_some(), "should acquire up to 8 permits");
+            permits.push(permit.unwrap());
+        }
+
+        // 9th permit should fail
+        assert!(
+            tracker.try_acquire(external_ip).is_none(),
+            "9th permit should be rejected"
+        );
+
+        // Drop one permit, acquire should succeed
+        drop(permits.pop());
+        let extra = tracker.try_acquire(external_ip);
+        assert!(
+            extra.is_some(),
+            "permit acquisition should succeed after drop"
+        );
+
+        // Loopback should never be capped
+        let loopback_ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let mut loopback_permits = Vec::new();
+        for _ in 0..20 {
+            let permit = tracker.try_acquire(loopback_ip);
+            assert!(
+                permit.is_some(),
+                "loopback should be exempt from per-peer cap"
+            );
+            loopback_permits.push(permit.unwrap());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http_server_serves_readyz_when_general_connections_saturated() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ready_path = std::env::temp_dir().join(format!("flow-collector-readyz-sat-{nanos}"));
+        std::fs::write(&ready_path, b"ready\n").unwrap();
+
+        let listeners: Vec<Arc<ListenerMetrics>> = vec![];
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        drop(socket);
+        let addr_str = addr.to_string();
+        let ready_path_for_server = ready_path.clone();
+        tokio::spawn(async move {
+            let _ = run_prometheus_server(addr_str, listeners, ready_path_for_server).await;
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Saturate all 64 general connection permits with idle sockets
+        let mut hogs = Vec::with_capacity(MAX_CONCURRENT_CONNECTIONS);
+        for _ in 0..MAX_CONCURRENT_CONNECTIONS {
+            hogs.push(TcpStream::connect(addr).await.unwrap());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // 65th connection requests /readyz; served via reserved probe permits
+        let mut probe = TcpStream::connect(addr).await.unwrap();
+        probe
+            .write_all(b"GET /readyz HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let mut resp = String::new();
+        let read =
+            tokio::time::timeout(Duration::from_secs(2), probe.read_to_string(&mut resp)).await;
+        assert!(
+            read.is_ok(),
+            "readyz probe should answer even when general pool is saturated"
+        );
+        assert!(resp.starts_with("HTTP/1.1 200 OK"), "resp={resp}");
+        assert!(resp.contains("ready\n"), "resp={resp}");
+
+        drop(hogs);
+        let _ = std::fs::remove_file(&ready_path);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http_server_drops_connection_exceeding_max_headers() {
+        let nf = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        let addr = spawn_test_server(vec![nf]).await;
+
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        // Send request line followed by 35 headers (MAX_HEADER_COUNT is 32)
+        s.write_all(b"GET /metrics HTTP/1.1\r\n").await.unwrap();
+        for i in 0..35 {
+            let h = format!("X-Custom-Header-{}: test\r\n", i);
+            s.write_all(h.as_bytes()).await.unwrap();
+        }
+        s.write_all(b"\r\n").await.unwrap();
+
+        let mut resp = Vec::new();
+        let read = tokio::time::timeout(Duration::from_secs(2), s.read_to_end(&mut resp)).await;
+        assert!(read.is_ok(), "server should close connection promptly");
+        assert!(
+            resp.is_empty(),
+            "server should drop request exceeding header cap without response"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http_server_drops_connection_exceeding_total_request_timeout() {
+        let nf = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        let addr = spawn_test_server(vec![nf]).await;
+
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        s.write_all(b"GET /metrics HTTP/1.1\r\n").await.unwrap();
+
+        // Send headers slowly with 1.8s delay between them.
+        // Each line is within READ_TIMEOUT (3s), but lines take > TOTAL_REQUEST_TIMEOUT (5s).
+        for i in 0..4 {
+            tokio::time::sleep(Duration::from_millis(1800)).await;
+            let h = format!("X-Slow-Header-{}: test\r\n", i);
+            if s.write_all(h.as_bytes()).await.is_err() {
+                // Connection was already closed by server due to TOTAL_REQUEST_TIMEOUT
+                break;
+            }
+        }
+
+        let mut resp = Vec::new();
+        let _ = s.read_to_end(&mut resp).await;
+        assert!(
+            resp.is_empty(),
+            "server should drop slowloris request exceeding total timeout"
         );
     }
 }
