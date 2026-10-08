@@ -99,37 +99,13 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
           AND tablename <> ALL (ARRAY[#{ledger_list}])
       LOOP
         IF to_regclass(format('platform.%I', rec.tablename)) IS NULL THEN
-          -- lock_timeout turns an unbounded wait into an error; this block turns
+          -- lock_timeout turns an unbounded wait into an error; the handler turns
           -- that error into a diagnosis. Postgres would otherwise report only
-          -- "canceling statement due to lock timeout", naming neither the table
-          -- nor the session responsible, which is what made #4151 take so long
-          -- to characterise.
-          BEGIN
-            EXECUTE format('ALTER TABLE public.%I SET SCHEMA platform', rec.tablename);
-          EXCEPTION WHEN lock_not_available THEN
-            RAISE EXCEPTION
-              'could not acquire ACCESS EXCLUSIVE on public.% within %',
-              rec.tablename, current_setting('lock_timeout')
-              USING
-                DETAIL = format(
-                  'conflicting lock holders: %s',
-                  coalesce(
-                    (SELECT string_agg(
-                       format('pid=%s state=%s query=%s', a.pid, a.state, left(a.query, 120)),
-                       '; ')
-                       FROM pg_locks l
-                       JOIN pg_stat_activity a ON a.pid = l.pid
-                      WHERE l.relation = format('public.%I', rec.tablename)::regclass
-                        AND l.pid <> pg_backend_pid()
-                        AND l.granted),
-                    'none still holding; the blocker released it after the timeout'
-                  )
-                ),
-                HINT =
-                  'Something is using this table while the migration tries to move it. '
-                  'Stop the application against this database before migrating, or raise '
-                  'SERVICERADAR_MIGRATION_LOCK_TIMEOUT_MS if a brief overlap is expected.';
-          END;
+          -- "canceling statement due to lock timeout".
+#{lock_diagnosis(
+  "format('ALTER TABLE public.%I SET SCHEMA platform', rec.tablename)",
+  "rec.tablename"
+)}
         ELSE
           EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I LIMIT 1)', rec.tablename)
             INTO public_has_rows;
@@ -180,7 +156,10 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
                 suffix := suffix + 1;
               END LOOP;
 
-              EXECUTE format('ALTER TABLE public.%I SET SCHEMA platform', rec.tablename);
+#{lock_diagnosis(
+  "format('ALTER TABLE public.%I SET SCHEMA platform', rec.tablename)",
+  "rec.tablename"
+)}
               EXECUTE format('ALTER TABLE platform.%I RENAME TO %I', rec.tablename, target_name);
               RAISE NOTICE 'Moved public.% to platform.% to avoid collision', rec.tablename, target_name;
             END IF;
@@ -188,48 +167,68 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
         END IF;
       END LOOP;
 
-      -- Move sequences owned by the current user out of public.
+      -- Sequences, views, and materialized views share one diagnosis. A lock
+      -- timeout names the object and the sessions holding it, same as tables.
       FOR rec IN
-        SELECT sequencename
+        SELECT 'SEQUENCE'::text AS kind, sequencename::text AS objname
         FROM pg_sequences
         WHERE schemaname = 'public'
           AND sequenceowner = current_user
-      LOOP
-        IF to_regclass(format('platform.%I', rec.sequencename)) IS NULL THEN
-          EXECUTE format('ALTER SEQUENCE public.%I SET SCHEMA platform', rec.sequencename);
-        ELSE
-          EXECUTE format('DROP SEQUENCE public.%I', rec.sequencename);
-        END IF;
-      END LOOP;
-
-      -- Move views owned by the current user out of public.
-      FOR rec IN
-        SELECT viewname
+        UNION ALL
+        SELECT 'VIEW'::text, viewname::text
         FROM pg_views
         WHERE schemaname = 'public'
           AND viewowner = current_user
-      LOOP
-        IF to_regclass(format('platform.%I', rec.viewname)) IS NULL THEN
-          EXECUTE format('ALTER VIEW public.%I SET SCHEMA platform', rec.viewname);
-        ELSE
-          EXECUTE format('DROP VIEW public.%I', rec.viewname);
-        END IF;
-      END LOOP;
-
-      -- Move materialized views owned by the current user out of public.
-      FOR rec IN
-        SELECT matviewname
+        UNION ALL
+        SELECT 'MATERIALIZED VIEW'::text, matviewname::text
         FROM pg_matviews
         WHERE schemaname = 'public'
           AND matviewowner = current_user
       LOOP
-        IF to_regclass(format('platform.%I', rec.matviewname)) IS NULL THEN
-          EXECUTE format('ALTER MATERIALIZED VIEW public.%I SET SCHEMA platform', rec.matviewname);
+        IF to_regclass(format('platform.%I', rec.objname)) IS NULL THEN
+#{lock_diagnosis(
+  "format('ALTER %s public.%I SET SCHEMA platform', rec.kind, rec.objname)",
+  "rec.objname"
+)}
         ELSE
-          EXECUTE format('DROP MATERIALIZED VIEW public.%I', rec.matviewname);
+          EXECUTE format('DROP %s public.%I', rec.kind, rec.objname);
         END IF;
       END LOOP;
     END $$;
+    """
+  end
+
+  # One handler for every relocation. The caller supplies the statement and the
+  # SQL expression that names the object, so tables and the other classes do not
+  # each carry a copy of the lock query.
+  defp lock_diagnosis(execute_expr, name_expr) do
+    """
+          BEGIN
+            EXECUTE #{execute_expr};
+          EXCEPTION WHEN lock_not_available THEN
+            RAISE EXCEPTION
+              'could not acquire ACCESS EXCLUSIVE on public.% within %',
+              #{name_expr}, current_setting('lock_timeout')
+              USING
+                DETAIL = format(
+                  'conflicting lock holders: %s',
+                  coalesce(
+                    (SELECT string_agg(
+                       format('pid=%s state=%s query=%s', a.pid, a.state, left(a.query, 120)),
+                       '; ')
+                       FROM pg_locks l
+                       JOIN pg_stat_activity a ON a.pid = l.pid
+                      WHERE l.relation = format('public.%I', #{name_expr})::regclass
+                        AND l.pid <> pg_backend_pid()
+                        AND l.granted),
+                    'none still holding; the blocker released it after the timeout'
+                  )
+                ),
+                HINT =
+                  'Something is using this object while the migration tries to move it. '
+                  'Stop the application against this database before migrating, or raise '
+                  'SERVICERADAR_MIGRATION_LOCK_TIMEOUT_MS if a brief overlap is expected.';
+          END;
     """
   end
 
