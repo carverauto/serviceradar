@@ -699,6 +699,52 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http)
   end
 
+  test "reconciles when StarRocks returns Status Fail with label already used message" do
+    label = StreamLoad.load_label("ocsf_network_activity", @rows)
+
+    http = fn
+      %{method: :put} ->
+        {:ok,
+         %{
+           status: 200,
+           body:
+             Jason.encode!(%{
+               "Status" => "Fail",
+               "Message" => "Label [#{label}] has already been used."
+             })
+         }}
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
+    end
+
+    assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+  end
+
+  test "reconciles when StarRocks returns Status LABEL_ALREADY_EXISTS" do
+    label = StreamLoad.load_label("ocsf_network_activity", @rows)
+
+    http = fn
+      %{method: :put} ->
+        {:ok,
+         %{
+           status: 200,
+           body:
+             Jason.encode!(%{
+               "Status" => "LABEL_ALREADY_EXISTS",
+               "Message" => "Label [#{label}] has already been used."
+             })
+         }}
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
+    end
+
+    assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+  end
+
   test "a follower's 307 to the FE leader is followed when reconciling the label state" do
     label = StreamLoad.load_label("ocsf_network_activity", @rows)
     parent = self()
