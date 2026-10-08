@@ -4,7 +4,7 @@ Every Rust crate here is built two ways: by **Cargo** (for local work, `cargo te
 by **Bazel** (for CI, release artifacts, and everything downstream). Both read the *same*
 dependency versions from one place -- the root `Cargo.toml` -- so the two builds cannot drift.
 
-MSRV is **1.97.1**, declared in `[workspace.package] rust-version`, pinned for rustup by
+MSRV is **1.98.0**, declared in `[workspace.package] rust-version`, pinned for rustup by
 `rust-toolchain.toml`, and selected for Bazel as `RUST_DEFAULT_VERSION` in `MODULE.bazel`.
 Keep those three in step.
 
