@@ -36,6 +36,12 @@ import (
 	"strings"
 )
 
+const trustedSetcapPath = "/usr/sbin/setcap"
+
+// Tests temporarily retarget this to a synthetic helper. Production never
+// resolves the privileged executable through the caller-controlled PATH.
+var setcapCommandPath = trustedSetcapPath //nolint:gochecknoglobals // test seam for an external command
+
 // allowedAddonCapabilities bounds what an add-on may request through
 // requires.os_capabilities. Keeping an explicit allowlist means an approved manifest
 // (or a compromised control plane) cannot have the root-owned updater grant arbitrary
@@ -214,15 +220,13 @@ func ApplyAddonCapabilities(ctx context.Context, req AddonCapabilityRequest) err
 		return err
 	}
 
-	setcapPath, err := exec.LookPath("setcap")
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSetcapUnavailable, err)
-	}
-
-	cmd := exec.CommandContext(ctx, setcapPath, setcapCapabilityString(caps), binary)
+	cmd := exec.CommandContext(ctx, setcapCommandPath, setcapCapabilityString(caps), binary)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: %w", ErrSetcapUnavailable, err)
+		}
 		return fmt.Errorf("apply addon capabilities via setcap: %w", err)
 	}
 

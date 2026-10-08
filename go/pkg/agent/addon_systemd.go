@@ -44,9 +44,22 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/hashutil"
 )
 
-// defaultPrivilegedAddonRoot is the root-owned runtime tree where the privileged
-// updater materializes verified add-ons.
-const defaultPrivilegedAddonRoot = "/usr/lib/serviceradar/addons"
+const (
+	// defaultPrivilegedAddonRoot is the root-owned runtime tree where the privileged
+	// updater materializes verified add-ons.
+	defaultPrivilegedAddonRoot = "/usr/lib/serviceradar/addons"
+	trustedSystemctlPath       = "/usr/bin/systemctl"
+	trustedChconPath           = "/usr/bin/chcon"
+)
+
+// Privileged helper paths must never be resolved through the caller's PATH. The
+// updater is installed setuid-root on package installations, so PATH lookup would
+// let its unprivileged caller select the executable run with elevated privileges.
+// Tests temporarily retarget these variables to synthetic helpers.
+var (
+	systemctlCommandPath = trustedSystemctlPath //nolint:gochecknoglobals // test seam for an external command
+	chconCommandPath     = trustedChconPath     //nolint:gochecknoglobals // test seam for an external command
+)
 
 // systemdUnitDir is where the root-owned updater installs add-on unit files.
 // Tests retarget it at a temp directory.
@@ -173,13 +186,11 @@ func resolveStagedAddonUnit(runtimeRoot, addonID, unitName string) (string, erro
 // runSystemctl runs `systemctl <args...>`, returning a wrapped error (with output) on
 // failure and ErrSystemctlUnavailable when systemctl is not installed.
 func runSystemctl(ctx context.Context, args ...string) error {
-	systemctlPath, err := exec.LookPath("systemctl")
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSystemctlUnavailable, err)
-	}
-
-	cmd := exec.CommandContext(ctx, systemctlPath, args...)
+	cmd := exec.CommandContext(ctx, systemctlCommandPath, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: %w", ErrSystemctlUnavailable, err)
+		}
 		return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 
@@ -747,14 +758,9 @@ func isStagedAddonExecutable(name string, mode os.FileMode) bool {
 }
 
 func relabelPathAsBinT(path string) {
-	chcon, err := exec.LookPath("chcon")
-	if err != nil {
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = exec.CommandContext(ctx, chcon, "-t", "bin_t", path).Run()
+	_ = exec.CommandContext(ctx, chconCommandPath, "-t", "bin_t", path).Run()
 }
 
 // containsString reports whether s is in list.
