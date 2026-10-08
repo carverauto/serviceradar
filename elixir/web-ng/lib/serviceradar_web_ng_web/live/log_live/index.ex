@@ -81,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      socket
      |> assign(:page_title, "Observability")
      |> assign(:active_tab, "logs")
+     |> assign(:tab_loading, true)
      |> assign(:logs, [])
      |> assign(:traces, [])
      |> assign(:metrics, [])
@@ -1591,99 +1592,204 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             id="service-stats-scope"
             scope={@service_stats_scope}
           />
-          <.log_summary
-            :if={@active_tab == "logs"}
-            summary={@summary}
-            service_scope={@service_stats_scope}
-          />
-          <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
-          <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
-          <.traces_summary
-            :if={@active_tab == "traces"}
-            stats={@trace_stats}
-            latency={@trace_latency}
-            service_scope={@service_stats_scope}
-          />
-          <.metrics_summary
-            :if={@active_tab == "metrics"}
-            stats={@metrics_stats}
-            service_scope={@service_stats_scope}
-          />
-          <.metric_window_controls
-            :if={@active_tab == "netflows"}
-            id="netflow-window"
-            range={extract_time_from_query(@srql[:query] || "") || "last_1h"}
-            event="netflow_set_range"
-            custom_event="netflow_custom_range"
-          />
-          <.netflow_summary
-            :if={@active_tab == "netflows"}
-            timezone={@current_scope.user.timezone}
-            summary={@netflow_summary}
-            top_talkers={@netflow_top_talkers}
-            top_ports={@netflow_top_ports}
-            rdns_map={@netflow_rdns_map}
-            timeseries={@netflow_timeseries}
-            timeseries_compare={@netflow_timeseries_compare}
-            timeseries_stacked={@netflow_timeseries_stacked}
-            protocol_activity={@netflow_protocol_activity}
-            app_activity={@netflow_app_activity}
-            frequent_talkers_packets={@netflow_frequent_talkers_packets}
-            frequent_talkers_bytes={@netflow_frequent_talkers_bytes}
-            geo_heatmap={@netflow_geo_heatmap}
-            geo_side={@netflow_geo_side}
-            compare_mode={@netflow_compare_mode}
-            sankey_prefix={@netflow_sankey_prefix}
-            sankey={@netflow_sankey}
-            netflow_sankey_edges_json={@netflow_sankey_edges_json}
-            stack_mode={@netflow_stack_mode}
-            graph_mode={@netflow_graph_mode}
-            base_path={Map.get(@srql, :page_path) || "/observability"}
-            query={Map.get(@srql, :query, "")}
-            limit={@limit}
-            compact?={@netflow_compact?}
-            talker_cidr={@netflow_talker_cidr}
-            view={@netflow_view}
-          />
+          <div
+            :if={@tab_loading}
+            id="observability-tab-loading"
+            role="status"
+            class="space-y-3 py-6 text-xs text-sr-muted"
+          >
+            <div class="flex items-center gap-2">
+              <.ui_spinner size="sm" />
+              <span>Loading...</span>
+            </div>
+            <div aria-hidden="true" class="space-y-3 animate-pulse">
+              <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+              <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+              <div class="h-12 rounded-sr-control bg-sr-subtle"></div>
+            </div>
+          </div>
+          <div id="observability-tab-content" hidden={@tab_loading}>
+            <.log_summary
+              :if={@active_tab == "logs"}
+              summary={@summary}
+              service_scope={@service_stats_scope}
+            />
+            <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
+            <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
+            <.traces_summary
+              :if={@active_tab == "traces"}
+              stats={@trace_stats}
+              latency={@trace_latency}
+              service_scope={@service_stats_scope}
+            />
+            <.metrics_summary
+              :if={@active_tab == "metrics"}
+              stats={@metrics_stats}
+              service_scope={@service_stats_scope}
+            />
+            <.metric_window_controls
+              :if={@active_tab == "netflows"}
+              id="netflow-window"
+              range={extract_time_from_query(@srql[:query] || "") || "last_1h"}
+              event="netflow_set_range"
+              custom_event="netflow_custom_range"
+            />
+            <.netflow_summary
+              :if={@active_tab == "netflows"}
+              timezone={@current_scope.user.timezone}
+              summary={@netflow_summary}
+              top_talkers={@netflow_top_talkers}
+              top_ports={@netflow_top_ports}
+              rdns_map={@netflow_rdns_map}
+              timeseries={@netflow_timeseries}
+              timeseries_compare={@netflow_timeseries_compare}
+              timeseries_stacked={@netflow_timeseries_stacked}
+              protocol_activity={@netflow_protocol_activity}
+              app_activity={@netflow_app_activity}
+              frequent_talkers_packets={@netflow_frequent_talkers_packets}
+              frequent_talkers_bytes={@netflow_frequent_talkers_bytes}
+              geo_heatmap={@netflow_geo_heatmap}
+              geo_side={@netflow_geo_side}
+              compare_mode={@netflow_compare_mode}
+              sankey_prefix={@netflow_sankey_prefix}
+              sankey={@netflow_sankey}
+              netflow_sankey_edges_json={@netflow_sankey_edges_json}
+              stack_mode={@netflow_stack_mode}
+              graph_mode={@netflow_graph_mode}
+              base_path={Map.get(@srql, :page_path) || "/observability"}
+              query={Map.get(@srql, :query, "")}
+              limit={@limit}
+              compact?={@netflow_compact?}
+              talker_cidr={@netflow_talker_cidr}
+              view={@netflow_view}
+            />
 
-          <.ui_panel :if={@active_tab != "netflows" or @netflow_view in ["explorer", "all"]}>
-            <:header>
-              <div class="min-w-0">
-                <div class="text-sm font-semibold tracking-tight text-sr-ink">
-                  {panel_title(@active_tab, panel_live?(@active_tab, assigns))}
+            <.ui_panel :if={@active_tab != "netflows" or @netflow_view in ["explorer", "all"]}>
+              <:header>
+                <div class="min-w-0">
+                  <div class="text-sm font-semibold tracking-tight text-sr-ink">
+                    {panel_title(@active_tab, panel_live?(@active_tab, assigns))}
+                  </div>
+                  <div class="text-xs leading-relaxed text-sr-muted">
+                    {panel_subtitle(@active_tab, panel_live?(@active_tab, assigns))}
+                  </div>
                 </div>
-                <div class="text-xs leading-relaxed text-sr-muted">
-                  {panel_subtitle(@active_tab, panel_live?(@active_tab, assigns))}
-                </div>
-              </div>
 
-              <.log_panel_controls
+                <.log_panel_controls
+                  :if={@active_tab == "logs"}
+                  srql={@srql}
+                  limit={@limit}
+                  live?={@logs_live?}
+                  service_filter?={@service_filter_allowed?}
+                />
+                <.traces_panel_controls
+                  :if={@active_tab == "traces"}
+                  srql={@srql}
+                  limit={@limit}
+                  live?={@traces_live?}
+                  service_filter?={@service_filter_allowed?}
+                />
+                <.metrics_panel_controls
+                  :if={@active_tab == "metrics"}
+                  view={@metrics_view}
+                  srql={@srql}
+                  limit={@limit}
+                  live?={@metrics_live?}
+                  service_filter?={@service_filter_allowed?}
+                />
+                <.events_panel_controls :if={@active_tab == "events"} live?={@events_live?} />
+                <.alerts_panel_controls :if={@active_tab == "alerts"} live?={@alerts_live?} />
+                <.netflow_presets
+                  :if={@active_tab == "netflows"}
+                  srql={@srql}
+                  limit={@limit}
+                  compact?={@netflow_compact?}
+                  talker_cidr={@netflow_talker_cidr}
+                  compare_mode={@netflow_compare_mode}
+                  geo_side={@netflow_geo_side}
+                  sankey_prefix={@netflow_sankey_prefix}
+                  stack_mode={@netflow_stack_mode}
+                  graph_mode={@netflow_graph_mode}
+                  view={@netflow_view}
+                  live?={@netflows_live?}
+                />
+              </:header>
+
+              <.logs_table
                 :if={@active_tab == "logs"}
-                srql={@srql}
-                limit={@limit}
-                live?={@logs_live?}
-                service_filter?={@service_filter_allowed?}
+                id="logs"
+                logs={@streams.logs}
+                count={length(@logs)}
+                query={Map.get(@srql, :query) || ""}
+                timezone={@current_scope.user.timezone}
               />
-              <.traces_panel_controls
+              <.traces_table
                 :if={@active_tab == "traces"}
-                srql={@srql}
+                id="traces"
+                traces={@traces}
+                query={Map.get(@srql, :query) || ""}
                 limit={@limit}
-                live?={@traces_live?}
-                service_filter?={@service_filter_allowed?}
+                timezone={@current_scope.user.timezone}
               />
-              <.metrics_panel_controls
-                :if={@active_tab == "metrics"}
-                view={@metrics_view}
-                srql={@srql}
-                limit={@limit}
-                live?={@metrics_live?}
-                service_filter?={@service_filter_allowed?}
+              <div :if={@active_tab == "metrics" and @metrics_view == "samples"}>
+                <div
+                  id="metrics-pane-label-samples"
+                  class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted"
+                >
+                  Span samples (slow-span exemplars)
+                </div>
+                <.metrics_table
+                  id="metrics"
+                  metrics={@metrics}
+                  query={Map.get(@srql, :query) || ""}
+                  timezone={@current_scope.user.timezone}
+                />
+              </div>
+              <div :if={@active_tab == "metrics" and @metrics_view == "points"}>
+                <div
+                  id="metrics-pane-label-points"
+                  class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted"
+                >
+                  OTLP metrics
+                </div>
+                <.otlp_points_view
+                  names={@otlp_metric_names}
+                  selected={@otlp_selected_metric}
+                  series={@otlp_metric_series}
+                  srql={@srql}
+                  limit={@limit}
+                />
+              </div>
+              <.events_table
+                :if={@active_tab == "events"}
+                id="events"
+                events={@streams.events}
+                count={length(@events)}
+                timezone={@current_scope.user.timezone}
               />
-              <.events_panel_controls :if={@active_tab == "events"} live?={@events_live?} />
-              <.alerts_panel_controls :if={@active_tab == "alerts"} live?={@alerts_live?} />
-              <.netflow_presets
-                :if={@active_tab == "netflows"}
-                srql={@srql}
+              <.alert_bulk_bar
+                :if={@active_tab == "alerts" and @can_manage_alerts?}
+                selection={@alert_selection}
+                duration={@alert_bulk_duration}
+                result={@alert_bulk_result}
+                visible_count={length(@alerts)}
+              />
+              <.alerts_table
+                :if={@active_tab == "alerts"}
+                id="alerts"
+                alerts={@alerts}
+                selectable?={@can_manage_alerts?}
+                selection={@alert_selection}
+                timezone={@current_scope.user.timezone}
+              />
+              <.netflows_table
+                :if={@active_tab == "netflows" and @netflow_view in ["explorer", "all"]}
+                timezone={@current_scope.user.timezone}
+                flows={@netflows}
+                rdns_map={@netflow_rdns_map}
+                threat_map={@netflow_threat_map}
+                base_path={Map.get(@srql, :page_path) || "/observability"}
+                query={Map.get(@srql, :query, "")}
                 limit={@limit}
                 compact?={@netflow_compact?}
                 talker_cidr={@netflow_talker_cidr}
@@ -1693,119 +1799,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 stack_mode={@netflow_stack_mode}
                 graph_mode={@netflow_graph_mode}
                 view={@netflow_view}
-                live?={@netflows_live?}
               />
-            </:header>
 
-            <.logs_table
-              :if={@active_tab == "logs"}
-              id="logs"
-              logs={@streams.logs}
-              count={length(@logs)}
-              query={Map.get(@srql, :query) || ""}
-              timezone={@current_scope.user.timezone}
-            />
-            <.traces_table
-              :if={@active_tab == "traces"}
-              id="traces"
-              traces={@traces}
-              query={Map.get(@srql, :query) || ""}
-              limit={@limit}
-              timezone={@current_scope.user.timezone}
-            />
-            <div :if={@active_tab == "metrics" and @metrics_view == "samples"}>
               <div
-                id="metrics-pane-label-samples"
-                class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted"
+                :if={@active_tab != "metrics" or @metrics_view == "samples"}
+                class="mt-4 pt-4 border-t border-sr-line"
               >
-                Span samples (slow-span exemplars)
+                <.ui_pagination
+                  prev_cursor={Map.get(@pagination, "prev_cursor")}
+                  next_cursor={Map.get(@pagination, "next_cursor")}
+                  limit={@limit}
+                  current_page={Map.get(assigns, :pagination_page, 1)}
+                  result_count={
+                    panel_result_count(
+                      @active_tab,
+                      @logs,
+                      @traces,
+                      @metrics,
+                      @events,
+                      @alerts,
+                      @netflows
+                    )
+                  }
+                />
               </div>
-              <.metrics_table
-                id="metrics"
-                metrics={@metrics}
-                query={Map.get(@srql, :query) || ""}
-                timezone={@current_scope.user.timezone}
-              />
-            </div>
-            <div :if={@active_tab == "metrics" and @metrics_view == "points"}>
-              <div
-                id="metrics-pane-label-points"
-                class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted"
-              >
-                OTLP metrics
-              </div>
-              <.otlp_points_view
-                names={@otlp_metric_names}
-                selected={@otlp_selected_metric}
-                series={@otlp_metric_series}
-                srql={@srql}
-                limit={@limit}
-              />
-            </div>
-            <.events_table
-              :if={@active_tab == "events"}
-              id="events"
-              events={@streams.events}
-              count={length(@events)}
-              timezone={@current_scope.user.timezone}
-            />
-            <.alert_bulk_bar
-              :if={@active_tab == "alerts" and @can_manage_alerts?}
-              selection={@alert_selection}
-              duration={@alert_bulk_duration}
-              result={@alert_bulk_result}
-              visible_count={length(@alerts)}
-            />
-            <.alerts_table
-              :if={@active_tab == "alerts"}
-              id="alerts"
-              alerts={@alerts}
-              selectable?={@can_manage_alerts?}
-              selection={@alert_selection}
-              timezone={@current_scope.user.timezone}
-            />
-            <.netflows_table
-              :if={@active_tab == "netflows" and @netflow_view in ["explorer", "all"]}
-              timezone={@current_scope.user.timezone}
-              flows={@netflows}
-              rdns_map={@netflow_rdns_map}
-              threat_map={@netflow_threat_map}
-              base_path={Map.get(@srql, :page_path) || "/observability"}
-              query={Map.get(@srql, :query, "")}
-              limit={@limit}
-              compact?={@netflow_compact?}
-              talker_cidr={@netflow_talker_cidr}
-              compare_mode={@netflow_compare_mode}
-              geo_side={@netflow_geo_side}
-              sankey_prefix={@netflow_sankey_prefix}
-              stack_mode={@netflow_stack_mode}
-              graph_mode={@netflow_graph_mode}
-              view={@netflow_view}
-            />
-
-            <div
-              :if={@active_tab != "metrics" or @metrics_view == "samples"}
-              class="mt-4 pt-4 border-t border-sr-line"
-            >
-              <.ui_pagination
-                prev_cursor={Map.get(@pagination, "prev_cursor")}
-                next_cursor={Map.get(@pagination, "next_cursor")}
-                limit={@limit}
-                current_page={Map.get(assigns, :pagination_page, 1)}
-                result_count={
-                  panel_result_count(
-                    @active_tab,
-                    @logs,
-                    @traces,
-                    @metrics,
-                    @events,
-                    @alerts,
-                    @netflows
-                  )
-                }
-              />
-            </div>
-          </.ui_panel>
+            </.ui_panel>
+          </div>
 
           <.netflow_details_modal
             :if={@active_tab == "netflows" and is_map(@selected_netflow)}
@@ -4549,7 +4568,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
-          <tr :if={@count == 0}>
+          <tr :if={@count == 0} id={"#{@id}-rows-empty"}>
             <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No log entries found.
             </td>
@@ -5201,7 +5220,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
-          <tr :if={@count == 0}>
+          <tr :if={@count == 0} id={"#{@id}-rows-empty"}>
             <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No events found.
             </td>
@@ -8581,26 +8600,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp dispatch_tab_load(socket, tab, params, uri) do
-    cond do
-      !socket.assigns[:_initial_load_done] ->
-        # Initial connected mount — load synchronously so the first connected
-        # render already contains the list. The page shell was already painted
-        # by the dead render; deferring here used to produce a connected
-        # render with an empty list ("No metrics found.") whose data only
-        # existed in a follow-up diff, so the initial tab load dropped its
-        # results until the user manually re-ran the query.
-        load_tab(socket, tab, params, uri)
+    # Return the shell before querying. Same-tab filters retain their current
+    # results; initial loads and tab switches display a loading state.
+    loading? = !socket.assigns[:_initial_load_done] or tab != socket.assigns[:_loaded_tab]
 
-      tab != socket.assigns[:_loaded_tab] ->
-        # Tab switch — load synchronously for instant transition (no flash)
-        load_tab(socket, tab, params, uri)
-
-      true ->
-        # Same-tab query change (e.g. stat card click) — load async so the UI
-        # stays responsive. Current data remains visible until results arrive.
-        send(self(), {:load_tab_data, tab, params, uri})
-        socket
-    end
+    send(self(), {:load_tab_data, tab, params, uri})
+    assign(socket, :tab_loading, loading?)
   end
 
   # A patch schedules same-tab data loading through the LiveView mailbox. If a
@@ -8624,6 +8629,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> maybe_fallback_to_raw_traces(tab, params, uri, default_limit, max_limit)
     |> apply_tab_assigns(tab, srql_module())
     |> stream_active_tab(tab)
+    |> assign(:tab_loading, false)
     |> assign(:_initial_load_done, true)
     |> assign(:_loaded_tab, tab)
   end

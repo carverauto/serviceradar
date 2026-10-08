@@ -51,8 +51,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "logs default to non-live browsing", %{conn: conn} do
-    {:ok, lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/logs")
+
+    html = render(lv)
 
     assert html =~ "Page 1 log"
     assert has_element?(lv, "#logs-live-status", "Off")
@@ -86,8 +88,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       :persistent_term.erase({__MODULE__, :logs_rollup_error?})
     end)
 
-    {:ok, lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    html = render(lv)
 
     assert has_element?(lv, "#logs-rollup-warning", "Log level rollup unavailable")
     assert html =~ "Page 1 log"
@@ -134,8 +138,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "log rows normalize the OTel SeverityNumber enum name into a badge", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    html = render(lv)
 
     # SEVERITY_NUMBER_INFO -> INFO label + info color (was "SEVER" truncation +
     # ghost color before the fix).
@@ -372,8 +378,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "manual pagination pauses live mode before subsequent refreshes", %{conn: conn} do
-    {:ok, lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    html = render(lv)
 
     assert html =~ "Page 1 log"
     _ = drain_srql_calls()
@@ -670,34 +678,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "netflows keep the shared observability shell visible", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: "in:flows time:last_1h sort:timestamp:desc", limit: 20}}")
+
+    html = render(lv)
 
     assert html =~ "Observability"
     assert html =~ "Unified view of logs, traces, metrics, and infrastructure signals."
   end
 
-  # Regression for the initial tab load dropping list results: the first
-  # connected render must already contain the rows (no deferred diff, no
-  # manual re-run). Asserting on the html returned by live/2 is intentional —
-  # it is the join-time render.
   @tag :web_ng_shared_fixture_db
-  test "metrics tab renders rows on the initial connected mount without a manual run", %{conn: conn} do
+  test "metrics tab returns a loading shell then rows without a manual run", %{conn: conn} do
     {:ok, lv, html} =
       live(conn, ~p"/observability/metrics")
 
-    assert html =~ "metrics-service"
-    refute html =~ "No metrics found."
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("#observability-tab-loading[role='status']")
+           |> Enum.any?()
+
+    assert has_element?(lv, "#metrics-row-0", "metrics-service")
+    assert has_element?(lv, "#observability-tab-content:not([hidden])")
+    refute has_element?(lv, "#metrics", "No metrics found.")
+    refute has_element?(lv, "#observability-tab-loading")
 
     # Tab switching still works after the initial load.
-    html = render_patch(lv, ~p"/observability/logs")
-    assert html =~ "Page 1 log"
+    render_patch(lv, ~p"/observability/logs")
+    assert has_element?(lv, "#logs", "Page 1 log")
+    assert has_element?(lv, "#observability-tab-content:not([hidden])")
+    refute has_element?(lv, "#observability-tab-loading")
   end
 
   @tag :web_ng_shared_fixture_db
   test "metrics pane labels span samples and cumulative sums distinctly", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics")
+
+    html = render(lv)
 
     assert html =~ "span sample"
     assert html =~ "sum (cumulative)"
@@ -708,8 +725,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   test "metrics pane labels the two views distinctly", %{conn: conn} do
     # Default view: span samples stay the default table and carry their
     # exemplar label; the toggle advertises the OTLP metrics view.
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics")
+
+    html = render(lv)
 
     assert html =~ "Span samples (slow-span exemplars)"
     assert html =~ "OTLP metrics"
@@ -718,8 +737,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "metrics OTLP view lists metric names from the points stats payload", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics?#{%{mview: "points"}}")
+
+    html = render(lv)
 
     # Name rows: name, type badge, unit, point count.
     assert html =~ "falco.outputs.queue"
@@ -773,11 +794,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "cumulative monotonic counters render a rate with stored temporality", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(
         conn,
         ~p"/observability/metrics?#{%{mview: "points", metric: "falco.outputs.queue"}}"
       )
+
+    html = render(lv)
 
     # 60/minute counter -> 1/s, labeled from the stored temporality field.
     assert html =~ "current rate"
@@ -788,8 +811,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "metrics stat cards are clickable filters", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics")
+
+    html = render(lv)
 
     # Cards reflect the spans_red_1h rollup payload, not zeros.
     assert html =~ "1.2k"
@@ -806,8 +831,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "traces stat cards are clickable filters", %{conn: conn} do
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/traces")
+
+    html = render(lv)
 
     # Total -> reset; Successful -> error_count:0; Errors -> error_count:>0.
     assert html =~ "q=in%3Aotel_trace_summaries+sort%3Atimestamp%3Adesc"
@@ -866,8 +893,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       :persistent_term.erase({__MODULE__, :empty_trace_summaries?})
     end)
 
-    {:ok, _lv, html} =
+    {:ok, lv, _html} =
       live(conn, ~p"/observability/traces")
+
+    html = render(lv)
 
     assert html =~ "serviceradar-web-ng"
     assert html =~ "GET /observability"

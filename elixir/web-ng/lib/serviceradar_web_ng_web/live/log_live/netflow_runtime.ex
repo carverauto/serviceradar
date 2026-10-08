@@ -41,16 +41,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
 
   @load_timeout_ms 30_000
 
+  @max_panel_concurrency 4
+
   @doc """
   Runs independent panel loaders at the same time and returns their results by key.
 
   Each NetFlow panel is one or more warehouse round trips, and none of them
-  needs another's answer, so running them in sequence made the page wait for the
-  sum of every query when it only has to wait for the slowest. A loader that
+  needs another's answer, so up to four loaders can overlap. A loader that
   outlives the timeout is killed and its default is used, so one stuck query
   costs its own panel and not the page.
 
-  Loaders that depend on another's result belong in a later call.
+  Loaders that depend on another's result belong in a later call. The fixed
+  concurrency cap bounds each viewer's warehouse fan-out.
   """
   @spec run_concurrently([job()], keyword()) :: %{optional(term()) => term()}
   def run_concurrently(jobs, opts \\ []) when is_list(jobs) do
@@ -58,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
 
     jobs
     |> Task.async_stream(fn {_key, fun, _default} -> fun.() end,
-      max_concurrency: max(length(jobs), 1),
+      max_concurrency: min(max(length(jobs), 1), @max_panel_concurrency),
       timeout: timeout,
       on_timeout: :kill_task,
       ordered: true

@@ -59,8 +59,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
 
     {:ok, view, html} = live(conn, ~p"/services")
 
-    assert html =~ "UniFi Protect Camera"
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("#services-tab-loading[role='status']")
+           |> Enum.any?()
+
+    assert has_element?(view, "#service-cards", "UniFi Protect Camera")
     assert has_element?(view, "#service-cards", "camera check healthy")
+    assert has_element?(view, "#services-tab-content:not([hidden])")
+    refute has_element?(view, "#services-tab-loading")
   end
 
   test "renders display contract from a recovered real plugin result", %{conn: conn} do

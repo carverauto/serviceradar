@@ -51,7 +51,8 @@ ExUnit.configure(
 # rename/strengthening of the existing "deactivates a user" case in an
 # already-tagged module, not a new selection. 2460 + 4 = 2464, with no
 # lowering, removal, bypass, or exclusion.
-expected_selected_tests = 2464
+# Async routing-list loading adds one lane-selected BMP LiveView case.
+expected_selected_tests = 2465
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

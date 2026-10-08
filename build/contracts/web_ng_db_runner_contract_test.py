@@ -136,6 +136,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/ansible_operations_live_test.exs",
     "test/phoenix/live/auth_live/sign_in_test.exs",
     "test/phoenix/live/authored_dashboard_live_test.exs",
+    "test/phoenix/live/bmp_live/index_test.exs",
     "test/phoenix/live/camera_analysis_worker_live_test.exs",
     "test/phoenix/live/camera_relay_live_test.exs",
     "test/phoenix/live/cli_device_authorize_live_test.exs",
