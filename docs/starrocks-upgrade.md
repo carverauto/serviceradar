@@ -148,9 +148,7 @@ a manually added field was removed from the live cluster.
 
 Verify actual SQL versions on every node and confirm new telemetry arrives
 after the rollout, not merely that pods are Ready. Exercise an existing JDBC
-catalog query and a `native_query` SELECT on an allowed control-plane relation.
-`native_query` is available starting in 4.1 and allows flow catalog filters to
-retain PostgreSQL's array, inet, and PostGIS semantics.
+catalog query on an allowed control-plane relation.
 
 Never use `helm rollback` blindly for this upgrade: it can restore incompatible
 images and restart components in the wrong order. After a cluster has reached
@@ -164,5 +162,4 @@ supported downgrade, preserving its required component order.
 - [Upgrade procedure and metadata synchronization](https://docs.starrocks.io/docs/deployment/manage_deployment/upgrade/)
 - [4.0 release notes](https://docs.starrocks.io/releasenotes/release-4.0/)
 - [4.1 release notes and downgrade limits](https://docs.starrocks.io/releasenotes/release-4.1/)
-- [JDBC native_query contract](https://docs.starrocks.io/docs/sql-reference/sql-functions/table-functions/native_query/)
 - [Operator 1.11.7 component update strategies](https://github.com/StarRocks/starrocks-kubernetes-operator/blob/v1.11.7/pkg/apis/starrocks/v1/component_type.go)
