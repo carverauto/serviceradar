@@ -116,13 +116,23 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
       jwt_audience: @audience
     })
 
-    user = ServiceRadarWebNG.AshTestHelpers.viewer_user_fixture()
     actor = system_actor()
+    unique = System.unique_integer([:positive])
+    email = "gateway-inactive-#{unique}@example.com"
+    external_id = "gateway|inactive-#{unique}"
 
-    user
-    |> Ash.Changeset.for_update(:update, %{external_id: "gateway|inactive"}, actor: actor)
-    |> Ash.update!(actor: actor)
-    |> ServiceRadar.Identity.User.deactivate(actor: actor)
+    {:ok, user} =
+      ServiceRadar.Identity.User.provision_sso_user(
+        %{
+          email: email,
+          display_name: "Gateway Inactive User",
+          external_id: external_id,
+          provider: :gateway
+        },
+        actor: actor
+      )
+
+    {:ok, _inactive_user} = ServiceRadar.Identity.User.deactivate(user, actor: actor)
 
     conn =
       conn
@@ -131,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
       |> put_req_header(
         "authorization",
         "Bearer " <>
-          signed_token(%{"email" => to_string(user.email), "sub" => "gateway|inactive"})
+          signed_token(%{"email" => to_string(user.email), "sub" => external_id})
       )
       |> GatewayAuth.call([])
 
