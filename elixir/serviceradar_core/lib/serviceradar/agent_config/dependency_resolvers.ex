@@ -6,7 +6,57 @@ defmodule ServiceRadar.AgentConfig.DependencyResolvers do
   `:all_online` when the resource change is intentionally fleet-scoped.
   """
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
+
+  require Ash.Query
+
   @type affected_agents :: [String.t()] | :all_online
+
+  @doc "Resolves a coalesced invalidation scope, falling back to the fleet on uncertainty."
+  def invalidation_agents(_type, :all_online), do: :all_online
+  def invalidation_agents(:snmp, {:device, uid}), do: SNMPCompiler.affected_agents_for_device(uid)
+  def invalidation_agents(_type, {:device, _uid}), do: :all_online
+  def invalidation_agents(_type, agents) when is_list(agents), do: agents
+
+  def invalidation_agents(type, %MapSet{} = scope) do
+    Enum.reduce_while(scope, [], fn
+      {:agent, id}, agents ->
+        {:cont, Enum.uniq([id | agents])}
+
+      {:device, uid}, agents ->
+        case invalidation_agents(type, {:device, uid}) do
+          :all_online -> {:halt, :all_online}
+          owners -> {:cont, Enum.uniq(owners ++ agents)}
+        end
+    end)
+  end
+
+  @doc "Resolves every poller of a changed explicit SNMP target."
+  def snmp_target_agents(record) do
+    actor = SystemActor.system(:snmp_config_invalidation)
+
+    case Ash.get(SNMPProfile, Map.get(record, :snmp_profile_id), actor: actor) do
+      {:ok, %{agent_ids: [_ | _] = agents}} -> agents
+      _ -> :all_online
+    end
+  rescue
+    _ -> :all_online
+  end
+
+  @doc "Resolves the parent profile's pollers for an OID change."
+  def snmp_oid_agents(record) do
+    actor = SystemActor.system(:snmp_config_invalidation)
+
+    case Ash.get(SNMPTarget, Map.get(record, :snmp_target_id), actor: actor) do
+      {:ok, %SNMPTarget{} = target} -> snmp_target_agents(target)
+      _ -> :all_online
+    end
+  rescue
+    _ -> :all_online
+  end
 
   @doc """
   Resolves a single assigned agent from common `agent_id`/`agent_uid` fields.

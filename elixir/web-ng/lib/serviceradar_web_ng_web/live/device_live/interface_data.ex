@@ -225,7 +225,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       end)
 
     if count > 0 do
-      ConfigServer.invalidate(:snmp)
+      ConfigServer.invalidate(:snmp, {:device, device_uid})
     end
 
     count

@@ -1206,11 +1206,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp normalize_source("automation"), do: :automation
   defp normalize_source(_), do: :on_demand
 
-  def push_config_for_type(config_type) do
+  def push_config_for_type(config_type, scope \\ :all_online) do
     capability = capability_for_config_type(config_type)
+    agents = ServiceRadar.AgentConfig.DependencyResolvers.invalidation_agents(config_type, scope)
 
     list_online_sessions()
     |> Enum.filter(fn session -> capability == nil or capability in session.capabilities end)
+    |> Enum.filter(fn session -> agents == :all_online or session.agent_id in agents end)
     |> Enum.reject(&foreign_test_session?/1)
     |> Enum.each(fn %{agent_id: agent_id} ->
       case push_config(agent_id) do

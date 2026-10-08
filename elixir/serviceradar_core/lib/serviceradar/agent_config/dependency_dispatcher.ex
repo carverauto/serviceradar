@@ -7,6 +7,7 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.DependencyCatalog
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
+  alias ServiceRadar.AgentConfig.DependencyResolvers
   alias ServiceRadar.Edge.AgentCommandBus
 
   require Logger
@@ -16,7 +17,14 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
   @doc "Dispatches cataloged config side effects asynchronously."
   @spec dispatch_async(Notification.t(), keyword()) :: :ok
   def dispatch_async(notification, opts \\ []) do
-    case Task.Supervisor.start_child(@task_supervisor, fn -> dispatch(notification, opts) end) do
+    callers = [self() | Process.get(:"$callers", [])]
+
+    work = fn ->
+      Process.put(:"$callers", callers)
+      dispatch(notification, opts)
+    end
+
+    case Task.Supervisor.start_child(@task_supervisor, work) do
       {:ok, _pid} ->
         :ok
 
@@ -42,8 +50,7 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
     command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
     config_server = Keyword.get(opts, :config_server, ConfigServer)
     diagnostics = Keyword.get(opts, :diagnostics, DependencyDiagnostics)
-    record = notification.data
-    affected_agents = DependencyCatalog.affected_agents(entry, record)
+    affected_agents = affected_agents(entry, notification)
     base_diagnostic = build_diagnostic(entry, notification, affected_agents)
 
     result =
@@ -55,13 +62,25 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
           command_bus.push_config_for_type(entry.config_type)
 
         :invalidate_config_type ->
-          config_server.invalidate(entry.config_type)
+          invalidate(config_server, entry.config_type, affected_agents)
       end
 
     diagnostic = Map.put(base_diagnostic, :result, normalize_result(result))
     diagnostics.record(diagnostic)
     diagnostic
   end
+
+  defp invalidate(config_server, type, :all_online), do: config_server.invalidate(type)
+  defp invalidate(config_server, type, agents), do: config_server.invalidate(type, agents)
+
+  defp affected_agents(%{id: :snmp_oid_config}, %{
+         changeset: %{context: %{snmp_config_profile_id: id}}
+       }) do
+    DependencyResolvers.snmp_target_agents(%{snmp_profile_id: id})
+  end
+
+  defp affected_agents(entry, notification),
+    do: DependencyCatalog.affected_agents(entry, notification.data)
 
   defp push_affected_agents(command_bus, config_type, :all_online) do
     command_bus.push_config_for_type(config_type)
@@ -96,7 +115,7 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
 
   defp build_diagnostic(entry, notification, affected_agents) do
     entry
-    |> DependencyCatalog.diagnostics(notification.data)
+    |> DependencyCatalog.diagnostics(notification.data, affected_agents: affected_agents)
     |> Map.merge(%{
       action_type: notification.action.type,
       affected_agents: affected_agents,

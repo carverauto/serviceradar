@@ -182,6 +182,90 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   @doc """
+  Finds the reporter and every profile poller consuming a device's SNMP config.
+
+  Query matching uses the compiler's own filters, restricted to this device.
+  Unknown ownership and legacy profiles applying to all agents retain a fleet push.
+  """
+  @spec affected_agents_for_device(String.t()) :: [String.t()] | :all_online
+  def affected_agents_for_device(device_uid) do
+    actor = SystemActor.system(:snmp_config_invalidation)
+
+    with {:ok, %Device{} = device} <- Device.get_by_uid(device_uid, false, actor: actor),
+         {:ok, polling_host} <- resolve_polling_host(device, actor) do
+      interface_hosts =
+        Interface
+        |> Ash.Query.filter(device_id == ^device_uid)
+        |> Ash.Query.sort([:timestamp, :device_id, :interface_uid])
+        |> Page.stream!(actor: actor, allow_stream_with: :offset)
+        |> Enum.map(& &1.device_ip)
+
+      hosts = [device.ip, device.hostname, polling_host | interface_hosts]
+
+      explicit_profiles =
+        SNMPTarget
+        |> Ash.Query.filter(host in ^Enum.reject(hosts, &is_nil/1))
+        |> Ash.Query.select(:snmp_profile_id)
+        |> Ash.read!(actor: actor)
+        |> MapSet.new(& &1.snmp_profile_id)
+
+      reporter =
+        if is_binary(device.agent_id) and device.agent_id != "", do: [device.agent_id], else: []
+
+      SNMPProfile
+      |> Ash.Query.filter(enabled == true)
+      |> Ash.Query.select([:agent_ids, :target_query, :is_default])
+      |> Ash.Query.sort(:id)
+      |> Page.stream!(actor: actor, allow_stream_with: :offset)
+      |> Enum.reduce_while(reporter, fn profile, agents ->
+        case profile_consumes_device?(profile, device_uid, explicit_profiles, actor) do
+          {:ok, false} -> {:cont, agents}
+          {:ok, true} when profile.agent_ids == [] -> {:halt, :all_online}
+          {:ok, true} -> {:cont, Enum.uniq(profile.agent_ids ++ agents)}
+          {:error, _reason} -> {:halt, :all_online}
+        end
+      end)
+      |> case do
+        [] -> :all_online
+        agents -> agents
+      end
+    else
+      _ -> :all_online
+    end
+  rescue
+    error ->
+      Logger.warning("SNMP ownership lookup failed: #{Exception.message(error)}")
+      :all_online
+  end
+
+  defp profile_consumes_device?(profile, device_uid, explicit_profiles, actor) do
+    if MapSet.member?(explicit_profiles, profile.id) do
+      {:ok, true}
+    else
+      profile_query_consumes_device?(profile, device_uid, actor)
+    end
+  end
+
+  defp profile_query_consumes_device?(profile, device_uid, actor) do
+    case normalize_target_query(profile.target_query, profile.is_default) do
+      nil ->
+        {:ok, false}
+
+      query ->
+        with {:ok, ast} <- SRQLAst.parse(query) do
+          entity = SRQLAst.entity(query)
+          field = if entity == "interfaces", do: "device_id", else: "uid"
+          filter = %{"field" => field, "op" => "eq", "value" => device_uid}
+          ast = Map.update(ast, "filters", [filter], &(&1 ++ [filter]))
+
+          with {:ok, devices} <- execute_parsed_query(entity, ast, actor) do
+            {:ok, Enum.any?(devices, &(&1.uid == device_uid))}
+          end
+        end
+    end
+  end
+
+  @doc """
   Compiles a profile to the agent config format using SRQL-based targeting.
 
   A failed read of profile targets, the target query, or OID templates

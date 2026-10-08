@@ -107,35 +107,39 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   @doc """
   Drops cached configs for a config type and schedules a push.
 
-  The cache drop is synchronous. The fleet push is coalesced onto
+  The cache drop is synchronous. The push is coalesced onto
   `ConfigInvalidator` and finishes after this returns. When
   `:config_invalidation_sync` is true, or the invalidator is not running,
   the push still runs in the caller before this returns.
+
+  Scope defaults to `:all_online`. A `{:device, uid}` scope resolves the device's
+  consumers in the worker; a list of agent IDs is used when pollers are already known.
   """
   @spec invalidate(atom()) :: :ok
-  def invalidate(config_type) when is_atom(config_type) do
+  @spec invalidate(atom(), :all_online | {:device, String.t()} | [String.t()]) :: :ok
+  def invalidate(config_type, scope \\ :all_online) when is_atom(config_type) do
     ConfigCache.invalidate(config_type)
     Logger.debug("ConfigServer: invalidated cache for type=#{config_type}")
-    deliver_push(config_type)
+    deliver_push(config_type, scope)
     :ok
   end
 
-  defp deliver_push(config_type) do
+  defp deliver_push(config_type, scope) do
     if sync_invalidation?() or not invalidator_up?() do
-      AgentCommandBus.push_config_for_type(config_type)
+      AgentCommandBus.push_config_for_type(config_type, scope)
     else
-      cast_invalidation(config_type)
+      cast_invalidation(config_type, scope)
     end
   end
 
-  defp cast_invalidation(config_type) do
-    ConfigInvalidator.request(config_type)
+  defp cast_invalidation(config_type, scope) do
+    ConfigInvalidator.request(ConfigInvalidator, config_type, scope: scope)
   rescue
     ArgumentError ->
-      AgentCommandBus.push_config_for_type(config_type)
+      AgentCommandBus.push_config_for_type(config_type, scope)
   catch
     :exit, _reason ->
-      AgentCommandBus.push_config_for_type(config_type)
+      AgentCommandBus.push_config_for_type(config_type, scope)
   end
 
   defp invalidator_up? do
