@@ -33,7 +33,8 @@ defmodule ServiceRadarWebNG.AdminApi.LocalTest do
     # token in the session and assert the request resolves to no user with
     # the session token cleared.
     request_conn =
-      Plug.Test.conn(:get, "/")
+      :get
+      |> Plug.Test.conn("/")
       |> Map.replace!(
         :secret_key_base,
         ServiceRadarWebNGWeb.Endpoint.config(:secret_key_base)
