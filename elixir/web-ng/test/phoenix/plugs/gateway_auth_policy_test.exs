@@ -101,7 +101,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "passive proxy refuses an inactive mapped user without creating a session", %{conn: conn} do
+  test "passive proxy refuses an inactive mapped user without creating a session", %{
+    conn: conn
+  } do
     put_auth_settings(%{
       is_enabled: true,
       mode: :passive_proxy,
@@ -126,7 +128,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
       |> put_private(:phoenix_format, "html")
       |> put_req_header(
         "authorization",
-        "Bearer " <> signed_token(%{"email" => to_string(user.email), "sub" => "gateway|inactive"})
+        "Bearer " <>
+          signed_token(%{"email" => to_string(user.email), "sub" => "gateway|inactive"})
       )
       |> GatewayAuth.call([])
 

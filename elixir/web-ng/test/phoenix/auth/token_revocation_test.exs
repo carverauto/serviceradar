@@ -57,7 +57,9 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
     end
 
     @tag :web_ng_shared_fixture_db
-    test "keeps the user marker beyond the longest configurable token lifetime", %{user_id: user_id} do
+    test "keeps the user marker beyond the longest configurable token lifetime", %{
+      user_id: user_id
+    } do
       assert :ok = TokenRevocation.revoke_all_for_user(user_id)
       assert {:ok, marker} = TokenRevocation.get_revocation_info("user:#{user_id}:all")
 
