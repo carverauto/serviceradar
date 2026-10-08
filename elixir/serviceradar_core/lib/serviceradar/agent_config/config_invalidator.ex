@@ -6,7 +6,9 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
   rebuild. An invalidation that arrives while that rebuild is running marks the
   type dirty, and exactly one follow-up rebuild runs after it. At most one
   rebuild is in flight and one is pending for each type, so a burst of UI
-  saves cannot stack fleet compiles in a LiveView process.
+  saves cannot stack compiles in a LiveView process. Each request carries a
+  delivery scope that merges while coalescing, so a scoped push never widens
+  to the fleet and pending owners are never dropped.
 
   The rebuild runs under `#{__MODULE__}.TaskSupervisor`. The worker caps its
   heap with `Process.flag(:max_heap_size, ...)`, so a runaway compile kills
@@ -37,6 +39,10 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
   Ask for a rebuild and push of `config_type`.
 
   Returns `:ok` when the request is accepted. The push finishes later.
+
+  The `:scope` option selects push delivery: `:all_online` (default),
+  `{:device, uid}` to resolve the device's owning pollers in the worker, or
+  a list of agent IDs.
   """
   @spec request(GenServer.server(), atom(), keyword()) :: :ok
   def request(server \\ __MODULE__, config_type, opts \\ [])
