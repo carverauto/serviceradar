@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler
 
@@ -142,15 +143,16 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     relay_session_id = Ecto.UUID.generate()
     viewer_session_id = Ecto.UUID.generate()
     state = %{relay_session_id: relay_session_id}
-    :ok = ServiceRadar.Camera.RelayPubSub.subscribe(relay_session_id)
+    :ok = RelayPubSub.subscribe(relay_session_id)
 
     :ok =
-      ServiceRadar.Camera.RelayPubSub.viewer_leave(relay_session_id, viewer_session_id, %{
+      RelayPubSub.viewer_leave(relay_session_id, viewer_session_id, %{
         transport: "membrane_webrtc",
         reason: "webrtc viewer connection failed"
       })
 
     assert_receive {:camera_relay_webrtc_closed, payload}
+
     assert {:push, {:text, json}, ^state} =
              CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_closed, payload}, state)
 
@@ -162,10 +164,11 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
            } = Jason.decode!(json)
 
     unrelated = %{payload | relay_session_id: Ecto.UUID.generate()}
+
     assert {:ok, ^state} =
              CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_closed, unrelated}, state)
 
-    :ok = ServiceRadar.Camera.RelayPubSub.viewer_leave(relay_session_id, Ecto.UUID.generate())
+    :ok = RelayPubSub.viewer_leave(relay_session_id, Ecto.UUID.generate())
     refute_receive {:camera_relay_webrtc_closed, _}
   end
 

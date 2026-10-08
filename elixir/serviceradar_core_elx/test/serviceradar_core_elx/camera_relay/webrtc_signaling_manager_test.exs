@@ -344,9 +344,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
                     %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_session_id, reason: reason}}
 
     assert reason == "webrtc viewer connection failed"
+
     assert_receive {:camera_relay_webrtc_closed,
-                    %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_session_id,
-                      reason: "webrtc viewer connection failed"}}
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      viewer_id: ^viewer_session_id,
+                      reason: "webrtc viewer connection failed"
+                    }}
 
     assert {:error, :viewer_session_not_found} =
              WebRTCSignalingManager.close_session(relay_session_id, viewer_session_id, server: server_name)

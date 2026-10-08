@@ -58,10 +58,14 @@ defmodule ServiceRadar.Camera.RelayPubSub do
   end
 
   def viewer_leave(relay_session_id, viewer_id, payload \\ %{}) when is_map(payload) do
-    broadcast_control(
-      {:camera_relay_viewer_leave,
-       Map.merge(payload, %{relay_session_id: relay_session_id, viewer_id: viewer_id})}
-    )
+    payload = Map.merge(payload, %{relay_session_id: relay_session_id, viewer_id: viewer_id})
+    :ok = broadcast_control({:camera_relay_viewer_leave, payload})
+
+    if Map.get(payload, :transport) == "membrane_webrtc" do
+      broadcast(relay_session_id, {:camera_relay_webrtc_closed, payload})
+    else
+      :ok
+    end
   end
 
   def broadcast_viewer_chunk(relay_session_id, viewer_id, payload) when is_map(payload) do
