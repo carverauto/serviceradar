@@ -4568,7 +4568,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
-          <tr :if={@count == 0}>
+          <tr :if={@count == 0} id={"#{@id}-rows-empty"}>
             <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No log entries found.
             </td>
@@ -5220,7 +5220,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
-          <tr :if={@count == 0}>
+          <tr :if={@count == 0} id={"#{@id}-rows-empty"}>
             <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No events found.
             </td>
