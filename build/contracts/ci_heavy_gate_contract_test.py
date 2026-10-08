@@ -352,6 +352,13 @@ def is_executable_bazel_test(segment: str, start: int) -> bool:
     if re.search(r"(?:^|\s)(?:if|then|elif|while|until|do|!|time)$", prefix):
         return True
     prefix_tokens = prefix.split()
+    if prefix_tokens and prefix_tokens[0] in (
+        "scripts/ci/unless_docs_only.sh",
+        "./scripts/ci/unless_docs_only.sh",
+    ):
+        prefix_tokens = prefix_tokens[1:]
+        if not prefix_tokens:
+            return True
     return bool(prefix_tokens) and all(
         re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token)
         for token in prefix_tokens
@@ -991,7 +998,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "//... //rust/netprobe:loaded_tcp_attribution_test"
     )
     unit_suite = (
-        "bazel test -c opt --config=ci --//build:enable_integration_tests "
+        "scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests "
         "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
     )
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
@@ -1482,6 +1489,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         ):
             self.assertIn(required, action)
 
+        self.assertIn('GIT_BASE_BRANCH: "staging"', header)
+        self.assertIn("python3 build/ci/detect_docs_only.py", action)
+        self.assertIn("scripts/ci/unless_docs_only.sh", action)
+        self.assertIn('echo "docs-only change: BazelCI database lifecycle skipped"', action)
+        self.assertIn('echo "docs-only change: BazelCI Go race tests skipped"', action)
+
         self.assert_only_generation_lifecycle_runs(action)
         self.assert_common_measured_lifecycle(
             action,
@@ -1587,9 +1600,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--test_arg=-test.shuffle=on"
         )
         shutdown = f"bazel {startup} shutdown"
+        guard = (
+            '[ -e "${DOCS_ONLY_MARKER:-/tmp/serviceradar-docs-only-marker}" ] && '
+            '{ echo "docs-only change: BazelCI Go race tests skipped"; exit 0; }'
+        )
         self.assertEqual(
             (
                 "set -euo pipefail",
+                guard,
                 f"{variable}={output_base}",
                 "set +e",
                 race_test,
@@ -2708,6 +2726,83 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "missing contract",
         ):
             self.assertNotIn(forbidden, step)
+
+
+class DocsOnlyExclusionCoverageContractTest(unittest.TestCase):
+    """Verifies that all build inputs under docs/ or openspec/ are covered by exclusions."""
+
+    def test_docs_only_exclusions_cover_all_build_graph_inputs(self):
+        from build.ci.detect_docs_only import is_allowlisted, is_excluded
+
+        build_and_bzl_files = []
+        for candidate in (
+            ROOT / "BUILD.bazel",
+            ROOT / "MODULE.bazel",
+            ROOT / "build/contracts/BUILD.bazel",
+            ROOT / "docs/BUILD.bazel",
+        ):
+            if candidate.is_file():
+                build_and_bzl_files.append(candidate)
+
+        for path in ROOT.glob("build/**/*.bzl"):
+            if path.is_file():
+                build_and_bzl_files.append(path)
+
+        for path in ROOT.rglob("BUILD*"):
+            if path.is_file() and ".git" not in path.parts and path not in build_and_bzl_files:
+                build_and_bzl_files.append(path)
+
+        for path in ROOT.rglob("*.bzl"):
+            if path.is_file() and ".git" not in path.parts and path not in build_and_bzl_files:
+                build_and_bzl_files.append(path)
+
+        uncovered = []
+        for file_path in build_and_bzl_files:
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            code_lines = [line.split("#")[0] for line in content.splitlines()]
+            code = "\n".join(code_lines)
+            literals = re.findall(r"""["']([^"']+)["']""", code)
+            pkg_dir = file_path.parent.relative_to(ROOT).as_posix()
+            if pkg_dir == ".":
+                pkg_dir = ""
+
+            for lit in literals:
+                target_path = None
+                if lit.startswith("//docs:") or lit.startswith("//docs/"):
+                    rel = lit.split(":", 1)[1] if ":" in lit else lit[len("//docs/") :]
+                    target_path = f"docs/{rel}"
+                elif lit.startswith("//:docs/"):
+                    target_path = lit[len("//:") :]
+                elif lit.startswith("//openspec:") or lit.startswith("//openspec/"):
+                    rel = lit.split(":", 1)[1] if ":" in lit else lit[len("//openspec/") :]
+                    target_path = f"openspec/{rel}"
+                elif lit.startswith("//:openspec/"):
+                    target_path = lit[len("//:") :]
+                elif pkg_dir == "docs" or pkg_dir.startswith("docs/"):
+                    candidate = f"{pkg_dir}/{lit}"
+                    if (ROOT / candidate).is_file():
+                        target_path = candidate
+                elif pkg_dir == "openspec" or pkg_dir.startswith("openspec/"):
+                    candidate = f"{pkg_dir}/{lit}"
+                    if (ROOT / candidate).is_file():
+                        target_path = candidate
+                elif lit.startswith("docs/") and pkg_dir == "":
+                    target_path = lit
+                elif lit.startswith("openspec/") and pkg_dir == "":
+                    target_path = lit
+
+                if target_path and is_allowlisted(target_path):
+                    if not is_excluded(target_path):
+                        uncovered.append((file_path.relative_to(ROOT).as_posix(), lit, target_path))
+
+        self.assertEqual(
+            [],
+            uncovered,
+            f"Build graph inputs under docs/ or openspec/ are not covered by exclusions: {uncovered}",
+        )
 
 
 if __name__ == "__main__":
