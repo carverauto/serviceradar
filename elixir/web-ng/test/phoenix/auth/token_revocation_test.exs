@@ -67,7 +67,12 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
       user_id = user.id
 
       on_exit(fn ->
-        ServiceRadar.Repo.delete_all(from(r in "token_revocations", prefix: "platform", where: r.user_id == ^user_id))
+        ServiceRadar.Repo.delete_all(
+          from(r in "token_revocations",
+            prefix: "platform",
+            where: r.user_id == ^Ecto.UUID.dump!(user_id)
+          )
+        )
 
         ServiceRadar.Repo.delete_all(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
       end)
