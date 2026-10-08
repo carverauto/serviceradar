@@ -744,6 +744,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "trace_id",
         "span_id",
         "uid",
+        "device_uid",
         "device_id",
         "source_device_uid",
         "service_radar_device_uid",
