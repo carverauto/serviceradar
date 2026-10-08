@@ -322,6 +322,46 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLiveTest do
       assert html =~ "Pending over 5m"
       assert html =~ "(for 15m)"
     end
+
+    test "tableless pending dataset is not stale" do
+      now = ~U[2026-10-08 12:15:00Z]
+
+      tableless =
+        sample_entry(:flows,
+          last_applied_status: "pending",
+          updated_at: ~U[2026-10-08 12:00:00Z],
+          tables: [],
+          stored?: true
+        )
+
+      refute DataRetentionLive.stale_pending?(tableless, now)
+
+      unstored =
+        sample_entry(:flows,
+          last_applied_status: "pending",
+          updated_at: ~U[2026-10-08 12:00:00Z],
+          stored?: false
+        )
+
+      refute DataRetentionLive.stale_pending?(unstored, now)
+
+      socket =
+        new_socket(
+          can_manage?: true,
+          warehouse_enabled?: true,
+          entries_override: [tableless],
+          applier_health_override: %{running?: true, node: nil, last_reconciled_at: nil, last_outcome: nil}
+        )
+
+      {:ok, socket} = DataRetentionLive.mount(%{}, %{}, socket)
+      refute socket.assigns.has_pending?
+      refute socket.assigns.has_stale_pending?
+
+      assigns = Map.merge(base_assigns(now: now, entries: [tableless]), socket.assigns)
+      html = rendered_to_string(DataRetentionLive.render(assigns))
+      refute html =~ "id=\"retention-flows-stale-warning\""
+      refute html =~ "id=\"retention-stale-pending-alert\""
+    end
   end
 
   describe "LiveView saved transitions" do

@@ -47,12 +47,19 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
 
   @doc "Whether a pending retention change has exceeded the stale threshold (5 minutes)."
   @spec stale_pending?(map(), DateTime.t()) :: boolean()
-  def stale_pending?(entry, now \\ DateTime.utc_now()) do
+  def stale_pending?(entry, now \\ DateTime.utc_now())
+
+  def stale_pending?(
+        %{last_applied_status: "pending", stored?: true, tables: [_ | _]} = entry,
+        %DateTime{} = now
+      ) do
     case pending_age_seconds(entry, now) do
       nil -> false
       age -> age >= @pending_stale_threshold_seconds
     end
   end
+
+  def stale_pending?(_entry, _now), do: false
 
   @doc "Formats a duration in seconds into a human-readable string."
   @spec format_age(integer() | nil) :: String.t() | nil
