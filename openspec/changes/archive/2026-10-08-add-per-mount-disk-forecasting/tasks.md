@@ -9,5 +9,5 @@
 - [x] 3.1 `disk_usage` source reads the entity keyed by device and mount, labelled "device / mount"; worker test with per-mount rows proves one forecast per mount and device-scoped resource ids.
 
 ## 4. Verification
-- [ ] 4.1 CI: migration applies on the fixture lane; SRQL tests; worker tests.
-- [ ] 4.2 Post-deploy on demo: per-mount rows appear in `capacity_forecasts` with mount labels; the device page still lists the device's forecasts.
+- [x] 4.1 CI: migration applies on the fixture lane; SRQL tests; worker tests.
+- [x] 4.2 Post-deploy on demo: per-mount rows appear in `capacity_forecasts` with mount labels; the device page still lists the device's forecasts.
