@@ -454,9 +454,13 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
   end
 
   defp delete_analytics_rows! do
-    Repo.delete_all(from(h in "mtr_hops", prefix: "platform", where: h.target_ip == ^@analytics_target))
+    Repo.delete_all(
+      from(h in "mtr_hops", prefix: "platform", where: h.target_ip == ^@analytics_target)
+    )
 
-    Repo.delete_all(from(t in "mtr_traces", prefix: "platform", where: t.target_ip == ^@analytics_target))
+    Repo.delete_all(
+      from(t in "mtr_traces", prefix: "platform", where: t.target_ip == ^@analytics_target)
+    )
   end
 
   defp dump_uuid!(uuid) do
