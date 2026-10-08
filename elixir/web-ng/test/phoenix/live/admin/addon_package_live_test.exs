@@ -842,6 +842,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
       )
       |> Ash.create!()
 
+    # The managed sibling is disabled: exactly one enabled assignment per
+    # (agent, add-on) now holds at the database, so a second enabled row for
+    # the same agent and add-on is rejected. The package page lists disabled
+    # rows too, preserving the grouping, manual-only deletion, and managed
+    # history assertions below.
     profile_assignment =
       AddonAssignment
       |> Ash.Changeset.for_create(
@@ -852,6 +857,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
           source: :profile,
           source_key: "profile:#{profile.id}:#{package.id}:#{agent_uid}",
           addon_profile_id: profile.id,
+          enabled: false,
           params: %{},
           args: []
         },
