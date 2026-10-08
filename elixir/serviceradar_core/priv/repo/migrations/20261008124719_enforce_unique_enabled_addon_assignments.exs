@@ -13,6 +13,17 @@ defmodule ServiceRadar.Repo.Migrations.EnforceUniqueEnabledAddonAssignments do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded cleanup before adding
+    # the partial unique index; without it index creation fails on existing duplicates, and
+    # the cleanup must commit in the same migration with the table lock so concurrent writers
+    # cannot recreate duplicates between cleanup and installing the constraint.
+    # platform.addon_assignments is a small control-plane table (not a hypertable). Only rows
+    # sharing an (agent_uid, addon_id) key with more than one enabled assignment are disabled
+    # (never deleted, preserving assignment references and completed rollout history), plus a
+    # canonicalization UPDATE limited to rows whose denormalized addon_id is distinct from
+    # their package. Both statements are idempotent single statements, fail closed by raising
+    # when a shadowed row is owned by an active rollout, and are followed by a re-query that
+    # refuses to converge if any duplicate enabled key remains.
     Enum.each(cleanup_statements(), &execute/1)
 
     create unique_index(:addon_assignments, [:agent_uid, :addon_id],
