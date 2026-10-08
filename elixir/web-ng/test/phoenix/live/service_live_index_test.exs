@@ -59,7 +59,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
 
     {:ok, view, html} = live(conn, ~p"/services")
 
-    assert html |> LazyHTML.from_fragment() |> LazyHTML.query("#services-tab-loading[role='status']") |> Enum.any?()
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("#services-tab-loading[role='status']")
+           |> Enum.any?()
     assert has_element?(view, "#service-cards", "UniFi Protect Camera")
     assert has_element?(view, "#service-cards", "camera check healthy")
     assert has_element?(view, "#services-tab-content:not([hidden])")

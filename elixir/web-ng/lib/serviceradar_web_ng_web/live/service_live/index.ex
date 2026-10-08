@@ -44,7 +44,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       socket
       |> assign(:params, params)
       |> assign(:current_uri, uri)
-      |> SRQLPage.sync_from_params(params, uri, default_limit: @default_limit, max_limit: @max_limit)
+      |> SRQLPage.sync_from_params(params, uri,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
 
     if connected?(socket) do
       {:noreply,

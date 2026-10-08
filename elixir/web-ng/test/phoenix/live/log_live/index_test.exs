@@ -692,7 +692,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, html} =
       live(conn, ~p"/observability/metrics")
 
-    assert html |> LazyHTML.from_fragment() |> LazyHTML.query("#observability-tab-loading[role='status']") |> Enum.any?()
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("#observability-tab-loading[role='status']")
+           |> Enum.any?()
     assert has_element?(lv, "#metrics-row-0", "metrics-service")
     assert has_element?(lv, "#observability-tab-content:not([hidden])")
     refute has_element?(lv, "#metrics", "No metrics found.")

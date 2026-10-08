@@ -40,7 +40,10 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
      |> assign(:bmp_live?, live?)
      |> assign(:current_params, params)
      |> assign(:current_uri, uri)
-     |> SRQLPage.sync_from_params(params, uri, default_limit: @default_limit, max_limit: @max_limit)
+     |> SRQLPage.sync_from_params(params, uri,
+       default_limit: @default_limit,
+       max_limit: @max_limit
+     )
      |> then(fn socket ->
        if connected?(socket) do
          socket

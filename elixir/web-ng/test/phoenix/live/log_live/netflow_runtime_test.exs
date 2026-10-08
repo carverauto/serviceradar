@@ -76,7 +76,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
            end, :default}
         end
 
-      task = Task.Supervisor.async_nolink(supervisor, fn -> NetflowRuntime.run_concurrently(jobs) end)
+      task =
+        Task.Supervisor.async_nolink(supervisor, fn ->
+          NetflowRuntime.run_concurrently(jobs)
+        end)
 
       first_wave =
         for _ <- 1..4 do
