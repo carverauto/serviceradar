@@ -223,7 +223,7 @@ HEX_PACKAGES = [
     ("phoenix_live_dashboard", "phoenix_live_dashboard", "0.9.1", "de25e1a28cfb64413d8bdaf3ba5b64da1a19e0ed44a02320119523cc45da051d"),
     ("phoenix_live_reload", "phoenix_live_reload", "1.7.0", "dc9f44271aa6fc4ab7797f2aa374ba096ef2c87520586280eb095626b7387a68"),
     ("phoenix_live_view", "phoenix_live_view", "1.2.12", "656810d716e3369545dd63981196a5d68b77fdb253afe02ef0c6fa14cfd8dc2b"),
-    ("phoenix_pubsub", "phoenix_pubsub", "2.4.0", "80776f727460ed104c95ecddcacc5098d3cd31f40e5f05741e1219abfb20f4a8"),
+    ("phoenix_pubsub", "phoenix_pubsub", "2.4.1", "352fba7a87bf61395b6e97da66944ad9b1bfe5459e5981039f60d68270bd9700"),
     ("phoenix_react_ng", "phoenix_react_ng", "0.8.5", "602a0bdc7986595610a0e5dd0413e55e03be1f9267c1ab5578093407e3e795ee"),
     ("phoenix_template", "phoenix_template", "1.1.0", "eba70070de79b2c3501ef205a74a69f98ab352f3785aa15da9ed161f9fe0fd5d"),
     ("phoenix_view", "phoenix_view", "2.0.4", "4e992022ce14f31fe57335db27a28154afcc94e9983266835bb3040243eb620b"),
