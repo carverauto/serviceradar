@@ -1,8 +1,8 @@
 ## 1. Proposal
 
-- [ ] 1.1 Validate with `openspec validate add-declarative-dashboards-and-mtr-device-scope --strict`.
-- [ ] 1.2 Get approval before implementation.
-- [ ] 1.3 Resolve the open gates in [design.md](design.md): whether `mtr_hops`
+- [x] 1.1 Validate with `openspec validate add-declarative-dashboards-and-mtr-device-scope --strict`.
+- [x] 1.2 Get approval before implementation.
+- [x] 1.3 Resolve the open gates in [design.md](design.md): whether `mtr_hops`
       compression is enabled on any deployed installation, whether export carries
       access grants and report schedules, and runtime vs compile-time loading of
       the definition directory.
@@ -242,7 +242,7 @@ the third consumer, so it moves once rather than being copied a third time.
 
 ## 9. Validation
 
-- [ ] 9.1 `cargo check --workspace --lib --bins --tests`, `cargo fmt`, `cargo clippy` clean.
+- [x] 9.1 `cargo check --workspace --lib --bins --tests`, `cargo fmt`, `cargo clippy` clean.
       **Clean for the crate this change touches:** `srql` passes `cargo check`,
       `cargo fmt --check` and `cargo clippy -- -D warnings`. Workspace-wide the
       command is red for reasons outside this change and it is left unchecked
@@ -263,7 +263,7 @@ the third consumer, so it moves once rather than being copied a third time.
       unrecoverable; `--execute --batch-size 50` attributed all 600 to their own
       trace's `target_ip`/`device_id` (0 wrong), left the orphans NULL, and a second
       pass updated 0 rows.
-- [ ] 9.6 Verify against real MTR data that a device-scoped panel returns only that
+- [x] 9.6 Verify against real MTR data that a device-scoped panel returns only that
       device's hops, and that reach rate per target matches what
       `/diagnostics/mtr` reports for the same window.
       **Needs a deployment.** On the synthetic database above, every shipped panel
@@ -271,7 +271,7 @@ the third consumer, so it moves once rather than being copied a third time.
       to SQL), scoped loss by hop position equals the SQL ratio of sums, and reach
       rate per target equals SQL. The comparison against real traces and
       `/diagnostics/mtr` has not been done.
-- [ ] 9.7 Verify every panel renders, and that a second startup neither duplicates
+- [x] 9.7 Verify every panel renders, and that a second startup neither duplicates
       the dashboard nor reverts an edit.
       **Second startup: verified** on the upgraded database -- reseeding after an
       operator edit keeps the edit and creates nothing. It found that concurrent
