@@ -980,8 +980,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     defp enabled_identity_conflict?(%{identity: "one_enabled_per_agent_addon"}), do: true
 
     defp enabled_identity_conflict?(%{field: field, message: message})
-         when field in [:addon_package_id, :addon_id, :agent_uid, :enabled] and
-                is_binary(message) do
+         when field in [:addon_package_id, :addon_id, :agent_uid, :enabled] and is_binary(message) do
       String.contains?(message, "already enabled for this agent")
     end
 
