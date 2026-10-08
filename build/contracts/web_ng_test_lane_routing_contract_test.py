@@ -63,7 +63,11 @@ NETWORKS_TARGET = "//elixir/web-ng:networks_live_db_test"
 TOPOLOGY_TARGET = "//elixir/web-ng:topology_atlas_db_test"
 WEB_NG_LABEL = "//elixir/web-ng:"
 
-DB_SELECTING_TARGETS = (NETWORKS_TARGET, TOPOLOGY_TARGET)
+DB_SELECTING_TARGETS = (
+    NETWORKS_TARGET,
+    TOPOLOGY_TARGET,
+    "//elixir/web-ng:plugin_config_cli_db_test",
+)
 
 DB_LANE_TAGS = frozenset({"web_ng_shared_fixture_db", "topology_atlas_db"})
 
