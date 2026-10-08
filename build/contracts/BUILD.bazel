@@ -79,12 +79,20 @@ py_test(
         "//elixir/serviceradar_core:test/support/test_support.ex",
         "//elixir/serviceradar_core:test/test_helper.exs",
         "//elixir/web-ng/test/playwright:BUILD.bazel",
+        "//docs:BUILD.bazel",
+        "//docs:cosign.pub",
+        "//docs:lint_placeholder.sh",
+        "//build/ci:detect_docs_only.py",
+        "//scripts:ci/unless_docs_only.sh",
         "//integration_tests/srql:integration_benchmark_input_files",
         "//integration_tests/srql:integration_capacity_contract_inputs",
         "//rust/integration-db:BUILD.bazel",
         "//rust/integration-db:src/bin/observe_connections.rs",
         "//rust/integration-db:src/connection_observer.rs",
         "//rust/integration-db:srcs",
+    ],
+    deps = [
+        "//build/ci:detect_docs_only_lib",
     ],
 )
 
