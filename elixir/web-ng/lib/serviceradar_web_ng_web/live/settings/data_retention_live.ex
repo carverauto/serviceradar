@@ -49,10 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
   @spec stale_pending?(map(), DateTime.t()) :: boolean()
   def stale_pending?(entry, now \\ DateTime.utc_now())
 
-  def stale_pending?(
-        %{last_applied_status: "pending", stored?: true, tables: [_ | _]} = entry,
-        %DateTime{} = now
-      ) do
+  def stale_pending?(%{last_applied_status: "pending", stored?: true, tables: [_ | _]} = entry, %DateTime{} = now) do
     case pending_age_seconds(entry, now) do
       nil -> false
       age -> age >= @pending_stale_threshold_seconds
