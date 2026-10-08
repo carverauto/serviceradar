@@ -589,6 +589,9 @@ if config_env() == :prod do
   timeseries_metrics_retention_days =
     "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
 
+  timeseries_metrics_compress_after_hours =
+    "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" |> parse_int_env.(24) |> max(1)
+
   # cpu/memory/disk/process_metrics_hourly and timeseries_metrics_*_hourly.
   # DataRetentionWorker floors this at 7 days, clear of their 5-day refresh window.
   hourly_rollup_retention_days =
@@ -1207,6 +1210,7 @@ if config_env() == :prod do
     ocsf_events_retention_days: ocsf_events_retention_days,
     ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
     timeseries_metrics_retention_days: timeseries_metrics_retention_days,
+    timeseries_metrics_compress_after_hours: timeseries_metrics_compress_after_hours,
     hourly_rollup_retention_days: hourly_rollup_retention_days,
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,

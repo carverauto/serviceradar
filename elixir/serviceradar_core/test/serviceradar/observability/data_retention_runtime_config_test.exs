@@ -19,22 +19,26 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     worker =
       worker_config(%{
         "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" => "14",
-        "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" => "10"
+        "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" => "10",
+        "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" => "6"
       })
 
     assert worker[:hourly_rollup_retention_days] == 14
     assert worker[:timeseries_metrics_retention_days] == 10
+    assert worker[:timeseries_metrics_compress_after_hours] == 6
   end
 
   test "unset retention keeps the shipped windows" do
     worker =
       worker_config(%{
         "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" => nil,
-        "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" => nil
+        "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" => nil,
+        "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" => nil
       })
 
     assert worker[:hourly_rollup_retention_days] == 395
     assert worker[:timeseries_metrics_retention_days] == 7
+    assert worker[:timeseries_metrics_compress_after_hours] == 24
   end
 
   defp worker_config(overrides) do
