@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleCatalogLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
     %{conn: log_in_user(conn, user)}

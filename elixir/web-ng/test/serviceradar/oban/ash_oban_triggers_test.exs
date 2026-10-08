@@ -18,6 +18,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   # =============================================================================
   # OnboardingPackage.expire_packages trigger
   # =============================================================================

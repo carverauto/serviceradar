@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   @path "/settings/networks/composite-checks"
@@ -1423,7 +1425,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ ~s(data-sweep-group="#{group.id}")
       assert html =~ "ports 22, 3389"
       assert html =~ "every 15m"
-      assert html =~ "assigned to this agent"
+      assert html =~ "selected for this agent"
     end
 
     test "an unassigned group in the partition also covers the agent", %{
@@ -1436,10 +1438,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
 
       {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
 
-      # `SweepGroup.agent_id` nil means "any agent in partition", so this group
-      # feeds the vantage point even though it names no agent.
+      # An empty `SweepGroup.agent_ids` means every agent in the partition, so
+      # this group feeds the vantage point even though it names no agent.
       assert html =~ ~s(data-sweep-group="#{group.id}")
-      assert html =~ "any agent in partition"
+      assert html =~ "all agents in partition"
     end
 
     test "a group in another partition does not count as coverage", %{

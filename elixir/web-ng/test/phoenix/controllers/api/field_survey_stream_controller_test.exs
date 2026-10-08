@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamControllerTest do
 
   alias ServiceRadarWebNG.Auth.Guardian
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "FieldSurvey stream auth" do
     test "accepts ws_token on stream routes", %{conn: conn} do
       user = admin_user_fixture()

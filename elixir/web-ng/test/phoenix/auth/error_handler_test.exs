@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandlerTest do
 
   alias ServiceRadarWebNGWeb.Auth.ErrorHandler
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "auth_error/3 for JSON API requests" do
     test "returns 401 with JSON for unauthenticated error", %{conn: conn} do
       conn =

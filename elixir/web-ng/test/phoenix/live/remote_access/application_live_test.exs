@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessApplicationLiveTest do
   alias ServiceRadar.Edge.RemoteAccessTcpTarget
   alias ServiceRadarWebNG.Accounts.Scope
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_app_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_app_enabled)
     previous_tcp_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_tcp_enabled)

@@ -55,6 +55,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsExtensibilityTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @key "acme_pager"
   @host "93.184.216.34"
   @webhook_url "https://#{@host}/hooks/acme/9f2b1c7a"

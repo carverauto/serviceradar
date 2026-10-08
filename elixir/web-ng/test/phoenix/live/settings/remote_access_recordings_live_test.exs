@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule AuditSink do
     @moduledoc false
     def write_async(_opts), do: :ok

@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageControllerTest do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNGWeb.Api.AddonPackageController
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup do
     original = Application.get_env(:serviceradar_web_ng, :plugin_storage)
 

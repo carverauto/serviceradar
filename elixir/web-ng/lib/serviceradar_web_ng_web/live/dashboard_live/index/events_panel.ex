@@ -55,7 +55,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
     ~H"""
     <div class="sr-ops-events-range-shell">
       <%!-- Keep this as one conditional branch so connected async hydration replaces the
-      disconnected empty state instead of leaving stale sibling DOM behind. --%>
+      disconnected empty state instead of leaving stale sibling DOM behind. A window with
+      no events keeps the empty state; only a window with events renders the chart. --%>
       <%= if is_nil(@range_buckets_json) do %>
         <div class="sr-ops-empty-chart" data-testid="security-events-empty">
           <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
@@ -200,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   end
 
   defp event_trend_renderable?(points, max_total)
-       when is_list(points) and points != [] and is_integer(max_total) and max_total >= 0 do
+       when is_list(points) and points != [] and is_integer(max_total) and max_total > 0 do
     Enum.all?(points, &event_point_renderable?/1)
   end
 

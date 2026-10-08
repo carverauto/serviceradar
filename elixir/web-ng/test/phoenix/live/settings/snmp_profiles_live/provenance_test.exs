@@ -20,6 +20,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProvenanceTest do
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   describe "provenance badge" do

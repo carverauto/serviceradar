@@ -145,8 +145,14 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
     }
   end
 
-  defp first_hop_device([last | _], _fallback), do: Map.get(last, :device_id)
-  defp first_hop_device([], fallback), do: fallback
+  # Hops are accumulated by prepending, so the first device on the path is the
+  # last element until route_result/5 reverses the list for the response.
+  defp first_hop_device(hops, fallback) do
+    case List.last(hops) do
+      %{device_id: device_id} when is_binary(device_id) -> device_id
+      _ -> fallback
+    end
+  end
 
   defp longest_prefix_match(routes, destination_int) when is_list(routes) do
     routes

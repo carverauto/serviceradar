@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.FieldSurveyArtifactStoreTest do
   alias Gnat.Jetstream.API.Object
   alias ServiceRadarWebNG.FieldSurveyArtifactStore
 
+  @moduletag :db_free
+
   @moduletag :jetstream_retirement
 
   @gib 1_073_741_824

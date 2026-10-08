@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.InfrastructureTest do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "list_gateways returns gateways ordered by last_seen desc" do
     Repo.insert_all("gateways", [
       %{

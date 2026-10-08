@@ -6,6 +6,9 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
   alias Oban.Job
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+  alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo ServiceRadar.Repo
 
@@ -58,9 +61,11 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
   end
 
   test "discards stale cron jobs that exhausted all attempts" do
+    # FirstPartySyncWorker is in sweep scope but implements no orphan rescue,
+    # so the age-based sweep (not the rescue pass) owns this row.
     stale_job =
       insert_job!(
-        RefreshTraceSummariesWorker,
+        FirstPartySyncWorker,
         state: "executing",
         attempt: 3,
         max_attempts: 3,
@@ -77,9 +82,11 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
   end
 
   test "ignores stale non-periodic jobs" do
+    # The reaper itself is neither orphan-rescuable nor in sweep scope, so a
+    # row for it with no cron flag must survive the pass untouched.
     stale_job =
       insert_job!(
-        RefreshTraceSummariesWorker,
+        ReapStalePeriodicJobsWorker,
         state: "executing",
         attempt: 1,
         max_attempts: 3,
@@ -100,6 +107,7 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
 
   defp insert_job!(worker, attrs) do
     now = DateTime.utc_now()
+    attrs = Map.new(attrs)
 
     %{}
     |> Job.new(worker: worker, queue: :maintenance)

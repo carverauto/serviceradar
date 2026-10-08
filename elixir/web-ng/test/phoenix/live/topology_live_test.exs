@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
 
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_user
 
   setup do
@@ -100,7 +102,10 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     view |> element(~s(button[phx-click="toggle_visual_layer"][phx-value-layer="mantle"])) |> render_click()
     assert_push_event(view, "god_view:set_layers", %{layers: %{"mantle" => false, "atmosphere" => true}})
     refute has_element?(view, ~s(button[phx-value-state="root_cause"]))
-    refute has_element?(view, ~s(button[phx-click="toggle_topology_layer"]))
+    # Only the Inferred topology layer has a world control (restored in 8771c35338);
+    # backbone, endpoints and MTR paths stay without toggles.
+    assert has_element?(view, ~s(button[phx-click="toggle_topology_layer"][phx-value-layer="inferred"]))
+    refute has_element?(view, ~s{button[phx-click="toggle_topology_layer"]:not([phx-value-layer="inferred"])})
   end
 
   test "shows the backbone-empty warning without hiding the remaining topology", %{conn: conn} do

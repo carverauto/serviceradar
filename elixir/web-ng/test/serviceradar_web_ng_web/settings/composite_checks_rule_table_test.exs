@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTableTest do
 
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
 
+  @moduletag :db_free
+
   defp input(key, kind, position) do
     %{key: key, label: key, kind: kind, position: position}
   end

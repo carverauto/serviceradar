@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentControllerTest do
 
   alias ServiceRadarWebNG.Auth.Guardian
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "GET /api/admin/plugin-assignments/:id" do
     test "returns 404 for an unknown assignment", %{conn: conn} do
       user = admin_user_fixture()

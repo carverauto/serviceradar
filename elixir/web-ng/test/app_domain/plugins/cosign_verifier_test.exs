@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
 
   alias ServiceRadarWebNG.Plugins.CosignVerifier
 
+  @moduletag :db_free
+
   setup do
     original = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import)
 

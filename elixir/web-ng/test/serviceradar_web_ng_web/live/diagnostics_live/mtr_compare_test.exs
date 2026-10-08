@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
 
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
 
@@ -24,7 +26,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
 
     assert html =~ "Today so far"
     assert html =~ "Yesterday full day"
-    assert html =~ "#{format_time(yesterday_start)} to #{format_time(today_start)}"
+    # Window bounds render as canonical UTC <time> elements that the UserTime hook localizes.
+    assert window_bound(html, :b, "start") == DateTime.to_iso8601(yesterday_start)
+    assert window_bound(html, :b, "end") == DateTime.to_iso8601(today_start)
     assert html =~ "Full-day baseline"
     assert html =~ "Compare same hours"
     assert html =~ "Deltas include different amounts of time"
@@ -109,7 +113,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
     |> DateTime.new!(~T[00:00:00], "Etc/UTC")
   end
 
-  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp window_bound(html, side, edge) do
+    [datetime] =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("time#mtr-compare-window-#{side}-#{edge}-time")
+      |> LazyHTML.attribute("datetime")
+
+    datetime
+  end
 
   defp insert_mtr_trace!(agent_id, target_ip, timestamp, opts) do
     id = Ecto.UUID.generate()

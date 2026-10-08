@@ -1,11 +1,36 @@
+# Stand-in for the agent-gateway peer. web-ng issues agent certificates by RPC to
+# `ServiceRadarAgentGateway.CertIssuer` on the gateway's node; that application is
+# not part of web-ng, so a test that needs a successful issuance provides the
+# remote module here, on the local node the tracked gateway reports.
+defmodule ServiceRadarAgentGateway.CertIssuer do
+  @moduledoc false
+
+  def issue_agent_bundle(component_id, partition_id, :agent, _opts) do
+    pem = "-----BEGIN CERTIFICATE-----\nc3ludGhldGlj\n-----END CERTIFICATE-----\n"
+
+    {:ok,
+     %{
+       bundle_pem: pem,
+       certificate_pem: pem,
+       private_key_pem: "-----BEGIN PRIVATE KEY-----\nc3ludGhldGlj\n-----END PRIVATE KEY-----\n",
+       ca_chain_pem: pem,
+       spiffe_id: "spiffe://serviceradar.local/agent/#{partition_id}/#{component_id}"
+     }}
+  end
+end
+
 defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
-  import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
+
+  import ServiceRadarWebNG.AshTestHelpers,
+    only: [admin_user_fixture: 0, actor_for_user: 1, ensure_process_registry!: 0]
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
+
+  @moduletag :web_ng_shared_fixture_db
 
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
@@ -19,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     user = admin_user_fixture()
     actor = actor_for_user(user)
     gateway_id = "test-gateway-#{System.unique_integer([:positive])}"
+    ensure_process_registry!()
 
     case ServiceRadar.GatewayRegistry.register_gateway(gateway_id, %{
            partition_id: "default",
@@ -105,9 +131,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       {:ok, _lv, html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
+      # Scoped to this add-on: other approved add-ons may legitimately be v0.1.0.
       assert html =~ "Initial Feature Set"
-      assert html =~ "v#{newer.version}"
-      refute html =~ "v0.1.0"
+      assert html =~ "v#{newer.version} (#{addon_id})"
+      refute html =~ "v0.1.0 (#{addon_id})"
     end
 
     test "closes modal on cancel", %{conn: conn} do
@@ -165,14 +192,27 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     end
 
     test "agent success modal uses explicit configured core-url in enroll command", %{
-      conn: conn
+      conn: conn,
+      gateway_id: gateway_id
     } do
+      # The gateway picker lists GatewayTracker entries, and issuance resolves the
+      # gateway's node there; the stand-in CertIssuer above answers on this node.
+      ServiceRadar.GatewayTracker.register(gateway_id, %{
+        node: Node.self(),
+        partition: "default",
+        domain: "local",
+        status: :available
+      })
+
+      on_exit(fn -> ServiceRadar.GatewayTracker.unregister(gateway_id) end)
+
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       lv
       |> form("#create_package_form",
         form: %{
-          label: "test-agent-enroll-command"
+          label: "test-agent-enroll-command",
+          gateway_id: gateway_id
         }
       )
       |> render_submit()

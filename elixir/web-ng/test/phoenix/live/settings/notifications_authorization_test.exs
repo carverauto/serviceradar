@@ -35,6 +35,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
   alias ServiceRadarWebNG.NotificationsFixtures
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Access, as: NotificationsAccess
 
+  @moduletag :web_ng_shared_fixture_db
+
   @refusal "not authorized"
 
   # The gated event surface, grouped by the permission each group requires. The

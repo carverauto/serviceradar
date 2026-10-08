@@ -166,6 +166,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "POST /oauth/token (client_credentials)" do
+    @tag :web_ng_shared_fixture_db
     test "success returns a Bearer access token", %{client: client, secret: secret} do
       conn =
         post(build_conn(), ~p"/oauth/token", %{
@@ -181,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert body["scope"] == "read"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "supports HTTP Basic credentials", %{client: client, secret: secret} do
       basic = Base.encode64("#{client.id}:#{secret}")
 
@@ -194,6 +196,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert body["token_type"] == "Bearer"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "wrong secret returns 401 invalid_client", %{client: client} do
       conn =
         post(build_conn(), ~p"/oauth/token", %{
@@ -205,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert json_response(conn, 401)["error"] == "invalid_client"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "malformed client_id returns 401 invalid_client" do
       conn =
         post(build_conn(), ~p"/oauth/token", %{
@@ -216,6 +220,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert json_response(conn, 401)["error"] == "invalid_client"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "missing grant_type returns 400 invalid_request", %{client: client, secret: secret} do
       conn =
         post(build_conn(), ~p"/oauth/token", %{
@@ -226,6 +231,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert json_response(conn, 400)["error"] == "invalid_request"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "unsupported grant_type returns 400" do
       conn = post(build_conn(), ~p"/oauth/token", %{"grant_type" => "implicit"})
 
@@ -238,11 +244,13 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "GET /api/devices" do
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401", %{} do
       conn = get(build_conn(), ~p"/api/devices")
       assert json_response(conn, 401)["error"] == "authentication_required"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a refresh token (wrong typ) is rejected with 401", %{owner: owner} do
       {:ok, refresh, _claims} = Guardian.create_refresh_token(owner)
 
@@ -250,6 +258,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert json_response(conn, 401)["error"] == "authentication_required"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "returns data + pagination and does NOT 500", ctx do
       seed_devices(5)
       conn = get(authed(ctx), ~p"/api/devices")
@@ -269,6 +278,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert Map.has_key?(device, "is_available")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "limit/offset paginate deterministically", ctx do
       seed_devices(5)
       conn = authed(ctx)
@@ -291,6 +301,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert MapSet.disjoint?(uids1, uids2)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "status filter narrows to (un)available devices", ctx do
       seed_devices(2, %{is_available: true})
       seed_devices(3, %{is_available: false})
@@ -300,6 +311,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert Enum.all?(body["data"], &(&1["is_available"] == false))
     end
 
+    @tag :web_ng_shared_fixture_db
     test "device_type filter matches the OCSF type", ctx do
       seed_devices(2, %{type: "router"})
       seed_devices(1, %{type: "switch"})
@@ -309,6 +321,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert Enum.all?(body["data"], &(&1["type"] == "router"))
     end
 
+    @tag :web_ng_shared_fixture_db
     test "gateway_id filter matches", ctx do
       seed_devices(1, %{gateway_id: "gw-alpha"})
       seed_devices(2, %{gateway_id: "gw-beta"})
@@ -318,6 +331,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert List.first(body["data"])["gateway_id"] == "gw-alpha"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "search filter matches hostname", ctx do
       needle = "needle#{System.unique_integer([:positive])}"
       seed_devices(1, %{hostname: "#{needle}.example.internal"})
@@ -328,6 +342,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert String.contains?(List.first(body["data"])["hostname"], needle)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "invalid limit returns 400", ctx do
       conn = get(authed(ctx), ~p"/api/devices?#{[limit: "abc"]}")
       assert json_response(conn, 400)["error"] == "invalid limit"
@@ -339,6 +354,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "GET /api/devices/:uid" do
+    @tag :web_ng_shared_fixture_db
     test "existing uid returns 200 with the device", ctx do
       [device] = seed_devices(1)
       conn = get(authed(ctx), ~p"/api/devices/#{device.uid}")
@@ -348,18 +364,21 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert body["data"]["hostname"] == device.hostname
     end
 
+    @tag :web_ng_shared_fixture_db
     test "unknown uid returns 404", ctx do
       uid = "does-not-exist-#{System.unique_integer([:positive])}"
       conn = get(authed(ctx), ~p"/api/devices/#{uid}")
       assert json_response(conn, 404)["error"] == "device not found"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "malformed uid returns 400", ctx do
       # `!` is outside the allowed uid charset -> parse_uid rejects it.
       conn = get(authed(ctx), "/api/devices/invalid!uid")
       assert json_response(conn, 400)["error"] == "invalid uid"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = get(build_conn(), ~p"/api/devices/#{"whatever"}")
       assert json_response(conn, 401)["error"] == "authentication_required"
@@ -371,6 +390,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "GET /api/devices/ocsf/export" do
+    @tag :web_ng_shared_fixture_db
     test "returns the OCSF export envelope and does NOT 500", ctx do
       seed_devices(3)
       conn = get(authed(ctx), ~p"/api/devices/ocsf/export")
@@ -390,6 +410,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert Map.has_key?(device, "type_id")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "honors limit/offset", ctx do
       seed_devices(4)
 
@@ -403,6 +424,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert body["pagination"]["next_offset"] == 2
     end
 
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = get(build_conn(), ~p"/api/devices/ocsf/export")
       assert json_response(conn, 401)["error"] == "authentication_required"
@@ -441,6 +463,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert %{"results" => [%{"time" => "2026-08-30T18:00:00Z"}]} = json_response(conn, 200)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a valid SRQL query returns results", ctx do
       seed_devices(3)
       conn = post(authed(ctx), ~p"/api/query", %{"query" => "in:devices limit:10"})
@@ -451,12 +474,14 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert Map.has_key?(body, "pagination")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a missing query returns a clean 400 (not a 500)", ctx do
       conn = post(authed(ctx), ~p"/api/query", %{"not_query" => "in:devices"})
       body = json_response(conn, 400)
       assert body["error"] =~ "query"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a malformed SRQL query returns a clean 4xx (not a 500)", ctx do
       conn = post(authed(ctx), ~p"/api/query", %{"query" => "in:not_a_real_entity_zzz"})
       # The SRQL NIF rejects the unknown entity; the controller must turn that
@@ -466,6 +491,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert is_binary(json_response(conn, conn.status)["error"])
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a non-string SRQL error reason is coerced to 400, never a 500", ctx do
       previous = Application.get_env(:serviceradar_web_ng, :srql_module)
       Application.put_env(:serviceradar_web_ng, :srql_module, NonStringErrorStub)
@@ -483,11 +509,13 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert is_binary(body["error"])
     end
 
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = post(build_conn(), ~p"/api/query", %{"query" => "in:devices"})
       assert json_response(conn, 401)["error"] == "authentication_required"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a custom profile without devices.view cannot query in:devices", %{owner: owner} do
       {client, secret} = restricted_client(owner, ["observability.logs.view"])
 
@@ -500,6 +528,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert body["error"] == "forbidden"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a custom profile without observability.logs.view cannot query in:logs", %{owner: owner} do
       {client, secret} = restricted_client(owner, ["devices.view"])
 
@@ -512,6 +541,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert body["error"] == "forbidden"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a built-in viewer can query in:devices", %{owner: owner} do
       seed_devices(1)
       viewer = viewer_user_fixture()
@@ -526,6 +556,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert is_list(body["results"])
     end
 
+    @tag :web_ng_shared_fixture_db
     test "in:dashboards is not catalog-forbidden for a custom profile", %{owner: owner} do
       {client, secret} = restricted_client(owner, ["observability.logs.view"])
 
@@ -544,6 +575,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "GET /api/srql/catalog" do
+    @tag :web_ng_shared_fixture_db
     test "returns the SRQL catalog payload", ctx do
       conn = get(authed(ctx), ~p"/api/srql/catalog")
 
@@ -554,6 +586,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       assert Enum.any?(get_resp_header(conn, "etag"))
     end
 
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = get(build_conn(), ~p"/api/srql/catalog")
       assert json_response(conn, 401)["error"] == "authentication_required"
@@ -566,14 +599,22 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "POST /api/camera-relay-sessions (auth + validation only)" do
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = post(build_conn(), ~p"/api/camera-relay-sessions", %{})
       assert json_response(conn, 401)["error"] == "authentication_required"
     end
 
-    test "invalid request body returns 400 before touching live infra", ctx do
+    @tag :web_ng_shared_fixture_db
+    test "invalid request body returns 400 before touching live infra", %{owner: owner} do
+      # Opening a relay session is a write: a read-scoped token is refused with
+      # insufficient_scope before the body is validated.
+      {client, secret} = client_for_user(owner, owner, ["write"])
+
       conn =
-        post(authed(ctx), ~p"/api/camera-relay-sessions", %{"camera_source_id" => "not-a-uuid"})
+        post(authed(%{client: client, secret: secret}), ~p"/api/camera-relay-sessions", %{
+          "camera_source_id" => "not-a-uuid"
+        })
 
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
@@ -581,18 +622,33 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   end
 
   describe "POST /api/proxmox/console-sessions (auth + validation only)" do
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = post(build_conn(), ~p"/api/proxmox/console-sessions", %{})
       assert json_response(conn, 401)["error"] == "authentication_required"
     end
 
-    test "bad input returns a clean 4xx (400/403/422), never a 500", ctx do
-      conn = post(authed(ctx), ~p"/api/proxmox/console-sessions", %{"device_uid" => ""})
-      assert conn.status in [400, 403, 422]
+    @tag :web_ng_shared_fixture_db
+    test "a blank device_uid is rejected as invalid_request before touching live infra", %{
+      owner: owner
+    } do
+      # Opening a console session is a write, and the admin owner holds both
+      # console permissions, so the request reaches body validation.
+      {client, secret} = client_for_user(owner, owner, ["write"])
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/proxmox/console-sessions", %{
+          "device_uid" => ""
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] == "device_uid is required"
     end
   end
 
   describe "GET /api/remote-access/host-keys (auth only)" do
+    @tag :web_ng_shared_fixture_db
     test "without a token returns 401" do
       conn = get(build_conn(), ~p"/api/remote-access/host-keys")
       assert json_response(conn, 401)["error"] == "authentication_required"

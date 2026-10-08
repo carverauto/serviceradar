@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersAuthorizationTest do
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "/settings/auth/* authorization" do
     test "redirects viewers without settings.auth.manage", %{conn: conn} do
       user = viewer_user_fixture()

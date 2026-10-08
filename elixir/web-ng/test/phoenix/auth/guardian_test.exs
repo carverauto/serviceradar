@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "subject_for_token/2" do
     test "returns user:id format for user resource" do
       user = user_fixture()
@@ -149,7 +151,7 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
       user = user_fixture()
 
       assert :ok = TokenRevocation.revoke_all_for_user(user.id, reason: :password_changed)
-      Process.sleep(10)
+      wait_until_next_unix_second()
 
       {:ok, token, _claims} = Guardian.create_access_token(user)
 
@@ -243,5 +245,13 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
       {:ok, _token, claims} = Guardian.create_api_token(user, scopes: [:admin])
       assert "admin" in claims["scopes"]
     end
+  end
+
+  # JWT `iat` is whole seconds. A token minted in the same second as
+  # revoke_all_for_user is still before `revoked_before`.
+  defp wait_until_next_unix_second do
+    start = System.system_time(:second)
+    Process.sleep(1_100)
+    if System.system_time(:second) == start, do: Process.sleep(1_000)
   end
 end

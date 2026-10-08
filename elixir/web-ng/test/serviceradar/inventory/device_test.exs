@@ -17,6 +17,8 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "device creation" do
     test "can create a device with required fields" do
       result =

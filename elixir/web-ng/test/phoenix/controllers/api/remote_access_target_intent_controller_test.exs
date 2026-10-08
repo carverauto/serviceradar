@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessTargetIntentControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :remote_access_session_manager)
 

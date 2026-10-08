@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.TempArchiveTest do
 
   alias ServiceRadarWebNG.TempArchive
 
+  @moduletag :db_free
+
   test "creates a gzipped tarball from in-memory files" do
     assert {:ok, tarball} =
              TempArchive.create_tar_gz("serviceradar-test", [

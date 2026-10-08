@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderSortTest do
 
   alias ServiceRadarWebNGWeb.SRQL.Builder
 
+  @moduletag :db_free
+
   test "builds default devices query with sort and limit" do
     state = Builder.default_state("devices", 100)
     query = Builder.build(state)

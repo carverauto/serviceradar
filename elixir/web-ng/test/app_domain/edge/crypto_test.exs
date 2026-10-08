@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Edge.CryptoTest do
 
   alias ServiceRadarWebNG.Edge.Crypto
 
+  @moduletag :db_free
+
   describe "generate_token/0" do
     test "generates a URL-safe base64 token" do
       token = Crypto.generate_token()

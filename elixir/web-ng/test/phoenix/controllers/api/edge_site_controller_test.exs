@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteControllerTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule LeafIssuerStub do
     @moduledoc false
     def issue(_edge_site) do

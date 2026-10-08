@@ -4,22 +4,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewDevicePageTest do
   one past that page.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.TestSupport
   alias ServiceRadarWebNG.Topology.GodViewStream
 
   @moduletag :integration
   @moduletag :web_ng_shared_fixture_db
   @batch 260
   @gateway_id "gw-god-view-page"
-
-  setup_all do
-    TestSupport.start_core!()
-    :ok
-  end
 
   setup do
     {:ok, actor: SystemActor.system(:god_view_device_page)}

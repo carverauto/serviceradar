@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityControllerTest do
   alias ServiceRadar.CompositeChecks.ValidationRun
   alias ServiceRadar.Inventory.DeviceIdentifier
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :operator})
     ip = unique_ip()

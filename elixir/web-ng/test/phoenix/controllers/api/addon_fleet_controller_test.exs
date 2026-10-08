@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.AddonFleetControllerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.AddonFleetController
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule FleetReaderStub do
     @moduledoc false
 

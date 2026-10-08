@@ -28,7 +28,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Oban.Router
+  alias ServiceRadar.Repo
 
+  require Ash.Expr
   require Ash.Query
   require Logger
 
@@ -65,11 +67,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     # In single-deployment mode, NATS config comes from environment
     with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
-         {:ok, _package} <- mark_provisioning(package),
+         {:ok, package} <- mark_provisioning(package),
          {:ok, nats_config} <- get_nats_config(),
          {:ok, user_creds} <- generate_user_credentials(nats_config, package),
-         {:ok, credential} <- create_credential_record(package, user_creds),
-         {:ok, _package} <- mark_ready(package, credential.id, user_creds.creds_file_content) do
+         {:ok, _package} <- persist_credentials(package, user_creds) do
       Logger.info("Successfully provisioned credentials for collector package #{package_id}")
       :ok
     else
@@ -141,11 +142,22 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp mark_provisioning(package) do
-    actor = SystemActor.system(:provision_collector)
+    with {:ok, current} <- get_package(package.id) do
+      cond do
+        current.status == :provisioning ->
+          {:ok, current}
 
-    package
-    |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
-    |> Ash.update()
+        current.status == :pending ->
+          actor = SystemActor.system(:provision_collector)
+
+          current
+          |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
+          |> guarded_update([:pending])
+
+        true ->
+          {:error, :package_not_pending}
+      end
+    end
   end
 
   defp get_nats_config do
@@ -225,6 +237,27 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     end
   end
 
+  defp persist_credentials(package, user_creds) do
+    Repo.transaction(fn ->
+      with :ok <- require_provisioning(package.id),
+           {:ok, credential} <- create_credential_record(package, user_creds),
+           {:ok, ready} <-
+             mark_ready(package, credential.id, user_creds.creds_file_content) do
+        ready
+      else
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
+  end
+
+  defp require_provisioning(package_id) do
+    case get_package(package_id) do
+      {:ok, %{status: :provisioning}} -> :ok
+      {:ok, _package} -> {:error, :package_not_pending}
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp create_credential_record(package, user_creds) do
     actor = SystemActor.system(:provision_collector)
 
@@ -242,7 +275,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         metadata: %{
           site: package.site,
           hostname: package.hostname
-        }
+        },
+        user_public_key: user_creds.user_public_key,
+        onboarding_package_id: nil
       },
       actor: actor
     )
@@ -254,12 +289,18 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     # supply it on the :ready action; this worker records the NATS creds.
     actor = SystemActor.system(:provision_collector)
 
-    package
-    |> Ash.Changeset.new()
-    |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
-    |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
-    |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
-    |> Ash.update()
+    with {:ok, current} <- get_package(package.id) do
+      if current.status == :provisioning do
+        current
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
+        |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
+        |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
+        |> guarded_update([:provisioning])
+      else
+        {:error, :package_not_pending}
+      end
+    end
   end
 
   defp mark_failed(package_id, message) do
@@ -271,12 +312,32 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         |> Ash.Changeset.new()
         |> Ash.Changeset.set_argument(:error_message, message)
         |> Ash.Changeset.for_update(:fail, %{}, actor: actor)
-        |> Ash.update()
+        |> guarded_update([:pending, :provisioning])
 
       _ ->
         :ok
     end
   end
+
+  defp guarded_update(changeset, statuses) do
+    changeset
+    |> Ash.Changeset.filter(Ash.Expr.expr(status in ^statuses))
+    |> Ash.update()
+    |> case do
+      {:ok, updated} ->
+        {:ok, updated}
+
+      {:error, error} ->
+        if stale_record?(error), do: {:error, :package_not_pending}, else: {:error, error}
+    end
+  end
+
+  defp stale_record?(%Ash.Error.Changes.StaleRecord{}), do: true
+
+  defp stale_record?(%{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &stale_record?/1)
+
+  defp stale_record?(_error), do: false
 
   defp maybe_add_scheduled_at(opts, nil), do: opts
   defp maybe_add_scheduled_at(opts, %DateTime{} = at), do: Keyword.put(opts, :scheduled_at, at)

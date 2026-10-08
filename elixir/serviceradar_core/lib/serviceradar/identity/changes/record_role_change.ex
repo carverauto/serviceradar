@@ -8,6 +8,7 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
   use Ash.Resource.Change
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AshContext
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserAuthEvent
 
@@ -89,11 +90,8 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
       is_map(context) and not is_nil(Map.get(context, :actor)) ->
         Map.get(context, :actor)
 
-      not is_nil(changeset.actor) ->
-        changeset.actor
-
-      is_map(changeset.context) and not is_nil(Map.get(changeset.context, :actor)) ->
-        Map.get(changeset.context, :actor)
+      not is_nil(AshContext.actor(changeset)) ->
+        AshContext.actor(changeset)
 
       is_map(changeset.context) and not is_nil(Map.get(changeset.context, :scope)) ->
         Map.get(changeset.context, :scope)

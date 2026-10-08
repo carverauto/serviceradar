@@ -18,6 +18,9 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.UserAuthEvent
+
+  @moduletag :web_ng_shared_fixture_db
 
   defp unwrap_results({:ok, %Ash.Page.Keyset{results: results}}), do: results
   defp unwrap_results({:ok, results}) when is_list(results), do: results
@@ -84,6 +87,13 @@ defmodule ServiceRadar.Identity.PolicyTest do
         |> Ash.update(actor: actor)
 
       assert updated.role == :operator
+
+      [event] = UserAuthEvent.latest_of_type!(viewer.id, "role_change")
+      assert event.user_id == viewer.id
+      assert event.actor_user_id == admin.id
+      assert event.metadata["old_role"] == "viewer"
+      assert event.metadata["new_role"] == "operator"
+      assert event.metadata["actor"] == to_string(admin.email)
     end
   end
 end

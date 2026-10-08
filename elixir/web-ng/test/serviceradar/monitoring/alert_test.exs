@@ -17,6 +17,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "alert creation" do
     test "can trigger an alert with required fields" do
       actor = system_actor()

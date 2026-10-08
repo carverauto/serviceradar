@@ -37,6 +37,15 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
     ServiceRadarWebNG.DataCase.ensure_test_schema()
+    # The shared-fixture lane runs every conn test in one VM. Rate-limit
+    # counters live in ETS, so a later test would inherit the previous
+    # test's window and see 429 instead of the status it set up.
+    rate_limit_table = ServiceRadar.Security.RateLimiter.__table__()
+
+    if :ets.whereis(rate_limit_table) != :undefined do
+      :ets.delete_all_objects(rate_limit_table)
+    end
+
     previous = Application.get_env(:serviceradar_web_ng, :admin_api_client)
     Application.put_env(:serviceradar_web_ng, :admin_api_client, ServiceRadarWebNG.AdminApi.Local)
 

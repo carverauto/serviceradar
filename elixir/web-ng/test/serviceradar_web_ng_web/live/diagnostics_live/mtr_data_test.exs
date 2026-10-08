@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup do
     user = AccountsFixtures.user_fixture(%{role: :admin})
 

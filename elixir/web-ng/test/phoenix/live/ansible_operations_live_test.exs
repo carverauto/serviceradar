@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
     permissions = ServiceRadar.Identity.RBAC.permissions_for_user(user)

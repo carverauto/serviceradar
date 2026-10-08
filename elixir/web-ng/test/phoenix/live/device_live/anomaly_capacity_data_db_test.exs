@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataDBTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup do
     if !Process.whereis(ServiceRadarWebNG.TaskSupervisor) do
       start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor})

@@ -220,7 +220,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     summary = fetch_summary(srql_module, scope, time)
     total_for_filter = summary_count(summary, filter)
     page_count = page_count(total_for_filter, page_size)
-    page = min(page, page_count)
+    # Clamp only against a trustworthy count. With zero known rows (empty or
+    # failed warehouse summary) there is nothing to clamp against, and
+    # rewriting the requested page would desynchronize the URL from the
+    # toggle-live reset that returns to the first page.
+    page = if total_for_filter > 0, do: min(page, page_count), else: page
 
     rows =
       srql_module

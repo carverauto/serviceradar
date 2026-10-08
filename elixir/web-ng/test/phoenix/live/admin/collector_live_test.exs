@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
 
+  @moduletag :web_ng_shared_fixture_db
+
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
 
@@ -94,11 +96,13 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
         Application.put_env(:serviceradar_web_ng, :runtime_capabilities, previous_capabilities)
       end)
 
-      {:ok, _lv, html} = live(conn, ~p"/admin/collectors")
+      {:ok, lv, html} = live(conn, ~p"/admin/collectors")
 
       assert html =~ "Collector onboarding is disabled for this deployment."
       refute html =~ "New Collector"
-      refute html =~ "Data Collectors"
+      # The page keeps its own title; the settings navigation must not offer it.
+      assert has_element?(lv, "#settings-view-tree")
+      refute has_element?(lv, "#settings-view-tree a[href='/admin/collectors']")
     end
   end
 

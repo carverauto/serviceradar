@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PendingApprovals do
   database error, and the pages themselves remain the authority.
   """
 
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -39,13 +40,29 @@ defmodule ServiceRadarWebNGWeb.Settings.PendingApprovals do
     |> Map.new()
   end
 
-  defp staged_count(resource, scope) do
-    resource
-    |> Ash.Query.filter(status == :staged)
-    |> Ash.count(scope: scope)
-    |> case do
-      {:ok, count} when is_integer(count) -> count
-      _ -> 0
+  defp staged_count(_resource, nil), do: 0
+
+  defp staged_count(resource, scope) when is_map(scope) do
+    if can_view_packages?(scope) do
+      resource
+      |> Ash.Query.filter(status == :staged)
+      |> Ash.count(scope: scope)
+      |> case do
+        {:ok, count} when is_integer(count) -> count
+        _ -> 0
+      end
+    else
+      0
     end
   end
+
+  defp staged_count(_resource, _scope), do: 0
+
+  defp can_view_packages?(%{permissions: %MapSet{} = perms}),
+    do: MapSet.member?(perms, "plugins.view") or MapSet.member?(perms, "settings.plugins.manage")
+
+  defp can_view_packages?(%{user: user}) when not is_nil(user),
+    do: RBAC.has_permission?(user, "plugins.view") or RBAC.has_permission?(user, "settings.plugins.manage")
+
+  defp can_view_packages?(_), do: false
 end

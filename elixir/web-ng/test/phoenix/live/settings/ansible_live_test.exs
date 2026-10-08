@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
 
   setup :register_and_log_in_admin_user
 
+  @tag :web_ng_shared_fixture_db
   test "disconnected mount builds inert state from cached permissions", %{user: user} do
     scope =
       Scope.for_user(user,
@@ -36,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute mounted_socket.assigns.can_manage_ansible_repositories
   end
 
+  @tag :web_ng_shared_fixture_db
   test "controller-only role sees and invokes only the controller workflow", %{
     conn: conn,
     user: user
@@ -60,6 +62,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute has_element?(live_view, "#ansible-repository-form")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "repository-only role sees and invokes only the repository workflow", %{
     conn: conn,
     user: user
@@ -90,6 +93,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute has_element?(live_view, "#ansible-controller-form")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "repository cancel closes only the repository form", %{conn: conn, user: user} do
     user = grant_permissions(user, ["ansible.repositories.manage"])
     conn = log_in_user(conn, user)
@@ -110,6 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute has_element?(live_view, "#ansible-controller-form")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "does not expose the fail-closed schedule workflow", %{conn: conn} do
     {:ok, live_view, _html} = live(conn, ~p"/settings/ansible")
 
@@ -128,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute html =~ "Schedule evaluator interval"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creates a sync-only controller from a raw AWX token without elevating other purposes", %{
     conn: conn
   } do
@@ -181,6 +187,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute inspect(secret) =~ raw_token
   end
 
+  @tag :web_ng_shared_fixture_db
   test "keeps a pasted sync token across phx-change so save does not report missing sync", %{
     conn: conn
   } do
@@ -241,12 +248,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
 
     refute html =~ "missing_awx_credential"
     refute html =~ "Ash.Error.Unknown"
-    assert html =~ "Controller \"#{controller_name}\" created."
+    assert has_element?(lv, "#flash-info", "Controller \"#{controller_name}\" created.")
 
     controller = controller_by_name!(controller_name)
     assert controller.sync_credential_secret_id
   end
 
+  @tag :web_ng_shared_fixture_db
   test "missing sync credential flashes an operator message instead of Ash.Error", %{
     conn: conn
   } do
@@ -275,6 +283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute html =~ "missing_awx_credential"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "links a DB-backed AWX secret selected from the credential dropdown", %{
     conn: conn,
     scope: scope
@@ -529,6 +538,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     # left unset while sync was configured -- they were the harder ones to fill
     # in, and they are the ones that launch jobs and mint ephemeral credentials.
 
+    @tag :web_ng_shared_fixture_db
     test "each purpose gets its own secret, and none is shared", %{conn: conn} do
       controller_name = "AWX Three #{System.unique_integer([:positive])}"
       sync_token = "sync-tok-#{System.unique_integer([:positive])}"
@@ -591,6 +601,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
       end
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a pasted token wins over a selected secret for the same purpose", %{conn: conn} do
       # Same precedence sync already uses: you only paste when you mean to set or
       # rotate, and the select still holds whatever was bound before.
@@ -637,6 +648,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
       assert controller.execution_credential_secret_id
     end
 
+    @tag :web_ng_shared_fixture_db
     test "blank token fields leave the selected secrets alone", %{conn: conn} do
       # Editing a controller without rotating anything must not mint new secrets.
       controller_name = "AWX Blank #{System.unique_integer([:positive])}"

@@ -19,6 +19,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLiveTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
 
+  @moduletag :web_ng_shared_fixture_db
+
   @moduletag :integration
 
   describe "non-admin (read_own / revoke_own)" do

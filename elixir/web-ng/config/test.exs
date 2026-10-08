@@ -198,6 +198,13 @@ config :serviceradar_core,
 # Keep config pushes inside the test process. Production coalesces them.
 config :serviceradar_core, :config_invalidation_sync, true
 
+# Recording manifests HMAC with this key. CI does not export a 32-byte
+# EDGE_ONBOARDING_ENCRYPTION_KEY into the web-ng test boot, and
+# integrity_key/0 then returns :recording_integrity_secret_missing.
+config :serviceradar_core,
+       :recording_integrity_secret,
+       "serviceradar-test-recording-integrity-secret"
+
 # Avoid SQL sandbox ownership errors from delayed seeders that run on application start.
 config :serviceradar_core, :seeders_enabled, false
 

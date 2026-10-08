@@ -8,13 +8,15 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardInstanceAccessGrant
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards
-  alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     admin = admin_user_fixture()
@@ -200,10 +202,14 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
     owner: owner,
     viewer: viewer,
     viewer_scope: viewer_scope,
+    admin_scope: admin_scope,
     system: system
   } do
+    # Authored-dashboard creation requires the analytics.dashboards.create
+    # permission, which a plain user scope lacks; the grant-matching subject
+    # below does not depend on who created the dashboard.
     {:ok, dashboard} =
-      Dashboards.create_authored_dashboard(user_scope(owner), %{
+      Dashboards.create_authored_dashboard(admin_scope, %{
         title: "Authored #{System.unique_integer([:positive])}",
         visibility: :shared
       })
@@ -374,7 +380,23 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
       dashboard_id: "com.test.access.#{unique}",
       name: "Access Test",
       version: "0.1.0",
-      manifest: %{},
+      manifest: %{
+        "schema_version" => 1,
+        "id" => "com.test.access.#{unique}",
+        "name" => "Access Test",
+        "version" => "0.1.0",
+        "renderer" => %{
+          "kind" => "browser_module",
+          "interface_version" => "dashboard-browser-module-v1",
+          "artifact" => "renderer.js",
+          "sha256" => String.duplicate("a", 64),
+          "trust" => "trusted"
+        },
+        "data_frames" => [
+          %{"id" => "f1", "query" => "in:wifi_sites limit:1", "encoding" => "json_rows"}
+        ],
+        "capabilities" => ["srql.execute"]
+      },
       renderer: %{
         "kind" => "browser_module",
         "interface_version" => "dashboard-browser-module-v1",
@@ -386,8 +408,7 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
       settings_schema: %{},
       wasm_object_key: "dashboards/test/#{unique}.js",
       content_hash: String.duplicate("a", 64),
-      verification_status: "verified",
-      status: :enabled
+      verification_status: "verified"
     }
   end
 end

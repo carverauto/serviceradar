@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
 
   alias ServiceRadarWebNG.Accounts
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup do
     %{user: user_fixture()}
   end
@@ -57,7 +59,10 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
       refute message =~ "%{min}"
     end
 
-    test "denies viewers without password permission", %{conn: conn} do
+    test "viewers change their own password and are signed out", %{conn: conn} do
+      # settings.password.manage ("Change own password") is held by every role
+      # by design, so a viewer with a fresh sudo timestamp succeeds; the
+      # password change signs them out.
       user = set_password(user_fixture(%{role: :viewer}))
 
       conn =
@@ -72,9 +77,9 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
           }
         })
 
-      assert redirected_to(conn) == ~p"/settings/profile"
-      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "not allowed to change the password"
-      assert Accounts.get_user_by_email_and_password(user.email, valid_user_password())
+      assert redirected_to(conn) == ~p"/"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Password updated successfully"
+      assert Accounts.get_user_by_email_and_password(user.email, "new valid password")
     end
   end
 

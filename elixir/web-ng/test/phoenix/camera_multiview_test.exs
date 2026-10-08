@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.CameraMultiview
 
+  @moduletag :db_free
+
   describe "format_error/1" do
     test "includes the assigned agent id for offline relay targets" do
       assert CameraMultiview.format_error({:agent_offline, "agent-sr-test-pve04"}) ==

@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   test "renders endpoint inventory settings page", %{conn: conn} do

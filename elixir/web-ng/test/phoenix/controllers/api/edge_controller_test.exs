@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingToken
 
+  @moduletag :web_ng_shared_fixture_db
+
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
 

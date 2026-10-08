@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginRepository
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
@@ -26,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo_url "https://github.com/carverauto/serviceradar"
   @external_repo_url "https://github.com/carverauto/serviceradar-plugin-example-inventory"
@@ -59,6 +62,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     @moduledoc false
 
     alias ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest
+
+    # Production fetches through ServiceRadar.HTTP.EgressClient (`fetch_body/2`);
+    # translate that call onto the Req-style `get/2` clauses below. Qualified so
+    # the outer ConnCase's imported `Phoenix.ConnTest.get/2` cannot win.
+    def fetch_body(url, opts), do: __MODULE__.get(url, opts)
 
     def get(url, _opts) do
       cond do
@@ -192,6 +200,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       trusted_upload_signing_keys: %{"live-test" => Base.encode64(public_key)}
     )
 
+    # The catalog reads repository records, not config. The migration-seeded
+    # built-in row carries the production signing key, which cannot verify this
+    # suite's bundles, and the shared fixture database is not guaranteed to hold
+    # it at all; own the default row for the sandboxed duration of each test.
+    put_builtin_repository!(Base.encode64(public_key))
+
     Application.put_env(
       :serviceradar_web_ng,
       :first_party_plugin_import_http_client,
@@ -263,14 +277,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     conn: conn,
     actor: actor
   } do
+    # The catalog picker selects a registered repository by id; the row must
+    # carry this suite's "live-test" signing key or the import below fails
+    # trust verification.
+    %{"live-test" => public_key} =
+      :serviceradar_web_ng
+      |> Application.fetch_env!(:plugin_verification)
+      |> Keyword.fetch!(:trusted_upload_signing_keys)
+
+    repository =
+      PluginRepository
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "external",
+          repo_url: @external_repo_url,
+          index_asset_name: "serviceradar-wasm-plugin-index.json",
+          signing_key_id: "live-test",
+          signing_public_key: public_key,
+          enabled: true
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
-    html =
-      lv
-      |> form("#select-first-party-repository-form", %{
-        "catalog_repository" => %{"repo_url" => @external_repo_url}
-      })
-      |> render_submit()
+    lv
+    |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ @external_repo_url
     assert html =~ "Live First-party Plugin"
@@ -682,7 +719,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       |> render_change()
 
     assert html =~ "Authenticated partition: unavailable"
-    assert html =~ "No live authenticated control session"
+    assert html =~ "The live control session did not provide a trustworthy partition."
     assert html =~ ~s(disabled)
   end
 
@@ -1624,11 +1661,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
                  permissions_override: %{},
                  resources_override: %{}
                },
-               actor: actor
+               actor: creation_actor(actor, source)
              )
 
     assignment
   end
+
+  # Policy-owned rows may only be written by a trusted system process
+  # (AssignmentParams). Fixtures for them are created as system through the
+  # same Assignments boundary; manual fixtures keep the caller's actor so
+  # negative authorization assertions stay meaningful.
+  defp creation_actor(_actor, source) when source in [:policy, "policy"], do: system_actor()
+  defp creation_actor(actor, _source), do: actor
 
   defp ensure_assignment_control_session!(agent_uid) do
     case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
@@ -1685,10 +1729,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
+  # Builtin rows reject :update by design, so the fixture writes the row directly.
+  defp put_builtin_repository!(public_key) do
+    Repo.query!(
+      """
+      INSERT INTO platform.plugin_repositories
+        (id, name, repo_url, artifact_kind, index_asset_name, signing_key_id,
+         signing_public_key, enabled, builtin, is_default, inserted_at, updated_at)
+      VALUES
+        (gen_random_uuid(), 'ServiceRadar', $1, 'wasm_plugin',
+         'serviceradar-wasm-plugin-index.json', 'live-test', $2, true, true, true, now(), now())
+      ON CONFLICT (repo_url) DO UPDATE
+        SET signing_key_id = EXCLUDED.signing_key_id,
+            signing_public_key = EXCLUDED.signing_public_key,
+            enabled = true,
+            builtin = true,
+            is_default = true
+      """,
+      [@repo_url, public_key]
+    )
+  end
+
   defp create_repository!(name, repo_url) do
     {public_key, _private_key} = :crypto.generate_key(:eddsa, :ed25519)
 
-    ServiceRadar.Plugins.PluginRepository
+    PluginRepository
     |> Ash.Changeset.for_create(
       :create,
       %{

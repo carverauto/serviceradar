@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
 
   require Ash.Query
+  require Logger
 
   @default_limit 200
   @max_limit 500
@@ -87,9 +88,17 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   Re-pushing an add-on that an agent already has must not collide with the
   one-enabled-assignment-per-(agent, add-on) invariant. Resolve the existing
   assignment for `agent_uid` + `addon_id` (the denormalized dedup key) and update
-  it in place — re-enabling and accepting the new package/params/args, which also
-  covers upgrading to a newer package version of the same add-on — otherwise
+  it in place, re-enabling it and accepting the caller's params/args; otherwise
   create a fresh assignment.
+
+  A different package of the same add-on is not swapped in place. It starts a
+  health-gated rollout, and the current package stays authoritative until that
+  rollout promotes the candidate (see docs/docs/native-addons.md, "Lifecycle").
+  The caller's params, args and other settings still apply to the assignment
+  immediately; they are written after the rollout has snapshotted the previous
+  params/args, so a rollback restores the configuration the stable package ran
+  with. The returned assignment therefore carries the new settings and the still
+  authoritative package.
   """
   @spec upsert(String.t(), map(), keyword()) ::
           {:ok, AddonAssignment.t()} | {:error, term()}
@@ -149,14 +158,89 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
         "rollout_policy"
       ])
 
-    with {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts),
-         {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
-         {:ok, _rollout} <-
-           AddonRolloutCoordinator.start(updated_assignment, candidate,
+    # Everything the caller asked for except the package itself, which only the
+    # rollout may change.
+    settings_attrs =
+      attrs
+      |> Map.drop([:agent_uid, "agent_uid", :addon_package_id, "addon_package_id"])
+      |> Map.drop(Map.keys(policy_attrs))
+      |> Map.put(:enabled, true)
+
+    with {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
+         :ok <- validate_settings(assignment, settings_attrs),
+         {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts) do
+      case AddonRolloutCoordinator.start(updated_assignment, candidate,
              actor: actor,
              trigger: :manual
            ) do
-      {:ok, updated_assignment}
+        {:ok, rollout} ->
+          case update(updated_assignment.id, settings_attrs, opts) do
+            {:ok, _} = ok ->
+              ok
+
+            {:error, _} = error ->
+              cancel_rollout(rollout, actor)
+              restore_policy(assignment, policy_attrs, opts)
+              error
+          end
+
+        {:error, _} = error ->
+          restore_policy(assignment, policy_attrs, opts)
+          error
+      end
+    end
+  end
+
+  defp validate_settings(assignment, attrs) do
+    prepared =
+      attrs
+      |> drop_nil_values([:edge_site_id, "edge_site_id"])
+      |> drop_update_only_values()
+
+    changeset = Ash.Changeset.for_update(assignment, :update, prepared)
+
+    if changeset.valid? do
+      :ok
+    else
+      {:error, changeset.errors}
+    end
+  end
+
+  defp cancel_rollout(rollout, actor) do
+    case AddonRolloutCoordinator.cancel(rollout.id, actor: actor) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to cancel orphaned native add-on rollout",
+          rollout_id: rollout.id,
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp restore_policy(_assignment, policy_attrs, _opts) when map_size(policy_attrs) == 0, do: :ok
+
+  defp restore_policy(assignment, policy_attrs, opts) do
+    original =
+      Map.new(policy_attrs, fn {key, _} ->
+        atom_key = if is_atom(key), do: key, else: String.to_existing_atom(key)
+        {atom_key, Map.get(assignment, atom_key)}
+      end)
+
+    case update(assignment.id, original, opts) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to restore native add-on assignment policy after failed upgrade",
+          assignment_id: assignment.id,
+          reason: inspect(reason)
+        )
+
+        :ok
     end
   end
 
@@ -165,6 +249,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one()
+    |> require_package()
   end
 
   defp read_package(id, scope) do
@@ -172,7 +257,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one(ash_opts(scope, nil))
+    |> require_package()
   end
+
+  defp require_package({:ok, %AddonPackage{} = package}), do: {:ok, package}
+  defp require_package({:ok, nil}), do: {:error, :not_found}
+  defp require_package({:error, _} = error), do: error
 
   @spec delete(String.t(), keyword()) :: {:ok, AddonAssignment.t()} | :ok | {:error, term()}
   def delete(id, opts \\ [])

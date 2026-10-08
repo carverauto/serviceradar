@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.RemoteAccessDesktopTargets
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   setup do

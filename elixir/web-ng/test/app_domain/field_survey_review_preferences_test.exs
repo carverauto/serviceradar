@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReviewPreferencesTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.FieldSurveyReviewPreferences
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup do
     scope =
       Scope.for_user(%{

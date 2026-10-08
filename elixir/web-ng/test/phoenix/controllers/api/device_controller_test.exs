@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceControllerTest do
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadarWebNGWeb.Api.DeviceController
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_api_user
 
   test "show includes bumblebee exposure detail data", %{conn: conn, scope: scope} do

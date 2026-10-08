@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.MetricsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   @test_metrics_token "test-web-ng-metrics-bearer-token-12345"
 
   setup do

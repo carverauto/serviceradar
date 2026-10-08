@@ -35,6 +35,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsProviderUploadTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @key "acme_pager"
 
   @document """

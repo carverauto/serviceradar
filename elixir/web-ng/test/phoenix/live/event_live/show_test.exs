@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     %{conn: conn}
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders an Affected Device link resolving a Proxmox guest bottleneck", %{conn: conn} do
     device = device_fixture(%{uid: @device_uid, hostname: "pve-node-01"})
 
@@ -114,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
            )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "still links by uid when the device cannot be resolved", %{conn: conn} do
     # No device fixture created: the uid is unknown/deleted, but the link and
     # guest label must still render (no crash, no broken page).
@@ -140,6 +142,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']", "View device")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "omits the Affected Device panel for a non-device signal", %{conn: conn} do
     {:ok, lv, html} = live(conn, ~p"/events/#{"no-device"}")
 
@@ -147,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     refute has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "related netflows link omits ephemeral source port and includes endpoints and dst port", %{
     conn: conn
   } do

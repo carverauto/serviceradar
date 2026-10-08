@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationActionControllerTest do
   alias ServiceRadar.Notifications.NotificationActionToken
   alias ServiceRadar.Notifications.NotificationDelivery
 
+  @moduletag :web_ng_shared_fixture_db
+
   @base "https://serviceradar.test"
   @provider %{provider_type: :native}
   @title "Device tonka01 is unreachable"

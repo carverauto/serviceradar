@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
@@ -240,7 +242,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     refute html =~ "Release Provider"
   end
 
-  test "prefills the rollout form from agent inventory handoff params", %{conn: conn} do
+  test "prefills the rollout form from agent inventory handoff params", %{
+    conn: conn,
+    scope: scope
+  } do
+    # The newer release would be the default; the handoff must select 4.2.0.
+    for version <- ["4.2.0", "4.3.0"] do
+      {:ok, _release} =
+        AgentReleaseManager.publish_release(
+          %{
+            version: version,
+            signature: sign_manifest(release_manifest(version)),
+            manifest: release_manifest(version)
+          },
+          scope: scope
+        )
+    end
+
     params = %{
       "version" => "4.2.0",
       "cohort" => "custom",
@@ -249,10 +267,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       "source" => "agents"
     }
 
-    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases?#{params}")
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases?#{params}")
 
     assert html =~ "Prefilled 2 visible agents from the inventory view."
-    assert html =~ ~s(value="4.2.0")
+    assert has_element?(lv, "#rollout_version option[value='4.2.0'][selected]")
     assert html =~ "agent-a"
     assert html =~ "agent-b"
     assert html =~ "Imported from /agents inventory view"
@@ -594,17 +612,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, false)
 
-    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+    # Scoped to the release surfaces: the settings shell's status card names the
+    # newest stored release whatever its artifacts, so the whole page is not.
+    release_row = "#use-release-#{String.replace(version, ~r/[^A-Za-z0-9_-]+/, "-")}"
+    rollout_option = "#rollout_version option[value='#{version}']"
 
-    refute html =~ version
-    refute has_element?(lv, "[id='use-release-#{version}']")
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+
+    refute has_element?(lv, release_row)
+    refute has_element?(lv, rollout_option)
 
     Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, true)
 
-    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
-    assert html =~ version
-    assert has_element?(lv, "[id='use-release-#{version}']")
+    assert has_element?(lv, release_row)
+    assert has_element?(lv, rollout_option)
   end
 
   test "treats atom-key agent metadata as compatible in rollout preview", %{
@@ -1469,11 +1492,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
+    # The version is a select of published releases, so a padded value can only
+    # arrive as a crafted submission; send it outside the validated form data.
     html =
       lv
       |> form("#create-rollout-form", %{
         "rollout" => %{
-          "version" => "  #{version}  ",
           "cohort" => "custom",
           "batch_size" => "1",
           "batch_delay_seconds" => "0",
@@ -1481,7 +1505,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           "notes" => "whitespace rollout"
         }
       })
-      |> render_submit()
+      |> render_submit(%{"rollout" => %{"version" => "  #{version}  "}})
 
     assert html =~ "Created rollout for #{version} targeting 1 agents"
   end
@@ -1557,9 +1581,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       |> Ash.create!()
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
-    refute html =~ version
+    assert html =~ "No rollouts have been created yet."
 
-    {:ok, _rollout} =
+    {:ok, rollout} =
       AgentReleaseManager.create_rollout(
         %{
           version: version,
@@ -1578,7 +1602,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     send(lv.pid, :refresh_releases_page)
 
-    assert render(lv) =~ version
+    assert has_element?(lv, "#rollout-details-#{rollout.id}")
+    refute render(lv) =~ "No rollouts have been created yet."
   end
 
   test "delayed final rollout updates still refresh to healthy without a manual reload", %{
@@ -1631,11 +1656,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         scope: scope
       )
 
-    target =
-      AgentReleaseTarget
-      |> Ash.Query.for_read(:read, %{}, actor: scope)
-      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
-      |> Ash.read_one!()
+    target = dispatched_target!(rollout, agent_id, scope)
 
     :ok =
       AgentReleaseManager.handle_command_progress(
@@ -1649,7 +1670,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       )
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
-    assert html =~ "Restarting"
+    assert html =~ "1 restarting"
 
     send(lv.pid, {:command_progress, %{"command_type" => "agent.update_release"}})
     Process.sleep(200)
@@ -1668,8 +1689,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         scope: scope
       )
 
-    Process.sleep(200)
-    assert render(lv) =~ "Healthy"
+    # The result's own target broadcast re-arms the page's 250ms refresh
+    # debounce, so wait for the refresh rather than a fixed interval shorter
+    # than it. Bounded well below the 5s active-rollout poll, so only the event
+    # path can satisfy it.
+    assert await_render(lv, "1/1 healthy", 2_000) =~ "1/1 healthy"
   end
 
   test "failed rollouts render failed status and hide cancel even if the rollout row is stale active",
@@ -1723,11 +1747,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         scope: scope
       )
 
-    target =
-      AgentReleaseTarget
-      |> Ash.Query.for_read(:read, %{}, actor: scope)
-      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
-      |> Ash.read_one!()
+    target = dispatched_target!(rollout, agent_id, scope)
 
     :ok =
       AgentReleaseManager.handle_command_result(
@@ -1751,7 +1771,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       SET status = 'active', completed_at = NULL
       WHERE rollout_id = $1
       """,
-      [rollout.id]
+      [Ecto.UUID.dump!(rollout.id)]
     )
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
@@ -1765,8 +1785,52 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
 
-    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/agents/releases")
+    assert {:error, {:live_redirect, %{to: to, flash: flash}}} =
+             live(conn, ~p"/settings/agents/releases")
+
     assert to == ~p"/settings/profile"
+    assert flash["error"] == "You do not have access to agent release management"
+  end
+
+  defp await_render(lv, needle, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_await_render(lv, needle, deadline)
+  end
+
+  defp do_await_render(lv, needle, deadline) do
+    html = render(lv)
+
+    if html =~ needle or System.monotonic_time(:millisecond) >= deadline do
+      html
+    else
+      Process.sleep(50)
+      do_await_render(lv, needle, deadline)
+    end
+  end
+
+  # No agent control stream is connected in this suite, so the rollout leaves its
+  # target pending without a command. Record the dispatch the command bus would
+  # have made, so progress and results can be reported against its command id.
+  defp dispatched_target!(rollout, agent_id, scope) do
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: scope)
+      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
+      |> Ash.read_one!()
+
+    {:ok, target} =
+      AgentReleaseTarget.set_status(
+        target,
+        %{
+          status: :dispatched,
+          command_id: Ecto.UUID.generate(),
+          progress_percent: 0,
+          last_status_message: "release command dispatched"
+        },
+        scope: scope
+      )
+
+    target
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

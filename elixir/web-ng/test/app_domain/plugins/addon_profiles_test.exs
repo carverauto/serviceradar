@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfilesTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "delete removes the profile and its profile-owned assignments" do
     addon_id = "addon-profile-delete-#{System.unique_integer([:positive])}"
     agent_uid = "agent-profile-delete-#{System.unique_integer([:positive])}"

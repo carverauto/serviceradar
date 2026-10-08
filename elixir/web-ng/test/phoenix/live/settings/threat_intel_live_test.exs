@@ -153,8 +153,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     assert html =~ "198.51.100.23"
     assert html =~ "203.0.113.77"
     assert html =~ ~s(id="netflow-matches")
-    assert html =~ "/devices"
-    assert html =~ "in%3Adevices"
+    assert html =~ ~s(href="/devices?q=in%3Adevices+ip%3A%22198.51.100.23%22")
     assert html =~ "/observability/netflows"
     assert html =~ "in%3Anetflows"
     assert html =~ "Flows"

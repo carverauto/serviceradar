@@ -26,7 +26,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
 
   import Ash.Expr
+  import ExUnit.Assertions, only: [assert: 1, flunk: 1]
 
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Identity.ApiToken
   alias ServiceRadar.Identity.User
@@ -40,6 +42,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.ProcessRegistry
 
   require Ash.Query
 
@@ -214,7 +217,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     defaults = %{
       name: "Test Token #{unique}",
-      scope: :full_access,
+      scope: "admin",
       user_id: user.id,
       token: raw_token
     }
@@ -550,5 +553,80 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
       checkers: checkers,
       devices: devices
     }
+  end
+
+  @doc """
+  Registers a live authenticated control session for the agent and waits for
+  the partition evidence to converge.
+
+  Plugin assignment creation binds the partition from the live session, so
+  fixtures for assignments need this first. The registration is removed on
+  test exit; control sessions are VM-global, not sandbox-rolled-back.
+  """
+  def register_control_session!(agent_uid, partition_id) do
+    # Horde does not run in test boots by default (web-ng config sets
+    # join_process_registry: false); files that need control sessions start
+    # the registry themselves. Started once per VM and deliberately unlinked:
+    # a test-supervised registry would die with the first test that started
+    # it, before later tests' on_exit unregister callbacks run.
+    ensure_process_registry!()
+
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{agent_id: agent_uid, partition_id: partition_id, gateway_node: node()}
+             )
+
+    ExUnit.Callbacks.on_exit(fn ->
+      try do
+        ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
+    assert_control_partition(agent_uid, partition_id, 40)
+  end
+
+  def ensure_process_registry! do
+    if is_nil(Process.whereis(ProcessRegistry.registry_name())) do
+      Application.put_env(:serviceradar_core, :join_process_registry, true)
+      {:ok, _apps} = Application.ensure_all_started(:horde)
+
+      Enum.each(ProcessRegistry.child_specs(), fn
+        {mod, arg} ->
+          case apply(mod, :start_link, [arg]) do
+            {:ok, pid} ->
+              Process.unlink(pid)
+              :ok
+
+            {:error, {:already_started, _pid}} ->
+              :ok
+          end
+
+        mod when is_atom(mod) ->
+          case apply(mod, :start_link, [[]]) do
+            {:ok, pid} ->
+              Process.unlink(pid)
+              :ok
+
+            {:error, {:already_started, _pid}} ->
+              :ok
+          end
+      end)
+    end
+  end
+
+  defp assert_control_partition(_agent_uid, _partition_id, 0), do: flunk("control-session partition did not converge")
+
+  defp assert_control_partition(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_partition(agent_uid, partition_id, attempts - 1)
+    end
   end
 end

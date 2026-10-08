@@ -16,6 +16,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "agent registration" do
     setup do
       gateway = gateway_fixture()

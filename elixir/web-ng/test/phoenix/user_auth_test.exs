@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.UserAuth
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     conn =
       conn

@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceStateDataTest do
 
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "proxmox_console_target?/1" do
     test "recognizes Proxmox hosts and guests" do
       assert DeviceStateData.proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}})

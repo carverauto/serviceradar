@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule SRQLStub do
     @moduledoc false
     def query(query, _opts) do
@@ -116,7 +118,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
     assert html =~ "Baseline MTR automation always targets managed devices only."
     assert html =~ "25"
 
-    assert html =~
+    # The template wraps this sentence across source lines, so compare it with
+    # whitespace collapsed the way a browser renders it.
+    assert String.replace(html, ~r/\s+/, " ") =~
              "120 eligible managed device(s) match the SRQL query, and the selector limit caps each run at 25 target(s)."
   end
 
@@ -166,7 +170,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
         "192.0.2.#{rem(idx, 254) + 1}"
       end)
 
-    inserted_at = DateTime.shift(DateTime.utc_now(), minute: -1)
+    # completed_at is a second-precision column while inserted_at keeps microseconds;
+    # start on a whole second so the stored duration is exactly 30s.
+    inserted_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.shift(minute: -1)
     completed_at = DateTime.shift(inserted_at, second: 30)
 
     {:ok, command} =
@@ -188,8 +194,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
       AgentCommand.complete(command, [result_payload: %{"total_targets" => total_targets}], actor: actor)
 
     ServiceRadar.Repo.query!(
-      "UPDATE platform.agent_commands SET inserted_at = $2, completed_at = $3 WHERE id = $1",
-      [command.id, inserted_at, completed_at]
+      "UPDATE platform.agent_commands SET inserted_at = $2, completed_at = $3 WHERE command_id = $1",
+      [Ecto.UUID.dump!(command.id), inserted_at, completed_at]
     )
 
     %{command | inserted_at: inserted_at, completed_at: completed_at}

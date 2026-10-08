@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.TenantUsageTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "managed device count excludes inactive devices" do
     baseline = TenantUsage.managed_device_count()
     unique = System.unique_integer([:positive])

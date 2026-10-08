@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLiveAuthorizationTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, operator_user_fixture: 0]
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "/admin/jobs authorization" do
     test "redirects operators without settings.jobs.manage", %{conn: conn} do
       user = operator_user_fixture()

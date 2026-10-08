@@ -107,8 +107,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.QueryData do
 
   def srql_for_tab(_tab, _device_uid, _limit, srql), do: srql
 
+  # The details page must find its record whatever its lifecycle: deleted and
+  # out-of-service (is_active=false) devices are still viewable and restorable
+  # here. SRQL hides inactive devices unless asked, so ask.
   def default_device_query(device_uid, limit) do
-    "in:devices uid:\"#{escape_value(device_uid)}\" include_deleted:true limit:#{limit}"
+    "in:devices uid:\"#{escape_value(device_uid)}\" include_deleted:true include_inactive:true limit:#{limit}"
   end
 
   def default_interfaces_query(device_uid, limit \\ @default_interfaces_limit) do

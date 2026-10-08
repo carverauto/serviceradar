@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParamsTest do
 
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams
 
+  @moduletag :db_free
+
   test "stores capacity forecast mode in display config" do
     attrs =
       PanelParams.attrs(%{

@@ -17,6 +17,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "gateway registration" do
     test "can register a gateway with required fields" do
       result =

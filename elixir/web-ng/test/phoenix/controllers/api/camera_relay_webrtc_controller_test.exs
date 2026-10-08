@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.CameraRelayWebRTCSignalingManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled)
     previous_ice_servers = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_ice_servers)
@@ -159,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
     assert body["data"]["signaling_state"] == "candidate_buffered"
 
     assert_receive {:webrtc_add_candidate, ^relay_session_id, ^viewer_session_id,
-                    "candidate:1 1 UDP 1234 10.0.0.1 4000 typ host", opts}
+                    %{"candidate" => "candidate:1 1 UDP 1234 10.0.0.1 4000 typ host"}, opts}
 
     assert opts[:scope]
   end

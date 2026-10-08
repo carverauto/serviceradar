@@ -58,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     body =
       if is_map(log) do
-        log_message(log)
+        display_message(log)
       else
         ""
       end
@@ -153,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def handle_event("copy_message", _params, socket) do
     text =
       case socket.assigns.log do
-        %{} = log -> log |> log_message() |> redact_secret_text()
+        %{} = log -> display_message(log)
         _ -> ""
       end
 
@@ -282,6 +282,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.log_message_hero log={@log} body_mode={@body_mode} />
+              <.log_ingest_identity log={@log} />
               <.log_attributes_panel log={@log} />
               <.signal_display_panel
                 :if={is_list(@signal_display)}
@@ -485,7 +486,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp stream_entry(log, idx) when is_map(log) do
-    body = log_message(log)
+    body = display_message(log)
     id = entry_id(log, idx)
 
     %{
@@ -508,7 +509,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp page_title_for(%{} = log, log_id) do
-    case log_headline(log_message(log)) do
+    case log_headline(display_message(log)) do
       nil -> "Log · #{String.slice(to_string(log_id), 0, 8)}"
       title -> title
     end
@@ -523,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr(:can_create_rules?, :boolean, default: false)
 
   defp log_detail_header(assigns) do
-    body = log_message(assigns.log)
+    body = display_message(assigns.log)
     title = log_headline(body) || "Log entry"
 
     assigns =
@@ -558,7 +559,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             variant="primary"
             size="xs"
           >
-            <.icon name="hero-plus" class="size-3.5" /> Create event rule
+            <.icon name="hero-plus" class="size-3.5" /> Create Event Rule
           </.ui_button>
         </div>
       </div>
@@ -711,7 +712,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr(:body_mode, :string, required: true)
 
   defp log_message_hero(assigns) do
-    body = redact_secret_text(log_message(assigns.log))
+    body = display_message(assigns.log)
     is_json = message_is_json?(body)
     pairs = extract_message_pairs(body)
     prefix = message_prefix(body) || wevent_message_prefix(body)
@@ -930,11 +931,52 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     """
   end
 
+  attr :log, :map, required: true
+
+  # Collector attribution recorded at ingest (SPIFFE identity, agent, partition).
+  # Only fields that carry a value render; the section is omitted when none do.
+  defp log_ingest_identity(assigns) do
+    fields =
+      Enum.reject(
+        [
+          %{id: "log-ingest-identity", label: "SPIFFE ID", value: Map.get(assigns.log, "ingest_identity")},
+          %{id: "log-ingest-agent", label: "Agent", value: Map.get(assigns.log, "ingest_agent_id")},
+          %{id: "log-ingest-partition", label: "Partition", value: Map.get(assigns.log, "ingest_partition")}
+        ],
+        fn field -> blank_value?(field.value) end
+      )
+
+    assigns = assign(assigns, :fields, fields)
+
+    ~H"""
+    <div :if={@fields != []} class="space-y-2">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+        Ingest Identity
+      </span>
+      <div class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface">
+        <div class="grid grid-cols-1 divide-y divide-sr-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div :for={field <- @fields} id={field.id} class="flex min-w-0 flex-col gap-1 px-4 py-3">
+            <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+              {field.label}
+            </span>
+            <span class="break-all font-mono text-sm text-sr-ink">{field.value}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   # -- message helpers --------------------------------------------------------
 
   defp log_message(log) when is_map(log), do: Map.get(log, "body") || Map.get(log, "message") || ""
 
   defp log_message(_), do: ""
+
+  # Every rendered copy of the body (page title, header headline, side-stream
+  # preview, message hero) goes through the same redaction, so a credential
+  # in the body cannot reach the page through a summary of it.
+  defp display_message(log), do: log |> log_message() |> redact_secret_text()
 
   defp message_is_json?(body) when is_binary(body) do
     t = String.trim(body)
@@ -1875,7 +1917,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end)
   end
 
-  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
+  defp redact_secret_value(value) when is_list(value) do
+    if printable_charlist?(value) do
+      text = List.to_string(value)
+      redacted = redact_secret_text(text)
+      if redacted == text, do: value, else: redacted
+    else
+      Enum.map(value, &redact_secret_value/1)
+    end
+  end
+
   defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
   defp redact_secret_value(value), do: value
 

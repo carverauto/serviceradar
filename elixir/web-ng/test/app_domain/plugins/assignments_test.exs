@@ -1,14 +1,23 @@
 defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+  import ServiceRadarWebNG.AshTestHelpers,
+    only: [
+      actor_for_user: 1,
+      admin_user_fixture: 0,
+      register_control_session!: 2,
+      system_actor: 0
+    ]
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
+
+  @moduletag :web_ng_shared_fixture_db
 
   @manifest %{
     "id" => "assignment-upgrade-test",
@@ -79,7 +88,19 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
       }
     }
 
-    secret_ref = "credentialref:network-credential-secret:#{Ecto.UUID.generate()}"
+    # Stored secret references bind to a real credential row (foreign key).
+    secret =
+      NetworkCredentialSecret.create_secret!(
+        %{
+          name: "Assignment upgrade key #{System.unique_integer([:positive])}",
+          provider: "otx",
+          credential_kind: :api_token,
+          secret_payload: "synthetic-otx-api-key"
+        },
+        actor: system_actor()
+      )
+
+    secret_ref = "credentialref:network-credential-secret:#{secret.id}"
 
     params =
       SecretRefs.prepare_params_for_storage(target_schema, %{
@@ -100,8 +121,15 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
       |> create_package("0.3.2", config_schema: target_schema)
       |> approve_package!()
 
+    # The upgrade newly binds a network credential under a schema that
+    # declares it, which requires settings.credentials.manage. The admin
+    # role holds it (catalog default_roles), so the upgrade crosses the
+    # permission branch; the numeric-clamping assertions below are unchanged.
+    credential_admin = admin_user_fixture()
+    credential_actor = actor_for_user(credential_admin)
+
     assert {:ok, upgraded} =
-             Assignments.upgrade(assignment.id, new_package.id, actor: system_actor())
+             Assignments.upgrade(assignment.id, new_package.id, actor: credential_actor)
 
     assert upgraded.params == %{
              "api_key_secret_ref" => secret_ref,
@@ -161,9 +189,11 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
 
   defp create_assignment!(agent_uid, package_id, opts) do
     source = Keyword.get(opts, :source, :manual)
+    agent_uid = "#{agent_uid}-#{System.unique_integer([:positive])}"
+    register_control_session!(agent_uid, "assignments-test")
 
     attrs = %{
-      agent_uid: "#{agent_uid}-#{System.unique_integer([:positive])}",
+      agent_uid: agent_uid,
       plugin_package_id: package_id,
       source: source,
       source_key: source_key(source),

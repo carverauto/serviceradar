@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule DashboardSRQLStub do
     @moduledoc false
 

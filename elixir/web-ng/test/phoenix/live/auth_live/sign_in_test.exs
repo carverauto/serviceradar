@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignInTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "sign-in page hides registration and magic-link options", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/users/log-in")
 

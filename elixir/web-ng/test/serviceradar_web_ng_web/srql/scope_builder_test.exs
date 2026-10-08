@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.ScopeBuilderTest do
 
   alias ServiceRadarWebNGWeb.SRQL.ScopeBuilder
 
+  @moduletag :db_free
+
   defp filters(builder), do: Map.fetch!(builder, "filters")
 
   describe "parse_query_to_builder/1" do

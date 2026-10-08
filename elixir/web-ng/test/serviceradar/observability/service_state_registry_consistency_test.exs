@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryConsistencyTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "assignment deactivation finds runtime service names through plugin_id" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -310,6 +312,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryConsistencyTest do
   end
 
   defp assignment_fixture(agent_uid, package_id) do
+    register_control_session!(agent_uid, "default")
+
     PluginAssignment
     |> Ash.Changeset.for_create(
       :create,

@@ -173,8 +173,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings do
     end
   end
 
+  # NVD carries the full CVE narrative; KEV's short text is an exploitation signal,
+  # not a description. Prefer NVD for the card's title and description.
   defp description(matches, priority) do
-    Enum.find_value(matches, fn match ->
+    matches
+    |> nvd_first()
+    |> Enum.find_value(fn match ->
       field(match, :description) ||
         get_in(field(match, :metadata) || %{}, ["description"]) ||
         advisory_field(match, :description)
@@ -182,9 +186,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings do
   end
 
   defp title(matches, priority) do
-    Enum.find_value(matches, fn match ->
+    matches
+    |> nvd_first()
+    |> Enum.find_value(fn match ->
       field(match, :title) || advisory_field(match, :title)
     end) || priority_value(priority, "title")
+  end
+
+  defp nvd_first(matches), do: Enum.sort_by(matches, &if(nvd_match?(&1), do: 0, else: 1))
+
+  defp nvd_match?(match) do
+    normalize(field(match, :provider)) == "nvd" or
+      String.starts_with?(normalize(field(match, :feed_key)), "nist-nvd")
   end
 
   defp advisory_field(match, key) do

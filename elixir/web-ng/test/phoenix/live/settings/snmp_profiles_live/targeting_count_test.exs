@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.TargetingCountTes
   """
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   test "interface targeting still distincts on device_id" do
     source =
       File.read!(

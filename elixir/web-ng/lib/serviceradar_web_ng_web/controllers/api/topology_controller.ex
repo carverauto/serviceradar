@@ -51,6 +51,16 @@ defmodule ServiceRadarWebNGWeb.Api.TopologyController do
         |> put_status(:bad_request)
         |> json(%{error: "invalid_request", message: "invalid route analysis arguments"})
 
+      {:error, :unauthorized} ->
+        conn
+        |> put_status(:unauthorized)
+        |> json(%{error: "unauthorized"})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden"})
+
       {:error, reason} ->
         conn
         |> put_status(:bad_request)

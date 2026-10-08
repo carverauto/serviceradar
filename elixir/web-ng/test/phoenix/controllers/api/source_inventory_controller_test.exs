@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
 
   alias ServiceRadarWebNG.Accounts.Scope
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule ReaderStub do
     @moduledoc false
     def list(params) do

@@ -175,7 +175,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     attrs = prepare_secret_params(attrs, schema, %{})
 
     PluginAssignment
-    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.Changeset.for_create(:create, attrs, ash_opts)
     |> Ash.Changeset.set_context(%{config_schema: schema})
     |> create_resource_with_opts(ash_opts)
     |> maybe_sync_assignment_service_state()
@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       attrs = prepare_secret_params(attrs, schema, assignment.params || %{})
 
       assignment
-      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.Changeset.for_update(:update, attrs, ash_opts)
       |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource_with_opts(ash_opts)
       |> maybe_deactivate_replaced_assignment(assignment)
@@ -235,7 +235,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       attrs = upgrade_attributes(assignment, target_package.id, schema, upgrade_attrs)
 
       assignment
-      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.Changeset.for_update(:update, attrs, ash_opts)
       |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource_with_opts(ash_opts)
       |> maybe_sync_assignment_service_state()

@@ -46,6 +46,7 @@ defmodule ServiceRadarWebNG.SRQLPlanCacheModeTest do
       :ok
     end
 
+    @tag :web_ng_shared_fixture_db
     test "sets plan_cache_mode = force_custom_plan for the current transaction" do
       # Run the setup statement exactly as run_sql/2 does, then observe the GUC
       # on the same connection/transaction.

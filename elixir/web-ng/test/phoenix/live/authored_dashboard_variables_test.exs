@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardVariablesTest do
 
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
 
+  @moduletag :db_free
+
   test "substitute escapes string variables as SRQL literals" do
     variables = [
       %{name: "site", label: "Site", options: [], default: "", type: :string}

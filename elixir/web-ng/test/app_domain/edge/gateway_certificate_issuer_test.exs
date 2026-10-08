@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
 
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule IssueProbe do
     @moduledoc false
     @table __MODULE__

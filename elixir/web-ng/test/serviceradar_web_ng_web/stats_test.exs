@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
   alias ServiceRadarWebNGWeb.Stats.Extract
   alias ServiceRadarWebNGWeb.Stats.Query
 
+  @moduletag :db_free
+
   describe "log severity query helpers" do
     test "use canonical aliases plus every OTel enum variant" do
       assert Query.log_severity_values(:error) ==

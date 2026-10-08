@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Authorization
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "admin can manage auth and user resources" do
     auth = Authorization.can(%User{role: :admin})
 
@@ -27,27 +29,19 @@ defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
   test "launch permission creates canonical operations without breaking retained run authorization" do
     user = %User{id: Ash.UUID.generate(), role: :viewer}
 
-    Process.put(
-      {:rbac_permissions, user.id},
-      MapSet.new(["ansible.runs.launch"])
-    )
+    RBAC.Cache.put(user.id, MapSet.new(["ansible.runs.launch"]))
 
     auth = Authorization.can(user)
 
     assert Authorization.create?(auth, AutomationOperation)
     assert Authorization.create?(auth, PlaybookRun)
     refute Authorization.read?(auth, AutomationOperation)
-
-    RBAC.clear_process_cache()
   end
 
   test "repository managers can enter settings without receiving controller mutation rights" do
     user = %User{id: Ash.UUID.generate(), role: :viewer}
 
-    Process.put(
-      {:rbac_permissions, user.id},
-      MapSet.new(["ansible.repositories.manage"])
-    )
+    RBAC.Cache.put(user.id, MapSet.new(["ansible.repositories.manage"]))
 
     auth = Authorization.can(user)
 
@@ -56,8 +50,6 @@ defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
     assert Authorization.update?(auth, PlaybookRepository)
     refute Authorization.create?(auth, Controller)
     refute Authorization.update?(auth, Controller)
-
-    RBAC.clear_process_cache()
   end
 
   test "non-admin has no access" do

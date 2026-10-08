@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_module = Application.get_env(:serviceradar_web_ng, :camera_analysis_workers)
 
@@ -158,8 +160,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
           "worker_id" => "worker-gamma",
           "display_name" => "Gamma Detector",
           "adapter" => "http",
-          "endpoint_url" => "http://gamma.local/analyze",
-          "health_endpoint_url" => "http://gamma.local/readyz",
+          "endpoint_url" => "https://example.com/analyze",
+          "health_endpoint_url" => "https://example.com/readyz",
           "health_path" => "/healthz",
           "health_timeout_ms" => "1200",
           "probe_interval_ms" => "9000",
@@ -176,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert body["data"]["enabled"] == false
       assert body["data"]["capabilities"] == ["object_detection", "people_count"]
       assert body["data"]["header_keys"] == ["authorization"]
-      assert body["data"]["health_endpoint_url"] == "http://gamma.local/readyz"
+      assert body["data"]["health_endpoint_url"] == "https://example.com/readyz"
       assert body["data"]["health_path"] == "/healthz"
       assert body["data"]["health_timeout_ms"] == 1200
       assert body["data"]["probe_interval_ms"] == 9000
@@ -185,8 +187,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert attrs.worker_id == "worker-gamma"
       assert attrs.display_name == "Gamma Detector"
       assert attrs.adapter == "http"
-      assert attrs.endpoint_url == "http://gamma.local/analyze"
-      assert attrs.health_endpoint_url == "http://gamma.local/readyz"
+      assert attrs.endpoint_url == "https://example.com/analyze"
+      assert attrs.health_endpoint_url == "https://example.com/readyz"
       assert attrs.health_path == "/healthz"
       assert attrs.health_timeout_ms == 1200
       assert attrs.probe_interval_ms == 9000
@@ -205,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       conn =
         patch(conn, ~p"/api/admin/camera-analysis-workers/#{worker_id}", %{
           "display_name" => "Alpha Prime",
-          "health_endpoint_url" => "http://alpha.local/healthz",
+          "health_endpoint_url" => "https://example.com/healthz",
           "health_timeout_ms" => "2400",
           "probe_interval_ms" => "11000",
           "capabilities" => ["object_detection", " vehicle_detection "],
@@ -218,14 +220,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
       assert body["data"]["display_name"] == "Alpha Prime"
       assert body["data"]["enabled"] == false
       assert body["data"]["capabilities"] == ["object_detection", "vehicle_detection"]
-      assert body["data"]["health_endpoint_url"] == "http://alpha.local/healthz"
+      assert body["data"]["health_endpoint_url"] == "https://example.com/healthz"
       assert body["data"]["health_timeout_ms"] == 2400
       assert body["data"]["probe_interval_ms"] == 11_000
 
       assert_receive {:camera_analysis_workers_get, ^worker_id, _opts}
       assert_receive {:camera_analysis_workers_update, ^worker_id, attrs, opts}
       assert attrs.display_name == "Alpha Prime"
-      assert attrs.health_endpoint_url == "http://alpha.local/healthz"
+      assert attrs.health_endpoint_url == "https://example.com/healthz"
       assert attrs.health_timeout_ms == 2400
       assert attrs.probe_interval_ms == 11_000
       assert attrs.capabilities == ["object_detection", "vehicle_detection"]

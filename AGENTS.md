@@ -125,6 +125,11 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   Never both at once, and never neither: CNPG stays a complete telemetry backend
   for installations without StarRocks, so do not remove a CNPG telemetry writer,
   reader or table when adding its warehouse counterpart.
+  The approved exception is flow and process-attribution reads: `in:flows` and
+  `in:attributed_flows` require StarRocks and return
+  `{:error, :starrocks_required}` without it. Their UI must report that state
+  rather than read legacy CNPG flow rows. See
+  `openspec/changes/move-flow-attribution-to-starrocks` and commit `a1c9468b95`.
   Collectors and agents MUST NOT write metrics straight to CNPG or StarRocks, and
   core MUST NOT ingest a metric path that bypassed JetStream. The legacy
   agent→gateway→core gRPC `StreamStatus` path that writes sysmon metrics directly
@@ -299,4 +304,3 @@ After changes, compile and run applicable tests; read their output and report ev
 ## Tools
 
 Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.
-

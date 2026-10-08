@@ -18,6 +18,8 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "service check creation" do
     test "can create a service check with required fields" do
       actor = system_actor()

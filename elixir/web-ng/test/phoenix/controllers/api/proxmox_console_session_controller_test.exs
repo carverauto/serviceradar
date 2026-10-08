@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.ProxmoxConsoleSessionManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager)
 
@@ -105,13 +107,18 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
       assert body["error"] == "forbidden"
     end
 
-    test "denies users with console-open but without credential-use permission", %{
-      conn: conn,
-      user: user
-    } do
-      put_test_permissions(user, ["devices.console.open"])
+    test "denies users with console-open but without credential-use permission", %{conn: _conn} do
+      # The create endpoint resolves the caller's authority from persistence
+      # through the per-request scope, so the narrowing has to be a stored
+      # role profile like the stream test below, not a cache entry alone:
+      # a cache-only entry is repopulated from the persisted authority.
+      user = persist_role_profile!(viewer_user_fixture(), ["devices.console.open"])
+      {:ok, token, _claims} = Guardian.create_access_token(user)
 
-      conn = post(conn, ~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+        |> post(~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
 
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
@@ -157,10 +164,17 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
   end
 
   describe "GET /v1/proxmox/console-sessions/:id/stream" do
-    test "denies websocket upgrade without credential-use permission", %{conn: conn, user: user} do
-      put_test_permissions(user, ["devices.console.open"])
+    test "denies websocket upgrade without credential-use permission", %{conn: _conn} do
+      # The stream endpoint re-reads the user's authority from persistence
+      # (CurrentUserAuthority) rather than the RBAC cache, so the narrowing has
+      # to be a stored role profile, not a cache entry.
+      user = persist_role_profile!(viewer_user_fixture(), ["devices.console.open"])
+      {:ok, token, _claims} = Guardian.create_access_token(user)
 
-      conn = get(conn, ~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+        |> get(~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
 
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
@@ -168,7 +182,35 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
   end
 
   defp put_test_permissions(user, permissions) do
-    Process.put({:rbac_permissions, user.id}, MapSet.new(permissions))
+    # The legacy process-dict injection this replaced is dead: permissions
+    # resolve through the shared ETS cache, so narrow them there.
+    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new(permissions))
+  end
+
+  defp persist_role_profile!(user, permissions) do
+    actor = ServiceRadarWebNG.AshTestHelpers.system_actor()
+
+    profile =
+      ServiceRadar.Identity.RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Proxmox console open only #{System.unique_integer([:positive])}",
+          description: "Console open without credential use",
+          permissions: permissions
+        },
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: actor)
+      |> Ash.update!()
+
+    put_test_permissions(updated, permissions)
+    updated
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

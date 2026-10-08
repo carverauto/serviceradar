@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "shows identity-provider group mappings as user groups", %{conn: conn} do
     group_name = "network-ops-#{System.unique_integer([:positive])}"
     settings!([%{"source" => "groups", "value" => group_name, "role" => "operator"}])

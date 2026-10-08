@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteAccessFileTransferManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :remote_access_file_transfer_manager)
 

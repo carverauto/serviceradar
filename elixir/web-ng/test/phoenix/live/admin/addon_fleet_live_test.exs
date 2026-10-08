@@ -10,20 +10,26 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Phoenix.LiveView.Lifecycle
   alias Phoenix.LiveView.Socket
+  alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index
+  alias ServiceRadarWebNGWeb.Settings.ShellHook
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = admin_user_fixture()
-    %{conn: log_in_user(conn, user), actor: actor_for_user(user)}
+    %{conn: log_in_user(conn, user), actor: actor_for_user(user), user: user}
   end
 
   # GitHub #4454: addon_statuses rows are never deleted, so an agent's last
@@ -228,14 +234,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
         component_id: "fleet-rollout-#{unique}"
       })
 
+    # The retry below starts a fresh health-gated rollout, which only targets an
+    # agent that is connected, recently seen, and has a candidate artifact for its
+    # platform; otherwise the coordinator refuses with :no_eligible_targets.
     agent =
-      agent_fixture(gateway, %{
-        uid: "fleet-rollout-agent-#{unique}",
-        name: "Rollout Evidence Agent"
-      })
+      connected_agent!(gateway, "fleet-rollout-agent-#{unique}", "Rollout Evidence Agent")
 
     previous = create_addon_package!(actor, addon_id, "1.0.0")
-    candidate = create_addon_package!(actor, addon_id, "1.1.0")
+
+    candidate =
+      create_addon_package!(actor, addon_id, "1.1.0",
+        artifacts: %{
+          "linux/amd64" => %{
+            "object_key" => "addons/#{addon_id}/1.1.0/linux-amd64.tar.gz",
+            "sha256" => String.duplicate("c", 64)
+          }
+        }
+      )
+
     assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
 
     rollout =
@@ -304,7 +320,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert row_html =~ "never reported healthy on 1.1.0"
     assert row_html =~ "left on 1.0.0"
     refute row_html =~ to_string(assignment.id)
-    refute row_html =~ "assignment ·"
+    # The caption names the agent ("Direct assignment · <agent uid>"); it must
+    # never fall back to a shortened assignment id.
+    refute row_html =~ ~r/assignment · [0-9a-f]{8}/
 
     # Desired 1.0.0 is running. A finished canary must not paint the agent as blocked.
     fleet_html = fleet_table_html(html)
@@ -418,7 +436,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert row_html =~ "Profile Canary #{unique}"
     assert row_html =~ "reported 2.1.0 as unhealthy"
     refute row_html =~ to_string(profile.id)
-    refute row_html =~ "profile ·"
+    # The caption counts agents ("Add-on profile · 1 agent"); it must never fall
+    # back to a shortened profile id.
+    refute row_html =~ ~r/profile · [0-9a-f]{8}/
   end
 
   test "finished rollouts paginate so a long tail stays reachable", %{
@@ -439,7 +459,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     previous = create_addon_package!(actor, addon_id, "1.0.0")
     candidate = create_addon_package!(actor, addon_id, "1.1.0")
     assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
-    active_assignment = create_assignment!(actor, agent.uid, candidate.id, enabled: true)
+
+    # One enabled assignment per (agent, add-on): the active rollout's source
+    # is a second agent's assignment.
+    active_agent =
+      agent_fixture(gateway, %{uid: "fleet-pages-active-#{unique}", name: "Pages Active #{unique}"})
+
+    active_assignment = create_assignment!(actor, active_agent.uid, candidate.id, enabled: true)
 
     base = DateTime.utc_now()
 
@@ -631,9 +657,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert_patch(view, "/settings/agents/addons/fleet")
   end
 
-  test "disconnected mount and render make no database queries", %{actor: actor} do
+  test "disconnected mount and render make no database queries", %{user: user} do
+    # Build the socket the LiveView runtime provides: a resolved Scope with a
+    # precomputed permissions MapSet (a bare actor map matches no RBAC.can?
+    # clause and falls into the put_flash branch), a flash assign, and a
+    # lifecycle for the stream setup in mount.
+    scope = Scope.for_user(user, permissions: Catalog.permissions_for_role(:admin))
+
     socket = %Socket{
-      assigns: %{__changed__: %{}, current_scope: actor},
+      assigns: %{__changed__: %{}, flash: %{}, current_scope: scope},
+      private: %{live_temp: %{}, lifecycle: %Lifecycle{}},
+      router: ServiceRadarWebNGWeb.Router,
+      view: Index,
       endpoint: ServiceRadarWebNGWeb.Endpoint
     }
 
@@ -644,7 +679,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       handler_id,
       [:service_radar, :repo, :query],
       fn _event, _measurements, metadata, _config ->
-        send(test_pid, {:repo_query, metadata.query})
+        # :telemetry runs handlers synchronously in the emitter's process, so
+        # self() here is the querying process. Only attribute queries issued
+        # by this test process (the direct mount/handle_params/render calls
+        # below). Sandbox checkout/commit traffic and background or
+        # concurrent-test queries from other processes in the shared VM must
+        # not fail the disconnected zero-query assertion.
+        if self() == test_pid do
+          send(test_pid, {:repo_query, metadata.query})
+        end
       end,
       nil
     )
@@ -659,6 +702,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
                "http://localhost/settings/agents/addons/fleet",
                socket
              )
+
+    # The Settings shell hook owns the shell assigns in production; run its
+    # on_mount so the direct render sees the same no-op defaults.
+    {:cont, socket} = ShellHook.on_mount(:default, %{}, %{}, socket)
 
     _html = render_component(&Index.render/1, socket.assigns)
 
@@ -705,7 +752,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
           rollout_state: nil,
           rollout_candidate_version: nil,
           rollout_previous_version: nil,
-          health: %{},
+          health: nil,
           attention: [],
           attention?: false
         }
@@ -715,11 +762,19 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       transport_pid: self(),
       assigns: %{
         __changed__: %{},
-        current_scope: %ServiceRadarWebNG.Accounts.Scope{
-          user: %ServiceRadar.Identity.User{timezone: "Etc/UTC"},
+        flash: %{},
+        current_scope: %Scope{
+          user: %ServiceRadar.Identity.User{
+            timezone: "Etc/UTC",
+            email: "fleet-stream@example.com",
+            role: :admin
+          },
           permissions: MapSet.new(["plugins.view"])
         }
       },
+      private: %{live_temp: %{}, lifecycle: %Lifecycle{}},
+      router: ServiceRadarWebNGWeb.Router,
+      view: Index,
       endpoint: ServiceRadarWebNGWeb.Endpoint
     }
 
@@ -743,6 +798,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert socket.assigns.use_stream? == true
     assert socket.assigns.agent_group_total == 105
     assert length(socket.assigns.paged_agent_groups) == 10
+
+    # The Settings shell hook owns the shell assigns in production; run its
+    # on_mount so the direct render sees the same no-op defaults.
+    {:cont, socket} = ShellHook.on_mount(:default, %{}, %{}, socket)
 
     # Render streamed cards and verify DOM attributes
     html = render_component(&Index.render/1, socket.assigns)
@@ -823,7 +882,26 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     html |> String.split(needle) |> length() |> Kernel.-(1)
   end
 
-  defp create_addon_package!(actor, addon_id, version) do
+  defp connected_agent!(gateway, uid, name) do
+    ServiceRadar.Infrastructure.Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: uid,
+        name: name,
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp create_addon_package!(actor, addon_id, version, opts \\ []) do
     attrs = %{
       addon_id: addon_id,
       name: "Fleet #{addon_id}",
@@ -836,7 +914,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       install_path: "/usr/local/lib/serviceradar/bin",
       capabilities: ["addon.run"],
       config_schema: %{},
-      artifacts: %{},
+      artifacts: Keyword.get(opts, :artifacts, %{}),
       requires: %{},
       source_type: :first_party,
       source_oci_ref: "registry.carverauto.dev/serviceradar/addon:test",

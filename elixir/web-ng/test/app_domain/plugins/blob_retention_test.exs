@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.Plugins.BlobRetentionTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.BlobRetention
 
+  @moduletag :db_free
+
   @old_unix DateTime.to_unix(~U[2000-01-01 00:00:00Z])
 
   describe "plan/4" do

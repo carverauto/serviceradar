@@ -11,6 +11,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
   alias ServiceRadar.Identity.User
 
+  @moduletag :web_ng_shared_fixture_db
   describe "User read policies" do
     setup do
       admin = admin_user_fixture()
@@ -124,7 +125,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
           :create,
           %{
             name: "Test Token",
-            scope: :full_access,
+            scope: "admin",
             user_id: admin.id,
             token: raw_token
           },
@@ -146,7 +147,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
           :create,
           %{
             name: "My Token",
-            scope: :read_only,
+            scope: "read",
             user_id: viewer.id,
             token: raw_token
           },
@@ -169,7 +170,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
           :create,
           %{
             name: "My Token",
-            scope: :read_only,
+            scope: "read",
             user_id: viewer.id,
             token: raw_token
           },

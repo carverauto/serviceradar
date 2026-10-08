@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLiveTest do
 
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_user
 
   test "renders gateways from gateways table", %{conn: conn} do

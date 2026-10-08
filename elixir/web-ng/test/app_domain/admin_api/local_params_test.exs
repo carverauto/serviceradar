@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.AdminApi.LocalParamsTest do
 
   alias ServiceRadarWebNG.AdminApi.LocalParams
 
+  @moduletag :db_free
+
   test "accepts integer limits directly" do
     assert LocalParams.normalize_limit(25) == 25
   end

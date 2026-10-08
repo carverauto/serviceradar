@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   setup :register_and_log_in_admin_user
   setup :seed_target_policy_package
 
+  @tag :web_ng_shared_fixture_db
   test "renders only credential providers declared by approved packages", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials")
 
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "Axis (VAPIX)"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "lists, focuses, and links reusable credentials independently of credential rules", %{
     conn: conn,
     scope: scope
@@ -101,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
            )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "editing credential details preserves encrypted material", %{conn: conn, scope: scope} do
     marker = "credential-edit-secret-#{System.unique_integer([:positive])}"
 
@@ -148,6 +151,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
              SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
   end
 
+  @tag :web_ng_shared_fixture_db
   test "rotation is write-only and replaces the encrypted material", %{conn: conn, scope: scope} do
     suffix = System.unique_integer([:positive])
     old_marker = "credential-rotation-old-#{suffix}"
@@ -196,6 +200,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
              SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
   end
 
+  @tag :web_ng_shared_fixture_db
   test "used SNMP credential blocks deletion until the named profile is detached", %{
     conn: conn,
     scope: scope
@@ -249,6 +254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert {:error, _reason} = NetworkCredentialSecret.get_by_id(secret.id, actor: system_actor())
   end
 
+  @tag :web_ng_shared_fixture_db
   test "confirmation-time SNMP attachment wins the delete race", %{conn: conn, scope: scope} do
     secret = snmp_secret_fixture(scope)
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
@@ -288,6 +294,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert to_string(id) == to_string(secret.id)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "successful focused-row deletion returns to the base credentials route", %{
     conn: conn,
     scope: scope
@@ -319,6 +326,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute has_element?(lv, "#credential-secret-#{secret.id}")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "a stale credential id cannot open a management action", %{conn: conn} do
     stale_id = Ecto.UUID.generate()
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
@@ -329,6 +337,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute has_element?(lv, "#credential-edit-modal")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "permission removed after mount rejects a forged credential event", %{
     conn: conn,
     scope: scope,
@@ -349,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert to_string(id) == to_string(secret.id)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "viewer is blocked from credential rules settings", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
@@ -357,6 +367,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert to == ~p"/settings/profile"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creates a rule from package-declared defaults and controls", %{conn: conn, scope: scope} do
     secret = api_token_secret_fixture(scope)
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
@@ -378,6 +389,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["auto_discovery_enabled"] == true
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creates an explicit actor-use policy for package-declared console access", %{
     conn: conn,
     scope: scope
@@ -421,6 +433,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
            }
   end
 
+  @tag :web_ng_shared_fixture_db
   test "rejects console rules without an actor-use selector", %{conn: conn, scope: scope} do
     secret = username_password_secret_fixture(scope, "example-network")
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
@@ -455,6 +468,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_rule_by_name!(scope, "Unrestricted console")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "enforces transport policy declared by the selected authentication method", %{
     conn: conn,
     scope: scope
@@ -475,6 +489,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_rule_by_name!(scope, "Insecure rule")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "offers every TLS policy when the auth method narrows none", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
@@ -498,6 +513,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ ~s(value="skip_verify")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saves a rule whose auth method narrows no TLS policy", %{conn: conn, scope: scope} do
     secret =
       credential_secret_fixture(scope, %{
@@ -532,6 +548,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.tls_policy == :skip_verify
   end
 
+  @tag :web_ng_shared_fixture_db
   test "an omitted TLS policy param falls back to verify rather than failing the save", %{
     conn: conn,
     scope: scope
@@ -554,6 +571,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.tls_policy == :verify
   end
 
+  @tag :web_ng_shared_fixture_db
   test "names the controller host from the descriptor without provider-specific copy", %{
     conn: conn
   } do
@@ -586,6 +604,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "camera IP"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "uses credential kind rather than method id for SSH policy controls", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
@@ -606,6 +625,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "TLS Policy"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "agent scope uses active agents while gateway scope remains freeform", %{conn: conn} do
     gateway = gateway_fixture(%{id: "credential-gw", component_id: "credential-component"})
     agent_fixture(gateway, %{uid: "agent-a", name: "Agent A"})
@@ -641,6 +661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ ~s(value="credential-gw")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creates a scalar API token using package-declared credential fields", %{
     conn: conn,
     scope: scope
@@ -678,6 +699,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert %Ash.NotLoaded{} = secret.secret_payload
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creates a native VulnCheck API token from New Credential", %{conn: conn, scope: scope} do
     {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials")
 
@@ -718,6 +740,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["plugin_version"] == "native"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creates a username/password credential without exposing the password", %{
     conn: conn,
     scope: scope
@@ -757,6 +780,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["auth_method"] == "username_password"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "rejects missing descriptor fields without storing a partial credential", %{
     conn: conn,
     scope: scope
@@ -786,6 +810,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_secret_by_name!(scope, "Incomplete token")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "provider changes clamp methods, purposes, and defaults to the selected descriptor", %{
     conn: conn
   } do
@@ -810,6 +835,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ ~s(in:devices type:&quot;Camera&quot;)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "secret picker filters by provider and credential method", %{conn: conn, scope: scope} do
     network_secret = api_token_secret_fixture(scope)
     camera_secret = username_password_secret_fixture(scope, "example-camera")
@@ -821,6 +847,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "example-network / #{network_secret.name} / api token"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "inline credential creation preserves and selects the current rule provider", %{
     conn: conn,
     scope: scope
@@ -858,6 +885,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
            )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "edits and disables a package-declared credential rule", %{conn: conn, scope: scope} do
     secret = api_token_secret_fixture(scope)
     rule = credential_rule_fixture(scope, secret, %{name: "Original rule"})
@@ -884,6 +912,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "Disabled"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "previews SRQL scope without resolving credential material", %{conn: conn, scope: scope} do
     previous_resolver =
       Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_resolver)
@@ -935,6 +964,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "sensitive-token"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders and saves a producer-schedule integration from its package schema", %{
     conn: conn,
     scope: scope

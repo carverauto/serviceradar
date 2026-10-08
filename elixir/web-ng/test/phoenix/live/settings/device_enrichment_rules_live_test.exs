@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   setup do

@@ -22,6 +22,8 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   @moduletag :integration
 
   describe "perform/1 — pending DeviceAuthorization → :expired" do

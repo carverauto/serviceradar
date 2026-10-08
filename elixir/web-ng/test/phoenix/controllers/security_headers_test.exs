@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.SecurityHeadersTest do
   use ServiceRadarWebNGWeb.ConnCase
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "browser responses include hardened CSP without unsafe-inline scripts", %{conn: conn} do
     conn = get(conn, ~p"/")
 
