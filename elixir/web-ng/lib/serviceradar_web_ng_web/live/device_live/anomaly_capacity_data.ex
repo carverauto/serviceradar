@@ -299,36 +299,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp combined_status(_anomaly, _capacity), do: :ok
 
   defp anomaly_filter_candidates(identity) do
-    # Canonical device pages must not fall back to agent/host-scoped findings:
-    # that is exactly how polled-device SNMP findings end up displayed on the
-    # polling agent. Device pages may still query the host alias because sysmon
-    # findings can be host-keyed before canonical device attribution is present.
     device_candidate = candidate(identity, :device_uid, "service_radar_device_uid", "device")
     host_candidate = candidate(identity, :host_id, "service_radar_device_uid", "host")
 
-    candidates =
-      if device_candidate do
-        [device_candidate, host_candidate]
-      else
-        [
-          candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
-          host_candidate
-        ]
-      end
-
-    Enum.reject(candidates, &is_nil/1)
+    canonical_or_host_candidate(device_candidate, host_candidate)
   end
 
   defp capacity_filter_candidates(identity) do
-    Enum.reject(
-      [
-        candidate(identity, :device_uid, "resource_id", "device"),
-        candidate(identity, :agent_id, "resource_id", "agent"),
-        candidate(identity, :host_id, "resource_id", "host")
-      ],
-      &is_nil/1
+    canonical_or_host_candidate(
+      candidate(identity, :device_uid, "resource_id", "device"),
+      candidate(identity, :host_id, "resource_id", "host")
     )
   end
+
+  # A canonical device page must never fall through to a hostname shared by another device.
+  # Host-keyed data remains available only when no canonical device identity exists yet.
+  defp canonical_or_host_candidate(%{} = device_candidate, _host_candidate), do: [device_candidate]
+
+  defp canonical_or_host_candidate(nil, %{} = host_candidate), do: [host_candidate]
+  defp canonical_or_host_candidate(nil, nil), do: []
 
   defp candidate(identity, key, field, label) do
     case Map.get(identity, key) do

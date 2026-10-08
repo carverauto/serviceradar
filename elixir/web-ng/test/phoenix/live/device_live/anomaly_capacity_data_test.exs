@@ -691,7 +691,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              AnomalyCapacityData.load(FakeSRQL, identity, nil, anomaly_source: projected_source)
   end
 
-  test "does not fall back to agent scoped anomaly findings when canonical and host aliases have no rows" do
+  test "canonical device queries do not fall back to host or agent aliases" do
     data =
       AnomalyCapacityData.load(
         NoFallbackSRQL,
@@ -701,6 +701,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
 
     queries = drain_fake_queries()
     anomaly_queries = Enum.filter(queries, &String.contains?(&1, "in:events"))
+    capacity_queries = Enum.filter(queries, &String.contains?(&1, "in:capacity_forecasts"))
 
     assert data.anomaly_rows == []
 
@@ -715,17 +716,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|)
            )
 
-    assert Enum.any?(
-             anomaly_queries,
-             &String.contains?(&1, ~s|service_radar_device_uid:"router-host"|)
-           )
-
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-host"|))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"agent-1"|))
+    refute Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"router-host"|))
+    refute Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"agent-1"|))
   end
 
-  test "uses host service_radar_device_uid alias for sysmon anomalies when canonical device rows are absent" do
+  test "canonical device queries do not fall back to a host alias with rows" do
     data =
       AnomalyCapacityData.load(
         HostAliasSRQL,
@@ -743,23 +742,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
 
     assert data.anomaly_filter == %{
              field: "service_radar_device_uid",
-             label: "host",
-             value: "k8s-cp3-worker1"
+             label: "device",
+             value: "sr-device-1"
            }
 
-    assert [%{"id" => "worker-anomaly-1", "severity" => "High"}] = data.anomaly_rows
+    assert data.anomaly_rows == []
 
     assert Enum.any?(
              anomaly_queries,
              &String.contains?(&1, ~s|service_radar_device_uid:"sr-device-1"|)
            )
 
-    assert Enum.any?(
-             anomaly_queries,
-             &String.contains?(&1, ~s|service_radar_device_uid:"k8s-cp3-worker1"|)
-           )
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"k8s-cp3-worker1"|))
 
     refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"agent-k8s-cp3-worker1"|))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
+  end
+
+  test "uses a host alias only when canonical device identity is absent" do
+    data =
+      AnomalyCapacityData.load(
+        HostAliasSRQL,
+        %{agent_id: "agent-synthetic-1", host_id: "synthetic-host-1"},
+        nil,
+        anomaly_severity: "high"
+      )
+
+    queries = drain_fake_queries()
+    anomaly_queries = Enum.filter(queries, &String.contains?(&1, "in:events"))
+
+    assert data.anomaly_filter == %{
+             field: "service_radar_device_uid",
+             label: "host",
+             value: "synthetic-host-1"
+           }
+
+    assert Enum.any?(
+             anomaly_queries,
+             &String.contains?(&1, ~s|service_radar_device_uid:"synthetic-host-1"|)
+           )
+
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
   end
 
