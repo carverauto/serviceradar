@@ -212,6 +212,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       {:ok, conn} ->
         {:ok, conn}
 
+      {:error, :unauthorized} ->
+        {:error, :unauthorized}
+
       {:error, :not_found} ->
         # Fall back to legacy static API keys
         validate_legacy_api_key(conn, key)
