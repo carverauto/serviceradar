@@ -47,7 +47,8 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
         [self() | Process.get(:"$callers", [])]
       end)
 
-    GenServer.cast(server, {:invalidate, config_type, callers})
+    scope = normalize_scope(Keyword.get(opts, :scope, :all_online))
+    GenServer.cast(server, {:invalidate, config_type, callers, scope})
   end
 
   @impl true
@@ -75,7 +76,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
              @default_max_heap_words
            )
          ),
-       push: Keyword.get(opts, :push, &ServiceRadar.Edge.AgentCommandBus.push_config_for_type/1),
+       push: Keyword.get(opts, :push, &ServiceRadar.Edge.AgentCommandBus.push_config_for_type/2),
        cache: Keyword.get(opts, :cache, &ServiceRadar.AgentConfig.ConfigCache.invalidate/1),
        schedule: Keyword.get(opts, :schedule, &default_schedule/2),
        task_supervisor:
@@ -88,8 +89,8 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
   end
 
   @impl true
-  def handle_cast({:invalidate, config_type, callers}, state) do
-    {:noreply, note_invalidate(state, config_type, callers)}
+  def handle_cast({:invalidate, config_type, callers, scope}, state) do
+    {:noreply, note_invalidate(state, config_type, callers, scope)}
   end
 
   @impl true
@@ -111,20 +112,26 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
     end
   end
 
-  defp note_invalidate(state, config_type, callers) do
+  defp note_invalidate(state, config_type, callers, scope) do
     case Map.get(state.slots, config_type) do
       nil ->
-        schedule(state, config_type, callers, 1, 0)
+        schedule(state, config_type, callers, 1, 0, scope)
 
       %{phase: :scheduled} = slot ->
-        put_slot(state, config_type, %{slot | coalesced: slot.coalesced + 1, callers: callers})
+        put_slot(state, config_type, %{
+          slot
+          | coalesced: slot.coalesced + 1,
+            callers: callers,
+            scope: merge_scope(slot.scope, scope)
+        })
 
       %{phase: :running} = slot ->
         put_slot(state, config_type, %{
           slot
           | dirty: true,
             follow_coalesced: slot.follow_coalesced + 1,
-            callers: callers
+            callers: callers,
+            follow_scope: merge_scope(slot.follow_scope, scope)
         })
     end
   end
@@ -154,7 +161,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
       end
 
       cache.(config_type)
-      push.(config_type)
+      push.(config_type, slot.scope)
 
       memory =
         case Process.info(self(), :memory) do
@@ -176,7 +183,8 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
             mon: mon,
             started_at: System.monotonic_time(),
             dirty: false,
-            follow_coalesced: 0
+            follow_coalesced: 0,
+            follow_scope: MapSet.new()
         })
 
       {:error, reason} ->
@@ -184,7 +192,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
           "Config invalidation worker failed to start for #{config_type}: #{inspect(reason)}"
         )
 
-        schedule(state, config_type, slot.callers, slot.coalesced, slot.attempts)
+        schedule(state, config_type, slot.callers, slot.coalesced, slot.attempts, slot.scope)
     end
   end
 
@@ -206,7 +214,14 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
 
   defp continue_after(state, config_type, slot, :ok) do
     if slot.dirty do
-      schedule(state, config_type, slot.callers, max(slot.follow_coalesced, 1), 0)
+      schedule(
+        state,
+        config_type,
+        slot.callers,
+        max(slot.follow_coalesced, 1),
+        0,
+        slot.follow_scope
+      )
     else
       drop_slot(state, config_type)
     end
@@ -218,17 +233,25 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
 
     cond do
       attempts < @max_attempts ->
-        schedule(state, config_type, slot.callers, max(coalesced, 1), attempts)
+        scope = merge_scope(slot.scope, slot.follow_scope)
+        schedule(state, config_type, slot.callers, max(coalesced, 1), attempts, scope)
 
       slot.dirty ->
-        schedule(state, config_type, slot.callers, max(slot.follow_coalesced, 1), 0)
+        schedule(
+          state,
+          config_type,
+          slot.callers,
+          max(slot.follow_coalesced, 1),
+          0,
+          slot.follow_scope
+        )
 
       true ->
         drop_slot(state, config_type)
     end
   end
 
-  defp schedule(state, config_type, callers, coalesced, attempts) do
+  defp schedule(state, config_type, callers, coalesced, attempts, scope) do
     ref = make_ref()
     state.schedule.({:fire, config_type, ref}, state.debounce_ms)
 
@@ -239,12 +262,27 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidator do
       coalesced: coalesced,
       follow_coalesced: 0,
       callers: callers,
+      scope: scope,
+      follow_scope: MapSet.new(),
       task: nil,
       mon: nil,
       started_at: nil,
       attempts: attempts
     })
   end
+
+  defp normalize_scope({:device, uid}) when is_binary(uid) and uid != "",
+    do: MapSet.new([{:device, uid}])
+
+  defp normalize_scope(agent_ids) when is_list(agent_ids),
+    do: MapSet.new(agent_ids, &{:agent, &1})
+
+  defp normalize_scope(%MapSet{} = scope), do: scope
+  defp normalize_scope(_scope), do: :all_online
+
+  defp merge_scope(:all_online, _scope), do: :all_online
+  defp merge_scope(_scope, :all_online), do: :all_online
+  defp merge_scope(left, right), do: MapSet.union(left, right)
 
   defp emit(config_type, status, slot, memory) do
     duration =

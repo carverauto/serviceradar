@@ -241,14 +241,16 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         ServiceRadar.SNMPProfiles.SNMPTarget,
         :snmp,
         SNMPCompiler,
-        secret_fields: [:community, :auth_password, :priv_password]
+        secret_fields: [:community, :auth_password, :priv_password],
+        affected_agents: {DependencyResolvers, :snmp_target_agents, []}
       ),
       config_server_entry(
         :snmp_oid_config,
         ServiceRadar.SNMPProfiles.SNMPOIDConfig,
         :snmp,
         SNMPCompiler,
-        action_names: [:create, :create_bulk, :update, :destroy]
+        action_names: [:create, :create_bulk, :update, :destroy],
+        affected_agents: {DependencyResolvers, :snmp_oid_agents, []}
       ),
       config_server_entry(
         :device_snmp_config,
@@ -303,7 +305,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
 
   @doc "Builds redacted diagnostics for a cataloged resource change."
   @spec diagnostics(entry(), map() | struct()) :: map()
-  def diagnostics(%Entry{} = entry, record) do
+  def diagnostics(%Entry{} = entry, record, opts \\ []) do
     %{
       dependency_id: entry.id,
       resource: inspect(entry.resource),
@@ -312,7 +314,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       config_type: entry.config_type,
       generator: inspect(entry.generator),
       dispatch: entry.dispatch,
-      affected_agents: affected_agents(entry, record),
+      affected_agents:
+        Keyword.get_lazy(opts, :affected_agents, fn -> affected_agents(entry, record) end),
       secrets: secret_presence(entry, record)
     }
   end
@@ -372,7 +375,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       resource: resource,
       config_type: config_type,
       generator: compiler,
-      affected_agents: {DependencyResolvers, :all_online, []},
+      affected_agents:
+        Keyword.get(opts, :affected_agents, {DependencyResolvers, :all_online, []}),
       dispatch: :invalidate_config_type,
       action_names: Keyword.get(opts, :action_names, []),
       secret_fields: Keyword.get(opts, :secret_fields, []),

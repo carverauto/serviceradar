@@ -64,7 +64,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
     if match?({:error, _}, result) or skip_invalidation? do
       :ok
     else
-      ConfigServer.invalidate(:snmp)
+      ConfigServer.invalidate(:snmp, {:device, settings.device_id})
       :ok
     end
   rescue
@@ -356,6 +356,12 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp valid_target_name?(_), do: false
 
   defp sync_target_oids(settings, interface, target, opts) do
+    # The async destroy notifier may run after prune_empty_target removes its
+    # parent. Keep the known profile so those pollers receive the removal.
+    context =
+      Map.put(Keyword.get(opts, :context, %{}), :snmp_config_profile_id, target.snmp_profile_id)
+
+    opts = Keyword.put(opts, :context, context)
     selected = normalize_selected(settings.metrics_selected, settings.metrics_enabled)
     metrics = normalize_metrics(interface.available_metrics)
 

@@ -10,8 +10,8 @@ defmodule ServiceRadar.Inventory.Changes.InvalidateSnmpConfigs do
 
   @impl true
   def change(changeset, _opts, _context) do
-    AfterAction.after_action(changeset, fn _record ->
-      ConfigServer.invalidate(:snmp)
+    AfterAction.after_action(changeset, fn record ->
+      ConfigServer.invalidate(:snmp, {:device, record.device_id})
       ConfigServer.invalidate(:mapper)
     end)
   end

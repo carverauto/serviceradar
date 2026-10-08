@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceMetricsInvalidationTest do
        task_supervisor: sup,
        debounce_ms: 1_000,
        cache: fn _type -> :ok end,
-       push: fn type -> send(parent, {:pushed, type}) end,
+       push: fn type, scope -> send(parent, {:pushed, type, scope}) end,
        schedule: fn message, _delay ->
          send(parent, {:timer, message})
          make_ref()
@@ -59,13 +59,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceMetricsInvalidationTest do
     refute_received {:timer, _message}
     send(ConfigInvalidator, {:fire, :snmp, ref})
 
-    assert_receive {:pushed, :snmp}
+    assert_receive {:pushed, :snmp, scope}
+    assert scope == MapSet.new([{:device, "device-01"}])
     assert_receive {:telemetry, measurements, metadata}
     assert measurements.coalesced == 1
     assert measurements.duration >= 0
     assert metadata.status == :ok
     assert metadata.config_type == :snmp
-    refute_receive {:pushed, _type}
+    refute_receive {:pushed, _type, _scope}
   end
 
   test "a burst of interface metric toggles schedules one save" do

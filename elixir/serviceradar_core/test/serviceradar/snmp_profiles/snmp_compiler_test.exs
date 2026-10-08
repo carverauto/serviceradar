@@ -10,6 +10,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.AgentConfig.DependencyDispatcher
+  alias ServiceRadar.AgentConfig.DependencyResolvers
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -21,6 +23,34 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.SNMPProfiles.SNMPTarget
 
   require Ash.Query
+
+  defmodule ScopeConfigServer do
+    @moduledoc false
+    def invalidate(type, agents) do
+      send(self(), {:scoped_invalidation, type, agents})
+      :ok
+    end
+  end
+
+  defmodule ScopeDiagnostics do
+    @moduledoc false
+    def record(_diagnostic), do: :ok
+  end
+
+  defp scope_profile(actor, name, agents, query) do
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Synthetic #{name}",
+        enabled: true,
+        agent_ids: agents,
+        target_query: query
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
 
   describe "module structure" do
     test "module is loaded and defined" do
@@ -118,6 +148,127 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     setup do
       ServiceRadar.TestSupport.start_core!()
       :ok
+    end
+
+    @tag :integration
+    test "device invalidation includes reporter, explicit target pollers and every query poller" do
+      actor = SystemActor.system(:test)
+      uid = "sr:scope-device-#{System.unique_integer([:positive])}"
+
+      for profile <- Ash.read!(SNMPProfile, actor: actor) do
+        profile =
+          if profile.is_default do
+            profile
+            |> Ash.Changeset.for_update(:unset_default, %{}, actor: actor)
+            |> Ash.update!(actor: actor)
+          else
+            profile
+          end
+
+        Ash.destroy!(profile, actor: actor)
+      end
+
+      device =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: uid,
+            ip: "192.0.2.17",
+            hostname: "host01.example.com",
+            agent_id: "agent-reporter",
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      explicit = scope_profile(actor, "explicit", ["agent-poller-01", "agent-poller-02"], nil)
+
+      query_profile =
+        scope_profile(
+          actor,
+          "query",
+          ["agent-query-01", "agent-query-02"],
+          "in:devices uid:\"#{uid}\""
+        )
+
+      _unrelated =
+        scope_profile(actor, "unrelated", ["agent-unrelated"], "in:devices uid:missing-device")
+
+      target =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "SyntheticTarget",
+            host: device.ip,
+            snmp_profile_id: explicit.id,
+            version: :v2c
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      oid =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "ifInOctets",
+            oid: ".1.3.6.1.2.1.2.2.1.10.1",
+            snmp_target_id: target.id
+          },
+          actor: actor
+        )
+        |> Ash.create!(actor: actor)
+
+      expected = ~w(agent-reporter agent-poller-01 agent-poller-02 agent-query-01 agent-query-02)
+      assert Enum.sort(SNMPCompiler.affected_agents_for_device(uid)) == Enum.sort(expected)
+      assert DependencyResolvers.snmp_target_agents(target) == explicit.agent_ids
+      assert DependencyResolvers.snmp_oid_agents(oid) == explicit.agent_ids
+
+      notification = %Ash.Notifier.Notification{
+        resource: SNMPOIDConfig,
+        action: %{type: :update, name: :update},
+        data: oid
+      }
+
+      assert {:ok, [diagnostic]} =
+               DependencyDispatcher.dispatch(notification,
+                 config_server: ScopeConfigServer,
+                 diagnostics: ScopeDiagnostics
+               )
+
+      assert_received {:scoped_invalidation, :snmp, ["agent-poller-01", "agent-poller-02"]}
+      assert diagnostic.affected_agents == explicit.agent_ids
+
+      Ash.destroy!(target, actor: actor)
+
+      destroyed_notification = %{
+        notification
+        | action: %{type: :destroy, name: :destroy},
+          changeset:
+            Ash.Changeset.set_context(Ash.Changeset.new(oid), %{
+              snmp_config_profile_id: explicit.id
+            })
+      }
+
+      assert {:ok, [_]} =
+               DependencyDispatcher.dispatch(destroyed_notification,
+                 config_server: ScopeConfigServer,
+                 diagnostics: ScopeDiagnostics
+               )
+
+      assert_received {:scoped_invalidation, :snmp, ["agent-poller-01", "agent-poller-02"]}
+
+      query_profile
+      |> Ash.Changeset.for_update(:update, %{agent_ids: []}, actor: actor)
+      |> Ash.update!(actor: actor)
+
+      assert SNMPCompiler.affected_agents_for_device(uid) == :all_online
+      assert SNMPCompiler.affected_agents_for_device("missing-device") == :all_online
     end
 
     @tag :integration

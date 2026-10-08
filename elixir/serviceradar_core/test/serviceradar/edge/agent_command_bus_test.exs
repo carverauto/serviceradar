@@ -58,7 +58,12 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
     @impl true
     def handle_call({:push_config, response}, _from, state) do
-      send(state.test_pid, {:push_config, response})
+      if state.marker do
+        send(state.test_pid, {:push_config, state.marker, response})
+      else
+        send(state.test_pid, {:push_config, response})
+      end
+
       {:reply, :ok, state}
     end
 
@@ -1279,6 +1284,42 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   describe "push-config delivery" do
+    test "scoped pushes reach each capable owner, while unknown ownership retains a fleet push" do
+      suffix = System.unique_integer([:positive])
+      first = "agent-first-#{suffix}"
+      second = "agent-second-#{suffix}"
+      outsider = "agent-outside-#{suffix}"
+      incapable = "agent-incapable-#{suffix}"
+
+      for {agent, marker, capabilities} <- [
+            {first, :first, ["snmp"]},
+            {second, :second, ["snmp"]},
+            {outsider, :outsider, ["snmp"]},
+            {incapable, :incapable, ["sysmon"]}
+          ] do
+        start_control_session(
+          agent,
+          self(),
+          %{partition_id: "default", capabilities: capabilities},
+          marker: marker
+        )
+      end
+
+      assert :ok = AgentCommandBus.push_config_for_type(:snmp, [first, second, incapable])
+      assert_receive {:push_config, :first, %Monitoring.AgentConfigResponse{}}, 1_000
+      assert_receive {:push_config, :second, %Monitoring.AgentConfigResponse{}}, 1_000
+      refute_received {:push_config, :outsider, _}
+      refute_received {:push_config, :incapable, _}
+
+      assert :ok =
+               AgentCommandBus.push_config_for_type(:snmp, {:device, "missing-device-#{suffix}"})
+
+      assert_receive {:push_config, :first, %Monitoring.AgentConfigResponse{}}, 1_000
+      assert_receive {:push_config, :second, %Monitoring.AgentConfigResponse{}}, 1_000
+      assert_receive {:push_config, :outsider, %Monitoring.AgentConfigResponse{}}, 1_000
+      refute_received {:push_config, :incapable, _}
+    end
+
     test "pushes config over control stream", %{agent_id: agent_id} do
       {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
 
