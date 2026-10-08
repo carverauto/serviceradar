@@ -136,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
     conn =
       conn
       |> init_test_session(%{})
+      |> fetch_flash()
       |> put_private(:phoenix_format, "html")
       |> put_req_header(
         "authorization",
