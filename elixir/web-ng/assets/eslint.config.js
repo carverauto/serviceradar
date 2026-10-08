@@ -21,6 +21,7 @@ export default [
         ResizeObserver: "readonly",
         URLSearchParams: "readonly",
         Event: "readonly",
+        EventTarget: "readonly",
         performance: "readonly",
         fetch: "readonly",
         WebSocket: "readonly",
