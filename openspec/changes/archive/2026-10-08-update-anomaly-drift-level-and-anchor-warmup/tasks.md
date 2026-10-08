@@ -17,5 +17,5 @@
 
 ## 4. Verification on demo
 
-- [ ] 4.1 After the roll: a SIGTERM to the add-on ends the process within seconds and the agent restarts it; the restart re-warms (first health report shows restored series).
-- [ ] 4.2 No drift episode opens on the switch uplink's diurnal ramp after a cold start.
+- [x] 4.1 After the roll: a SIGTERM to the add-on ends the process within seconds and the agent restarts it; the restart re-warms (first health report shows restored series).
+- [x] 4.2 No drift episode opens on the switch uplink's diurnal ramp after a cold start.
