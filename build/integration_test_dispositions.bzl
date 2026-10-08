@@ -359,6 +359,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/threat_intel_feed_refresh_worker_db_test.exs": 1,
     "test/serviceradar/observability/threat_intel_otx_sync_worker_test.exs": 1,
     "test/serviceradar/observability/threat_intel_worker_ingestor_db_test.exs": 1,
+    "test/serviceradar/observability/timeseries_metrics_compression_db_test.exs": 1,
     "test/serviceradar/observability/timeseries_series_identity_integration_test.exs": 1,
     "test/serviceradar/observability/zen_rule_seeder_test.exs": 1,
     "test/serviceradar/plugins/addon_assignment_dedupe_migration_db_test.exs": 1,

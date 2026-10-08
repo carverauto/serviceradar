@@ -1223,6 +1223,8 @@ if config_env() == :prod do
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
     timeseries_metrics_retention_days: "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    timeseries_metrics_compress_after_hours:
+      "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" |> parse_int_env.(24) |> max(1),
     # DataRetentionWorker floors this at 7 days, clear of the rollups' 5-day refresh window.
     hourly_rollup_retention_days: "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" |> parse_int_env.(395) |> max(1),
     sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
