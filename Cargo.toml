@@ -61,9 +61,8 @@ exclude = [
 
 [workspace.package]
 edition = "2024"
-# Keep in lockstep with MODULE.bazel RUST_DEFAULT_VERSION. dgraph-client
-# (marvin-hansen/dgraph-rs) declares MSRV 1.97.1.
-rust-version = "1.97.1"
+# Keep in lockstep with MODULE.bazel RUST_DEFAULT_VERSION and rust-toolchain.toml.
+rust-version = "1.98.0"
 
 
 [workspace.dependencies]

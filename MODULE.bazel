@@ -338,13 +338,13 @@ use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 # github.com/hermeticbuild/hermetic-llvm, BCR module name literally "llvm".
 llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
 
-# Matches the LLVM that rustc 1.97.1 is built on, which is RUST_DEFAULT_VERSION below.
-# Confirmed with `rustc --version --verbose`, which reports "LLVM version: 22.1.6".
+# Matches the LLVM that rustc 1.98.0 is built on, which is RUST_DEFAULT_VERSION below.
+# Confirmed with `rustc --version --verbose`, which reports "LLVM version: 22.1.8".
 # Keep the two in step. Rust and C/C++ objects are linked into the same binaries here, and
 # for the musl targets they are linked statically, so a mismatched LLVM shows up as bitcode
 # and runtime-library incompatibility rather than as a clean error.
 # The tag is mandatory: with no llvm.version the extension fails with "Missing llvm.version(...)".
-llvm.version(llvm_version = "22.1.6")
+llvm.version(llvm_version = "22.1.8")
 use_repo(llvm, "llvm-project")
 
 # The macOS sysroot.
@@ -397,7 +397,7 @@ use_repo(rules_rs_rules_rust, "rules_rust")
 rules_rust_prost = use_extension("@rules_rs//rs:rules_rust_prost.bzl", "rules_rust_prost")
 use_repo(rules_rust_prost, "rules_rust_prost")
 
-RUST_DEFAULT_VERSION = "1.97.1"
+RUST_DEFAULT_VERSION = "1.98.0"
 
 RUST_EDITION = "2024"
 

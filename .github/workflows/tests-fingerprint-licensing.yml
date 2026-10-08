@@ -46,11 +46,11 @@ jobs:
 
           if ! command -v rustup >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-              | sh -s -- -y --profile minimal --default-toolchain stable
+              | sh -s -- -y --profile minimal --default-toolchain 1.98.0
           fi
 
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup default 1.98.0
           rustc --version
           cargo --version
 
