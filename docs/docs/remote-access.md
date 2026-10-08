@@ -36,7 +36,7 @@ An operator-supplied target host takes precedence for an inventory-device SSH se
 
 Before enabling remote access, make sure these pieces are in place:
 
-- The target devices are in ServiceRadar inventory and assigned to an agent, gateway, or partition that can reach TCP `22`. When the device has no owning agent column, SSH routing can use its discovery metadata (`sync_service_id`, then agent/source-agent metadata). This routing fallback does not bypass certificate policy or authorization.
+- The target devices are in ServiceRadar inventory and assigned to an agent, gateway, or partition that can reach TCP `22`. When the device has no owning agent column, SSH routing derives the agent from authoritative source bindings: a partition-matched typed device identifier carrying `sync_service_id` resolved against the enabled integration source's configured agent in the same partition. Device metadata agent keys are excluded from routing and rejected as facts. This routing fallback does not bypass certificate policy or authorization.
 - Users authenticate through the normal ServiceRadar login path. For enterprise testing, Authentik OIDC works well as the identity provider.
 - RBAC grants only the intended users the remote access actions. Use `devices.remote_access.ssh.open` for generic SSH and `devices.console.open` for Proxmox console entry points.
 - The ServiceRadar SSH user CA public key is installed on each Linux or PVE target that should accept certificate login.

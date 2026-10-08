@@ -913,31 +913,37 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp resolve_agent_id(device, request) do
     case blank_to_nil(
            value(request, :agent_id) || value_string(device, [:agent_id, "agent_id"]) ||
-             device_metadata_agent_id(device)
+             authoritative_source_agent_id(device)
          ) do
       nil -> {:error, :missing_agent_scope}
       agent_id -> {:ok, agent_id}
     end
   end
 
-  # Devices inventoried by sync (SNMP/mapper) carry no owning agent_id
-  # column; route via the sync service that discovered them — the same
-  # scope the Proxmox console path uses. Request-supplied agent ids are
-  # rejected upstream, so this only selects the default route.
-  defp device_metadata_agent_id(%{metadata: metadata}) when is_map(metadata) do
-    value_string(metadata, [
-      :sync_service_id,
-      "sync_service_id",
-      :agent_id,
-      "agent_id",
-      :source_agent_id,
-      "source_agent_id",
-      :discovered_by_agent_id,
-      "discovered_by_agent_id"
-    ])
-  end
+  # Sync-inventoried devices may not have an owning agent column. Derive their route from
+  # source provenance on typed identifiers, then resolve the source's configured agent.
+  # Device metadata is deliberately excluded: facts and enrichment share that map.
+  defp authoritative_source_agent_id(device) do
+    partition = value_string(device, [:partition, "partition"]) || "default"
 
-  defp device_metadata_agent_id(_device), do: nil
+    case Repo.query(
+           """
+           SELECT DISTINCT NULLIF(BTRIM(src.agent_id), '')
+           FROM platform.device_identifiers AS identifier
+           JOIN platform.integration_sources AS src
+             ON src.id::text = NULLIF(identifier.metadata->>'sync_service_id', '')
+           WHERE identifier.device_id = $1
+             AND identifier.partition = $2
+             AND src.partition = $2
+             AND src.enabled = TRUE
+             AND NULLIF(BTRIM(src.agent_id), '') IS NOT NULL
+           """,
+           [device.uid, partition]
+         ) do
+      {:ok, %{rows: [[agent_id]]}} -> agent_id
+      _ -> nil
+    end
+  end
 
   defp resolve_target_host(device, request) do
     RemoteAccessDialTarget.resolve(device, blank_to_nil(value(request, :target_host)))

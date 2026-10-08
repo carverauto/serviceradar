@@ -48,6 +48,10 @@ defmodule ServiceRadar.Inventory.Changes.MergeDeviceFacts do
     ip
     hostname
     switch_port_attachment
+    sync_service_id
+    agent_id
+    source_agent_id
+    discovered_by_agent_id
   )
   @max_facts 32
 
