@@ -46,7 +46,10 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
     @tag :web_ng_shared_fixture_db
     test "a token issued before deactivation stops verifying" do
       user = user_fixture()
-      scope = ServiceRadarWebNG.Accounts.Scope.for_user(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
+
+      scope =
+        ServiceRadarWebNG.Accounts.Scope.for_user(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
+
       {:ok, token, _claims} = Guardian.create_access_token(user)
 
       user =
@@ -55,8 +58,9 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
         |> Ash.update!(scope: scope)
 
       assert {:error, :user_inactive} = Guardian.verify_token(token, token_type: "access")
-      assert {:error, :user_inactive} = Guardian.resource_from_claims(%{"sub" => "user:#{user.id}"})
 
+      assert {:error, :user_inactive} =
+               Guardian.resource_from_claims(%{"sub" => "user:#{user.id}"})
     end
 
     test "returns error for invalid claims format" do
