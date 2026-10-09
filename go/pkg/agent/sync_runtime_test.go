@@ -67,7 +67,7 @@ func registerFakeSyncDriver() {
 type fakeSyncDriver struct{}
 
 func (*fakeSyncDriver) Sync(ctx context.Context, run syncsources.RunContext) (int, error) {
-	if run.Source.Credentials["stall"] == "true" {
+	if run.Source.Credentials["stall"] == rawBoolTrue {
 		<-ctx.Done()
 		return 0, ctx.Err()
 	}
@@ -108,6 +108,10 @@ func (*fakeSyncDriver) Sync(ctx context.Context, run syncsources.RunContext) (in
 			return total, err
 		}
 		total += len(updates)
+	}
+
+	if run.Source.Credentials["report_population"] == rawBoolTrue && run.ReportPopulation != nil {
+		run.ReportPopulation(syncsources.PopulationStats{RawRows: total, ValidOccurrences: total})
 	}
 
 	return total, nil
@@ -205,6 +209,53 @@ func TestRunSourceOnceStreamsPagedDriverUpdatesAsGatewayResults(t *testing.T) {
 	if len(seen) != totalDevices {
 		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
 	}
+}
+
+func TestRunSourceOnceSendsCollectionFinalAsOwnStreamWhenPopulationReported(t *testing.T) {
+	registerFakeSyncDriver()
+
+	const (
+		pages          = 2
+		devicesPerPage = 5
+		totalDevices   = pages * devicesPerPage
+	)
+
+	gateway := &fakeSyncGateway{}
+	runtime := newSyncTestRuntime(gateway)
+	runner := newFakeSourceRunner(map[string]string{
+		"pages":             strconv.Itoa(pages),
+		"devices_per_page":  strconv.Itoa(devicesPerPage),
+		"report_population": rawBoolTrue,
+	})
+
+	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-pop")
+	if err != nil {
+		t.Fatalf("runSourceOnce returned error: %v", err)
+	}
+	if count != totalDevices {
+		t.Fatalf("count = %d, want %d", count, totalDevices)
+	}
+
+	streams := gateway.streamsSnapshot()
+	// Expect pages streams for data + 1 stream for collection_final.
+	wantStreams := pages + 1
+	if len(streams) != wantStreams {
+		t.Fatalf("stream count = %d, want %d (pages=%d + collection_final)", len(streams), wantStreams, pages)
+	}
+
+	// Data streams must not be marked run-final.
+	for i := 0; i < pages; i++ {
+		last := streams[i][len(streams[i])-1]
+		assertSyncChunkRunFinal(t, last, false)
+	}
+
+	// The collection_final stream is the last one and must be run-final.
+	finalStream := streams[wantStreams-1]
+	if len(finalStream) != 1 {
+		t.Fatalf("collection_final stream has %d chunks, want 1", len(finalStream))
+	}
+	assertSyncChunkRunFinal(t, finalStream[0], true)
+	assertSyncChunkRunTotal(t, finalStream[0], totalDevices)
 }
 
 func TestExecuteRunEndsAStalledRunAtItsDeadlineSoTheNextRunProceeds(t *testing.T) {
