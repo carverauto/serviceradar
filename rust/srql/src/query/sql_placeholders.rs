@@ -11,7 +11,7 @@
 
 /// Target parameter placeholder style for rewriting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaceholderStyle {
+enum PlaceholderStyle {
     /// PostgreSQL numbered positional parameters: `$1, $2, ...`
     /// starting at `start_index`.
     NumberedDollar { start_index: usize },
@@ -22,23 +22,16 @@ pub enum PlaceholderStyle {
 /// Rewrites question-mark placeholders (`?`) outside string literals, comments,
 /// and dollar-quoted blocks to PostgreSQL numbered parameters (`$1, $2, ...`),
 /// starting at parameter index 1.
-pub fn rewrite_placeholders(sql: &str) -> String {
-    rewrite_placeholders_from(sql, 1)
-}
-
-/// Rewrites question-mark placeholders (`?`) outside string literals to PostgreSQL
-/// numbered parameters starting at `start_index`.
-pub fn rewrite_placeholders_from(sql: &str, start_index: usize) -> String {
-    rewrite_placeholders_with_style(sql, PlaceholderStyle::NumberedDollar { start_index })
+pub(crate) fn rewrite_placeholders(sql: &str) -> String {
+    rewrite_placeholders_with_style(sql, PlaceholderStyle::NumberedDollar { start_index: 1 })
 }
 
 /// Rewrites PostgreSQL numbered parameters (`$1, $2, ...`) outside string literals to question marks (`?`).
-pub fn rewrite_numbered_to_question_marks(sql: &str) -> String {
+pub(crate) fn rewrite_numbered_to_question_marks(sql: &str) -> String {
     rewrite_placeholders_with_style(sql, PlaceholderStyle::QuestionMark)
 }
 
-/// Rewrites SQL placeholders according to the specified `PlaceholderStyle`.
-pub fn rewrite_placeholders_with_style(sql: &str, style: PlaceholderStyle) -> String {
+fn rewrite_placeholders_with_style(sql: &str, style: PlaceholderStyle) -> String {
     let bytes = sql.as_bytes();
     let mut result = String::with_capacity(sql.len() + 16);
     let mut i = 0usize;
@@ -271,15 +264,6 @@ mod tests {
         assert_eq!(
             rewrite_placeholders(sql),
             "SELECT ag_catalog.cypher('graph', $srql$MATCH (n) WHERE n.name = '?'$srql$) LIMIT $1 OFFSET $2"
-        );
-    }
-
-    #[test]
-    fn rewrite_placeholders_supports_offset_start_index() {
-        let sql = "SELECT 1 WHERE a >= ? AND b <= ?";
-        assert_eq!(
-            rewrite_placeholders_from(sql, 5),
-            "SELECT 1 WHERE a >= $5 AND b <= $6"
         );
     }
 

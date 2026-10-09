@@ -88,11 +88,7 @@ pub(crate) use sql::{
     bind_sql_param, diesel_sql, max_dollar_placeholder, reconcile_limit_offset_binds, reject_stats,
     shift_dollar_placeholders, validate_stats_alias,
 };
-#[allow(unused_imports)]
-pub(crate) use sql_placeholders::{
-    PlaceholderStyle, rewrite_numbered_to_question_marks, rewrite_placeholders,
-    rewrite_placeholders_from, rewrite_placeholders_with_style,
-};
+pub(crate) use sql_placeholders::{rewrite_numbered_to_question_marks, rewrite_placeholders};
 pub use translate::translate_request;
 pub use types::{
     BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse,
