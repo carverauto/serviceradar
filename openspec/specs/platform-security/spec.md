@@ -127,7 +127,7 @@ The system SHALL define two capabilities for audit and security surfaces: `:audi
 
 ### Requirement: Settings → Audit operator surface
 
-The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes three sub-pages: **History** (the cross-resource AshPaperTrail timeline with resource-type, actor, action, and time-range filters and a diff view); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); and **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
+The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes three sub-pages: **History** (the cross-resource AshPaperTrail timeline with resource-type, actor, and action filters and a pretty-printed JSON detail view; `since` / `until` time-range filtering lives at the `AuditHistory` module API level); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); and **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
 
 #### Scenario: History page joins paper trail versions across resources
 - **WHEN** an operator opens Settings → Audit → History
@@ -256,7 +256,7 @@ The system SHALL feed cross-IP failed-SSO attempts into the same lockout trigger
 
 The system SHALL provide a Settings → Audit → History sub-page at `/settings/audit/history` gated by `settings.audit.view` that surfaces AshPaperTrail version rows from a configurable set of resources in a single time-ordered timeline. The list of in-scope resources MUST be readable from `config :serviceradar_core, ServiceRadar.Security.AuditHistory, resources: [...]` so operators can include or exclude specific resources without a code change.
 
-The page MUST support filters for: resource type (from the configured allow-list), actor identifier, action type (`:create`, `:update`, `:destroy`), and a `since` / `until` time range. The page MUST honor each resource's existing AshPaperTrail policy when reading versions, so an operator who lacks the per-resource `settings.*.manage` capability does not see that resource's history rows.
+The page MUST support filters for: resource type (from the configured allow-list), actor identifier, and action type (`:create`, `:update`, `:destroy`). `since` / `until` time-range filtering is supported at the `AuditHistory.list_recent/1` module API level, not as page controls. AshPaperTrail version reads MUST honor each resource's existing per-resource read policy, so an operator who lacks the per-resource read capability does not see that resource's version rows; AshEvents rows are gated by the shared `settings.audit.view` policy.
 
 The page MUST NOT offer mutating actions; revert / restore are out of scope.
 
@@ -274,7 +274,7 @@ The page MUST NOT offer mutating actions; revert / restore are out of scope.
 
 ### Requirement: AuditHistory module API
 
-The system SHALL expose `ServiceRadar.Security.AuditHistory.list_recent/1` (and a companion `resources/0`) so the LiveView and any future caller can query the merged version timeline without duplicating the per-resource read logic. `list_recent/1` MUST accept the same filter set as the LiveView (`:resource_types`, `:actor_id`, `:action_types`, `:since`, `:until`, `:limit`, `:offset`) and MUST forward the current actor to each resource's `versions_read` action so per-resource RBAC stays in force.
+The system SHALL expose `ServiceRadar.Security.AuditHistory.list_recent/1` (and a companion `resources/0`) so the LiveView and any future caller can query the merged version timeline without duplicating the per-resource read logic. `list_recent/1` MUST accept a superset of the LiveView filters (`:resource_types`, `:actor_id`, `:action_types`, `:limit`, `:offset`, plus API-level `:since` / `:until` time-range bounds) and MUST forward the current actor to each resource's `versions_read` action so per-resource RBAC stays in force.
 
 #### Scenario: list_recent merges and re-sorts across the allow-list
 - **WHEN** `AuditHistory.list_recent/1` is called with no filters and the allow-list contains multiple resources
@@ -282,16 +282,16 @@ The system SHALL expose `ServiceRadar.Security.AuditHistory.list_recent/1` (and 
 
 #### Scenario: actor_id filter narrows by actor across resources
 - **WHEN** the caller passes `:actor_id`
-- **THEN** each per-resource query filters by that actor before merging
+- **THEN** the AshEvents query filters by that actor before merging while AshPaperTrail rows are filtered post-merge, so a PaperTrail page may under-fill when non-matching rows consume the per-source window
 
 ### Requirement: Version detail diff view
 
-The system SHALL render a per-version detail surface that displays the `changes` map as a key/value diff — `:from` and `:to` side by side for updates, snapshot for creates, and full attributes for destroys. Values larger than 8 KB serialized SHALL render with a "truncated" badge and an expand control; oversized payloads MUST NOT block the page render.
+The system SHALL render a per-version detail surface that displays the `changes` map and the `version_action_inputs` map each as a pretty-printed JSON block. A serialized value larger than 8 KB SHALL render as a `(N bytes, truncated)` placeholder instead of inline JSON; oversized payloads MUST NOT block the page render.
 
-#### Scenario: Update version shows before / after
-- **WHEN** the operator opens a version row with `action_type: :update`
-- **THEN** each changed attribute is rendered with its prior and new value
+#### Scenario: Update version shows changes and action inputs
+- **WHEN** the operator opens a version row
+- **THEN** the detail shows the `changes` map and the `version_action_inputs` map as pretty-printed JSON blocks
 
 #### Scenario: Large jsonb value is truncated
-- **WHEN** a changed attribute's serialized value exceeds 8 KB
-- **THEN** the diff shows a "truncated" badge and a byte-size label, not the inline JSON
+- **WHEN** a serialized value exceeds 8 KB
+- **THEN** the detail shows a `(N bytes, truncated)` placeholder with a byte-size label, not the inline JSON
