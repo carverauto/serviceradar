@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
 
+  require Logger
+
   @layout_options [2, 4, 8, 16, 32]
   @default_layout_count 4
 
@@ -109,6 +111,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   end
 
   def handle_info({:camera_relay_state, _payload}, socket), do: {:noreply, socket}
+
+  # Player channels consume these events from the shared relay topic.
+  def handle_info({:camera_relay_webrtc_closed, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_chunk, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_viewer_chunk, _payload}, socket), do: {:noreply, socket}
+
+  def handle_info(message, socket) do
+    Logger.debug("Ignoring unexpected camera multiview message: #{inspect(message, limit: 20, printable_limit: 200)}")
+    {:noreply, socket}
+  end
 
   defp refresh_camera_tile(socket, relay_session_id, rearm: rearm?) do
     tiles =

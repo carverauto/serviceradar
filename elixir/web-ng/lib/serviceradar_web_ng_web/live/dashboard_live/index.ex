@@ -242,6 +242,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   def handle_info({:camera_relay_state, _payload}, socket), do: {:noreply, socket}
 
+  # Player channels consume these events from the shared relay topic.
+  def handle_info({:camera_relay_webrtc_closed, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_chunk, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_viewer_chunk, _payload}, socket), do: {:noreply, socket}
+
+  def handle_info(message, socket) do
+    Logger.debug("Ignoring unexpected dashboard message: #{inspect(message, limit: 20, printable_limit: 200)}")
+    {:noreply, socket}
+  end
+
   defp dashboard_package_instances(scope) do
     [scope: scope]
     |> Dashboards.enabled_instances()

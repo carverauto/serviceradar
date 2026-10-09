@@ -4,6 +4,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Camera.RelayPubSub
+  alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -142,6 +145,105 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
     assert Enum.find(cards, &(&1.title == "Camera Fleet")).href == "/cameras"
     assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
+  end
+
+  describe "camera preview viewer teardown" do
+    setup %{conn: conn} do
+      test_pid = self()
+      user = admin_user_fixture()
+
+      {:ok, source} =
+        CameraSource.create_source(
+          %{
+            device_uid: "sr:#{Ecto.UUID.generate()}",
+            vendor: "axis",
+            vendor_camera_id: "preview-#{Ecto.UUID.generate()}",
+            display_name: "Example preview camera",
+            availability_status: "online"
+          },
+          actor: system_actor()
+        )
+
+      profile_id = Ecto.UUID.generate()
+      session = %RelaySession{id: Ecto.UUID.generate(), status: :active, media_ingest_id: "core-media-example"}
+
+      candidate = %{
+        camera_source_id: source.id,
+        stream_profile_id: profile_id,
+        label: source.display_name,
+        detail: "Primary stream",
+        source_status: "online",
+        session: nil,
+        error: nil
+      }
+
+      overrides = [
+        camera_relay_candidate_loader: fn _scope, _limit ->
+          send(test_pid, {:preview_candidates_loaded, source.id})
+          [candidate]
+        end,
+        camera_relay_session_manager: CameraRelaySessionManagerStub,
+        camera_relay_session_manager_open_result: fn camera_id, stream_id, _opts ->
+          send(test_pid, {:preview_opened, camera_id, stream_id})
+          {:ok, session}
+        end,
+        camera_relay_poll_interval_ms: 120_000
+      ]
+
+      previous = Enum.map(overrides, fn {key, _value} -> {key, Application.get_env(:serviceradar_web_ng, key)} end)
+      Enum.each(overrides, fn {key, value} -> Application.put_env(:serviceradar_web_ng, key, value) end)
+      on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
+
+      %{conn: log_in_user(conn, user), source_id: source.id, profile_id: profile_id, relay_id: session.id}
+    end
+
+    for {path, tiles_key, player_prefix} <- [
+          {"/dashboard", :camera_preview_tiles, "dashboard-camera-relay"},
+          {"/cameras", :camera_tiles, "camera-multiview-relay"}
+        ] do
+      test "#{path} keeps its mounted preview after viewers close WebRTC", ctx do
+        %{conn: conn, relay_id: relay_id, source_id: source_id, profile_id: profile_id} = ctx
+        {:ok, view, _html} = live(conn, unquote(path))
+        _html = render_async(view, 10_000)
+        player_selector = "##{unquote(player_prefix)}-#{relay_id}"
+
+        assert has_element?(view, player_selector)
+        assert_received {:preview_candidates_loaded, ^source_id}
+        assert_received {:preview_opened, ^source_id, ^profile_id}
+
+        before_socket = :sys.get_state(view.pid).socket
+        tiles = Map.fetch!(before_socket.assigns, unquote(tiles_key))
+        assert MapSet.member?(before_socket.assigns.camera_relay_subscriptions, relay_id)
+        monitor = Process.monitor(view.pid)
+
+        # A second viewer can close the same shared session from another page.
+        for _viewer <- 1..2 do
+          viewer_id = Ecto.UUID.generate()
+          :ok = RelayPubSub.viewer_join(relay_id, viewer_id, %{transport: "membrane_webrtc"})
+
+          :ok =
+            RelayPubSub.viewer_leave(relay_id, viewer_id, %{
+              transport: "membrane_webrtc",
+              reason: "viewer closed webrtc signaling session"
+            })
+
+          # The broadcast and this barrier originate in this process, so the
+          # closure has been handled before state and rendering are asserted.
+          after_socket = :sys.get_state(view.pid).socket
+          assert Map.fetch!(after_socket.assigns, unquote(tiles_key)) == tiles
+          assert Process.alive?(view.pid)
+          assert render(view) =~ "Example preview camera"
+          assert has_element?(view, player_selector)
+        end
+
+        send(view.pid, {:unexpected_relay_event, %{relay_session_id: relay_id}})
+        assert render(view) =~ "Example preview camera"
+        refute_received {:DOWN, ^monitor, :process, _, _}
+        refute_received {:preview_candidates_loaded, _}
+        refute_received {:preview_opened, _, _}
+        Process.demonitor(monitor, [:flush])
+      end
+    end
   end
 
   test "NetFlow map hourly rollup predicate includes the current aggregate bucket" do
