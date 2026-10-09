@@ -215,11 +215,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp start_ingestion(%{active: active} = state) when not is_nil(active), do: arm(state)
 
+  # A batch takes at most queue_max_chunks chunks from the front of pending. A
+  # crashed batch is put back at the front, so its retry is the same chunks
+  # rather than those plus everything that arrived while it ran -- a batch that
+  # grows on every retry can outgrow its deadline and never finish.
   defp start_ingestion(state) do
     if :queue.is_empty(state.pending) do
       state
     else
-      ids = :queue.to_list(state.pending)
+      {batch, rest} =
+        :queue.split(min(queue_max_chunks(), :queue.len(state.pending)), state.pending)
+
+      ids = :queue.to_list(batch)
       messages = Enum.map(ids, &state.jobs[&1].message)
       owner = self()
 
@@ -254,11 +261,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
       case Task.Supervisor.start_child(state.task_supervisor, fun) do
         {:ok, pid} ->
-          timer = Process.send_after(self(), {:worker_timeout, pid}, worker_timeout_ms())
+          timer =
+            Process.send_after(self(), {:worker_timeout, pid}, batch_deadline_ms(length(ids)))
 
           record_state(%{
             state
-            | pending: :queue.new(),
+            | pending: rest,
               active: %{
                 ids: ids,
                 pid: pid,
@@ -338,8 +346,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
   end
 
-  defp worker_timeout_ms do
-    Application.get_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms, 120_000)
+  # The timeout is a budget per chunk: ingest time grows with the chunks in a
+  # batch, so one fixed deadline would kill a healthy full batch on every retry.
+  defp batch_deadline_ms(chunk_count) do
+    Application.get_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms, 120_000) *
+      max(chunk_count, 1)
   end
 
   defp max_per_run do
