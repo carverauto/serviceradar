@@ -211,6 +211,22 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
     end
   end
 
+  describe "artifact digest verification" do
+    test "rejects a missing declared or resolved OCI digest" do
+      assert {:error, :oci_digest_required} = Client.verify_declared_digest(nil, "sha256:abc")
+      assert {:error, :oci_digest_required} = Client.verify_declared_digest("", "sha256:abc")
+      assert {:error, :oci_digest_required} = Client.verify_declared_digest("  ", "sha256:abc")
+      assert {:error, :oci_digest_required} = Client.verify_declared_digest("sha256:abc", nil)
+      assert {:error, :oci_digest_required} = Client.verify_declared_digest("sha256:abc", "  ")
+    end
+
+    test "does not accept a blob when its expected digest is missing" do
+      refute Client.digest_matches?(nil, "bundle")
+      refute Client.digest_matches?("", "bundle")
+      refute Client.digest_matches?("  ", "bundle")
+    end
+  end
+
   describe "resolve_catalog/3" do
     test "uses the exact deployed tag when GitHub has that release" do
       exact = fn "v1.4.51" -> {:ok, [:from_exact]} end

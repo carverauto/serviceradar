@@ -709,24 +709,27 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     verifier.verify(%{ref: ref, digest: digest})
   end
 
-  def verify_declared_digest(nil, _actual), do: :ok
-  def verify_declared_digest("", _actual), do: :ok
-  def verify_declared_digest(_declared, nil), do: :ok
-
   def verify_declared_digest(declared, actual) do
-    if normalize_digest(declared) == normalize_digest(actual) do
-      :ok
-    else
-      {:error, :oci_digest_mismatch}
+    case {normalize_digest(declared), normalize_digest(actual)} do
+      {declared, actual} when declared in [nil, ""] or actual in [nil, ""] ->
+        {:error, :oci_digest_required}
+
+      {digest, digest} ->
+        :ok
+
+      {_declared, _actual} ->
+        {:error, :oci_digest_mismatch}
     end
   end
 
-  def digest_matches?(nil, _payload), do: true
-  def digest_matches?("", _payload), do: true
-
   def digest_matches?(expected, payload) when is_binary(expected) and is_binary(payload) do
-    normalize_digest(expected) == normalize_digest(Storage.sha256(payload))
+    case normalize_digest(expected) do
+      digest when digest in [nil, ""] -> false
+      digest -> digest == normalize_digest(Storage.sha256(payload))
+    end
   end
+
+  def digest_matches?(_expected, _payload), do: false
 
   def normalize_digest(value) when is_binary(value) do
     value
