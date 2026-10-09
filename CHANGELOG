@@ -1,3 +1,92 @@
+# ServiceRadar v1.4.87
+
+This release keeps large integration syncs from timing out before their
+snapshots activate, enforces one enabled add-on assignment per agent, and
+makes mTLS the default edge security mode as SPIRE support is deprecated.
+Device merges now need reciprocal chassis evidence, plugin imports require
+artifact digests, and MTR path analytics ships as a built-in dashboard.
+
+## Upgrade Notes
+
+- Edge onboarding and service security modes default to mTLS. The `spiffe`
+  security mode and the `spire.*` Helm values are deprecated, and services
+  log a warning when they are in use. Existing SPIRE configuration and
+  certificate URI identities keep working in this release. New neutral
+  Helm overrides (`trustDomain`, `serviceAccounts.*`, nullable `cnpg.*`)
+  fall back to the legacy `spire.*` settings when left blank. See
+  `migrating-off-spire.md` before planning the move (PR #5532).
+- A migration disables (never deletes) duplicate enabled add-on
+  assignments for the same agent and add-on, then adds a unique index. It
+  refuses to run when a duplicate it would disable belongs to an active
+  rollout, so let add-on rollouts finish before upgrading. Profile reconciliation now reports conflicting targets
+  as skipped instead of taking over an existing enabled assignment
+  (PR #5523).
+- Helm `core.migrations.expectedVersion` is now `20261008124719`
+  (PR #5523, PR #5532).
+- Native add-on and Wasm plugin imports fail with `oci_digest_required`
+  when the declared or resolved artifact digest is missing (PR #5561).
+- Sync ingestion workers now time out after 120 s instead of 10 s and
+  accept up to 50 chunks per run (`:serviceradar_core` application
+  settings `sync_ingestor_worker_timeout_ms` and
+  `sync_ingestor_max_per_run`). Alert recovery runs on its own
+  `alert_recovery` Oban queue, sized by `OBAN_QUEUE_ALERT_RECOVERY`
+  (default 1) (PR #5565).
+
+## Features
+
+- MTR path analytics ships as a built-in dashboard with loss, ASN
+  attribution, trend and weighted-latency panels. SRQL adds
+  `loss_ratio(sent, received)` and `wavg(value, weight)` aggregates and a
+  `time:<duration>` stats grouping (PR #5558).
+- The data-retention settings page shows how long each dataset change has
+  been pending, warns when one stalls past five minutes, and reports which
+  node runs the retention applier and its last reconcile. Saves are blocked
+  while the warehouse is disabled (PR #5562).
+
+## Fixes
+
+- Large integration syncs no longer time out before their chunks commit,
+  so source snapshots activate. Duplicate chunks re-sent after a reconnect
+  are deduplicated before ingestion. Alert recovery no longer occupies
+  every maintenance queue slot and starves identity reconciliation
+  (PR #5565).
+- Each agent has at most one enabled assignment per add-on across all
+  sources, enforced by a database unique index (PR #5523).
+- Device merges require each row to claim the other's interface MAC, and
+  chassis evidence is scoped to one partition (PR #5550).
+- Canonical device pages query anomaly and capacity data by device
+  identity only, without falling back to agent or host aliases
+  (PR #5557).
+- StarRocks Stream Load reconciles duplicate-label responses instead of
+  failing them, and failure logs carry dataset, table, label and attempt
+  context (PR #5552).
+- Dashboard and camera preview pages no longer crash when a viewer closes
+  a shared relay stream (PR #5566).
+- BMP, Services and Observability tabs load their data after connecting,
+  and NetFlow runs at most four panel loaders per viewer (PR #5549).
+- SRQL rewrites query placeholders with one shared helper that skips
+  quoted literals, identifiers and comments (PR #5563).
+- Audit History page copy no longer claims page-level time-range
+  filtering (PR #5564).
+
+## Security
+
+- Agentless remote-access sessions route through the enabled integration
+  source's configured agent, not device metadata. Routing provenance keys
+  are reserved and cannot be written as device facts (PR #5551).
+- Plugin artifact digest checks fail closed when a digest is missing
+  (PR #5561).
+
+## Docs and CI
+
+- The CI Rust toolchain is 1.98.0 (PR #5547). The `phoenix_pubsub` lock
+  for `serviceradar_core_elx` is 2.4.1 (PR #5559).
+- The migration collision guard runs the checker from latest staging, so
+  branches cut before it existed are checked too (PR #5567).
+- OpenSpec archives record completed source-id succession, JetStream
+  storage budget and audit history page changes (PR #5544, PR #5548,
+  PR #5564).
+
 # ServiceRadar v1.4.86
 
 This release revokes sessions when an account is deactivated, tightens
