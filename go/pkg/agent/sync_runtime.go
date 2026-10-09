@@ -388,8 +388,18 @@ func (r *SyncRuntime) runSourceOnce(
 		return emitter.sent, err
 	}
 
-	if err := emitter.flush(ctx, true); err != nil {
+	// When population stats are set, collection_final carries the authoritative
+	// total_chunks and is_final flag. Flush remaining data as a non-final page so
+	// all data chunks consistently have total_chunks=0, then send collection_final.
+	// Without population stats the final data flush marks itself final as before.
+	if err := emitter.flush(ctx, emitter.population == nil); err != nil {
 		return emitter.sent, err
+	}
+
+	if emitter.population != nil {
+		if err := emitter.flush(ctx, true); err != nil {
+			return emitter.sent, err
+		}
 	}
 
 	return emitter.sent, nil
