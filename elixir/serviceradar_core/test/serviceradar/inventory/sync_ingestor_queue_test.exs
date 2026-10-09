@@ -97,14 +97,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
   end
 
   test "keeps different sync run envelopes in separate arrival-ordered groups" do
-    batch = fn source_id, run_id, device_id ->
+    batch = fn source_id, run_id, chunk_index, device_id ->
       [
         %{
           "device_id" => device_id,
           "sync_meta" => %{
             "sync_service_id" => source_id,
             "sync_run_id" => run_id,
-            "chunk_index" => 1,
+            "chunk_index" => chunk_index,
             "total_chunks" => 3,
             "is_final" => false
           }
@@ -112,16 +112,42 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
       ]
     end
 
-    a1 = batch.("source-a", "run-a", "a-1")
-    a2 = batch.("source-a", "run-a", "a-2")
-    b1 = batch.("source-b", "run-b", "b-1")
-    a3 = batch.("source-a", "run-a", "a-3")
+    a1 = batch.("source-a", "run-a", 0, "a-1")
+    a2 = batch.("source-a", "run-a", 1, "a-2")
+    b1 = batch.("source-b", "run-b", 0, "b-1")
+    a3 = batch.("source-a", "run-a", 2, "a-3")
 
     assert SyncIngestorQueue.group_batches_for_ingestion([a1, a2, b1, a3]) == [
              List.flatten([a1, a2]),
              b1,
              a3
            ]
+  end
+
+  test "deduplicates repeated deliveries of the same chunk by run_id and chunk_index" do
+    chunk = fn chunk_index, device_id ->
+      [
+        %{
+          "device_id" => device_id,
+          "sync_meta" => %{
+            "sync_service_id" => "source-a",
+            "sync_run_id" => "run-dup",
+            "chunk_index" => chunk_index,
+            "total_chunks" => 2,
+            "is_final" => false
+          }
+        }
+      ]
+    end
+
+    c0_a = chunk.(0, "device-a")
+    c0_b = chunk.(0, "device-b")
+    c0_c = chunk.(0, "device-c")
+    c1 = chunk.(1, "device-x")
+
+    result = SyncIngestorQueue.group_batches_for_ingestion([c0_a, c0_b, c0_c, c1])
+
+    assert result == [List.flatten([c0_a, c1])]
   end
 
   test "strips an accounting-only collection final marker from device ingestion" do

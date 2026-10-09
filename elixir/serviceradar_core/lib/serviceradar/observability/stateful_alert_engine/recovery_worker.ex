@@ -7,7 +7,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
   alive. Accepted work and receipt retention are independent of Oban pruning.
   """
 
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  use Oban.Worker, queue: :alert_recovery, max_attempts: 3
 
   alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
