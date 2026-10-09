@@ -1,8 +1,10 @@
 # ServiceRadar v1.4.88
 
 This release unblocks upgrades that stopped at the v1.4.87 add-on
-assignment migration, and lets integration sync snapshots activate when
-the agent reports population statistics.
+assignment migration, lets integration sync snapshots activate when the
+agent reports population statistics, and fixes large integration syncs
+failing permanently when an active-IP race is lost inside the identity
+fence.
 
 ## Upgrade Notes
 
@@ -26,6 +28,15 @@ the agent reports population statistics.
 - Agents send `collection_final` after the last data chunk when population
   statistics are reported, so sync runs record their total chunk count and
   source snapshots activate instead of failing as incomplete (PR #5569).
+- A lost active-IP race inside the identity fence no longer fails the whole
+  batch permanently. Two paths (the inventory-rollup bypass taken by every
+  bulk batch, and the address-release path) opened a nested
+  `Repo.transaction` that masked the Postgres error as a
+  `DBConnection.ConnectionError`; the fence retry classifier then treated it
+  as non-transient and abandoned the batch. Both paths now use
+  `within_transaction/1`, which joins the caller's transaction instead of
+  nesting, so the original Postgres error reaches the classifier and the
+  batch is retried.
 
 ## Docs and CI
 
