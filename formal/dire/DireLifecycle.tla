@@ -113,8 +113,8 @@ Counted(u)    == Owned(u) \ MacIds
 MarkStale(W, B) == {[target |-> w.target, stale |-> w.stale \/ w.target \in B] : w \in W}
 
 \* ocsf_devices_unique_active_ip_idx covers live rows only; NoIp is always free.
-\* CommitWork revivals take only the incoming p (see newIp), so the active-IP precheck
-\* drops a contested stored address to NoIp before the write and the index is never hit.
+\* The active-IP precheck drops a contested INCOMING address to NoIp; CommitWork revivals
+\* take that incoming value (see newIp), so the tombstone's stored address is never written back.
 \* Unmerge and Restore still gate on the tombstone's stored address via this predicate.
 IpFreeFor(u, p) == p = NoIp \/ ~\E d \in Devices : d # u /\ Live(d) /\ ipOf[d] = p
 
