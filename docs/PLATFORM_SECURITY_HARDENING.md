@@ -128,6 +128,17 @@ for PaperTrail versions. Source classification is defined by
 [StampEventSource](../elixir/serviceradar_core/lib/serviceradar/observability/changes/stamp_event_source.ex).
 The configurable resource lists and query contract are owned by
 [AuditHistory](../elixir/serviceradar_core/lib/serviceradar/security/audit_history.ex).
+Operators can scope or override the default PaperTrail allow-list (e.g. to
+exclude high-write-volume resources) in configuration:
+
+```elixir
+config :serviceradar_core, ServiceRadar.Security.AuditHistory,
+  resources: [
+    ServiceRadar.Credentials.NetworkCredentialSecret,
+    ServiceRadar.Credentials.NetworkCredentialRule,
+    ServiceRadar.Security.AuthLockout
+  ]
+```
 
 ## 6. Known follow-ups
 
