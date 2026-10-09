@@ -1,6 +1,9 @@
 //! SRQL support for timeseries-backed metrics (generic, SNMP, and rperf).
 
-use super::{BindParam, QueryPlan, build_other_rollup_sql, filters_common::is_valid_jsonb_key};
+use super::{
+    BindParam, QueryPlan, build_other_rollup_sql, filters_common::is_valid_jsonb_key,
+    rewrite_placeholders,
+};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -2676,21 +2679,6 @@ impl TimeseriesStatsSpec {
             && self.aggregations[0].func == TimeseriesAggFunc::Avg
             && self.aggregations[0].field.as_deref() == Some("value")
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut rewritten = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            rewritten.push('$');
-            rewritten.push_str(&index.to_string());
-            index += 1;
-        } else {
-            rewritten.push(ch);
-        }
-    }
-    rewritten
 }
 
 #[cfg(test)]

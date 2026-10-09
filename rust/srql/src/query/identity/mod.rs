@@ -123,22 +123,7 @@ pub(super) struct BuiltSql {
     pub binds: Vec<BindParam>,
 }
 
-/// Diesel's `sql_query` takes `?`; `to_sql_and_params` must hand callers real
-/// `$n` placeholders.
-pub(in crate::query) fn rewrite_placeholders(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len() + 8);
-    let mut idx = 1u32;
-    for ch in sql.chars() {
-        if ch == '?' {
-            out.push('$');
-            out.push_str(&idx.to_string());
-            idx += 1;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
+pub(in crate::query) use crate::query::rewrite_placeholders;
 
 pub(super) fn scalar_text(filter: &Filter) -> Result<String> {
     Ok(filter.value.as_scalar()?.to_string())

@@ -232,21 +232,6 @@ pub(super) fn build_stats_query(plan: &QueryPlan, spec: &StatsSpec) -> Result<St
     Ok(StatsSql { sql, params })
 }
 
-pub(super) fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            result.push('$');
-            result.push_str(&index.to_string());
-            index += 1;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
 fn filter_clause(filter: &Filter, params: &mut Vec<BindParam>) -> Result<String> {
     let column = match filter.field.as_str() {
         "check" | "check_slug" | "slug" => "composite_checks.slug",

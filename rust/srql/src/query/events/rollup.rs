@@ -1,7 +1,7 @@
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
-    query::{BindParam, QueryPlan},
+    query::{BindParam, QueryPlan, rewrite_placeholders},
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
@@ -172,21 +172,4 @@ pub(super) fn capacity_forecast_rollup_source_clause() -> &'static str {
     r#"(metadata ->> 'event_type' = 'capacity_forecast'
   OR unmapped ->> 'event_type' = 'capacity_forecast'
   OR log_provider = 'capacity_forecasting')"#
-}
-
-pub(super) fn rewrite_placeholders(sql: &str) -> String {
-    let mut rewritten = String::with_capacity(sql.len());
-    let mut index = 1;
-
-    for ch in sql.chars() {
-        if ch == '?' {
-            rewritten.push('$');
-            rewritten.push_str(&index.to_string());
-            index += 1;
-        } else {
-            rewritten.push(ch);
-        }
-    }
-
-    rewritten
 }

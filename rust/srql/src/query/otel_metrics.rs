@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -621,21 +621,6 @@ fn parse_group_field(raw: &str) -> Result<MetricsGroupField> {
             "unsupported stats group field '{other}'"
         ))),
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            result.push('$');
-            result.push_str(&index.to_string());
-            index += 1;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 #[cfg(test)]

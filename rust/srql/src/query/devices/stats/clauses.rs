@@ -178,7 +178,8 @@ pub(super) fn build_grouped_jsonb_text_clause(
 /// This path spells the check as `jsonb_exists` / `jsonb_exists_any` rather
 /// than the `?` and `?|` operators the Diesel path uses. Grouped stats build
 /// raw SQL that `rewrite_placeholders` post-processes, and that pass turns
-/// *every* `?` into `$n` -- a literal `?` operator here would be rewritten into
+/// every `?` outside string literals, quoted identifiers, and comments into
+/// `$n` -- a `?` operator here would be rewritten into
 /// a bind placeholder and the query would fail to parse.
 pub(super) fn build_grouped_tags_clause(
     filter: &Filter,

@@ -7,11 +7,9 @@ mod types;
 use self::{
     filters::collect_filter_params,
     query::{build_count_query, build_query},
-    rollup::{
-        EventsRollupPayload, bind_param_from_rollup, build_rollup_stats_query, rewrite_placeholders,
-    },
+    rollup::{EventsRollupPayload, bind_param_from_rollup, build_rollup_stats_query},
 };
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     models::EventRow,

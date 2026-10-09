@@ -1,6 +1,6 @@
 //! Query execution for endpoint package inventory rows.
 
-use super::{BindParam, QueryPlan, bucket_overlap_clause};
+use super::{BindParam, QueryPlan, bucket_overlap_clause, rewrite_numbered_to_question_marks};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -73,7 +73,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     ensure_entity(plan)?;
 
     if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
-        let sql = rewrite_placeholders(&rollup_sql.sql);
+        let sql = rewrite_numbered_to_question_marks(&rollup_sql.sql);
         let params = rollup_sql
             .binds
             .into_iter()
@@ -464,24 +464,6 @@ fn join_where_clauses(first: String, second: String) -> String {
         (true, false) => format!("WHERE {second}"),
         (false, false) => format!("{first} AND {second}"),
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut output = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '$' && matches!(chars.peek(), Some(next) if next.is_ascii_digit()) {
-            while matches!(chars.peek(), Some(next) if next.is_ascii_digit()) {
-                chars.next();
-            }
-            output.push('?');
-        } else {
-            output.push(ch);
-        }
-    }
-
-    output
 }
 
 fn apply_filter<'a>(

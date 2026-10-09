@@ -506,38 +506,9 @@ pub(super) fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
     Ok(binds)
 }
 
-/// Rewrites `?` bind placeholders to Postgres `$1..$N`, skipping any `?` that
-/// occurs inside a single-quoted SQL string literal (e.g. a `?` regex
-/// quantifier such as `~ '^[0-9]+(\.[0-9]+)?$'`). Rewriting a literal's `?`
-/// shifts every real bind by one and Postgres rejects the query with 42P18
-/// "could not determine data type of parameter $1" (fj #4408).
-///
-/// SQL escapes a quote inside a literal by doubling it (`''`); a doubled quote
-/// toggles the in-literal state twice, so simple toggling tracks it correctly.
-pub(super) fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut index = 1;
-    let mut in_literal = false;
-    for ch in sql.chars() {
-        match ch {
-            '\'' => {
-                in_literal = !in_literal;
-                result.push(ch);
-            }
-            '?' if !in_literal => {
-                result.push('$');
-                result.push_str(&index.to_string());
-                index += 1;
-            }
-            _ => result.push(ch),
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
-    use super::rewrite_placeholders;
+    use crate::query::rewrite_placeholders;
 
     #[test]
     fn rewrite_placeholders_numbers_binds_outside_literals() {

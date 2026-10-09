@@ -8,7 +8,7 @@
 //! selected: RTSP URLs routinely embed device credentials, and the relay opens
 //! the upstream stream on the agent, so a viewer never needs them.
 
-use super::{BindParam, QueryPlan, bind_sql_param};
+use super::{BindParam, QueryPlan, bind_sql_param, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -276,21 +276,6 @@ fn order_column(field: &str) -> Option<&'static str> {
         "inserted_at" => Some("cs.inserted_at"),
         _ => None,
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len() + 8);
-    let mut idx = 1u32;
-    for ch in sql.chars() {
-        if ch == '?' {
-            out.push('$');
-            out.push_str(&idx.to_string());
-            idx += 1;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 #[cfg(test)]

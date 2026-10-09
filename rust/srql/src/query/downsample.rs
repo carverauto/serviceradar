@@ -6,9 +6,9 @@ mod sql;
 
 use self::{
     row::DownsampleRow,
-    sql::{build_bind_values, build_params, build_sql, rewrite_placeholders},
+    sql::{build_bind_values, build_params, build_sql},
 };
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::error::{Result, ServiceError};
 use diesel::{pg::Pg, sql_query};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};

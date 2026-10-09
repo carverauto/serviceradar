@@ -7,7 +7,7 @@
 
 mod stats;
 
-use super::{BindParam, QueryPlan, bind_sql_param};
+use super::{BindParam, QueryPlan, bind_sql_param, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     models::CompositeResultRow,
@@ -22,7 +22,7 @@ use diesel::prelude::*;
 use diesel::query_builder::{BoxedSelectStatement, FromClause};
 use diesel::sql_types::Text;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use stats::{StatsPayload, build_stats_query, parse_stats_spec, rewrite_placeholders};
+use stats::{StatsPayload, build_stats_query, parse_stats_spec};
 
 type ResultsJoin = diesel::helper_types::InnerJoinQuerySource<
     device_composite_check_results::table,

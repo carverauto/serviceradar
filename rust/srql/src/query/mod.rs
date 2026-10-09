@@ -8,6 +8,7 @@ mod engine;
 pub mod interface_rates;
 mod plan;
 mod sql;
+pub(crate) mod sql_placeholders;
 mod starrocks;
 mod translate;
 mod types;
@@ -87,6 +88,7 @@ pub(crate) use sql::{
     bind_sql_param, diesel_sql, max_dollar_placeholder, reconcile_limit_offset_binds, reject_stats,
     shift_dollar_placeholders, validate_stats_alias,
 };
+pub(crate) use sql_placeholders::{rewrite_numbered_to_question_marks, rewrite_placeholders};
 pub use translate::translate_request;
 pub use types::{
     BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse,

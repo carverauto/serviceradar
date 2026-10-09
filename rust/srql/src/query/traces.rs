@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan, bucket_overlap_clause};
+use super::{BindParam, QueryPlan, bucket_overlap_clause, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -221,21 +221,6 @@ fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
         SqlBindValue::Int(value) => BindParam::Int(i64::from(value)),
         SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut rewritten = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            rewritten.push('$');
-            rewritten.push_str(&index.to_string());
-            index += 1;
-        } else {
-            rewritten.push(ch);
-        }
-    }
-    rewritten
 }
 
 /// Build a rollup_stats query against the traces_stats_5m CAGG.
