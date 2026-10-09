@@ -1,3 +1,26 @@
+# ServiceRadar v1.4.89
+
+This release prevents large integration sync runs from livelocking when a
+source has more chunks than a worker can process within the fixed deadline.
+
+## Upgrade Notes
+
+- `sync_ingestor_worker_timeout_ms` is now a per-chunk budget instead of a
+  fixed total deadline for the entire batch (PR #5574). A batch of ten chunks
+  has ten times the single-chunk timeout. Existing operator overrides remain
+  effective and are unchanged in meaning — a one-chunk batch still uses
+  exactly the configured value. Installs that rely on the 120 s default (or an
+  override) to bound a retry storm should note that the new bound is
+  `queue_max_chunks × sync_ingestor_worker_timeout_ms`.
+
+## Fixes
+
+- Sync ingestion batches are bounded to `queue_max_chunks` (default 10)
+  chunks. A timed-out batch retries with its own chunks rather than merging
+  with chunks that arrived during the attempt, so the retry size stays
+  constant and the worker deadline covers the work it actually contains
+  (PR #5574).
+
 # ServiceRadar v1.4.88
 
 This release unblocks upgrades that stopped at the v1.4.87 add-on
