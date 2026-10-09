@@ -1546,6 +1546,7 @@ if config_env() == :prod do
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
+      alert_recovery: String.to_integer(System.get_env("OBAN_QUEUE_ALERT_RECOVERY") || "1"),
       # Each world builder owns a complete native graph. Keep one per core.
       topology_world: 1,
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
@@ -1588,7 +1589,7 @@ if config_env() == :prod do
            # cold-tier config is absent).
            {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
            {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
-            queue: :maintenance},
+            queue: :alert_recovery},
            {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker,
             queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,

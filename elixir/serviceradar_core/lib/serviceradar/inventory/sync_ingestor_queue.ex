@@ -19,10 +19,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   require Logger
 
-  @max_items 32
+  @max_items 64
   @max_bytes 64 * 1_024 * 1_024
-  @max_per_run 16
-  @worker_timeout_ms 10_000
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -103,7 +101,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
     if :erlang.external_size(key) > 4_096 or map_size(state.jobs) >= state.max_items or
          state.bytes + bytes > state.max_bytes or
-         per_run >= @max_per_run do
+         per_run >= max_per_run() do
       RuntimeMetrics.record(:sync, :rejected, %{reason: :sync_ingest_queue_full})
       {:reply, {:error, :sync_ingest_queue_full}, state}
     else
@@ -256,7 +254,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
       case Task.Supervisor.start_child(state.task_supervisor, fun) do
         {:ok, pid} ->
-          timer = Process.send_after(self(), {:worker_timeout, pid}, @worker_timeout_ms)
+          timer = Process.send_after(self(), {:worker_timeout, pid}, worker_timeout_ms())
 
           record_state(%{
             state
@@ -340,6 +338,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
   end
 
+  defp worker_timeout_ms do
+    Application.get_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms, 120_000)
+  end
+
+  defp max_per_run do
+    Application.get_env(:serviceradar_core, :sync_ingestor_max_per_run, 50)
+  end
+
   defp queue_server do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_server, __MODULE__)
   end
@@ -355,8 +361,20 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   @doc false
   def group_batches_for_ingestion(batches) when is_list(batches) do
     batches
+    |> Enum.uniq_by(&sync_chunk_key/1)
     |> Enum.chunk_by(&sync_batch_key/1)
     |> Enum.map(&List.flatten/1)
+  end
+
+  defp sync_chunk_key(updates) do
+    case extract_sync_meta(updates) do
+      %{sync_run_id: run_id, chunk_index: chunk_index}
+      when is_binary(run_id) and run_id != "" and is_integer(chunk_index) ->
+        {run_id, chunk_index}
+
+      _ ->
+        make_ref()
+    end
   end
 
   defp sync_batch_key(updates) do
