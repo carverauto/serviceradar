@@ -683,9 +683,12 @@ seeded from these values; from then on the value saved in
 Settings -> System -> Data retention wins, and changing Helm alone changes
 nothing. Saving on that page applies `partition_live_number` to the dataset's
 tables without a restart (core retries with backoff while the Frontend does
-not answer) and the page shows the last applied value, status and time. Core
-still re-applies every stored value at startup, so a warehouse rebuilt from
-DDL defaults converges again. Datasets: `flows`, `metrics`, `logs`, `events`,
+not answer) and the page shows the last applied value, status and time, plus
+the pending age per dataset with a warning once a change stays pending over
+5 minutes, and the retention applier health (running node and last reconcile).
+Core logs each successful apply at info. Saving is unavailable while the
+warehouse is disabled. Core still re-applies every stored value at startup,
+so a warehouse rebuilt from DDL defaults converges again. Datasets: `flows`, `metrics`, `logs`, `events`,
 `mtr`, `otel`, `traces` and `bmp` default to 365 days; `attribution` (process
 attribution observations) defaults to 30 and always keeps at least two daily
 partitions, because the correlator's skew window straddles midnight.

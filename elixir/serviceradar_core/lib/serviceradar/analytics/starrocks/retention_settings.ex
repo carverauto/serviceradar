@@ -23,11 +23,15 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionSettings do
           storage_warning?: boolean(),
           updated_by: String.t() | nil,
           updated_at: DateTime.t() | nil,
+          inserted_at: DateTime.t() | nil,
           last_applied_days: pos_integer() | nil,
           last_applied_status: String.t() | nil,
           last_applied_error: String.t() | nil,
           last_applied_at: DateTime.t() | nil
         }
+
+  @doc "Health of the retention applier (running state, last reconcile time and outcome)."
+  defdelegate applier_health(opts \\ []), to: Retention
 
   @doc "Every dataset, in display order, as the actor in `opts` may see it."
   @spec list(keyword()) :: {:ok, [entry()]} | {:error, term()}
@@ -83,6 +87,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionSettings do
       storage_warning?: Retention.storage_warning?(dataset, days),
       updated_by: row && row.updated_by,
       updated_at: row && row.updated_at,
+      inserted_at: row && row.inserted_at,
       last_applied_days: row && row.last_applied_days,
       last_applied_status: row && row.last_applied_status,
       last_applied_error: row && row.last_applied_error,

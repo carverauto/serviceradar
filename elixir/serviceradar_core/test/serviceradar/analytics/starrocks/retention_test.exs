@@ -293,6 +293,54 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
       assert error =~ "schema change is still running on ocsf_network_activity"
     end
 
+    test "reconciling from pending to applied logs at info and emits no warning" do
+      start_supervised!({FakeStore, applied_rows()})
+      FakeStore.put("flows", %{days: 90, last_applied_status: "pending", last_applied_days: 365})
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   Retention.reconcile(
+                     store: FakeStore,
+                     seeds: Env.default_retention_days(),
+                     query: warehouse_query(%{"ocsf_network_activity" => 365}, {:ok, %{}})
+                   )
+        end)
+
+      assert log =~ "StarRocks retention for flows applied: 90 days on ocsf_network_activity"
+      refute log =~ "not applied"
+      refute log =~ "[warning]"
+    end
+
+    test "applier_health reports whether a retention applier GenServer is running" do
+      refute Retention.applier_health().running?
+
+      # Started through an explicit child spec: Retention.child_spec/1 returns
+      # nil while the warehouse is disabled (as it is in this sandbox), so the
+      # {Retention, opts} tuple form cannot start it here.
+      start_supervised!({FakeStore, applied_rows()})
+
+      start_supervised!(%{
+        id: Retention,
+        start:
+          {Retention, :start_link,
+           [
+             [
+               name: Retention,
+               subscribe: false,
+               store: FakeStore,
+               initial_delay_ms: 60_000,
+               seeds: Env.default_retention_days(),
+               query: warehouse_query(%{}, {:ok, %{}})
+             ]
+           ]}
+      })
+
+      health = Retention.applier_health()
+      assert health.running?
+      assert health.node == node()
+    end
+
     test "the applier retries an unanswering warehouse and applies a broadcast change without a restart" do
       start_supervised!({FakeStore, applied_rows()})
       attempts = :counters.new(1, [])

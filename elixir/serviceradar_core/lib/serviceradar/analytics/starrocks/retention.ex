@@ -216,6 +216,63 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
     end
   end
 
+  @doc """
+  Queries whether a retention applier is running on the local node or any
+  connected node in the cluster, along with its last reconcile time and outcome.
+  """
+  @spec applier_health(keyword()) :: %{
+          running?: boolean(),
+          node: node() | nil,
+          last_reconciled_at: DateTime.t() | nil,
+          last_outcome: :ok | :retry | nil
+        }
+  def applier_health(opts \\ []) do
+    case local_health() do
+      %{running?: true} = health ->
+        health
+
+      _ ->
+        remote_nodes = Keyword.get(opts, :nodes, Node.list())
+
+        if remote_nodes == [] do
+          %{running?: false, node: nil, last_reconciled_at: nil, last_outcome: nil}
+        else
+          case :rpc.multicall(remote_nodes, __MODULE__, :local_health, [], 1_000) do
+            {results, _bad_nodes} when is_list(results) ->
+              case Enum.find(results, &match?(%{running?: true}, &1)) do
+                %{running?: true} = health -> health
+                _ -> %{running?: false, node: nil, last_reconciled_at: nil, last_outcome: nil}
+              end
+
+            _ ->
+              %{running?: false, node: nil, last_reconciled_at: nil, last_outcome: nil}
+          end
+        end
+    end
+  end
+
+  @doc false
+  @spec local_health() :: %{
+          running?: boolean(),
+          node: node(),
+          last_reconciled_at: DateTime.t() | nil,
+          last_outcome: :ok | :retry | nil
+        }
+  def local_health do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(pid, :health, 500)
+        catch
+          :exit, _ ->
+            %{running?: false, node: node(), last_reconciled_at: nil, last_outcome: nil}
+        end
+
+      _ ->
+        %{running?: false, node: node(), last_reconciled_at: nil, last_outcome: nil}
+    end
+  end
+
   @spec child_spec(term()) :: Supervisor.child_spec() | nil
   def child_spec(opts) do
     if Env.config()[:enabled] and Application.get_env(:serviceradar_core, :repo_enabled, true) do
@@ -249,8 +306,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
        delay: Keyword.get(opts, :initial_delay_ms, @initial_delay_ms),
        interval: Keyword.get(opts, :interval_ms, @reconcile_interval_ms),
        timer: nil,
-       retrying: false
+       retrying: false,
+       last_reconciled_at: nil,
+       last_outcome: nil
      }}
+  end
+
+  @impl true
+  def handle_call(:health, _from, state) do
+    {:reply,
+     %{
+       running?: true,
+       node: node(),
+       last_reconciled_at: state.last_reconciled_at,
+       last_outcome: state.last_outcome
+     }, state}
   end
 
   @impl true
@@ -266,11 +336,24 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   defp run_reconcile(state) do
     if state.timer, do: Process.cancel_timer(state.timer)
 
-    case reconcile(Keyword.put(state.opts, :force, state.force)) do
+    outcome = reconcile(Keyword.put(state.opts, :force, state.force))
+    now = DateTime.utc_now()
+    broadcast_health(now, outcome)
+
+    case outcome do
       :ok ->
         initial = Keyword.get(state.opts, :initial_delay_ms, @initial_delay_ms)
         timer = Process.send_after(self(), :reconcile, state.interval)
-        %{state | force: false, delay: initial, timer: timer, retrying: false}
+
+        %{
+          state
+          | force: false,
+            delay: initial,
+            timer: timer,
+            retrying: false,
+            last_reconciled_at: now,
+            last_outcome: :ok
+        }
 
       :retry ->
         # Warn when retrying starts; the backed-off retries that follow are
@@ -284,8 +367,32 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
         timer = Process.send_after(self(), :reconcile, state.delay)
         # The start-up pass stays forced until one completes, so a warehouse
         # rebuilt while core was retrying still gets every dataset.
-        %{state | delay: next_delay(state.delay), timer: timer, retrying: true}
+
+        %{
+          state
+          | delay: next_delay(state.delay),
+            timer: timer,
+            retrying: true,
+            last_reconciled_at: now,
+            last_outcome: :retry
+        }
     end
+  end
+
+  defp broadcast_health(now, outcome) do
+    Phoenix.PubSub.broadcast(
+      ServiceRadar.PubSub,
+      WarehouseRetentionNotifier.topic(),
+      {:retention_applier_heartbeat,
+       %{
+         node: node(),
+         pid: self(),
+         last_reconciled_at: now,
+         last_outcome: outcome
+       }}
+    )
+  rescue
+    _ -> :ok
   end
 
   defp next_delay(delay), do: min(delay * 2, @max_delay_ms)
@@ -415,9 +522,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   defp format_error(:starrocks_mysql_not_started), do: "the StarRocks connection is not started"
   defp format_error(reason), do: inspect(reason)
 
-  defp maybe_log_outcome(_dataset, _row, %{status: "applied"}), do: :ok
+  defp maybe_log_outcome(dataset, row, %{status: "applied", days: days}) do
+    if row.last_applied_status != "applied" or row.last_applied_days != days do
+      tables = dataset |> tables_for() |> Enum.join(", ")
 
-  defp maybe_log_outcome(dataset, row, %{status: status, error: error}) do
+      Logger.info(
+        "StarRocks retention for #{dataset} applied: #{days} #{pluralize_days(days)} on #{tables}"
+      )
+    end
+
+    :ok
+  end
+
+  defp maybe_log_outcome(dataset, row, %{status: status, error: error})
+       when status in ["pending", "failed"] do
     if row.last_applied_status != status or row.last_applied_error != error do
       Logger.warning("StarRocks retention for #{dataset} not applied (#{status}): #{error}")
     end
