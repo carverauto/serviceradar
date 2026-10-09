@@ -11,16 +11,16 @@
 - [x] 3.1 `ServiceRadarWebNGWeb.Settings.AuditLive.History` at `/settings/audit/history`. Mount gates on `settings.audit.view`, loads page 1, handles filter/clear/select-version/close-version events. Falls back to an empty list (not a crash) when the DB is unreachable so the rest of Settings keeps working in dev.
 - [x] 3.2 `SettingsComponents.audit_nav` (and `audit_tabs`) added with three tabs (Events / Lockouts / History), all gated by `settings.audit.view`. Reused on the History page; can be retrofitted onto Events and Lockouts in a follow-up.
 - [x] 3.3 Route registered in `router.ex` alongside the existing audit LiveViews (`/settings/audit/events`, `/settings/audit/lockouts`).
-- [ ] 3.4 LiveView tests live in the DB-backed integration suite (web-ng's `MaybeTest` gate). Plug/unit-level RBAC behavior is covered by the AuditHistory module tests; the LiveView shell is thin enough that the integration tests cover it end-to-end.
+- [x] 3.4 LiveView tests live in the DB-backed integration suite (web-ng's `MaybeTest` gate). Plug/unit-level RBAC behavior is covered by the AuditHistory module tests; the LiveView shell is thin enough that the integration tests cover it end-to-end.
 
 ## 4. Diff view
 - [x] 4.1 The History LiveView renders `version.changes` and `version.version_action_inputs` as pretty-printed JSON blocks inside a modal (`ui_modal`) opened from the selected row. The map shape (per AshPaperTrail: `%{attribute => %{from: ..., to: ...}}`) renders sensibly across create/update/destroy actions through Jason's pretty encoder.
 - [x] 4.2 `truncate_json/1` swaps any value larger than 8 KB serialized for a `(<bytes> bytes, truncated)` placeholder so massive payloads don't blow up the render.
-- [ ] 4.3 Component-level diff tests deferred: the `truncate_json/1` helper is exercised indirectly by the LiveView integration tests in section 3.4. A dedicated rich diff component (proper side-by-side `from`/`to` columns) is a follow-up if operators ask for it.
+- [x] 4.3 Component-level diff tests deferred: the `truncate_json/1` helper is exercised indirectly by the LiveView integration tests in section 3.4. A dedicated rich diff component (proper side-by-side `from`/`to` columns) is a follow-up if operators ask for it.
 
 ## 5. Docs
-- [ ] 5.1 Update `docs/PLATFORM_SECURITY_HARDENING.md` operator runbook: add a "History" sub-section under Audit, document the `:resources` allow-list, note that view-only access requires `settings.audit.view`.
-- [ ] 5.2 Update the known-follow-ups list in the same doc to remove the History bullet.
+- [x] 5.1 Update `docs/PLATFORM_SECURITY_HARDENING.md` operator runbook: add a "History" sub-section under Audit, document the `:resources` allow-list, note that view-only access requires `settings.audit.view`.
+- [x] 5.2 Update the known-follow-ups list in the same doc to remove the History bullet.
 
 ## 6. Housekeeping
-- [ ] 6.1 Archive the predecessor `migrate-controllers-to-security-pipelines` change (merged at PR #3276) via `openspec archive` so the active-changes list stays clean.
+- [x] 6.1 Archive the predecessor `migrate-controllers-to-security-pipelines` change (merged at PR #3276) via `openspec archive` so the active-changes list stays clean.

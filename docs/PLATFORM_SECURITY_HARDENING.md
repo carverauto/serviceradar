@@ -119,15 +119,34 @@ Open **Settings → Audit → History** (`/settings/audit/history`) with
 `settings.audit.view` to browse the merged timeline of configured
 PaperTrail resources and StatefulAlertRule mutations. Both are included
 when no resource filter is selected. Filter by resource, actor identifier,
-action, or time range; select a row to inspect **Changes** and **Action inputs**.
-For StatefulAlertRule, these show changed attributes and the submitted
-mutation values respectively, alongside actor attribution.
+or action (`since` / `until` time-range filtering is supported at the
+`AuditHistory.list_recent/1` module API level, not as page controls);
+select a row to inspect **Changes** and **Action inputs**, each rendered
+as pretty-printed JSON with values over 8 KB replaced by a
+`(N bytes, truncated)` placeholder. For StatefulAlertRule, these show
+changed attributes and the submitted mutation values respectively,
+alongside actor attribution. PaperTrail version rows honor each
+resource's per-resource read policy; StatefulAlertRule (AshEvents) rows
+are gated by the shared `settings.audit.view` policy. Actor filtering
+for PaperTrail resources is applied post-merge after the per-source
+reads.
 
 **Origin** shows the recorded source for StatefulAlertRule events and `—`
 for PaperTrail versions. Source classification is defined by
 [StampEventSource](../elixir/serviceradar_core/lib/serviceradar/observability/changes/stamp_event_source.ex).
 The configurable resource lists and query contract are owned by
 [AuditHistory](../elixir/serviceradar_core/lib/serviceradar/security/audit_history.ex).
+Operators can scope or override the default PaperTrail allow-list (e.g. to
+exclude high-write-volume resources) in configuration:
+
+```elixir
+config :serviceradar_core, ServiceRadar.Security.AuditHistory,
+  resources: [
+    ServiceRadar.Credentials.NetworkCredentialSecret,
+    ServiceRadar.Credentials.NetworkCredentialRule,
+    ServiceRadar.Security.AuthLockout
+  ]
+```
 
 ## 6. Known follow-ups
 

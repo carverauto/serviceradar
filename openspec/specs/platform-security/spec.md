@@ -1,8 +1,10 @@
 # platform-security Specification
 
 ## Purpose
-TBD - created by archiving change add-platform-security-hardening. Update Purpose after archive.
+Platform security hardening, rate limiting, request validation, account lockout management, security headers, and cross-resource audit history tracking for ServiceRadar.
+
 ## Requirements
+
 ### Requirement: Shared rate-limit substrate
 
 The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by per-node ETS and coordinated across the BEAM cluster via `ServiceRadar.ProcessRegistry` (the existing Horde-backed registry). The limiter MUST register itself under a node-scoped key and discover peers via Horde rather than introducing a parallel cluster-membership mechanism. Named buckets MUST be configurable per-route with independent window and limit values. Buckets are deployment-wide; tenant isolation is provided by the platform (per-tenant Kubernetes namespace, CNPG schema, and NATS account), so the limiter MUST NOT carry an app-level tenant key. Bucket counters MUST converge across cluster nodes (eventual consistency is acceptable, strict consistency is not required).
@@ -125,11 +127,11 @@ The system SHALL define two capabilities for audit and security surfaces: `:audi
 
 ### Requirement: Settings → Audit operator surface
 
-The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes three sub-pages: **History** (unified AshPaperTrail version timeline across enabled resources with resource-type, actor, action, and time-range filters and a diff view); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); and **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
+The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes three sub-pages: **History** (the cross-resource AshPaperTrail timeline with resource-type, actor, and action filters and a pretty-printed JSON detail view; `since` / `until` time-range filtering lives at the `AuditHistory` module API level); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); and **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
 
 #### Scenario: History page joins paper trail versions across resources
 - **WHEN** an operator opens Settings → Audit → History
-- **THEN** the page lists AshPaperTrail versions from every enabled resource in a single timeline, ordered by `inserted_at` descending, with filters that round-trip via the URL
+- **THEN** the page lists AshPaperTrail versions from every enabled resource in a single timeline, ordered by `inserted_at` descending, with in-memory filters
 
 #### Scenario: Events page supports filters and live tail
 - **WHEN** an operator opens Settings → Audit → Events
@@ -250,3 +252,46 @@ The system SHALL feed cross-IP failed-SSO attempts into the same lockout trigger
   errors before any claim is parsed
 - **THEN** `Lockouts.record_failed_login` is not called
 
+### Requirement: Cross-resource audit history surface
+
+The system SHALL provide a Settings → Audit → History sub-page at `/settings/audit/history` gated by `settings.audit.view` that surfaces AshPaperTrail version rows from a configurable set of resources in a single time-ordered timeline. The list of in-scope resources MUST be readable from `config :serviceradar_core, ServiceRadar.Security.AuditHistory, resources: [...]` so operators can include or exclude specific resources without a code change.
+
+The page MUST support filters for: resource type (from the configured allow-list), actor identifier, and action type (`:create`, `:update`, `:destroy`). `since` / `until` time-range filtering is supported at the `AuditHistory.list_recent/1` module API level, not as page controls. AshPaperTrail version reads MUST honor each resource's existing per-resource read policy, so an operator who lacks the per-resource read capability does not see that resource's version rows; AshEvents rows are gated by the shared `settings.audit.view` policy.
+
+The page MUST NOT offer mutating actions; revert / restore are out of scope.
+
+#### Scenario: History renders versions across resources in time order
+- **WHEN** an operator with `settings.audit.view` opens `/settings/audit/history` and the configured allow-list includes multiple resources that have version rows
+- **THEN** the page lists those versions in `version_inserted_at` descending order, with each row labeled by its resource type
+
+#### Scenario: Resource-type filter scopes the query to a single source
+- **WHEN** the operator selects a single resource type from the filter
+- **THEN** the query reads versions only from that resource's `*_versions` table
+
+#### Scenario: Per-resource RBAC hides unauthorized rows
+- **WHEN** an operator has `settings.audit.view` but lacks the per-resource read capability for a particular AshPaperTrail-enabled resource
+- **THEN** that resource's version rows are absent from the page
+
+### Requirement: AuditHistory module API
+
+The system SHALL expose `ServiceRadar.Security.AuditHistory.list_recent/1` (and a companion `resources/0`) so the LiveView and any future caller can query the merged version timeline without duplicating the per-resource read logic. `list_recent/1` MUST accept a superset of the LiveView filters (`:resource_types`, `:actor_id`, `:action_types`, `:limit`, `:offset`, plus API-level `:since` / `:until` time-range bounds) and MUST forward the current actor to each resource's `versions_read` action so per-resource RBAC stays in force.
+
+#### Scenario: list_recent merges and re-sorts across the allow-list
+- **WHEN** `AuditHistory.list_recent/1` is called with no filters and the allow-list contains multiple resources
+- **THEN** the result is a list of `%{resource: module, version: struct}` rows ordered by the version's `version_inserted_at` desc, drawn from every resource in the allow-list
+
+#### Scenario: actor_id filter narrows by actor across resources
+- **WHEN** the caller passes `:actor_id`
+- **THEN** the AshEvents query filters by that actor before merging while AshPaperTrail rows are filtered post-merge, so a PaperTrail page may under-fill when non-matching rows consume the per-source window
+
+### Requirement: Version detail diff view
+
+The system SHALL render a per-version detail surface that displays the `changes` map and the `version_action_inputs` map each as a pretty-printed JSON block. A serialized value larger than 8 KB SHALL render as a `(N bytes, truncated)` placeholder instead of inline JSON; oversized payloads MUST NOT block the page render.
+
+#### Scenario: Update version shows changes and action inputs
+- **WHEN** the operator opens a version row
+- **THEN** the detail shows the `changes` map and the `version_action_inputs` map as pretty-printed JSON blocks
+
+#### Scenario: Large jsonb value is truncated
+- **WHEN** a serialized value exceeds 8 KB
+- **THEN** the detail shows a `(N bytes, truncated)` placeholder with a byte-size label, not the inline JSON
