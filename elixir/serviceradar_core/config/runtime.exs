@@ -877,16 +877,9 @@ if config_env() == :prod do
     end
 
   sync_ingestor_worker_timeout_ms =
-    "SYNC_INGESTOR_WORKER_TIMEOUT_MS"
-    |> System.get_env()
-    |> case do
-      nil -> nil
-      "" -> nil
-      value ->
-        case parse_int.(value) do
-          n when is_integer(n) and n > 0 -> n
-          _ -> nil
-        end
+    case parse_int.(System.get_env("SYNC_INGESTOR_WORKER_TIMEOUT_MS") || "") do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> nil
     end
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
