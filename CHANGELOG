@@ -1,3 +1,45 @@
+# ServiceRadar v1.4.89
+
+This release lets large integration syncs complete. Ingestion batches are
+bounded and their deadline scales with batch size, and a batch that loses
+an active-IP race inside the identity fence is retried instead of failing
+the run.
+
+## Upgrade Notes
+
+- The sync ingestion worker deadline now applies per chunk: a batch gets
+  `sync_ingestor_worker_timeout_ms` (default 120 s) for each chunk it
+  carries. The setting is configurable through Helm
+  `core.syncIngestor.workerTimeoutMs` or the core environment variable
+  `SYNC_INGESTOR_WORKER_TIMEOUT_MS`; values that are not positive
+  integers fall back to the default (PR #5575).
+
+## Fixes
+
+- Ingestion batches take at most `queue_max_chunks` chunks (default 10).
+  Before, every batch took all pending chunks and a timed-out batch was
+  retried with everything that had arrived since, so large sync runs grew
+  past their deadline, were killed on every retry, and left later runs
+  marked incomplete. A retry now carries only the chunks that failed
+  (PR #5575).
+- Device writes inside the identity fence no longer open nested
+  transactions on the inventory-rollup bypass and address-release paths.
+  An active-IP conflict now reaches the sync ingestor as a retryable
+  Postgres error rather than a connection error, so the batch is retried
+  instead of rejecting every chunk and leaving the run incomplete
+  (PR #5574).
+
+## Dependencies
+
+- `github.com/spiffe/go-spiffe/v2` 2.8.2 fixes a data race reading Workload
+  API bundles (PR #4887). `github.com/bluenviron/gortsplib/v5` is 5.6.6
+  (PR #4890) and `golang.org/x/net` is 0.59.0 (PR #4416).
+
+## Docs and CI
+
+- A CHANGELOG entry added outside a release cut was removed, restoring the
+  v1.4.88 notes as released (PR #5576, PR #5577).
+
 # ServiceRadar v1.4.88
 
 This release unblocks upgrades that stopped at the v1.4.87 add-on
