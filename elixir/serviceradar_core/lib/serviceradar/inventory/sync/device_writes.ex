@@ -1634,6 +1634,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   def inventory_rollup_bulk_refresh_required?(_count), do: false
 
+  # SET LOCAL scopes to the enclosing transaction, so when within_transaction
+  # runs the lambda inline (caller already fenced), the flag still holds for
+  # the remainder of that fence transaction -- the same as with the old nested
+  # passthrough, which never opened a savepoint either.
   defp with_inventory_rollup_bypassed(fun) when is_function(fun, 0) do
     within_transaction(fn ->
       Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
