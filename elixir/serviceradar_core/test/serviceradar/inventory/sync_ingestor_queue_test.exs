@@ -18,7 +18,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
         send(pid, {:ingest_started, updates})
       end
 
-      delay_ms = Application.get_env(:serviceradar_core, :sync_ingestor_test_delay_ms, 0)
+      delay_ms = next_delay_ms()
       if is_integer(delay_ms) and delay_ms > 0, do: Process.sleep(delay_ms)
 
       if pid = Application.get_env(:serviceradar_core, :sync_ingestor_test_pid) do
@@ -27,6 +27,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
       :ok
     end
+
+    # :sync_ingestor_test_delays scripts one delay per ingest call, in order;
+    # once it is used up, every call takes :sync_ingestor_test_delay_ms.
+    defp next_delay_ms do
+      case Application.get_env(:serviceradar_core, :sync_ingestor_test_delays, []) do
+        [delay_ms | rest] ->
+          Application.put_env(:serviceradar_core, :sync_ingestor_test_delays, rest)
+          delay_ms
+
+        [] ->
+          Application.get_env(:serviceradar_core, :sync_ingestor_test_delay_ms, 0)
+      end
+    end
   end
 
   setup do
@@ -34,6 +47,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     previous_coalesce = Application.get_env(:serviceradar_core, :sync_ingestor_coalesce_ms)
     previous_queue_max = Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks)
     previous_delay = Application.get_env(:serviceradar_core, :sync_ingestor_test_delay_ms)
+    previous_delays = Application.get_env(:serviceradar_core, :sync_ingestor_test_delays)
+    previous_timeout = Application.get_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms)
     previous_pid = Application.get_env(:serviceradar_core, :sync_ingestor_test_pid)
     previous_queue_server = Application.get_env(:serviceradar_core, :sync_ingestor_queue_server)
 
@@ -57,6 +72,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
       restore_env(:sync_ingestor_coalesce_ms, previous_coalesce)
       restore_env(:sync_ingestor_queue_max_chunks, previous_queue_max)
       restore_env(:sync_ingestor_test_delay_ms, previous_delay)
+      restore_env(:sync_ingestor_test_delays, previous_delays)
+      restore_env(:sync_ingestor_worker_timeout_ms, previous_timeout)
       restore_env(:sync_ingestor_test_pid, previous_pid)
       restore_env(:sync_ingestor_queue_server, previous_queue_server)
     end)
@@ -94,6 +111,60 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     refute_receive {:ingest_started, _updates}, 150
     assert_receive :ingest_finished, 2_000
     assert_receive {:ingest_started, _updates}, 2_000
+  end
+
+  test "a batch takes at most queue_max_chunks chunks" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 50)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 2)
+    # The first batch runs long enough for the other three chunks to queue up.
+    Application.put_env(:serviceradar_core, :sync_ingestor_test_delays, [300])
+
+    devices = for n <- 1..5, do: %{"device_id" => "dev-#{n}"}
+    Enum.each(devices, &assert(:ok = SyncIngestorQueue.enqueue(Jason.encode!([&1]))))
+
+    batches = receive_batches(length(devices))
+
+    assert List.flatten(batches) == devices
+
+    assert Enum.all?(batches, &(length(&1) <= 2)),
+           "batch sizes: #{inspect(Enum.map(batches, &length/1))}"
+  end
+
+  test "a timed-out batch is retried with its own chunks, not with later arrivals" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 50)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 2)
+    Application.put_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms, 100)
+    # Only the first attempt hangs; the timeout kills it.
+    Application.put_env(:serviceradar_core, :sync_ingestor_test_delays, [10_000])
+
+    a = %{"device_id" => "dev-a"}
+    b = %{"device_id" => "dev-b"}
+    c = %{"device_id" => "dev-c"}
+
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([a]))
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([b]))
+    assert_receive {:ingest_started, [^a, ^b]}, 1_000
+
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([c]))
+
+    assert_receive {:ingest_started, retry}, 2_000
+    assert retry == [a, b]
+    assert_receive {:ingest_started, [^c]}, 2_000
+  end
+
+  test "a batch's deadline grows with the chunks it carries" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 50)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 3)
+    Application.put_env(:serviceradar_core, :sync_ingestor_worker_timeout_ms, 500)
+    # Longer than one chunk's budget, well inside three chunks' budget.
+    Application.put_env(:serviceradar_core, :sync_ingestor_test_delays, [800])
+
+    devices = for n <- 1..3, do: %{"device_id" => "dev-#{n}"}
+    Enum.each(devices, &assert(:ok = SyncIngestorQueue.enqueue(Jason.encode!([&1]))))
+
+    assert_receive {:ingest_started, ^devices}, 1_000
+    assert_receive :ingest_finished, 3_000
+    refute_receive {:ingest_started, _updates}, 300
   end
 
   test "keeps different sync run envelopes in separate arrival-ordered groups" do
@@ -160,6 +231,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     device = %{"device_id" => "device-a"}
 
     assert SyncIngestorQueue.strip_sync_control_updates([control, device]) == [device]
+  end
+
+  defp receive_batches(expected_updates, batches \\ []) do
+    if batches |> List.flatten() |> length() >= expected_updates do
+      Enum.reverse(batches)
+    else
+      assert_receive {:ingest_started, updates}, 2_000
+      receive_batches(expected_updates, [updates | batches])
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
