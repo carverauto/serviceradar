@@ -36,11 +36,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
+      # Run the checker as it exists on latest staging, not from the pull
+      # request head. A branch cut before the checker landed has no copy, and
+      # one cut later may carry a stale copy.
       - name: Check migrations against latest staging
         run: |
           set -euo pipefail
           git fetch --no-tags origin staging
-          python3 build/migration_collision/migration_collision.py \
+          checker="$RUNNER_TEMP/migration_collision.py"
+          git show origin/staging:build/migration_collision/migration_collision.py > "$checker"
+          python3 "$checker" \
             --repo "$GITHUB_WORKSPACE" \
             --base origin/staging \
             --head HEAD
