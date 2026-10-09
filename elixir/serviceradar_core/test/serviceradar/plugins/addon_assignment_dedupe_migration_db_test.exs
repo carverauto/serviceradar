@@ -70,72 +70,124 @@ defmodule ServiceRadar.Plugins.AddonAssignmentDedupeMigrationDbTest do
              """)
   end
 
-  test "cleanup refuses a shadowed assignment's paused rollout without changing assignments",
-       ctx do
+  test "cleanup cancels active rollout work on shadowed assignments and keeps history", ctx do
+    # A paused rollout sourced from the shadowed row, holding a succeeded target.
     uid = "agent-dedupe-rollout-#{Ecto.UUID.generate()}"
     winner_id = insert_assignment(ctx, uid, {"manual", 100, 1})
     loser_id = insert_assignment(ctx, uid, {"profile", 100, 2})
+    sourced_id = insert_rollout(ctx, "assignment", loser_id, "paused")
+    insert_target(ctx, sourced_id, loser_id, uid, "succeeded")
 
-    %{rows: [[rollout_id]]} =
+    # A running profile rollout whose override sits on another agent's shadowed
+    # row, plus a target on an agent without duplicates.
+    profile_uid = "agent-dedupe-profile-#{Ecto.UUID.generate()}"
+    profile_winner = insert_assignment(ctx, profile_uid, {"manual", 100, 1})
+    profile_loser = insert_assignment(ctx, profile_uid, {"profile", 100, 2})
+    profile_rollout = insert_rollout(ctx, "profile", Ecto.UUID.generate(), "running")
+    insert_target(ctx, profile_rollout, profile_loser, profile_uid, "waiting_health")
+
+    Repo.query!(
+      """
+      UPDATE platform.addon_assignments
+      SET rollout_id = $1::text::uuid, rollout_package_id = $2::text::uuid,
+          rollout_started_at = now()
+      WHERE id = $3::text::uuid
+      """,
+      [profile_rollout, ctx.package_id, profile_loser]
+    )
+
+    single_uid = "agent-dedupe-single-#{Ecto.UUID.generate()}"
+    single_id = insert_assignment(ctx, single_uid, {"profile", 100, 1})
+    insert_target(ctx, profile_rollout, single_id, single_uid, "pending")
+
+    # A completed rollout's succeeded target is history, not an active owner.
+    history_uid = "agent-dedupe-history-#{Ecto.UUID.generate()}"
+    history_winner = insert_assignment(ctx, history_uid, {"manual", 100, 1})
+    history_loser = insert_assignment(ctx, history_uid, {"profile", 100, 2})
+    history_rollout = insert_rollout(ctx, "assignment", history_loser, "completed")
+    insert_target(ctx, history_rollout, history_loser, history_uid, "succeeded")
+
+    for _ <- 1..2, do: Enum.each(Migration.cleanup_statements(), &Repo.query!/1)
+
+    assert_winners(
+      [
+        {uid, winner_id, loser_id},
+        {profile_uid, profile_winner, profile_loser},
+        {history_uid, history_winner, history_loser}
+      ],
+      ctx.addon_id
+    )
+
+    assert rollout(sourced_id) == ["canceled", "source_assignment_deduplicated"]
+    assert rollout(profile_rollout) == ["running", nil]
+    assert rollout(history_rollout) == ["completed", nil]
+
+    assert target(sourced_id, loser_id) == ["canceled", "assignment_deduplicated"]
+    assert target(profile_rollout, profile_loser) == ["canceled", "assignment_deduplicated"]
+    assert target(profile_rollout, single_id) == ["pending", nil]
+    assert target(history_rollout, history_loser) == ["succeeded", nil]
+
+    assert %{rows: [[nil, nil, nil]]} =
+             Repo.query!(
+               """
+               SELECT rollout_id, rollout_package_id, rollout_started_at
+               FROM platform.addon_assignments WHERE id = $1::text::uuid
+               """,
+               [profile_loser]
+             )
+  end
+
+  defp rollout(id) do
+    %{rows: [row]} =
+      Repo.query!(
+        "SELECT state, blocked_reason FROM platform.addon_rollouts WHERE id = $1::text::uuid",
+        [id]
+      )
+
+    row
+  end
+
+  defp target(rollout_id, assignment_id) do
+    %{rows: [row]} =
+      Repo.query!(
+        """
+        SELECT state, reason_code FROM platform.addon_rollout_targets
+        WHERE rollout_id = $1::text::uuid AND assignment_id = $2::text::uuid
+        """,
+        [rollout_id, assignment_id]
+      )
+
+    row
+  end
+
+  defp insert_rollout(ctx, source_type, source_id, state) do
+    %{rows: [[id]]} =
       Repo.query!(
         """
         INSERT INTO platform.addon_rollouts
           (addon_id, source_type, source_id, previous_package_id, candidate_package_id, state,
            inserted_at, updated_at)
-        VALUES ($1, 'assignment', $2::text::uuid, $3::text::uuid, $3::text::uuid, 'paused',
-                now(), now()) RETURNING id::text
+        VALUES ($1, $2, $3::text::uuid, $4::text::uuid, $4::text::uuid, $5, now(), now())
+        RETURNING id::text
         """,
-        [ctx.addon_id, loser_id, ctx.package_id]
+        [ctx.addon_id, source_type, source_id, ctx.package_id, state]
       )
 
+    id
+  end
+
+  defp insert_target(ctx, rollout_id, assignment_id, uid, state) do
     Repo.query!(
       """
       INSERT INTO platform.addon_rollout_targets
         (rollout_id, assignment_id, agent_uid, addon_id, source_type, source_id,
          previous_package_id, candidate_package_id, batch_index, state, inserted_at, updated_at)
-      VALUES ($1::text::uuid, $2::text::uuid, $3, $4, 'assignment', $2::text::uuid,
-              $5::text::uuid, $5::text::uuid, 0, 'succeeded', now(), now())
+      SELECT $1::text::uuid, $2::text::uuid, $3, $4, rollout.source_type, rollout.source_id,
+             $5::text::uuid, $5::text::uuid, 0, $6, now(), now()
+      FROM platform.addon_rollouts AS rollout WHERE rollout.id = $1::text::uuid
       """,
-      [rollout_id, loser_id, uid, ctx.addon_id, ctx.package_id]
+      [rollout_id, assignment_id, uid, ctx.addon_id, ctx.package_id, state]
     )
-
-    # Let the sandbox own the savepoint around the whole cleanup. Each query
-    # outside a Repo transaction has its own sandbox savepoint, whose release
-    # also releases a manually nested savepoint.
-    assert_raise Postgrex.Error, ~r/Resolve active rollouts on shadowed add-on assignments/, fn ->
-      Repo.transaction(fn ->
-        Enum.each(Migration.cleanup_statements(), &Repo.query!/1)
-      end)
-    end
-
-    assert %{rows: rows} =
-             Repo.query!(
-               "SELECT id::text, enabled FROM platform.addon_assignments WHERE agent_uid = $1",
-               [uid]
-             )
-
-    assert Enum.sort(rows) == Enum.sort([[winner_id, true], [loser_id, true]])
-
-    assert %{rows: [["paused"]]} =
-             Repo.query!(
-               "SELECT state FROM platform.addon_rollouts WHERE source_id = $1::text::uuid",
-               [loser_id]
-             )
-
-    # A completed rollout's succeeded targets are history, not active owners.
-    Repo.query!(
-      "UPDATE platform.addon_rollouts SET state = 'completed' WHERE id = $1::text::uuid",
-      [rollout_id]
-    )
-
-    Enum.each(Migration.cleanup_statements(), &Repo.query!/1)
-    assert_winners([{uid, winner_id, loser_id}], ctx.addon_id)
-
-    assert %{rows: [["succeeded"]]} =
-             Repo.query!(
-               "SELECT state FROM platform.addon_rollout_targets WHERE assignment_id = $1::text::uuid",
-               [loser_id]
-             )
   end
 
   defp assert_winners(expected, addon_id) do
