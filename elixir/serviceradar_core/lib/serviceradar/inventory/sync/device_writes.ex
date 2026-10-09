@@ -380,13 +380,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp do_insert_devices_with_releases(records, releases, stale_releases, update_query, false) do
-    Repo.transaction(
-      fn ->
-        lock_and_clear_for_upsert(records, releases, stale_releases)
-        insert_devices(records, update_query, false)
-      end,
-      timeout: :infinity
-    )
+    within_transaction(fn ->
+      lock_and_clear_for_upsert(records, releases, stale_releases)
+      insert_devices(records, update_query, false)
+    end)
   end
 
   defp insert_devices(records, update_query, true) do
@@ -394,10 +391,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   # One statement per chunk, so a wide batch stays under the bound-parameter
-  # limit without losing whole-batch atomicity: a caller that already owns a
-  # transaction (the identity fence, the release paths, the rollup bypass)
-  # gets the chunks inline inside it, and an unfenced caller (mapper
-  # discovery) gets a transaction of its own.
+  # limit without losing whole-batch atomicity.
+  defp insert_devices(records, update_query, false) do
+    chunks =
+      records
+      |> jsonb_safe()
+      |> ParameterChunking.insert_all_chunks()
+
+    within_transaction(fn ->
+      Enum.each(chunks, fn chunk -> insert_device_chunk(chunk, update_query) end)
+    end)
+  end
+
+  # A caller that already owns a transaction (the identity fence) gets the work
+  # inline inside it; an unfenced caller (mapper discovery) gets a transaction
+  # of its own.
   #
   # The already-in-transaction case MUST NOT open a nested Repo.transaction:
   # on this Ecto/DBConnection stack a nested transaction is a passthrough (no
@@ -407,20 +415,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # ConnectionError "transaction rolling back" instead of the server's
   # Postgrex.Error, the fenced-write retry classifier treats it as
   # non-transient, and a lost active-IP race kills the whole batch.
-  defp insert_devices(records, update_query, false) do
-    chunks =
-      records
-      |> jsonb_safe()
-      |> ParameterChunking.insert_all_chunks()
-
-    if Repo.in_transaction?() do
-      Enum.each(chunks, fn chunk -> insert_device_chunk(chunk, update_query) end)
-    else
-      Repo.transaction(
-        fn -> Enum.each(chunks, fn chunk -> insert_device_chunk(chunk, update_query) end) end,
-        timeout: :infinity
-      )
-    end
+  defp within_transaction(fun) when is_function(fun, 0) do
+    if Repo.in_transaction?(), do: fun.(), else: Repo.transaction(fun, timeout: :infinity)
   end
 
   defp insert_device_chunk(chunk, update_query) do
@@ -1639,13 +1635,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   def inventory_rollup_bulk_refresh_required?(_count), do: false
 
   defp with_inventory_rollup_bypassed(fun) when is_function(fun, 0) do
-    Repo.transaction(
-      fn ->
-        Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
-        fun.()
-      end,
-      timeout: :infinity
-    )
+    within_transaction(fn ->
+      Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+      fun.()
+    end)
   end
 
   defp refresh_inventory_rollups do

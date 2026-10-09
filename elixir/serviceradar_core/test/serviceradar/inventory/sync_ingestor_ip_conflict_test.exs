@@ -436,6 +436,81 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert hd(devices_at_ip).uid in [first_uid, second_uid]
   end
 
+  # A lost active-IP race inside the identity fence must reach the fence as a
+  # retryable Postgres error. When the write opened a nested Repo.transaction
+  # (the rollup bypass every batch over the bulk-refresh threshold takes, or an
+  # address release), DBConnection marked the connection failed and the fence
+  # saw "transaction rolling back" instead, so the whole batch failed. The race
+  # is staged inside the fenced write: right after the precheck, a competing
+  # device takes the address the batch is about to claim.
+  describe "an active-IP race lost inside the identity fence" do
+    test "is retried when the batch bypasses inventory rollups", %{actor: actor} do
+      ip = unique_test_ip()
+      integration_id = "bulk-race-#{System.unique_integer([:positive])}"
+
+      # Any batch larger than the threshold takes the bypass; zero puts a
+      # one-record batch on that path.
+      put_test_env(:inventory_rollup_bulk_refresh_threshold, 0)
+      prechecks = take_address_on_first_precheck(ip, actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [integration_update(integration_id, ip, "bulk-race")],
+                 actor: actor
+               )
+
+      assert :atomics.get(prechecks, 1) >= 2
+
+      {:ok, device} =
+        Device.get_by_uid(device_uid_for_integration!(integration_id, actor), false, actor: actor)
+
+      assert device.ip == ip
+    end
+
+    test "is retried when the batch also releases an address", %{actor: actor} do
+      {old_ip, seed_ip} = seed_ip_pair()
+      free_ip = unique_test_ip()
+      armis_id = "armis-release-race-#{System.unique_integer([:positive])}"
+      integration_id = "release-race-#{System.unique_integer([:positive])}"
+
+      assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, old_ip, 0)], actor: actor)
+      armis_uid = device_uid_for_armis!(armis_id, actor)
+
+      seed =
+        create_device!(actor, nil, seed_ip, %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          discovery_sources: ["sweep"],
+          metadata: %{"identity_state" => "provisional", "identity_source" => "sweep_ip_seed"}
+        })
+
+      prechecks = take_address_on_first_precheck(free_ip, actor)
+
+      # Moving onto the seed's address releases it; the second record claims
+      # the address the competing device takes after the precheck.
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   armis_update(armis_id, seed_ip, 60),
+                   integration_update(integration_id, free_ip, "release-race")
+                 ],
+                 actor: actor
+               )
+
+      assert :atomics.get(prechecks, 1) >= 2
+
+      {:ok, armis_device} = Device.get_by_uid(armis_uid, false, actor: actor)
+      assert armis_device.ip == seed_ip
+
+      {:ok, seed} = Device.get_by_uid(seed.uid, true, actor: actor)
+      assert seed.ip == nil
+
+      {:ok, claimant} =
+        Device.get_by_uid(device_uid_for_integration!(integration_id, actor), false, actor: actor)
+
+      assert claimant.ip == free_ip
+    end
+  end
+
   describe "interactive device update IP conflicts (GitHub #4357)" do
     test "update reports a usable ip error when another active device owns the IP", %{
       actor: actor
@@ -989,6 +1064,37 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   defp ip_taken_error?(error) do
     fields = List.wrap(Map.get(error, :fields) || []) ++ List.wrap(Map.get(error, :field))
     :ip in fields and Map.get(error, :message) == "has already been taken"
+  end
+
+  # Counts active-IP prechecks. On the first, a competing device takes `ip` inside
+  # the fenced write, so the batch's insert hits the unique active-IP index; the
+  # competitor rolls back with that attempt, so only a retried attempt can land.
+  defp take_address_on_first_precheck(ip, actor) do
+    prechecks = :atomics.new(1, signed: false)
+
+    put_test_env(:device_writes_test_hooks, %{
+      after_active_ip_precheck: fn ->
+        if :atomics.add_get(prechecks, 1, 1) == 1 do
+          create_device!(actor, "competing-holder", ip)
+        end
+
+        :ok
+      end
+    })
+
+    prechecks
+  end
+
+  defp put_test_env(key, value) do
+    previous = Application.fetch_env(:serviceradar_core, key)
+    Application.put_env(:serviceradar_core, key, value)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, previous_value} -> Application.put_env(:serviceradar_core, key, previous_value)
+        :error -> Application.delete_env(:serviceradar_core, key)
+      end
+    end)
   end
 
   # Unboxed rows outlive the test: tombstone them and let the cleanup worker's purge
