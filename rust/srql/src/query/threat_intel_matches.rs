@@ -1,6 +1,6 @@
 //! SRQL `in:threat_intel_matches` — current IP/CIDR cache-to-indicator memberships.
 
-use super::{BindParam, QueryPlan, bind_sql_param};
+use super::{BindParam, QueryPlan, bind_sql_param, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -465,21 +465,6 @@ fn order_column(field: &str) -> Option<&'static str> {
         "confidence" => Some("i.confidence"),
         _ => None,
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len() + 8);
-    let mut idx = 1u32;
-    for ch in sql.chars() {
-        if ch == '?' {
-            out.push('$');
-            out.push_str(&idx.to_string());
-            idx += 1;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 #[cfg(test)]

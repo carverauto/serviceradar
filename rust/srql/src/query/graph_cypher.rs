@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -245,80 +245,4 @@ fn push_space(code: &mut String, ch: char) {
 struct CypherRow {
     #[diesel(sql_type = Nullable<Jsonb>)]
     result: Option<DbJson>,
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = Vec::with_capacity(sql.len());
-    let mut index = 1usize;
-
-    let mut i = 0usize;
-    let bytes = sql.as_bytes();
-    let mut in_single_quote = false;
-    let mut dollar_delimiter: Option<Vec<u8>> = None;
-
-    while i < bytes.len() {
-        if let Some(delimiter) = &dollar_delimiter {
-            if bytes[i..].starts_with(delimiter) {
-                result.extend_from_slice(delimiter);
-                i += delimiter.len();
-                dollar_delimiter = None;
-                continue;
-            }
-
-            result.push(bytes[i]);
-            i += 1;
-            continue;
-        }
-
-        if in_single_quote {
-            if bytes[i] == b'\'' {
-                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                    result.extend_from_slice(b"''");
-                    i += 2;
-                    continue;
-                }
-
-                in_single_quote = false;
-                result.push(b'\'');
-                i += 1;
-                continue;
-            }
-
-            result.push(bytes[i]);
-            i += 1;
-            continue;
-        }
-
-        match bytes[i] {
-            b'\'' => {
-                in_single_quote = true;
-                result.push(b'\'');
-                i += 1;
-            }
-            b'$' => {
-                if let Some(rel_end) = bytes[i + 1..].iter().position(|b| *b == b'$') {
-                    let end = i + 1 + rel_end;
-                    let delimiter = bytes[i..=end].to_vec();
-                    result.extend_from_slice(&delimiter);
-                    i = end + 1;
-                    dollar_delimiter = Some(delimiter);
-                } else {
-                    result.push(b'$');
-                    i += 1;
-                }
-            }
-            b'?' => {
-                result.push(b'$');
-                result.extend_from_slice(index.to_string().as_bytes());
-                index += 1;
-                i += 1;
-            }
-            _ => {
-                result.push(bytes[i]);
-                i += 1;
-            }
-        }
-    }
-
-    String::from_utf8(result).expect("rewritten SQL must be valid UTF-8")
 }

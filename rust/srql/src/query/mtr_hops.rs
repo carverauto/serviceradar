@@ -1,5 +1,5 @@
 use super::filters_common::{NumericComparison, NumericKind, NumericValue};
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     models::MtrHopRow,
@@ -1167,22 +1167,6 @@ fn build_text_clause(col: &str, filter: &Filter) -> Result<(String, Vec<HopStats
         }
     };
     Ok((clause, binds))
-}
-
-// Rewrite ? placeholders to $N for PostgreSQL.
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len() + 16);
-    let mut n = 1usize;
-    for ch in sql.chars() {
-        if ch == '?' {
-            out.push('$');
-            out.push_str(&n.to_string());
-            n += 1;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 fn bind_param_from_hop(value: HopStatsBindValue) -> BindParam {

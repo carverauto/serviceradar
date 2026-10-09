@@ -1,5 +1,5 @@
 use super::filters_common::{NumericComparison, NumericKind, NumericValue};
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     models::MtrTraceRow,
@@ -1416,23 +1416,6 @@ fn bind_param_from_trace(bind: TraceStatsBind) -> BindParam {
         TraceStatsBind::Bool(v) => BindParam::Bool(v),
         TraceStatsBind::Numeric(v) => v.bind_param(),
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len() + 16);
-    let mut index = 1;
-
-    for ch in sql.chars() {
-        if ch == '?' {
-            out.push('$');
-            out.push_str(&index.to_string());
-            index += 1;
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out
 }
 
 async fn execute_stats(

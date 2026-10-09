@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -308,23 +308,6 @@ fn order_column(field: &str) -> Option<&'static str> {
         "archived_at" => Some("d.archived_at"),
         _ => None,
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut idx = 0usize;
-    let mut out = String::with_capacity(sql.len() + 8);
-
-    for ch in sql.chars() {
-        if ch == '?' {
-            idx += 1;
-            out.push('$');
-            out.push_str(&idx.to_string());
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out
 }
 
 #[cfg(test)]

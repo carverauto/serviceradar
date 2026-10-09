@@ -7,8 +7,9 @@ mod query;
 mod rollup;
 mod spec;
 
+pub(super) use crate::query::rewrite_placeholders;
 pub(super) use bind::{DeviceSqlBindValue, bind_param_from_device_stats};
-pub(super) use grouped::{build_grouped_stats_query, rewrite_placeholders};
+pub(super) use grouped::build_grouped_stats_query;
 pub(super) use query::build_stats_query;
 pub(super) use rollup::build_rollup_stats_query;
 pub(super) use spec::parse_stats_spec;

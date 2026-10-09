@@ -49,19 +49,3 @@ pub(in crate::query::flows) struct FlowGroupedStatsSql {
     pub(in crate::query::flows) sql: String, // uses '?' placeholders for Diesel binds
     pub(in crate::query::flows) binds: Vec<FlowSqlBindValue>,
 }
-
-/// Rewrites ? placeholders to $1, $2, etc. for PostgreSQL (embedded/NIF mode).
-pub(in crate::query::flows) fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            result.push('$');
-            result.push_str(&index.to_string());
-            index += 1;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}

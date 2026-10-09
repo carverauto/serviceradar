@@ -6,7 +6,7 @@ use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
     parser::{Filter, FilterOp, OrderDirection, split_stats_group_by},
-    query::{BindParam, QueryPlan},
+    query::{BindParam, QueryPlan, rewrite_placeholders},
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
@@ -249,21 +249,6 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
             "unsupported filter field for logs stats: '{other}'"
         ))),
     }
-}
-
-pub(super) fn rewrite_placeholders(sql: &str) -> String {
-    let mut rewritten = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            rewritten.push('$');
-            rewritten.push_str(&index.to_string());
-            index += 1;
-        } else {
-            rewritten.push(ch);
-        }
-    }
-    rewritten
 }
 
 #[cfg(test)]

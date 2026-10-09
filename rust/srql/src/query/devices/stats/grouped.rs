@@ -128,18 +128,3 @@ fn build_grouped_stats_order_clause(
         format!("\nORDER BY {}", parts.join(", "))
     }
 }
-
-pub(in crate::query::devices) fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            result.push('$');
-            result.push_str(&index.to_string());
-            index += 1;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}

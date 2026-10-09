@@ -9,7 +9,7 @@
 //! from `schema.rs` and is read with `diesel::sql_query` plus a
 //! `QueryableByName` struct holding a single `Jsonb` payload column.
 
-use super::{BindParam, QueryPlan, bind_sql_param};
+use super::{BindParam, QueryPlan, bind_sql_param, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -308,23 +308,6 @@ fn order_column(field: &str) -> Option<&'static str> {
         "declared_at" => Some("overlap.declared_at"),
         _ => None,
     }
-}
-
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut output = String::with_capacity(sql.len());
-    let mut index = 1;
-
-    for character in sql.chars() {
-        if character == '?' {
-            output.push('$');
-            output.push_str(&index.to_string());
-            index += 1;
-        } else {
-            output.push(character);
-        }
-    }
-
-    output
 }
 
 #[cfg(test)]
