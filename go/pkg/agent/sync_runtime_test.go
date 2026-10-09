@@ -67,7 +67,7 @@ func registerFakeSyncDriver() {
 type fakeSyncDriver struct{}
 
 func (*fakeSyncDriver) Sync(ctx context.Context, run syncsources.RunContext) (int, error) {
-	if run.Source.Credentials["stall"] == "true" {
+	if run.Source.Credentials["stall"] == rawBoolTrue {
 		<-ctx.Done()
 		return 0, ctx.Err()
 	}
@@ -110,7 +110,7 @@ func (*fakeSyncDriver) Sync(ctx context.Context, run syncsources.RunContext) (in
 		total += len(updates)
 	}
 
-	if run.Source.Credentials["report_population"] == "true" && run.ReportPopulation != nil {
+	if run.Source.Credentials["report_population"] == rawBoolTrue && run.ReportPopulation != nil {
 		run.ReportPopulation(syncsources.PopulationStats{RawRows: total, ValidOccurrences: total})
 	}
 
@@ -225,7 +225,7 @@ func TestRunSourceOnceSendsCollectionFinalAsOwnStreamWhenPopulationReported(t *t
 	runner := newFakeSourceRunner(map[string]string{
 		"pages":             strconv.Itoa(pages),
 		"devices_per_page":  strconv.Itoa(devicesPerPage),
-		"report_population": "true",
+		"report_population": rawBoolTrue,
 	})
 
 	count, err := runtime.runSourceOnce(context.Background(), runner, "discovery", "run-pop")
