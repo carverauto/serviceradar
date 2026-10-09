@@ -112,8 +112,10 @@ Counted(u)    == Owned(u) \ MacIds
 \* A bump of the uids in B marks every in-flight item targeting one of them stale.
 MarkStale(W, B) == {[target |-> w.target, stale |-> w.stale \/ w.target \in B] : w \in W}
 
-\* ocsf_devices_unique_active_ip_idx covers live rows only, so a revival whose address a
-\* live device already holds fails the write.
+\* ocsf_devices_unique_active_ip_idx covers live rows only; NoIp is always free.
+\* The active-IP precheck drops a contested INCOMING address to NoIp; CommitWork revivals
+\* take that incoming value (see newIp), so the tombstone's stored address is never written back.
+\* Unmerge and Restore still gate on the tombstone's stored address via this predicate.
 IpFreeFor(u, p) == p = NoIp \/ ~\E d \in Devices : d # u /\ Live(d) /\ ipOf[d] = p
 
 \* MergeAudit read :merged_to -- from_device_id = u, reason != "unmerge", newest first.
@@ -161,7 +163,9 @@ StartWork(u) ==
 \* DeviceWrites insert_all(on_conflict: device_upsert_update_query(), conflict_target: [:uid])
 \* plus identifier registration for the written uid. Any tombstone other than a merged-away
 \* one is revived with an identity_revision bump. S: unowned identifiers the source reports;
-\* p: the address it reports (NoIp = keep the current one).
+\* p: the address it reports (NoIp = keep the current one for a live row; for a
+\* revival it means NULL, since the tombstone's stored address may be held by a live
+\* device and keeping it would fail the write on ocsf_devices_unique_active_ip_idx).
 \* Retired ids (D6): S may carry an id the archive keeps for t or for a uid merged into t.
 \* Reporting it again moves those archive rows back to t, and is the only write that restores
 \* a source_retired tombstone. The corroboration and the one-holder rules are the resolution
@@ -173,7 +177,8 @@ StartWork(u) ==
 CommitWork(w, S, p) ==
     LET t     == w.target
         back  == {i \in S : \E d \in arch[i] : Follow(d) = t}
-        newIp == IF p = NoIp THEN ipOf[t] ELSE p
+        newIp == IF status[t] = "tomb" THEN p
+                 ELSE IF p = NoIp THEN ipOf[t] ELSE p
         bump  == CASE status[t] \in {"absent", "purged"} -> {t}  \* a new row
                    [] status[t] = "tomb" -> {t}                  \* a revival
                    [] back # {} -> {t}                           \* a live reactivation

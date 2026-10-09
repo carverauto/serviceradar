@@ -1748,10 +1748,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # What stays blocked is what this guard is for: ULA (30) and link-local
           # (20) cannot overwrite anything routable, and nothing can overwrite
           # with an address that is never a primary (0).
+          #
+          # A revival takes only the address the incoming record carries, ahead of
+          # both rules above. A tombstone's stored address is history that another
+          # live device may hold by now (the active-IP precheck drops a contested
+          # address to nil), and keeping it would put two live rows on one address
+          # and fail the whole batch on ocsf_devices_unique_active_ip_idx.
           ip:
             fragment(
               """
               CASE
+                WHEN ? IS NOT NULL THEN
+                  CASE WHEN btrim(EXCLUDED.ip) = '' THEN NULL ELSE EXCLUDED.ip END
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
                 WHEN ? IS NULL THEN EXCLUDED.ip
@@ -1761,6 +1769,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                 ELSE ?
               END
               """,
+              d.deleted_at,
               d.ip,
               d.ip,
               d.ip,
