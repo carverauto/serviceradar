@@ -4,13 +4,21 @@ defmodule ServiceRadar.Repo.Migrations.EnforceUniqueEnabledAddonAssignments do
   enabled assignment per agent and logical add-on across every source.
 
   Shadowed rows are disabled, never deleted, preserving assignment references
-  and rollout history. A shadowed assignment participating in an active rollout
-  requires that rollout to be resolved first; cleanup does not bypass its owner.
+  and rollout history. Active rollout work on a shadowed row is canceled the way
+  an operator cancel would: its open targets are canceled with reason
+  `assignment_deduplicated`, its rollout override is cleared, and a rollout
+  sourced from it is canceled. A refusal here could not be cleared by hand,
+  because rollout reconciliation restarts a canceled `track_latest` rollout
+  within seconds. Completed rollouts' targets stay as history.
   The table locks and index are committed together, so concurrent writers cannot
   recreate duplicates between cleanup and installing the constraint.
   """
 
   use Ecto.Migration
+
+  @active_rollout_states "('pending', 'running', 'paused', 'rolling_back')"
+  # The states addon_rollout_targets_one_active_target_index treats as active.
+  @open_target_states "('pending', 'waiting_health', 'healthy_soak', 'rollback_pending', 'succeeded')"
 
   def up do
     # serviceradar:allow-startup-maintenance - schema-critical bounded cleanup before adding
@@ -21,9 +29,10 @@ defmodule ServiceRadar.Repo.Migrations.EnforceUniqueEnabledAddonAssignments do
     # sharing an (agent_uid, addon_id) key with more than one enabled assignment are disabled
     # (never deleted, preserving assignment references and completed rollout history), plus a
     # canonicalization UPDATE limited to rows whose denormalized addon_id is distinct from
-    # their package. Both statements are idempotent single statements, fail closed by raising
-    # when a shadowed row is owned by an active rollout, and are followed by a re-query that
-    # refuses to converge if any duplicate enabled key remains.
+    # their package. Shadowed rows are ranked once into a temporary table, so clearing their
+    # rollout overrides cannot change the ranking used by later statements. Active rollout
+    # work on those rows is canceled. Every statement is idempotent, and a re-query refuses to
+    # converge if any duplicate enabled key remains.
     Enum.each(cleanup_statements(), &execute/1)
 
     create unique_index(:addon_assignments, [:agent_uid, :addon_id],
@@ -68,42 +77,47 @@ defmodule ServiceRadar.Repo.Migrations.EnforceUniqueEnabledAddonAssignments do
         AND assignment.addon_id IS DISTINCT FROM package.addon_id
       """,
 
+      "DROP TABLE IF EXISTS pg_temp.addon_assignment_dedupe_losers",
       """
-      DO $$
-      BEGIN
-        IF EXISTS (
-        #{ranked_sql()}
-        SELECT 1 FROM ranked AS loser
-        JOIN platform.addon_assignments AS assignment ON assignment.id = loser.id
-        WHERE loser.position > 1
-          AND (
-            assignment.rollout_id IS NOT NULL
-            OR EXISTS (
-              SELECT 1 FROM platform.addon_rollout_targets AS target
-              JOIN platform.addon_rollouts AS target_rollout ON target_rollout.id = target.rollout_id
-              WHERE target.assignment_id = assignment.id
-                AND target_rollout.state IN ('pending', 'running', 'paused', 'rolling_back')
-                AND target.state IN ('pending', 'waiting_health', 'healthy_soak', 'rollback_pending', 'succeeded')
-            )
-            OR EXISTS (
-              SELECT 1 FROM platform.addon_rollouts AS rollout
-              WHERE rollout.source_type = 'assignment' AND rollout.source_id = assignment.id
-                AND rollout.state IN ('pending', 'running', 'paused', 'rolling_back')
-            )
-          )
-        ) THEN
-          RAISE EXCEPTION 'Resolve active rollouts on shadowed add-on assignments before deduplication';
-        END IF;
-      END;
-      $$
+      CREATE TEMP TABLE addon_assignment_dedupe_losers ON COMMIT DROP AS
+      #{ranked_sql()}
+      SELECT id FROM ranked WHERE position > 1
       """,
 
+      # Cancel open targets on shadowed rows, and every open target of a rollout
+      # sourced from a shadowed row, but only while that rollout is active.
       """
-      #{ranked_sql()}
+      UPDATE platform.addon_rollout_targets AS target
+      SET state = 'canceled', reason_code = 'assignment_deduplicated',
+          completed_at = now() AT TIME ZONE 'utc', updated_at = now() AT TIME ZONE 'utc'
+      FROM platform.addon_rollouts AS rollout
+      WHERE rollout.id = target.rollout_id
+        AND rollout.state IN #{@active_rollout_states}
+        AND target.state IN #{@open_target_states}
+        AND (
+          target.assignment_id IN (SELECT id FROM addon_assignment_dedupe_losers)
+          OR (rollout.source_type = 'assignment'
+              AND rollout.source_id IN (SELECT id FROM addon_assignment_dedupe_losers))
+        )
+      """,
+      """
+      UPDATE platform.addon_rollouts AS rollout
+      SET state = 'canceled', blocked_reason = 'source_assignment_deduplicated',
+          canceled_at = now() AT TIME ZONE 'utc', updated_at = now() AT TIME ZONE 'utc'
+      WHERE rollout.source_type = 'assignment'
+        AND rollout.state IN #{@active_rollout_states}
+        AND rollout.source_id IN (SELECT id FROM addon_assignment_dedupe_losers)
+      """,
+      """
+      UPDATE platform.addon_assignments AS assignment
+      SET rollout_package_id = NULL, rollout_id = NULL, rollout_started_at = NULL
+      WHERE assignment.rollout_id IS NOT NULL
+        AND assignment.id IN (SELECT id FROM addon_assignment_dedupe_losers)
+      """,
+      """
       UPDATE platform.addon_assignments AS assignment
       SET enabled = false
-      FROM ranked AS loser
-      WHERE assignment.id = loser.id AND loser.position > 1
+      WHERE assignment.id IN (SELECT id FROM addon_assignment_dedupe_losers)
       """
     ]
   end
