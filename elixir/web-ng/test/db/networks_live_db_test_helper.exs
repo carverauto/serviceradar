@@ -65,7 +65,13 @@ ExUnit.configure(
 # strengthens "creates both built-in dashboards when absent" and is not a
 # new selection. 2466 + 1 = 2467, with no lowering, removal, bypass, or
 # exclusion.
-expected_selected_tests = 2467
+# PR #5566 (fix/dashboard-camera-relay-crash) adds +2 lane-selected tests in
+# dashboard_live_test.exs via a for-loop over 2 paths: "/dashboard keeps its
+# mounted preview after viewers close WebRTC" and "/cameras keeps its mounted
+# preview after viewers close WebRTC". Both are covered by the file's existing
+# @moduletag :web_ng_shared_fixture_db with no skip/exclude. 2467 + 2 = 2469,
+# with no lowering, removal, bypass, or exclusion.
+expected_selected_tests = 2469
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
