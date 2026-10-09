@@ -876,6 +876,19 @@ if config_env() == :prod do
       value -> parse_int.(value)
     end
 
+  sync_ingestor_worker_timeout_ms =
+    "SYNC_INGESTOR_WORKER_TIMEOUT_MS"
+    |> System.get_env()
+    |> case do
+      nil -> nil
+      "" -> nil
+      value ->
+        case parse_int.(value) do
+          n when is_integer(n) and n > 0 -> n
+          _ -> nil
+        end
+    end
+
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
   plugin_storage_overrides =
@@ -1385,6 +1398,9 @@ if config_env() == :prod do
 
   config :serviceradar_core,
     sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
+
+  config :serviceradar_core,
+    sync_ingestor_worker_timeout_ms: sync_ingestor_worker_timeout_ms || 120_000
 
   # Endpoint attachment identity promotion (fix-topology-evidence-pipeline-
   # resilience, task 3.1/3.3): when enabled, FDB/UniFi-client topology

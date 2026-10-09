@@ -590,6 +590,8 @@ spec:
           value: {{ default 2 $syncIngestor.maxInflight | quote }}
         - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
           value: {{ default 10 $syncIngestor.queueMaxChunks | quote }}
+        - name: SYNC_INGESTOR_WORKER_TIMEOUT_MS
+          value: {{ default 120000 $syncIngestor.workerTimeoutMs | quote }}
         - name: PLUGIN_STORAGE_SIGNING_SECRET
           valueFrom:
             secretKeyRef:

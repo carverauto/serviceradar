@@ -713,6 +713,8 @@ core:
     coalesceMs: 250
     maxInflight: 2
     queueMaxChunks: 10
+    # Per-chunk deadline in milliseconds for an ingestion batch worker
+    workerTimeoutMs: 120000
     async: true
   deviceEnrichment:
     rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
