@@ -27,6 +27,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.IdentityDecision
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -508,6 +509,45 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
         Device.get_by_uid(device_uid_for_integration!(integration_id, actor), false, actor: actor)
 
       assert claimant.ip == free_ip
+    end
+  end
+
+  # A tombstone keeps the address it had when it was deleted. Once a live device
+  # holds that address, a revival that kept it would put two live rows on one
+  # address, so every attempt of the batch failed on the unique active-IP index.
+  describe "reviving a tombstone whose address a live device now holds" do
+    test "a revival with no incoming address comes back without the stale one", %{actor: actor} do
+      ip = unique_test_ip()
+      {tombstone, holder} = tombstone_with_taken_address!(ip, actor)
+
+      assert {:ok, _remap} = DeviceWrites.bulk_upsert_devices([upsert_record(tombstone.uid, nil)])
+
+      {:ok, revived} = Device.get_by_uid(tombstone.uid, false, actor: actor)
+      assert is_nil(revived.deleted_at)
+      assert is_nil(revived.ip)
+
+      {:ok, holder} = Device.get_by_uid(holder.uid, false, actor: actor)
+      assert holder.ip == ip
+    end
+
+    test "a revival takes the incoming address even when it ranks below the stored one", %{
+      actor: actor
+    } do
+      ip = unique_test_ip()
+      link_local = "169.254.77.#{rem(System.unique_integer([:positive, :monotonic]), 254) + 1}"
+      {tombstone, holder} = tombstone_with_taken_address!(ip, actor)
+
+      assert Address.rank(link_local) < Address.rank(ip)
+
+      assert {:ok, _remap} =
+               DeviceWrites.bulk_upsert_devices([upsert_record(tombstone.uid, link_local)])
+
+      {:ok, revived} = Device.get_by_uid(tombstone.uid, false, actor: actor)
+      assert is_nil(revived.deleted_at)
+      assert revived.ip == link_local
+
+      {:ok, holder} = Device.get_by_uid(holder.uid, false, actor: actor)
+      assert holder.ip == ip
     end
   end
 
@@ -1064,6 +1104,51 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   defp ip_taken_error?(error) do
     fields = List.wrap(Map.get(error, :fields) || []) ++ List.wrap(Map.get(error, :field))
     :ip in fields and Map.get(error, :message) == "has already been taken"
+  end
+
+  # A revivable tombstone that still stores `ip`, and the live device that took
+  # the address after the tombstone was deleted.
+  defp tombstone_with_taken_address!(ip, actor) do
+    tombstone = create_device!(actor, "revival-tombstone", ip)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = $2 WHERE uid = $1",
+      [tombstone.uid, "no_armis_source"]
+    )
+
+    {tombstone, create_device!(actor, "revival-live-holder", ip)}
+  end
+
+  # The field set a sync batch's device records carry, with synthetic values.
+  defp upsert_record(uid, ip) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    %{
+      uid: uid,
+      partition: "default",
+      ip: ip,
+      mac: nil,
+      hostname: "revival-tombstone",
+      name: "revival-tombstone",
+      type: "host",
+      type_id: 0,
+      vendor_name: nil,
+      model: nil,
+      os: %{},
+      hw_info: %{},
+      network_interfaces: [],
+      is_available: true,
+      is_managed: false,
+      is_active: true,
+      owner: nil,
+      metadata: %{},
+      tags: %{},
+      discovery_sources: ["integration-test"],
+      first_seen_time: now,
+      last_seen_time: now,
+      created_time: now,
+      modified_time: now
+    }
   end
 
   # Counts active-IP prechecks. On the first, a competing device takes `ip` inside
