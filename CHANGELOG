@@ -1,3 +1,24 @@
+# ServiceRadar v1.4.90
+
+This release fixes another cause of large integration syncs never
+completing: reviving a deleted device no longer brings back an address
+that a live device now holds.
+
+## Fixes
+
+- When a sync update revives a soft-deleted device, the device takes only
+  the incoming address. Before, a tombstone kept its stored address, and
+  when another live device had since taken that address the revival
+  collided on the active-IP unique index on every retry. The whole batch
+  and its sync run were rejected, so the source snapshot never activated.
+  Updates to live devices are unchanged, and the Device `restore` actions
+  still keep the stored address (PR #5579).
+
+## Docs and CI
+
+- The DIRE lifecycle TLA+ model describes a revival taking only the
+  incoming address (PR #5579).
+
 # ServiceRadar v1.4.89
 
 This release lets large integration syncs complete. Ingestion batches are
