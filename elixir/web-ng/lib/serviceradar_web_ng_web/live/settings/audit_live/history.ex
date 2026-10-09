@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   version rows (`resources/0`) and AshEvents `ApiEvent` rows
   (`ash_events_resources/0`, adapted to the same shape by
   `AuditHistory.list_recent/1`). Operators filter by resource type, actor
-  identifier, action type, and time range, and drill into a single row's
+  identifier, and action type, and drill into a single row's
   `changes` map for the diff detail. The "Origin" column shows `api` / `web`
   for AshEvents rows and "—" for PaperTrail rows, which have no transport
   concept. The "Actor" column resolves the recorded actor UUID to the
@@ -338,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · History</h1>
           <p class="text-sm text-sr-muted">
-            Cross-resource timeline (AshPaperTrail versions and AshEvents API events). Filter by resource, actor, action, and time range; click a row for the diff.
+            Cross-resource timeline (AshPaperTrail versions and AshEvents API events). Filter by resource, actor, and action; click a row for the diff.
           </p>
         </header>
 

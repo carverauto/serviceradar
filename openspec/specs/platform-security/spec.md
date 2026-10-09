@@ -131,7 +131,7 @@ The system SHALL provide a Settings → Audit section in the web-ng UI gated by 
 
 #### Scenario: History page joins paper trail versions across resources
 - **WHEN** an operator opens Settings → Audit → History
-- **THEN** the page lists AshPaperTrail versions from every enabled resource in a single timeline, ordered by `inserted_at` descending, with filters that round-trip via the URL
+- **THEN** the page lists AshPaperTrail versions from every enabled resource in a single timeline, ordered by `inserted_at` descending, with in-memory filters
 
 #### Scenario: Events page supports filters and live tail
 - **WHEN** an operator opens Settings → Audit → Events
