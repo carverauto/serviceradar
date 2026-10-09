@@ -1,3 +1,37 @@
+# ServiceRadar v1.4.88
+
+This release unblocks upgrades that stopped at the v1.4.87 add-on
+assignment migration, and lets integration sync snapshots activate when
+the agent reports population statistics.
+
+## Upgrade Notes
+
+- The add-on assignment deduplication migration (`20261008124719`) no
+  longer refuses to run when a duplicate it disables has active rollout
+  work. It cancels that work the way an operator cancel would: open
+  targets on the duplicate are canceled with reason
+  `assignment_deduplicated`, an active rollout sourced from the duplicate
+  is canceled with `source_assignment_deduplicated`, and the duplicate's
+  rollout override is cleared before it is disabled. Completed rollouts
+  keep their history. This supersedes the v1.4.87 note asking operators to
+  let rollouts finish first. Canceling the rollout by hand could not clear
+  the refusal, because rollout reconciliation restarted it within seconds
+  (PR #5571).
+- Installs that already applied the v1.4.87 migration skip it. Installs
+  where it failed roll forward on this release. Helm
+  `core.migrations.expectedVersion` remains `20261008124719`.
+
+## Fixes
+
+- Agents send `collection_final` after the last data chunk when population
+  statistics are reported, so sync runs record their total chunk count and
+  source snapshots activate instead of failing as incomplete (PR #5569).
+
+## Docs and CI
+
+- The web-ng shared-fixture lane's expected test count covers the camera
+  preview cases added in v1.4.87 (PR #5570).
+
 # ServiceRadar v1.4.87
 
 This release keeps large integration syncs from timing out before their
