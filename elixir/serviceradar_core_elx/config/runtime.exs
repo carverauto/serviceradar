@@ -612,6 +612,25 @@ config :serviceradar_core,
   mtr_automation_trigger_enabled: mtr_stage_enabled.("MTR_AUTOMATION_TRIGGER_ENABLED"),
   mtr_automation_consensus_enabled: mtr_stage_enabled.("MTR_AUTOMATION_CONSENSUS_ENABLED")
 
+# SyncIngestorQueue and SyncIngestor sizing, rendered by Helm from
+# core.syncIngestor. serviceradar_core applies these in prod only, so this does
+# too. The worker timeout is a per-chunk budget and must be a positive integer.
+if config_env() == :prod do
+  sync_ingestor_worker_timeout_ms =
+    case parse_int_env.("SYNC_INGESTOR_WORKER_TIMEOUT_MS", nil) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> 120_000
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_async: System.get_env("SYNC_INGESTOR_ASYNC", "true") in ~w(true 1 yes),
+    sync_ingestor_batch_concurrency: parse_int_env.("SYNC_INGESTOR_BATCH_CONCURRENCY", 2),
+    sync_ingestor_coalesce_ms: parse_int_env.("SYNC_INGESTOR_COALESCE_MS", 250),
+    sync_ingestor_max_inflight: parse_int_env.("SYNC_INGESTOR_MAX_INFLIGHT", 2),
+    sync_ingestor_queue_max_chunks: parse_int_env.("SYNC_INGESTOR_QUEUE_MAX_CHUNKS", 10),
+    sync_ingestor_worker_timeout_ms: sync_ingestor_worker_timeout_ms
+end
+
 # Keep authenticated desktop viewers and ingress actors bounded. These are
 # deliberately runtime-tunable so operators can size the media plane without
 # weakening owner-bound authorization.
