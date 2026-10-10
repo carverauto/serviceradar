@@ -37,6 +37,20 @@ exports_files([
 # executor's mutable /cache.
 npm_link_all_packages(name = "node_modules")
 
+js_binary(
+    name = "cli_bundler",
+    entry_point = "cli_bundle.mjs",
+    data = [":node_modules/esbuild"],
+)
+
+js_run_binary(
+    name = "plugin_config_cli_bundle",
+    tool = ":cli_bundler",
+    srcs = ["//js/cli:plugin_config_sources"],
+    chdir = package_name(),
+    outs = ["plugin_config_cli.mjs"],
+)
+
 # Production JavaScript inputs scanned by the timestamp formatter inventory guard.
 # Keep this broad enough to catch new dashboard and hook modules while excluding
 # test-only, vendored, generated, and static trees.
