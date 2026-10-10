@@ -363,6 +363,14 @@ spec:
         - name: SERVICERADAR_LOCAL_MAILER
           value: "false"
         {{- end }}
+        {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_ALERT_EVALUATION_MODE") }}
+        {{- $alertEvaluationMode := toString (default "prepared" (default (dict) $coreVals.alertEvaluation).mode) }}
+        {{- if not (has $alertEvaluationMode (list "prepared" "active" "draining")) }}
+        {{- fail (printf "core.alertEvaluation.mode must be prepared, active or draining, got %q" $alertEvaluationMode) }}
+        {{- end }}
+        - name: SERVICERADAR_ALERT_EVALUATION_MODE
+          value: {{ $alertEvaluationMode | quote }}
+        {{- end }}
         # Outbound mail. With none of this set the mailer resolves to
         # Swoosh.Adapters.Test, which reports every send as successful and
         # delivers nothing - so an email notification channel refuses to

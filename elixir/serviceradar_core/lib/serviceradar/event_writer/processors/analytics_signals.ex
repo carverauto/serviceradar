@@ -738,7 +738,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     rows
     |> alert_evaluation_rows()
     |> Enum.map(&Map.put(&1, :__alert_evaluation_occurrence_id__, Ash.UUID.generate()))
-    |> StatefulEvaluationLedger.engine().evaluate_events()
+    |> StatefulEvaluationLedger.evaluate_events()
   end
 
   defp alert_evaluation_event_row?(row),

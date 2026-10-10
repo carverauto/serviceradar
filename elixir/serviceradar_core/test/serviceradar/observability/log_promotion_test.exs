@@ -2,6 +2,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
@@ -10,6 +11,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   alias ServiceRadar.NATS.DurablePublishWorker
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
@@ -127,6 +129,28 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     }
 
     assert {:error, :evaluation_failed} = Logs.process_batch([message])
+  end
+
+  # Prepared mode admits nothing, by design. The logs batch must still be stored
+  # and acknowledged rather than fail until JetStream drops it after max_deliver.
+  test "prepared alert evaluation stores the logs batch and its promotion" do
+    use_real_engine_in_mode(:prepared)
+    label = "prepared-mode-#{Ash.UUID.generate()}"
+    log = create_queue_probe(label)
+    LogPromotion.invalidate_rules_cache()
+
+    output = capture_log(fn -> assert {:ok, 1} = Logs.process_batch([log_message(log)]) end)
+
+    assert promoted_event_count("test.#{label}") == 1
+    assert output =~ "Alert evaluation is not activated"
+  end
+
+  test "a draining alert evaluation still fails the logs batch for redelivery" do
+    use_real_engine_in_mode(:draining)
+    log = create_queue_probe("draining-mode-#{Ash.UUID.generate()}")
+    LogPromotion.invalidate_rules_cache()
+
+    assert {:error, :alert_evaluation_draining} = Logs.process_batch([log_message(log)])
   end
 
   test "promotes log to event and creates alert" do
@@ -681,6 +705,35 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   end
 
   defp configure_scripted_engine(replies), do: ScriptedStatefulAlertEngine.use_in_test(replies)
+
+  defp use_real_engine_in_mode(mode) do
+    keys = [:stateful_alert_engine, :alert_evaluation_mode]
+    previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_core, &1)})
+
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, mode)
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_core, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_core, key)
+      end)
+    end)
+  end
+
+  defp log_message(log) do
+    %{
+      data: Jason.encode!(Map.delete(log, :created_at)),
+      metadata: %{subject: get_in(log, [:attributes, "serviceradar", "ingest", "subject"])}
+    }
+  end
+
+  defp promoted_event_count(log_name) do
+    %{rows: [[count]]} =
+      Repo.query!("SELECT count(*) FROM ocsf_events WHERE log_name = $1", [log_name])
+
+    count
+  end
 
   # Runs this test's queued publishes on `subject` as the outbox worker would,
   # and nothing another test left in the queue.

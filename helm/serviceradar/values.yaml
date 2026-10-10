@@ -662,6 +662,17 @@ core:
   #       key: token
   #       optional: true
   extraEnvValueFrom: {}
+  # Durable alert evaluation (SERVICERADAR_ALERT_EVALUATION_MODE).
+  # - prepared: no alert rule evaluates anything. Events and logs are still
+  #   stored, and core logs a warning about it every minute.
+  # - active: alert rules evaluate events, logs and metrics.
+  # - draining: admission stops while accepted work finishes.
+  # Set active once no core pod older than 1.4.85 is running anywhere in the
+  # deployment, including disconnected ones: an older pod evaluates on its
+  # own, and active admission refuses only the ones it can see. An install
+  # that never ran a release older than 1.4.85 can start active.
+  alertEvaluation:
+    mode: prepared
   database:
     poolSize: 40
     queueTargetMs: 2000
