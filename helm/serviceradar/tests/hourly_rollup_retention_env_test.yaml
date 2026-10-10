@@ -27,11 +27,21 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS
+            value: "24"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
 
   - it: passes operator overrides through
     set:
       core.observabilityRetention.hourlyRollupDays: 14
       core.observabilityRetention.timeseriesMetricsDays: 10
+      core.observabilityRetention.timeseriesMetricsCompressAfterHours: 6
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -47,6 +57,15 @@ tests:
           content:
             name: SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS
             value: "10"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS
+            value: "6"
           count: 1
         documentSelector:
           path: kind
