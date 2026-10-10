@@ -537,6 +537,61 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert read_prod_config()[:serviceradar_core][block][:retention_days] == 9
   end
 
+  # Helm renders SYNC_INGESTOR_* for core. Only serviceradar_core's runtime.exs
+  # read them, so in this release they were inert and the queue ran on its
+  # compiled defaults whatever the chart said.
+  describe "sync ingestor settings" do
+    @sync_ingestor_env ~w(
+      SYNC_INGESTOR_ASYNC
+      SYNC_INGESTOR_BATCH_CONCURRENCY
+      SYNC_INGESTOR_COALESCE_MS
+      SYNC_INGESTOR_MAX_INFLIGHT
+      SYNC_INGESTOR_QUEUE_MAX_CHUNKS
+      SYNC_INGESTOR_WORKER_TIMEOUT_MS
+    )
+
+    test "prod config applies the chart defaults when the environment is unset" do
+      Enum.each(@sync_ingestor_env, &with_env(&1, nil))
+
+      config = read_prod_config()[:serviceradar_core]
+
+      assert config[:sync_ingestor_async] == true
+      assert config[:sync_ingestor_batch_concurrency] == 2
+      assert config[:sync_ingestor_coalesce_ms] == 250
+      assert config[:sync_ingestor_max_inflight] == 2
+      assert config[:sync_ingestor_queue_max_chunks] == 10
+      assert config[:sync_ingestor_worker_timeout_ms] == 120_000
+    end
+
+    test "each setting is reachable from the environment" do
+      with_env("SYNC_INGESTOR_ASYNC", "false")
+      with_env("SYNC_INGESTOR_BATCH_CONCURRENCY", "4")
+      with_env("SYNC_INGESTOR_COALESCE_MS", "500")
+      with_env("SYNC_INGESTOR_MAX_INFLIGHT", "3")
+      with_env("SYNC_INGESTOR_QUEUE_MAX_CHUNKS", "20")
+      with_env("SYNC_INGESTOR_WORKER_TIMEOUT_MS", "900000")
+
+      config = read_prod_config()[:serviceradar_core]
+
+      assert config[:sync_ingestor_async] == false
+      assert config[:sync_ingestor_batch_concurrency] == 4
+      assert config[:sync_ingestor_coalesce_ms] == 500
+      assert config[:sync_ingestor_max_inflight] == 3
+      assert config[:sync_ingestor_queue_max_chunks] == 20
+      assert config[:sync_ingestor_worker_timeout_ms] == 900_000
+    end
+
+    test "a worker timeout that is not a positive integer falls back to the default" do
+      for value <- ["0", "-5", "abc", ""] do
+        with_env("SYNC_INGESTOR_WORKER_TIMEOUT_MS", value)
+
+        assert read_prod_config()[:serviceradar_core][:sync_ingestor_worker_timeout_ms] ==
+                 120_000,
+               "SYNC_INGESTOR_WORKER_TIMEOUT_MS=#{inspect(value)}"
+      end
+    end
+  end
+
   defp read_prod_event_writer_streams do
     with_env("EVENT_WRITER_ENABLED", "true")
 
