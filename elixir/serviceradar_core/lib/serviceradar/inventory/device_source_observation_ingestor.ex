@@ -416,9 +416,35 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
 
     case snapshot_disposition(current, snapshot) do
       :activate -> {:ok, :process}
-      :idempotent -> {:ok, :idempotent}
+      :idempotent -> idempotent_disposition(snapshot)
       {:reject, reason} -> {:error, reason}
     end
+  end
+
+  # An unchanged collection skips the device writes only while every device it names is
+  # still live. A member deleted since activation (by an operator or a cleanup, not by the
+  # source) is otherwise never written back: the source keeps sending the same collection,
+  # so the skip would hold forever. Processing it re-runs the device sync, which revives the
+  # member; activation itself stays idempotent.
+  defp idempotent_disposition(snapshot) do
+    if members_live?(snapshot), do: {:ok, :idempotent}, else: {:ok, :process}
+  end
+
+  defp members_live?(snapshot) do
+    not Repo.exists?(
+      from(observation in @observations_table,
+        left_join: device in "ocsf_devices",
+        on: device.uid == observation.device_id and is_nil(device.deleted_at),
+        where:
+          observation.partition == ^snapshot.partition and
+            observation.source == ^snapshot.source and
+            observation.source_instance == ^snapshot.source_instance and
+            observation.collection_id == ^snapshot.collection_id and
+            observation.present == true and
+            is_nil(device.uid)
+      ),
+      prefix: @db_prefix
+    )
   end
 
   defp do_activate_snapshot(snapshot, observations) do

@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
   alias ServiceRadar.Inventory.DeviceSourceSnapshot
   alias ServiceRadar.Inventory.SourceInventoryReader
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -248,6 +249,70 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
                "cursor" => cursor,
                "limit" => "1"
              })
+  end
+
+  # A source that keeps reporting the same complete collection is skipped as idempotent. A
+  # member deleted out of band since activation would then never come back, so the skip holds
+  # only while every member is live.
+  describe "replaying an unchanged complete collection" do
+    test "skips the device writes while every member is live", %{actor: actor} do
+      {instance, payload} = replay_payload("live")
+
+      assert :ok = DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"}, actor: actor)
+      assert :ok = ingest_recording_device_sync(payload, actor)
+
+      refute_received {:device_sync, _updates}
+      assert [%{present: true}] = observations!(actor, instance)
+    end
+
+    test "revives a member deleted since the collection was activated", %{actor: actor} do
+      {instance, payload} = replay_payload("revive")
+
+      assert :ok = DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"}, actor: actor)
+      [observation] = observations!(actor, instance)
+      soft_delete!(observation.device_id)
+
+      assert :ok = ingest_recording_device_sync(payload, actor)
+
+      assert_received {:device_sync, [_update]}
+      assert {:ok, device} = Device.get_by_uid(observation.device_id, false, actor: actor)
+      assert is_nil(device.deleted_at)
+      assert [%{present: true, device_id: device_id}] = observations!(actor, instance)
+      assert device_id == observation.device_id
+      assert snapshot!(actor, instance).collection_id == "#{instance}-collection"
+    end
+  end
+
+  defp replay_payload(label) do
+    suffix = unique_suffix()
+    instance = "replay-#{label}-#{suffix}"
+
+    payload =
+      inventory_payload(instance, "#{instance}-collection", ~U[2026-07-15 18:00:00Z], [
+        inventory_device("601", "site03-sw-601", "SNX#{suffix}601", "203.0.113.#{unique_octet()}")
+      ])
+
+    {instance, payload}
+  end
+
+  defp ingest_recording_device_sync(payload, actor) do
+    test_pid = self()
+
+    DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+      actor: actor,
+      device_sync: fn updates, context ->
+        send(test_pid, {:device_sync, updates})
+        SyncIngestor.ingest_updates(updates, actor: context.actor)
+      end
+    )
+  end
+
+  # An out-of-band deletion: a revivable reason, as an operator cleanup records it.
+  defp soft_delete!(uid) do
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = $2, deleted_by = $3 WHERE uid = $1",
+      [uid, "operator_cleanup", "test:operator"]
+    )
   end
 
   defp identifier!(actor, type, value) do
