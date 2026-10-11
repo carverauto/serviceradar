@@ -14,11 +14,28 @@ use std::net::{IpAddr, SocketAddr};
 
 pub const MAX_SAMPLER_RATE_ENTRIES: usize = 65_536;
 
+/// Ceiling applied to any exporter-declared sampling rate before publication.
+///
+/// Exporter-declared sampling fields are unauthenticated wire input, and every
+/// IPFIX/v9 sampling field decodes to a full `u64`. `samplingProbability` is
+/// worse: a probability of `1e-300` inverts to roughly `1e300`, and a saturating
+/// `as u64` turns that into `u64::MAX`. Because downstream analytics multiply
+/// byte and packet counts by this rate, an absurd value inflates a single flow
+/// into fabricated volume.
+///
+/// 1:1,000,000 is already far past operational practice -- 1:10,000 is
+/// considered aggressive -- so real exporters never reach this bound. Operators
+/// who need more can raise `max_sampling_rate` per listener.
+pub const DEFAULT_MAX_SAMPLING_RATE: u64 = 1_000_000;
+
 #[derive(Default)]
 pub struct SamplerRates {
     pub(super) entries: HashMap<SourceId, HashMap<u64, u64>>,
     pub(super) entry_count: usize,
     pub(super) rejected_inserts: u64,
+    /// Rates clamped to the configured ceiling. Drained by the caller into
+    /// `ListenerMetrics::sampling_rate_clamped`, mirroring `rejected_inserts`.
+    pub(super) clamped_rates: u64,
 }
 
 impl SamplerRates {
@@ -34,6 +51,7 @@ pub struct Converter {
     sampler_addr: SocketAddr,
     receive_time_ns: u64,
     fallback_sampling_rate: u64,
+    max_sampling_rate: u64,
 }
 
 impl Converter {
@@ -42,12 +60,14 @@ impl Converter {
         sampler_addr: SocketAddr,
         receive_time_ns: u64,
         fallback_sampling_rate: u64,
+        max_sampling_rate: u64,
     ) -> Self {
         Self {
             packet,
             sampler_addr,
             receive_time_ns,
             fallback_sampling_rate: fallback_sampling_rate.max(1),
+            max_sampling_rate: max_sampling_rate.max(1),
         }
     }
 
@@ -68,8 +88,14 @@ impl Converter {
 
     pub fn convert_v5(&self, packet: &V5) -> Vec<flowpb::FlowMessage> {
         let mut messages = Vec::with_capacity(packet.flowsets.len());
-        let sampling_rate = v5_sampling_interval_to_rate(packet.header.sampling_interval)
-            .unwrap_or(self.fallback_sampling_rate);
+        // v5 masks its interval to 14 bits, so the wire value cannot exceed
+        // 16,383; the bound here only guards a misconfigured fallback.
+        let sampling_rate = bound_sampling_rate(
+            v5_sampling_interval_to_rate(packet.header.sampling_interval)
+                .unwrap_or(self.fallback_sampling_rate),
+            self.max_sampling_rate,
+        )
+        .0;
 
         for flow in &packet.flowsets {
             let mut msg = flowpb::FlowMessage {
@@ -645,7 +671,7 @@ impl Converter {
             }
         }
 
-        msg.sampling_rate = record_sampling_rate
+        let resolved = record_sampling_rate
             .or_else(|| {
                 sampler_id.and_then(|id| {
                     sampler_rates
@@ -655,8 +681,13 @@ impl Converter {
                         .copied()
                 })
             })
-            .unwrap_or(self.fallback_sampling_rate)
-            .max(1);
+            .unwrap_or(self.fallback_sampling_rate);
+
+        let (bounded, was_clamped) = bound_sampling_rate(resolved, self.max_sampling_rate);
+        if was_clamped {
+            sampler_rates.clamped_rates = sampler_rates.clamped_rates.saturating_add(1);
+        }
+        msg.sampling_rate = bounded;
     }
 }
 
@@ -683,6 +714,24 @@ fn calculate_flow_time(base_time_ns: u64, sys_uptime_ms: u32, flow_uptime_ms: u3
         base_time_ns.saturating_sub(offset_ms.saturating_mul(1_000_000))
     } else {
         base_time_ns
+    }
+}
+
+/// Applies the sampling-rate floor and ceiling, reporting whether the ceiling
+/// bound the value.
+///
+/// The floor keeps a zero or missing rate from erasing a flow's volume. The
+/// ceiling keeps an absurd exporter-declared rate from fabricating volume:
+/// downstream analytics multiply byte and packet counts by this number, and
+/// every IPFIX/v9 sampling field is unauthenticated wire input that decodes to
+/// a full `u64`.
+fn bound_sampling_rate(resolved: u64, max_sampling_rate: u64) -> (u64, bool) {
+    let ceiling = max_sampling_rate.max(1);
+    let floored = resolved.max(1);
+    if floored > ceiling {
+        (ceiling, true)
+    } else {
+        (floored, false)
     }
 }
 
@@ -1092,5 +1141,88 @@ mod tests {
         let value = FieldValue::DataNumber(DataNumber::U32(0));
         let communities = parse_bgp_communities(&value);
         assert_eq!(communities, Vec::<u32>::new());
+    }
+
+    #[test]
+    fn bound_sampling_rate_clamps_an_absurd_exporter_value() {
+        assert_eq!(
+            bound_sampling_rate(u64::MAX, DEFAULT_MAX_SAMPLING_RATE),
+            (DEFAULT_MAX_SAMPLING_RATE, true)
+        );
+    }
+
+    #[test]
+    fn bound_sampling_rate_leaves_realistic_rates_untouched() {
+        // 1:1, 1:1000 and 1:8192 are ordinary deployments and must not be
+        // altered or counted as clamped.
+        for rate in [1, 1_000, 8_192, 65_535] {
+            assert_eq!(
+                bound_sampling_rate(rate, DEFAULT_MAX_SAMPLING_RATE),
+                (rate, false),
+                "rate {rate} must pass through unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn bound_sampling_rate_treats_the_ceiling_itself_as_in_range() {
+        assert_eq!(
+            bound_sampling_rate(DEFAULT_MAX_SAMPLING_RATE, DEFAULT_MAX_SAMPLING_RATE),
+            (DEFAULT_MAX_SAMPLING_RATE, false)
+        );
+        assert_eq!(
+            bound_sampling_rate(DEFAULT_MAX_SAMPLING_RATE + 1, DEFAULT_MAX_SAMPLING_RATE),
+            (DEFAULT_MAX_SAMPLING_RATE, true)
+        );
+    }
+
+    #[test]
+    fn bound_sampling_rate_keeps_the_floor() {
+        // A zero rate would erase the flow's volume rather than inflate it.
+        assert_eq!(
+            bound_sampling_rate(0, DEFAULT_MAX_SAMPLING_RATE),
+            (1, false)
+        );
+        // A degenerate ceiling must still yield a usable multiplier.
+        assert_eq!(bound_sampling_rate(0, 0), (1, false));
+    }
+
+    /// `samplingProbability` is the sharpest edge: a tiny probability inverts to
+    /// a value far beyond `u64`, and Rust's float-to-int `as` saturates rather
+    /// than wrapping, so the raw result is `u64::MAX`.
+    #[test]
+    fn tiny_sampling_probability_saturates_and_is_then_bounded() {
+        let raw = sampling_rate_from_probability(1e-300).expect("probability is in range");
+        assert_eq!(
+            raw,
+            u64::MAX,
+            "float-to-int conversion is expected to saturate"
+        );
+        assert_eq!(
+            bound_sampling_rate(raw, DEFAULT_MAX_SAMPLING_RATE),
+            (DEFAULT_MAX_SAMPLING_RATE, true)
+        );
+    }
+
+    #[test]
+    fn ordinary_sampling_probability_is_unaffected() {
+        assert_eq!(sampling_rate_from_probability(0.001), Some(1_000));
+        assert_eq!(
+            bound_sampling_rate(1_000, DEFAULT_MAX_SAMPLING_RATE),
+            (1_000, false)
+        );
+        // Out-of-range probabilities are rejected before any bounding.
+        assert_eq!(sampling_rate_from_probability(0.0), None);
+        assert_eq!(sampling_rate_from_probability(-1.0), None);
+        assert_eq!(sampling_rate_from_probability(1.5), None);
+        assert_eq!(sampling_rate_from_probability(f64::NAN), None);
+    }
+
+    #[test]
+    fn v5_interval_cannot_exceed_its_14_bit_field() {
+        // The mode bits in the top two bits must not leak into the rate, which
+        // is why v5 is not a vector for inflation.
+        assert_eq!(v5_sampling_interval_to_rate(0xffff), Some(0x3fff));
+        assert_eq!(v5_sampling_interval_to_rate(0), None);
     }
 }

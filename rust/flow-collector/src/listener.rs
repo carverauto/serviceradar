@@ -233,6 +233,7 @@ pub fn build_handler(
             max_template_fields,
             pending_flows,
             default_sampling_rate,
+            max_sampling_rate,
             sampling_rate_overrides,
             max_sources,
             ..
@@ -244,6 +245,7 @@ pub fn build_handler(
                 *max_template_fields,
                 pending_flows.as_ref(),
                 *default_sampling_rate,
+                *max_sampling_rate,
                 sampling_rate_overrides.clone(),
                 *max_sources,
                 metrics,

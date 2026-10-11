@@ -5,7 +5,7 @@ use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
 use crate::sflow::SflowHandler;
-use converter::{Converter, SamplerRates};
+use converter::{Converter, DEFAULT_MAX_SAMPLING_RATE, SamplerRates};
 use log::{debug, info, warn};
 use netflow_parser::scoped_parser::{DEFAULT_MAX_SOURCES, ScopingInfo, extract_scoping_info};
 use netflow_parser::{
@@ -101,17 +101,22 @@ pub struct NetflowHandler {
     max_sources: usize,
     live_sources: AtomicU64,
     default_sampling_rate: u64,
+    max_sampling_rate: u64,
     sampling_rate_overrides: HashMap<IpAddr, u64>,
     sflow_fallback: SflowHandler,
     metrics: Arc<ListenerMetrics>,
 }
 
 impl NetflowHandler {
+    // Constructor mirrors the listener config's flat shape; grouping these
+    // would add indirection without hiding anything.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_templates: usize,
         max_template_fields: usize,
         pending_flows: Option<&PendingFlowsCacheConfig>,
         default_sampling_rate: Option<u64>,
+        max_sampling_rate: Option<u64>,
         sampling_rate_overrides: HashMap<IpAddr, u64>,
         max_sources: Option<usize>,
         metrics: Arc<ListenerMetrics>,
@@ -150,6 +155,9 @@ impl NetflowHandler {
             sources: Mutex::new(SourceAdmission::default()),
             max_sources: max_sources.unwrap_or(DEFAULT_MAX_SOURCES),
             default_sampling_rate: default_sampling_rate.unwrap_or(1).max(1),
+            max_sampling_rate: max_sampling_rate
+                .unwrap_or(DEFAULT_MAX_SAMPLING_RATE)
+                .max(1),
             sampling_rate_overrides,
             sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics)),
             metrics,
@@ -269,12 +277,22 @@ impl FlowHandler for NetflowHandler {
                 let mut sampler_rates = self.sampling_rates_by_exporter_sampler_id.lock().unwrap();
 
                 let before = sampler_rates.rejected_inserts;
-                let converted =
-                    Converter::new(packet, peer, receive_time_ns, fallback_sampling_rate)
-                        .convert_with_sampler_rates(&mut sampler_rates);
+                let clamped_before = sampler_rates.clamped_rates;
+                let converted = Converter::new(
+                    packet,
+                    peer,
+                    receive_time_ns,
+                    fallback_sampling_rate,
+                    self.max_sampling_rate,
+                )
+                .convert_with_sampler_rates(&mut sampler_rates);
                 self.metrics
                     .sampler_rate_rejections
                     .fetch_add(sampler_rates.rejected_inserts - before, Ordering::Relaxed);
+                self.metrics.sampling_rate_clamped.fetch_add(
+                    sampler_rates.clamped_rates - clamped_before,
+                    Ordering::Relaxed,
+                );
                 converted
             };
 
@@ -436,6 +454,7 @@ mod tests {
             10_000,
             None,
             None,
+            None,
             HashMap::new(),
             Some(2),
             Arc::clone(&metrics),
@@ -484,6 +503,7 @@ mod tests {
             10_000,
             None,
             Some(7),
+            None,
             HashMap::new(),
             Some(2),
             Arc::clone(&metrics),
@@ -566,6 +586,7 @@ mod tests {
             3,
             None,
             None,
+            None,
             HashMap::new(),
             Some(2),
             Arc::clone(&metrics),
@@ -593,6 +614,7 @@ mod tests {
         let handler_sufficient = NetflowHandler::new(
             128,
             4,
+            None,
             None,
             None,
             HashMap::new(),

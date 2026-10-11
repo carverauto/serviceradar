@@ -186,6 +186,7 @@ async fn receive_session(
         config.max_template_fields,
         config.pending_flows.as_ref(),
         Some(config.default_sampling_rate),
+        Some(config.max_sampling_rate),
         HashMap::new(),
         Some(config.max_sources),
         Arc::clone(&output.metrics),
