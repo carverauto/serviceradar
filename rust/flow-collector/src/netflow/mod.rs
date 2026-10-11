@@ -159,7 +159,10 @@ impl NetflowHandler {
                 .unwrap_or(DEFAULT_MAX_SAMPLING_RATE)
                 .max(1),
             sampling_rate_overrides,
-            sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics)),
+            // A netflow listener routes sFlow datagrams to this fallback, so
+            // it must carry the same ceiling or the knob would not cover its
+            // own port.
+            sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics), max_sampling_rate),
             metrics,
         }
     }
@@ -556,6 +559,103 @@ mod tests {
                 .entry_count,
             65_536
         );
+    }
+
+    /// NetFlow v5 bytes: 24-octet header then one 48-octet record. v5 carries
+    /// no templates, so it reaches the converter under secure defaults.
+    fn v5_packet(sampling_interval: u16) -> Vec<u8> {
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&5u16.to_be_bytes());
+        packet.extend_from_slice(&1u16.to_be_bytes()); // count
+        for value in [1000u32, 1_893_456_000, 0, 0] {
+            packet.extend_from_slice(&value.to_be_bytes());
+        }
+        packet.push(0); // engine_type
+        packet.push(0); // engine_id
+        packet.extend_from_slice(&sampling_interval.to_be_bytes());
+
+        packet.extend_from_slice(&[192, 0, 2, 1]); // src
+        packet.extend_from_slice(&[192, 0, 2, 2]); // dst
+        packet.extend_from_slice(&[0, 0, 0, 0]); // next hop
+        packet.extend_from_slice(&1u16.to_be_bytes()); // input
+        packet.extend_from_slice(&2u16.to_be_bytes()); // output
+        packet.extend_from_slice(&10u32.to_be_bytes()); // packets
+        packet.extend_from_slice(&1500u32.to_be_bytes()); // octets
+        packet.extend_from_slice(&0u32.to_be_bytes()); // first
+        packet.extend_from_slice(&0u32.to_be_bytes()); // last
+        packet.extend_from_slice(&1234u16.to_be_bytes()); // src_port
+        packet.extend_from_slice(&80u16.to_be_bytes()); // dst_port
+        packet.push(0); // pad1
+        packet.push(0); // tcp_flags
+        packet.push(6); // protocol
+        packet.push(0); // tos
+        packet.extend_from_slice(&0u16.to_be_bytes()); // src_as
+        packet.extend_from_slice(&0u16.to_be_bytes()); // dst_as
+        packet.push(0); // src_mask
+        packet.push(0); // dst_mask
+        packet.extend_from_slice(&0u16.to_be_bytes()); // pad2
+        packet
+    }
+
+    /// The v5 wire interval reaches 16,383, so any ceiling below that is
+    /// reachable from the packet itself -- not only from a misconfigured
+    /// fallback. The clamp must therefore be counted like every other, or the
+    /// metric operators are told to watch reads zero while rates are rescaled.
+    #[test]
+    fn v5_sampling_clamps_are_counted() {
+        let metrics = Arc::new(ListenerMetrics::new(
+            "netflow",
+            "127.0.0.1:2055".to_string(),
+        ));
+        let handler = NetflowHandler::new(
+            10,
+            100,
+            None,
+            None,
+            Some(100), // ceiling below the v5 wire maximum
+            HashMap::new(),
+            Some(2),
+            Arc::clone(&metrics),
+        );
+
+        let peer: SocketAddr = "192.0.2.10:9995".parse().expect("addr");
+        let messages = handler.parse_datagram(&v5_packet(1000), 0, peer);
+
+        assert_eq!(messages.len(), 1, "expected one v5 flow");
+        assert_eq!(
+            messages[0].sampling_rate, 100,
+            "the declared 1000 must be bounded to the ceiling"
+        );
+        assert_eq!(
+            metrics.sampling_rate_clamped.load(Ordering::Relaxed),
+            1,
+            "a v5 clamp must reach the metric"
+        );
+    }
+
+    #[test]
+    fn v5_sampling_below_the_ceiling_is_not_counted() {
+        let metrics = Arc::new(ListenerMetrics::new(
+            "netflow",
+            "127.0.0.1:2055".to_string(),
+        ));
+        let handler = NetflowHandler::new(
+            10,
+            100,
+            None,
+            None,
+            Some(100_000),
+            HashMap::new(),
+            Some(2),
+            Arc::clone(&metrics),
+        );
+
+        let peer: SocketAddr = "192.0.2.10:9995".parse().expect("addr");
+        let messages = handler.parse_datagram(&v5_packet(1000), 0, peer);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sampling_rate, 1000);
+        assert_eq!(metrics.sampling_rate_clamped.load(Ordering::Relaxed), 0);
     }
 
     #[test]

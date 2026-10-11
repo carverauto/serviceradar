@@ -76,7 +76,7 @@ impl Converter {
         sampler_rates: &mut SamplerRates,
     ) -> Vec<flowpb::FlowMessage> {
         match &self.packet {
-            NetflowPacket::V5(v5) => self.convert_v5(v5),
+            NetflowPacket::V5(v5) => self.convert_v5(v5, sampler_rates),
             NetflowPacket::V9(v9) => self.convert_v9(v9, sampler_rates),
             NetflowPacket::IPFix(ipfix) => self.convert_ipfix(ipfix, sampler_rates),
             _ => {
@@ -86,16 +86,24 @@ impl Converter {
         }
     }
 
-    pub fn convert_v5(&self, packet: &V5) -> Vec<flowpb::FlowMessage> {
+    pub fn convert_v5(
+        &self,
+        packet: &V5,
+        sampler_rates: &mut SamplerRates,
+    ) -> Vec<flowpb::FlowMessage> {
         let mut messages = Vec::with_capacity(packet.flowsets.len());
-        // v5 masks its interval to 14 bits, so the wire value cannot exceed
-        // 16,383; the bound here only guards a misconfigured fallback.
-        let sampling_rate = bound_sampling_rate(
+        // v5 masks its interval to 14 bits, so the wire value tops out at
+        // 16,383 -- but any ceiling below that is reachable from the packet
+        // itself, not just from a misconfigured fallback, so the clamp has to
+        // be counted like every other.
+        let (sampling_rate, was_clamped) = bound_sampling_rate(
             v5_sampling_interval_to_rate(packet.header.sampling_interval)
                 .unwrap_or(self.fallback_sampling_rate),
             self.max_sampling_rate,
-        )
-        .0;
+        );
+        if was_clamped {
+            sampler_rates.clamped_rates = sampler_rates.clamped_rates.saturating_add(1);
+        }
 
         for flow in &packet.flowsets {
             let mut msg = flowpb::FlowMessage {
@@ -725,7 +733,7 @@ fn calculate_flow_time(base_time_ns: u64, sys_uptime_ms: u32, flow_uptime_ms: u3
 /// downstream analytics multiply byte and packet counts by this number, and
 /// every IPFIX/v9 sampling field is unauthenticated wire input that decodes to
 /// a full `u64`.
-fn bound_sampling_rate(resolved: u64, max_sampling_rate: u64) -> (u64, bool) {
+pub(crate) fn bound_sampling_rate(resolved: u64, max_sampling_rate: u64) -> (u64, bool) {
     let ceiling = max_sampling_rate.max(1);
     let floored = resolved.max(1);
     if floored > ceiling {

@@ -1931,6 +1931,12 @@ flowCollector:
       - protocol: "sflow"
         listen_addr: "0.0.0.0:6343"
         subject: "flows.raw.sflow"
+        # Ceiling on the sampling rate each sample declares (default: 1000000).
+        # sFlow carries it as a u32, so the wire value reaches 4294967295 and
+        # analytics multiply byte and packet counts by it. The netflow listener
+        # below routes sFlow datagrams through its own fallback, so its
+        # max_sampling_rate covers that port too.
+        # max_sampling_rate: 1000000
       - protocol: "netflow"
         # v9/IPFIX UDP is rejected unless explicitly accepting spoofable ingress.
         allow_unauthenticated_templates: false

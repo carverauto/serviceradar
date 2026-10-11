@@ -325,6 +325,7 @@ mod tests {
                 buffer_size: 1024,
                 channel_size: None,
                 max_samples_per_datagram: None,
+                max_sampling_rate: None,
             }],
         }
     }

@@ -1,23 +1,59 @@
 use crate::flowpb;
+use crate::netflow::converter::bound_sampling_rate;
 use flowparser_sflow::flow_records::RawPacketHeader;
 use flowparser_sflow::samples::FlowSample;
 use flowparser_sflow::{AddressType, FlowRecord, SflowDatagram, SflowSample};
 use log::debug;
+use std::cell::Cell;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 pub struct Converter {
     pub datagram: SflowDatagram,
     sampler_addr: SocketAddr,
     receive_time_ns: u64,
+    max_sampling_rate: u64,
+    /// Rates clamped during `convert`. `Cell` because conversion takes `&self`;
+    /// the converter is built and consumed on one datagram, never shared.
+    clamped_rates: Cell<u64>,
 }
 
 impl Converter {
-    pub fn new(datagram: SflowDatagram, sampler_addr: SocketAddr, receive_time_ns: u64) -> Self {
+    pub fn new(
+        datagram: SflowDatagram,
+        sampler_addr: SocketAddr,
+        receive_time_ns: u64,
+        max_sampling_rate: u64,
+    ) -> Self {
         Self {
             datagram,
             sampler_addr,
             receive_time_ns,
+            max_sampling_rate: max_sampling_rate.max(1),
+            clamped_rates: Cell::new(0),
         }
+    }
+
+    /// Rates clamped to `max_sampling_rate` during the last `convert`.
+    pub fn clamped_rates(&self) -> u64 {
+        self.clamped_rates.get()
+    }
+
+    /// Bounds a wire sampling rate, counting the clamp.
+    ///
+    /// sFlow carries this as a `u32`, so the wire value reaches 4,294,967,295 --
+    /// roughly 4,000x the default ceiling. Downstream multiplies byte and
+    /// packet counts by it, so one spoofed sample would otherwise inflate into
+    /// fabricated volume. A NetFlow listener routes sFlow datagrams here
+    /// before any NetFlow bounding, so without this the ceiling configured on
+    /// that listener would not cover its own port.
+    fn bounded_sampling_rate(&self, wire_rate: u32) -> u64 {
+        let (bounded, was_clamped) =
+            bound_sampling_rate(u64::from(wire_rate), self.max_sampling_rate);
+        if was_clamped {
+            self.clamped_rates
+                .set(self.clamped_rates.get().saturating_add(1));
+        }
+        bounded
     }
 
     /// Convert all flow samples in the datagram to FlowMessages.
@@ -75,7 +111,7 @@ impl Converter {
             time_received_ns: self.receive_time_ns,
             sampler_address: address_type_to_bytes(&self.datagram.agent_address),
             sequence_num: self.datagram.sequence_number,
-            sampling_rate: u64::from(sampling_rate),
+            sampling_rate: self.bounded_sampling_rate(sampling_rate),
             packets: 1, // sFlow samples individual packets
             in_if: input,
             out_if: output,
@@ -329,6 +365,7 @@ fn protocol_name(proto: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::netflow::converter::DEFAULT_MAX_SAMPLING_RATE;
     use flowparser_sflow::SflowDatagram;
     use flowparser_sflow::datagram::AddressType;
     use flowparser_sflow::flow_records::extended_gateway::AsPathSegment;
@@ -350,6 +387,69 @@ mod tests {
 
     fn peer_addr() -> SocketAddr {
         "192.168.1.100:6343".parse().unwrap()
+    }
+
+    fn sample_with_rate(sampling_rate: u32) -> SflowSample {
+        SflowSample::Flow(FlowSample {
+            sequence_number: 1,
+            source_id_type: 0,
+            source_id_index: 1,
+            sampling_rate,
+            sample_pool: 1024,
+            drops: 0,
+            input: 3,
+            output: 5,
+            records: vec![FlowRecord::SampledIpv4(SampledIpv4 {
+                length: 1500,
+                protocol: 6,
+                src_ip: Ipv4Addr::new(10, 1, 2, 3),
+                dst_ip: Ipv4Addr::new(10, 4, 5, 6),
+                src_port: 12345,
+                dst_port: 80,
+                tcp_flags: 0x02,
+                tos: 0,
+            })],
+        })
+    }
+
+    /// An sFlow sample declares its rate as a `u32`, so the wire value reaches
+    /// 4,294,967,295 -- about 4,000x the default ceiling. Downstream multiplies
+    /// byte counts by it, so one unbounded sample fabricates terabytes.
+    #[test]
+    fn an_absurd_sflow_rate_is_clamped_and_counted() {
+        let datagram = make_datagram(vec![sample_with_rate(u32::MAX)]);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            1_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
+        let messages = converter.convert();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sampling_rate, DEFAULT_MAX_SAMPLING_RATE);
+        assert_eq!(converter.clamped_rates(), 1);
+        // Without the bound this product would be ~6.4 TB from one sample.
+        assert_eq!(
+            messages[0].bytes * messages[0].sampling_rate,
+            1500 * DEFAULT_MAX_SAMPLING_RATE
+        );
+    }
+
+    #[test]
+    fn realistic_sflow_rates_are_untouched_and_uncounted() {
+        for rate in [1u32, 512, 8_192, 1_000_000] {
+            let datagram = make_datagram(vec![sample_with_rate(rate)]);
+            let converter = Converter::new(
+                datagram,
+                peer_addr(),
+                1_000_000_000,
+                DEFAULT_MAX_SAMPLING_RATE,
+            );
+            let messages = converter.convert();
+            assert_eq!(messages[0].sampling_rate, u64::from(rate), "rate {rate}");
+            assert_eq!(converter.clamped_rates(), 0, "rate {rate} must not count");
+        }
     }
 
     #[test]
@@ -376,7 +476,12 @@ mod tests {
         });
 
         let datagram = make_datagram(vec![sample]);
-        let converter = Converter::new(datagram, peer_addr(), 1_000_000_000);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            1_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
         let messages = converter.convert();
 
         assert_eq!(messages.len(), 1);
@@ -433,7 +538,12 @@ mod tests {
         });
 
         let datagram = make_datagram(vec![sample]);
-        let converter = Converter::new(datagram, peer_addr(), 2_000_000_000);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            2_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
         let messages = converter.convert();
 
         assert_eq!(messages.len(), 1);
@@ -496,7 +606,12 @@ mod tests {
         });
 
         let datagram = make_datagram(vec![sample]);
-        let converter = Converter::new(datagram, peer_addr(), 3_000_000_000);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            3_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
         let messages = converter.convert();
 
         assert_eq!(messages.len(), 1);
@@ -546,7 +661,12 @@ mod tests {
         });
 
         let datagram = make_datagram(vec![sample]);
-        let converter = Converter::new(datagram, peer_addr(), 4_000_000_000);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            4_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
         let messages = converter.convert();
 
         assert_eq!(messages.len(), 1);
@@ -582,7 +702,12 @@ mod tests {
         });
 
         let datagram = make_datagram(vec![sample]);
-        let converter = Converter::new(datagram, peer_addr(), 4_000_000_000);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            4_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
         let messages = converter.convert();
 
         assert!(messages.is_empty());
@@ -620,7 +745,12 @@ mod tests {
         ];
 
         let datagram = make_datagram(samples);
-        let converter = Converter::new(datagram, peer_addr(), 6_000_000_000);
+        let converter = Converter::new(
+            datagram,
+            peer_addr(),
+            6_000_000_000,
+            DEFAULT_MAX_SAMPLING_RATE,
+        );
         let messages = converter.convert();
 
         assert_eq!(messages.len(), 1);

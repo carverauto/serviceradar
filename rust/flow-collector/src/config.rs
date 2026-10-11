@@ -116,6 +116,12 @@ pub enum ListenerConfig {
         channel_size: Option<usize>,
         #[serde(default)]
         max_samples_per_datagram: Option<u32>,
+        /// Ceiling applied to the sampling rate each sample declares. sFlow
+        /// carries it as a `u32`, so the wire value reaches 4,294,967,295 and
+        /// downstream multiplies byte and packet counts by it. Unset uses
+        /// `DEFAULT_MAX_SAMPLING_RATE` (1,000,000).
+        #[serde(default)]
+        max_sampling_rate: Option<u64>,
     },
     #[serde(rename = "ipfix_tls")]
     IpfixTls {
@@ -332,6 +338,7 @@ impl IpfixTlsConfig {
             || !(1..=100_000).contains(&self.max_template_fields)
             || self.default_sampling_rate == 0
             || self.max_sampling_rate == 0
+            || self.max_sampling_rate > i64::MAX as u64
             || self.default_sampling_rate > self.max_sampling_rate
         {
             anyhow::bail!(
@@ -645,6 +652,19 @@ impl Config {
                 }
             }
 
+            if let ListenerConfig::Sflow {
+                max_sampling_rate, ..
+            } = listener
+                && let Some(ceiling) = max_sampling_rate
+                && (*ceiling == 0 || *ceiling > i64::MAX as u64)
+            {
+                anyhow::bail!(
+                    "listener[{}]: max_sampling_rate must be 1..={}",
+                    i,
+                    i64::MAX
+                );
+            }
+
             if let ListenerConfig::Netflow {
                 default_sampling_rate,
                 max_sampling_rate,
@@ -663,8 +683,19 @@ impl Config {
                 if matches!(default_sampling_rate, Some(0)) {
                     anyhow::bail!("listener[{}]: default_sampling_rate must be > 0", i);
                 }
-                if matches!(max_sampling_rate, Some(0)) {
-                    anyhow::bail!("listener[{}]: max_sampling_rate must be > 0", i);
+                // The published column is signed (`bigint` / Go `int64`), so a
+                // ceiling above i64::MAX could not round-trip even if it were
+                // meaningful. Without an upper bound the guard is advisory: an
+                // operator raising it to u64::MAX restores the unbounded
+                // behavior this ceiling exists to prevent.
+                if let Some(ceiling) = max_sampling_rate
+                    && (*ceiling == 0 || *ceiling > i64::MAX as u64)
+                {
+                    anyhow::bail!(
+                        "listener[{}]: max_sampling_rate must be 1..={}",
+                        i,
+                        i64::MAX
+                    );
                 }
                 // A ceiling below a configured fallback would clamp every
                 // record that falls back, which is certainly a misconfiguration.
@@ -679,17 +710,6 @@ impl Config {
                         ceiling
                     );
                 }
-                for (exporter, rate) in sampling_rate_overrides {
-                    if *rate > ceiling {
-                        anyhow::bail!(
-                            "listener[{}]: sampling_rate_overrides[{}] ({}) exceeds max_sampling_rate ({})",
-                            i,
-                            exporter,
-                            rate,
-                            ceiling
-                        );
-                    }
-                }
 
                 for (exporter, rate) in sampling_rate_overrides {
                     if *rate == 0 {
@@ -697,6 +717,15 @@ impl Config {
                             "listener[{}]: sampling_rate_overrides[{}] must be > 0",
                             i,
                             exporter
+                        );
+                    }
+                    if *rate > ceiling {
+                        anyhow::bail!(
+                            "listener[{}]: sampling_rate_overrides[{}] ({}) exceeds max_sampling_rate ({})",
+                            i,
+                            exporter,
+                            rate,
+                            ceiling
                         );
                     }
                 }
@@ -1441,6 +1470,11 @@ mod tests {
                 "max_sampling_rate": 10,
                 "sampling_rate_overrides": {"192.0.2.1": 100}
             }),
+            // Above i64::MAX the published column (bigint / Go int64) cannot
+            // represent the value, and an unbounded knob would let an operator
+            // restore the behavior the ceiling exists to prevent.
+            serde_json::json!({"max_sampling_rate": u64::MAX}),
+            serde_json::json!({"max_sampling_rate": i64::MAX as u64 + 1}),
         ] {
             let mut changed = base.clone();
             for (key, v) in invalid.as_object().expect("object") {
@@ -1466,6 +1500,51 @@ mod tests {
             } => assert_eq!(*max_sampling_rate, Some(50_000)),
             other => panic!("expected netflow listener, got {other:?}"),
         }
+
+        // The boundary itself is representable downstream, so it is allowed.
+        let mut edge = base.clone();
+        edge["listeners"][0]["max_sampling_rate"] = serde_json::json!(i64::MAX as u64);
+        let cfg: Config = serde_json::from_str(&edge.to_string()).expect("config should parse");
+        cfg.validate().expect("i64::MAX is representable");
+    }
+
+    /// An sFlow listener shares the ceiling: its samples declare a `u32` rate,
+    /// and a netflow listener routes sFlow datagrams through its own fallback.
+    #[test]
+    fn sflow_listener_bounds_the_sampling_rate_ceiling() {
+        let base = serde_json::json!({
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [{
+                "protocol": "sflow",
+                "listen_addr": "0.0.0.0:6343",
+                "subject": "flows.raw.sflow"
+            }]
+        });
+
+        let cfg: Config = serde_json::from_str(&base.to_string()).expect("config should parse");
+        match &cfg.listeners[0] {
+            ListenerConfig::Sflow {
+                max_sampling_rate, ..
+            } => assert_eq!(*max_sampling_rate, None),
+            other => panic!("expected sflow listener, got {other:?}"),
+        }
+
+        for invalid in [0u64, i64::MAX as u64 + 1, u64::MAX] {
+            let mut changed = base.clone();
+            changed["listeners"][0]["max_sampling_rate"] = serde_json::json!(invalid);
+            let cfg: Config =
+                serde_json::from_str(&changed.to_string()).expect("config should parse");
+            assert!(
+                cfg.validate().is_err(),
+                "accepted invalid sflow ceiling: {invalid}"
+            );
+        }
+
+        let mut ok = base.clone();
+        ok["listeners"][0]["max_sampling_rate"] = serde_json::json!(2_000);
+        let cfg: Config = serde_json::from_str(&ok.to_string()).expect("config should parse");
+        cfg.validate().expect("a plausible sflow ceiling is valid");
     }
 
     #[test]

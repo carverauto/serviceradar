@@ -157,7 +157,10 @@ peer identities or fingerprints.
 
 A non-zero `flow_collector_sampling_rate_clamped_total` means an exporter
 declared a sampling rate above `max_sampling_rate` (default 1,000,000) and the
-published value was bounded. Because analytics multiply byte and packet counts
+published value was bounded. The counter covers every protocol: NetFlow v5,
+v9 and IPFIX, and sFlow, whose samples declare a `u32` rate reaching
+4,294,967,295. A NetFlow listener routes sFlow datagrams through its own
+sFlow fallback, so the ceiling set on that listener applies to them as well. Because analytics multiply byte and packet counts
 by this rate, and every v9/IPFIX sampling field is unauthenticated wire input
 that decodes to a full `u64`, an unbounded value would inflate a single flow
 into fabricated volume. Investigate the exporter rather than raising the

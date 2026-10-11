@@ -224,8 +224,13 @@ pub fn build_handler(
     match config {
         ListenerConfig::Sflow {
             max_samples_per_datagram,
+            max_sampling_rate,
             ..
-        } => Box::new(SflowHandler::new(*max_samples_per_datagram, metrics)),
+        } => Box::new(SflowHandler::new(
+            *max_samples_per_datagram,
+            metrics,
+            *max_sampling_rate,
+        )),
         ListenerConfig::IpfixTls { .. } => unreachable!("TLS listener owns session-local parsers"),
         ListenerConfig::Netflow {
             allow_unauthenticated_templates,
@@ -690,6 +695,7 @@ mod tests {
                 buffer_size: 1024,
                 channel_size: None,
                 max_samples_per_datagram: None,
+                max_sampling_rate: None,
             }],
         }
     }

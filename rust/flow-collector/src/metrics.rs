@@ -313,16 +313,11 @@ fn emit(
 
 fn render_admission_metrics(out: &mut String, listeners: &[Arc<ListenerMetrics>]) {
     type AdmissionValue = fn(&ListenerMetrics) -> u64;
-    let admission_counters: [(&str, &str, AdmissionValue); 4] = [
+    let admission_counters: [(&str, &str, AdmissionValue); 3] = [
         (
             "flow_collector_sampler_rate_rejections_total",
             "Sampler rate inserts rejected at capacity",
             |m: &ListenerMetrics| m.sampler_rate_rejections.load(Ordering::Relaxed),
-        ),
-        (
-            "flow_collector_sampling_rate_clamped_total",
-            "Exporter-declared sampling rates clamped to max_sampling_rate",
-            |m: &ListenerMetrics| m.sampling_rate_clamped.load(Ordering::Relaxed),
         ),
         (
             "flow_collector_source_creator_evictions_total",
@@ -371,6 +366,19 @@ fn render_admission_metrics(out: &mut String, listeners: &[Arc<ListenerMetrics>]
         );
         emit(out, &full, listeners, |_| true, value);
     }
+    let _ = writeln!(
+        out,
+        "# HELP flow_collector_sampling_rate_clamped_total Exporter-declared sampling rates clamped to max_sampling_rate\n# TYPE flow_collector_sampling_rate_clamped_total counter"
+    );
+    // Every protocol clamps: sFlow included, and a netflow listener routes
+    // sFlow datagrams through its own fallback.
+    emit(
+        out,
+        "flow_collector_sampling_rate_clamped_total",
+        listeners,
+        |_| true,
+        |m: &ListenerMetrics| m.sampling_rate_clamped.load(Ordering::Relaxed),
+    );
     let _ = writeln!(
         out,
         "# HELP flow_collector_tls_active_sessions Authenticated active sessions\n# TYPE flow_collector_tls_active_sessions gauge"
