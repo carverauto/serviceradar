@@ -233,10 +233,111 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
 
     assert DateTime.to_unix(row.delivered_window_end, :nanosecond) ==
-             cleared.window_end_unix_nano
+             cleared.window_start_unix_nano
 
     assert DateTime.to_unix(row.delivered_high_water, :nanosecond) ==
              cleared.window_end_unix_nano
+  end
+
+  test "restoring the horizon after an empty clear delivers the re-minted slots", ctx do
+    lease_on!(ctx, 7_200)
+    group = leased_group!(ctx)
+    now = clear_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, payload}
+    assert first.slots != []
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    # Ahead of the drops' wall clock, so the clear is the delivery those drops
+    # are since and the restore is judged on the cursor alone.
+    later = clear_at(DateTime.add(now, 120, :second))
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 1
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
+    assert_receive {:pushed, _, _, cleared, cleared_payload}
+    assert cleared.slots == []
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(cleared_payload),
+               installed: true
+             })
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 7_200
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
+    assert_receive {:pushed, _, _, restored, _}
+
+    assignment = assignment!(group, ctx.agent)
+    slots = unrun!(assignment, later)
+
+    assert restored.slots != []
+    assert restored.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+
+    assert Enum.map(restored.slots, & &1.execution_id) ==
+             Enum.map(slots, &Ecto.UUID.dump!(&1.id))
+
+    # The earliest re-minted slots start inside the window the first push
+    # delivered, behind where its cursor sat.
+    assert hd(restored.slots).slot_start_unix_nano < first.window_end_unix_nano
+  end
+
+  test "a slot minted behind the cursor is carried by a full push, not passed by", ctx do
+    lease_on!(ctx, 7_200)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _first, payload}
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    assignment = assignment!(group, ctx.agent)
+    [first_slot | _] = unrun!(assignment, now)
+    interior_start = DateTime.add(first_slot.slot_start, 60, :second)
+
+    assert {:ok, interior} =
+             ExecutionSlots.schedule(
+               assignment,
+               interior_start,
+               DateTime.add(interior_start, 900, :second),
+               targets: group.static_targets,
+               check_set_sha256: first_slot.check_set_sha256,
+               lease_id: LeasePass.lease_id(assignment)
+             )
+
+    assert {:ok, :pushed} =
+             LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
+
+    assert_receive {:pushed, _, _, lease, _}
+    assert lease.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+    assert Ecto.UUID.dump!(interior.id) in Enum.map(lease.slots, & &1.execution_id)
+
+    assert %{} = marked = Enum.find(unrun!(assignment, now), &(&1.id == interior.id))
+    refute is_nil(marked.delivered_at)
+
+    assert {:ok, :up_to_date} =
+             LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
   end
 
   test "a later pass pushes only the newly minted tail under the first issuance time", ctx do
@@ -539,13 +640,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   # A one-second horizon contains a fire only in the last second before a 15-minute
   # boundary. Step back from that second so the horizon holds no slot.
-  defp clear_now do
-    now = DateTime.utc_now()
+  defp clear_now, do: clear_at(DateTime.utc_now())
 
-    if rem(DateTime.to_unix(now), 900) >= 899 do
-      DateTime.add(now, -2, :second)
+  defp clear_at(%DateTime{} = time) do
+    if rem(DateTime.to_unix(time), 900) >= 899 do
+      DateTime.add(time, -2, :second)
     else
-      now
+      time
     end
   end
 

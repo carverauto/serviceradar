@@ -10,6 +10,8 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
 
   A slot that will not run any more (its assignment was revoked, or the group became
   ineligible) is `:dropped`, not deleted, so what was planned stays inspectable.
+  `delivered_at` records when a lease push last carried the slot to the agent; a
+  scheduled slot without one has never been sent.
 
   Callers go through `ServiceRadar.SweepJobs.ExecutionSlots`. Only the system actor writes.
   """
@@ -56,6 +58,14 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
       accept []
 
       change set_attribute(:state, :dropped)
+    end
+
+    update :mark_delivered do
+      description "Record that a lease push carried the slot to the agent"
+      accept []
+      argument :delivered_at, :utc_datetime_usec, allow_nil?: false
+
+      change set_attribute(:delivered_at, arg(:delivered_at))
     end
   end
 
@@ -144,6 +154,11 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
     attribute :plan_pages, {:array, :binary} do
       allow_nil? false
       public? true
+    end
+
+    attribute :delivered_at, :utc_datetime_usec do
+      public? true
+      description "When a lease push last carried this slot to the agent; null until one does"
     end
 
     create_timestamp :inserted_at

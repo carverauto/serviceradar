@@ -416,18 +416,24 @@ lease, its issuance time, the cursor just after the last slot pushed, the
 furthest window end sent for the current lease id, and the agent's ack of that
 push) and the lease pass pushes from that. The table has no foreign keys, so
 the row outlives the assignment and the group. A full window goes out for a
-new lease id, after core dropped a delivered slot that has not started, after
-the agent refused the last push, and when the last push went unacknowledged
-for ten minutes; otherwise only the slots minted since the cursor. The recorded
-cursor is always just after the last slot the push carried, because the pass
-mints a bounded number of slots per run and a later slot must land in a later
-window. The high water is the furthest window end sent for the current lease
-and starts again when the lease id changes. A same-lease full push tells the
-agent a window that reaches that high water, including a retry after the agent
-refused the push or the ack was lost, and a drop is detected out to the high
-water. A full push with no unrun slot left is a window replacement with an
-empty slot list and no production capability, and core records its cursor and
-high water as the window end it sent. Every push of a lease signs the same
+new lease id, after core dropped a delivered slot that has not started, when a
+slot no push has carried sits behind the cursor, after the agent refused the
+last push, and when the last push went unacknowledged for ten minutes;
+otherwise only the slots minted since the cursor. The recorded cursor is
+always just after the last slot the push carried, because the pass mints a
+bounded number of slots per run and a later slot must land in a later window.
+Each slot also records when a push last carried it (`delivered_at`): the cursor
+is only a position in the schedule, and a slot minted behind it — the
+re-minted slots of a restored horizon, a mint retried after an error — would
+never be sent by a tail, which starts at the cursor. The high water is the
+furthest window end sent for the current lease and starts again when the lease
+id changes. A same-lease full push tells the agent a window that reaches that
+high water, including a retry after the agent refused the push or the ack was
+lost, and a drop is detected out to the high water. A full push with no unrun
+slot left is a window replacement with an empty slot list and no production
+capability; core records its cursor at the window start it sent and its high
+water as the window end, so slots minted afterward still land in a later
+window. Every push of a lease signs the same
 issuance time, the lease's first push, and a push that carries slots signs a
 production capability that runs to the end of the last slot pushed, so the
 newest capability covers every slot the agent holds. An ack is stored only

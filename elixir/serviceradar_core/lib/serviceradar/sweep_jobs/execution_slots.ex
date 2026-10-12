@@ -5,7 +5,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
   `schedule/4` mints an execution id whose UUIDv7 time is the slot start, builds the plan
   that execution binds (`ServiceRadar.Edge.SweepPlan`) and stores both, so the source
   authorization core signs later names an execution and a plan that already exist.
-  `drop_unrun/2` withdraws the slots that have not started when their agent is revoked.
+  `drop_unrun/2` withdraws the slots that have not started when their agent is revoked,
+  and `mark_delivered/2` records that a lease push carried slots to the agent.
   Only the system actor writes.
   """
 
@@ -108,8 +109,10 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
   defp restrict(query, :except, agent_ids),
     do: Ash.Query.filter(query, agent_id not in ^agent_ids)
 
-  defp bulk_drop(query) do
-    case Ash.bulk_update(query, :drop, %{},
+  defp bulk_drop(query), do: bulk_update(query, :drop, %{})
+
+  defp bulk_update(query, action, params) do
+    case Ash.bulk_update(query, action, params,
            actor: actor(),
            strategy: [:atomic, :stream],
            return_records?: true,
@@ -134,6 +137,21 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
     SweepExecutionSlot
     |> Ash.Query.filter(id in ^slot_ids and state == :scheduled and slot_start > ^now)
     |> bulk_drop()
+  end
+
+  @doc """
+  Records that a lease push carried the given slots to the agent at `now`.
+  Returns how many were marked.
+  """
+  @spec mark_delivered([Ecto.UUID.t()], DateTime.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def mark_delivered(slot_ids, now \\ DateTime.utc_now())
+  def mark_delivered([], _now), do: {:ok, 0}
+
+  def mark_delivered(slot_ids, now) when is_list(slot_ids) do
+    SweepExecutionSlot
+    |> Ash.Query.filter(id in ^slot_ids)
+    |> bulk_update(:mark_delivered, %{delivered_at: now})
   end
 
   @doc "The scheduled slots of an assignment that start after `now`, soonest first."

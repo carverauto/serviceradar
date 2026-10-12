@@ -8,19 +8,25 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
       that window just after its last slot. The same lease ends it at the later of that and the
       high water already sent, so the agent drops slots it may still hold. It is sent for a
       new lease (first delivery, or a fence bump or reissue, which changes the lease id), after
-      core dropped a delivered slot that has not started, after the agent refused the last push,
-      and when the last push was not acknowledged within `ack_grace_seconds/0`. When that lease
-      was already delivered and no unrun slot remains, the full push still goes out, with an
-      empty slot list and no production capability, in a window that reaches the high water;
+      core dropped a delivered slot that has not started, when a slot no push has carried sits
+      behind the cursor, after the agent refused the last push, and when the last push was not
+      acknowledged within `ack_grace_seconds/0`. When that lease was already delivered and no
+      unrun slot remains, the full push still goes out, with an empty slot list and no
+      production capability, in a window that reaches the high water;
     * otherwise a TAIL push carries only the slots minted since the cursor, in a window starting
       at the cursor and ending just after its last slot, and nothing is sent when there are none.
 
   Two positions are recorded. The cursor (`delivered_window_end`) is just after the last slot
   the push carried, so a slot the lease pass mints later (it mints a bounded number per pass)
-  falls in a later window. An empty full push carries no slot, and its cursor is the window
-  end it sent. The high water (`delivered_high_water`) is the furthest window end sent for the
-  current lease id and starts again at the window end when the lease id changes. A drop is
-  looked for up to the high water.
+  falls in a later window. An empty full push carries no slot; its cursor is its window start,
+  so slots minted afterward still fall in a later window. The high water
+  (`delivered_high_water`) is the furthest window end sent for the current lease id and starts
+  again at the window end when the lease id changes. A drop is looked for up to the high water.
+
+  A position alone does not prove a slot was sent, so each slot records when a push carried
+  it (`delivered_at`). A slot minted behind the cursor (the re-minted slots of a restored
+  horizon, a mint retried after an error) has no mark, and only a full window sends it: a
+  tail starts at the cursor and would pass it by forever.
 
   Every push of one lease signs the same issuance time (`lease_issued_at`, the first push of
   the lease). A push that carries slots signs a production capability from there to the end of
@@ -89,7 +95,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     with {:ok, state} <- get(assignment.id),
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now),
          {:ok, dropped?} <- dropped_since?(assignment, state, now) do
-      case plan(state, lease_id, dropped?, unrun, now) do
+      case plan(state, lease_id, dropped? or undelivered_behind?(state, unrun), unrun, now) do
         :up_to_date -> {:ok, :up_to_date}
         push -> send_push(assignment, lease_id, push, authority, now, sender)
       end
@@ -158,11 +164,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     |> Ash.read(actor: actor())
   end
 
-  # What to push, or :up_to_date.
-  defp plan(state, lease_id, dropped?, unrun, now) do
+  # What to push, or :up_to_date. `replace?` is a dropped delivered slot or a
+  # never-carried slot behind the cursor: only a full window sets either right.
+  defp plan(state, lease_id, replace?, unrun, now) do
     same_lease? = match?(%SweepLeaseDelivery{}, state) and state.lease_id == lease_id
 
-    if same_lease? and not dropped? and not ack_failed?(state) and not ack_lost?(state, now) do
+    if same_lease? and not replace? and not ack_failed?(state) and not ack_lost?(state, now) do
       tail(state, unrun)
     else
       full(state, same_lease?, unrun, now)
@@ -202,7 +209,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
       issued_at: issued_at,
       window_start: window_start,
       window_end: window_end,
-      cursor: window_end,
+      cursor: window_start,
       high_water: window_end,
       slots: []
     }
@@ -249,6 +256,17 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     state.acked_payload_sha256 != state.delivered_payload_sha256 and
       DateTime.diff(now, state.delivered_at, :second) > @ack_grace_seconds
   end
+
+  # A slot no push has carried, minted behind the cursor: a tail starts at the cursor,
+  # so only a full window ever sends it.
+  defp undelivered_behind?(%SweepLeaseDelivery{} = state, unrun) do
+    Enum.any?(unrun, fn slot ->
+      is_nil(slot.delivered_at) and
+        DateTime.compare(slot.slot_start, state.delivered_window_end) == :lt
+    end)
+  end
+
+  defp undelivered_behind?(nil, _unrun), do: false
 
   # A delivered slot that has not started and was dropped after the last push: only a full
   # window removes it from the agent.
@@ -351,7 +369,14 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     )
     |> Ash.create()
     |> case do
-      {:ok, _row} -> {:ok, :pushed}
+      {:ok, _row} -> mark_carried(push.slots, now)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp mark_carried(slots, now) do
+    case ExecutionSlots.mark_delivered(Enum.map(slots, & &1.id), now) do
+      {:ok, _count} -> {:ok, :pushed}
       {:error, reason} -> {:error, reason}
     end
   end
