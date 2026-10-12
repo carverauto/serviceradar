@@ -4,11 +4,13 @@ This accompanies the `refactor-durable-alert-admission` implementation. Do not
 activate an incomplete development checkpoint. PR BazelCI, the caller cutover,
 and the owner recovery and load evidence must pass first.
 
-The default `SERVICERADAR_ALERT_EVALUATION_MODE=prepared` rejects new durable
-admission. It does not silently choose inline evaluation. `active` admits work;
-`draining` rejects new admission while finishing accepted work. Invalid settings
-fail release boot. The alerts Oban queue must be enabled and have a positive
-worker limit on each evaluating core node.
+The default `SERVICERADAR_ALERT_EVALUATION_MODE=prepared` does not evaluate
+alert rules: records are stored and the batch is acknowledged, but no rule
+evaluates them and no alert effects are produced. A periodic warning reports
+this in the core log. `active` admits work; `draining` rejects new admission
+while finishing accepted work. Invalid settings fail release boot. The alerts
+Oban queue must be enabled and have a positive worker limit on each evaluating
+core node.
 
 1. Install the migrations and new consumer-capable image with admission prepared.
 2. Retire every old inline evaluator, including disconnected pods. Check the
@@ -17,7 +19,9 @@ worker limit on each evaluating core node.
 3. Confirm all three evaluation tables, the rule-admission fence trigger, the
    bounded alerts worker queue, and the recovery cron. Connected evaluator peers
    must report the durable capability; legacy Horde registrations reject admission.
-4. Set `SERVICERADAR_ALERT_EVALUATION_MODE=active` on the evaluating cohort.
+4. Set `core.alertEvaluation.mode: active` in Helm values (or
+   `SERVICERADAR_ALERT_EVALUATION_MODE=active` directly if you override via
+   `core.extraEnv`) on the evaluating cohort.
    Observe accepted inputs, committed receipts, and persisted alert effects.
    Rejected upstream deliveries must remain eligible for retry.
 5. Before rollback, set `draining` everywhere and stop upstream admission. Wait
@@ -54,7 +58,7 @@ not substitute for those checks.
 | Boundary | Runtime writers or callers | Durable behavior |
 | --- | --- | --- |
 | Rule inventory | `StatefulAlertRule` Ash/JSON API actions, `RuleSeeder`, `Plugins.AlertRuleCatalog`, `Inventory.MetricRuleSync`, Rules LiveView, event-to-rule creation, AshEvents replay | Database triggers cover row INSERT/UPDATE/DELETE and replay TRUNCATE. Admission captures one revision; disabling/deleting cancels unclaimed accepted input through the lane watermark. |
-| Source acknowledgement | `StatefulEvaluationLedger` used by Events, Falco, Trivy and log promotion | The source marker records acceptance, not completed alert effects. Rejection returns to the source consumer; receipts deduplicate a replay after accepted work commits. |
+| Source acknowledgement | `StatefulEvaluationLedger` used by Events, Falco, Trivy and log promotion | The source marker records acceptance, not completed alert effects. In prepared mode the batch is acknowledged as a skip: records are stored, nothing is evaluated or promoted, and JetStream does not redeliver. Draining and capability failures still fail the batch and return it to the source consumer; receipts deduplicate a replay after accepted work commits. |
 | Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit with their accepted evaluation. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. |
 | Snapshot and rule history | `Owner`, `AlertLifecycle`, `StatefulAlertCleanupWorker` | The owner fence encloses restore, lifecycle changes, every changed snapshot and the receipt. Cleanup rechecks pending work and incident identity under the admission/owner boundaries. |
 | Incident and notification control | `Monitoring.Alert`, `AlertGenerator`, `AlertLifecycle`, notification routing/continuation/scheduler workers, operator actions | Existing operator acknowledgement, suppression, escalation and resolution remain control-plane actions. Renotify continuation reacquires the rule fence and rechecks the alert/rule/cadence before enqueue and bookkeeping. |
