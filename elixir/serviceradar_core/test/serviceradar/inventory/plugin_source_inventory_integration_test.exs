@@ -281,6 +281,18 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
       assert device_id == observation.device_id
       assert snapshot!(actor, instance).collection_id == "#{instance}-collection"
     end
+
+    test "keeps skipping while a member's tombstone cannot be revived", %{actor: actor} do
+      {instance, payload} = replay_payload("retained")
+
+      assert :ok = DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"}, actor: actor)
+      [observation] = observations!(actor, instance)
+      soft_delete!(observation.device_id, hd(Device.retained_reasons()))
+
+      assert :ok = ingest_recording_device_sync(payload, actor)
+
+      refute_received {:device_sync, _updates}
+    end
   end
 
   defp replay_payload(label) do
@@ -307,11 +319,11 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     )
   end
 
-  # An out-of-band deletion: a revivable reason, as an operator cleanup records it.
-  defp soft_delete!(uid) do
+  # An out-of-band deletion; the default is a revivable reason, as an operator cleanup records it.
+  defp soft_delete!(uid, reason \\ "operator_cleanup") do
     Repo.query!(
       "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = $2, deleted_by = $3 WHERE uid = $1",
-      [uid, "operator_cleanup", "test:operator"]
+      [uid, reason, "test:operator"]
     )
   end
 

@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
 
   import Ecto.Query
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceRetirementWorker
@@ -421,20 +422,27 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
     end
   end
 
-  # An unchanged collection skips the device writes only while every device it names is
-  # still live. A member deleted since activation (by an operator or a cleanup, not by the
+  # An unchanged collection skips the device writes only while no device it names can be
+  # revived. A member deleted since activation (by an operator or a cleanup, not by the
   # source) is otherwise never written back: the source keeps sending the same collection,
   # so the skip would hold forever. Processing it re-runs the device sync, which revives the
   # member; activation itself stays idempotent.
   defp idempotent_disposition(snapshot) do
-    if members_live?(snapshot), do: {:ok, :idempotent}, else: {:ok, :process}
+    if nothing_to_revive?(snapshot), do: {:ok, :idempotent}, else: {:ok, :process}
   end
 
-  defp members_live?(snapshot) do
+  # A member whose tombstone the device upsert never writes back (merged away, or a
+  # retained reason) counts as settled: re-running the sync for it would repeat on every
+  # replay and revive nothing.
+  defp nothing_to_revive?(snapshot) do
+    unrevivable = ["merged" | Device.retained_reasons()]
+
     not Repo.exists?(
       from(observation in @observations_table,
         left_join: device in "ocsf_devices",
-        on: device.uid == observation.device_id and is_nil(device.deleted_at),
+        on:
+          device.uid == observation.device_id and
+            (is_nil(device.deleted_at) or device.deleted_reason in ^unrevivable),
         where:
           observation.partition == ^snapshot.partition and
             observation.source == ^snapshot.source and
