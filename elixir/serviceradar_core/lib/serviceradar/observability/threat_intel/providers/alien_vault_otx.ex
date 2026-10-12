@@ -92,7 +92,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
            config
            |> int_value([:backoff_ms, "backoff_ms"], @default_backoff_ms)
            |> max(0),
-         http_get: Map.get(config, :http_get, &EgressClient.fetch_body/2),
+         http_get: Map.get(config, :http_get, &EgressClient.fetch_json/2),
          sleep_fun: Map.get(config, :sleep_fun, &Process.sleep/1),
          validate_url?: Map.get(config, :validate_url?, Map.get(config, "validate_url?", true))
        }}
@@ -124,6 +124,9 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
 
       {:ok, %Req.Response{status: status}} ->
         {:error, {:http_status, status}}
+
+      {:error, %Jason.DecodeError{} = reason} ->
+        {:error, reason}
 
       {:error, reason} ->
         retry_or_error(url, opts, cfg, attempt, reason)

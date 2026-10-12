@@ -59,6 +59,13 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     schema "platform"
 
     identity_wheres_to_sql unique_slug: "slug IS NOT NULL"
+
+    # The table's unique indexes predate the identities and use their own names.
+    # Without this mapping a violation surfaces as an unmapped Ecto.ConstraintError
+    # rather than a "has already been taken" error on the field.
+    identity_index_names unique_slug: "authored_dashboards_slug_idx",
+                         unique_dashboard_ref: "authored_dashboards_dashboard_ref_idx"
+
     migrate? false
 
     references do

@@ -11,6 +11,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
+  alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
@@ -342,6 +343,165 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
                CredentialResolver.resolve_for_host(alias_ip, actor)
 
       assert credential.community == "public"
+    end
+
+    @tag :integration
+    test "a failed SRQL targeting read does not fall back to the default profile" do
+      actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      device_uid = Ecto.UUID.generate()
+      hostname = "srql-read-failure-#{unique}"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            hostname: hostname,
+            type_id: 10,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _targeted} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Targeted #{unique}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
+            version: :v2c,
+            community: "targeted-community"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, default_profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Default #{unique}",
+            version: :v2c,
+            community: "default-community"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _default_profile} =
+        default_profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      assert {:ok, %{credential: %{community: "targeted-community"}, source: :profile}} =
+               CredentialResolver.resolve_for_device(device_uid, actor)
+
+      Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
+
+      try do
+        assert {:error, _} = CredentialResolver.resolve_for_device(device_uid, actor)
+      after
+        Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
+      end
+
+      assert {:ok, %{credential: %{community: "targeted-community"}, source: :profile}} =
+               CredentialResolver.resolve_for_device(device_uid, actor)
+    end
+
+    @tag :integration
+    test "a failed default profile read is an error, not a missing credential" do
+      actor = SystemActor.system(:test)
+
+      Repo.query!("ALTER TABLE platform.snmp_profiles RENAME TO _snmp_profiles_hidden")
+
+      try do
+        assert {:error, _} = CredentialResolver.resolve_for_device("not-a-uuid", actor)
+      after
+        Repo.query!("ALTER TABLE platform._snmp_profiles_hidden RENAME TO snmp_profiles")
+      end
+
+      assert {:ok, %{source: source}} =
+               CredentialResolver.resolve_for_device("not-a-uuid", actor)
+
+      assert source in [:none, :default_profile, :credential_rule]
+    end
+
+    @tag :integration
+    test "a failed credential rule match read does not fall through to no credential" do
+      actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      device_uid = Ecto.UUID.generate()
+      hostname = "rule-read-failure-#{unique}"
+      agent_id = "agent-rule-read-#{unique}"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            hostname: hostname,
+            type_id: 10,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "rule-read-#{unique}",
+            provider: "snmp",
+            credential_kind: :opaque,
+            secret_payload: "rule-community"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _rule} =
+        NetworkCredentialRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "rule-read-#{unique}",
+            provider: "snmp",
+            auth_method: :community,
+            purpose: "snmp_monitoring",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            scope_type: :agent,
+            scope_value: agent_id,
+            secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      assert {:ok, %{credential: %{community: "rule-community"}, source: :credential_rule}} =
+               CredentialResolver.resolve_for_device(device_uid, actor, agent_id: agent_id)
+
+      Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
+
+      try do
+        assert {:error, _} =
+                 CredentialResolver.resolve_for_device(device_uid, actor, agent_id: agent_id)
+      after
+        Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
+      end
+
+      assert {:ok, %{credential: %{community: "rule-community"}, source: :credential_rule}} =
+               CredentialResolver.resolve_for_device(device_uid, actor, agent_id: agent_id)
     end
   end
 end

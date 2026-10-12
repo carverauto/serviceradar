@@ -52,6 +52,11 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
         proxy: %{scheme: :http, host: "127.0.0.1", port: ctx.proxy.port},
         profile: ctx.profile,
         cacerts: ctx.cacerts,
+        validate_redirect: fn url ->
+          if URI.parse(url).host in ["localhost", "artifact.example.com"],
+            do: :ok,
+            else: {:error, :disallowed_host}
+        end,
         into: fn {:data, chunk}, acc ->
           send(self(), {:chunk, chunk})
           {:cont, acc}
@@ -151,9 +156,78 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              EgressClient.fetch_body("https://localhost/missing", opts(ctx, []))
   end
 
+  test "JSON fetch decodes objects and arrays while raw fetch preserves wire bytes", ctx do
+    for {path, wire, decoded} <- [
+          {"/json-object", ~s({"name":"synthetic"}), %{"name" => "synthetic"}},
+          {"/json-array", ~s([{"tag_name":"v1.0.0"}]), [%{"tag_name" => "v1.0.0"}]},
+          {"/json-empty", "[]", []}
+        ] do
+      assert {:ok, %Req.Response{status: 200, body: ^wire}} =
+               EgressClient.fetch_body("https://localhost#{path}", opts(ctx, []))
+
+      assert {:ok, %Req.Response{status: 200, body: ^decoded}} =
+               EgressClient.fetch_json("https://localhost#{path}", opts(ctx, []))
+    end
+
+    assert {:error, %Jason.DecodeError{}} =
+             EgressClient.fetch_json("https://localhost/artifact.tar.gz", opts(ctx, []))
+
+    assert {:ok, %Req.Response{status: 404, body: "not found"}} =
+             EgressClient.fetch_json("https://localhost/missing", opts(ctx, []))
+  end
+
+  test "buffered fetch can leave redirects to caller policy and validates every followed hop",
+       ctx do
+    assert {:ok, %Req.Response{status: 302}} =
+             EgressClient.fetch_body("https://localhost/redirect", opts(ctx, redirect: false))
+
+    assert {:error, :disallowed_host} =
+             EgressClient.fetch_body(
+               "https://localhost/redirect",
+               Keyword.delete(opts(ctx, []), :validate_redirect)
+             )
+  end
+
   test "stops following redirects after :max_redirects", ctx do
     assert {:error, :too_many_redirects} =
              EgressClient.fetch_body("https://localhost/loop", opts(ctx, max_redirects: 3))
+  end
+
+  test "keeps request credentials on the same origin and drops them across origins", ctx do
+    headers = [
+      {"Authorization", "Bearer synthetic-token"},
+      {"X-OTX-API-Key", "synthetic-api-key"},
+      {"Cookie", "session=synthetic"},
+      {"x-custom-secret", "synthetic-secret"},
+      {"accept", "application/json"},
+      {"user-agent", "synthetic-client"}
+    ]
+
+    for path <- ["/same-origin-redirect", "/cross-origin-redirect", "/cross-host-redirect"] do
+      assert {:ok, %Req.Response{status: 200, body: body}} =
+               EgressClient.fetch_body("https://localhost#{path}", opts(ctx, headers: headers))
+
+      assert {:ok, received} = Jason.decode(body)
+      assert received["accept"] == "application/json"
+      assert received["user-agent"] == "synthetic-client"
+
+      for {name, value} <- Enum.take(headers, 4) do
+        assert received[String.downcase(name)] ==
+                 if(path == "/same-origin-redirect", do: value)
+      end
+    end
+  end
+
+  @tag :tmp_dir
+  test "a partial response cannot replace a complete artifact", ctx do
+    dest = Path.join(ctx.tmp_dir, "artifact.bin")
+    File.write!(dest, "complete synthetic artifact")
+
+    assert {:error, {:http_status, 206}} =
+             EgressClient.download_to_file("https://localhost/partial", dest, opts(ctx, []))
+
+    assert File.read!(dest) == "complete synthetic artifact"
+    refute File.exists?(dest <> ".tmp")
   end
 
   # The MMDB downloads failed on every proxied deployment: they rode the shared
@@ -331,7 +405,10 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   # origin answers the handshake with `unable_to_supply_acceptable_cert`, which
   # looks like a client trust failure rather than a test-fixture problem.
   defp generate_certs do
-    san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
+    san =
+      {:Extension, {2, 5, 29, 17}, false,
+       [dNSName: ~c"localhost", dNSName: ~c"artifact.example.com"]}
+
     alg = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
 
     :public_key.pkix_test_data(%{
@@ -423,6 +500,48 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   defp origin_response(request) do
     cond do
+      String.contains?(request, "/cross-host-redirect") ->
+        redirect_response("https://artifact.example.com/echo-headers")
+
+      String.contains?(request, "/json-") ->
+        body =
+          cond do
+            String.contains?(request, "/json-object") -> ~s({"name":"synthetic"})
+            String.contains?(request, "/json-array") -> ~s([{"tag_name":"v1.0.0"}])
+            String.contains?(request, "/json-empty") -> "[]"
+          end
+
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n" <>
+          "content-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <> body
+
+      String.contains?(request, "/same-origin-redirect") ->
+        redirect_response("https://localhost/echo-headers")
+
+      String.contains?(request, "/cross-origin-redirect") ->
+        redirect_response("https://localhost:8443/echo-headers")
+
+      String.contains?(request, "/echo-headers") ->
+        headers =
+          request
+          |> String.split("\r\n")
+          |> Enum.drop(1)
+          |> Enum.flat_map(fn line ->
+            case String.split(line, ":", parts: 2) do
+              [name, value] -> [{String.downcase(name), String.trim(value)}]
+              _ -> []
+            end
+          end)
+          |> Map.new()
+
+        body = Jason.encode!(headers)
+
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n" <>
+          "content-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <> body
+
+      String.contains?(request, "/partial") ->
+        "HTTP/1.1 206 Partial Content\r\ncontent-range: bytes 0-2/9\r\n" <>
+          "content-length: 3\r\nconnection: close\r\n\r\nabc"
+
       # Before "/redirect", which it contains.
       String.contains?(request, "/insecure-redirect") ->
         redirect_response("http://localhost/artifact.tar.gz")

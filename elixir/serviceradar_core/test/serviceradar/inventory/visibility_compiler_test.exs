@@ -152,6 +152,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       assert config["enabled"] == false
       assert config["device_bindings"] == []
     end
+
+    # A disabled config returned here would be cached as the device's config.
+    @tag :visibility
+    test "returns an error, not a disabled config, when the device IP read fails" do
+      assert {:error, {:device_ip_resolution_failed, :database_unavailable}} =
+               VisibilityCompiler.compile("default", "agent-1",
+                 actor: %{},
+                 device_uid: @device_uid,
+                 profile_resolver: fn _device_uid, _actor -> {:ok, profile("Profile", 1)} end,
+                 device_ip_resolver: fn _device_uid, _actor -> {:error, :database_unavailable} end
+               )
+    end
   end
 
   describe "compile_profile/3" do

@@ -107,9 +107,9 @@ runs behind at all.
 
 So GitHub import is not merely unconventional in a proxied deployment, it cannot
 work there, and the failure would appear only in the environments that have the
-proxy. Routing the extracted client through `EgressClient.fetch_body/2` and
-`download_to_file/3` repairs plugins and add-ons in the same change that gives
-reports the capability.
+proxy. Routing the extracted client through `ServiceRadar.HTTP.EgressClient`
+repairs plugins and add-ons in the same change that gives reports the
+capability. Follow that module's documentation for which helper to call.
 
 Unlike the dashboard-SDK path, a system report needs **no renderer artifact** —
 only the JSON definition — so `GithubImporter.fetch_dashboard/1`, which requires

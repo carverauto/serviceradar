@@ -779,12 +779,14 @@ that discovery may encounter later; unknown addresses retain the collector's
 fallback credentials. A collector can therefore keep a v2c fallback while
 matching switches use scoped v3 credentials.
 
-Resolved credentials are delivered by target IP. If resolution fails for a
-target, or different device records resolve to the same IP with conflicting
-credentials, Mapper suppresses SNMP for that address before connecting or
-authenticating. It does not retry that address with the collector fallback.
-Other targets and API discovery remain available. Mapper configuration compiler logs identify the
-resolution failure or credential conflict.
+Resolved credentials are delivered by target IP. A credential-store read
+failure fails mapper config generation, and the agent keeps its running
+config. A broker refusal for one target, or two device records that resolve
+to the same IP with conflicting credentials, suppresses SNMP for that
+address before connecting or authenticating. That address is not retried
+with the collector fallback. Other targets and API discovery stay in the
+compiled config. The mapper compiler logs the read failure, the refusal,
+or the conflict.
 
 When no selected job performs SNMP discovery, Mapper skips per-target SNMP
 credential resolution. Device, SNMP profile, credential rule, and credential

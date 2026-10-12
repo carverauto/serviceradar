@@ -320,12 +320,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp generate_config!(agent_id, partition_id) do
     checks = load_agent_checks!(agent_id)
     sync_payload = load_sync_payload!(agent_id)
-    sweep_config = load_sweep_config(partition_id, agent_id)
-    mapper_config = load_mapper_config(partition_id, agent_id)
-    sysmon_config = load_sysmon_config(partition_id, agent_id)
+    sweep_config = load_sweep_config!(partition_id, agent_id)
+    mapper_config = load_mapper_config!(partition_id, agent_id)
+    sysmon_config = load_sysmon_config!(partition_id, agent_id)
     snmp_config = load_snmp_config!(partition_id, agent_id)
-    visibility_config = load_visibility_config(partition_id, agent_id)
-    bumblebee_config = load_bumblebee_config(partition_id, agent_id)
+    visibility_config = load_visibility_config!(partition_id, agent_id)
+    bumblebee_config = load_bumblebee_config!(partition_id, agent_id)
     endpoint_inventory_config = load_endpoint_inventory_config(partition_id, agent_id)
     plugin_assignments = load_plugin_assignments(agent_id, partition_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
@@ -2976,9 +2976,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Load sweep configuration from the AgentConfig system
-  # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
-  defp load_sweep_config(partition, agent_id) do
+  # Load sweep configuration from the AgentConfig system.
+  # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile
+  # resources. No config found is a valid empty config; a compile or read error raises so
+  # generation fails instead of delivering a blank sweep config in its place.
+  defp load_sweep_config!(partition, agent_id) do
     Logger.debug(
       "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
     )
@@ -3001,16 +3003,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         %{}
 
       {:error, reason} ->
-        Logger.warning(
-          "AgentConfigGenerator: failed to load sweep config for agent #{agent_id}: #{inspect(reason)}"
-        )
-
-        %{}
+        raise "failed to load sweep config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 
-  # Load mapper discovery configuration from the AgentConfig system
-  defp load_mapper_config(partition, agent_id) do
+  # Load mapper discovery configuration from the AgentConfig system.
+  # No config found is a valid empty config; a compile or read error raises so
+  # generation fails instead of delivering a blank discovery config.
+  defp load_mapper_config!(partition, agent_id) do
     actor = SystemActor.system(:mapper_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -3033,17 +3033,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         %{}
 
       {:error, reason} ->
-        Logger.warning(
-          "AgentConfigGenerator: failed to load mapper config for agent #{agent_id}: #{inspect(reason)}"
-        )
-
-        %{}
+        raise "failed to load mapper config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 
-  # Load sysmon configuration from the AgentConfig system
-  # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
-  defp load_sysmon_config(partition, agent_id) do
+  # Load sysmon configuration from the AgentConfig system.
+  # This uses the ConfigServer which compiles sysmon configs from SysmonProfile
+  # resources. No profile is a valid disabled config; a compile or read error
+  # raises so generation fails instead of delivering that disabled config.
+  defp load_sysmon_config!(partition, agent_id) do
     actor = SystemActor.system(:sysmon_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -3059,9 +3057,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         SysmonCompiler.disabled_config()
 
       {:error, reason} ->
-        Logger.warning("Failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}")
-
-        SysmonCompiler.disabled_config()
+        raise "failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 
@@ -3090,8 +3086,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Load visibility configuration from the AgentConfig system.
-  defp load_visibility_config(partition, agent_id) do
+  # Load visibility configuration from the AgentConfig system. No profile is
+  # a valid disabled config; a compile or read error raises so generation fails
+  # instead of delivering that disabled config in its place.
+  defp load_visibility_config!(partition, agent_id) do
     actor = SystemActor.system(:visibility_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -3108,56 +3106,75 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         disabled_visibility_config()
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load visibility config for agent #{agent_id}: #{inspect(reason)}"
-        )
-
-        disabled_visibility_config()
+        raise "failed to load visibility config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 
-  defp load_bumblebee_config(partition, agent_id) do
+  # Load Bumblebee configuration from the AgentConfig system. A disabled
+  # profile or no active catalog is what the data says and stays a disabled
+  # config; a failed config or catalog read raises so generation fails instead
+  # of delivering that disabled config in its place.
+  defp load_bumblebee_config!(partition, agent_id) do
     actor = SystemActor.system(:bumblebee_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
-    with {:ok, entry} <-
-           ConfigServer.get_config(:bumblebee, partition, agent_id,
-             actor: actor,
-             device_uid: device_uid
-           ),
-         profile_config when is_map(profile_config) <- entry.config,
-         true <- map_bool(profile_config, "enabled", false),
-         {:ok, %BumblebeeCatalogSnapshot{} = snapshot} <- active_bumblebee_catalog(actor),
-         true <- usable_bumblebee_catalog?(snapshot) do
-      profile_config
-      |> Map.put("enabled", true)
-      |> Map.put("agent_id", agent_id)
-      |> maybe_put_config_value("device_uid", device_uid)
-      |> Map.put_new("scan_profile", "default")
-      |> Map.put_new("root_discovery_mode", "all")
-      |> Map.put_new("explicit_roots", [])
-      |> Map.put_new("exclude_roots", [])
-      |> Map.put_new("ecosystems", [])
-      |> Map.put_new("scan_timeout", "10m")
-      |> Map.put_new("max_findings", 1000)
-      |> Map.put_new("max_output_bytes", 33_554_432)
-      |> Map.put_new("cadence", "6h")
-      |> Map.put_new("findings_only", true)
-      |> Map.put("catalog", catalog_assignment_config(snapshot))
-    else
+    case ConfigServer.get_config(:bumblebee, partition, agent_id,
+           actor: actor,
+           device_uid: device_uid
+         ) do
+      {:ok, entry} ->
+        bumblebee_profile_config(entry.config, agent_id, device_uid, actor)
+
       {:error, :no_config_found} ->
         Logger.debug("No Bumblebee config found for agent #{agent_id}, using disabled config")
         disabled_feature_config()
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load Bumblebee config for agent #{agent_id}: #{inspect(reason)}"
-        )
+        raise "failed to load Bumblebee config for agent #{agent_id}: #{inspect(reason)}"
+    end
+  end
 
+  defp bumblebee_profile_config(profile_config, agent_id, device_uid, actor)
+       when is_map(profile_config) do
+    if map_bool(profile_config, "enabled", false) do
+      enabled_bumblebee_profile_config(profile_config, agent_id, device_uid, actor)
+    else
+      disabled_feature_config()
+    end
+  end
+
+  defp bumblebee_profile_config(_profile_config, _agent_id, _device_uid, _actor) do
+    disabled_feature_config()
+  end
+
+  defp enabled_bumblebee_profile_config(profile_config, agent_id, device_uid, actor) do
+    case active_bumblebee_catalog(actor) do
+      {:ok, %BumblebeeCatalogSnapshot{} = snapshot} ->
+        if usable_bumblebee_catalog?(snapshot) do
+          profile_config
+          |> Map.put("enabled", true)
+          |> Map.put("agent_id", agent_id)
+          |> maybe_put_config_value("device_uid", device_uid)
+          |> Map.put_new("scan_profile", "default")
+          |> Map.put_new("root_discovery_mode", "all")
+          |> Map.put_new("explicit_roots", [])
+          |> Map.put_new("exclude_roots", [])
+          |> Map.put_new("ecosystems", [])
+          |> Map.put_new("scan_timeout", "10m")
+          |> Map.put_new("max_findings", 1000)
+          |> Map.put_new("max_output_bytes", 33_554_432)
+          |> Map.put_new("cadence", "6h")
+          |> Map.put_new("findings_only", true)
+          |> Map.put("catalog", catalog_assignment_config(snapshot))
+        else
+          disabled_feature_config()
+        end
+
+      {:ok, _no_active_snapshot} ->
         disabled_feature_config()
 
-      _ ->
-        disabled_feature_config()
+      {:error, reason} ->
+        raise "failed to load Bumblebee catalog for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 

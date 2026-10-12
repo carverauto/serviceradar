@@ -531,17 +531,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
       receive_timeout: @default_timeout_ms
     ]
 
-    case EgressClient.fetch_body(url, opts) do
-      {:ok, %Req.Response{status: 200, body: body}} -> decode_json_object(body)
+    case EgressClient.fetch_json(url, opts) do
+      {:ok, %Req.Response{status: 200, body: %{} = body}} -> {:ok, body}
+      {:ok, %Req.Response{status: 200}} -> {:error, :unexpected_json}
       {:ok, %Req.Response{status: status}} -> {:error, {:http_status, status}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp decode_json_object(body) do
-    case Jason.decode(body) do
-      {:ok, %{} = decoded} -> {:ok, decoded}
-      {:ok, _other} -> {:error, :unexpected_json}
       {:error, reason} -> {:error, reason}
     end
   end

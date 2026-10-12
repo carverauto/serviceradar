@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -157,9 +158,78 @@ type searchResponse struct {
 		Next    int         `json:"next"`
 		Prev    interface{} `json:"prev"`
 		Results []device    `json:"results"`
-		Total   int         `json:"total"`
+		Total   searchTotal `json:"total"`
 	} `json:"data"`
 	Success bool `json:"success"`
+}
+
+// searchTotal is the "total" field of an Armis search response. Armis reports
+// an exact count for small result sets but a non-numeric marker (for example
+// "Many") once the match count passes its reporting threshold. Decoding the
+// field as a plain int rejects every page of such a query, so the value is
+// kept as reported and only exposed as a number when it is one. Pagination
+// never depends on it; it is informational.
+type searchTotal struct {
+	count int
+	exact bool
+	label string
+}
+
+// UnmarshalJSON accepts a JSON number, a numeric string, any other string,
+// or null.
+func (t *searchTotal) UnmarshalJSON(data []byte) error {
+	*t = searchTotal{}
+
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+
+	if trimmed[0] == '"' {
+		var value string
+		if err := json.Unmarshal(trimmed, &value); err != nil {
+			return err
+		}
+
+		value = strings.TrimSpace(value)
+		if count, err := strconv.Atoi(value); err == nil {
+			t.count, t.exact = count, true
+			return nil
+		}
+
+		t.label = value
+
+		return nil
+	}
+
+	var number json.Number
+	if err := json.Unmarshal(trimmed, &number); err != nil {
+		return err
+	}
+
+	count, err := strconv.Atoi(number.String())
+	if err != nil {
+		t.label = number.String()
+		return nil
+	}
+
+	t.count, t.exact = count, true
+
+	return nil
+}
+
+// Exact returns the reported total and whether Armis reported an exact count.
+func (t searchTotal) Exact() (int, bool) {
+	return t.count, t.exact
+}
+
+// String renders the total as Armis reported it, for logging.
+func (t searchTotal) String() string {
+	if t.exact {
+		return strconv.Itoa(t.count)
+	}
+
+	return t.label
 }
 
 type tokenResponse struct {

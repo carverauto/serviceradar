@@ -223,6 +223,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
   test "inventory classification streams every live device in bounded pages" do
     actor = SystemActor.system(:topology_world_test)
 
+    # Serial lanes share a database. Unboxed tests commit live devices and may
+    # leave them behind, which shifts this census off the 500-row page boundary.
+    # Tombstone those rows in this transaction; rollback restores them.
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = timezone('utc', now()) WHERE deleted_at IS NULL"
+    )
+
     devices =
       Enum.map(1..502, fn index ->
         %{uid: "sr:inventory-#{index}", type_id: 12, hostname: "host#{index}.example.com"}

@@ -58,8 +58,9 @@ as "no work has landed".
       `engine.rs` wiring.
 - [ ] 3.6 `rust/srql/src/query/viz/`: column metadata.
 - [x] 3.7 `device_sweep_overlap`: a view reporting, per device, which sweep
-      groups were DECLARED to target it (from the compiled config's resolved
-      `targets` / `device_targets`) versus which actually produced results, plus
+      groups were DECLARED to target it (from
+      `platform.sweep_group_declared_targets`) versus which actually produced
+      results, plus
       the group and execution that currently own the `device_agent_availability`
       row. Declared-but-not-observed is the diagnostic that proves or kills the
       reported symptom. Follow the `addon_fleet` view pattern: created by raw
@@ -72,8 +73,17 @@ as "no work has landed".
       would have handed every authenticated user the identity of a profile that
       `in:sweep_profiles` correctly hides. The row survives because the alert is
       the operator's business either way.
+      Update (#4963): the compiled-config source this task originally named
+      was never written in production. Declared rows and `declared_at` are
+      specified in `persist-sweep-declared-targets`. The view pattern,
+      projection and masking are unchanged.
 - [ ] 3.8 `sweep_compiled_config`: named-column allowlist over sweep config
       instances only. The `compiled_config` document is never projected.
+      Update (#4963): sweep config instances are confirmed never written in
+      production, so this entity's data source does not exist as specced; a
+      data-source decision is outstanding before this task is built (the
+      per-group declared-target relation from `persist-sweep-declared-targets`
+      is one candidate surface).
 - [ ] 3.9 `sweep_profiles`: expose banner grab as `enabled` and `protocols`
       only; omit the timeout, concurrency and rate tuning fields.
 - [ ] 3.10 No Bazel edit is needed for new `.rs` files: `rust/srql/BUILD.bazel`

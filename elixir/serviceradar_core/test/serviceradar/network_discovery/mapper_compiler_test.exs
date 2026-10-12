@@ -10,10 +10,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
@@ -982,6 +984,322 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     assert compiled_job
     refute Map.has_key?(compiled_job["options"], "proxmox_candidate_probe_enabled")
+  end
+
+  @tag :integration
+  test "a failed device credential read fails the compile instead of falling back to default credentials" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    partition = "credential-read-failure-#{unique_id}"
+    agent_id = "agent-credential-read-failure-#{unique_id}"
+
+    Repo.query!(
+      "ALTER TABLE platform.device_snmp_credentials RENAME TO _device_snmp_credentials_hidden"
+    )
+
+    try do
+      assert {:error, {:credential_resolution_failed, _}} =
+               MapperCompiler.compile(partition, agent_id,
+                 actor: actor,
+                 device_uid: "sr:" <> Ash.UUID.generate()
+               )
+    after
+      Repo.query!(
+        "ALTER TABLE platform._device_snmp_credentials_hidden RENAME TO device_snmp_credentials"
+      )
+    end
+
+    # The same compile with a readable credential table still succeeds: a
+    # device with no configured credential is a zero-row read, not a failure.
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id,
+               actor: actor,
+               device_uid: "sr:" <> Ash.UUID.generate()
+             )
+
+    assert config["scheduled_jobs"] == []
+  end
+
+  @tag :integration
+  test "a failed broker credential read does not fall back to the default profile" do
+    actor = SystemActor.system(:test)
+    unique = System.unique_integer([:positive])
+    partition = "broker-fallback-#{unique}"
+    agent_id = "agent-broker-fallback-#{unique}"
+    device_uid = "sr:" <> Ash.UUID.generate()
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: device_uid,
+          hostname: "broker-fallback-#{unique}.example.com",
+          ip: "192.0.2.40",
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} =
+      create_mapper_secret("snmp", "Broker fallback #{unique}", "broker-community", actor)
+
+    {:ok, _override} =
+      DeviceSNMPCredential
+      |> Ash.Changeset.for_create(
+        :create,
+        %{device_id: device_uid, version: :v2c, credential_secret_id: secret.id},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Mapper fallback #{unique}",
+          enabled: true,
+          version: :v2c,
+          community: "fallback-community"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, _profile} =
+      profile
+      |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    Repo.query!(
+      "ALTER TABLE platform.network_credential_secrets RENAME TO _network_credential_secrets_hidden"
+    )
+
+    try do
+      assert {:error, {:credential_resolution_failed, _}} =
+               MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: device_uid)
+    after
+      Repo.query!(
+        "ALTER TABLE platform._network_credential_secrets_hidden RENAME TO network_credential_secrets"
+      )
+    end
+
+    assert {:ok, %{credential: %{community: "broker-community"}}} =
+             CredentialResolver.resolve_for_device(device_uid, actor)
+
+    assert {:ok, _config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: device_uid)
+  end
+
+  @tag :integration
+  test "a failed seed credential read fails the compile instead of suppressing that address" do
+    actor = SystemActor.system(:test)
+    unique = System.unique_integer([:positive])
+    partition = "seed-read-#{unique}"
+    agent_id = "agent-seed-read-#{unique}"
+    collector = create_mapper_collector(unique, actor)
+    seed_ip = "192.0.2.#{rem(unique, 200) + 20}"
+
+    {:ok, seed_device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "sr:" <> Ash.UUID.generate(),
+          hostname: "seed-#{unique}.example.com",
+          ip: seed_ip,
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} = create_mapper_secret("snmp", "Seed secret #{unique}", "seed-community", actor)
+
+    {:ok, _override} =
+      DeviceSNMPCredential
+      |> Ash.Changeset.for_create(
+        :create,
+        %{device_id: seed_device.uid, version: :v2c, credential_secret_id: secret.id},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Seed read #{unique}",
+          partition: partition,
+          discovery_mode: :snmp,
+          discovery_type: :basic
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    MapperSeed
+    |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: seed_ip}, actor: actor)
+    |> Ash.create!(actor: actor)
+
+    Repo.query!(
+      "ALTER TABLE platform.network_credential_secrets RENAME TO _network_credential_secrets_hidden"
+    )
+
+    try do
+      assert {:error, {:credential_resolution_failed, _}} =
+               MapperCompiler.compile(partition, agent_id,
+                 actor: actor,
+                 device_uid: collector.uid
+               )
+    after
+      Repo.query!(
+        "ALTER TABLE platform._network_credential_secrets_hidden RENAME TO network_credential_secrets"
+      )
+    end
+
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
+
+    compiled = compiled_job(config, job.name)
+    assert compiled["credentials"]["target_specific"][seed_ip]["community"] == "seed-community"
+  end
+
+  @tag :integration
+  test "a failed mapper controller secret read does not compile an empty password" do
+    actor = SystemActor.system(:test)
+    unique = System.unique_integer([:positive])
+    job_name = "Mapper controller outage #{unique}"
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: job_name, discovery_mode: :api, discovery_type: :full},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} =
+      create_mapper_secret(
+        "mikrotik",
+        "RouterOS outage #{unique}",
+        Jason.encode!(%{"password" => "routeros-broker-secret"}),
+        actor
+      )
+
+    {:ok, _controller} =
+      MapperMikrotikController
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          mapper_job_id: job.id,
+          name: "chr-outage-#{unique}",
+          base_url: "https://192.0.2.88",
+          username: "admin",
+          credential_secret_id: secret.id
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert {:ok, before_config} = MapperCompiler.compile("default", nil, actor: actor)
+
+    assert Enum.any?(before_config["mikrotik_apis"], fn controller ->
+             controller["name"] == "chr-outage-#{unique}" and
+               controller["password"] == "routeros-broker-secret"
+           end)
+
+    Repo.query!(
+      "ALTER TABLE platform.network_credential_secrets RENAME TO _network_credential_secrets_hidden"
+    )
+
+    try do
+      assert {:error, {:credential_resolution_failed, _}} =
+               MapperCompiler.compile("default", nil, actor: actor)
+    after
+      Repo.query!(
+        "ALTER TABLE platform._network_credential_secrets_hidden RENAME TO network_credential_secrets"
+      )
+    end
+
+    assert {:ok, after_config} = MapperCompiler.compile("default", nil, actor: actor)
+
+    assert Enum.any?(after_config["mikrotik_apis"], fn controller ->
+             controller["name"] == "chr-outage-#{unique}" and
+               controller["password"] == "routeros-broker-secret"
+           end)
+  end
+
+  @tag :integration
+  test "a failed Proxmox rule read fails the compile instead of disabling the probe" do
+    actor = SystemActor.system(:test)
+    unique = System.unique_integer([:positive])
+    partition = "pve-read-#{unique}"
+    agent_id = "agent-pve-read-#{unique}"
+    job_name = "Mapper Job Proxmox Read #{unique}"
+
+    {:ok, _job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: job_name,
+          partition: partition,
+          discovery_mode: :api,
+          discovery_type: :basic
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} = create_proxmox_secret(unique, actor)
+
+    {:ok, _rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "PVE Read #{unique}",
+          provider: "proxmox",
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
+          target_query: "in:devices metadata.proxmox_candidate:true",
+          scope_type: :agent,
+          scope_value: agent_id,
+          secret_id: secret.id,
+          metadata: %{"auto_discovery_enabled" => true}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert {:ok, before_config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    before_job = compiled_job(before_config, job_name)
+    assert before_job["options"]["proxmox_candidate_probe_enabled"] == "true"
+
+    Repo.query!(
+      "ALTER TABLE platform.network_credential_rules RENAME TO _network_credential_rules_hidden"
+    )
+
+    try do
+      assert {:error, _} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    after
+      Repo.query!(
+        "ALTER TABLE platform._network_credential_rules_hidden RENAME TO network_credential_rules"
+      )
+    end
+
+    assert {:ok, after_config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    after_job = compiled_job(after_config, job_name)
+    assert after_job["options"]["proxmox_candidate_probe_enabled"] == "true"
   end
 
   defp create_mapper_collector(suffix, actor) do

@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardPanel
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Dashboards.DefinitionLoader
   alias ServiceRadarWebNG.Dashboards.ReportIndex
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
@@ -239,7 +240,11 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
         end
 
       {:error, :not_found} ->
-        with_outcome(create_dashboard(ash_opts, spec, provenance, 0), :created)
+        case create_dashboard(ash_opts, spec, provenance, 0) do
+          {:ok, dashboard} -> {:ok, dashboard, :created}
+          {:error, :slug_taken} -> keep_concurrent_winner(spec.slug)
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -266,6 +271,14 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     {:error, :dashboard_ref_generation_failed}
   end
 
+  # Several web-ng replicas seed at startup, and two operators can import the same
+  # slug at once, so a create can lose a race it could not see coming. The loser is
+  # refused by the unique slug index and keeps the winner's dashboard.
+  #
+  # Each attempt creates the dashboard and its panels in one transaction. Otherwise
+  # a concurrent seeder could look the slug up between the dashboard insert and the
+  # first panel insert, see an empty dashboard, take it for an interrupted creation,
+  # and add a second set of panels.
   defp create_dashboard(ash_opts, spec, provenance, attempts) do
     attrs =
       Map.merge(provenance, %{
@@ -280,18 +293,37 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
         variables: spec.variables
       })
 
-    case AuthoredDashboard
-         |> Ash.Changeset.for_create(:import, attrs, ash_opts)
-         |> Ash.create(ash_opts) do
+    fn ->
+      with {:ok, dashboard} <-
+             AuthoredDashboard
+             |> Ash.Changeset.for_create(:import, attrs, ash_opts)
+             |> Ash.create(ash_opts),
+           {:ok, dashboard} <- create_panels(ash_opts, dashboard, spec) do
+        dashboard
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
       {:ok, dashboard} ->
-        create_panels(ash_opts, dashboard, spec)
+        {:ok, dashboard}
 
       {:error, reason} ->
-        if unique_dashboard_ref_error?(reason) do
-          create_dashboard(ash_opts, spec, provenance, attempts + 1)
-        else
-          {:error, reason}
+        reason = error_class(reason)
+
+        cond do
+          unique_violation?(reason, :slug) -> {:error, :slug_taken}
+          unique_violation?(reason, :dashboard_ref) -> create_dashboard(ash_opts, spec, provenance, attempts + 1)
+          true -> {:error, reason}
         end
+    end
+  end
+
+  defp keep_concurrent_winner(slug) do
+    case existing_dashboard(slug) do
+      {:ok, dashboard} -> {:ok, dashboard, :kept}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -311,15 +343,18 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     end)
   end
 
-  defp unique_dashboard_ref_error?(reason) do
-    reason
-    |> Exception.message()
-    |> String.contains?("authored_dashboards_dashboard_ref")
-  rescue
-    _ -> false
+  # A failed Ash create inside an enclosing transaction rolls it back with the
+  # rejected changeset rather than an error class, so normalize before deciding.
+  defp error_class(%Ash.Changeset{errors: errors}), do: Ash.Error.to_error_class(errors)
+  defp error_class(reason), do: reason
+
+  defp unique_violation?(%Ash.Error.Invalid{errors: errors}, field) do
+    Enum.any?(errors, &match?(%{field: ^field, message: "has already been taken"}, &1))
   end
 
+  defp unique_violation?(_reason, _field), do: false
+
   defp repo_enabled? do
-    Process.whereis(ServiceRadar.Repo) != nil
+    Process.whereis(Repo) != nil
   end
 end

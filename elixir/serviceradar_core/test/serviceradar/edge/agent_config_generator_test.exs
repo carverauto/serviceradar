@@ -1038,6 +1038,104 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
   end
 
+  describe "a config read that fails during generation" do
+    alias ServiceRadar.AgentConfig.ConfigServer
+    alias ServiceRadar.Repo
+
+    # A failed read must fail generation: the gateway then answers
+    # not_modified and the agent keeps its running config. Returning the
+    # empty/disabled placeholder instead would cache and deliver a config that
+    # differs from what the data says.
+    @read_failure_scenarios [
+      {:sweep, "platform.sweep_groups"},
+      {:mapper, "platform.mapper_jobs"},
+      {:sysmon, "platform.sysmon_profiles"},
+      {:visibility, "platform.visibility_profiles"}
+    ]
+
+    test "a failed read fails generation instead of an empty or disabled config section", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      # sysmon and visibility only read their profiles once the agent is bound
+      # to a device (the resolver targets UUID-shaped device uids); sweep and
+      # mapper do not care.
+      device_uid = "sr:" <> Ash.UUID.generate()
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: device_uid,
+          hostname: "read-failure-agent-#{unique_id}.example.com",
+          ip: unique_ip("generator-read-failure-#{unique_id}"),
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, _agent} = create_connected_agent(actor, agent_uid, %{}, %{device_uid: device_uid})
+
+      Enum.each(@read_failure_scenarios, fn {config_type, table} ->
+        base = String.replace_prefix(table, "platform.", "")
+        hidden = "_#{base}_hidden"
+
+        ConfigServer.invalidate(config_type)
+        Repo.query!("ALTER TABLE #{table} RENAME TO #{hidden}")
+
+        try do
+          case AgentConfigGenerator.generate_config(agent_uid, @default_partition) do
+            {:error, {:database_error, _}} ->
+              :ok
+
+            {:ok, _config} ->
+              flunk("a failed #{config_type} read still generated a config")
+
+            other ->
+              flunk("a failed #{config_type} read returned #{inspect(other)}")
+          end
+        after
+          Repo.query!("ALTER TABLE #{hidden} RENAME TO #{base}")
+        end
+      end)
+
+      # Every section readable again: generation recovers and the recovered
+      # config is not the failed placeholder.
+      assert {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+      assert config.sysmon_config.config_source == "unassigned"
+      assert config.visibility_config.enabled == false
+    end
+
+    test "a failed Bumblebee catalog read fails generation instead of a disabled config", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      create_active_bumblebee_snapshot!(actor, unique_id)
+
+      create_bumblebee_config_instance!(actor, agent_uid, %{
+        "enabled" => true,
+        "scan_profile" => "workstations"
+      })
+
+      Repo.query!(
+        "ALTER TABLE platform.bumblebee_catalog_snapshots RENAME TO _bumblebee_catalog_snapshots_hidden"
+      )
+
+      try do
+        assert {:error, {:database_error, _}} =
+                 AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+      after
+        Repo.query!(
+          "ALTER TABLE platform._bumblebee_catalog_snapshots_hidden RENAME TO bumblebee_catalog_snapshots"
+        )
+      end
+
+      # The catalog read recovering still delivers the enabled config.
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+      assert config.bumblebee_config.enabled
+    end
+  end
+
   describe "sweep config with partition resolution" do
     alias ServiceRadar.AgentConfig.ConfigServer
     alias ServiceRadar.AgentRegistry

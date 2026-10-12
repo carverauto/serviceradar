@@ -16,6 +16,15 @@ The gateway/core ingestion pipeline MUST accept `serviceradar.plugin_result.v1` 
 - **THEN** the non-metric result ingestion path continues unchanged
 - **AND** those payloads SHALL NOT be accepted as metric input
 
+#### Scenario: Legacy checker ingestion unaffected
+- **GIVEN** legacy checker statuses that do not carry time-series
+  metrics arriving at the gateway
+- **WHEN** plugin results are enabled
+- **THEN** the legacy ingestion path SHALL continue unchanged for those
+  statuses, as described in "Non-metric checker result ingestion
+  unaffected"
+- **AND** those statuses SHALL NOT be accepted as metric input
+
 #### Scenario: Plugin emits time-series metrics
 - **GIVEN** a Wasm plugin has metric time-series to report
 - **WHEN** it emits the data through the ServiceRadar metric telemetry payload kind

@@ -92,7 +92,9 @@ type v1SearchResponse struct {
 		Count   int                      `json:"count"`
 		Next    int                      `json:"next"`
 		Results []map[string]interface{} `json:"results"`
-		Total   int                      `json:"total"`
+		// Total is a number for small result sets and a marker string such
+		// as "Many" for large ones, so it is kept as reported.
+		Total json.RawMessage `json:"total"`
 	} `json:"data"`
 	Success bool `json:"success"`
 }
@@ -114,7 +116,7 @@ type v3AssetSearchResponse struct {
 type sampledQuery struct {
 	Label         string
 	Count         int
-	Total         int
+	Total         string
 	Next          int
 	AssetIDs      []int
 	MatchedKeys   []string
@@ -175,7 +177,7 @@ func run(ctx context.Context, args []string) error {
 				return err
 			}
 
-			fmt.Printf("v1 %s: sampled=%d total=%d next=%d asset_ids=%d matched_keys=%v\n",
+			fmt.Printf("v1 %s: sampled=%d total=%s next=%d asset_ids=%d matched_keys=%v\n",
 				sampled.Label, sampled.Count, sampled.Total, sampled.Next, len(sampled.AssetIDs), sampled.MatchedKeys)
 			summary.Queries = append(summary.Queries, sampled)
 			assetIDs = append(assetIDs, sampled.AssetIDs...)
@@ -440,7 +442,7 @@ func sampleV1Query(ctx context.Context, cfg *config, token, label, aql string) (
 		}
 
 		sampled.Count += len(parsedResp.Data.Results)
-		sampled.Total = parsedResp.Data.Total
+		sampled.Total = strings.Trim(string(bytes.TrimSpace(parsedResp.Data.Total)), `"`)
 		sampled.Next = parsedResp.Data.Next
 
 		for _, item := range parsedResp.Data.Results {
