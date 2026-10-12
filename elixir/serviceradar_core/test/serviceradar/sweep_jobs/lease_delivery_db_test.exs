@@ -115,7 +115,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     )
 
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
-    assert_receive {:pushed, _, _, shrunk, _}
+    assert_receive {:pushed, _, _, shrunk, shrunk_payload}
     assert shrunk.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
     assert shrunk.slots != []
     assert length(shrunk.slots) < length(first.slots)
@@ -128,6 +128,16 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert DateTime.to_unix(row.delivered_high_water, :nanosecond) ==
              shrunk.window_end_unix_nano
+
+    # The shrink has to be installed before a tail is allowed. While it is
+    # unacked and the cursor sits behind the high water, the next pass resends
+    # the full window.
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(shrunk_payload),
+               installed: true
+             })
 
     setting!(ctx.admin, :partition, ctx.partition.id,
       leasing_enabled: true,
@@ -196,6 +206,76 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              List.last(retry.slots).slot_start_unix_nano + 1_000
 
     assert DateTime.to_unix(row.delivered_high_water, :nanosecond) ==
+             first.window_end_unix_nano
+  end
+
+  test "an unacked shrink is resent in full out to the high water", ctx do
+    lease_on!(ctx, 7_200)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, payload}
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    later = DateTime.add(now, 120, :second)
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 1_800
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
+    assert_receive {:pushed, _, _, shrunk, _}
+    assert shrunk.slots != []
+    assert shrunk.window_end_unix_nano == first.window_end_unix_nano
+
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    cursor = row.delivered_window_end
+    assert DateTime.compare(cursor, row.delivered_high_water) == :lt
+    assert row.acked_payload_sha256 != row.delivered_payload_sha256
+
+    assignment = assignment!(group, ctx.agent)
+    [carried | _] = unrun!(assignment, later)
+    minted_start = DateTime.add(cursor, 60, :second)
+
+    assert {:ok, minted} =
+             ExecutionSlots.schedule(
+               assignment,
+               minted_start,
+               DateTime.add(minted_start, 900, :second),
+               targets: group.static_targets,
+               check_set_sha256: carried.check_set_sha256,
+               lease_id: LeasePass.lease_id(assignment)
+             )
+
+    # Still inside the ack grace, so only the short cursor forces this resend.
+    assert {:ok, :pushed} =
+             LeaseDelivery.deliver(assignment, ctx.delivery.authority, later, ctx.delivery.sender)
+
+    assert_receive {:pushed, _, _, resent, _}
+    assert resent.lease_id == first.lease_id
+    assert resent.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+    assert resent.window_end_unix_nano == first.window_end_unix_nano
+    refute resent.window_start_unix_nano == DateTime.to_unix(cursor, :nanosecond)
+
+    resent_ids = MapSet.new(resent.slots, & &1.execution_id)
+    assert Ecto.UUID.dump!(minted.id) in resent_ids
+    assert Ecto.UUID.dump!(carried.id) in resent_ids
+    assert DateTime.compare(carried.slot_start, cursor) == :lt
+
+    assert {:ok, [after_row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert DateTime.to_unix(after_row.delivered_window_end, :nanosecond) ==
+             DateTime.to_unix(minted_start, :nanosecond) + 1_000
+
+    assert DateTime.to_unix(after_row.delivered_high_water, :nanosecond) ==
              first.window_end_unix_nano
   end
 
