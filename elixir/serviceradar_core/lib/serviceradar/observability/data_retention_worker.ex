@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.DataRetentionWorker do
   @moduledoc """
-  Recurring cleanup for high-volume observability tables that are not Timescale hypertables.
+  Recurring cleanup and retention reconciliation for high-volume observability tables,
+  including Timescale hypertable chunk intervals, compression policies, and hourly rollups.
   """
 
   use Oban.Worker,
