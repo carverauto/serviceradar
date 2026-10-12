@@ -1261,6 +1261,12 @@ if config_env() == :prod do
     reschedule_seconds:
       "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
 
+  # Milliseconds between ingestion lane metric frames (one timeseries_metrics row per
+  # lane metric per core node each frame).
+  config :serviceradar_core, ServiceRadar.Ingestion.RuntimeMetrics,
+    interval_ms:
+      "SERVICERADAR_INGESTION_METRICS_INTERVAL_MS" |> parse_int_env.(30_000) |> max(1_000)
+
   # Heartbeat for the canonical-topology rebuild change-detection skip: when the
   # observed graph is structurally unchanged, still rebuild at most once per this
   # window so property-only edge changes are bounded to one heartbeat of staleness.
