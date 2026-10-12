@@ -1,7 +1,119 @@
 defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
+  alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.NATS.JetstreamConsumer
+
+  defmodule FakeJetStream do
+    @moduledoc false
+    # A Gnat connection stand-in holding streams in memory. Like JetStream, it
+    # refuses a stream config whose subjects another stream already owns
+    # (err_code 10065), which is what an explicit flows target runs into.
+
+    use GenServer
+
+    def start_link(streams), do: GenServer.start_link(__MODULE__, streams)
+    def streams(conn), do: GenServer.call(conn, :streams)
+
+    @impl true
+    def init(streams), do: {:ok, streams}
+
+    @impl true
+    def handle_call(:streams, _from, streams), do: {:reply, streams, streams}
+
+    def handle_call({:request, request}, _from, streams) do
+      %{recipient: recipient, topic: topic, body: body} = request
+      {reply, streams} = respond(topic, body, streams)
+      inbox = "_INBOX.fake.#{System.unique_integer([:positive])}"
+      send(recipient, {:msg, %{topic: inbox, body: Jason.encode!(reply)}})
+      {:reply, {:ok, inbox}, streams}
+    end
+
+    def handle_call({:unsub, _sid, _opts}, _from, streams), do: {:reply, :ok, streams}
+
+    defp respond("$JS.API.STREAM.NAMES", body, streams) do
+      %{"subject" => subject} = Jason.decode!(body)
+
+      names =
+        for {name, %{"subjects" => subjects}} <- streams,
+            Enum.any?(subjects, &Config.nats_filter_covers?(&1, subject)),
+            do: name
+
+      {%{"streams" => names}, streams}
+    end
+
+    defp respond("$JS.API.STREAM.INFO." <> name, _body, streams) do
+      case Map.fetch(streams, name) do
+        {:ok, stream} -> {info(name, stream), streams}
+        :error -> {not_found(), streams}
+      end
+    end
+
+    defp respond("$JS.API.STREAM.CREATE." <> name, body, streams) do
+      config = Jason.decode!(body)
+
+      cond do
+        Map.has_key?(streams, name) ->
+          {error(10_058, "stream name already in use"), streams}
+
+        overlaps?(streams, name, config["subjects"]) ->
+          {error(10_065, "subjects overlap with an existing stream"), streams}
+
+        true ->
+          stream = %{"subjects" => config["subjects"], "messages" => 0}
+          {info(name, stream), Map.put(streams, name, stream)}
+      end
+    end
+
+    defp respond("$JS.API.STREAM.UPDATE." <> name, body, streams) do
+      config = Jason.decode!(body)
+
+      if overlaps?(streams, name, config["subjects"]) do
+        {error(10_065, "subjects overlap with an existing stream"), streams}
+      else
+        streams = put_in(streams, [name, "subjects"], config["subjects"])
+        {info(name, streams[name]), streams}
+      end
+    end
+
+    defp respond("$JS.API.STREAM.DELETE." <> name, _body, streams) do
+      if Map.has_key?(streams, name),
+        do: {%{"success" => true}, Map.delete(streams, name)},
+        else: {not_found(), streams}
+    end
+
+    defp respond("$JS.API.CONSUMER.INFO." <> _rest, _body, streams),
+      do: {%{"error" => %{"code" => 404, "description" => "consumer not found"}}, streams}
+
+    defp respond("$JS.API.CONSUMER.DURABLE.CREATE." <> _rest, body, streams),
+      do: {%{"config" => Jason.decode!(body)["config"]}, streams}
+
+    defp overlaps?(streams, name, subjects) do
+      Enum.any?(streams, fn {other, %{"subjects" => owned}} ->
+        other != name and
+          Enum.any?(subjects, fn subject ->
+            Enum.any?(
+              owned,
+              &(Config.nats_filter_covers?(&1, subject) or Config.nats_filter_covers?(subject, &1))
+            )
+          end)
+      end)
+    end
+
+    defp info(name, %{"subjects" => subjects, "messages" => messages}) do
+      %{
+        "config" => %{"name" => name, "subjects" => subjects},
+        "state" => %{"messages" => messages, "bytes" => 0}
+      }
+    end
+
+    defp error(err_code, description),
+      do: %{"error" => %{"code" => 400, "err_code" => err_code, "description" => description}}
+
+    defp not_found, do: %{"error" => %{"code" => 404, "description" => "stream not found"}}
+  end
 
   test "reconciled stream payload replaces narrower metric subjects with metrics wildcard" do
     config = %{
@@ -473,5 +585,78 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       assert JetstreamConsumer.hold_discard_new_max_bytes("state", config, payload, 1_000) ==
                payload
     end
+  end
+
+  # An older release left per-protocol flow streams owning flows.raw.* subjects.
+  # The flow consumers target the dedicated `flows` stream with fallback off, so
+  # an empty leftover kept them down for good, retrying every minute.
+  describe "a legacy flow stream owning an explicit flows subject" do
+    test "is released when empty, and the subject lands on the flows stream" do
+      conn = start_fake!(%{"netflow_raw" => stream(["flows.raw.netflow"], 0)})
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{stream_name: "flows"}} = ensure_flow_consumer(conn, "flows.raw.netflow")
+        end)
+
+      streams = FakeJetStream.streams(conn)
+      refute Map.has_key?(streams, "netflow_raw")
+      assert "flows.raw.netflow" in streams["flows"]["subjects"]
+      assert "flows.attribution.observations" in streams["flows"]["subjects"]
+      assert log =~ "Released empty legacy flow stream"
+    end
+
+    test "is kept when it holds messages, and the overlap error stands" do
+      conn = start_fake!(%{"sflow_raw" => stream(["flows.raw.sflow"], 5)})
+
+      log =
+        capture_log(fn ->
+          assert {:error, %{"err_code" => 10_065}} = ensure_flow_consumer(conn, "flows.raw.sflow")
+        end)
+
+      assert Map.has_key?(FakeJetStream.streams(conn), "sflow_raw")
+      assert log =~ "refusing fallback"
+    end
+
+    test "is kept when it owns more than concrete raw flow subjects" do
+      conn = start_fake!(%{"netflow_raw" => stream(["flows.raw.netflow", "telemetry.raw"], 0)})
+
+      assert {:error, %{"err_code" => 10_065}} =
+               ensure_flow_consumer_quietly(conn, "flows.raw.netflow")
+
+      assert Map.has_key?(FakeJetStream.streams(conn), "netflow_raw")
+    end
+
+    test "an empty owner that is not a legacy flow stream is never released" do
+      conn = start_fake!(%{"events" => stream(["flows.raw.netflow", "events.>"], 0)})
+
+      assert {:error, %{"err_code" => 10_065}} =
+               ensure_flow_consumer_quietly(conn, "flows.raw.netflow")
+
+      assert Map.has_key?(FakeJetStream.streams(conn), "events")
+    end
+  end
+
+  defp start_fake!(legacy) do
+    flows = %{"flows" => stream(["flows.attribution.observations"], 0)}
+    start_supervised!({FakeJetStream, Map.merge(flows, legacy)})
+  end
+
+  defp stream(subjects, messages), do: %{"subjects" => subjects, "messages" => messages}
+
+  defp ensure_flow_consumer(conn, subject) do
+    JetstreamConsumer.ensure_durable(conn,
+      stream_name: "flows",
+      filter_subject: subject,
+      consumer_name: "flow-test-consumer",
+      allow_stream_fallback: false
+    )
+  end
+
+  defp ensure_flow_consumer_quietly(conn, subject) do
+    parent = self()
+    capture_log(fn -> send(parent, {:ensured, ensure_flow_consumer(conn, subject)}) end)
+    assert_received {:ensured, result}
+    result
   end
 end
