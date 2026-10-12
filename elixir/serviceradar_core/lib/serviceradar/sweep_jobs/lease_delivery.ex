@@ -9,10 +9,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
       high water already sent, so the agent drops slots it may still hold. It is sent for a
       new lease (first delivery, or a fence bump or reissue, which changes the lease id), after
       core dropped a delivered slot that has not started, when a slot no push has carried sits
-      behind the cursor, after the agent refused the last push, and when the last push was not
-      acknowledged within `ack_grace_seconds/0`. When that lease was already delivered and no
-      unrun slot remains, the full push still goes out, with an empty slot list and no
-      production capability, in a window that reaches the high water;
+      behind the cursor, after the agent refused the last push, when the last push was not
+      acknowledged within `ack_grace_seconds/0`, and while that push is still unacknowledged
+      with the cursor behind the high water. A tail in that gap would let the agent keep the
+      slots the wider push was clearing, and the tail's ack would satisfy core. When that lease
+      was already delivered and no unrun slot remains, the full push still goes out, with an
+      empty slot list and no production capability, in a window that reaches the high water;
     * otherwise a TAIL push carries only the slots minted since the cursor, in a window starting
       at the cursor and ending just after its last slot, and nothing is sent when there are none.
 
@@ -169,7 +171,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   defp plan(state, lease_id, replace?, unrun, now) do
     same_lease? = match?(%SweepLeaseDelivery{}, state) and state.lease_id == lease_id
 
-    if same_lease? and not replace? and not ack_failed?(state) and not ack_lost?(state, now) do
+    if same_lease? and not replace? and not ack_failed?(state) and not ack_lost?(state, now) and
+         not unacked_wide?(state) do
       tail(state, unrun)
     else
       full(state, same_lease?, unrun, now)
@@ -255,6 +258,11 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   defp ack_lost?(state, now) do
     state.acked_payload_sha256 != state.delivered_payload_sha256 and
       DateTime.diff(now, state.delivered_at, :second) > @ack_grace_seconds
+  end
+
+  defp unacked_wide?(state) do
+    state.acked_payload_sha256 != state.delivered_payload_sha256 and
+      DateTime.compare(state.delivered_window_end, state.delivered_high_water) == :lt
   end
 
   # A slot no push has carried, minted behind the cursor: a tail starts at the cursor,
