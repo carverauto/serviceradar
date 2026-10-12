@@ -3,6 +3,7 @@ pub mod converter;
 use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
+use crate::netflow::converter::DEFAULT_MAX_SAMPLING_RATE;
 use converter::Converter;
 use flowparser_sflow::SflowParser;
 use log::{debug, warn};
@@ -13,17 +14,28 @@ use std::sync::atomic::Ordering;
 pub struct SflowHandler {
     parser: SflowParser,
     metrics: Arc<ListenerMetrics>,
+    max_sampling_rate: u64,
 }
 
 impl SflowHandler {
-    pub fn new(max_samples_per_datagram: Option<u32>, metrics: Arc<ListenerMetrics>) -> Self {
+    pub fn new(
+        max_samples_per_datagram: Option<u32>,
+        metrics: Arc<ListenerMetrics>,
+        max_sampling_rate: Option<u64>,
+    ) -> Self {
         let parser = if let Some(max_samples) = max_samples_per_datagram {
             SflowParser::builder().with_max_samples(max_samples).build()
         } else {
             SflowParser::default()
         };
 
-        Self { parser, metrics }
+        Self {
+            parser,
+            metrics,
+            max_sampling_rate: max_sampling_rate
+                .unwrap_or(DEFAULT_MAX_SAMPLING_RATE)
+                .max(1),
+        }
     }
 }
 
@@ -56,8 +68,11 @@ impl FlowHandler for SflowHandler {
                 datagram.samples.len()
             );
 
-            let converter = Converter::new(datagram, peer, receive_time_ns);
+            let converter = Converter::new(datagram, peer, receive_time_ns, self.max_sampling_rate);
             let valid = filter_and_track_flows(converter.convert(), peer, &self.metrics);
+            self.metrics
+                .sampling_rate_clamped
+                .fetch_add(converter.clamped_rates(), Ordering::Relaxed);
             all_messages.extend(valid);
         }
 

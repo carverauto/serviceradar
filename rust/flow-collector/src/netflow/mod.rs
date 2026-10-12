@@ -5,7 +5,7 @@ use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
 use crate::sflow::SflowHandler;
-use converter::{Converter, SamplerRates};
+use converter::{Converter, DEFAULT_MAX_SAMPLING_RATE, SamplerRates};
 use log::{debug, info, warn};
 use netflow_parser::scoped_parser::{DEFAULT_MAX_SOURCES, ScopingInfo, extract_scoping_info};
 use netflow_parser::{
@@ -101,17 +101,22 @@ pub struct NetflowHandler {
     max_sources: usize,
     live_sources: AtomicU64,
     default_sampling_rate: u64,
+    max_sampling_rate: u64,
     sampling_rate_overrides: HashMap<IpAddr, u64>,
     sflow_fallback: SflowHandler,
     metrics: Arc<ListenerMetrics>,
 }
 
 impl NetflowHandler {
+    // Constructor mirrors the listener config's flat shape; grouping these
+    // would add indirection without hiding anything.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_templates: usize,
         max_template_fields: usize,
         pending_flows: Option<&PendingFlowsCacheConfig>,
         default_sampling_rate: Option<u64>,
+        max_sampling_rate: Option<u64>,
         sampling_rate_overrides: HashMap<IpAddr, u64>,
         max_sources: Option<usize>,
         metrics: Arc<ListenerMetrics>,
@@ -150,8 +155,14 @@ impl NetflowHandler {
             sources: Mutex::new(SourceAdmission::default()),
             max_sources: max_sources.unwrap_or(DEFAULT_MAX_SOURCES),
             default_sampling_rate: default_sampling_rate.unwrap_or(1).max(1),
+            max_sampling_rate: max_sampling_rate
+                .unwrap_or(DEFAULT_MAX_SAMPLING_RATE)
+                .max(1),
             sampling_rate_overrides,
-            sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics)),
+            // A netflow listener routes sFlow datagrams to this fallback, so
+            // it must carry the same ceiling or the knob would not cover its
+            // own port.
+            sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics), max_sampling_rate),
             metrics,
         }
     }
@@ -269,12 +280,22 @@ impl FlowHandler for NetflowHandler {
                 let mut sampler_rates = self.sampling_rates_by_exporter_sampler_id.lock().unwrap();
 
                 let before = sampler_rates.rejected_inserts;
-                let converted =
-                    Converter::new(packet, peer, receive_time_ns, fallback_sampling_rate)
-                        .convert_with_sampler_rates(&mut sampler_rates);
+                let clamped_before = sampler_rates.clamped_rates;
+                let converted = Converter::new(
+                    packet,
+                    peer,
+                    receive_time_ns,
+                    fallback_sampling_rate,
+                    self.max_sampling_rate,
+                )
+                .convert_with_sampler_rates(&mut sampler_rates);
                 self.metrics
                     .sampler_rate_rejections
                     .fetch_add(sampler_rates.rejected_inserts - before, Ordering::Relaxed);
+                self.metrics.sampling_rate_clamped.fetch_add(
+                    sampler_rates.clamped_rates - clamped_before,
+                    Ordering::Relaxed,
+                );
                 converted
             };
 
@@ -436,6 +457,7 @@ mod tests {
             10_000,
             None,
             None,
+            None,
             HashMap::new(),
             Some(2),
             Arc::clone(&metrics),
@@ -484,6 +506,7 @@ mod tests {
             10_000,
             None,
             Some(7),
+            None,
             HashMap::new(),
             Some(2),
             Arc::clone(&metrics),
@@ -538,6 +561,103 @@ mod tests {
         );
     }
 
+    /// NetFlow v5 bytes: 24-octet header then one 48-octet record. v5 carries
+    /// no templates, so it reaches the converter under secure defaults.
+    fn v5_packet(sampling_interval: u16) -> Vec<u8> {
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&5u16.to_be_bytes());
+        packet.extend_from_slice(&1u16.to_be_bytes()); // count
+        for value in [1000u32, 1_893_456_000, 0, 0] {
+            packet.extend_from_slice(&value.to_be_bytes());
+        }
+        packet.push(0); // engine_type
+        packet.push(0); // engine_id
+        packet.extend_from_slice(&sampling_interval.to_be_bytes());
+
+        packet.extend_from_slice(&[192, 0, 2, 1]); // src
+        packet.extend_from_slice(&[192, 0, 2, 2]); // dst
+        packet.extend_from_slice(&[0, 0, 0, 0]); // next hop
+        packet.extend_from_slice(&1u16.to_be_bytes()); // input
+        packet.extend_from_slice(&2u16.to_be_bytes()); // output
+        packet.extend_from_slice(&10u32.to_be_bytes()); // packets
+        packet.extend_from_slice(&1500u32.to_be_bytes()); // octets
+        packet.extend_from_slice(&0u32.to_be_bytes()); // first
+        packet.extend_from_slice(&0u32.to_be_bytes()); // last
+        packet.extend_from_slice(&1234u16.to_be_bytes()); // src_port
+        packet.extend_from_slice(&80u16.to_be_bytes()); // dst_port
+        packet.push(0); // pad1
+        packet.push(0); // tcp_flags
+        packet.push(6); // protocol
+        packet.push(0); // tos
+        packet.extend_from_slice(&0u16.to_be_bytes()); // src_as
+        packet.extend_from_slice(&0u16.to_be_bytes()); // dst_as
+        packet.push(0); // src_mask
+        packet.push(0); // dst_mask
+        packet.extend_from_slice(&0u16.to_be_bytes()); // pad2
+        packet
+    }
+
+    /// The v5 wire interval reaches 16,383, so any ceiling below that is
+    /// reachable from the packet itself -- not only from a misconfigured
+    /// fallback. The clamp must therefore be counted like every other, or the
+    /// metric operators are told to watch reads zero while rates are rescaled.
+    #[test]
+    fn v5_sampling_clamps_are_counted() {
+        let metrics = Arc::new(ListenerMetrics::new(
+            "netflow",
+            "127.0.0.1:2055".to_string(),
+        ));
+        let handler = NetflowHandler::new(
+            10,
+            100,
+            None,
+            None,
+            Some(100), // ceiling below the v5 wire maximum
+            HashMap::new(),
+            Some(2),
+            Arc::clone(&metrics),
+        );
+
+        let peer: SocketAddr = "192.0.2.10:9995".parse().expect("addr");
+        let messages = handler.parse_datagram(&v5_packet(1000), 0, peer);
+
+        assert_eq!(messages.len(), 1, "expected one v5 flow");
+        assert_eq!(
+            messages[0].sampling_rate, 100,
+            "the declared 1000 must be bounded to the ceiling"
+        );
+        assert_eq!(
+            metrics.sampling_rate_clamped.load(Ordering::Relaxed),
+            1,
+            "a v5 clamp must reach the metric"
+        );
+    }
+
+    #[test]
+    fn v5_sampling_below_the_ceiling_is_not_counted() {
+        let metrics = Arc::new(ListenerMetrics::new(
+            "netflow",
+            "127.0.0.1:2055".to_string(),
+        ));
+        let handler = NetflowHandler::new(
+            10,
+            100,
+            None,
+            None,
+            Some(100_000),
+            HashMap::new(),
+            Some(2),
+            Arc::clone(&metrics),
+        );
+
+        let peer: SocketAddr = "192.0.2.10:9995".parse().expect("addr");
+        let messages = handler.parse_datagram(&v5_packet(1000), 0, peer);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sampling_rate, 1000);
+        assert_eq!(metrics.sampling_rate_clamped.load(Ordering::Relaxed), 0);
+    }
+
     #[test]
     fn detects_sflow_v5_datagram_header() {
         let buf = [0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x01];
@@ -564,6 +684,7 @@ mod tests {
         let handler_bounded = NetflowHandler::new(
             128,
             3,
+            None,
             None,
             None,
             HashMap::new(),
@@ -593,6 +714,7 @@ mod tests {
         let handler_sufficient = NetflowHandler::new(
             128,
             4,
+            None,
             None,
             None,
             HashMap::new(),
