@@ -91,11 +91,13 @@ late replay to forget an incomplete run and is deliberately absent.
 ## Telemetry and evidence
 
 The bounded publisher uses fixed ETS slots, one pending protobuf frame, and
-`metrics.ingestion_lanes` with a confirmed JetStream PubAck. Retried frames
-keep the same `Nats-Msg-Id`. Queue/byte/latency gauges report latest values;
-event, rejection-reason, and terminal sums are deltas for the interval since
-the previous acknowledged frame, anchored at that frame's snapshot time.
-Internal ETS accounting stays cumulative with fixed cardinality; reporting
+`metrics.ingestion_lanes` with a confirmed JetStream PubAck. Each frame becomes
+one `timeseries_metrics` row per lane metric per core node; the default publish
+interval is 30 seconds (`SERVICERADAR_INGESTION_METRICS_INTERVAL_MS`, floor 1 s).
+Retried frames keep the same `Nats-Msg-Id`. Queue/byte/latency gauges report
+latest values; event, rejection-reason, and terminal sums are deltas for the
+interval since the previous acknowledged frame, anchored at that frame's snapshot
+time. Internal ETS accounting stays cumulative with fixed cardinality; reporting
 watermarks advance only on PubAck. No agent, device, or run becomes a label.
 `publish_failure` counts failed PubAcks; `coalesced_interval` counts cadence
 snapshots omitted behind the pending frame. Later event totals remain in ETS,
@@ -103,8 +105,9 @@ while intervening gauge history is intentionally coalesced. Publisher restart
 loses volatile samples and resets the reporting watermarks. Publication cannot
 wait in an ingestion caller or recursively publish a failure immediately
 through the failed transport. A failed publish is still logged directly: the
-first failure of an outage warns, a reminder follows every sixtieth
-consecutive failure, and recovery is logged once. Log fields carry only the
+first failure of an outage warns, a reminder follows approximately every
+minute of consecutive failure (scaled with the publish interval), and
+recovery is logged once. Log fields carry only the
 subject, a reason class, and a count.
 
 Interval negatively-acknowledged counts are the
