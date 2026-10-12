@@ -215,8 +215,10 @@ plugin-config checkbox, not a rule TLS policy.
 - Devices appear with `source=opentext-nom`. Canonical fields include hostname,
   IP, first chassis serial, vendor, model, and type. Provider metadata includes
   partition, management status, and polling-exclusion.
-- Repeat collections are idempotent. A later complete snapshot may mark omitted
-  observations absent; it does not delete canonical devices.
+- A repeat collection with all members live is a no-op. A member deleted since
+  the collection was last activated is revived on the next replay. A later
+  complete snapshot may mark omitted observations absent; it does not delete
+  canonical devices.
 - Agent logs, command results, plugin results, and audit events must not contain
   usernames, passwords, authorization headers, or bearer tokens.
 

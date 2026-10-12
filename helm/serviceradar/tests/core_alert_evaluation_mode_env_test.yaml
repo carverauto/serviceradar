@@ -1,0 +1,70 @@
+suite: core alert evaluation mode
+templates:
+  - templates/core.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: renders the prepared mode once by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: prepared
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the configured mode
+    set:
+      core.alertEvaluation.mode: active
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: active
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: prepared
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: lets extraEnv replace the mode without duplicating it
+    set:
+      core.alertEvaluation.mode: draining
+      core.extraEnv.SERVICERADAR_ALERT_EVALUATION_MODE: active
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: active
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: draining
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects a mode the core release would refuse at boot
+    set:
+      core.alertEvaluation.mode: "on"
+    asserts:
+      - failedTemplate:
+          errorMessage: core.alertEvaluation.mode must be prepared, active or draining, got "on"
+        template: templates/core.yaml
