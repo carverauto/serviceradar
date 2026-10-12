@@ -1131,7 +1131,8 @@ The ingest path for both tables is append-only (`ON CONFLICT DO NOTHING`). Compr
 
 Policy:
 
-- `compress_after` for `timeseries_metrics` SHALL be operator-configurable through `core.observabilityRetention.timeseriesMetricsCompressAfterHours` (default 24 hours) and SHALL be reconciled by `DataRetentionWorker` on every run. The migration installs 6 days; the first worker run replaces it with the configured lag. The policy SHALL be re-registered only when the lag changed.
+- `compress_after` for `timeseries_metrics` SHALL be operator-configurable through `core.observabilityRetention.timeseriesMetricsCompressAfterHours` (default 2 hours) and SHALL be reconciled by `DataRetentionWorker` on every run. The migration installs 6 days; the first worker run replaces it with the configured lag. The policy SHALL be re-registered only when the lag changed, and its job SHALL run hourly.
+- The `timeseries_metrics` chunk interval SHALL be configurable through `core.observabilityRetention.timeseriesMetricsChunkIntervalHours` (default 4 hours), separately from the sysmon raw tables. Compressing a chunk sorts all of it through temp files on the data volume, so a day-long chunk at sweep volume needs tens of GB free and fails on a nearly full disk.
 - `compress_after` for `ocsf_network_activity` is 32 days (behind the 31-day continuous aggregate refresh window and within 90-day retention).
 - `timeseries_metrics` `segmentby`: `device_id, metric_type, metric_name`; `orderby`: `"timestamp" DESC, gateway_id, series_key`.
 - `ocsf_network_activity` `segmentby`: `partition, protocol_num`; `orderby`: `"time" DESC, flow_uid`.
@@ -1155,6 +1156,17 @@ The first compression of already-resident chunks SHALL run via the TimescaleDB b
 - **GIVEN** the `timeseries_metrics` compression policy already uses the configured lag
 - **WHEN** `DataRetentionWorker` runs
 - **THEN** the existing compression job is kept rather than re-registered
+
+#### Scenario: Compression job runs hourly
+- **GIVEN** the `timeseries_metrics` compression job runs on a schedule other than hourly
+- **WHEN** `DataRetentionWorker` runs
+- **THEN** the job is rescheduled to run hourly without being re-registered
+
+#### Scenario: Raw metrics chunk interval is separate from the sysmon tables
+- **GIVEN** `timeseriesMetricsChunkIntervalHours` is 4 and the shared raw metrics chunk interval is 24 hours
+- **WHEN** `DataRetentionWorker` runs
+- **THEN** new `timeseries_metrics` chunks span 4 hours
+- **AND** the sysmon raw tables keep 24-hour chunks
 
 #### Scenario: Hourly rollup refreshes over a compressed raw chunk
 - **GIVEN** a compressed raw `timeseries_metrics` chunk inside the hourly rollups' refresh window

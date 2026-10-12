@@ -31,7 +31,16 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS
-            value: "24"
+            value: "2"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TIMESERIES_METRICS_CHUNK_INTERVAL_HOURS
+            value: "4"
           count: 1
         documentSelector:
           path: kind
@@ -42,6 +51,7 @@ tests:
       core.observabilityRetention.hourlyRollupDays: 14
       core.observabilityRetention.timeseriesMetricsDays: 10
       core.observabilityRetention.timeseriesMetricsCompressAfterHours: 6
+      core.observabilityRetention.timeseriesMetricsChunkIntervalHours: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -66,6 +76,15 @@ tests:
           content:
             name: SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS
             value: "6"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TIMESERIES_METRICS_CHUNK_INTERVAL_HOURS
+            value: "2"
           count: 1
         documentSelector:
           path: kind

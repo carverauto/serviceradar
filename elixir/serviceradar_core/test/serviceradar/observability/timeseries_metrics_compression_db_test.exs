@@ -1,8 +1,9 @@
 defmodule ServiceRadar.Observability.TimeseriesMetricsCompressionDbTest do
   @moduledoc """
-  `DataRetentionWorker.reconcile_timeseries_metrics_compression/1` against the
-  real raw `timeseries_metrics` hypertable, and proof that the hourly rollup
-  still refreshes once a raw chunk inside its refresh window is compressed.
+  `DataRetentionWorker.reconcile_timeseries_metrics_compression/1` and the raw
+  chunk interval against the real `timeseries_metrics` hypertable, and proof
+  that the hourly rollup still refreshes once a raw chunk inside its refresh
+  window is compressed.
 
   Serial: the policy cases run Timescale policy DDL that the sandbox rolls
   back, and the refresh case is unboxed because `refresh_continuous_aggregate`
@@ -47,6 +48,24 @@ defmodule ServiceRadar.Observability.TimeseriesMetricsCompressionDbTest do
       assert {^job_id, 24.0} = policy()
     end
 
+    test "runs the policy hourly, fixing an existing job without re-registering it" do
+      assert :ok = reconcile(2)
+      assert {job_id, 2.0} = policy()
+      assert schedule_hours(job_id) == 1.0
+
+      SQL.query!(
+        Repo,
+        "SELECT job_id FROM alter_job($1, schedule_interval => interval '12 hours')",
+        [job_id]
+      )
+
+      assert schedule_hours(job_id) == 12.0
+
+      assert :ok = reconcile(2)
+      assert {^job_id, 2.0} = policy()
+      assert schedule_hours(job_id) == 1.0
+    end
+
     test "warns when the lag is not shorter than retention" do
       log =
         capture_log(fn ->
@@ -58,6 +77,19 @@ defmodule ServiceRadar.Observability.TimeseriesMetricsCompressionDbTest do
         end)
 
       assert log =~ "chunks are dropped before they are compressed"
+    end
+  end
+
+  describe "chunk interval" do
+    test "raw timeseries_metrics has its own interval, apart from the sysmon tables" do
+      assert :ok =
+               DataRetentionWorker.reconcile_timescale_tables(
+                 timeseries_metrics_chunk_interval_hours: 4,
+                 raw_metrics_chunk_interval_hours: 24
+               )
+
+      assert chunk_interval_hours("timeseries_metrics") == 4.0
+      assert chunk_interval_hours("cpu_metrics") == 24.0
     end
   end
 
@@ -133,6 +165,37 @@ defmodule ServiceRadar.Observability.TimeseriesMetricsCompressionDbTest do
       [[job_id, hours]] -> {job_id, hours}
       other -> flunk("expected one timeseries_metrics compression policy, got #{inspect(other)}")
     end
+  end
+
+  defp schedule_hours(job_id) do
+    %{rows: [[hours]]} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT (extract(epoch FROM schedule_interval) / 3600)::float8
+        FROM timescaledb_information.jobs
+        WHERE job_id = $1
+        """,
+        [job_id]
+      )
+
+    hours
+  end
+
+  defp chunk_interval_hours(table) do
+    %{rows: [[hours]]} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT (extract(epoch FROM time_interval) / 3600)::float8
+        FROM timescaledb_information.dimensions
+        WHERE hypertable_schema = 'platform' AND hypertable_name = $1
+          AND dimension_number = 1
+        """,
+        [table]
+      )
+
+    hours
   end
 
   defp insert_sample!(timestamp, device_id, series_key, value) do
