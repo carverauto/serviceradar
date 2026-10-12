@@ -320,6 +320,54 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert event_count(row) == 1
   end
 
+  # Prepared mode admits nothing, by design. A transition commits together with
+  # its admission, so every batch carrying one used to roll back, and JetStream
+  # dropped it after max_deliver.
+  test "prepared alert evaluation stores the transition and admits nothing" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine, StatefulAlertEngine)
+    on_exit(fn -> restore_env(:alert_evaluation_mode, mode) end)
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-prepared-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    message =
+      assessment_message(
+        "synthetic-prepared-#{Ash.UUID.generate()}",
+        "open",
+        "active",
+        "confirmed",
+        "affected"
+      )
+
+    row = AnalyticsSignals.parse_message(message)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert event_count(row) == 1
+
+    assert [] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+  end
+
   test "northbound runner failure does not suppress the durable alert transition" do
     Application.put_env(
       :serviceradar_core,

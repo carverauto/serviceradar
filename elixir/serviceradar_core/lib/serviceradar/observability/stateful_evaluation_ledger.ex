@@ -15,6 +15,15 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   if a process dies before recording this marker. The marker holds ids, not
   telemetry, and is pruned after three days. Completion receipts have a
   separately configured retention covering the supported source replay horizon.
+
+  A deployment whose alert evaluation is not activated (`Rollout.mode/0` is
+  `:prepared`) admits nothing, by design, and the engine answers
+  `{:error, :alert_evaluation_not_activated}`. EventWriter must still store and
+  acknowledge its records then: a rejection fails the batch, JetStream
+  redelivers it until `max_deliver` and drops it, and a batch that commits its
+  records together with their admission (lifecycle transitions) loses them. So
+  that refusal is a skip, not a failure: nothing is recorded or promoted, and a
+  periodic warning says alert rules are not evaluating.
   """
 
   use Ash.Resource,
@@ -25,8 +34,10 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   alias ServiceRadar.Actors.SystemActor
 
   require Ash.Query
+  require Logger
 
   @retention_days 3
+  @not_activated_log_interval_ms 60_000
 
   postgres do
     table "stateful_evaluation_ledger"
@@ -88,13 +99,59 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   @spec evaluate_once([map()], ([map()] -> :ok | {:error, term()})) :: :ok | {:error, term()}
   def evaluate_once(events, after_evaluation \\ fn _pending -> :ok end) do
     apply_once(events, fn pending ->
-      evaluated =
-        pending
-        |> Enum.map(fn event -> Map.update!(event, :id, &to_uuid/1) end)
-        |> engine().evaluate_events()
-
-      with :ok <- evaluated, do: after_evaluation.(pending)
+      pending
+      |> Enum.map(fn event -> Map.update!(event, :id, &to_uuid/1) end)
+      |> engine().evaluate_events()
+      |> case do
+        :ok -> after_evaluation.(pending)
+        {:error, :alert_evaluation_not_activated} -> skip_not_activated(pending)
+        {:error, _reason} = error -> error
+      end
     end)
+  end
+
+  @doc """
+  Admits `events` to stateful evaluation directly, for a caller that commits
+  them together with its own writes and so cannot use the ledger. A deployment
+  whose alert evaluation is not activated skips them, as `evaluate_once/2` does.
+  """
+  @spec evaluate_events([map()]) :: :ok | {:error, term()}
+  def evaluate_events(events) when is_list(events) do
+    case engine().evaluate_events(events) do
+      {:error, :alert_evaluation_not_activated} ->
+        {:skipped, _count} = skip_not_activated(events)
+        :ok
+
+      result ->
+        result
+    end
+  end
+
+  # Only the not-activated refusal is skipped. Draining and capability failures
+  # still fail the batch: they are transient states of an activated deployment.
+  defp skip_not_activated(events) do
+    count = length(events)
+
+    :telemetry.execute(
+      [:serviceradar, :observability, :alert_evaluation, :not_activated],
+      %{count: count},
+      %{}
+    )
+
+    # Per EventWriter process, so a busy pipeline logs a few lines a minute.
+    now = System.monotonic_time(:millisecond)
+    logged_at = Process.get({__MODULE__, :not_activated_logged_at})
+
+    if is_nil(logged_at) or now - logged_at >= @not_activated_log_interval_ms do
+      Process.put({__MODULE__, :not_activated_logged_at}, now)
+
+      Logger.warning(
+        "Alert evaluation is not activated (SERVICERADAR_ALERT_EVALUATION_MODE=prepared): " <>
+          "records are stored, but no alert rule evaluates them"
+      )
+    end
+
+    {:skipped, count}
   end
 
   @doc false
@@ -115,8 +172,11 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
     pending_ids = events |> Enum.map(& &1.id) |> unevaluated() |> MapSet.new()
     pending = Enum.filter(events, &MapSet.member?(pending_ids, &1.id))
 
-    with :ok <- apply_consequences(pending, consequences) do
-      record(Enum.map(pending, & &1.id))
+    case apply_consequences(pending, consequences) do
+      :ok -> record(Enum.map(pending, & &1.id))
+      # Not evaluated, so not recorded: nothing claims these events were.
+      {:skipped, _count} -> :ok
+      {:error, _reason} = error -> error
     end
   end
 
@@ -125,6 +185,7 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   defp apply_consequences(pending, consequences) do
     case consequences.(pending) do
       :ok -> :ok
+      {:skipped, _count} = skipped -> skipped
       {:error, reason} -> {:error, reason}
     end
   end
