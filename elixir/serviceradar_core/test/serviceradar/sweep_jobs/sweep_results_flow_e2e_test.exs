@@ -6,11 +6,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ExUnit.CaptureLog
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.EphemeralDeviceExpiry
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
@@ -213,7 +215,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     Phoenix.PubSub.subscribe(
       ServiceRadar.PubSub,
-      ServiceRadar.Inventory.DevicePubSub.invalidation_topic()
+      DevicePubSub.invalidation_topic()
     )
 
     jobs_before = Repo.aggregate(Oban.Job, :count)
@@ -1695,6 +1697,131 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "mapper_dispatched"
     assert device.metadata["sweep_mapper_promotion"]["mapper_job_id"] == mapper_job.id
     assert device.metadata["sweep_mapper_promotion"]["command_id"] == "cmd-#{unique_id}"
+  end
+
+  # A chunk's promotion state is written in one statement. It must still merge into
+  # each live candidate's metadata rather than replace it, leave a tombstoned
+  # candidate untouched, and announce each changed device the way the Device
+  # update action's notifier does.
+  test "mapper promotion merges each live candidate's state and announces it", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    n = System.unique_integer([:positive, :monotonic])
+    [live_ip, other_ip, deleted_ip] = for k <- 0..2, do: "203.0.113.#{rem(n * 3 + k, 254) + 1}"
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: agent_id}, actor: actor)
+      |> Ash.create(actor: actor)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Promote Batch #{unique_id}", partition: "default", agent_id: agent_id},
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _mapper_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "mapper-promote-batch-#{unique_id}",
+          partition: "default",
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    create = fn ip, metadata ->
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-promote-batch-#{Ash.UUID.generate()}",
+            ip: ip,
+            hostname: "promote-batch-#{ip}",
+            metadata: metadata
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      device
+    end
+
+    live = create.(live_ip, %{"rdns_hostname" => "keep-me"})
+    other = create.(other_ip, %{})
+    deleted = create.(deleted_ip, %{})
+
+    {:ok, _} =
+      deleted
+      |> Ash.Changeset.for_update(
+        :soft_delete,
+        %{deleted_reason: "test", deleted_by: "sweep_results_flow_e2e"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    IdentityCache.put(live_ip, %{
+      canonical_device_id: live.uid,
+      partition: "default",
+      metadata_hash: nil,
+      attributes: %{"ip" => live_ip, "partition" => "default"},
+      updated_at: DateTime.utc_now()
+    })
+
+    on_exit(fn -> IdentityCache.delete(live_ip) end)
+    DevicePubSub.subscribe()
+
+    results =
+      for ip <- [live_ip, other_ip, deleted_ip],
+          do: %{"host_ip" => ip, "available" => true, "icmp_response_time_ns" => 1_000_000}
+
+    device_map =
+      DeviceLookup.batch_lookup_by_ip([live_ip, other_ip, deleted_ip],
+        actor: actor,
+        include_deleted: true,
+        use_cache: false,
+        partition: "default"
+      )
+
+    MapperPromotion.promote(results, device_map, group.id, agent_id,
+      actor: actor,
+      dispatcher: fn _job, _opts -> {:ok, "cmd-#{unique_id}"} end,
+      cooldown_seconds: 900
+    )
+
+    {:ok, live_after} = Device.get_by_uid(live.uid, false, actor: actor)
+    assert live_after.metadata["rdns_hostname"] == "keep-me"
+    assert live_after.metadata["sweep_mapper_promotion"]["last_status"] == "dispatched"
+    assert live_after.metadata["sweep_mapper_promotion"]["last_ip"] == live_ip
+    assert live_after.metadata["sweep_mapper_promotion"]["command_id"] == "cmd-#{unique_id}"
+
+    {:ok, other_after} = Device.get_by_uid(other.uid, false, actor: actor)
+    assert other_after.metadata["sweep_mapper_promotion"]["last_ip"] == other_ip
+
+    {:ok, deleted_after} = Device.get_by_uid(deleted.uid, true, actor: actor)
+    assert deleted_after.deleted_at
+    refute Map.has_key?(deleted_after.metadata || %{}, "sweep_mapper_promotion")
+
+    live_uid = live.uid
+    other_uid = other.uid
+    deleted_uid = deleted.uid
+
+    assert_receive {:device_updated, ^live_uid,
+                    %{metadata: %{"rdns_hostname" => "keep-me", "sweep_mapper_promotion" => _}}}
+
+    assert_receive {:device_updated, ^other_uid, %{metadata: %{"sweep_mapper_promotion" => _}}}
+    refute_receive {:device_updated, ^deleted_uid, _device}, 100
+    assert is_nil(IdentityCache.get(live_ip))
   end
 
   test "ingest results ignores stale identity cache during mapper promotion", %{

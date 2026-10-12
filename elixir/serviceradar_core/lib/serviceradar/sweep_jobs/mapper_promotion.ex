@@ -5,8 +5,11 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
@@ -14,6 +17,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   require Logger
 
   @default_cooldown_seconds 900
+  @promotion_state_batch_size 1_000
   @promotion_key "sweep_mapper_promotion"
   @status_dispatched "dispatched"
   @status_suppressed "suppressed"
@@ -58,7 +62,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
       all_decisions = final_decisions ++ dispatched_decisions
       Enum.each(all_decisions, &log_decision/1)
-      Enum.each(all_decisions, &record_promotion_state(&1, devices, actor, now, cooldown_seconds))
+      record_promotion_states(all_decisions, devices, now, cooldown_seconds)
 
       summarize(all_decisions)
     end
@@ -317,46 +321,111 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
     end)
   end
 
-  defp record_promotion_state(decision, devices, actor, now, cooldown_seconds) do
-    payload =
-      %{
-        "last_status" => status_name(decision.status),
-        "last_reason" => decision.reason,
-        "last_attempted_at" => DateTime.to_iso8601(now),
-        "last_ip" => decision.ip
-      }
-      |> maybe_put("mapper_job_id", decision.job && decision.job.id)
-      |> maybe_put("mapper_job_name", decision.job && decision.job.name)
-      |> maybe_put("command_id", decision.command_id)
-      |> maybe_put("cooldown_until", cooldown_until(decision, now, cooldown_seconds))
+  # Writes every decision's promotion state in one statement per batch rather than
+  # one :merge_metadata update per device: run per device, it was most of the time
+  # a sweep chunk spent in ingestion. It writes what that action writes -- the
+  # database-side jsonb merge (never a read-modify-write, see MergeDeviceMetadata)
+  # and modified_time, on live rows only, as the action's atomic update does -- and
+  # sends the same DeviceNotifier notifications for each row it changed.
+  defp record_promotion_states(decisions, devices, now, cooldown_seconds) do
+    decisions
+    |> Enum.flat_map(&promotion_patch(&1, devices, now, cooldown_seconds))
+    # Applied in order, a later decision for the same device overwrote an
+    # earlier one; keep only the last.
+    |> Map.new()
+    |> Enum.sort_by(fn {uid, _patch} -> uid end)
+    |> Enum.chunk_every(@promotion_state_batch_size)
+    |> Enum.each(&merge_promotion_patches(&1, devices))
+  end
 
+  defp promotion_patch(decision, devices, now, cooldown_seconds) do
     case Map.get(devices, decision.device_uid) do
-      %Device{} = device ->
-        # Merged in the database rather than read-modify-written here. `devices`
-        # was loaded before this loop, so writing the whole map back would restore
-        # every key any other writer changed since that read -- silently.
-        device
-        |> Ash.Changeset.for_update(:merge_metadata, %{
-          metadata_patch: %{@promotion_key => payload}
-        })
-        |> Ash.update(actor: actor)
-
-        :ok
+      %Device{} ->
+        [
+          {decision.device_uid,
+           %{@promotion_key => promotion_payload(decision, now, cooldown_seconds)}}
+        ]
 
       _ ->
         Logger.debug(
           "Skipped sweep mapper promotion metadata for #{decision.device_uid}: device not loaded"
         )
 
-        :ok
+        []
     end
+  end
+
+  defp promotion_payload(decision, now, cooldown_seconds) do
+    %{
+      "last_status" => status_name(decision.status),
+      "last_reason" => decision.reason,
+      "last_attempted_at" => DateTime.to_iso8601(now),
+      "last_ip" => decision.ip
+    }
+    |> maybe_put("mapper_job_id", decision.job && decision.job.id)
+    |> maybe_put("mapper_job_name", decision.job && decision.job.name)
+    |> maybe_put("command_id", decision.command_id)
+    |> maybe_put("cooldown_until", cooldown_until(decision, now, cooldown_seconds))
+  end
+
+  defp merge_promotion_patches(patches, devices) do
+    {uids, patch_maps} = Enum.unzip(patches)
+    modified_time = NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
+
+    # Lock the rows in uid order before updating them, the order DeviceWrites
+    # locks in, so this multi-row write does not deadlock against it.
+    case Repo.query(
+           """
+           WITH incoming AS (
+             SELECT uid, patch FROM unnest($1::text[], $2::jsonb[]) AS t(uid, patch)
+           ),
+           live AS (
+             SELECT d.uid
+             FROM platform.ocsf_devices d
+             JOIN incoming i ON i.uid = d.uid
+             WHERE d.deleted_at IS NULL
+             ORDER BY d.uid
+             FOR NO KEY UPDATE OF d
+           )
+           UPDATE platform.ocsf_devices d
+           SET metadata = COALESCE(d.metadata, '{}'::jsonb) || i.patch,
+               modified_time = $3::timestamp
+           FROM incoming i
+           JOIN live l ON l.uid = i.uid
+           WHERE d.uid = i.uid
+           RETURNING d.uid, d.metadata
+           """,
+           [uids, patch_maps, modified_time]
+         ) do
+      {:ok, %{rows: rows}} ->
+        notify_promotion_updates(rows, devices, DateTime.from_naive!(modified_time, "Etc/UTC"))
+
+      {:error, error} ->
+        Logger.warning(
+          "Failed to persist sweep mapper promotion metadata for #{length(uids)} device(s): " <>
+            inspect(error)
+        )
+    end
+
+    :ok
   rescue
     error ->
       Logger.warning(
-        "Failed to persist sweep mapper promotion metadata for #{decision.device_uid}: #{inspect(error)}"
+        "Failed to persist sweep mapper promotion metadata for #{length(patches)} device(s): " <>
+          inspect(error)
       )
 
       :ok
+  end
+
+  # What DeviceNotifier does for a Device update.
+  defp notify_promotion_updates(rows, devices, modified_time) do
+    Enum.each(rows, fn [uid, metadata] ->
+      device = %{Map.fetch!(devices, uid) | metadata: metadata, modified_time: modified_time}
+
+      if is_binary(device.ip) and device.ip != "", do: IdentityCache.delete(device.ip)
+      DevicePubSub.broadcast_updated(device)
+    end)
   end
 
   defp summarize(decisions) do
