@@ -271,7 +271,7 @@ defmodule ServiceRadar.EventWriter.StreamOwnershipTest do
       set_clock(clock, @grace)
 
       log =
-        capture_log(fn ->
+        capture_log([level: :info], fn ->
           _tracker = StreamOwnership.reconcile(tracker, request, watched)
         end)
 
@@ -338,7 +338,7 @@ defmodule ServiceRadar.EventWriter.StreamOwnershipTest do
       set_clock(clock, @grace)
 
       log =
-        capture_log(fn ->
+        capture_log([level: :info], fn ->
           StreamOwnership.reconcile(tracker, request, watched)
         end)
 

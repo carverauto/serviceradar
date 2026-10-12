@@ -36,6 +36,10 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   # Stream config fields a shape reconcile can change, in log order.
   @shape_fields ["max_bytes", "num_replicas", "max_age", "retention", "storage", "discard"]
 
+  # Per-protocol flow streams an older release created, mapped to the dedicated
+  # stream that replaced them.
+  @legacy_flow_streams %{"netflow_raw" => "flows", "sflow_raw" => "flows"}
+
   @type connection_ref :: atom() | pid()
   @type ensure_opts :: keyword()
 
@@ -167,20 +171,108 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         {:ok, stream_name}
 
       {:error, reason} = error ->
-        if subject_overlap_error?(reason) and allow_stream_fallback?(opts) do
-          retry_stream_for_overlap(connection_ref, stream_name, subject, opts, error)
-        else
-          if subject_overlap_error?(reason) do
-            Logger.error(
-              "JetStream subject overlap for explicit stream; refusing fallback (would strand consumer)",
-              requested_stream: stream_name,
-              subject: subject,
-              reason: inspect(reason)
-            )
-          end
+        cond do
+          not subject_overlap_error?(reason) ->
+            error
 
-          error
+          allow_stream_fallback?(opts) ->
+            retry_stream_for_overlap(connection_ref, stream_name, subject, opts, error)
+
+          true ->
+            claim_from_empty_legacy_owner(connection_ref, stream_name, subject, opts, error)
         end
+    end
+  end
+
+  # An explicit target never falls back onto the stream owning its subject. The
+  # exception is an empty legacy per-protocol flow stream: it holds nothing, yet
+  # its subject keeps the dedicated stream that replaced it from ever owning that
+  # subject, so the consumer would stay down for good. Release it and ensure once
+  # more; any other owner keeps the overlap error.
+  defp claim_from_empty_legacy_owner(connection_ref, stream_name, subject, opts, error) do
+    domain = Keyword.get(opts, :domain)
+
+    with {:ok, owners} <- find_streams_by_subject(connection_ref, subject, domain),
+         [_ | _] = legacy <- Enum.reject(owners, &(&1 == stream_name)),
+         true <-
+           Enum.all?(legacy, &releasable_legacy_owner?(connection_ref, &1, stream_name, domain)),
+         :ok <- release_streams(connection_ref, legacy, stream_name, subject, domain) do
+      case ensure_stream(
+             connection_ref,
+             stream_name,
+             subject,
+             scoped_stream_opts(opts, stream_name)
+           ) do
+        :ok ->
+          {:ok, stream_name}
+
+        {:error, reason} = retry_error ->
+          log_refused_overlap(stream_name, subject, reason)
+          retry_error
+      end
+    else
+      _ ->
+        {:error, reason} = error
+        log_refused_overlap(stream_name, subject, reason)
+        error
+    end
+  end
+
+  defp log_refused_overlap(stream_name, subject, reason) do
+    Logger.error(
+      "JetStream subject overlap for explicit stream; refusing fallback (would strand consumer)",
+      requested_stream: stream_name,
+      subject: subject,
+      reason: inspect(reason)
+    )
+  end
+
+  defp releasable_legacy_owner?(connection_ref, owner, requested, domain) do
+    Map.get(@legacy_flow_streams, owner) == requested and
+      case Util.request(connection_ref, "#{js_api(domain)}.STREAM.INFO.#{owner}", "") do
+        {:ok, %{"config" => %{"subjects" => [_ | _] = subjects}, "state" => %{"messages" => 0}}} ->
+          Enum.all?(subjects, &concrete_raw_flow_subject?/1)
+
+        _ ->
+          false
+      end
+  end
+
+  defp concrete_raw_flow_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, "flows.raw.") and
+      subject |> String.split(".") |> Enum.all?(&(&1 not in ["", "*", ">"]))
+  end
+
+  defp concrete_raw_flow_subject?(_subject), do: false
+
+  defp release_streams(connection_ref, owners, requested, subject, domain) do
+    Enum.reduce_while(owners, :ok, fn owner, :ok ->
+      case delete_stream(connection_ref, owner, domain) do
+        :ok ->
+          Logger.warning(
+            "Released empty legacy flow stream so the dedicated stream can own its subjects",
+            released_stream: owner,
+            requested_stream: requested,
+            subject: subject
+          )
+
+          {:cont, :ok}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  # Another node may have released it first; a missing stream is released.
+  defp delete_stream(connection_ref, stream_name, domain) do
+    case Util.request(connection_ref, "#{js_api(domain)}.STREAM.DELETE.#{stream_name}", "") do
+      {:ok, %{"success" => true}} -> :ok
+      {:ok, %{"error" => %{"code" => 404}}} -> :ok
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, other} -> {:error, {:unexpected_stream_delete_response, other}}
+      {:error, %{"code" => 404}} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
