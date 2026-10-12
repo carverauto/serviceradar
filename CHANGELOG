@@ -1,3 +1,57 @@
+# ServiceRadar v1.4.91
+
+This release reduces the CNPG footprint of raw metrics and fixes ingestion
+reliability across alert evaluation, device snapshot replay, and flow streams.
+
+## Upgrade Notes
+
+- Raw `timeseries_metrics` now uses 4-hour chunks, a 2-hour compression
+  lag, and an hourly compression job. Configure these through Helm
+  `core.observabilityRetention.timeseriesMetricsChunkIntervalHours` and
+  `core.observabilityRetention.timeseriesMetricsCompressAfterHours`.
+  Chunk interval changes apply to newly created chunks; the retention
+  worker reconciles the policy and schedule on existing installations.
+  Sysmon raw tables keep their separate chunk settings (PR #5555).
+- Helm now exposes `core.alertEvaluation.mode`, defaulting to `prepared`.
+  In that mode, events and logs are stored and acknowledged without
+  evaluating alert rules or promoting logs. Set it to `active` after
+  retiring every core pod older than v1.4.85, including disconnected
+  pods; installations that never ran an older release can start active
+  (PR #5598).
+- Ingestion lane metrics now publish every 30 seconds instead of every
+  second. Override with `SERVICERADAR_INGESTION_METRICS_INTERVAL_MS`
+  (minimum 1,000 ms). Retry identity and acknowledged counter deltas
+  are preserved (PR #5599).
+- Flow listeners now cap exporter-declared sampling rates at 1,000,000
+  by default. Configure `max_sampling_rate` per listener and monitor
+  `flow_collector_sampling_rate_clamped_total` for bounded values across
+  NetFlow v5/v9, IPFIX, and sFlow (PR #5582).
+
+## Fixes
+
+- The deployed core release now honors the `SYNC_INGESTOR_*` environment
+  settings rendered from Helm `core.syncIngestor`, including the
+  per-chunk worker timeout, queue limits, and concurrency controls
+  introduced in earlier releases (PR #5581).
+- An unchanged complete source snapshot now replays device updates when
+  it contains a revivable soft-deleted member. Live, merged, and retained
+  members keep the replay idempotent, preventing repeated work for
+  tombstones that must stay deleted (PR #5601).
+- Alert evaluation in `prepared` mode no longer fails EventWriter
+  batches or causes repeated JetStream deliveries. Draining and
+  capability failures still reject admission (PR #5598).
+- The canonical flow stream can reclaim subjects from an empty legacy
+  flow stream that blocks its creation. Streams with messages, unrelated
+  subjects, or a different owner are preserved (PR #5602).
+- Implausible flow sampling rates no longer inflate byte and packet
+  volume without a bound; clamps are counted for every supported
+  protocol (PR #5582).
+
+## Dependencies
+
+- Updated the deployed core release's Decimal lock to 3.2.0 and aligned
+  the Bazel Hex package closure (PR #5600).
+
 # ServiceRadar v1.4.90
 
 This release fixes another cause of large integration syncs never
