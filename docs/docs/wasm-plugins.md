@@ -239,9 +239,10 @@ enabling its recurring schedule:
    not contain credentials or bearer tokens.
 4. Compare the source-inventory API result with a current provider export.
    Verify row counts, stable source object and integration IDs, declared
-   metadata, and canonical DIRE matches. Replaying the same collection must be
-   idempotent; a later complete collection may mark omitted observations absent
-   but must not delete canonical devices.
+   metadata, and canonical DIRE matches. Replaying the same collection while all
+   members are live must be a no-op; a member deleted since activation must be
+   revived on the next replay. A later complete collection may mark omitted
+   observations absent but must not delete canonical devices.
 5. Run two collections at a shortened approved cadence, then restore the
    intended cadence. Verify recurring and Run Now executions use the same
    assignment, credential, RBAC, audit, timeout, and result-ingestion path.
