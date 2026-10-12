@@ -142,6 +142,10 @@ type PushLoop struct {
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
+	sweepLeaseMu  sync.Mutex
+	sweepLeases   *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
 	hostInventory                  func() []hostInterface
