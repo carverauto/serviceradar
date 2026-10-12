@@ -81,6 +81,10 @@ const (
 	// capabilityMTRUnavailable: no ICMP socket for MTR, raw or unprivileged.
 	// Core withholds the MTR sweep mode from an agent reporting it.
 	capabilityMTRUnavailable = "mtr.unavailable"
+	// capabilitySweepLeaseV1: this agent reassembles, installs, and acks
+	// core-pushed sweep schedule leases (SweepLeaseChunk), so the gateway may
+	// send them.
+	capabilitySweepLeaseV1 = "sweep_lease_v1"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -399,6 +403,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilitySweepSharedTargets,
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
+		capabilitySweepLeaseV1,
 		"snmp",
 		capabilitySNMPSharedOIDs,
 		"mapper",
