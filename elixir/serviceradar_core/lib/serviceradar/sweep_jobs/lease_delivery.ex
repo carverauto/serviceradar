@@ -262,7 +262,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp unacked_wide?(state) do
     state.acked_payload_sha256 != state.delivered_payload_sha256 and
-      DateTime.compare(state.delivered_window_end, state.delivered_high_water) == :lt
+      DateTime.before?(state.delivered_window_end, state.delivered_high_water)
   end
 
   # A slot no push has carried, minted behind the cursor: a tail starts at the cursor,
@@ -270,7 +270,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   defp undelivered_behind?(%SweepLeaseDelivery{} = state, unrun) do
     Enum.any?(unrun, fn slot ->
       is_nil(slot.delivered_at) and
-        DateTime.compare(slot.slot_start, state.delivered_window_end) == :lt
+        DateTime.before?(slot.slot_start, state.delivered_window_end)
     end)
   end
 

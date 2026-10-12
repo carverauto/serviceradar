@@ -238,7 +238,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
     cursor = row.delivered_window_end
-    assert DateTime.compare(cursor, row.delivered_high_water) == :lt
+    assert DateTime.before?(cursor, row.delivered_high_water)
     assert row.acked_payload_sha256 != row.delivered_payload_sha256
 
     assignment = assignment!(group, ctx.agent)
@@ -268,7 +268,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     resent_ids = MapSet.new(resent.slots, & &1.execution_id)
     assert Ecto.UUID.dump!(minted.id) in resent_ids
     assert Ecto.UUID.dump!(carried.id) in resent_ids
-    assert DateTime.compare(carried.slot_start, cursor) == :lt
+    assert DateTime.before?(carried.slot_start, cursor)
 
     assert {:ok, [after_row]} = LeaseDelivery.list_for_group(group.id)
 
@@ -414,7 +414,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert Ecto.UUID.dump!(interior.id) in Enum.map(lease.slots, & &1.execution_id)
 
     assert %{} = marked = Enum.find(unrun!(assignment, now), &(&1.id == interior.id))
-    refute is_nil(marked.delivered_at)
+    assert marked.delivered_at
 
     assert {:ok, :up_to_date} =
              LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
