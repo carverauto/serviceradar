@@ -77,10 +77,10 @@ func (a *sweepLeaseAssembler) add(chunk *proto.SweepLeaseChunk) ([]byte, error) 
 	}
 
 	if int(chunk.GetChunkIndex()) != len(a.chunks) {
-		index := chunk.GetChunkIndex()
+		index, want := chunk.GetChunkIndex(), len(a.chunks)
 		a.reset()
 
-		return nil, fmt.Errorf("%w: chunk index %d, want %d", errInvalidSweepLeaseChunk, index, len(a.chunks))
+		return nil, fmt.Errorf("%w: chunk index %d, want %d", errInvalidSweepLeaseChunk, index, want)
 	}
 
 	a.bytes += len(chunk.GetPayload())
