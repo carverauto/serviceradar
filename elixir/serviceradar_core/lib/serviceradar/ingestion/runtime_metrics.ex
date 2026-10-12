@@ -23,7 +23,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   @table __MODULE__
   @subject "metrics.ingestion_lanes"
-  @publish_outage_reminder_every 60
+  # Each frame becomes one platform.timeseries_metrics row per lane metric per
+  # core node, so the cadence sets that table's volume. A 1-second cadence wrote
+  # hundreds of thousands of rows an hour that nothing reads at that resolution.
+  @default_interval_ms 30_000
+  @publish_outage_reminder_ms 60_000
   @alert_health_ttl_ms 120_000
   @alert_lanes [:alert_log, :alert_event, :alert_metric, :alert_maintenance]
   @alert_health_gauges [
@@ -174,7 +178,13 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   @impl true
   def init(opts) do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
-    interval = Keyword.get(opts, :interval_ms, 1_000)
+
+    configured =
+      :serviceradar_core
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:interval_ms, @default_interval_ms)
+
+    interval = Keyword.get(opts, :interval_ms, configured)
 
     if !(is_integer(interval) and interval > 0) do
       raise ArgumentError, "invalid metric cadence"
@@ -228,7 +238,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
             {:error, reason} ->
               failures = state.outage_failures + 1
 
-              if failures == 1 or rem(failures, @publish_outage_reminder_every) == 0 do
+              if failures == 1 or rem(failures, outage_reminder_every(state.interval)) == 0 do
                 Logger.warning(
                   "Ingestion lane metrics publish failing; buffering one frame",
                   subject: @subject,
@@ -254,6 +264,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
          outage_failures: outage_failures
      }}
   end
+
+  defp outage_reminder_every(interval), do: max(1, div(@publish_outage_reminder_ms, interval))
 
   # A recovery scan may move to a different core node. Stop refreshing that
   # former sampler's global health gauges indefinitely. A held PubAck frame is

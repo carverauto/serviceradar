@@ -1274,6 +1274,12 @@ if config_env() == :prod do
          ProductionSchedule.seasonal_disposition_worker_config()
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
+
+  # Milliseconds between ingestion lane metric frames (one timeseries_metrics row per
+  # lane metric per core node each frame).
+  config :serviceradar_core, ServiceRadar.Ingestion.RuntimeMetrics,
+    interval_ms: "SERVICERADAR_INGESTION_METRICS_INTERVAL_MS" |> parse_int_env.(30_000) |> max(1_000)
+
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
