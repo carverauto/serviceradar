@@ -11,7 +11,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateSweepLeaseDeliveries do
   (every push of one lease signs the same `not_before`, so a slot delivered earlier stays
   inside the newest production capability). `delivered_window_end` is the cursor, just after
   the last slot the push carried, so the next tail starts there. An empty full push carries
-  no slot, and its cursor is the window end it sent. `delivered_high_water` is the furthest
+  no slot, and its cursor is the window start it sent. `delivered_high_water` is the furthest
   window end sent for the current lease id, how far the agent may still hold slots; a new
   lease id starts it at that push's window end. A same-lease full push tells the agent a
   window that reaches the high water, so a retry still clears every slot the agent may hold,
