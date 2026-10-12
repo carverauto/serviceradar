@@ -1161,6 +1161,10 @@ if config_env() == :prod do
       # (tracker restart, lost close) otherwise stay requested/opening/active/
       # closing forever. Their leases stop renewing, which is what the reaper keys on.
       {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
+      # Sweep executions whose agent stopped reporting (group disabled mid-scan,
+      # agent gone) otherwise stay running forever. Kept in step with
+      # serviceradar_core's runtime.exs.
+      {"*/5 * * * *", ServiceRadar.SweepJobs.ExecutionReaperWorker, queue: :maintenance},
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
