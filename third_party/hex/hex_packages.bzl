@@ -49,7 +49,7 @@ HEX_PACKAGES = [
     ("ctx", "ctx", "0.6.0", "a14ed2d1b67723dbebbe423b28d7615eb0bdcba6ff28f2d1f1b0a7e1d4aa5fc2"),
     ("curve25519", "curve25519", "1.0.6", "dd714c2da20cdddca81f0b659236c8fb2119e58697326da50785b5c1bc64af9d"),
     ("db_connection", "db_connection", "2.10.2", "510b14482330f1af6490a2fa0efd8d4f1435d1529b165647df22ac0f2df0fa93"),
-    ("decimal", "decimal", "3.1.1", "c5f25f2ced74a0587d03e6023f595db8e924c9d3922c8c8ffd9edfc4498cf1f6"),
+    ("decimal", "decimal", "3.2.0", "190bca80580ce61aa69bb0eacadd7677710205c770225c2c2c07e32a5c31b234"),
     ("delta_crdt", "delta_crdt", "0.6.5", "c6ae23a525d30f96494186dd11bf19ed9ae21d9fe2c1f1b217d492a7cc7294ae"),
     ("dialyxir", "dialyxir", "1.4.8", "cbd5a851571e5dfeb32aaf2e840bfa98b7864cb3071bf2ef5d95d1276b12e072"),
     ("dns_cluster", "dns_cluster", "0.2.0", "ba6f1893411c69c01b9e8e8f772062535a4cf70f3f35bcc964a324078d8c8240"),
