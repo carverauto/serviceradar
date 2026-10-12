@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.DataRetentionWorker do
   @moduledoc """
-  Recurring cleanup for high-volume observability tables that are not Timescale hypertables.
+  Recurring cleanup and retention reconciliation for high-volume observability tables,
+  including Timescale hypertable chunk intervals, compression policies, and hourly rollups.
   """
 
   use Oban.Worker,
@@ -29,6 +30,15 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_capacity_forecasts_retention_days 395
   @default_raw_metrics_retention_days 7
   @default_timeseries_metrics_retention_days 7
+  # Raw timeseries_metrics is the largest table and is only small once
+  # compressed, so chunk size and the lag before compression set the disk
+  # footprint. Compressing a chunk sorts all of it through temp files on the
+  # data volume, so a chunk must stay small relative to free space: a
+  # day-long chunk at sweep volume needs tens of GB free and fails on a tight
+  # disk. 4-hour chunks compressed 2 hours after closing keep a few hours raw.
+  @default_timeseries_metrics_chunk_interval_hours 4
+  @default_timeseries_metrics_compress_after_hours 2
+  @timeseries_metrics_compression_schedule_hours 1
   @default_otel_traces_chunk_interval_hours 1
   @default_logs_chunk_interval_hours 6
   @default_otel_metrics_chunk_interval_hours 24
@@ -73,6 +83,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     reconcile_timescale_tables(config)
+    reconcile_timeseries_metrics_compression(config)
     reconcile_hourly_rollups(config)
     # Widening rollup retention costs storage on every deployment and only pays
     # for itself once raw history is served from the cold tier, so it follows
@@ -111,7 +122,16 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     :ok
   end
 
-  defp reconcile_timescale_tables(config) do
+  @doc """
+  Reconcile retention and chunk interval for the raw telemetry hypertables.
+
+  `timeseries_metrics` takes its chunk interval from
+  `:timeseries_metrics_chunk_interval_hours`; the sysmon tables share
+  `:raw_metrics_chunk_interval_hours`. A new interval applies to chunks
+  created afterwards.
+  """
+  @spec reconcile_timescale_tables(keyword()) :: :ok
+  def reconcile_timescale_tables(config) do
     Enum.each(
       [
         {"otel_traces", :otel_traces_retention_days, @default_otel_traces_retention_days,
@@ -133,8 +153,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
          @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
          @default_capacity_forecasts_chunk_interval_hours},
         {"timeseries_metrics", :timeseries_metrics_retention_days,
-         @default_timeseries_metrics_retention_days, :raw_metrics_chunk_interval_hours,
-         @default_raw_metrics_chunk_interval_hours},
+         @default_timeseries_metrics_retention_days, :timeseries_metrics_chunk_interval_hours,
+         @default_timeseries_metrics_chunk_interval_hours},
         {"cpu_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
          :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
         {"cpu_cluster_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
@@ -228,6 +248,146 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
           hazards: inspect(hazards)
         )
     end
+  end
+
+  @doc """
+  Reconcile the compression policy on raw `platform.timeseries_metrics` to the
+  configured lag (`:timeseries_metrics_compress_after_hours`).
+
+  Migration `20261006160000` enables compression and installs the policy, but
+  with a fixed 6-day lag, and an existing policy keeps whatever lag it was
+  created with. At sweep volume six raw days outgrow the CNPG volume, so the
+  lag is configuration. Compressing a raw chunk does not stop the hourly
+  rollups from refreshing over it.
+
+  The policy is re-registered only when the lag changed, because
+  `add_compression_policy` resets the job schedule. The job runs hourly so a
+  closed chunk does not wait out a 12-hour default schedule. A database
+  without TimescaleDB, or a table without compression enabled, is skipped.
+  """
+  @spec reconcile_timeseries_metrics_compression(keyword()) :: :ok
+  def reconcile_timeseries_metrics_compression(config) do
+    compress_after_hours = timeseries_metrics_compress_after_hours(config)
+
+    case SQL.query(Repo, timeseries_metrics_compression_sql(compress_after_hours), [],
+           timeout: @query_timeout_ms
+         ) do
+      {:ok, _result} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning("Failed to reconcile timeseries_metrics compression",
+          compress_after_hours: compress_after_hours,
+          reason: Exception.message(error)
+        )
+    end
+  end
+
+  defp timeseries_metrics_compress_after_hours(config) do
+    compress_after_hours =
+      config
+      |> Keyword.get(
+        :timeseries_metrics_compress_after_hours,
+        @default_timeseries_metrics_compress_after_hours
+      )
+      |> positive_integer(@default_timeseries_metrics_compress_after_hours)
+
+    retention_days =
+      config
+      |> Keyword.get(
+        :timeseries_metrics_retention_days,
+        @default_timeseries_metrics_retention_days
+      )
+      |> positive_integer(@default_timeseries_metrics_retention_days)
+
+    if compress_after_hours >= retention_days * 24 do
+      Logger.warning(
+        "timeseries_metrics compression lag is not shorter than its retention; " <>
+          "chunks are dropped before they are compressed",
+        compress_after_hours: compress_after_hours,
+        retention_days: retention_days
+      )
+    end
+
+    compress_after_hours
+  end
+
+  defp timeseries_metrics_compression_sql(compress_after_hours) do
+    """
+    DO $$
+    DECLARE
+      ts_schema text;
+      compress_after interval := make_interval(hours => #{compress_after_hours});
+      schedule interval := make_interval(hours => #{@timeseries_metrics_compression_schedule_hours});
+      current_after interval;
+      current_job integer;
+      current_schedule interval;
+    BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NULL THEN
+        RETURN;
+      END IF;
+
+      -- segmentby/orderby belong to the migration; without them there is
+      -- nothing for a policy to run.
+      IF NOT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.hypertables
+        WHERE hypertable_schema = 'platform'
+          AND hypertable_name = 'timeseries_metrics'
+          AND compression_enabled
+      ) THEN
+        RETURN;
+      END IF;
+
+      SELECT (j.config->>'compress_after')::interval
+      INTO current_after
+      FROM timescaledb_information.jobs j
+      WHERE j.proc_name = 'policy_compression'
+        AND j.hypertable_schema = 'platform'
+        AND j.hypertable_name = 'timeseries_metrics'
+      LIMIT 1;
+
+      IF current_after IS DISTINCT FROM compress_after THEN
+        EXECUTE format(
+          'SELECT %I.remove_compression_policy(%L::regclass, if_exists => true)',
+          ts_schema,
+          'platform.timeseries_metrics'
+        );
+
+        EXECUTE format(
+          'SELECT %I.add_compression_policy(%L::regclass, compress_after => %L::interval, schedule_interval => %L::interval)',
+          ts_schema,
+          'platform.timeseries_metrics',
+          compress_after,
+          schedule
+        );
+      END IF;
+
+      SELECT j.job_id, j.schedule_interval
+      INTO current_job, current_schedule
+      FROM timescaledb_information.jobs j
+      WHERE j.proc_name = 'policy_compression'
+        AND j.hypertable_schema = 'platform'
+        AND j.hypertable_name = 'timeseries_metrics'
+      LIMIT 1;
+
+      IF current_job IS NOT NULL AND current_schedule IS DISTINCT FROM schedule THEN
+        EXECUTE format(
+          'SELECT %I.alter_job(%s, schedule_interval => %L::interval)',
+          ts_schema,
+          current_job,
+          schedule
+        );
+      END IF;
+    END;
+    $$;
+    """
   end
 
   @doc """

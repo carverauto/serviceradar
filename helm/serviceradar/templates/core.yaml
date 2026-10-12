@@ -733,6 +733,10 @@ spec:
           value: {{ default 90 $observabilityRetention.ocsfNetworkActivityDays | quote }}
         - name: SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS
           value: {{ default 7 $observabilityRetention.timeseriesMetricsDays | quote }}
+        - name: SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS
+          value: {{ default 2 $observabilityRetention.timeseriesMetricsCompressAfterHours | quote }}
+        - name: SERVICERADAR_TIMESERIES_METRICS_CHUNK_INTERVAL_HOURS
+          value: {{ default 4 $observabilityRetention.timeseriesMetricsChunkIntervalHours | quote }}
         - name: SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS
           value: {{ default 395 $observabilityRetention.hourlyRollupDays | quote }}
         - name: SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS

@@ -471,6 +471,16 @@ core:
     # Raw timeseries_metrics (SNMP/interface counters). The hourly rollups
     # refresh their last 5 days from it, so keep this above 5.
     timeseriesMetricsDays: 7
+    # Raw timeseries_metrics shrinks about 10x when compressed, so chunk size
+    # and the lag before compression, not retention, set most of the CNPG
+    # footprint. Compressing a chunk sorts all of it through temp files on the
+    # data volume, so keep chunks small: a day-long chunk at sweep volume needs
+    # tens of GB free to compress. Applies to newly created chunks. Reconciled
+    # nightly by core.
+    timeseriesMetricsChunkIntervalHours: 4
+    # How long a closed raw chunk stays uncompressed before the hourly
+    # compression job picks it up.
+    timeseriesMetricsCompressAfterHours: 2
     # Hourly metric rollups (cpu/memory/disk/process_metrics_hourly and
     # timeseries_metrics_*_hourly), which back long-range charts and seasonal
     # anomaly baselines. Chunks older than 7 days are compressed. Minimum 7.
