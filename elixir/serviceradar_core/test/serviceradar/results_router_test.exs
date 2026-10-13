@@ -7,6 +7,10 @@ defmodule ServiceRadar.ResultsRouterTest do
 
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Admission.Lane
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.Ingestion.Admission
@@ -14,6 +18,10 @@ defmodule ServiceRadar.ResultsRouterTest do
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.ResultsRouter
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepHostResult
+  alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   defmodule TestIngestor do
     @moduledoc false
@@ -97,6 +105,24 @@ defmodule ServiceRadar.ResultsRouterTest do
       end
 
       ServiceRadar.ResultsRouterTest.TestSweepIngestor.ingest_results(results, execution_id, opts)
+    end
+  end
+
+  defmodule OrderedSweepIngestor do
+    @moduledoc false
+    # Reports each chunk as it reaches the real ingestor. The held agent's first
+    # chunk waits for a release, so the rest of its burst queues behind it.
+    def ingest_results(results, execution_id, opts) do
+      {test_pid, held_agent} = Application.fetch_env!(:serviceradar_core, :ordered_sweep_test)
+      send(test_pid, {:sweep_chunk, opts[:agent_id], opts[:chunk_index], self()})
+
+      if opts[:agent_id] == held_agent and opts[:chunk_index] == 0 do
+        receive do
+          :release_sweep_chunk -> :ok
+        end
+      end
+
+      SweepResultsIngestor.ingest_results(results, execution_id, opts)
     end
   end
 
@@ -341,14 +367,33 @@ defmodule ServiceRadar.ResultsRouterTest do
     prefix = "load-#{System.unique_integer([:positive])}"
     previous_barrier = Application.fetch_env(:serviceradar_core, :ingestion_load_barrier)
     previous_pid = Application.fetch_env(:serviceradar_core, :ingestion_load_test_pid)
+
+    previous_ingestion =
+      Application.fetch_env(:serviceradar_core, ServiceRadar.Ingestion.Supervisor)
+
     Application.put_env(:serviceradar_core, :sweep_ingestor, LoadSweepIngestor)
     Application.put_env(:serviceradar_core, :ingestion_load_barrier, true)
     Application.put_env(:serviceradar_core, :ingestion_load_test_pid, parent)
 
+    # The sweep queue holds more chunks than the other lanes. Size it like them
+    # so this burst still overflows it and every depth stays within one bound.
+    ingestion =
+      case previous_ingestion do
+        {:ok, config} -> config
+        _ -> []
+      end
+
+    Application.put_env(
+      :serviceradar_core,
+      ServiceRadar.Ingestion.Supervisor,
+      Keyword.update(ingestion, :sweep, [max_items: 32], &Keyword.put(&1, :max_items, 32))
+    )
+
     on_exit(fn ->
       for {key, previous} <- [
             {:ingestion_load_barrier, previous_barrier},
-            {:ingestion_load_test_pid, previous_pid}
+            {:ingestion_load_test_pid, previous_pid},
+            {ServiceRadar.Ingestion.Supervisor, previous_ingestion}
           ] do
         case previous do
           {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
@@ -392,7 +437,7 @@ defmodule ServiceRadar.ResultsRouterTest do
             with {:ok, {lane, token}} <-
                    GenServer.call(
                      ServiceRadar.StatusHandler,
-                     {:reserve_status, ServiceRadar.Admission.Lane.descriptor(status, 15_000)},
+                     {:reserve_status, Lane.descriptor(status, 15_000)},
                      1_000
                    ) do
               GenServer.call(lane, {:submit, token, status, :wait}, 15_000)
@@ -416,9 +461,17 @@ defmodule ServiceRadar.ResultsRouterTest do
     Enum.each(held, &send(&1, :release_load_sweep))
     replies = collect_load_remaining(fast, length(offered))
 
-    for type <- [:sweep, :endpoint] do
-      assert_eventually(fn -> :sys.get_state(Admission.server(type)).jobs == %{} end)
-    end
+    # Sweeps are acknowledged once queued, so a worker can still report itself
+    # held after every reply has arrived.
+    assert_eventually(
+      fn ->
+        release_held_sweeps()
+        :sys.get_state(Admission.server(:sweep)).jobs == %{}
+      end,
+      400
+    )
+
+    assert_eventually(fn -> :sys.get_state(Admission.server(:endpoint)).jobs == %{} end)
 
     assert_eventually(fn ->
       :sys.get_state(ServiceRadar.Admission.RetainedPluginLane).jobs == %{}
@@ -471,6 +524,145 @@ defmodule ServiceRadar.ResultsRouterTest do
           ack_max_ms: List.last(latencies)
         })
     )
+  end
+
+  @tag timeout: 180_000
+  test "gateway sweep bursts are ingested in order and complete their executions" do
+    previous = Application.get_env(:serviceradar_core, :ordered_sweep_test)
+    on_exit(fn -> restore_env(:ordered_sweep_test, previous) end)
+    Application.put_env(:serviceradar_core, :sweep_ingestor, OrderedSweepIngestor)
+    Application.put_env(:serviceradar_core, :ordered_sweep_test, {self(), "agent-burst-a"})
+    ServiceRadar.TestSupport.start_ingestion_topology!()
+    actor = SystemActor.system(:test)
+
+    runs =
+      for {agent_id, prefix} <- [{"agent-burst-a", "198.51.100"}, {"agent-burst-b", "203.0.113"}] do
+        {:ok, group} =
+          SweepGroup
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "Burst #{agent_id} #{System.unique_integer([:positive])}",
+              partition: "default",
+              agent_ids: []
+            },
+            actor: actor
+          )
+          |> Ash.create()
+
+        %{
+          agent_id: agent_id,
+          group_id: group.id,
+          execution_id: Ash.UUID.generate(),
+          prefix: prefix
+        }
+      end
+
+    # Each agent reports a scan as 14 chunks of five hosts, forwarded back to
+    # back. The old sweep lane admitted eight chunks per agent and dropped any
+    # that waited two seconds, so this burst lost its tail and its final chunk.
+    deliveries =
+      runs
+      |> Enum.map(fn run ->
+        Task.async(fn -> Enum.map(0..13, &deliver_sweep_chunk(run, &1)) end)
+      end)
+      |> Task.await_many(30_000)
+
+    assert List.flatten(deliveries) == List.duplicate(:ok, 28)
+
+    # Agent B's scan is ingested while agent A's first chunk is held, and none
+    # of agent A's later chunks overtakes the held one.
+    assert receive_sweep_chunks("agent-burst-b", 14) == Enum.to_list(0..13)
+    assert_receive {:sweep_chunk, "agent-burst-a", 0, held}, 15_000
+    refute_received {:sweep_chunk, "agent-burst-a", 1, _}
+    send(held, :release_sweep_chunk)
+    assert receive_sweep_chunks("agent-burst-a", 13) == Enum.to_list(1..13)
+
+    for run <- runs do
+      deadline = System.monotonic_time(:millisecond) + 60_000
+      execution = await_completed_execution(run.execution_id, actor, deadline)
+      assert execution.hosts_total == 70
+      assert execution.hosts_available == 70
+
+      assert ServiceRadar.Repo.one(
+               from(r in SweepHostResult,
+                 where: r.execution_id == ^run.execution_id,
+                 select: count(r.id)
+               )
+             ) == 70
+    end
+
+    assert_eventually(fn -> :sys.get_state(Admission.server(:sweep)).jobs == %{} end, 400)
+  end
+
+  # The gateway's best-effort sweep forwarding: prepare the group header,
+  # reserve through the status handler, then submit to the granted owner.
+  defp deliver_sweep_chunk(run, index) do
+    hosts =
+      for host <- 1..5 do
+        %{"host" => "#{run.prefix}.#{index * 5 + host}", "available" => true}
+      end
+
+    payload = %{
+      "execution_id" => run.execution_id,
+      "sweep_group_id" => run.group_id,
+      "total_hosts" => 70,
+      "hosts" => hosts
+    }
+
+    status =
+      Admission.prepare(%{
+        source: "results",
+        service_type: "sweep",
+        service_name: "sweep",
+        agent_id: run.agent_id,
+        gateway_id: "gateway01.example.com",
+        partition: "default",
+        authenticated_partition: "default",
+        chunk_index: index,
+        total_chunks: 14,
+        is_final: index == 13,
+        message: Jason.encode!(payload)
+      })
+
+    descriptor = Lane.descriptor(status, Admission.budget_ms())
+
+    with {:ok, {owner, id}} <-
+           GenServer.call(ServiceRadar.StatusHandler, {:reserve_status, descriptor}, 1_100) do
+      GenServer.call(owner, {:submit, id, status, :best_effort}, 15_000)
+    end
+  end
+
+  defp receive_sweep_chunks(agent_id, count) do
+    for _ <- 1..count do
+      assert_receive {:sweep_chunk, ^agent_id, index, _worker}, 15_000
+      index
+    end
+  end
+
+  defp await_completed_execution(execution_id, actor, deadline) do
+    case Ash.get(SweepGroupExecution, execution_id, actor: actor) do
+      {:ok, %{status: :completed} = execution} ->
+        execution
+
+      result ->
+        if System.monotonic_time(:millisecond) > deadline do
+          flunk("sweep execution did not complete: #{inspect(result, limit: 4)}")
+        end
+
+        Process.sleep(100)
+        await_completed_execution(execution_id, actor, deadline)
+    end
+  end
+
+  defp release_held_sweeps do
+    receive do
+      {:load_sweep_held, pid} ->
+        send(pid, :release_load_sweep)
+        release_held_sweeps()
+    after
+      0 -> :ok
+    end
   end
 
   defp load_status(type, index, prefix) do

@@ -49,6 +49,20 @@ ingestion_config =
     end
   )
 
+# The sweep queue acknowledges chunks once queued and ingests them in the
+# background (ServiceRadar.Ingestion.SweepQueue). Unset values keep its defaults.
+sweep_queue_config =
+  Enum.reject(
+    [
+      max_items: ingestion_positive_env.("SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS", nil),
+      max_items_per_agent: ingestion_positive_env.("SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS_PER_AGENT", nil),
+      worker_timeout_ms: ingestion_positive_env.("SERVICERADAR_SWEEP_INGESTION_WORKER_TIMEOUT_MS", nil)
+    ],
+    fn {_key, value} -> is_nil(value) end
+  )
+
+ingestion_config = Keyword.update!(ingestion_config, :sweep, &Keyword.merge(&1, sweep_queue_config))
+
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
