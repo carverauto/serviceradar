@@ -166,12 +166,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Forms d
   end
 
   defp group_saved(socket, scope, group) do
-    {groups, summary_agents} = load_sweep_groups_with_summary_agents(scope)
+    {groups, summary_agents, lease_horizons} = load_sweep_groups_with_summaries(scope)
 
     {:noreply,
      socket
      |> assign(:sweep_groups, groups)
      |> assign(:sweep_group_summary_agents, summary_agents)
+     |> assign(:sweep_lease_horizons, lease_horizons)
      |> put_flash(:info, sweep_group_save_message(group.enabled))
      |> push_navigate(to: ~p"/settings/networks")}
   end

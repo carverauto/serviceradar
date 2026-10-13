@@ -169,12 +169,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         summary_agents =
           if connected?(socket), do: load_sweep_group_summary_agents(scope, [group]), else: %{}
 
+        lease_horizons =
+          if connected?(socket), do: load_sweep_group_lease_horizons([group]), else: %{}
+
+        lease_agents =
+          if connected?(socket), do: load_sweep_lease_agents(scope, lease_horizons), else: %{}
+
         socket
         |> assign(:page_title, group.name)
         |> assign(:current_path, "/settings/networks")
         |> assign(:show_form, :show_group)
         |> assign(:selected_group, group)
         |> assign(:sweep_group_summary_agents, summary_agents)
+        |> assign(:sweep_lease_horizons, lease_horizons)
+        |> assign(:sweep_lease_agents, lease_agents)
     end
   end
 

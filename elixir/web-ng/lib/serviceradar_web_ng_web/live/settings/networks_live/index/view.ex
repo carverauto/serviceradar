@@ -77,6 +77,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                 <.group_detail
                   group={@selected_group}
                   summary_agents={@sweep_group_summary_agents}
+                  lease_horizons={Map.get(@sweep_lease_horizons, @selected_group.id, [])}
+                  lease_agents={@sweep_lease_agents}
                   timezone={@current_scope.user.timezone || "Etc/UTC"}
                 />
               <% else %>
@@ -93,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                     <SweepGroups.render
                       groups={@sweep_groups}
                       summary_agents={@sweep_group_summary_agents}
+                      lease_horizons={@sweep_lease_horizons}
                       sweep_command_statuses={@sweep_command_statuses}
                       can_manage_networks={@can_manage_networks}
                       timezone={@current_scope.user.timezone || "Etc/UTC"}

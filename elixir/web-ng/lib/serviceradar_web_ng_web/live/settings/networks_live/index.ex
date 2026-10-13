@@ -51,6 +51,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           %{}
         end
 
+      sweep_lease_horizons =
+        if connected?(socket) and socket.assigns.live_action == :index do
+          load_sweep_group_lease_horizons(sweep_groups)
+        else
+          %{}
+        end
+
       if connected?(socket) do
         SweepPubSub.subscribe()
         AgentCommandsPubSub.subscribe()
@@ -64,6 +71,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:active_tab, :groups)
         |> assign(:sweep_groups, sweep_groups)
         |> assign(:sweep_group_summary_agents, sweep_group_summary_agents)
+        |> assign(:sweep_lease_horizons, sweep_lease_horizons)
+        |> assign(:sweep_lease_agents, %{})
         |> assign(:sweep_profiles, load_sweep_profiles(scope))
         |> assign(:running_executions, load_running_executions(scope))
         |> assign(:recent_executions, load_recent_executions(scope))

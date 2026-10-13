@@ -186,13 +186,16 @@
       production capability signs; the effective grant digest is derived from
       the contract and the lease scope.
       Proven by BuildBuddy invocation 4d85b178-4b10-481b-a324-59071d77d5cd.
-    - [ ] M2.0d2 Core delivery. Core builds, signs and pushes each connected
+    - [x] M2.0d2 Core delivery. Core builds, signs and pushes each connected
       agent's lease (the newly minted tail, or the whole window after a drop
       or a new lease), and records each ack.
       Migration `20260930091700` adds `sweep_lease_deliveries`;
       `LeaseDelivery` decides and builds each push as Carrier in `design.md`
       says, `AgentCommandBus.push_sweep_lease/3` and the gateway session send
       it as chunks, and the gateway forwards `SweepLeaseAck` to core.
+      Landed by [#5606](https://github.com/carverauto/serviceradar/pull/5606);
+      the delivery DB suite passed 15 tests against an SRQL-fixtures scratch
+      database, and the PR's BazelCI was green.
     - [x] M2.0d3 Agent install. The agent reassembles, checks and stores the
       lease per sweep group across restarts, and acknowledges it. DONE: the
       agent advertises `sweep_lease_v1`, and `go/pkg/agent/sweep_lease.go`

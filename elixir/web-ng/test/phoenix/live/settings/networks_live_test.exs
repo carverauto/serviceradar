@@ -842,6 +842,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert stale_detail_summary =~ "Unavailable"
   end
 
+  test "list and detail show each agent's acknowledged lease horizon", %{conn: conn} do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+
+    agent =
+      agent_fixture(gateway, %{uid: "lease-horizon-#{unique}", name: "Lease horizon #{unique}"})
+
+    group_id = insert_sweep_group!("Lease horizon #{unique}", [agent.uid])
+    insert_lease_delivery!(group_id, agent.uid)
+
+    {:ok, list_view, _html} = live(conn, ~p"/settings/networks")
+
+    assert has_element?(
+             list_view,
+             "[data-sweep-lease-horizon='#{group_id}']",
+             "2d left"
+           )
+
+    {:ok, detail, _html} = live(conn, ~p"/settings/networks/groups/#{group_id}")
+
+    assert has_element?(detail, "#sweep-lease-horizons-#{group_id}", "Current")
+
+    assert has_element?(
+             detail,
+             "[data-sweep-lease-agent='#{agent.uid}'][data-sweep-lease-status='acknowledged']",
+             agent.name
+           )
+
+    assert has_element?(
+             detail,
+             "[data-sweep-lease-agent='#{agent.uid}']",
+             "7"
+           )
+  end
+
   test "selected view renders a stale UID as unavailable and allows removing it", %{conn: conn} do
     gateway = gateway_fixture()
     unique = System.unique_integer([:positive])
@@ -1257,6 +1292,43 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       )
 
     id
+  end
+
+  defp insert_lease_delivery!(group_id, agent_id) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    acknowledged_through = DateTime.add(now, 49 * 3600, :second)
+    digest = String.duplicate("a", 64)
+
+    SQL.query!(
+      ServiceRadar.Repo,
+      """
+      INSERT INTO platform.sweep_lease_deliveries (
+        producer_assignment_id,
+        sweep_group_id,
+        agent_id,
+        lease_id,
+        lease_issued_at,
+        delivered_window_end,
+        delivered_high_water,
+        delivered_payload_sha256,
+        delivered_at,
+        acked_payload_sha256,
+        ack_installed,
+        acked_through,
+        acked_slot_count,
+        acked_at
+      ) VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $6, $7, $5, $7, TRUE, $6, 7, $5)
+      """,
+      [
+        Ecto.UUID.generate(),
+        group_id,
+        agent_id,
+        Ecto.UUID.generate(),
+        now,
+        acknowledged_through,
+        digest
+      ]
+    )
   end
 
   defp capture_repo_queries(fun) do
