@@ -1,3 +1,45 @@
+# ServiceRadar v1.4.93
+
+This release adds cancellation for running network scans, prevents queued
+sweep results from expiring under burst load, and fixes release publication
+when the optional macOS build does not succeed.
+
+## Features
+
+- Operators with the `networks.sweeps.run` permission can cancel a scan
+  from Settings > Networks > Running Scans. Confirmation closes the
+  execution as failed, then asks its owning agent to stop the group's
+  in-flight scan. Offline agents and agents without the `sweep_cancel`
+  capability leave the execution closed and display an explanation.
+  Scheduled sweeps continue at their normal interval (PRs #5611, #5612).
+
+## Upgrade Notes
+
+- Sweep results now use a bounded background queue with four workers,
+  capacity for 128 chunks, a per-agent limit of 32 chunks, and a 32 MiB
+  byte budget. Configure item limits and the worker deadline through
+  `SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS`,
+  `SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS_PER_AGENT`, and
+  `SERVICERADAR_SWEEP_INGESTION_WORKER_TIMEOUT_MS`. The existing
+  `SERVICERADAR_INGESTION_LANE_MAX_BYTES` setting controls its byte budget.
+  Accepted chunks remain in memory and can be lost if the coordinator
+  restarts (PR #5610).
+
+## Fixes
+
+- Accepted sweep chunks no longer expire while waiting for ingestion.
+  Chunks from one agent and sweep group run in arrival order, while
+  other groups share the remaining workers. Full queues reject work
+  explicitly so the gateway can retry. Crashed or timed-out workers
+  receive one retry; processor errors are final and logged (PR #5610).
+- Late sweep chunks still record host results but cannot advance or
+  reopen a cancelled, reaped, superseded, or completed execution
+  (PR #5612).
+- Release asset verification now requires the macOS installer and its
+  provenance only after a successful macOS build. Failed, cancelled,
+  or skipped optional macOS jobs no longer block publication; all
+  other required asset checks remain enforced (PR #5609).
+
 # ServiceRadar v1.4.92
 
 This release closes abandoned sweep executions and speeds up mapper
