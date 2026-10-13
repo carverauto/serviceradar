@@ -184,11 +184,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
   end
 
   defp refresh_sweep_groups(socket) do
-    {groups, summary_agents} = load_sweep_groups_with_summary_agents(socket.assigns.current_scope)
+    {groups, summary_agents, lease_horizons} =
+      load_sweep_groups_with_summaries(socket.assigns.current_scope)
 
     socket
     |> assign(:sweep_groups, groups)
     |> assign(:sweep_group_summary_agents, summary_agents)
+    |> assign(:sweep_lease_horizons, lease_horizons)
   end
 
   defp agent_count(1), do: "1 agent"

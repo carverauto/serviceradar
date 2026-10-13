@@ -68,6 +68,20 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   @type authority :: %{key: IssuerKey.t(), contract: SweepContract.t()}
   @type sender :: (String.t(), Ecto.UUID.t(), binary() -> :ok | {:error, term()})
   @type outcome :: :pushed | :up_to_date | {:not_delivered, term()}
+  @type horizon_status ::
+          :acknowledged | :awaiting_acknowledgement | :acknowledgement_overdue | :refused
+  @type horizon :: %{
+          sweep_group_id: Ecto.UUID.t(),
+          producer_assignment_id: Ecto.UUID.t(),
+          agent_id: String.t(),
+          status: horizon_status(),
+          acknowledged_through: DateTime.t() | nil,
+          remaining_seconds: non_neg_integer() | nil,
+          acknowledged_slot_count: non_neg_integer() | nil,
+          acknowledged_at: DateTime.t() | nil,
+          delivered_at: DateTime.t(),
+          error: String.t() | nil
+        }
 
   @doc "The control-stream capability an agent advertises to receive leases."
   @spec capability() :: String.t()
@@ -165,6 +179,82 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     |> Ash.Query.filter(sweep_group_id == ^sweep_group_id)
     |> Ash.read(actor: actor())
   end
+
+  @doc """
+  The acknowledged lease horizon of every agent with a delivery in `group_ids`, grouped by
+  sweep group and ordered by agent within each group.
+
+  The horizon is taken only from an installed acknowledgement. A newer unacknowledged push
+  does not erase the horizon from the last installed acknowledgement, but it does change the
+  status from `:acknowledged` to `:awaiting_acknowledgement` (or
+  `:acknowledgement_overdue` once the acknowledgement grace has passed). A refused latest
+  push has no horizon in this projection.
+  """
+  @spec horizons_for_groups([Ecto.UUID.t()], DateTime.t()) ::
+          {:ok, %{optional(Ecto.UUID.t()) => [horizon()]}} | {:error, term()}
+  def horizons_for_groups(group_ids, now \\ DateTime.utc_now())
+
+  def horizons_for_groups([], %DateTime{}), do: {:ok, %{}}
+
+  def horizons_for_groups(group_ids, %DateTime{} = now) when is_list(group_ids) do
+    query =
+      SweepLeaseDelivery
+      |> Ash.Query.filter(sweep_group_id in ^group_ids)
+      |> Ash.Query.sort(sweep_group_id: :asc, agent_id: :asc)
+
+    with {:ok, rows} <- Ash.read(query, actor: actor()) do
+      {:ok, Enum.group_by(Enum.map(rows, &horizon(&1, now)), & &1.sweep_group_id)}
+    end
+  end
+
+  defp horizon(%SweepLeaseDelivery{} = row, %DateTime{} = now) do
+    installed? = row.ack_installed == true
+    acknowledged_through = if installed?, do: row.acked_through
+    acknowledged_slot_count = if installed?, do: row.acked_slot_count
+
+    %{
+      sweep_group_id: row.sweep_group_id,
+      producer_assignment_id: row.producer_assignment_id,
+      agent_id: row.agent_id,
+      status: horizon_status(row, now),
+      acknowledged_through: acknowledged_through,
+      remaining_seconds: remaining_seconds(acknowledged_through, now),
+      acknowledged_slot_count: acknowledged_slot_count,
+      acknowledged_at: row.acked_at,
+      delivered_at: row.delivered_at,
+      error: current_ack_error(row)
+    }
+  end
+
+  # An acknowledgement error belongs to the push it answered; once a newer push is
+  # delivered, the old refusal no longer describes the lease state.
+  defp current_ack_error(%SweepLeaseDelivery{} = row) do
+    if row.acked_payload_sha256 == row.delivered_payload_sha256, do: row.ack_error
+  end
+
+  defp horizon_status(%SweepLeaseDelivery{} = row, %DateTime{} = now) do
+    cond do
+      row.acked_payload_sha256 == row.delivered_payload_sha256 and row.ack_installed == true ->
+        :acknowledged
+
+      ack_failed?(row) ->
+        :refused
+
+      ack_lost?(row, now) ->
+        :acknowledgement_overdue
+
+      true ->
+        :awaiting_acknowledgement
+    end
+  end
+
+  defp remaining_seconds(%DateTime{} = acknowledged_through, %DateTime{} = now) do
+    acknowledged_through
+    |> DateTime.diff(now, :second)
+    |> max(0)
+  end
+
+  defp remaining_seconds(_acknowledged_through, %DateTime{}), do: nil
 
   # What to push, or :up_to_date. `replace?` is a dropped delivered slot or a
   # never-carried slot behind the cursor: only a full window sets either right.

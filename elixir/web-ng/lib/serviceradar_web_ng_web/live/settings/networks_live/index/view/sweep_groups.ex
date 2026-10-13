@@ -9,8 +9,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Messages, only: [sweep_group_delete_confirm_message: 1]
 
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.LeaseHorizons
+
   attr :groups, :list, required: true
   attr :summary_agents, :map, default: %{}
+  attr :lease_horizons, :map, default: %{}
   attr :sweep_command_statuses, :map, default: %{}
   attr :can_manage_networks, :boolean, default: false
   attr :timezone, :string, required: true
@@ -43,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
               <th>Schedule</th>
               <th>Partition</th>
               <th>Agent</th>
+              <th>Lease Horizon</th>
               <th>Last Run</th>
               <th>Run Status</th>
               <th>Actions</th>
@@ -50,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
           </thead>
           <tbody>
             <tr :if={@groups == []}>
-              <td colspan="8" class="text-center text-sr-muted py-8">
+              <td colspan="9" class="text-center text-sr-muted py-8">
                 No sweep groups configured. Create one to start scanning your network.
               </td>
             </tr>
@@ -88,6 +92,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                   data-sweep-group-assignment={group.id}
                 >
                   {agent_assignment_summary(group.agent_ids, @summary_agents)}
+                </td>
+                <td class="text-xs" data-sweep-lease-horizon={group.id}>
+                  <LeaseHorizons.summary horizons={Map.get(@lease_horizons, group.id, [])} />
                 </td>
                 <td class="text-xs text-sr-muted">
                   <.user_time
