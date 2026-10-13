@@ -193,8 +193,14 @@
       `LeaseDelivery` decides and builds each push as Carrier in `design.md`
       says, `AgentCommandBus.push_sweep_lease/3` and the gateway session send
       it as chunks, and the gateway forwards `SweepLeaseAck` to core.
-    - [ ] M2.0d3 Agent install. The agent reassembles, checks and stores the
-      lease per sweep group across restarts, and acknowledges it.
+    - [x] M2.0d3 Agent install. The agent reassembles, checks and stores the
+      lease per sweep group across restarts, and acknowledges it. DONE: the
+      agent advertises `sweep_lease_v1`, and `go/pkg/agent/sweep_lease.go`
+      installs each push as the window replacement in Carrier (`design.md`):
+      one protobuf file per sweep group under the agent state dir, answered
+      with `SweepLeaseAck` (installed collection end and slot count, or the
+      refusal). Signature and plan checks, and running the slots, stay
+      M2.0e and M2.0f; the group's local schedule is untouched.
     - [ ] M2.0d4 Remaining horizon. Core shows each agent's acknowledged
       horizon per leased group.
   - [ ] M2.0e Agent lease execution. For a leased group the agent's local
