@@ -1348,10 +1348,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       ) VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $6, $7, $5, $7, TRUE, $6, 7, $5)
       """,
       [
-        Ecto.UUID.generate(),
-        group_id,
+        Ecto.UUID.dump!(Ecto.UUID.generate()),
+        Ecto.UUID.dump!(group_id),
         agent_id,
-        Ecto.UUID.generate(),
+        Ecto.UUID.dump!(Ecto.UUID.generate()),
         now,
         acknowledged_through,
         digest
