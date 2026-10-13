@@ -27,21 +27,25 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   one shorter than `LeaseSchedule.min_interval_seconds/0` (a dense cron) is not leased.
 
   The pass is idempotent and keeps no state of its own: running it twice, or after a crash
-  part-way through, converges on the same slots. With no leasing enabled and no active
-  assignment it reads nothing else.
+  part-way through, converges on the same slots. With no leasing enabled, no active
+  assignment and no delivery row it reads nothing else. A delivery row outlives its group, so
+  a pass with one still revokes it.
   """
 
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.SweepPlan
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseAgents
+  alias ServiceRadar.SweepJobs.LeaseDelivery
   alias ServiceRadar.SweepJobs.LeaseEligibility
   alias ServiceRadar.SweepJobs.LeaseSchedule
   alias ServiceRadar.SweepJobs.LeaseSettings
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepLeaseDelivery
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -57,31 +61,40 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
           revoked: non_neg_integer(),
           scheduled: non_neg_integer(),
           dropped: non_neg_integer(),
+          pushed: non_neg_integer(),
+          withdrawn: non_neg_integer(),
           errors: non_neg_integer()
         }
+
+  @type delivery :: %{authority: LeaseDelivery.authority(), sender: LeaseDelivery.sender()}
 
   @doc "The most slots one pass mints for one assignment."
   @spec max_new_slots_per_assignment() :: pos_integer()
   def max_new_slots_per_assignment, do: @max_new_slots_per_assignment
 
-  @doc "Runs the pass over every sweep group."
-  @spec run(DateTime.t()) :: {:ok, summary() | :idle} | {:error, term()}
-  def run(now \\ DateTime.utc_now()) do
-    with {:ok, true} <- active?(),
-         {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
-      {:ok, Enum.reduce(groups, empty(), &add(&2, reconcile_group(&1, now)))}
-    else
-      {:ok, false} -> {:ok, :idle}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @doc """
+  Runs the pass over every sweep group.
 
-  @doc "Runs the pass over one sweep group."
-  @spec reconcile_group(SweepGroup.t(), DateTime.t()) :: summary()
-  def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now()) do
+  With a delivery context, each group is delivered and then deliveries whose assignment or
+  group is gone are revoked. `delivery` overrides `delivery_context/0`.
+  """
+  @spec run(DateTime.t(), delivery() | nil) :: {:ok, summary() | :idle} | {:error, term()}
+  def run(now \\ DateTime.utc_now(), delivery \\ :context)
+
+  def run(%DateTime{} = now, :context), do: execute(now, delivery_context())
+
+  def run(%DateTime{} = now, delivery), do: execute(now, delivery)
+
+  @doc """
+  Runs the pass over one sweep group. With a `delivery` context (the issuer authority and a
+  sender, see `delivery_context/0`) it also pushes each agent the lease it is missing and
+  withdraws the lease from agents the group no longer leases to; without one it only plans.
+  """
+  @spec reconcile_group(SweepGroup.t(), DateTime.t(), delivery() | nil) :: summary()
+  def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now(), delivery \\ nil) do
     case load_profile(group.profile_id) do
       {:ok, profile} ->
-        lease_or_revoke(group, profile, now)
+        lease_or_revoke(group, profile, now, delivery)
 
       {:error, reason} ->
         Logger.warning("Sweep lease pass: profile of group #{group.id}: #{inspect(reason)}")
@@ -91,6 +104,19 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     error ->
       Logger.error("Sweep lease pass failed for group #{group.id}: #{Exception.message(error)}")
       %{empty() | groups: 1, errors: 1}
+  end
+
+  @doc """
+  The delivery context of a pass: the issuer authority (`LeaseDelivery.authority/0`) and the
+  control-stream sender, or `nil` when core issues no lease authority (no issuer key, or no
+  active sweep contract), in which case leases are planned but not delivered.
+  """
+  @spec delivery_context() :: delivery() | nil
+  def delivery_context do
+    case LeaseDelivery.authority() do
+      nil -> nil
+      authority -> %{authority: authority, sender: &AgentCommandBus.push_sweep_lease/3}
+    end
   end
 
   @doc """
@@ -144,7 +170,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  # Leasing is enabled somewhere, or an assignment is still active and may need revoking.
+  # Leasing is on somewhere, an assignment is still active, or a delivery row still has to
+  # reach its agent. The row outlives the group, so it keeps the pass alive on its own.
   defp active? do
     with {:ok, enabled} <-
            SweepLeaseSetting
@@ -153,19 +180,51 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
          {:ok, assigned} <-
            SweepProducerAssignment
            |> Ash.Query.filter(state == :active)
+           |> Ash.exists(actor: actor()),
+         {:ok, delivered} <-
+           SweepLeaseDelivery
+           |> Ash.Query.filter(true)
            |> Ash.exists(actor: actor()) do
-      {:ok, enabled or assigned}
+      {:ok, enabled or assigned or delivered}
     end
   end
 
-  defp lease_group(group, inputs, now) do
+  defp execute(now, delivery) do
+    with {:ok, true} <- active?(),
+         {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
+      summary =
+        groups
+        |> Enum.reduce(empty(), &add(&2, reconcile_group(&1, now, delivery)))
+        |> add(orphan_withdrawals(now, delivery))
+
+      {:ok, summary}
+    else
+      {:ok, false} -> {:ok, :idle}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp orphan_withdrawals(_now, nil), do: empty()
+
+  defp orphan_withdrawals(now, %{sender: sender}) do
+    case LeaseDelivery.withdraw_orphans(now, sender) do
+      {:ok, count} ->
+        %{empty() | withdrawn: count}
+
+      {:error, reason} ->
+        Logger.warning("Sweep lease pass: withdrawing orphaned leases: #{inspect(reason)}")
+        %{empty() | errors: 1}
+    end
+  end
+
+  defp lease_group(group, inputs, now, delivery) do
     case LeaseAgents.candidates(group) do
-      {:ok, candidates} -> lease_candidates(group, inputs, candidates, now)
+      {:ok, candidates} -> lease_candidates(group, inputs, candidates, now, delivery)
       {:error, reason} -> skip_group(group, reason)
     end
   end
 
-  defp lease_candidates(group, inputs, candidates, now) do
+  defp lease_candidates(group, inputs, candidates, now, delivery) do
     candidates
     |> Enum.reduce_while([], fn candidate, acc ->
       case leased_agent(candidate, inputs.schedule, now) do
@@ -180,10 +239,12 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
       leased ->
         leased = Enum.reverse(leased)
-        revoked = ProducerAssignments.revoke_all_except(group.id, Enum.map(leased, & &1.agent_id))
+        keep = Enum.map(leased, & &1.agent_id)
+        revoked = ProducerAssignments.revoke_all_except(group.id, keep)
+        withdrawn = withdraw(group, keep, now, delivery)
 
-        Enum.reduce(leased, count_revoked(revoked, group), fn agent, acc ->
-          add(acc, lease_agent(group, inputs, agent, now))
+        Enum.reduce(leased, add(count_revoked(revoked, group), withdrawn), fn agent, acc ->
+          add(acc, lease_agent(group, inputs, agent, now, delivery))
         end)
     end
   end
@@ -208,10 +269,12 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  defp lease_agent(group, inputs, agent, now) do
+  defp lease_agent(group, inputs, agent, now, delivery) do
     with {:ok, assignment} <- ProducerAssignments.ensure(group.id, agent.agent_id, agent.scope_id),
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now) do
-      sync_slots(assignment, inputs, agent.slots, unrun)
+      assignment
+      |> sync_slots(inputs, agent.slots, unrun)
+      |> add(deliver(assignment, now, delivery))
     else
       {:error, reason} ->
         Logger.warning(
@@ -222,13 +285,46 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  defp lease_or_revoke(group, profile, now) do
+  defp lease_or_revoke(group, profile, now, delivery) do
     case LeaseEligibility.evaluate(group, profile) do
       {:ok, inputs} ->
-        lease_group(group, inputs, now)
+        lease_group(group, inputs, now, delivery)
 
       {:error, _reason} ->
-        count_revoked(ProducerAssignments.revoke_all_except(group.id, []), group)
+        revoked = count_revoked(ProducerAssignments.revoke_all_except(group.id, []), group)
+        add(revoked, withdraw(group, [], now, delivery))
+    end
+  end
+
+  defp deliver(_assignment, _now, nil), do: empty()
+
+  defp deliver(assignment, now, %{authority: authority, sender: sender}) do
+    case LeaseDelivery.deliver(assignment, authority, now, sender) do
+      {:ok, :pushed} ->
+        %{empty() | pushed: 1}
+
+      {:ok, _not_pushed} ->
+        empty()
+
+      {:error, reason} ->
+        Logger.warning(
+          "Sweep lease pass: delivering the lease of #{assignment.id}: #{inspect(reason)}"
+        )
+
+        %{empty() | errors: 1}
+    end
+  end
+
+  defp withdraw(_group, _keep, _now, nil), do: empty()
+
+  defp withdraw(group, keep, now, %{sender: sender}) do
+    case LeaseDelivery.withdraw_except(group.id, keep, now, sender) do
+      {:ok, count} ->
+        %{empty() | withdrawn: count}
+
+      {:error, reason} ->
+        Logger.warning("Sweep lease pass: withdrawing leases of #{group.id}: #{inspect(reason)}")
+        %{empty() | errors: 1}
     end
   end
 
@@ -372,7 +468,17 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   defp profile_missing?(_reason), do: false
 
-  defp empty, do: %{groups: 0, leases: 0, revoked: 0, scheduled: 0, dropped: 0, errors: 0}
+  defp empty,
+    do: %{
+      groups: 0,
+      leases: 0,
+      revoked: 0,
+      scheduled: 0,
+      dropped: 0,
+      pushed: 0,
+      withdrawn: 0,
+      errors: 0
+    }
 
   defp add(a, b), do: Map.merge(a, b, fn _key, x, y -> x + y end)
 

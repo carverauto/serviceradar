@@ -368,6 +368,81 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     end)
   end
 
+  test "a sweep lease push to a sweep_lease_v1 agent arrives as ordered chunks of the exact payload" do
+    ensure_process_registry!()
+
+    agent_id = "agent-lease-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, ["sweep_lease_v1"])
+    group_id = "0192a4a0-0007-7000-8000-000000000007"
+    # Above one 1 MiB chunk, so the lease spans several.
+    payload = :crypto.strong_rand_bytes(2_500_000)
+
+    assert :ok = ControlStreamSession.push_sweep_lease(pid, group_id, payload)
+
+    chunks = receive_sweep_lease_chunks([])
+
+    assert length(chunks) == 3
+    assert Enum.map(chunks, & &1.chunk_index) == [0, 1, 2]
+    assert Enum.map(chunks, & &1.is_final) == [false, false, true]
+    assert Enum.all?(chunks, &(&1.sweep_group_id == group_id and &1.total_chunks == 3))
+    assert chunks |> Enum.map(& &1.payload) |> IO.iodata_to_binary() == payload
+
+    assert hd(chunks).payload_sha256 ==
+             :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
+  end
+
+  test "a sweep lease push to an agent without sweep_lease_v1 is refused without touching the stream" do
+    ensure_process_registry!()
+
+    agent_id = "agent-no-lease-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, ["config_push_chunks"])
+
+    assert {:error, :sweep_lease_unsupported} =
+             ControlStreamSession.push_sweep_lease(pid, "group", "lease")
+
+    refute_receive {:stream_reply, _response}, 50
+  end
+
+  test "a sweep lease ack is recorded on core" do
+    ensure_process_registry!()
+
+    agent_id = "agent-lease-ack-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, ["sweep_lease_v1"])
+    test_pid = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
+      send(test_pid, {:core_call, function, args})
+      :ok
+    end)
+
+    ControlStreamSession.handle_message(
+      pid,
+      %Monitoring.ControlStreamRequest{
+        payload:
+          {:sweep_lease_ack,
+           %Monitoring.SweepLeaseAck{
+             sweep_group_id: "0192a4a0-0007-7000-8000-000000000007",
+             payload_sha256: String.duplicate("a", 64),
+             installed: true,
+             installed_through_unix_nano: 1_790_000_000_000_000_000,
+             installed_slot_count: 12
+           }}
+      },
+      identity_context(agent_id, "partition-a")
+    )
+
+    assert_receive {:core_call, :record_sweep_lease_ack,
+                    [
+                      ^agent_id,
+                      %{
+                        sweep_group_id: "0192a4a0-0007-7000-8000-000000000007",
+                        installed: true,
+                        installed_slot_count: 12,
+                        installed_through_unix_nano: 1_790_000_000_000_000_000
+                      }
+                    ]}
+  end
+
   test "oversized config push to an agent without config_push_chunks is refused without touching the stream" do
     ensure_process_registry!()
 
@@ -1058,6 +1133,17 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
              )
 
     pid
+  end
+
+  defp receive_sweep_lease_chunks(acc) do
+    receive do
+      {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:sweep_lease_chunk, chunk}}} ->
+        if chunk.is_final,
+          do: Enum.reverse([chunk | acc]),
+          else: receive_sweep_lease_chunks([chunk | acc])
+    after
+      1_000 -> flunk("timed out waiting for sweep lease chunks; received #{length(acc)}")
+    end
   end
 
   defp receive_config_chunks(acc) do
