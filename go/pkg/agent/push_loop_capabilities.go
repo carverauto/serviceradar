@@ -60,6 +60,9 @@ const (
 	// push sent as AgentConfigChunks, so the gateway can push configs larger than
 	// one gRPC message.
 	capabilityConfigPushChunks = "config_push_chunks"
+	// capabilitySweepCancel: this agent handles sweep.cancel_group, aborting a
+	// group's in-flight run without streaming its partial results.
+	capabilitySweepCancel = "sweep_cancel"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -365,6 +368,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	}
 	capabilities = append(capabilities,
 		sweepType,
+		capabilitySweepCancel,
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
 		"snmp",

@@ -167,6 +167,24 @@ func (s *MultiSweepService) RunSweepGroup(ctx context.Context, groupID string) e
 	return svc.RunOnce(ctx)
 }
 
+// CancelSweepGroup aborts the specified group's in-flight sweep, reporting
+// whether one was running. Other groups are unaffected.
+func (s *MultiSweepService) CancelSweepGroup(groupID string) (bool, error) {
+	if groupID == "" {
+		return false, errSweepGroupIDRequired
+	}
+
+	s.mu.RLock()
+	svc := s.groups[groupID]
+	s.mu.RUnlock()
+
+	if svc == nil {
+		return false, errSweepGroupNotFound
+	}
+
+	return svc.CancelRun()
+}
+
 // AcknowledgeSweepResults marks a group's results sequence as delivered after
 // the push loop has successfully streamed every chunk to the gateway.
 func (s *MultiSweepService) AcknowledgeSweepResults(groupID string, sequence string) {

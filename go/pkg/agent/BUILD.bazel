@@ -319,6 +319,7 @@ go_test(
         # behind a tag, because this is a unit test.
         "snmp_integration_test.go",
         "snmp_service_test.go",
+        "sweep_cancel_test.go",
         "sweep_config_gateway_test.go",
         "sweep_performance_test.go",
         "sweep_service_group_id_test.go",
@@ -385,6 +386,7 @@ go_test(
         "//go/pkg/scalibrinventory",
         "//go/pkg/scan",
         "//go/pkg/scan/banner_grab",
+        "//go/pkg/sweeper",
         "//go/pkg/sysmon",
         "//proto",
         "//proto/agent/addon/v1:addonpb",

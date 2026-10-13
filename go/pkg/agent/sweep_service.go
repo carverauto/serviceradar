@@ -114,6 +114,16 @@ func (s *SweepService) RunOnce(ctx context.Context) error {
 	return runner.RunOnce(ctx)
 }
 
+// CancelRun aborts the in-flight sweep, reporting whether one was running.
+func (s *SweepService) CancelRun() (bool, error) {
+	canceller, ok := s.sweeper.(interface{ CancelRun() bool })
+	if !ok {
+		return false, errSweepRunnerUnavailable
+	}
+
+	return canceller.CancelRun(), nil
+}
+
 // Name returns the service name.
 func (*SweepService) Name() string {
 	return networkSweepServiceName

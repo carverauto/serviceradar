@@ -26,7 +26,9 @@ import (
 
 func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
 	s.mu.RLock()
-	inProgress := s.sweepInProgress
+	// A cancelled run's partial results stay in the store until the next
+	// completed sweep prunes them, so treat it like a run still in progress.
+	inProgress := s.sweepInProgress || s.partialRunPending
 	cachedSummary := cloneSweepSummary(s.lastSummary)
 	s.mu.RUnlock()
 

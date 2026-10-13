@@ -112,10 +112,83 @@ func drainErrChan(errChan <-chan error) (first error, allContext bool) {
 	return first, allContext
 }
 
+// ErrSweepCancelled reports a run aborted by CancelRun. Its partial results are
+// discarded rather than committed as a completed sweep.
+var ErrSweepCancelled = errors.New("sweep run cancelled")
+
+// sweepRun tracks the in-flight run so CancelRun can abort it.
+type sweepRun struct {
+	cancel    context.CancelFunc
+	cancelled bool
+}
+
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
-	return s.runSweep(ctx)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	run := &sweepRun{cancel: cancel}
+
+	s.mu.Lock()
+	s.activeRun = run
+	s.mu.Unlock()
+
+	err := s.runSweep(runCtx)
+
+	s.mu.Lock()
+	if s.activeRun == run {
+		s.activeRun = nil
+	}
+	cancelled := run.cancelled
+	s.mu.Unlock()
+
+	if cancelled {
+		return ErrSweepCancelled
+	}
+
+	return err
+}
+
+// CancelRun aborts the in-flight sweep, if any, and reports whether one was
+// running. The aborted run's partial results are never committed, so nothing
+// further is streamed for it; scheduled sweeps continue at their interval.
+func (s *NetworkSweeper) CancelRun() bool {
+	s.mu.Lock()
+	run := s.activeRun
+	if run == nil {
+		s.mu.Unlock()
+		return false
+	}
+
+	alreadyCancelled := run.cancelled
+	run.cancelled = true
+	s.partialRunPending = true
+	s.mu.Unlock()
+
+	if !alreadyCancelled {
+		s.logger.Info().Msg("Cancelling in-flight sweep on request")
+		run.cancel()
+	}
+
+	return true
+}
+
+// cancelRequestedLocked reports whether the in-flight run was cancelled. The
+// caller must hold s.mu.
+func (s *NetworkSweeper) cancelRequestedLocked() bool {
+	return s.activeRun != nil && s.activeRun.cancelled
+}
+
+// logRunError logs a failed run; a requested cancellation is not a failure.
+func (s *NetworkSweeper) logRunError(err error, msg string) {
+	if errors.Is(err, ErrSweepCancelled) {
+		s.logger.Info().Msg("Sweep run cancelled on request")
+		return
+	}
+
+	s.logger.Error().Err(err).Msg(msg)
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
@@ -249,9 +322,14 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 // completeCancelledSweep commits whatever partial results were gathered when
 // the scan hit its wall-clock timeout, and marks the run as cancelled so
-// callers can report the correct execution status.
+// callers can report the correct execution status. A run aborted by CancelRun
+// is discarded instead.
 func (s *NetworkSweeper) completeCancelledSweep(ctx context.Context, startedAt time.Time) error {
 	s.mu.Lock()
+	if s.cancelRequestedLocked() {
+		s.mu.Unlock()
+		return ErrSweepCancelled
+	}
 	s.lastSweepCancelled = true
 	s.mu.Unlock()
 
@@ -292,26 +370,32 @@ func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt 
 
 	completedAt := time.Now()
 
+	var summary *models.SweepSummary
+
 	if s.store != nil {
-		summary, err := s.store.GetSweepSummary(ctx)
+		var err error
+
+		summary, err = s.store.GetSweepSummary(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to cache sweep summary: %w", err)
 		}
 
 		summary.LastSweep = completedAt.Unix()
-
-		s.mu.Lock()
-		s.lastSweep = completedAt
-		s.lastSummary = cloneSweepSummary(summary)
-		s.mu.Unlock()
-
-		return nil
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Committing and CancelRun share s.mu, so a run is either published here or
+	// cancelled, never both. A published run can no longer be cancelled.
+	if s.cancelRequestedLocked() {
+		return ErrSweepCancelled
+	}
+
+	s.activeRun = nil
+	s.partialRunPending = false
 	s.lastSweep = completedAt
-	s.lastSummary = nil
-	s.mu.Unlock()
+	s.lastSummary = cloneSweepSummary(summary)
 
 	return nil
 }
