@@ -14,6 +14,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
   def apply_action(socket, :index, params) do
+    socket =
+      if connected?(socket) do
+        assign(
+          socket,
+          :sweep_lease_horizons,
+          load_sweep_group_lease_horizons(socket.assigns.sweep_groups)
+        )
+      else
+        socket
+      end
+
     socket
     |> assign(:page_title, "Network Sweeps")
     |> assign(:current_path, "/settings/networks")
