@@ -41,7 +41,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	if err := s.runSweepWithLock(initialCtx); err != nil {
 		initialCancel()
 
-		s.logger.Error().Err(err).Msg("Initial sweep failed")
+		s.logRunError(err, "Initial sweep failed")
 	} else {
 		s.logger.Info().Msg("Initial sweep completed successfully")
 	}
@@ -74,7 +74,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 			sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 			if err := s.runSweepWithLock(sweepCtx); err != nil {
-				s.logger.Error().Err(err).Msg("Periodic sweep failed")
+				s.logRunError(err, "Periodic sweep failed")
 			} else {
 				s.logger.Debug().Msg("Periodic sweep completed successfully")
 			}
@@ -101,7 +101,7 @@ func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
 	defer sweepCancel()
 
 	if err := s.runSweepWithLock(sweepCtx); err != nil {
-		s.logger.Error().Err(err).Msg("Run-once sweep failed")
+		s.logRunError(err, "Run-once sweep failed")
 		return err
 	}
 

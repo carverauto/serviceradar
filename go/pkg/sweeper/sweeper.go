@@ -51,6 +51,12 @@ type NetworkSweeper struct {
 	sweepInProgress    bool
 	lastSweepCancelled bool
 	lastSummary        *models.SweepSummary
+	// activeRun is the in-flight run, so CancelRun can abort it. It is nil when
+	// idle and once the run has published its results.
+	activeRun *sweepRun
+	// partialRunPending marks partial results left in the store by a cancelled
+	// run. GetStatus serves lastSummary until the next sweep completes.
+	partialRunPending bool
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs

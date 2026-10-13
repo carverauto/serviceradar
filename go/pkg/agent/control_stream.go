@@ -63,6 +63,7 @@ const northboundActionResultSchema = "serviceradar.northbound_action_result.v1"
 const (
 	commandTypeMapperRun                   = "mapper.run_job"
 	commandTypeSweepRun                    = "sweep.run_group"
+	commandTypeSweepCancel                 = "sweep.cancel_group"
 	commandTypeMtrRun                      = "mtr.run"
 	commandTypeMtrBulkRun                  = "mtr.bulk_run"
 	commandTypeCameraRelayOpen             = "camera.open_relay"
@@ -130,6 +131,14 @@ type mapperRunPayload struct {
 
 type sweepRunPayload struct {
 	SweepGroupID string `json:"sweep_group_id"`
+}
+
+// sweepCancelPayload targets a group's in-flight run. ExecutionID is core's
+// record of that run; the agent echoes it back but cancels by group, since
+// it only mints execution IDs when results are published.
+type sweepCancelPayload struct {
+	SweepGroupID string `json:"sweep_group_id"`
+	ExecutionID  string `json:"execution_id"`
 }
 
 type mtrRunPayload struct {
@@ -594,6 +603,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleMapperRun(ctx, cmd, sender)
 		case commandTypeSweepRun:
 			p.handleSweepRun(ctx, cmd, sender)
+		case commandTypeSweepCancel:
+			p.handleSweepCancel(cmd, sender)
 		case commandTypeMtrRun:
 			p.handleMtrRun(ctx, cmd, sender)
 		case commandTypeMtrBulkRun:
@@ -1402,6 +1413,82 @@ func (p *PushLoop) runSweepGroup(ctx context.Context, groupID string) error {
 		Msg("No sweep runner available for on-demand sweep")
 
 	return errSweepRunnerUnavailable
+}
+
+// handleSweepCancel aborts a sweep group's in-flight run. Success reports
+// whether a run was cancelled; an unknown group is an error.
+func (p *PushLoop) handleSweepCancel(cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := sweepCancelPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("command_id", cmd.CommandId).
+				Str("command_type", cmd.CommandType).
+				Msg("Invalid sweep cancel payload")
+			_ = sender.Send(commandResult(cmd, false, "invalid sweep cancel payload", nil))
+			return
+		}
+	}
+
+	if payload.SweepGroupID == "" {
+		p.logger.Warn().
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Msg("Sweep cancel command missing sweep_group_id")
+		_ = sender.Send(commandResult(cmd, false, "missing sweep_group_id", nil))
+		return
+	}
+
+	cancelled, err := p.cancelSweepGroup(payload.SweepGroupID)
+	if err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Str("sweep_group_id", payload.SweepGroupID).
+			Str("execution_id", payload.ExecutionID).
+			Msg("Failed to cancel sweep group")
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+
+	message := "no sweep run in progress"
+	if cancelled {
+		message = "sweep run cancelled"
+	}
+
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("command_type", cmd.CommandType).
+		Str("sweep_group_id", payload.SweepGroupID).
+		Str("execution_id", payload.ExecutionID).
+		Bool("cancelled", cancelled).
+		Msg("Handled sweep cancel")
+
+	resultPayload := map[string]interface{}{
+		"sweep_group_id": payload.SweepGroupID,
+		"execution_id":   payload.ExecutionID,
+		"cancelled":      cancelled,
+	}
+
+	_ = sender.Send(commandResult(cmd, true, message, resultPayload))
+}
+
+func (p *PushLoop) cancelSweepGroup(groupID string) (bool, error) {
+	p.server.mu.RLock()
+	services := append([]Service(nil), p.server.services...)
+	p.server.mu.RUnlock()
+
+	for _, svc := range services {
+		if canceller, ok := svc.(interface {
+			CancelSweepGroup(string) (bool, error)
+		}); ok {
+			return canceller.CancelSweepGroup(groupID)
+		}
+	}
+
+	return false, errSweepRunnerUnavailable
 }
 
 func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
