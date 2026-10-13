@@ -201,11 +201,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	if len(icmpTargets) > 0 && icmpScanner != nil {
 		wg.Add(1)
 
-		go func() {
-			if err := s.scanAndProcess(ctx, &wg, icmpScanner, icmpTargets, "icmp"); err != nil {
-				errChan <- err
-			}
-		}()
+		go s.scanAndProcess(ctx, &wg, errChan, icmpScanner, icmpTargets, "icmp")
 	} else if len(icmpTargets) > 0 {
 		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
 	}
@@ -213,11 +209,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	if len(tcpTargets) > 0 && tcpScanner != nil {
 		wg.Add(1)
 
-		go func() {
-			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, scannerProtocolTCP); err != nil {
-				errChan <- err
-			}
-		}()
+		go s.scanAndProcess(ctx, &wg, errChan, tcpScanner, tcpTargets, scannerProtocolTCP)
 	} else if len(tcpTargets) > 0 {
 		s.logger.Warn().Int("tcpTargets", len(tcpTargets)).Msg("TCP targets found but TCP scanner is not available, skipping TCP scan")
 	}
@@ -225,11 +217,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	if len(tcpConnectTargets) > 0 && tcpConnectScanner != nil {
 		wg.Add(1)
 
-		go func() {
-			if err := s.scanAndProcess(ctx, &wg, tcpConnectScanner, tcpConnectTargets, "tcp_connect"); err != nil {
-				errChan <- err
-			}
-		}()
+		go s.scanAndProcess(ctx, &wg, errChan, tcpConnectScanner, tcpConnectTargets, "tcp_connect")
 	} else if len(tcpConnectTargets) > 0 {
 		s.logger.Warn().Int("tcpConnectTargets", len(tcpConnectTargets)).Msg("TCP connect targets found but TCP connect scanner is not available, skipping TCP connect scan")
 	}

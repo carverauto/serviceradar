@@ -24,11 +24,15 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
-func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
-	scanner scan.Scanner, targets []models.Target, scanType string) error {
+// scanAndProcess runs one scanner and reports its error on errChan before
+// wg.Done, so the caller can close errChan once Wait returns.
+func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup, errChan chan<- error,
+	scanner scan.Scanner, targets []models.Target, scanType string) {
 	defer wg.Done()
 
-	return s.scanAndProcessBatch(ctx, scanner, targets, scanType)
+	if err := s.scanAndProcessBatch(ctx, scanner, targets, scanType); err != nil {
+		errChan <- err
+	}
 }
 
 func (s *NetworkSweeper) scanAndProcessBatch(ctx context.Context, scanner scan.Scanner, targets []models.Target, scanType string) error {
