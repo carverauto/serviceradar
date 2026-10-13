@@ -525,6 +525,58 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              LeaseDelivery.record_ack(ctx.agent, %{sweep_group_id: Ecto.UUID.generate()})
   end
 
+  test "horizons show the acknowledged run time left and track an unacked resend", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    through = DateTime.add(now, 3_600, :second)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: row.delivered_payload_sha256,
+               installed: true,
+               installed_through_unix_nano: DateTime.to_unix(through, :nanosecond),
+               installed_slot_count: 4
+             })
+
+    assert {:ok, horizons} =
+             LeaseDelivery.horizons_for_groups([group.id, Ecto.UUID.generate()], now)
+
+    assert map_size(horizons) == 1
+    assert [horizon] = horizons[group.id]
+    assert horizon.agent_id == ctx.agent
+    assert horizon.status == :acknowledged
+    assert horizon.acknowledged_slot_count == 4
+    assert horizon.remaining_seconds == 3_600
+
+    assert DateTime.to_unix(horizon.acknowledged_through, :microsecond) ==
+             DateTime.to_unix(through, :microsecond)
+
+    # A newer push keeps the installed horizon visible while the latest push is unacked.
+    later = DateTime.add(now, 1_800, :second)
+    LeasePass.reconcile_group(group, later, ctx.delivery)
+    group_id = group.id
+
+    assert {:ok, %{^group_id => [waiting]}} =
+             LeaseDelivery.horizons_for_groups([group.id], later)
+
+    assert waiting.status == :awaiting_acknowledgement
+    assert waiting.remaining_seconds == 1_800
+    assert waiting.acknowledged_slot_count == 4
+
+    overdue_at = DateTime.add(later, LeaseDelivery.ack_grace_seconds() + 1, :second)
+
+    assert {:ok, %{^group_id => [overdue]}} =
+             LeaseDelivery.horizons_for_groups([group.id], overdue_at)
+
+    assert overdue.status == :acknowledgement_overdue
+    assert overdue.remaining_seconds == 1_800 - LeaseDelivery.ack_grace_seconds() - 1
+  end
+
   test "a late ack for an older push does not overwrite the current push's ack", ctx do
     lease_on!(ctx, 3_600)
     group = leased_group!(ctx)

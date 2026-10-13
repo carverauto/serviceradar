@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.SweepJobs.LeaseDelivery
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -23,9 +24,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     end
   end
 
-  def load_sweep_groups_with_summary_agents(scope) do
+  def load_sweep_groups_with_summaries(scope) do
     groups = load_sweep_groups(scope)
-    {groups, load_sweep_group_summary_agents(scope, groups)}
+
+    {groups, load_sweep_group_summary_agents(scope, groups), load_sweep_group_lease_horizons(groups)}
+  end
+
+  def load_sweep_group_lease_horizons(groups) when is_list(groups) do
+    group_ids = Enum.map(groups, & &1.id)
+
+    case LeaseDelivery.horizons_for_groups(group_ids) do
+      {:ok, horizons} -> horizons
+      {:error, _reason} -> %{}
+    end
+  end
+
+  def load_sweep_lease_agents(scope, horizons_by_group) when is_map(horizons_by_group) do
+    horizons_by_group
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.map(& &1.agent_id)
+    |> Enum.uniq()
+    |> Enum.chunk_every(AgentPicker.page_size())
+    |> Enum.reduce(%{}, fn uids, agents_by_uid ->
+      case load_agents_by_uids(scope, uids) do
+        {:ok, agents} -> Map.merge(agents_by_uid, Map.new(agents, &{&1.uid, &1}))
+        {:error, _reason} -> agents_by_uid
+      end
+    end)
   end
 
   def load_sweep_group_summary_agents(scope, groups) when is_list(groups) do
