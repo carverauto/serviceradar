@@ -130,7 +130,10 @@ Before the GitHub release becomes public, verify that it contains:
 - `serviceradar-wasm-plugin-index.json`
 - `serviceradar-source-security.tar.gz`
 - `serviceradar-image-security-v<version>.tar.gz`
-- a `.pkg` when the release was configured to require the macOS package
+- the signed macOS ARM64 `.pkg` and its provenance JSON when the macOS
+  job succeeds. If that job fails, is cancelled, or is skipped, publication
+  proceeds without the macOS installer; the other required assets still gate
+  finalization.
 
 The image workflow verifies every repository declared in
 `docker/images/image_inventory.bzl`. The current contract covers 16 image

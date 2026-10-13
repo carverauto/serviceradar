@@ -1009,6 +1009,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
+          MACOS_RESULT: ${{ needs.macos.result }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -1043,11 +1044,15 @@ jobs:
             "serviceradar-agent_${VERSION}_arm64.deb"
             "serviceradar-agent_${VERSION}_linux_amd64.tar.gz"
             "serviceradar-agent_${VERSION}_linux_arm64.tar.gz"
-            "serviceradar-agent_${VERSION}_darwin_arm64.pkg"
-            "serviceradar-agent_${VERSION}_darwin_arm64.provenance.json"
             "serviceradar-agent-release-manifest.json"
             "serviceradar-agent-release-manifest.sig"
           )
+          if [[ "${MACOS_RESULT}" == "success" ]]; then
+            required_assets+=(
+              "serviceradar-agent_${VERSION}_darwin_arm64.pkg"
+              "serviceradar-agent_${VERSION}_darwin_arm64.provenance.json"
+            )
+          fi
           for asset in "${required_assets[@]}"; do
             count=$(jq --arg name "${asset}" '[.assets[]? | select(.name == $name and .size > 0)] | length' <<<"${response}")
             if [[ "${count}" != 1 ]]; then
@@ -1064,7 +1069,7 @@ jobs:
               exit 1
             fi
           done
-          echo "Verified Linux amd64/arm64 packages and runtimes, macOS ARM64 installer, and signed agent manifest."
+          echo "Verified required platform packages, runtimes, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
   image-security-dispatch:
