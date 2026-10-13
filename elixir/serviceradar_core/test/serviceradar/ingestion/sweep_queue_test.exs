@@ -218,6 +218,26 @@ defmodule ServiceRadar.Ingestion.SweepQueueTest do
     assert log =~ "will not be retried"
   end
 
+  test "a nil result from the processor is final and not retried" do
+    attempts = start_supervised!({Agent, fn -> 0 end})
+
+    processor = fn _status ->
+      Agent.update(attempts, &(&1 + 1))
+      nil
+    end
+
+    queue = start_queue(processor)
+
+    log =
+      capture_log(fn ->
+        assert :ok = deliver(queue, status("agent-a", 0, "payload"))
+        assert_drained(queue)
+      end)
+
+    assert Agent.get(attempts, & &1) == 1
+    assert log =~ "will not be retried"
+  end
+
   test "reservations expire, follow their owner, and can be cancelled" do
     queue = start_queue(held_processor(self()))
     chunk = status("agent-a", 0, "payload")

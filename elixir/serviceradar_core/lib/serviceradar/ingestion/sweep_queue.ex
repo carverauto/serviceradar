@@ -240,7 +240,7 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
         worker_ref: nil,
         started_at: nil,
         failure: nil,
-        result: nil
+        result: :no_result
       }
 
       # A reservation holds its place in arrival order, so a chunk reserved
@@ -359,7 +359,7 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
   end
 
   defp handle_down(state, %{phase: :terminating, result: result} = job, _reason)
-       when not is_nil(result),
+       when result != :no_result,
        do: finish(state, job, result)
 
   defp handle_down(state, %{phase: :terminating} = job, _reason), do: retry_or_drop(state, job)
@@ -400,7 +400,7 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
           worker: nil,
           worker_ref: nil,
           timer: nil,
-          result: nil,
+          result: :no_result,
           not_before: now_ms() + delay
       }
 
