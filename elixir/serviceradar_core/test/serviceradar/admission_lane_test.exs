@@ -14,7 +14,6 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.EventWriter.Processors.Metrics
-  alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.Ingestion.LeaseSupervisor
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
@@ -441,80 +440,6 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     assert {:error, :wire_payload_too_large} =
              Lane.admit(source_lane, status("agent-a", "12345"), {self(), make_ref()})
-  end
-
-  test "default sweep byte credit stops one agent filling the lane" do
-    parent = self()
-
-    lane =
-      start_lane_with(
-        held_processor(parent),
-        LaneSupervisor.limits(:sweep),
-        16 * 1_024 * 1_024
-      )
-
-    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
-    assert_receive {:started, _, first_release}
-
-    assert {:error, :per_agent_byte_full} =
-             Lane.admit(
-               lane,
-               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
-               {self(), make_ref()}
-             )
-
-    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
-    send(first_release, :release)
-    assert_receive {^first, :ok}
-    assert_receive {:started, _, second_release}
-    send(second_release, :release)
-    assert_receive {^second, :ok}
-    assert_empty(lane)
-  end
-
-  test "default sweep reservations stop one agent filling the lane" do
-    parent = self()
-
-    lane =
-      start_lane_with(
-        held_processor(parent),
-        LaneSupervisor.limits(:sweep),
-        16 * 1_024 * 1_024
-      )
-
-    first_status = status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024))
-    first_ref = make_ref()
-
-    assert {:ok, {^lane, first_id}} =
-             Lane.reserve(lane, Lane.descriptor(first_status, 10_000), self(), 1_000)
-
-    assert :ok = Lane.submit(lane, first_id, first_status, {self(), first_ref})
-    assert_receive {:started, _, first_release}
-
-    assert {:error, :per_agent_byte_full} =
-             Lane.reserve(
-               lane,
-               Lane.descriptor(
-                 status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
-                 10_000
-               ),
-               self(),
-               1_000
-             )
-
-    second_status = status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024))
-    second_ref = make_ref()
-
-    assert {:ok, {^lane, second_id}} =
-             Lane.reserve(lane, Lane.descriptor(second_status, 10_000), self(), 1_000)
-
-    assert :ok = Lane.submit(lane, second_id, second_status, {self(), second_ref})
-    send(first_release, :release)
-    assert_receive {^first_ref, :ok}
-    assert_receive {:started, _, second_release}
-    send(second_release, :release)
-    assert_receive {^second_ref, :ok}
-    assert_empty(lane)
   end
 
   test "default flow byte credit stops one agent filling the lane" do

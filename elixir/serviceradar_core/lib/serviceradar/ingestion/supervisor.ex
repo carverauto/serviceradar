@@ -2,15 +2,18 @@ defmodule ServiceRadar.Ingestion.Supervisor do
   @moduledoc false
   use Supervisor
 
+  alias ServiceRadar.Ingestion.Admission
   alias ServiceRadar.Ingestion.LaneSupervisor
+  alias ServiceRadar.Ingestion.SweepQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue
+
+  @sweep_tasks ServiceRadar.Ingestion.SweepTaskSupervisor
 
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
   def init(_opts) do
     lanes = [
-      sweep: 4,
       mapper: 2,
       bumblebee: 2,
       legacy_plugin: 2,
@@ -29,7 +32,11 @@ defmodule ServiceRadar.Ingestion.Supervisor do
       ServiceRadar.Admission.FlowSupervisor,
       ServiceRadar.Admission.RetainedPluginSupervisor,
       task_supervisor(ServiceRadar.SyncIngestor.TaskSupervisor, 1),
-      SyncIngestorQueue
+      SyncIngestorQueue,
+      # Sweep chunks are acknowledged once queued and ingested in the background;
+      # the queue answers the lane protocol under the sweep lane's name.
+      task_supervisor(@sweep_tasks, Keyword.fetch!(SweepQueue.limits(), :concurrency)),
+      {SweepQueue, name: Admission.server(:sweep), task_supervisor: @sweep_tasks}
       | Enum.map(lanes, fn {type, workers} -> {LaneSupervisor, type: type, workers: workers} end)
     ]
 
@@ -48,7 +55,8 @@ defmodule ServiceRadar.Ingestion.Supervisor do
     raw_bytes =
       Enum.reduce(lanes, 0, fn lane, total ->
         total + Keyword.fetch!(LaneSupervisor.limits(lane), :max_bytes)
-      end) + Keyword.fetch!(ServiceRadar.Admission.FlowLane.limits(), :max_bytes) +
+      end) + Keyword.fetch!(SweepQueue.limits(), :max_bytes) +
+        Keyword.fetch!(ServiceRadar.Admission.FlowLane.limits(), :max_bytes) +
         Keyword.fetch!(ServiceRadar.Admission.RetainedPluginLane.limits(), :max_bytes) +
         Keyword.get(
           Application.get_env(:serviceradar_core, SyncIngestorQueue, []),

@@ -578,7 +578,10 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp validate_descriptor(descriptor) when is_map(descriptor) do
+  # Public for owners that speak this reservation protocol without being a
+  # lane, such as ServiceRadar.Ingestion.SweepQueue.
+  @doc false
+  def validate_descriptor(descriptor) when is_map(descriptor) do
     case descriptor do
       %{headers: headers, payload_bytes: bytes, retained_bytes: retained, remaining_ms: remaining}
       when is_map(headers) and is_integer(bytes) and bytes >= 0 and
@@ -593,7 +596,7 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp validate_descriptor(_), do: {:error, :invalid_admission_descriptor}
+  def validate_descriptor(_), do: {:error, :invalid_admission_descriptor}
 
   defp attach_payload(state, id, status, reply_to, submit_timeout) do
     case Map.get(state.jobs, id) do

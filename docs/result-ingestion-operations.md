@@ -44,7 +44,8 @@ Defaults cover reserved descriptors, queued payloads, and in-flight work:
 
 | Owner | Items | Raw/serialized byte credit | Worker slots |
 | --- | ---: | ---: | ---: |
-| Each ordinary result/status lane | 32 | 32 MiB | sweep 4; mapper 2; bumblebee 2; legacy plugin 2; endpoint 4; other 2; status 2 |
+| Each ordinary result/status lane | 32 | 32 MiB | mapper 2; bumblebee 2; legacy plugin 2; endpoint 4; other 2; status 2 |
+| Sweep chunks (background queue) | 128, at most 32 per agent | 32 MiB | 4 |
 | Flow attribution | 16 | 64 MiB | 1 |
 | Retained plugin | 32 | 64 MiB | 2 |
 | Sync chunks | 32, at most 16 per run | 64 MiB | 1 |
@@ -53,9 +54,10 @@ Defaults cover reserved descriptors, queued payloads, and in-flight work:
 Per-agent byte credit defaults to one quarter of the lane byte credit, raised
 to cover one source-ceiling payload plus 4096 bytes of headers and envelope
 where the lane credit permits it, and never above the lane credit. Ordinary
-lanes therefore default to 16 MiB + 4096 bytes, flow to exactly 16 MiB, and
-retained plugin to 16 MiB + 4096 bytes. Explicit per-agent overrides are
-capped at the effective lane credit, including runtime byte overrides.
+lanes and the sweep queue therefore default to 16 MiB + 4096 bytes, flow to
+exactly 16 MiB, and retained plugin to 16 MiB + 4096 bytes. Explicit per-agent
+overrides are capped at the effective lane credit, including runtime byte
+overrides.
 
 The node also limits DB-active ingestion workers. A Repo pool of ten reserves
 three slots for other core services, one each for flow, plugin, and endpoint,
@@ -70,14 +72,17 @@ queues together rather than increasing the declared budget beyond available
 memory. Positive integer runtime overrides are:
 
 - `SERVICERADAR_INGESTION_MEMORY_BUDGET_BYTES`
-- `SERVICERADAR_INGESTION_LANE_MAX_BYTES` (each ordinary lane)
+- `SERVICERADAR_INGESTION_LANE_MAX_BYTES` (each ordinary lane and the sweep queue)
 - `SERVICERADAR_FLOW_INGESTION_MAX_BYTES`
 - `SERVICERADAR_PLUGIN_INGESTION_MAX_BYTES`
 - `SERVICERADAR_SYNC_INGESTION_MAX_BYTES` (at most 64 MiB)
 - `SERVICERADAR_SERVICE_STATE_MAX_BYTES`
 
-Other lane item/deadline settings remain application configuration. Invalid
-memory or timeout combinations fail boot. Full/unavailable queues reject
+The sweep queue also reads `SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS`,
+`SERVICERADAR_SWEEP_INGESTION_MAX_ITEMS_PER_AGENT`, and
+`SERVICERADAR_SWEEP_INGESTION_WORKER_TIMEOUT_MS`. Other lane item/deadline
+settings remain application configuration. Invalid memory or timeout
+combinations fail boot. Full/unavailable queues reject
 newest work explicitly; there is no inline or unsupervised fallback. Credits
 survive failed starts and are released after worker exit is observed.
 
@@ -87,6 +92,41 @@ retirement. A rejection remains absorbing across replay and restart; a separate
 complete run may recover normally. Receipts are retained until the integration
 source is deleted (the foreign key cascades). Time-based expiry would allow a
 late replay to forget an incomplete run and is deliberately absent.
+
+## Sweep results
+
+Sweep chunks are best-effort: the gateway acknowledges them to the agent before
+core ingests them, so core must not drop a chunk it has accepted. An agent
+reports one scan as a burst of chunks that each take seconds to ingest. An
+ordinary lane bounds the wait for a worker at two seconds, so it admitted a
+burst and then dropped its tail, final chunk included, and the execution never
+completed. Sweeps therefore use `ServiceRadar.Ingestion.SweepQueue`, which
+answers the same reserve/submit protocol under the sweep lane's name.
+
+The queue checks capacity at reservation. A full queue rejects the reservation,
+and the gateway's status buffer keeps the chunk and offers it again. A submitted
+chunk is acknowledged at once and never expires while it waits. Chunks of one
+agent and sweep group run one at a time in arrival order, so an execution is
+created by its first chunk and completed by its final one; other agents and
+groups use the remaining workers. A queued chunk waits behind at most the
+per-agent allowance of chunks from its own group, plus a free worker: at two to
+three seconds a chunk, a full allowance of 32 clears in under two minutes. The
+queue stays on the coordinator with the four workers the sweep lane had, so its
+throughput is unchanged; a sustained backlog shows up as rejections and in
+`oldest_pending_ms`, not as unbounded lag.
+
+Each attempt has a 60-second deadline, which includes the wait for a database
+permit. A worker that crashes or overruns it is killed, and the chunk is retried
+once after one second (two attempts in all). A chunk that fails every attempt is
+dropped with an error log naming the agent, sweep group, and chunk. An error
+or unexpected processor result is final and logged; neither is retried,
+because ingestion may already have counted the chunk's hosts. Accepted chunks are volatile: a coordinator restart loses them,
+and the queue logs how many it held.
+
+The queue reports under lane `sweep` with the lane metric names: admissions,
+rejections by reason, completions with their accepted or not-accepted outcome,
+depth and bytes, `oldest_pending_ms` for the oldest queued chunk, and `retry`,
+`timeout`, `crash`, and `failed` events.
 
 ## Telemetry and evidence
 
