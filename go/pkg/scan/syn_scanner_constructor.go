@@ -192,6 +192,39 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	log.Debug().Int("ringCount", ringCount).Msg("Ring setup parameters")
 
+	// Rings carry the reply filter only while a scan is listening; see
+	// startCaptureLocked. Build it now so a bad local address fails here.
+	replyFilter, err := buildReplyFilter(sourceIP, sourceIP6, scanPortStart, scanPortEnd)
+	if err != nil {
+		closeRawSendSockets(log, sendSocket, sendSocket6)
+
+		return nil, fmt.Errorf("BPF filter construction failed: %w", err)
+	}
+
+	layout := computeRingLayout(opts, ringCount, uint32(os.Getpagesize()))
+
+	if layout.raisedToMinimum {
+		log.Warn().
+			Uint32("globalCapMB", uint32(layout.globalCapMB)).
+			Int("totalRings", layout.totalRings).
+			Uint32("computedPerRing", layout.computedPerRingBytes).
+			Uint32("minPerRingBytes", layout.perRingBytes).
+			Msg("Global ring memory cap too low for CPU count, using minimum per-ring size")
+	}
+
+	if layout.adjusted() {
+		log.Info().
+			Uint32("originalBlockSize", layout.requestedBlockSize).
+			Uint32("originalBlockCount", layout.requestedBlockCount).
+			Uint32("globalCapMB", uint32(layout.globalCapMB)).
+			Int("totalRings", layout.totalRings).
+			Uint32("perRingBytes", layout.perRingBytes).
+			Uint32("finalBlockSize", layout.blockSize).
+			Uint32("finalBlockCount", layout.blockCount).
+			Uint32("finalRingMemoryMB", (layout.blockSize*layout.blockCount)/(1024*1024)).
+			Msg("Applied global ring memory cap distributed across CPUs")
+	}
+
 	rings := make([]*ringBuf, 0, ringCount)
 
 	for i := 0; i < ringCount; i++ {
@@ -246,9 +279,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				Msg("Joined packet ring to scanner fanout group")
 		}
 
-		log.Debug().Msg("Attaching BPF filter")
+		log.Debug().Msg("Attaching idle BPF filter")
 
-		if err := attachBPF(fd, sourceIP, sourceIP6, scanPortStart, scanPortEnd); err != nil {
+		if err := attachSocketFilter(fd, idleCaptureFilter()); err != nil {
 			log.Error().Err(err).Msg("Failed to attach BPF filter")
 
 			_ = unix.Close(fd)
@@ -267,146 +300,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 		ringRetireTov := getRetireTovMs()
 
-		// Use ring buffer options from SYNScannerOptions or defaults
-		blockSize := uint32(defaultBlockSize)
-		blockCount := uint32(defaultBlockCount)
-		frameSize := uint32(defaultFrameSize)
+		log.Debug().Uint32("blockSize", layout.blockSize).Uint32("blockCount", layout.blockCount).Uint32("frameSize", layout.frameSize).Uint32("retireMs", ringRetireTov).Msg("Setting up TPACKET_V3")
 
-		if opts != nil {
-			if opts.RingBlockSize > 0 {
-				blockSize = opts.RingBlockSize
-			}
-
-			if opts.RingBlockCount > 0 {
-				blockCount = opts.RingBlockCount
-			}
-
-			if opts.RingFrameSize > 0 {
-				frameSize = opts.RingFrameSize
-			}
-		}
-
-		// Compute global memory cap and distribute across the *actual* number of rings
-		globalRingMemoryMB := defaultGlobalRingMemoryMB
-		if opts != nil && opts.GlobalRingMemoryMB > 0 {
-			globalRingMemoryMB = opts.GlobalRingMemoryMB
-		}
-
-		totalRings := ringCount
-		if totalRings <= 0 {
-			totalRings = 1
-		}
-
-		perRingBytes := uint32((globalRingMemoryMB * 1024 * 1024) / totalRings)
-
-		// Ensure minimum per-ring memory (at least 1MB per ring)
-		minPerRingBytes := uint32(minRingMemoryMB * bytesPerKB * bytesPerKB) // 1MB
-		if perRingBytes < minPerRingBytes {
-			perRingBytes = minPerRingBytes
-			log.Warn().
-				Uint32("globalCapMB", uint32(globalRingMemoryMB)).
-				Int("totalRings", totalRings).
-				Uint32("computedPerRing", uint32((globalRingMemoryMB*1024*1024)/totalRings)).
-				Uint32("minPerRingBytes", minPerRingBytes).
-				Msg("Global ring memory cap too low for CPU count, using minimum per-ring size")
-		}
-
-		// Apply individual block limits first
-		originalBlockSize := blockSize
-		originalBlockCount := blockCount
-
-		if blockSize > maxBlockSize {
-			blockSize = maxBlockSize
-		}
-
-		if blockCount > maxBlockCount {
-			blockCount = maxBlockCount
-		}
-
-		// Distribute global cap: adjust blockSize*blockCount to fit perRingBytes
-		// Ensure blockSize obeys kernel constraints before using it
-		page := uint32(os.Getpagesize())
-
-		// lcm(frameSize, page)
-		gcd := func(a, b uint32) uint32 {
-			for b != 0 {
-				a, b = b, a%b
-			}
-
-			return a
-		}
-
-		lcm := func(a, b uint32) uint32 { return a / gcd(a, b) * b }
-
-		align := lcm(frameSize, page)
-
-		// Round blockSize up to satisfy (multiple of frameSize and page size)
-		if blockSize%frameSize != 0 || blockSize%page != 0 {
-			bs := ((blockSize + align - 1) / align) * align
-			if bs > maxBlockSize {
-				bs = (maxBlockSize / align) * align
-			}
-
-			if bs == 0 {
-				bs = align
-			}
-
-			blockSize = bs
-		}
-
-		currentRingBytes := blockSize * blockCount
-		if currentRingBytes > perRingBytes {
-			// First, try to reduce blockCount while keeping a valid blockSize
-			if blockSize <= perRingBytes {
-				targetBlockCount := perRingBytes / blockSize
-
-				if targetBlockCount < 1 {
-					targetBlockCount = 1
-				}
-
-				blockCount = targetBlockCount
-			} else {
-				// blockSize itself is too large: shrink it to fit at least one block
-				blockCount = 1
-
-				// Largest aligned blockSize that fits
-				blockSize = (perRingBytes / align) * align
-
-				if blockSize < align {
-					// fall back to minimum legal aligned size
-					blockSize = align
-				}
-			}
-		}
-
-		// TPACKET_V3 behaves poorly with a single block: enforce a minimum
-		if blockCount < 2 {
-			// Prefer shrinking blockSize a bit rather than blockCount=1
-			blockCount = 2
-			for blockSize*blockCount > perRingBytes {
-				blockSize = (blockSize / align) * align // shrink to next valid size
-				if blockSize < align {
-					break
-				}
-			}
-		}
-
-		if blockSize != originalBlockSize || blockCount != originalBlockCount {
-			log.Info().
-				Uint32("originalBlockSize", originalBlockSize).
-				Uint32("originalBlockCount", originalBlockCount).
-				Uint32("globalCapMB", uint32(globalRingMemoryMB)).
-				Int("totalRings", totalRings).
-				Uint32("perRingBytes", perRingBytes).
-				Uint32("finalBlockSize", blockSize).
-				Uint32("finalBlockCount", blockCount).
-				Uint32("finalRingMemoryMB", (blockSize*blockCount)/(1024*1024)).
-				Msg("Applied global ring memory cap distributed across CPUs")
-		}
-
-		log.Debug().Uint32("blockSize", blockSize).Uint32("blockCount", blockCount).Uint32("frameSize", frameSize).Uint32("retireMs", ringRetireTov).Msg("Setting up TPACKET_V3")
-
-		rb, err := setupTPacketV3(fd, blockSize, blockCount, frameSize, ringRetireTov)
+		rb, err := setupTPacketV3(fd, layout.blockSize, layout.blockCount, layout.frameSize, ringRetireTov)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
 
@@ -455,6 +351,8 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		sourceIP6:     sourceIP6,
 		iface:         iface,
 		fanoutGroup:   fanoutGroup,
+		replyFilter:   replyFilter,
+		gate:          rawSYNScanGate,
 		retireTovMs:   retireTov,
 		portAlloc:     NewPortAllocator(scanPortStart, scanPortEnd),
 		scanPortStart: scanPortStart,
@@ -615,4 +513,163 @@ func closeRawSendSockets(log logger.Logger, sendSocket, sendSocket6 int) {
 			log.Warn().Err(closeErr).Msg("Failed to close IPv6 raw send socket")
 		}
 	}
+}
+
+// ringLayout is the TPACKET_V3 geometry every ring of one scanner uses.
+type ringLayout struct {
+	blockSize  uint32
+	blockCount uint32
+	frameSize  uint32
+
+	// What the options (or defaults) asked for, before limits and the cap.
+	requestedBlockSize  uint32
+	requestedBlockCount uint32
+
+	globalCapMB          int
+	totalRings           int
+	computedPerRingBytes uint32 // the global cap divided across the rings
+	perRingBytes         uint32 // the per-ring budget actually applied
+	raisedToMinimum      bool   // the cap share was below minRingMemoryMB
+}
+
+func (l ringLayout) adjusted() bool {
+	return l.blockSize != l.requestedBlockSize || l.blockCount != l.requestedBlockCount
+}
+
+// computeRingLayout applies the ring options over the defaults, then the
+// per-block limits, kernel alignment (a multiple of the frame and page size)
+// and the global memory cap shared by ringCount rings.
+func computeRingLayout(opts *SYNScannerOptions, ringCount int, page uint32) ringLayout {
+	blockSize := uint32(defaultBlockSize)
+	blockCount := uint32(defaultBlockCount)
+	frameSize := uint32(defaultFrameSize)
+
+	if opts != nil {
+		if opts.RingBlockSize > 0 {
+			blockSize = opts.RingBlockSize
+		}
+
+		if opts.RingBlockCount > 0 {
+			blockCount = opts.RingBlockCount
+		}
+
+		if opts.RingFrameSize > 0 {
+			frameSize = opts.RingFrameSize
+		}
+	}
+
+	// Compute global memory cap and distribute across the *actual* number of rings
+	globalRingMemoryMB := defaultGlobalRingMemoryMB
+	if opts != nil && opts.GlobalRingMemoryMB > 0 {
+		globalRingMemoryMB = opts.GlobalRingMemoryMB
+	}
+
+	totalRings := ringCount
+	if totalRings <= 0 {
+		totalRings = 1
+	}
+
+	layout := ringLayout{
+		requestedBlockSize:  blockSize,
+		requestedBlockCount: blockCount,
+		globalCapMB:         globalRingMemoryMB,
+		totalRings:          totalRings,
+	}
+
+	perRingBytes := uint32((globalRingMemoryMB * 1024 * 1024) / totalRings)
+	layout.computedPerRingBytes = perRingBytes
+
+	// Ensure minimum per-ring memory (at least 1MB per ring)
+	minPerRingBytes := uint32(minRingMemoryMB * bytesPerKB * bytesPerKB) // 1MB
+	if perRingBytes < minPerRingBytes {
+		perRingBytes = minPerRingBytes
+		layout.raisedToMinimum = true
+	}
+
+	layout.perRingBytes = perRingBytes
+
+	// Apply individual block limits first
+	if blockSize > maxBlockSize {
+		blockSize = maxBlockSize
+	}
+
+	if blockCount > maxBlockCount {
+		blockCount = maxBlockCount
+	}
+
+	// lcm(frameSize, page)
+	gcd := func(a, b uint32) uint32 {
+		for b != 0 {
+			a, b = b, a%b
+		}
+
+		return a
+	}
+
+	lcm := func(a, b uint32) uint32 { return a / gcd(a, b) * b }
+
+	align := lcm(frameSize, page)
+
+	// Round blockSize up to satisfy (multiple of frameSize and page size)
+	if blockSize%frameSize != 0 || blockSize%page != 0 {
+		bs := ((blockSize + align - 1) / align) * align
+		if bs > maxBlockSize {
+			bs = (maxBlockSize / align) * align
+		}
+
+		if bs == 0 {
+			bs = align
+		}
+
+		blockSize = bs
+	}
+
+	currentRingBytes := blockSize * blockCount
+	if currentRingBytes > perRingBytes {
+		// First, try to reduce blockCount while keeping a valid blockSize
+		if blockSize <= perRingBytes {
+			targetBlockCount := perRingBytes / blockSize
+
+			if targetBlockCount < 1 {
+				targetBlockCount = 1
+			}
+
+			blockCount = targetBlockCount
+		} else {
+			// blockSize itself is too large: shrink it to fit at least one block
+			blockCount = 1
+
+			// Largest aligned blockSize that fits
+			blockSize = (perRingBytes / align) * align
+
+			if blockSize < align {
+				// fall back to minimum legal aligned size
+				blockSize = align
+			}
+		}
+	}
+
+	// TPACKET_V3 behaves poorly with a single block: enforce a minimum
+	if blockCount < 2 {
+		// Prefer shrinking blockSize a bit rather than blockCount=1. Halve it:
+		// rounding an already aligned size down to alignment never shrinks it,
+		// which spun this loop forever when one block filled the budget.
+		blockCount = 2
+		for blockSize*blockCount > perRingBytes {
+			next := ((blockSize / 2) / align) * align
+			if next < align {
+				blockSize = align
+
+				break
+			}
+
+			blockSize = next
+		}
+	}
+
+	layout.blockSize = blockSize
+	layout.blockCount = blockCount
+	layout.frameSize = frameSize
+
+	return layout
 }

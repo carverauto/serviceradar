@@ -103,10 +103,12 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		addressFamily := scannerStatsAddressFamily(s.tcpScanner)
 		scannerPath := scannerStatsPath(s.tcpScanner)
 
-		// Calculate drop rate
+		// Share of the replies reaching the host that the kernel dropped:
+		// dropped / (received + dropped), the rate the scanner's telemetry
+		// log reports.
 		var rxDropRate float64
-		if scanStats.PacketsRecv > 0 {
-			rxDropRate = float64(scanStats.PacketsDropped) / float64(scanStats.PacketsRecv) * 100.0
+		if offered := scanStats.PacketsRecv + scanStats.PacketsDropped; offered > 0 {
+			rxDropRate = float64(scanStats.PacketsDropped) / float64(offered) * 100.0
 		}
 
 		return &models.ScannerStats{

@@ -43,6 +43,18 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		return resultCh, nil
 	}
 
+	// Fail fast rather than queue behind this scanner's own running scan.
+	if s.scanRunning() {
+		return nil, ErrScanAlreadyRunning
+	}
+
+	// Raw SYN scans run one at a time per process; the teardown below releases
+	// the gate once this scan has stopped listening.
+	gate := s.scanGate()
+	if err := s.waitForScanGate(ctx, gate); err != nil {
+		return nil, err
+	}
+
 	scanCtx, cancel := context.WithCancel(ctx)
 
 	// Create wake eventfd (optional, gated by env SR_SYN_USE_EVENTFD=1)
@@ -71,7 +83,17 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	if s.cancel != nil {
 		s.mu.Unlock()
 		cancel() // Ensure we don't leak the context
+		gate.release()
+
 		return nil, ErrScanAlreadyRunning
+	}
+
+	if err := s.startCaptureLocked(); err != nil {
+		s.mu.Unlock()
+		cancel()
+		gate.release()
+
+		return nil, err
 	}
 
 	s.ResetStats()
@@ -227,6 +249,12 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 		s.readersWG.Wait()
 
+		// Stop capturing before the final drop sample below, so replies that
+		// arrive after the readers exit are neither queued nor counted as drops.
+		s.mu.Lock()
+		s.stopCaptureLocked()
+		s.mu.Unlock()
+
 		// Fallback: emit anything not yet streamed (via emitter so user callback is tee'd)
 		s.mu.Lock()
 
@@ -322,6 +350,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			s.portAlloc.Release(sp)
 			atomic.AddUint64(&s.stats.PortsReleased, 1)
 		}
+
+		gate.release()
 	}()
 
 	return resultCh, nil

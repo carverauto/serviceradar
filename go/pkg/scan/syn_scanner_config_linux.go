@@ -76,15 +76,23 @@ const (
 	etherType9100 = 0x9100 // common vendor tag
 
 	// TPACKETv3 constants / defaults
-	defaultBlockSize   = 1 << 20 // 1 MiB per block
-	defaultBlockCount  = 8       // 8 MiB total ring (was 64 - overkill)
-	defaultFrameSize   = 2048    // alignment hint
-	defaultRetireTovMs = 10      // flush block to user within 10ms (configurable via env or constructor)
+	//
+	// The kernel hands a block to the reader when it fills or when the retire
+	// timer fires, whichever comes first. Scan replies trickle in, so in practice
+	// blocks retire on the timer holding a few dozen packets each, and the ring
+	// holds blockCount * retire timeout of traffic, not blockSize * blockCount
+	// bytes of it. Eight 1 MiB blocks leave a reader 80 ms of slack before the
+	// kernel drops replies; sixty-four 128 KiB blocks use the same 8 MiB, leave
+	// 640 ms, and still hold about a thousand replies each.
+	defaultBlockSize   = 128 << 10 // 128 KiB per block
+	defaultBlockCount  = 64        // 8 MiB total ring
+	defaultFrameSize   = 2048      // alignment hint
+	defaultRetireTovMs = 10        // flush block to user within 10ms (configurable via env or constructor)
 
 	// Memory limits to prevent excessive allocation on large SMP systems
 	defaultGlobalRingMemoryMB = 64      // Default global ring buffer memory cap in MB (distributed across CPUs)
 	maxBlockSize              = 8 << 20 // Maximum block size: 8 MiB
-	maxBlockCount             = 32      // Maximum number of blocks
+	maxBlockCount             = 128     // Maximum number of blocks
 
 	// tpacket v3 block ownership
 	tpStatusUser   = 0x0001 // TP_STATUS_USER

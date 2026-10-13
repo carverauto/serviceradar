@@ -126,6 +126,15 @@ type SYNScanner struct {
 	// wakeFD is an eventfd used to wake ring readers from blocking poll
 	// on scan cancellation, eliminating periodic poll timeouts and syscalls.
 	wakeFD int
+
+	// replyFilter is the cBPF program that admits replies to this scanner's
+	// source-port range. Rings carry it only while a scan is listening and
+	// idleCaptureFilter() otherwise.
+	replyFilter []unix.SockFilter
+
+	// gate admits one raw SYN scan at a time; nil means the process-wide
+	// rawSYNScanGate. Tests substitute their own.
+	gate *scanGate
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -148,10 +157,10 @@ type SYNScannerOptions struct {
 
 	// Ring buffer tuning options for memory vs latency tradeoffs
 	// RingBlockSize is the size of each ring buffer block in bytes
-	// If 0, defaults to defaultBlockSize (1 MiB)
+	// If 0, defaults to defaultBlockSize (128 KiB)
 	RingBlockSize uint32
 	// RingBlockCount is the number of blocks in the ring buffer
-	// If 0, defaults to defaultBlockCount (8 blocks = 8 MiB total)
+	// If 0, defaults to defaultBlockCount (64 blocks = 8 MiB total)
 	RingBlockCount uint32
 	// RingFrameSize is the frame size hint for packet alignment
 	// If 0, defaults to defaultFrameSize (2048 bytes)
