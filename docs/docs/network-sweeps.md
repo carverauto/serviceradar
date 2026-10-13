@@ -180,6 +180,41 @@ Static targets are always included in the sweep, regardless of criteria matches:
 ["10.0.0.0/24", "192.168.1.10", "10.0.2.1-10.0.2.25"]
 ```
 
+## Running Scans Panel
+
+The Running Scans panel in Settings > Networks shows every sweep execution that
+is currently in progress. Each card displays the group name, elapsed time, host
+counts, and a **Cancel** button for operators with the `networks.sweeps.run`
+permission (the same permission that gates **Run now**).
+
+### Cancelling a Running Scan
+
+Clicking **Cancel** shows a confirmation prompt. Confirming does two things, in
+this order:
+
+1. Closes the execution record with a failed status. The error message records
+   who cancelled it (`cancelled by <login email>`), matching the format used in
+   the audit history. The update is filtered on `status == running`, so a scan
+   that completed between the click and the write keeps its completed state; the
+   panel reports it is no longer running.
+2. Sends `sweep.cancel_group` to that execution's own agent to stop any in-flight
+   scan. Agents advertise the `sweep_cancel` capability when they support this
+   command. An agent that does not, or that is offline, is not sent the command;
+   the run stays closed and the flash message explains why the agent was not
+   stopped.
+
+The run is always closed first. Results the agent sends before it receives the
+stop command do not reopen a closed execution.
+
+### What "running" means
+
+Core creates an execution when the first result chunk of a completed agent sweep
+arrives, and closes it on the final chunk. A stuck running execution is usually
+caused by lost chunk delivery, not an agent still scanning. The cancel command
+stops whatever scan of that group the agent has in flight; if none is running,
+the agent reports that nothing was cancelled. Scheduled sweeps continue at their
+normal interval.
+
 ## Execution Notes
 
 - Target criteria are evaluated when configs are compiled.
