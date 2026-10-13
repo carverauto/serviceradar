@@ -851,6 +851,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     group_id = insert_sweep_group!("Lease horizon #{unique}", [agent.uid])
     insert_lease_delivery!(group_id, agent.uid)
+    other_group_id = insert_sweep_group!("Other lease horizon #{unique}", [agent.uid])
+    insert_lease_delivery!(other_group_id, agent.uid)
 
     {:ok, list_view, _html} = live(conn, ~p"/settings/networks")
 
@@ -860,20 +862,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
              "2d left"
            )
 
-    {:ok, detail, _html} = live(conn, ~p"/settings/networks/groups/#{group_id}")
+    assert has_element?(
+             list_view,
+             "[data-sweep-lease-horizon='#{other_group_id}']",
+             "2d left"
+           )
 
-    assert has_element?(detail, "#sweep-lease-horizons-#{group_id}", "Current")
+    render_patch(list_view, ~p"/settings/networks/groups/#{group_id}")
+
+    assert has_element?(list_view, "#sweep-lease-horizons-#{group_id}", "Current")
 
     assert has_element?(
-             detail,
+             list_view,
              "[data-sweep-lease-agent='#{agent.uid}'][data-sweep-lease-status='acknowledged']",
              agent.name
            )
 
     assert has_element?(
-             detail,
+             list_view,
              "[data-sweep-lease-agent='#{agent.uid}']",
              "7"
+           )
+
+    render_patch(list_view, ~p"/settings/networks")
+
+    assert has_element?(
+             list_view,
+             "[data-sweep-lease-horizon='#{other_group_id}']",
+             "2d left"
+           )
+
+    refute has_element?(
+             list_view,
+             "[data-sweep-lease-horizon='#{other_group_id}']",
+             "Not leased"
+           )
+
+    assert has_element?(
+             list_view,
+             "[data-sweep-lease-horizon='#{group_id}']",
+             "2d left"
            )
   end
 
