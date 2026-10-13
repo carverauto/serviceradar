@@ -418,9 +418,12 @@ push) and the lease pass pushes from that. The table has no foreign keys, so
 the row outlives the assignment and the group. A full window goes out for a
 new lease id, after core dropped a delivered slot that has not started, when a
 slot no push has carried sits behind the cursor, after the agent refused the
-last push, and when the last push went unacknowledged for ten minutes;
-otherwise only the slots minted since the cursor. The recorded cursor is
-always just after the last slot the push carried, because the pass mints a
+last push, when the last push went unacknowledged for ten minutes, and while a
+push whose window reached past the cursor is still unacknowledged. A tail in
+that gap would leave the agent holding the slots that push was clearing, and
+the tail's ack would satisfy core. Otherwise only the slots minted since the
+cursor. The recorded cursor is always just after the last slot the push
+carried, because the pass mints a
 bounded number of slots per run and a later slot must land in a later window.
 Each slot also records when a push last carried it (`delivered_at`): the cursor
 is only a position in the schedule, and a slot minted behind it — the
