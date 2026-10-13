@@ -1,3 +1,30 @@
+# ServiceRadar v1.4.92
+
+This release closes abandoned sweep executions and speeds up mapper
+promotion while ingesting sweep results.
+
+## Fixes
+
+- A maintenance job runs every five minutes to fail sweep executions
+  abandoned by their agent, so they no longer remain in Running Scans
+  indefinitely. A disabled group's execution is eligible after ten
+  minutes without progress. Other executions become eligible after
+  three times the group's interval, bounded between thirty minutes and
+  six hours; cron-scheduled groups use six hours. Each pass handles up
+  to 200 executions, oldest heartbeat first, and leaves an execution
+  alone if a result chunk advances its heartbeat during the check
+  (PR #5604).
+
+## Performance
+
+- Sweep result ingestion writes mapper promotion state in batches of
+  up to 1,000 devices per SQL statement instead of updating each device
+  in a separate transaction. The database merges metadata without
+  overwriting unrelated keys, touches only live devices, and locks rows
+  in the same order as inventory sync writes. Cache invalidation,
+  device update notifications, cooldowns, and dispatch payloads are
+  preserved (PR #5605).
+
 # ServiceRadar v1.4.91
 
 This release reduces the CNPG footprint of raw metrics and fixes ingestion
