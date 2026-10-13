@@ -206,7 +206,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			return err
 		}
 
-		return s.completeSuccessfulSweep(ctx, startedAt)
+		return s.completeSuccessfulSweep(ctx, startedAt, false)
 	}
 
 	targets, err := s.generateTargets()
@@ -317,7 +317,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 	s.logger.Info().Msg("Sweep completed successfully")
 
-	return s.completeSuccessfulSweep(ctx, startedAt)
+	return s.completeSuccessfulSweep(ctx, startedAt, false)
 }
 
 // completeCancelledSweep commits whatever partial results were gathered when
@@ -332,15 +332,7 @@ func (s *NetworkSweeper) completeCancelledSweep(ctx context.Context, startedAt t
 	}
 	s.mu.Unlock()
 
-	if err := s.completeSuccessfulSweep(ctx, startedAt); err != nil {
-		return err
-	}
-
-	s.mu.Lock()
-	s.lastSweepCancelled = true
-	s.mu.Unlock()
-
-	return nil
+	return s.completeSuccessfulSweep(ctx, startedAt, true)
 }
 
 // WasCancelledSweep returns true when the most-recently-completed sweep was
@@ -365,7 +357,7 @@ func (s *NetworkSweeper) markSweepFinished() {
 	s.mu.Unlock()
 }
 
-func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt time.Time) error {
+func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt time.Time, markCancelled bool) error {
 	if s.store != nil {
 		age := time.Since(startedAt)
 		if age > 0 {
@@ -403,6 +395,7 @@ func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt 
 	s.partialRunPending = false
 	s.lastSweep = completedAt
 	s.lastSummary = cloneSweepSummary(summary)
+	s.lastSweepCancelled = markCancelled
 
 	return nil
 }

@@ -88,7 +88,7 @@ func TestCompleteSuccessfulSweep_SkipsPruneWhenStartedAtIsFuture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := sweeper.completeSuccessfulSweep(ctx, time.Now().Add(1*time.Minute)); err != nil {
+	if err := sweeper.completeSuccessfulSweep(ctx, time.Now().Add(1*time.Minute), false); err != nil {
 		t.Fatalf("completeSuccessfulSweep returned error: %v", err)
 	}
 }
