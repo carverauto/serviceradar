@@ -1296,7 +1296,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   defp insert_lease_delivery!(group_id, agent_id) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    acknowledged_through = DateTime.add(now, 49 * 3600, :second)
+    acknowledged_through = DateTime.add(now, 48 * 3600 + 30 * 60, :second)
     digest = String.duplicate("a", 64)
 
     SQL.query!(
