@@ -87,7 +87,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.LeaseHorizons do
                     fallback="—"
                   />
                 </td>
-                <td>{horizon.acknowledged_slot_count || "—"}</td>
+                <td id={"sweep-lease-slots-#{horizon.producer_assignment_id}"}>
+                  {slot_count_label(horizon.acknowledged_slot_count)}
+                </td>
                 <td>
                   <.user_time
                     id={"sweep-lease-acked-#{horizon.producer_assignment_id}"}
@@ -144,6 +146,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.LeaseHorizons do
   defp remaining_detail(earliest_end, now, agent_detail) do
     "#{format_remaining(earliest_end, now)} · #{agent_detail}"
   end
+
+  defp slot_count_label(nil), do: "—"
+  defp slot_count_label(count) when is_integer(count), do: count
 
   def format_remaining(nil, %DateTime{}), do: "—"
 
