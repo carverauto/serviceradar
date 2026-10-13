@@ -62,7 +62,8 @@ seed binary's version can be checked without starting the launcher:
 Use the `.pkg` for Apple Silicon. Release packaging signs the agent with a
 Developer ID Application identity, signs the installer with a Developer ID
 Installer identity, submits it to Apple's notarization service, and staples the
-accepted notarization ticket. Publication fails if any of these checks fails.
+accepted notarization ticket. The signed installer is included only when every
+one of those checks succeeds.
 
 Check the downloaded installer before installing it:
 
@@ -110,9 +111,8 @@ the actual ARM64 installer without release credentials or a signing keychain. It
 artifact is explicitly named `.unsigned.pkg` and cannot satisfy release publication.
 
 The Linux publisher receives the verified macOS package and its provenance from
-the same workflow run. It requires both Linux architectures and the verified
-macOS installer before completing the release. A missing ARM64 package or failed
-notarization therefore prevents release finalization and demo branch advancement.
+the same workflow run when the macOS job succeeds. Release finalization for
+any other macOS job result is defined in `docs/RELEASE_PUBLISHING.md`.
 
 Draft retries build all package inputs from the immutable release commit. A newer
 workflow commit must not substitute its Linux binaries into an older release.

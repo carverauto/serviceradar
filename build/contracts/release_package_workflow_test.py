@@ -160,7 +160,7 @@ def _pinned_jq_binary():
     raise FileNotFoundError("declared jq runfile is unavailable")
 
 
-class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
+class ReleaseAssetWorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # BaseLoader preserves GitHub's `on` key rather than treating it as a
@@ -224,6 +224,60 @@ class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 if not options.get("fail_post"):
                     self.assertEqual(len(requests), 1)
+
+    def run_asset_verification(self, macos_result, assets):
+        step = next(s for s in self.release["jobs"]["publish"]["steps"]
+                    if s.get("id") == "release_assets")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "jq").symlink_to(_pinned_jq_binary())
+            curl = root / "curl"
+            curl.write_text("#!/usr/bin/env python3\nimport os\nprint(os.environ['RELEASE_RESPONSE'])\n")
+            curl.chmod(0o755)
+            output = root / "output"
+            env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", MACOS_RESULT=macos_result,
+                       RELEASE_TAG="v9.8.7", VERSION="9.8.7", GITHUB_OUTPUT=str(output),
+                       GITHUB_REPOSITORY="example/release-fixture", GITHUB_TOKEN="invented-test-token",
+                       RELEASE_RESPONSE=json.dumps({"id": 123, "tag_name": "v9.8.7", "draft": True,
+                                                   "assets": assets}))
+            result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True,
+                                    text=True, timeout=20)
+            return result, output.read_text() if output.exists() else ""
+
+    def test_asset_verification_requires_the_artifacts_selected_for_publication(self):
+        step = next(s for s in self.release["jobs"]["publish"]["steps"]
+                    if s.get("id") == "release_assets")
+        self.assertEqual(step["env"]["MACOS_RESULT"], "${{ needs.macos.result }}")
+        common = [
+            {"name": name, "size": 100} for name in (
+                "serviceradar-agent_9.8.7_amd64.deb", "serviceradar-agent_9.8.7_arm64.deb",
+                "serviceradar-agent_9.8.7_linux_amd64.tar.gz",
+                "serviceradar-agent_9.8.7_linux_arm64.tar.gz",
+                "serviceradar-agent-release-manifest.json", "serviceradar-agent-release-manifest.sig",
+                "serviceradar-agent-9.8.7-1.x86_64.rpm", "serviceradar-agent-9.8.7-1.aarch64.rpm",
+            )
+        ]
+        installer = {"name": "serviceradar-agent_9.8.7_darwin_arm64.pkg", "size": 100}
+        provenance = {"name": "serviceradar-agent_9.8.7_darwin_arm64.provenance.json", "size": 100}
+        cases = [
+            (status, common, True) for status in ("failure", "cancelled", "skipped")
+        ] + [
+            ("success", common + [installer, provenance], True),
+            ("success", common + [installer], False),
+            ("success", common + [provenance], False),
+            ("failure", common[1:], False),
+            ("failure", common + [common[0]], False),
+        ]
+        for status, assets, accepted in cases:
+            with self.subTest(status=status, assets=[a["name"] for a in assets]):
+                result, output = self.run_asset_verification(status, assets)
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(output, "release_id=123\n")
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("Missing or duplicate required release asset", result.stderr)
+                    self.assertEqual(output, "")
 
 
 if __name__ == "__main__":
