@@ -177,7 +177,7 @@ func (r *ringBuf) releaseReadyBlocks() int {
 			break
 		}
 
-		if loadU32(blk, h1_status_off)&tpStatusUser == 0 {
+		if loadU32(blk)&tpStatusUser == 0 {
 			break
 		}
 

@@ -248,7 +248,7 @@ func TestRingReleaseReadyBlocksStopsAtTheFirstKernelOwnedBlock(t *testing.T) {
 			assert.Equal(t, tt.wantCursor, atomic.LoadUint32(&ring.cursor))
 
 			for idx := uint32(0); idx < blockNr; idx++ {
-				assert.Zero(t, loadU32(ring.block(idx), h1_status_off)&tpStatusUser, "block %d still held", idx)
+				assert.Zero(t, loadU32(ring.block(idx))&tpStatusUser, "block %d still held", idx)
 			}
 		})
 	}

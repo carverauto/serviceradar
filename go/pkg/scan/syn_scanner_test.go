@@ -546,14 +546,14 @@ func TestSYNScannerRunRingReaderPersistsCursor(t *testing.T) {
 	runSyntheticRingReaderUntil(t, scanner, ring, func() bool {
 		return atomic.LoadUint32(&ring.cursor) == 2 &&
 			atomic.LoadUint64(&scanner.stats.RingBlocksProcessed) == 1 &&
-			loadU32(ring.block(1), h1_status_off)&tpStatusUser == 0
+			loadU32(ring.block(1))&tpStatusUser == 0
 	})
 
 	markRingBlockReady(t, ring, 2)
 	runSyntheticRingReaderUntil(t, scanner, ring, func() bool {
 		return atomic.LoadUint32(&ring.cursor) == 0 &&
 			atomic.LoadUint64(&scanner.stats.RingBlocksProcessed) == 2 &&
-			loadU32(ring.block(2), h1_status_off)&tpStatusUser == 0
+			loadU32(ring.block(2))&tpStatusUser == 0
 	})
 }
 
