@@ -71,7 +71,15 @@ ExUnit.configure(
 # preview after viewers close WebRTC". Both are covered by the file's existing
 # @moduletag :web_ng_shared_fixture_db with no skip/exclude. 2467 + 2 = 2469,
 # with no lowering, removal, bypass, or exclusion.
-expected_selected_tests = 2469
+# The running-scan Cancel action adds +6 lane-selected tests in
+# networks_live_test.exs ("cancelling a running scan": an operator closes the
+# run before its agent is asked to stop; the run is still closed when the agent
+# does not support stopping or has no control session; a viewer and an operator
+# without networks.sweeps.run, via a 2-role for-loop, see no Cancel and are
+# refused; a run that finishes before the click keeps its completed state), all
+# covered by the file's existing @moduletag :web_ng_shared_fixture_db with no
+# skip/exclude. 2469 + 6 = 2475, with no lowering, removal, bypass, or exclusion.
+expected_selected_tests = 2475
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

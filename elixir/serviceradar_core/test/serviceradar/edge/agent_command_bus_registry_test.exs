@@ -654,6 +654,79 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
            ]
   end
 
+  describe "cancel_sweep_execution/2" do
+    test "sends sweep.cancel_group to exactly the execution's agent session" do
+      agent_id = "cancel-target-#{System.unique_integer([:positive])}"
+      bystander = "cancel-bystander-#{System.unique_integer([:positive])}"
+      capabilities = ["sweep", "sweep_cancel"]
+
+      start_session(agent_id, "scanners-a", :gateway@scanners_a, :cancel_target, capabilities)
+      start_session(bystander, "scanners-a", :gateway@scanners_a, :cancel_bystander, capabilities)
+
+      assert eventually(fn -> canonical_session_visible?(agent_id, "scanners-a") end)
+      assert eventually(fn -> canonical_session_visible?(bystander, "scanners-a") end)
+
+      execution = sweep_execution(agent_id)
+      payload = %{sweep_group_id: execution.sweep_group_id, execution_id: execution.id}
+      command_id = "command-#{agent_id}"
+
+      assert {:ok, ^command_id} =
+               AgentCommandBus.cancel_sweep_execution(execution,
+                 dispatch_fun: recording_dispatch(self())
+               )
+
+      assert_receive {:dispatch, ^agent_id, "sweep.cancel_group", ^payload, opts}
+      assert opts[:required_partition] == "scanners-a"
+      assert opts[:required_gateway_node] == :gateway@scanners_a
+      assert opts[:required_capability] == "sweep_cancel"
+      assert opts[:context][:sweep_execution_id] == execution.id
+
+      # Run-now status tracking keys member events on `sweep_group_id`, which the
+      # command context is merged into; a stop request must not count as one.
+      refute Map.has_key?(opts[:context], :sweep_group_id)
+
+      refute_received {:dispatch, ^bystander, _, _, _}
+    end
+
+    test "does not send the stop to an agent that lacks the sweep_cancel capability" do
+      agent_id = "cancel-older-#{System.unique_integer([:positive])}"
+
+      start_session(agent_id, "scanners-b", :gateway@scanners_b, :cancel_older, ["sweep"])
+      assert eventually(fn -> canonical_session_visible?(agent_id, "scanners-b") end)
+
+      assert {:error, {:agent_capability_missing, ^agent_id, "sweep_cancel"}} =
+               AgentCommandBus.cancel_sweep_execution(sweep_execution(agent_id),
+                 dispatch_fun: recording_dispatch(self())
+               )
+
+      refute_received {:dispatch, _, _, _, _}
+    end
+
+    test "reports an agent with no control session as offline without dispatching" do
+      agent_id = "cancel-offline-#{System.unique_integer([:positive])}"
+
+      assert {:error, {:agent_offline, ^agent_id}} =
+               AgentCommandBus.cancel_sweep_execution(sweep_execution(agent_id),
+                 dispatch_fun: recording_dispatch(self())
+               )
+
+      refute_received {:dispatch, _, _, _, _}
+    end
+
+    test "refuses an execution that has no recorded agent" do
+      assert {:error, :invalid_agent_id} =
+               AgentCommandBus.cancel_sweep_execution(sweep_execution(nil),
+                 dispatch_fun: recording_dispatch(self())
+               )
+
+      refute_received {:dispatch, _, _, _, _}
+    end
+  end
+
+  defp sweep_execution(agent_id) do
+    %{id: Ecto.UUID.generate(), sweep_group_id: Ecto.UUID.generate(), agent_id: agent_id}
+  end
+
   defp start_session(agent_id, partition_id, gateway_node, marker, capabilities \\ ["test"]) do
     start_supervised!(
       {Session,

@@ -78,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:agent_picker_selected_rows, [])
         |> assign(:agent_picker_summary_agent, nil)
         |> assign(:can_manage_networks, can_manage_networks)
+        |> assign(:can_run_sweeps, can_run_sweeps?(scope))
         |> assign(:mapper_job, nil)
         |> assign(:mapper_form, nil)
         |> assign(:mapper_seeds_text, "")

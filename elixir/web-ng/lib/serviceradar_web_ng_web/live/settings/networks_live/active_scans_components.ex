@@ -293,6 +293,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   attr :group, :map, default: nil
   attr :progress, :map, default: nil
   attr :timezone, :string, required: true
+  attr :can_cancel, :boolean, default: false
 
   def running_scan_card(assigns) do
     progress_data = compute_scan_progress(assigns.execution, assigns.progress)
@@ -309,7 +310,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
       |> assign(:has_progress, progress_data.has_progress)
 
     ~H"""
-    <div class="bg-sr-subtle/30 rounded-lg p-4 border border-sr-line">
+    <div
+      id={"running-sweep-execution-#{@execution.id}"}
+      class="bg-sr-subtle/30 rounded-lg p-4 border border-sr-line"
+    >
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-3">
           <div class="relative">
@@ -336,7 +340,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
           </div>
         </div>
         <div class="text-right">
-          <div class="text-sm font-mono">{format_duration(@elapsed_ms)}</div>
+          <div class="flex items-center justify-end gap-2">
+            <div class="text-sm font-mono">{format_duration(@elapsed_ms)}</div>
+            <.ui_button
+              :if={@can_cancel}
+              id={"cancel-sweep-execution-#{@execution.id}"}
+              type="button"
+              variant="ghost"
+              size="xs"
+              phx-click="cancel_sweep_execution"
+              phx-value-id={@execution.id}
+              data-confirm="Cancel this scan? The run is marked failed and its agent is asked to stop. Results already received are kept."
+            >
+              <.icon name="hero-stop" class="size-3" /> Cancel
+            </.ui_button>
+          </div>
           <div class="text-xs text-sr-muted">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>

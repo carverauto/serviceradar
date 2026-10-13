@@ -6,9 +6,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   alias Ash.Error.Invalid
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -262,6 +265,155 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
       send(lv.pid, message)
       assert lv |> element(selector) |> render() =~ "1 execution and"
+    end
+  end
+
+  describe "cancelling a running scan" do
+    setup do
+      previous = Application.fetch_env(:serviceradar_web_ng, :sweep_execution_canceller)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, canceller} -> Application.put_env(:serviceradar_web_ng, :sweep_execution_canceller, canceller)
+          :error -> Application.delete_env(:serviceradar_web_ng, :sweep_execution_canceller)
+        end
+      end)
+    end
+
+    test "an operator closes the run before its agent is asked to stop", %{conn: conn, scope: scope} do
+      operator = AccountsFixtures.user_fixture(%{role: :operator})
+      {group, execution} = running_sweep_execution!(scope, "operator")
+      test_pid = self()
+
+      put_canceller(fn requested, opts ->
+        send(test_pid, {:stop_requested, requested, Repo.get!(SweepGroupExecution, requested.id).status, opts})
+        {:ok, "command-#{requested.agent_id}"}
+      end)
+
+      {:ok, lv, _html} = live(log_in_user(conn, operator), ~p"/settings/networks")
+      open_active_scans(lv)
+
+      cancel = "#cancel-sweep-execution-#{execution.id}"
+      assert lv |> element(cancel) |> render() =~ "data-confirm"
+
+      lv |> element(cancel) |> render_click()
+
+      # One stop goes to the run's own agent, and only after the run is closed.
+      assert_receive {:stop_requested, requested, status_when_stopped, opts}
+      refute_received {:stop_requested, _, _, _}
+      assert status_when_stopped == :failed
+      assert requested.id == execution.id
+      assert requested.sweep_group_id == group.id
+      assert requested.agent_id == execution.agent_id
+      assert opts[:actor].id == operator.id
+
+      closed = Repo.get!(SweepGroupExecution, execution.id)
+      assert closed.status == :failed
+      assert closed.error_message == "cancelled by #{operator.email}"
+      assert %DateTime{} = closed.completed_at
+      assert fail_version_actor_ids(execution.id) == [to_string(operator.id)]
+
+      assert render(lv) =~ "Scan cancelled. Its agent was asked to stop."
+      refute has_element?(lv, "#running-sweep-execution-#{execution.id}")
+    end
+
+    test "the run is still closed when its agent does not support stopping", %{conn: conn, scope: scope} do
+      {_group, execution} = running_sweep_execution!(scope, "older-agent")
+      test_pid = self()
+
+      put_canceller(fn requested, _opts ->
+        send(test_pid, {:stop_requested, requested.id})
+        {:error, {:agent_capability_missing, requested.agent_id, "sweep_cancel"}}
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+      open_active_scans(lv)
+      lv |> element("#cancel-sweep-execution-#{execution.id}") |> render_click()
+
+      execution_id = execution.id
+      assert_receive {:stop_requested, ^execution_id}
+      assert Repo.get!(SweepGroupExecution, execution.id).status == :failed
+
+      assert render(lv) =~
+               "Scan cancelled, but agent #{execution.agent_id} was not stopped. It does not support cancelling scans."
+    end
+
+    test "the run is still closed when no agent session is connected", %{conn: conn, scope: scope} do
+      # No override: the real command bus finds no control session in this VM.
+      Application.delete_env(:serviceradar_web_ng, :sweep_execution_canceller)
+      {_group, execution} = running_sweep_execution!(scope, "offline-agent")
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+      open_active_scans(lv)
+      lv |> element("#cancel-sweep-execution-#{execution.id}") |> render_click()
+
+      assert Repo.get!(SweepGroupExecution, execution.id).status == :failed
+      assert render(lv) =~ "Scan cancelled, but agent #{execution.agent_id} was not stopped. It is offline."
+      assert agent_command_count(execution.agent_id) == 0
+    end
+
+    # The operator case holds the role the execution policy accepts, so only the
+    # page's own permission check stands between it and the cancel.
+    for role <- [:viewer, :operator] do
+      test "#{role} role without networks.sweeps.run sees no Cancel and is refused", %{
+        conn: conn,
+        scope: scope
+      } do
+        user =
+          %{role: unquote(role)}
+          |> AccountsFixtures.user_fixture()
+          |> grant_permissions(["settings.networks.manage", "networks.sweeps.view"])
+
+        {_group, execution} = running_sweep_execution!(scope, "restricted")
+        test_pid = self()
+
+        put_canceller(fn requested, _opts ->
+          send(test_pid, {:stop_requested, requested.id})
+          {:ok, "command-#{requested.agent_id}"}
+        end)
+
+        {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/settings/networks")
+        open_active_scans(lv)
+
+        assert has_element?(lv, "#running-sweep-execution-#{execution.id}")
+        refute has_element?(lv, "#cancel-sweep-execution-#{execution.id}")
+
+        # A hand-crafted event is refused by the handler, not only hidden.
+        render_click(lv, "cancel_sweep_execution", %{"id" => execution.id})
+
+        assert render(lv) =~ "You are not authorized to cancel scans"
+        assert Repo.get!(SweepGroupExecution, execution.id).status == :running
+        refute_received {:stop_requested, _}
+      end
+    end
+
+    test "a run that finishes before the click keeps its completed state", %{conn: conn, scope: scope} do
+      {_group, execution} = running_sweep_execution!(scope, "finished")
+      test_pid = self()
+
+      put_canceller(fn requested, _opts ->
+        send(test_pid, {:stop_requested, requested.id})
+        {:ok, "command-#{requested.agent_id}"}
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+      open_active_scans(lv)
+      cancel = "#cancel-sweep-execution-#{execution.id}"
+      assert has_element?(lv, cancel)
+
+      # The agent's last chunk lands while the operator is looking at the card.
+      {:ok, _completed} =
+        execution
+        |> Ash.Changeset.for_update(:complete, %{hosts_total: 4, hosts_available: 3})
+        |> Ash.update(scope: scope)
+
+      lv |> element(cancel) |> render_click()
+
+      assert render(lv) =~ "That scan is no longer running"
+      reloaded = Repo.get!(SweepGroupExecution, execution.id)
+      assert reloaded.status == :completed
+      assert reloaded.error_message == nil
+      refute_received {:stop_requested, _}
     end
   end
 
@@ -664,7 +816,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     group_id = insert_sweep_group!("Stale group #{unique}", [stale.uid])
 
     SQL.query!(
-      ServiceRadar.Repo,
+      Repo,
       "DELETE FROM platform.ocsf_agents WHERE uid = $1",
       [stale.uid]
     )
@@ -969,7 +1121,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   defp ensure_mikrotik_table! do
     SQL.query!(
-      ServiceRadar.Repo,
+      Repo,
       """
       CREATE TABLE IF NOT EXISTS platform.mapper_mikrotik_controllers (
         id uuid PRIMARY KEY,
@@ -989,10 +1141,83 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   defp live_assigns(view), do: :sys.get_state(view.pid).socket.assigns
 
+  defp put_canceller(canceller), do: Application.put_env(:serviceradar_web_ng, :sweep_execution_canceller, canceller)
+
+  defp open_active_scans(lv) do
+    lv
+    |> element("button[phx-value-tab='active_scans']")
+    |> render_click()
+  end
+
+  defp running_sweep_execution!(scope, label) do
+    unique = System.unique_integer([:positive])
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Running #{label} #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, execution} =
+      SweepGroupExecution
+      |> Ash.Changeset.for_create(:start, %{sweep_group_id: group.id, agent_id: "agent-#{label}-#{unique}"})
+      |> Ash.create(scope: scope)
+
+    {group, execution}
+  end
+
+  defp fail_version_actor_ids(execution_id) do
+    %{rows: rows} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT actor_id FROM platform.sweep_group_execution_versions
+        WHERE version_source_id = ($1::text)::uuid AND version_action_name = 'fail'
+        """,
+        [execution_id]
+      )
+
+    List.flatten(rows)
+  end
+
+  defp agent_command_count(agent_id) do
+    %{rows: [[count]]} =
+      SQL.query!(Repo, "SELECT count(*) FROM platform.agent_commands WHERE agent_id = $1", [agent_id])
+
+    count
+  end
+
+  defp grant_permissions(user, permissions) do
+    unique = System.unique_integer([:positive])
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Networks LiveView #{unique}",
+          description: "Test profile for Networks LiveView permissions",
+          permissions: permissions
+        },
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
+  end
+
   defp insert_sweep_group!(name, agent_ids) do
     %{rows: [[id]]} =
       SQL.query!(
-        ServiceRadar.Repo,
+        Repo,
         "INSERT INTO platform.sweep_groups (name, agent_ids) VALUES ($1, $2::text[]) RETURNING id::text",
         [name, agent_ids]
       )

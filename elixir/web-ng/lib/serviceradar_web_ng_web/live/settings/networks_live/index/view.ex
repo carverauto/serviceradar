@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                       mtr_recent={@mtr_recent}
                       can_view_mtr_jobs={@can_view_mtr_jobs}
                       filter={@active_scans_filter}
+                      can_cancel_sweeps={@can_run_sweeps}
                       timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
                   <% :cleanup -> %>

@@ -2018,23 +2018,38 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> execution_set_fields(scanner_metrics)
       |> maybe_mark_execution_complete(is_final, is_cancelled, completed_at, duration_ms)
 
-    update_execution_row(execution_id, inc_fields, set_fields)
-    maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
+    # A closed execution (cancelled by an operator, reaped, superseded or already
+    # completed) keeps its final state. A chunk the agent sent before it stopped
+    # has already recorded its host observations, but must not bump the run's
+    # progress or complete it. Returning nil also skips the progress broadcast,
+    # which would put the run back on the running-scans panel.
+    case update_running_execution_row(execution_id, inc_fields, set_fields) do
+      {0, _rows} ->
+        Logger.info(
+          "SweepResultsIngestor: Execution #{execution_id} is not running; " <>
+            "leaving its progress and status unchanged"
+        )
 
-    if is_final do
-      record_group_execution(reporter_context, actor)
+        nil
+
+      {_updated, _rows} ->
+        maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
+
+        if is_final do
+          record_group_execution(reporter_context, actor)
+        end
+
+        maybe_record_banner_grab_phase(
+          execution_id,
+          sweep_group_id,
+          banner_grab_summary,
+          request_id,
+          actor,
+          is_final
+        )
+
+        fetch_execution(execution_id)
     end
-
-    maybe_record_banner_grab_phase(
-      execution_id,
-      sweep_group_id,
-      banner_grab_summary,
-      request_id,
-      actor,
-      is_final
-    )
-
-    fetch_execution(execution_id)
   end
 
   defp maybe_record_banner_grab_phase(
@@ -2301,8 +2316,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Keyword.put(:duration_ms, duration_ms)
   end
 
-  defp update_execution_row(execution_id, inc_fields, set_fields) do
-    Repo.update_all(from(e in SweepGroupExecution, where: e.id == ^execution_id),
+  # The status predicate makes the check and the write one statement, so a
+  # cancel committed while this chunk was being processed still wins.
+  defp update_running_execution_row(execution_id, inc_fields, set_fields) do
+    Repo.update_all(
+      from(e in SweepGroupExecution, where: e.id == ^execution_id and e.status == :running),
       inc: inc_fields,
       set: set_fields
     )
