@@ -330,10 +330,17 @@ func (s *NetworkSweeper) completeCancelledSweep(ctx context.Context, startedAt t
 		s.mu.Unlock()
 		return ErrSweepCancelled
 	}
+	s.mu.Unlock()
+
+	if err := s.completeSuccessfulSweep(ctx, startedAt); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
 	s.lastSweepCancelled = true
 	s.mu.Unlock()
 
-	return s.completeSuccessfulSweep(ctx, startedAt)
+	return nil
 }
 
 // WasCancelledSweep returns true when the most-recently-completed sweep was
