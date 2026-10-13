@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	goproto "google.golang.org/protobuf/proto"
 
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -338,5 +339,72 @@ func TestSweepLeaseInstallRefusals(t *testing.T) {
 				t.Fatalf("refused push left a lease installed: %v", heldStarts(held))
 			}
 		})
+	}
+}
+
+func sweepLeaseAcks(stream *fakeControlStreamClient) []*proto.SweepLeaseAck {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+
+	acks := make([]*proto.SweepLeaseAck, 0, len(stream.sent))
+	for _, req := range stream.sent {
+		if ack := req.GetSweepLeaseAck(); ack != nil {
+			acks = append(acks, ack)
+		}
+	}
+
+	return acks
+}
+
+// TestSweepLeaseAgentInstallPersistsAndAcks drives a chunked push through the
+// agent's control-stream handler: the install ack is what core records, and a
+// new push loop on the same state dir is the agent after a restart.
+func TestSweepLeaseAgentInstallPersistsAndAcks(t *testing.T) {
+	dir := t.TempDir()
+	group := testLeaseGroup.String()
+	push := testLeasePush(100, 400, testLeaseSlot(100), testLeaseSlot(200), testLeaseSlot(300))
+	chunks := leaseChunks(t, push, 32)
+
+	loop := &PushLoop{logger: logger.NewTestLogger(), sweepLeaseDir: dir}
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+
+	var assembler sweepLeaseAssembler
+	for _, chunk := range chunks {
+		loop.handleSweepLeaseChunk(chunk, &assembler, sender)
+	}
+
+	acks := sweepLeaseAcks(stream)
+	if len(acks) != 1 {
+		t.Fatalf("acks = %d, want 1 completed ack", len(acks))
+	}
+
+	ack := acks[0]
+	if !ack.GetInstalled() || ack.GetError() != "" {
+		t.Fatalf("ack = %+v, want a successful install", ack)
+	}
+
+	if ack.GetSweepGroupId() != group || ack.GetPayloadSha256() != chunks[0].GetPayloadSha256() {
+		t.Fatalf("ack identity = %s %s, want %s %s", ack.GetSweepGroupId(), ack.GetPayloadSha256(), group, chunks[0].GetPayloadSha256())
+	}
+
+	if ack.GetInstalledSlotCount() != 3 {
+		t.Fatalf("installed slot count = %d, want 3", ack.GetInstalledSlotCount())
+	}
+
+	if want := int64(1200) * 1_000_000_000; ack.GetInstalledThroughUnixNano() != want {
+		t.Fatalf("installed_through = %d, want %d", ack.GetInstalledThroughUnixNano(), want)
+	}
+
+	restarted := &PushLoop{logger: logger.NewTestLogger(), sweepLeaseDir: dir}
+
+	store, err := restarted.sweepLeaseStore()
+	if err != nil {
+		t.Fatalf("reopen lease store: %v", err)
+	}
+
+	held := store.Get(group)
+	if held == nil || !equalStarts(heldStarts(held), 100, 200, 300) {
+		t.Fatalf("lease after restart = %v, want [100 200 300]", held)
 	}
 }
