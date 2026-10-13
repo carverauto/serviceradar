@@ -1,3 +1,33 @@
+# ServiceRadar v1.4.94
+
+This release fixes reply loss and misleading packet-drop statistics in the
+agent's raw TCP SYN scanner.
+
+## Upgrade Notes
+
+- Raw SYN scans now run one at a time per agent process. Sweep groups
+  that start TCP scans together wait for the active scan to finish;
+  that wait counts against the scan's context deadline. Streaming
+  batches acquire the gate separately, allowing groups to interleave
+  between batches (PR #5615).
+- Default capture rings now use 64 blocks of 128 KiB instead of eight
+  1 MiB blocks. The total remains 8 MiB per ring, with more time for
+  readers to consume replies before blocks retire. Explicit ring
+  settings still take precedence (PR #5615).
+
+## Fixes
+
+- Idle SYN scanners no longer capture another scanner's replies.
+  Starting a scan enables reply capture and clears stale ring blocks
+  and kernel drop counters before sending probes; teardown restores
+  the idle filter. Failure to enable reply capture returns an error
+  instead of reporting targets as unreachable (PR #5615).
+- Ring sizing no longer loops indefinitely when one block fills the
+  available per-ring budget (PR #5615).
+- Stored `rx_drop_rate_percent` now divides dropped packets by received
+  plus dropped packets, matching scanner telemetry and correctly
+  reporting a scan where every reply was dropped (PR #5615).
+
 # ServiceRadar v1.4.93
 
 This release adds cancellation for running network scans, prevents queued
