@@ -3,8 +3,9 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
   Fails sweep executions that stay `:running` after their agent stopped reporting.
 
   An execution leaves `:running` only when its agent reports the last result
-  chunk, or when the same agent starts a newer run of the same group (the
-  results ingestor marks the older one "superseded by new execution"). A group
+  chunk, when the same agent starts a newer run of the same group (the
+  results ingestor marks the older one "superseded by new execution"), or when
+  an operator cancels it from the running-scans panel. A group
   disabled mid-scan, or an agent that dies or stops reporting, leaves neither,
   so the row stays `:running` forever and the running-scans views keep listing
   it with an ever-growing duration.

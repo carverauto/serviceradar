@@ -30,6 +30,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @max_endpoint_inventory_cohort_concurrency 16
   @send_timeout 5_000
   @sweep_dispatch_max_concurrency 8
+  @sweep_cancel_command_type "sweep.cancel_group"
+  @sweep_cancel_capability "sweep_cancel"
   @endpoint_inventory_capability "endpoint-inventory"
   @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
   @endpoint_inventory_force_fresh_scan_type "endpoint_inventory.force_fresh_scan"
@@ -506,7 +508,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     agent_ids
     |> Enum.map(fn agent_id ->
-      case selected_sweep_session(agent_id, sessions_by_agent) do
+      case selected_sweep_session(agent_id, sessions_by_agent, "sweep") do
         {:ok, session} -> {:ok, session}
         {:error, reason} -> {:error, agent_id, reason}
       end
@@ -518,7 +520,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   # A selected UID is authority only through a canonical four-part control key.
   # Legacy agent-only keys remain observable for transition diagnostics, but they
   # cannot select a sweep target or make a canonical principal ambiguous.
-  defp selected_sweep_session(agent_id, sessions_by_agent) do
+  defp selected_sweep_session(agent_id, sessions_by_agent, capability) do
     sessions = Map.get(sessions_by_agent, agent_id, [])
 
     case sessions |> Enum.map(& &1.partition_id) |> Enum.uniq() do
@@ -527,7 +529,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       [partition_id] ->
         with {:ok, evidence} <- resolve_control_session_evidence(partition_id, agent_id, nil),
-             :ok <- selected_sweep_capability(agent_id, evidence) do
+             :ok <- selected_sweep_capability(agent_id, evidence, capability) do
           {:ok,
            %{
              agent_id: agent_id,
@@ -541,15 +543,15 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp selected_sweep_capability(agent_id, %{capabilities: capabilities})
+  defp selected_sweep_capability(agent_id, %{capabilities: capabilities}, capability)
        when is_list(capabilities) do
-    if "sweep" in capabilities,
+    if capability in capabilities,
       do: :ok,
-      else: {:error, {:agent_capability_missing, agent_id, "sweep"}}
+      else: {:error, {:agent_capability_missing, agent_id, capability}}
   end
 
-  defp selected_sweep_capability(agent_id, _evidence),
-    do: {:error, {:agent_capability_missing, agent_id, "sweep"}}
+  defp selected_sweep_capability(agent_id, _evidence, capability),
+    do: {:error, {:agent_capability_missing, agent_id, capability}}
 
   defp dispatch_sweep_session(session, payload, opts, dispatch_fun) do
     gateway_node = gateway_node_from_metadata(session.metadata)
@@ -711,6 +713,62 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp sweep_dispatch_return(%{commands: commands, failures: failures}) do
     {:ok, %{commands: commands, failures: failures}}
   end
+
+  @doc """
+  Asks the agent running a sweep execution to stop its in-flight scan.
+
+  Sends `sweep.cancel_group` with the execution's `sweep_group_id` and
+  `execution_id` to that execution's own agent, selected through the same
+  canonical control session as a run-now member. Agents able to stop a scan
+  advertise the `sweep_cancel` capability. One that does not is never sent the
+  command and yields `{:error, {:agent_capability_missing, agent_id,
+  "sweep_cancel"}}`; an unconnected one yields `{:error, {:agent_offline,
+  agent_id}}`.
+
+  This does not close the execution record. Callers close it first, so results
+  the agent sends before it stops cannot reopen the run.
+  """
+  @spec cancel_sweep_execution(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def cancel_sweep_execution(execution, opts \\ [])
+
+  def cancel_sweep_execution(
+        %{id: execution_id, sweep_group_id: sweep_group_id, agent_id: agent_id},
+        opts
+      )
+      when is_binary(agent_id) and agent_id != "" do
+    payload = %{sweep_group_id: sweep_group_id, execution_id: execution_id}
+    dispatch_fun = Keyword.get(opts, :dispatch_fun, &dispatch/4)
+
+    listing_opts =
+      Keyword.take(opts, [:registry_present?, :local_registry_reader, :registry_rpc])
+
+    # The command context is merged into the agent's ack and result events.
+    # Leave `sweep_group_id` out of it so run-now status tracking, which keys on
+    # that field, does not count this command as a sweep member.
+    opts = add_context(opts, %{sweep_execution_id: execution_id})
+
+    sessions_by_agent =
+      listing_opts
+      |> list_online_sessions()
+      |> Enum.filter(&(&1.canonical_principal? and &1.agent_id == agent_id))
+      |> Enum.group_by(& &1.agent_id)
+
+    with {:ok, session} <-
+           selected_sweep_session(agent_id, sessions_by_agent, @sweep_cancel_capability) do
+      dispatch_opts =
+        opts
+        |> put_assignment_context(session.partition_id, @sweep_cancel_capability)
+        |> Keyword.put(:required_gateway_node, gateway_node_from_metadata(session.metadata))
+
+      case dispatch_fun.(agent_id, @sweep_cancel_command_type, payload, dispatch_opts) do
+        {:ok, command_id} -> {:ok, command_id}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, other}
+      end
+    end
+  end
+
+  def cancel_sweep_execution(_execution, _opts), do: {:error, :invalid_agent_id}
 
   def dispatch_bulk_mtr(agent_id, targets, opts \\ []) when is_list(targets) do
     normalized_targets =

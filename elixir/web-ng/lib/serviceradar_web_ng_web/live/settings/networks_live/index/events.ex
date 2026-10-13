@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
   @moduledoc false
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.ActiveScans
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.AgentPicker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Builder
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups
@@ -40,6 +41,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
              "run_mapper_job"
            ] do
     Groups.handle_event(event, params, socket)
+  end
+
+  def handle_event("cancel_sweep_execution" = event, params, socket) do
+    ActiveScans.handle_event(event, params, socket)
   end
 
   def handle_event(event, params, socket) when event in ["save_mapper_job", "mapper_form_change"] do

@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
   attr :mtr_recent, :list, default: []
   attr :can_view_mtr_jobs, :boolean, default: false
   attr :filter, :atom, default: :all
+  attr :can_cancel_sweeps, :boolean, default: false
   attr :timezone, :string, required: true
 
   def render(assigns) do
@@ -83,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
                 Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)
               }
               timezone={@timezone}
+              can_cancel={@can_cancel_sweeps}
             />
           <% end %>
         </div>

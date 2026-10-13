@@ -24,6 +24,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
+  alias ServiceRadar.SweepJobs.SweepPubSub
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
   alias ServiceRadar.TestSupport
 
@@ -2571,6 +2572,136 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert after_pin.availability_source_agent_id == agent_a
   end
 
+  describe "chunks that arrive after their execution was closed" do
+    test "a cancelled execution stays cancelled when the agent's remaining chunks arrive", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "cancelled-run", [])
+      execution_id = Ash.UUID.generate()
+      first_ip = unique_ip("cancelled-first-#{unique_id}")
+      late_ip = unique_ip("cancelled-late-#{unique_id}")
+      final_ip = unique_ip("cancelled-final-#{unique_id}")
+      :ok = SweepPubSub.subscribe()
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(first_ip)],
+                 chunk_index: 0,
+                 total_chunks: 3,
+                 is_final: false
+               )
+
+      # The subscription is live: a running execution reports its progress.
+      assert_receive {:sweep_execution_progress, %{execution_id: ^execution_id}}
+
+      {:ok, running} = Ash.get(SweepGroupExecution, execution_id, actor: actor)
+      assert running.status == :running
+      assert running.hosts_available == 1
+
+      assert {:ok, _cancelled} =
+               running
+               |> Ash.Changeset.for_update(
+                 :fail,
+                 %{error_message: "cancelled by operator@example.com"},
+                 actor: actor
+               )
+               |> Ash.update()
+
+      closed = execution_snapshot(execution_id)
+      assert closed.status == :failed
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, execution_id, [available_result(late_ip)],
+                 chunk_index: 1,
+                 total_chunks: 3,
+                 is_final: false
+               )
+
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 execution_id,
+                 [unavailable_result(final_ip)],
+                 chunk_index: 2,
+                 total_chunks: 3,
+                 is_final: true
+               )
+
+      # Neither chunk advanced, completed or re-announced the closed run...
+      assert execution_snapshot(execution_id) == closed
+      assert closed.error_message == "cancelled by operator@example.com"
+      refute_received {:sweep_execution_progress, %{execution_id: ^execution_id}}
+      refute_received {:sweep_execution_completed, %{execution_id: ^execution_id}}
+
+      # ...but the hosts it did scan are still recorded.
+      assert actor
+             |> host_result_snapshots(execution_id)
+             |> Enum.map(& &1.ip)
+             |> Enum.sort() == Enum.sort([first_ip, late_ip, final_ip])
+    end
+
+    test "a superseded execution stays superseded while the newer run completes", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "superseded-run", [])
+      older_id = Ash.UUID.generate()
+      newer_id = Ash.UUID.generate()
+      older_ip = unique_ip("superseded-older-#{unique_id}")
+      newer_ip = unique_ip("superseded-newer-#{unique_id}")
+      newer_final_ip = unique_ip("superseded-newer-final-#{unique_id}")
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, older_id, [available_result(older_ip)],
+                 chunk_index: 0,
+                 total_chunks: 2,
+                 is_final: false
+               )
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, newer_id, [available_result(newer_ip)],
+                 chunk_index: 0,
+                 total_chunks: 2,
+                 is_final: false
+               )
+
+      superseded = execution_snapshot(older_id)
+      assert superseded.status == :failed
+      assert superseded.error_message == "superseded by new execution"
+
+      assert {:ok, _stats} =
+               ingest_chunk(actor, group.id, agent_id, older_id, [available_result(older_ip)],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: true
+               )
+
+      assert execution_snapshot(older_id) == superseded
+
+      assert {:ok, _stats} =
+               ingest_chunk(
+                 actor,
+                 group.id,
+                 agent_id,
+                 newer_id,
+                 [unavailable_result(newer_final_ip)],
+                 chunk_index: 1,
+                 total_chunks: 2,
+                 is_final: true
+               )
+
+      completed = execution_snapshot(newer_id)
+      assert completed.status == :completed
+      assert completed.hosts_available == 1
+      assert completed.hosts_failed == 1
+      assert %DateTime{} = completed.completed_at
+    end
+  end
+
   describe "persisted reporter expectation" do
     test "selected reporters are independent and a deselected reporter remains forensic", %{
       actor: actor
@@ -3935,6 +4066,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       authenticated_agent_id: agent_id,
       authenticated_partition_id: authenticated_partition_id,
       config_version: "reporter-policy-#{execution_id}"
+    )
+  end
+
+  defp ingest_chunk(actor, group_id, agent_id, execution_id, results, chunk_opts) do
+    SweepResultsIngestor.ingest_results(
+      results,
+      execution_id,
+      [
+        actor: actor,
+        sweep_group_id: group_id,
+        agent_id: agent_id,
+        authenticated_agent_id: agent_id,
+        authenticated_partition_id: "default",
+        config_version: "chunked-#{execution_id}"
+      ] ++ chunk_opts
     )
   end
 
