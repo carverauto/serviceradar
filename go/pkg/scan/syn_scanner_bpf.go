@@ -31,19 +31,46 @@ import (
 
 const packetFanoutGroupIDMask = 0xFFFF
 
-var errInvalidFanoutGroup = errors.New("invalid packet fanout group ID")
+var (
+	errInvalidFanoutGroup = errors.New("invalid packet fanout group ID")
+	errEmptySocketFilter  = errors.New("empty socket filter program")
+)
+
+// idleCaptureFilter rejects every packet. A ring carries it whenever its
+// scanner is not listening for replies: every scanner in a process uses the
+// same source-port range, so an idle ring with the reply filter attached would
+// capture other scans' replies until it overflowed, and the kernel would count
+// those drops against this scanner's next scan.
+func idleCaptureFilter() []unix.SockFilter {
+	return []unix.SockFilter{{Code: unix.BPF_RET | unix.BPF_K, K: 0}}
+}
+
+// attachSocketFilter replaces the classic BPF program on fd.
+func attachSocketFilter(fd int, prog []unix.SockFilter) error {
+	if len(prog) == 0 {
+		return errEmptySocketFilter
+	}
+
+	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
+
+	return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+}
 
 // BPF + Fanout
 // TODO: double-tag (QinQ) variant or an auxdata-aware approach
-func attachBPF(fd int, localIP4, localIP6 net.IP, sportLo, sportHi uint16) error {
+
+// buildReplyFilter returns the cBPF program that admits TCP replies (and, with
+// an IPv6 source, ICMPv6 errors) addressed to the local IPs within the
+// scanner's source-port range.
+func buildReplyFilter(localIP4, localIP6 net.IP, sportLo, sportHi uint16) ([]unix.SockFilter, error) {
 	ip6 := localIP6.To16()
 	if ip6 == nil || localIP6.To4() != nil {
-		return attachBPFIPv4(fd, localIP4, sportLo, sportHi)
+		return buildReplyFilterIPv4(localIP4, sportLo, sportHi)
 	}
 
 	ip4 := localIP4.To4()
 	if ip4 == nil {
-		return ErrNonIPv4LocalIP
+		return nil, ErrNonIPv4LocalIP
 	}
 
 	ipHi := uint32(binary.BigEndian.Uint16(ip4[0:2]))
@@ -126,15 +153,13 @@ func attachBPF(fd int, localIP4, localIP6 net.IP, sportLo, sportHi uint16) error
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 	}
 
-	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
-
-	return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+	return prog, nil
 }
 
-func attachBPFIPv4(fd int, localIP net.IP, sportLo, sportHi uint16) error {
+func buildReplyFilterIPv4(localIP net.IP, sportLo, sportHi uint16) ([]unix.SockFilter, error) {
 	ip4 := localIP.To4()
 	if ip4 == nil {
-		return ErrNonIPv4LocalIP
+		return nil, ErrNonIPv4LocalIP
 	}
 
 	// Compare IP halves as host-order 16-bit values (cBPF ldh returns host-order).
@@ -216,9 +241,7 @@ func attachBPFIPv4(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 	}
 
-	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
-
-	return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+	return prog, nil
 }
 
 // createFanoutGroup asks the kernel to allocate a group ID that is unique in

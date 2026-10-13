@@ -114,3 +114,52 @@ func TestScannerStatsLabelsRawSYNDualStack(t *testing.T) {
 		t.Fatalf("address family = %q, want %s", addressFamily, addressFamilyDualStack)
 	}
 }
+
+type fixedStatsScanner struct {
+	statsCapabilityScanner
+
+	stats scan.ScannerStats
+}
+
+func (s fixedStatsScanner) GetStats() scan.ScannerStats {
+	return s.stats
+}
+
+func TestGetScannerStatsDropRateIsTheShareOfRepliesDropped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		received uint64
+		dropped  uint64
+		want     float64
+	}{
+		{name: "some dropped", received: 75, dropped: 25, want: 25},
+		{name: "every reply dropped", received: 0, dropped: 10, want: 100},
+		{name: "nothing dropped", received: 40, dropped: 0, want: 0},
+		{name: "no replies", received: 0, dropped: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sweeper := &NetworkSweeper{
+				tcpScanner: fixedStatsScanner{
+					statsCapabilityScanner: statsCapabilityScanner{caps: scan.ScannerCapabilities{RawSYNIPv4: true}},
+					stats:                  scan.ScannerStats{PacketsRecv: tt.received, PacketsDropped: tt.dropped},
+				},
+			}
+
+			stats := sweeper.GetScannerStats()
+			if stats == nil {
+				t.Fatal("expected scanner stats")
+				return
+			}
+
+			if stats.RxDropRatePercent != tt.want {
+				t.Fatalf("rx drop rate = %v, want %v", stats.RxDropRatePercent, tt.want)
+			}
+		})
+	}
+}

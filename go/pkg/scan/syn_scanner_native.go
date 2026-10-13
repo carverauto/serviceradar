@@ -29,14 +29,14 @@ func u32ptr(b []byte, off int) *uint32 {
 	return (*uint32)(unsafe.Pointer(&b[off]))
 }
 
-// loadU32 performs an atomic load, which acts as an "acquire" memory barrier.
-func loadU32(b []byte, off int) uint32 {
-	// Defensive check to prevent out-of-bounds access
-	if off < 0 || off+4 > len(b) {
+// loadU32 performs an atomic load of the block status word (at h1_status_off),
+// acting as an "acquire" memory barrier.
+func loadU32(b []byte) uint32 {
+	if h1_status_off+4 > len(b) {
 		return 0
 	}
 
-	return atomic.LoadUint32(u32ptr(b, off))
+	return atomic.LoadUint32(u32ptr(b, h1_status_off))
 }
 
 // storeU32 performs an atomic store, which acts as a "release" memory barrier.

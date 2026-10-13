@@ -68,8 +68,8 @@ type Config struct {
 
 		// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
 		// These values will be clamped to safe limits automatically
-		RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
-		RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
+		RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 128KB, max: 8MB)
+		RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 64, max: 128, total max: 64MB)
 
 		// Network interface selection for multi-homed hosts
 		Interface string `json:"interface,omitempty"` // Network interface (e.g., "eth0", "wlan0") - auto-detected if empty

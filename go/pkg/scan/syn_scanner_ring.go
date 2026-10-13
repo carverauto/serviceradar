@@ -161,7 +161,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 				break
 			}
 
-			status := loadU32(blk, h1_status_off)
+			status := loadU32(blk)
 			if status&tpStatusUser == 0 {
 				break // no more ready blocks
 			}
