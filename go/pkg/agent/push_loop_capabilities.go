@@ -56,6 +56,10 @@ const (
 	// push sent as AgentConfigChunks, so the gateway can push configs larger than
 	// one gRPC message.
 	capabilityConfigPushChunks = "config_push_chunks"
+	// capabilitySweepLeaseV1: this agent reassembles, installs, and acks
+	// core-pushed sweep schedule leases (SweepLeaseChunk), so the gateway may
+	// send them.
+	capabilitySweepLeaseV1 = "sweep_lease_v1"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -363,6 +367,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		sweepType,
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
+		capabilitySweepLeaseV1,
 		"snmp",
 		"mapper",
 		"sync",
