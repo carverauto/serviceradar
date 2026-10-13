@@ -18,8 +18,9 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
   the chunks ahead of it in its own group, at most `max_items_per_agent` of
   them, and for a free worker. Each attempt has a deadline that includes the
   wait for a database permit. A worker that crashes or overruns it is killed
-  and the chunk retried, up to `max_attempts` in all. An error result is final:
-  ingestion may already have counted the chunk's hosts. Accepted chunks live
+  and the chunk retried, up to `max_attempts` in all. An error or unexpected
+  processor result is final and not retried: ingestion may already have counted
+  the chunk's hosts. Accepted chunks live
   in memory and are lost if the coordinator restarts.
   """
 

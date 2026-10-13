@@ -119,8 +119,8 @@ Each attempt has a 60-second deadline, which includes the wait for a database
 permit. A worker that crashes or overruns it is killed, and the chunk is retried
 once after one second (two attempts in all). A chunk that fails every attempt is
 dropped with an error log naming the agent, sweep group, and chunk. An error
-result is final and logged, because ingestion may already have counted the
-chunk's hosts. Accepted chunks are volatile: a coordinator restart loses them,
+or unexpected processor result is final and logged; neither is retried,
+because ingestion may already have counted the chunk's hosts. Accepted chunks are volatile: a coordinator restart loses them,
 and the queue logs how many it held.
 
 The queue reports under lane `sweep` with the lane metric names: admissions,
