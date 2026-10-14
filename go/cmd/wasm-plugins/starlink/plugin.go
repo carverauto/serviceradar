@@ -10,9 +10,13 @@ import (
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
+// One wasm ships two packages. Each version must equal its manifest's
+// `version:`; signal schema refs carry it as the producer version.
 const (
-	cloudPluginID = "starlink-cloud"
-	localPluginID = "starlink-local"
+	cloudPluginID      = "starlink-cloud"
+	cloudPluginVersion = "0.1.6"
+	localPluginID      = "starlink-local"
+	localPluginVersion = "0.1.0"
 
 	actionInventoryRefresh = "starlink.inventory.refresh"
 	actionTelemetryCollect = "starlink.telemetry.collect"

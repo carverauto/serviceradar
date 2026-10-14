@@ -1,6 +1,10 @@
 # gazelle:ignore
 #
-# This TinyGo plugin is compiled to wasip1 by //build/wasm_plugins.
+# This TinyGo plugin is compiled to wasip1 by //build/wasm_plugins. The native
+# go_test below runs the package's unit tests against the vendored SDK and
+# dependencies; the root module carries none of them.
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
@@ -22,4 +26,55 @@ filegroup(
             "manifest.json",
         ],
     ),
+)
+
+go_library(
+    name = "native_sdk",
+    testonly = True,
+    srcs = glob(["vendor/github.com/carverauto/serviceradar-sdk-go/v2/sdk/*.go"]),
+    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "native_gjson",
+    testonly = True,
+    srcs = ["vendor/github.com/tidwall/gjson/gjson.go"],
+    importpath = "github.com/tidwall/gjson",
+    visibility = ["//visibility:private"],
+    deps = [
+        ":native_match",
+        ":native_pretty",
+    ],
+)
+
+go_library(
+    name = "native_match",
+    testonly = True,
+    srcs = ["vendor/github.com/tidwall/match/match.go"],
+    importpath = "github.com/tidwall/match",
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "native_pretty",
+    testonly = True,
+    srcs = ["vendor/github.com/tidwall/pretty/pretty.go"],
+    importpath = "github.com/tidwall/pretty",
+    visibility = ["//visibility:private"],
+)
+
+go_test(
+    name = "starlink_test",
+    srcs = glob(["*.go"]),
+    data = [
+        "display/alert_event.display.json",
+        "plugin.local.yaml",
+        "plugin.yaml",
+    ],
+    deps = [
+        ":native_gjson",
+        ":native_sdk",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
 )
