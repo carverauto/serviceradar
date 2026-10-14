@@ -118,6 +118,8 @@ type alertSnapshot struct {
 	Devices  []deviceAlerts
 	Complete bool
 	Errors   []string
+	// Known is every terminal and router the listing returned.
+	Known []string
 }
 
 // collectAlerts walks the terminal listing and queries the telemetry cache for
@@ -134,10 +136,12 @@ func collectAlerts(c *apiClient) alertSnapshot {
 		for _, row := range rows {
 			if raw := trimmed(row, "userTerminalId"); normalizeTerminalID(raw) != "" && jsonSafeID(raw) {
 				terminals = append(terminals, raw)
+				snap.Known = append(snap.Known, terminalDeviceID(raw))
 			}
 			for _, r := range row.Get("routers").Array() {
 				if raw := trimmed(r, "routerId"); normalizeRouterID(raw) != "" && jsonSafeID(raw) {
 					routers = append(routers, raw)
+					snap.Known = append(snap.Known, routerDeviceID(raw))
 				}
 			}
 		}
@@ -158,6 +162,7 @@ func collectAlerts(c *apiClient) alertSnapshot {
 		}
 	}
 	sort.Slice(snap.Devices, func(i, j int) bool { return snap.Devices[i].DeviceRef < snap.Devices[j].DeviceRef })
+	sort.Strings(snap.Known)
 	return snap
 }
 

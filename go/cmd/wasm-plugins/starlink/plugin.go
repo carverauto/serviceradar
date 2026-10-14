@@ -140,6 +140,20 @@ func runTelemetry(client *apiClient, cfg Config, now time.Time, emitter func(str
 		}
 	}
 
+	// Zero samples is only evidence of silence when the stream was fully
+	// drained and the listing complete; otherwise the count is partial.
+	reportingEmitErr := ""
+	if run.Err == nil && run.CaughtUp && alerts.Complete {
+		reporting := buildReportingRecords(alerts.Known, run.SampleCounts, instance, now)
+		for start := 0; start < len(reporting); start += maxRecordsPerEmit {
+			end := min(start+maxRecordsPerEmit, len(reporting))
+			if err := emit(reporting[start:end]); err != nil {
+				reportingEmitErr = "starlink_reporting_emit_failed"
+				break
+			}
+		}
+	}
+
 	// Flight status for aviation terminals (best-effort; skips non-aviation).
 	flightRecords, flightDiscovery := collectFlightStatus(client, instance, time.Now().UTC())
 	flightEmitErr := ""
@@ -168,6 +182,9 @@ func runTelemetry(client *apiClient, cfg Config, now time.Time, emitter func(str
 	}
 	if flightEmitErr != "" {
 		problems = append(problems, flightEmitErr)
+	}
+	if reportingEmitErr != "" {
+		problems = append(problems, reportingEmitErr)
 	}
 	if run.Err == nil && run.Rows == 0 {
 		// Either every device is offline, or another consumer shares this

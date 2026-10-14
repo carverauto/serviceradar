@@ -104,6 +104,9 @@ func TestDrainTelemetryStopsWhenCaughtUpAndEmitsEachBatch(t *testing.T) {
 	if run.Err != nil || !run.CaughtUp || run.Iterations != 2 || run.Rows != 3 {
 		t.Fatalf("run = %+v", run)
 	}
+	if got := run.SampleCounts[terminalDeviceID(testTerminalA)]; got != 3 {
+		t.Fatalf("samples counted for the terminal = %d, want 3", got)
+	}
 	if calls != 2 || emitted != 2 {
 		t.Fatalf("each response must be emitted before the next request: calls %d records %d", calls, emitted)
 	}

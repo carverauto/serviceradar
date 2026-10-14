@@ -335,26 +335,49 @@ func buildMetricRecordsFor(samples []telemetrySample, instance, producerID strin
 			})
 		}
 
-		records = append(records, sdk.NewServiceRadarMetricTelemetryRecordFromBatch(
+		records = append(records, deviceMetricRecord(
 			"starlink-metrics-"+ref+"-"+strconv.FormatUint(byDevice[ref][0].At, 10),
-			sdk.MetricBatch{
-				Resource: sdk.MetricResource{
-					ServiceName: sourceName,
-					ServiceType: "wasm-plugin",
-					DeviceID:    ref,
-					Attributes: []sdk.MetricStringMapEntry{
-						{Key: "plugin_id", Value: producerID},
-						{Key: "source_instance", Value: instance},
-					},
-				},
-				IngestIdentity: sdk.MetricIngestIdentity{
-					Source:       "plugin-metrics",
-					ProducerID:   producerID,
-					ProducerKind: "wasm-plugin",
-				},
-				Metrics: metrics,
+			ref, instance, producerID, metrics))
+	}
+	return records
+}
+
+func deviceMetricRecord(id, ref, instance, producerID string, metrics []sdk.Metric) sdk.TelemetryRecord {
+	return sdk.NewServiceRadarMetricTelemetryRecordFromBatch(id, sdk.MetricBatch{
+		Resource: sdk.MetricResource{
+			ServiceName: sourceName,
+			ServiceType: "wasm-plugin",
+			DeviceID:    ref,
+			Attributes: []sdk.MetricStringMapEntry{
+				{Key: "plugin_id", Value: producerID},
+				{Key: "source_instance", Value: instance},
 			},
-		))
+		},
+		IngestIdentity: sdk.MetricIngestIdentity{
+			Source:       "plugin-metrics",
+			ProducerID:   producerID,
+			ProducerKind: "wasm-plugin",
+		},
+		Metrics: metrics,
+	})
+}
+
+// buildReportingRecords reports, for every device the account lists, how many
+// telemetry samples this run received from it - zero included. The plugin
+// keeps no state between runs, so "silent for several runs" is left to the
+// starlink_device_offline metric rule, which counts zeros across its window.
+func buildReportingRecords(known []string, counts map[string]int, instance string, now time.Time) []sdk.TelemetryRecord {
+	at := uint64(now.UnixNano())
+	records := make([]sdk.TelemetryRecord, 0, len(known))
+	for _, ref := range known {
+		records = append(records, deviceMetricRecord(
+			"starlink-reporting-"+ref+"-"+strconv.FormatUint(at, 10),
+			ref, instance, cloudPluginID, []sdk.Metric{{
+				Name:   "starlink_telemetry_samples",
+				Kind:   sdk.MetricKindGauge,
+				Unit:   "count",
+				Points: []sdk.MetricPoint{{Value: float64(counts[ref]), ObservedAtUnixNano: at}},
+			}}))
 	}
 	return records
 }
@@ -368,6 +391,8 @@ type telemetryRun struct {
 	Err        error
 	// Allocations is each terminal's latest public addresses.
 	Allocations map[string]publicAddresses
+	// SampleCounts is the number of samples each device sent this run.
+	SampleCounts map[string]int
 	// NewestAt is the latest sample time seen, in Unix nanoseconds.
 	NewestAt uint64
 	// LongestHoleNs is the widest spacing between consecutive samples of one
@@ -383,6 +408,7 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 	var run telemetryRun
 	lastAt := map[string]uint64{}
 	run.Allocations = map[string]publicAddresses{}
+	run.SampleCounts = map[string]int{}
 	request := []byte(`{"batchSize":` + strconv.Itoa(cfg.TelemetryBatchSize) +
 		`,"maxLingerMs":` + strconv.Itoa(cfg.TelemetryMaxLingerMS) + `}`)
 
@@ -401,6 +427,7 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 		run.Rows += stats.Rows
 		run.Invalid += stats.Invalid
 		for _, s := range samples {
+			run.SampleCounts[s.DeviceRef]++
 			if prev, seen := lastAt[s.DeviceRef]; !seen || s.At > prev {
 				if seen {
 					run.LongestHoleNs = max(run.LongestHoleNs, s.At-prev)

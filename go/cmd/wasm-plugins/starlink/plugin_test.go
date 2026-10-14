@@ -93,9 +93,10 @@ func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
 			events++
 		}
 	}
-	// One metric batch for terminal A; three active alerts from the cache
-	// fixture plus the scope-complete marker.
-	if metrics != 1 || events != 4 {
+	// One metric batch for terminal A, one reporting record per listed device
+	// (terminal A and router A); three active alerts from the cache fixture
+	// plus the scope-complete marker.
+	if metrics != 3 || events != 4 {
 		t.Fatalf("metrics %d events %d", metrics, events)
 	}
 }
@@ -150,6 +151,24 @@ func TestSharedPublicAddressNeverMergesTerminals(t *testing.T) {
 		if device.IP != "" || device.Metadata["public_ipv4"] != "192.0.2.10" {
 			t.Fatalf("device %d ip %q public_ipv4 %v: a shared address must be metadata only", i, device.IP, device.Metadata["public_ipv4"])
 		}
+	}
+}
+
+// A device that sends nothing produces no metric of its own, so silence is only
+// visible if every listed device is reported each run, zero included.
+func TestTelemetryReportsEveryListedDeviceIncludingSilentOnes(t *testing.T) {
+	_, emitted := runTelemetryFixture(t, terminalRow(sampleAtNs), time.Unix(0, sampleAtNs).Add(time.Minute))
+
+	reported := map[string]bool{}
+	for _, r := range emitted {
+		for _, ref := range []string{terminalDeviceID(testTerminalA), routerDeviceID(testRouterA)} {
+			if strings.HasPrefix(r.EventID, "starlink-reporting-"+ref+"-") {
+				reported[ref] = true
+			}
+		}
+	}
+	if !reported[terminalDeviceID(testTerminalA)] || !reported[routerDeviceID(testRouterA)] {
+		t.Fatalf("reporting records for %v; want the sampled terminal and the silent router", reported)
 	}
 }
 
