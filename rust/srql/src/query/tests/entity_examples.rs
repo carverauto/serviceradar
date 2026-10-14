@@ -1106,3 +1106,182 @@ fn sweep_overlap_alias_resolves_to_device_sweep_overlap() {
     let plan = plan_for("in:sweep_overlap limit:1");
     assert!(matches!(plan.entity, Entity::DeviceSweepOverlap));
 }
+
+#[test]
+fn sweep_coverage_allows_time_window_up_to_400_days_while_sweep_results_caps_at_90() {
+    let config = test_config();
+
+    let cov_180 = translate_request(
+        &config,
+        QueryRequest {
+            query: "in:sweep_coverage time:last_180d device_uid:sr:dev-1".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        },
+    )
+    .expect("sweep_coverage should accept 180-day window within 400-day rollup retention");
+    assert!(
+        cov_180
+            .sql
+            .to_lowercase()
+            .contains("from \"sweep_coverage_daily\""),
+        "expected sweep_coverage_daily query, got: {}",
+        cov_180.sql
+    );
+
+    let cov_401 = translate_request(
+        &config,
+        QueryRequest {
+            query: "in:sweep_coverage time:last_401d device_uid:sr:dev-1".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        },
+    );
+    assert!(
+        cov_401.is_err(),
+        "sweep_coverage should reject windows exceeding 400 days"
+    );
+
+    let res_180 = translate_request(
+        &config,
+        QueryRequest {
+            query: "in:sweep_results time:last_180d ip:192.0.2.10".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        },
+    );
+    assert!(
+        res_180.is_err(),
+        "sweep_results should keep the 90-day time-range ceiling"
+    );
+}
+
+#[test]
+fn sweep_results_and_coverage_stats_and_bucket_rejection_via_translate() {
+    let config = test_config();
+
+    let res_stats = translate_request(
+        &config,
+        QueryRequest {
+            query: "in:sweep_results time:last_7d stats:count() as n by agent_id".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        },
+    )
+    .expect("sweep_results stats should translate");
+    assert!(
+        res_stats
+            .sql
+            .contains("GROUP BY sweep_host_results.agent_id"),
+        "expected GROUP BY agent_id in translated SQL: {}",
+        res_stats.sql
+    );
+
+    let cov_stats = translate_request(
+        &config,
+        QueryRequest {
+            query: "in:sweep_coverage time:last_30d stats:count() as n by agent_id,day".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        },
+    )
+    .expect("sweep_coverage stats should translate");
+    assert!(
+        cov_stats
+            .sql
+            .contains("GROUP BY sweep_coverage_daily.agent_id, sweep_coverage_daily.day"),
+        "expected GROUP BY agent_id, day in translated SQL: {}",
+        cov_stats.sql
+    );
+
+    for bucket_query in [
+        "in:sweep_results time:last_7d bucket:5m",
+        "in:sweep_coverage time:last_30d bucket:1d",
+    ] {
+        let err = translate_request(
+            &config,
+            QueryRequest {
+                query: bucket_query.to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+                permitted_signals: None,
+            },
+        )
+        .expect_err("bucket: must be rejected on sweep entities");
+        assert!(
+            err.to_string().contains("downsample"),
+            "expected downsample rejection for {bucket_query}, got: {err}"
+        );
+    }
+}
+
+#[test]
+fn sweep_entities_never_expose_compiled_config_or_credentials() {
+    let config = test_config();
+    for query in [
+        "in:sweep_groups limit:5",
+        "in:sweep_profiles limit:5",
+        "in:sweep_executions limit:5",
+        "in:sweep_results limit:5",
+        "in:sweep_coverage limit:5",
+        "in:device_sweep_overlap limit:5",
+    ] {
+        let translated = translate_request(
+            &config,
+            QueryRequest {
+                query: query.to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+                permitted_signals: None,
+            },
+        )
+        .unwrap_or_else(|err| panic!("should translate {query}: {err}"));
+
+        let sql_lower = translated.sql.to_lowercase();
+        assert!(
+            !sql_lower.contains("compiled_config"),
+            "{query} SQL must never project compiled_config: {}",
+            translated.sql
+        );
+        assert!(
+            !sql_lower.contains("community"),
+            "{query} SQL must never project SNMP community strings: {}",
+            translated.sql
+        );
+
+        let viz = translated.viz.expect("viz metadata");
+        for col in &viz.columns {
+            assert_ne!(
+                col.name, "compiled_config",
+                "{query} viz must not expose compiled_config"
+            );
+            assert_ne!(
+                col.name, "banner_grab",
+                "{query} viz must not expose raw banner_grab JSONB"
+            );
+            assert_ne!(
+                col.name, "community",
+                "{query} viz must not expose credential columns"
+            );
+        }
+    }
+}

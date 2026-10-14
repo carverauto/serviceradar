@@ -18,8 +18,8 @@ tools.
 - **GIVEN** an MCP client looking up SRQL documentation for sweeps
 - **WHEN** it searches for sweep, scan or port coverage
 - **THEN** recipes SHALL be returned for identifying which sweep groups target a
-  device, whether TCP was requested or dropped during compilation, and which
-  agent last wrote a device's availability
+  device, counting per-agent sweep results, and identifying where sweep groups
+  overlap or last wrote a device's availability
 
 #### Scenario: No new MCP tools are introduced
 - **GIVEN** the existing generic SRQL execute, catalog and lookup tools
@@ -40,10 +40,11 @@ Sweep diagnostics reached through MCP SHALL be subject to the same partition and
 authorization boundaries as any other SRQL entity, and SHALL NOT expose
 credential material.
 
-#### Scenario: Compiled sweep config is not readable without admin scope
-- **GIVEN** an MCP caller without administrative scope
-- **WHEN** it queries the compiled sweep config entity
-- **THEN** the query SHALL be denied
+#### Scenario: Sweep diagnostic entities require networks.sweeps.view in MCP
+- **GIVEN** an MCP caller without `networks.sweeps.view` permission
+- **WHEN** it calls `execute_srql` against any sweep diagnostic entity
+- **THEN** the tool call SHALL return JSON-RPC 200 with `isError: true` and
+  `"forbidden"`
 
 #### Scenario: Sweep diagnostics carry no credentials
 - **GIVEN** any sweep diagnostics entity reached through MCP

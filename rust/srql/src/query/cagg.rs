@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 
 const CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
 const CAGG_MAX_TIME_RANGE_DAYS: i64 = 395;
+const SWEEP_COVERAGE_MAX_TIME_RANGE_DAYS: i64 = 400;
 /// Mirrors the deployed TimescaleDB retention policies on the raw metric
 /// hypertables the hourly CAGGs roll up: 7 days for timeseries. Flows are
 /// deliberately excluded from the retention arm — CNPG netflow is deprecated
@@ -101,7 +102,9 @@ fn is_hourly_cagg_eligible_query(entity: &Entity, has_stats: bool, has_downsampl
 }
 
 pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
-    if matches!(
+    if matches!(ast.entity, Entity::SweepCoverage) {
+        SWEEP_COVERAGE_MAX_TIME_RANGE_DAYS
+    } else if matches!(
         ast.entity,
         Entity::TimeseriesMetricInterfaceHourly | Entity::TimeseriesMetricDiskHourly
     ) || (super::sysmon::is_entity(&ast.entity)

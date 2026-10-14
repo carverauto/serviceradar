@@ -32,20 +32,21 @@ Tracks GitHub issue #4167.
   group and agent, written by a daily Oban worker that runs before sweep data
   cleanup. Raw host results stay at their 7 day retention; the rollup keeps
   overlap and last-writer history for 400 days.
-- Add seven read-only SRQL entities: `sweep_groups`, `sweep_profiles`,
-  `sweep_executions`, `sweep_results`, `sweep_coverage`, `device_sweep_overlap`
-  and `sweep_compiled_config`.
-- Expose the compiled sweep configuration through a named-column allowlist that
-  never carries the `compiled_config` blob, because that blob holds SNMP and
-  mapper credential material for other compilers.
+- Add six read-only SRQL entities: `sweep_groups`, `sweep_profiles`,
+  `sweep_executions`, `sweep_results`, `sweep_coverage` and
+  `device_sweep_overlap` (an earlier seventh entity, `sweep_compiled_config`,
+  was superseded by #4963 / #4970 `persist-sweep-declared-targets`, which
+  persists declared sweep targets in `platform.sweep_group_declared_targets`
+  without persisting or exposing any `compiled_config` document).
+- Exclude credential-bearing fields (`compiled_config`, SNMP community strings,
+  and raw `banner_grab` JSONB tuning) from all sweep diagnostic entities.
 - Register the new entities in the SRQL catalog, in the live `EntityAccess`
-  permission map, and in the MCP cookbook. No new MCP tools: `execute_srql`,
-  `get_srql_catalog` and `lookup_srql_docs` are generic and inherit the
-  entities.
+  permission map (`networks.sweeps.view`), and in the MCP cookbook. No new MCP
+  tools: `execute_srql`, `get_srql_catalog` and `lookup_srql_docs` are generic
+  and inherit the entities.
 - Close the `EntityAccess` token-order bypass. The gate anchors on `^in:` while
   the parser accepts `in:` anywhere, so `limit:1 in:<entity>` skips it. This is
-  pre-existing and affects every gated entity; it is a prerequisite here because
-  `sweep_compiled_config` is admin-gated and a bypassable gate is no gate.
+  pre-existing and affects every gated entity.
 - Admit `sweep_coverage` to the time-window allowlist. Entities outside it are
   capped at 90 days, which would reject the 400-day history the rollup exists
   to serve.

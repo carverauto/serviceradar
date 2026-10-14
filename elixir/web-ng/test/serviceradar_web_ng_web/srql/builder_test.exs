@@ -110,6 +110,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     for id <- ~w(sweep_groups sweep_profiles sweep_executions sweep_results sweep_coverage
                  device_sweep_overlap) do
       assert id in entity_ids, id
+      entry = Catalog.entity(id)
+      refute "compiled_config" in entry.filter_fields, id
+      refute "community" in entry.filter_fields, id
+      refute "banner_grab" in entry.filter_fields, id
     end
 
     overlap = Catalog.entity("device_sweep_overlap")
