@@ -71,6 +71,10 @@ func effectiveScanTimeout(c *models.Config) time.Duration {
 	return defaultScanTimeout
 }
 
+// errSweeperStopped is returned by RunOnce when the sweeper has already been
+// stopped, so a caller cannot treat the skipped run as a completed sweep.
+var errSweeperStopped = errors.New("network sweeper stopped")
+
 const (
 	metadataAddressFamily        = "address_family"
 	metadataIPv6RawSYNFallback   = "ipv6_raw_syn_fallback"

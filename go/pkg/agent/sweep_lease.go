@@ -287,12 +287,18 @@ func (s *sweepLeaseStore) Executed(groupID string, executionID string) bool {
 	return ok
 }
 
-// MarkExecuted records executionID as done for groupID and persists the
-// group's record. Entries whose collection window has passed by now are
-// pruned first: such a slot can never run again, executed or not.
+// MarkExecuted records executionID as done for groupID when that slot is
+// still on the installed lease, and persists the group's record. A missing
+// lease or slot is not recorded: writing the sidecar back after a revocation
+// deleted it would make a later push of the same execution skip the slot.
+// Entries whose collection window has passed by now are pruned first.
 func (s *sweepLeaseStore) MarkExecuted(groupID string, executionID string, collectionExpiresUnixNano int64, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if sweepLeaseSlot(s.leases[groupID], executionID) == nil {
+		return nil
+	}
 
 	executed := s.executed[groupID]
 	if executed == nil {

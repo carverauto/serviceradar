@@ -19,6 +19,11 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -346,3 +351,322 @@ func TestSweepLeaseExecutorRevocationRestoresLocalTicker(t *testing.T) {
 	require.False(t, fixture.sweeper.manualSchedule, "revoked group must return to its local ticker")
 	require.Equal(t, 0, fixture.sweeper.runCount)
 }
+
+// Two due slots: while the later slot is in progress the earlier slot's hosts
+// are still the published summary, and they go out under the earlier slot's
+// execution id. The later slot's own completion then publishes under its id.
+func TestSweepLeaseExecutorBindsExecutionIDToTheSweepThatFinished(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	lease, firstID, secondID := twoDueLeaseSlots(t)
+	fixture.install(t, lease)
+
+	gated := newGatedSweeper(secondID)
+	fixture.service.sweeper = gated
+
+	release := make(chan struct{})
+	gated.release = release
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+	}()
+
+	select {
+	case <-gated.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second slot did not start")
+	}
+
+	response, err := fixture.multi.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, response.HasNewData)
+	require.Equal(t, firstID, response.ExecutionId)
+	require.Equal(t, firstID, sweepResultHost(t, response.Data))
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor pass did not finish")
+	}
+
+	response, err = fixture.multi.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, response.HasNewData)
+	require.Equal(t, secondID, response.ExecutionId)
+	require.Equal(t, secondID, sweepResultHost(t, response.Data))
+}
+
+// A leased cycle that publishes no hosts must not leave its execution id
+// attached to the next cycle, including a local sweep after the lease id
+// was cleared.
+func TestSweepLeaseUnpublishedExecutionDoesNotLabelTheNextCycle(t *testing.T) {
+	sweeper := &mockSweeper{summary: &models.SweepSummary{LastSweep: 10}}
+	service := &SweepService{
+		sweeper: sweeper,
+		config:  &models.Config{},
+		stats:   newScanStats(),
+		logger:  logger.NewTestLogger(),
+	}
+
+	err := service.RunOnceForExecution(context.Background(), "leased-id")
+	require.NoError(t, err)
+
+	response, err := service.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.False(t, response.HasNewData)
+	require.NotEqual(t, "leased-id", response.ExecutionId)
+
+	sweeper.summary.Hosts = []models.HostResult{{Host: "192.0.2.10", Available: true}}
+	require.NoError(t, service.RunOnce(context.Background()))
+
+	response, err = service.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, response.HasNewData)
+	require.NotEqual(t, "leased-id", response.ExecutionId)
+	_, err = uuid.Parse(response.ExecutionId)
+	require.NoError(t, err)
+}
+
+// A sweep error leaves the slot due. The next pass inside the collection
+// window runs it.
+func TestSweepLeaseExecutorRetriesFailedSlot(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
+	fixture.install(t, built.lease)
+	fixture.sweeper.runErr = errors.New("scanner failed")
+
+	now := testSlotStart.Add(time.Minute)
+	fixture.executor.step(context.Background(), now)
+
+	require.Equal(t, 1, fixture.sweeper.runCount)
+	require.False(t, fixture.store.Executed(fixture.group, built.executionID))
+
+	_, payload, err := fixture.service.GetStatusWithMetricPayload(context.Background())
+	require.NoError(t, err)
+	leaseStatus, ok := payload["sweep_lease"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, sweepLeaseStateActive, leaseStatus["state"])
+
+	fixture.sweeper.runErr = nil
+	fixture.executor.step(context.Background(), now)
+	require.Equal(t, 2, fixture.sweeper.runCount)
+	require.True(t, fixture.store.Executed(fixture.group, built.executionID))
+}
+
+// Revoking during a slot stops the rest of the pass and does not write the
+// executed sidecar Install removed.
+func TestSweepLeaseExecutorRevokeDuringPassSkipsRemainingSlots(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	lease, firstID, secondID := twoDueLeaseSlots(t)
+	fixture.install(t, lease)
+
+	fixture.sweeper.onRun = func() {
+		revoked := testLeasePush(100, 101)
+		revoked.Revoked = true
+		_, err := fixture.store.Install(revoked, fixture.group)
+		require.NoError(t, err)
+	}
+
+	fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+
+	require.Equal(t, 1, fixture.sweeper.runCount)
+	require.False(t, fixture.store.Executed(fixture.group, firstID))
+	require.False(t, fixture.store.Executed(fixture.group, secondID))
+	require.False(t, fixture.sweeper.manualSchedule)
+	_, err := os.Stat(filepath.Join(fixture.dir, fixture.group+sweepLeaseExecutedSuffix))
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	status, err := fixture.multi.GetStatus(context.Background())
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(status.Message, &doc))
+	_, present := doc["sweep_lease"]
+	require.False(t, present)
+}
+
+// A replacement that drops a later slot before it starts does not run or
+// record that slot. The slot that already started, and is still installed,
+// is recorded.
+func TestSweepLeaseExecutorSkipsSlotRemovedDuringPass(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	lease, firstID, secondID := twoDueLeaseSlots(t)
+	fixture.install(t, lease)
+
+	fixture.sweeper.onRun = func() {
+		push := testLeasePush(testSlotStart.Add(time.Minute).Unix(), testSlotStart.Add(2*time.Minute).Unix())
+		_, err := fixture.store.Install(push, fixture.group)
+		require.NoError(t, err)
+	}
+
+	fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+
+	require.Equal(t, 1, fixture.sweeper.runCount)
+	require.True(t, fixture.store.Executed(fixture.group, firstID))
+	require.False(t, fixture.store.Executed(fixture.group, secondID))
+	require.True(t, fixture.sweeper.manualSchedule)
+}
+
+// The pushed status document lists every leased group, including one whose
+// last_sweep is older than another group's and one that has not completed.
+func TestMultiSweepStatusReportsEveryLeasedGroup(t *testing.T) {
+	newer := newLeaseStatusGroup("group-newer", 200)
+	older := newLeaseStatusGroup("group-older", 100)
+	quiet := newLeaseStatusGroup("group-quiet", 0)
+	older.SetLeaseState(sweepLeaseStateActive, 50, 2)
+	quiet.SetLeaseState(sweepLeaseStateExhausted, 0, 0)
+
+	multi := &MultiSweepService{
+		groups: map[string]*SweepService{
+			"group-newer": newer,
+			"group-older": older,
+			"group-quiet": quiet,
+		},
+		groupOrder: []string{"group-quiet", "group-older", "group-newer"},
+		logger:     logger.NewTestLogger(),
+	}
+
+	status, err := multi.GetStatus(context.Background())
+	require.NoError(t, err)
+	leases := sweepLeaseStates(t, status.Message)
+	require.NotContains(t, leases, "group-newer")
+	require.Equal(t, sweepLeaseStateActive, leases["group-older"]["state"])
+	require.Equal(t, sweepLeaseStateExhausted, leases["group-quiet"]["state"])
+	require.Equal(t, float64(2), leases["group-older"]["slots_remaining"])
+}
+
+func twoDueLeaseSlots(t *testing.T) (lease *edgev1.SweepLeaseV1, firstID, secondID string) {
+	t.Helper()
+
+	first := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
+	second := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart.Add(time.Minute), nil)
+	lease = first.lease
+	lease.Slots = []*edgev1.SweepLeaseSlotV1{first.lease.GetSlots()[0], second.lease.GetSlots()[0]}
+	lease.WindowStartUnixNano = testSlotStart.UnixNano()
+	lease.WindowEndUnixNano = testSlotStart.Add(2 * time.Minute).UnixNano()
+
+	return lease, first.executionID, second.executionID
+}
+
+func newLeaseStatusGroup(group string, lastSweep int64) *SweepService {
+	return &SweepService{
+		sweeper: &mockSweeper{summary: &models.SweepSummary{
+			Network:        "192.0.2.0/24",
+			TotalHosts:     1,
+			AvailableHosts: 1,
+			LastSweep:      lastSweep,
+			Hosts:          []models.HostResult{{Host: "192.0.2.10", Available: true}},
+		}},
+		config:       &models.Config{Networks: []string{"192.0.2.0/24"}, SweepGroupID: group},
+		stats:        newScanStats(),
+		logger:       logger.NewTestLogger(),
+		sweepGroupID: group,
+	}
+}
+
+func sweepLeaseStates(t *testing.T, message []byte) map[string]map[string]any {
+	t.Helper()
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(message, &doc))
+	raw, ok := doc["sweep_lease"].([]any)
+	require.True(t, ok, "status message sweep_lease = %#v", doc["sweep_lease"])
+
+	states := make(map[string]map[string]any, len(raw))
+	for _, item := range raw {
+		lease, ok := item.(map[string]any)
+		require.True(t, ok)
+		group, _ := lease["sweep_group_id"].(string)
+		states[group] = lease
+	}
+
+	return states
+}
+
+func sweepResultHost(t *testing.T, data []byte) string {
+	t.Helper()
+
+	var payload struct {
+		Hosts []struct {
+			Host string `json:"host"`
+		} `json:"hosts"`
+	}
+	require.NoError(t, json.Unmarshal(data, &payload))
+	require.NotEmpty(t, payload.Hosts)
+
+	return payload.Hosts[0].Host
+}
+
+// gatedSweeper publishes a sweep's execution id only when that run finishes.
+// While a run is in progress, status stays on the previous published summary.
+type gatedSweeper struct {
+	mu        sync.Mutex
+	blockID   string
+	published *models.SweepSummary
+	started   chan struct{}
+	release   chan struct{}
+	lastSweep int64
+}
+
+func newGatedSweeper(blockID string) *gatedSweeper {
+	return &gatedSweeper{
+		blockID: blockID,
+		started: make(chan struct{}),
+	}
+}
+
+func (g *gatedSweeper) RunOnce(ctx context.Context) error {
+	return g.RunOnceWithExecution(ctx, "")
+}
+
+func (g *gatedSweeper) RunOnceWithExecution(ctx context.Context, executionID string) error {
+	g.mu.Lock()
+	block := executionID == g.blockID
+	g.mu.Unlock()
+
+	if block {
+		close(g.started)
+		select {
+		case <-g.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lastSweep++
+	g.published = &models.SweepSummary{
+		Network:        "192.0.2.0/24",
+		TotalHosts:     1,
+		AvailableHosts: 1,
+		LastSweep:      g.lastSweep,
+		Hosts:          []models.HostResult{{Host: executionID, Available: true}},
+		ExecutionID:    executionID,
+	}
+
+	return nil
+}
+
+func (g *gatedSweeper) GetStatus(context.Context) (*models.SweepSummary, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.published == nil {
+		return &models.SweepSummary{}, nil
+	}
+
+	clone := *g.published
+	clone.Hosts = append([]models.HostResult(nil), g.published.Hosts...)
+
+	return &clone, nil
+}
+
+func (*gatedSweeper) Start(context.Context) error           { return nil }
+func (*gatedSweeper) Stop() error                           { return nil }
+func (*gatedSweeper) UpdateConfig(*models.Config) error     { return nil }
+func (*gatedSweeper) GetScannerStats() *models.ScannerStats { return nil }
+func (*gatedSweeper) GetBannerGrabStats() *models.BannerGrabStats {
+	return nil
+}
+func (*gatedSweeper) SetManualSchedule(bool) {}

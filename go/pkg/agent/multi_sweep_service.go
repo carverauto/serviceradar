@@ -525,6 +525,7 @@ func (s *MultiSweepService) GetStatusWithMetricPayload(ctx context.Context) (*pr
 	var bestStatus *proto.StatusResponse
 	var bestMetricPayload map[string]any
 	var bestLastSweep int64
+	var sweepLeases []map[string]any
 
 	for _, groupID := range groupOrder {
 		svc := groups[groupID]
@@ -535,6 +536,10 @@ func (s *MultiSweepService) GetStatusWithMetricPayload(ctx context.Context) (*pr
 		status, metricPayload, err := svc.GetStatusWithMetricPayload(ctx)
 		if err != nil || status == nil {
 			continue
+		}
+
+		if lease, ok := sweepLeaseFromPayload(metricPayload); ok {
+			sweepLeases = append(sweepLeases, lease)
 		}
 
 		lastSweep := sweepMetricPayloadLastSweep(metricPayload)
@@ -561,7 +566,47 @@ func (s *MultiSweepService) GetStatusWithMetricPayload(ctx context.Context) (*pr
 		}, nil, nil
 	}
 
+	bestStatus.Message = attachSweepLeaseReport(bestStatus.Message, sweepLeases)
+
 	return bestStatus, bestMetricPayload, nil
+}
+
+func sweepLeaseFromPayload(payload map[string]any) (map[string]any, bool) {
+	raw, ok := payload["sweep_lease"].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil, false
+	}
+
+	lease := make(map[string]any, len(raw))
+	for key, value := range raw {
+		lease[key] = value
+	}
+
+	return lease, true
+}
+
+// attachSweepLeaseReport puts every leased group's sweep_lease on the status
+// document the agent pushes. The document is one per sweep service, so a
+// group that is not the newest last_sweep still has to be listed here.
+func attachSweepLeaseReport(message []byte, leases []map[string]any) []byte {
+	if len(leases) == 0 {
+		return message
+	}
+
+	doc := map[string]any{}
+	if len(message) > 0 {
+		if err := json.Unmarshal(message, &doc); err != nil || doc == nil {
+			doc = map[string]any{}
+		}
+	}
+	doc["sweep_lease"] = leases
+
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		return message
+	}
+
+	return encoded
 }
 
 func sweepMetricPayloadLastSweep(payload map[string]any) int64 {
