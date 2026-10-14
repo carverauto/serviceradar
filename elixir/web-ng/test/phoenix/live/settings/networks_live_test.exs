@@ -450,6 +450,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert html =~ "Query Builder"
   end
 
+  test "the new-host discovery setting defaults to on and saves off", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    default_name = "Discovery default #{unique}"
+    off_name = "Discovery off #{unique}"
+
+    {:ok, view, html} = live(conn, ~p"/settings/networks/groups/new")
+    assert html =~ "Add newly found hosts to inventory"
+
+    # The form's own checkbox value is submitted, so this saves whatever it renders.
+    view
+    |> form("#sweep-group-form", %{
+      "form" => %{"name" => default_name, "static_targets" => "198.51.100.0/24"}
+    })
+    |> render_submit()
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/new")
+
+    view
+    |> form("#sweep-group-form", %{
+      "form" => %{
+        "name" => off_name,
+        "static_targets" => "198.51.100.0/24",
+        "discover_new_devices" => "false"
+      }
+    })
+    |> render_submit()
+
+    groups = SweepGroup |> Ash.read!(scope: scope) |> Map.new(&{&1.name, &1})
+
+    assert groups[default_name].discover_new_devices
+    refute groups[off_name].discover_new_devices
+    assert groups[off_name].static_targets == ["198.51.100.0/24"]
+  end
+
   test "sweep group routes never load or retain an eager agent fleet", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 

@@ -847,7 +847,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Sweep Create #{unique_id}",
           partition: partition,
-          agent_ids: []
+          agent_ids: [],
+          static_targets: [new_ip]
         },
         actor: actor,
         actor: actor
@@ -917,7 +918,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   test "a sweep never re-creates a purged merged-away seed", %{actor: actor, agent_id: agent_id} do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("purged-seed-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Purged Seed #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Purged Seed #{unique_id}", ip)
 
     first = sweep_seed!(actor, group, agent_id, ip)
     assert first.uid == address_seed_uid(ip)
@@ -949,7 +950,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("unmerged-seed-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Unmerged Seed #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Unmerged Seed #{unique_id}", ip)
 
     seed = sweep_seed!(actor, group, agent_id, ip)
     ordinal = FleetIdentity.device_ordinal(seed.uid)
@@ -992,7 +993,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
          agent_id: agent_id
        } do
     ip = "192.0.2.74"
-    group = seed_sweep_group!(actor, "Released seed #{Ash.UUID.generate()}")
+    group = seed_sweep_group!(actor, "Released seed #{Ash.UUID.generate()}", ip)
     seed = sweep_seed!(actor, group, agent_id, ip)
     ordinal = FleetIdentity.device_ordinal(seed.uid)
 
@@ -1052,7 +1053,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("redirected-chain-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Redirected Chain #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Redirected Chain #{unique_id}", ip)
     survivor = merge_survivor!(actor, "redirected-chain-#{unique_id}")
     chain = ip |> address_seed_uid() |> Stream.iterate(&Ids.reseeded_device_id/1) |> Enum.take(9)
 
@@ -1077,7 +1078,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("unresolved-seed-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Unresolved Seed #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Unresolved Seed #{unique_id}", ip)
     uid = address_seed_uid(ip)
     other = "sr:" <> Ash.UUID.generate()
 
@@ -1100,7 +1101,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     for root_reason <- ["seed_released", "merged"] do
       ip = unique_ip("long-seed-#{Ash.UUID.generate()}")
-      group = seed_sweep_group!(actor, "Sweep Long Seed #{Ash.UUID.generate()}")
+      group = seed_sweep_group!(actor, "Sweep Long Seed #{Ash.UUID.generate()}", ip)
       seed = sweep_seed!(actor, group, agent_id, ip)
       root = seed.uid
       root_ordinal = FleetIdentity.device_ordinal(root)
@@ -1156,7 +1157,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     agent_id: agent_id
   } do
     ip = unique_ip("deferred-seed-#{Ash.UUID.generate()}")
-    group = seed_sweep_group!(actor, "Sweep Deferred Seed #{Ash.UUID.generate()}")
+    group = seed_sweep_group!(actor, "Sweep Deferred Seed #{Ash.UUID.generate()}", ip)
     seed = sweep_seed!(actor, group, agent_id, ip)
     root = seed.uid
     retire_and_purge!(actor, seed)
@@ -1195,7 +1196,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     agent_id: agent_id
   } do
     ip = TestSupport.unique_device_ip()
-    group = seed_sweep_group!(actor, "Sweep Concurrent Seed #{Ash.UUID.generate()}", false)
+    group = seed_sweep_group!(actor, "Sweep Concurrent Seed #{Ash.UUID.generate()}", ip, false)
     root = address_seed_uid(ip)
     second = Ids.reseeded_device_id(root)
     third = Ids.reseeded_device_id(second)
@@ -1307,7 +1308,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     old_ip = unique_ip("seed-collision-old-#{unique_id}")
     new_ip = unique_ip("seed-collision-new-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Seed Collision #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Seed Collision #{unique_id}", old_ip)
 
     seed = sweep_seed!(actor, group, agent_id, old_ip)
     seed_uid = seed.uid
@@ -1725,7 +1726,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("expired-returns-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Expired Returns #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Expired Returns #{unique_id}", ip)
     expired = expired_device!(actor, "returns-#{unique_id}", ip, ["sweep"])
 
     assert {:ok, stats} = ingest_report(actor, group.id, agent_id, available_result(ip))
@@ -1757,7 +1758,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     for sources <- [["sweep"], ["mapper"]] do
       unique_id = Ash.UUID.generate()
       ip = unique_ip("expired-down-#{unique_id}")
-      group = seed_sweep_group!(actor, "Sweep Expired Down #{unique_id}")
+      group = seed_sweep_group!(actor, "Sweep Expired Down #{unique_id}", ip)
       expired = expired_device!(actor, "down-#{unique_id}", ip, sources)
       before_sweep = row_state(actor, expired.uid)
 
@@ -1780,7 +1781,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("operator-deleted-#{unique_id}")
-    group = seed_sweep_group!(actor, "Sweep Operator Deleted #{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Operator Deleted #{unique_id}", ip)
 
     assert {:ok, device} =
              Device
@@ -1930,7 +1931,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Changed IP #{unique_id}", partition: partition, agent_ids: []},
+        %{
+          name: "Sweep Changed IP #{unique_id}",
+          partition: partition,
+          agent_ids: [],
+          static_targets: [old_ip]
+        },
         actor: actor
       )
       |> Ash.create()
@@ -1994,7 +2000,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Promote #{unique_id}", partition: partition, agent_id: agent_id},
+        %{
+          name: "Sweep Promote #{unique_id}",
+          partition: partition,
+          agent_id: agent_id,
+          static_targets: [new_ip]
+        },
         actor: actor,
         actor: actor
       )
@@ -2219,7 +2230,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Stale Cache #{unique_id}", partition: partition, agent_id: agent_id},
+        %{
+          name: "Sweep Stale Cache #{unique_id}",
+          partition: partition,
+          agent_id: agent_id,
+          static_targets: [new_ip]
+        },
         actor: actor,
         actor: actor
       )
@@ -2364,7 +2380,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep MultiBatch #{unique_id}", partition: partition, agent_id: agent_id},
+        %{
+          name: "Sweep MultiBatch #{unique_id}",
+          partition: partition,
+          agent_id: agent_id,
+          static_targets: [ip_one, ip_two]
+        },
         actor: actor,
         actor: actor
       )
@@ -2542,7 +2563,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Cooldown #{unique_id}", partition: partition, agent_id: agent_id},
+        %{
+          name: "Sweep Cooldown #{unique_id}",
+          partition: partition,
+          agent_id: agent_id,
+          static_targets: [ip]
+        },
         actor: actor,
         actor: actor
       )
@@ -2615,7 +2641,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Interval #{unique_id}", partition: partition, agent_id: agent_id},
+        %{
+          name: "Sweep Interval #{unique_id}",
+          partition: partition,
+          agent_id: agent_id,
+          static_targets: [ip]
+        },
         actor: actor,
         actor: actor
       )
@@ -2767,7 +2798,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Skip #{unique_id}", partition: partition, agent_ids: []},
+        %{
+          name: "Sweep Skip #{unique_id}",
+          partition: partition,
+          agent_ids: [],
+          static_targets: [ip]
+        },
         actor: actor,
         actor: actor
       )
@@ -3068,6 +3104,163 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     end
   end
 
+  describe "device discovery scope" do
+    test "a device-query group records an answering unknown host without seeding a device", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      ip = doc_ip("query-only-#{unique_id}", "198.51.100")
+
+      # The query's device was deleted or moved: nothing holds the address any more.
+      group =
+        reporter_group!(actor, unique_id, "query-only", [], %{
+          target_query: "in:devices tags.discovery_scope:#{unique_id}"
+        })
+
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, stats} =
+               ingest_report(actor, group.id, agent_id, available_result(ip),
+                 execution_id: execution_id
+               )
+
+      assert {stats.devices_created, stats.hosts_total, stats.hosts_available} == {0, 1, 1}
+      assert devices_at(actor, ip) == []
+
+      assert [%{ip: ^ip, status: :available, device_id: nil}] =
+               host_result_snapshots(actor, execution_id)
+    end
+
+    test "a static CIDR group seeds an answering host inside its range", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      ip = doc_ip("cidr-#{unique_id}", "198.51.100")
+
+      group =
+        reporter_group!(actor, unique_id, "cidr", [], %{static_targets: ["198.51.100.0/24"]})
+
+      assert {:ok, stats} = ingest_report(actor, group.id, agent_id, available_result(ip))
+      assert stats.devices_created == 1
+
+      assert [device] = devices_at(actor, ip)
+      assert device.metadata["identity_source"] == "sweep_ip_seed"
+    end
+
+    test "a mixed group seeds only the hosts inside its static targets", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      inside_ip = doc_ip("mixed-inside-#{unique_id}", "198.51.100")
+      outside_ip = doc_ip("mixed-outside-#{unique_id}", "203.0.113")
+
+      group =
+        reporter_group!(actor, unique_id, "mixed", [], %{
+          static_targets: ["198.51.100.0/24"],
+          target_query: "in:devices tags.discovery_scope:#{unique_id}"
+        })
+
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, stats} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(inside_ip), available_result(outside_ip)],
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default",
+                 config_version: "discovery-scope-mixed-#{unique_id}"
+               )
+
+      assert {stats.devices_created, stats.hosts_available} == {1, 2}
+      assert [_seeded] = devices_at(actor, inside_ip)
+      assert devices_at(actor, outside_ip) == []
+
+      assert %{^outside_ip => nil} =
+               actor
+               |> host_result_snapshots(execution_id)
+               |> Map.new(&{&1.ip, &1.device_id})
+    end
+
+    test "a group with discovery off seeds nothing, even inside its static targets", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = Ash.UUID.generate()
+      ip = doc_ip("off-#{unique_id}", "198.51.100")
+
+      group =
+        reporter_group!(actor, unique_id, "discovery-off", [], %{
+          static_targets: ["198.51.100.0/24"],
+          discover_new_devices: false
+        })
+
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, stats} =
+               ingest_report(actor, group.id, agent_id, available_result(ip),
+                 execution_id: execution_id
+               )
+
+      assert {stats.devices_created, stats.hosts_available} == {0, 1}
+      assert devices_at(actor, ip) == []
+      assert [%{ip: ^ip, device_id: nil}] = host_result_snapshots(actor, execution_id)
+    end
+
+    test "an unknown reporter's answering host outside static targets leaves no forensic seed", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      claimed_agent = "unknown-scope-#{unique_id}"
+      register_reporter!(actor, claimed_agent)
+      ip = doc_ip("unknown-scope-#{unique_id}", "203.0.113")
+
+      group =
+        reporter_group!(actor, unique_id, "unknown-scope", [claimed_agent], %{
+          target_query: "in:devices tags.discovery_scope:#{unique_id}"
+        })
+
+      # No authenticated reporter: the batch is quarantined, which still records
+      # availability anchors for the addresses it names.
+      assert {:error, :conflicting_execution_reporter} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(ip)],
+                 Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: claimed_agent,
+                 config_version: "unknown-scope-#{unique_id}"
+               )
+
+      assert devices_at(actor, ip) == []
+    end
+
+    test "groups discover by default, and existing rows take the column default", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "default-discovery", [])
+      assert group.discover_new_devices
+
+      # ADD COLUMN ... NOT NULL DEFAULT true gives every pre-existing row true without
+      # rewriting it, so groups that discovered before keep discovering.
+      %{rows: [[default, nullable]]} =
+        Repo.query!("""
+        SELECT column_default, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'platform' AND table_name = 'sweep_groups'
+          AND column_name = 'discover_new_devices'
+        """)
+
+      assert {default, nullable} == {"true", "NO"}
+    end
+  end
+
   describe "persisted reporter expectation" do
     test "selected reporters are independent and a deselected reporter remains forensic", %{
       actor: actor
@@ -3141,7 +3334,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       Enum.each([expected_agent, unexpected_agent], &register_reporter!(actor, &1))
 
       ip = unique_ip("unexpected-discovery-#{unique_id}")
-      group = reporter_group!(actor, unique_id, "unexpected-discovery", [expected_agent])
+
+      group =
+        reporter_group!(actor, unique_id, "unexpected-discovery", [expected_agent], %{
+          static_targets: [ip]
+        })
 
       assert {:ok, _} =
                ingest_report(actor, group.id, unexpected_agent, available_result(ip))
@@ -3400,7 +3597,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       deleted_before = include_deleted_device!(actor, deleted_device.uid)
       assert %DateTime{} = deleted_before.deleted_at
 
-      group = reporter_group!(actor, unique_id, "unknown-side-effects", [claimed_agent])
+      group =
+        reporter_group!(actor, unique_id, "unknown-side-effects", [claimed_agent], %{
+          static_targets: [provisional_ip]
+        })
 
       assert {:ok, mapper_job} =
                MapperJob
@@ -4450,6 +4650,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     )
   end
 
+  # A documentation address (RFC 5737) in the given /24, drawn from the seed.
+  defp doc_ip(seed, prefix) when is_binary(seed) do
+    <<octet, _rest::binary>> = :crypto.hash(:sha256, seed)
+    "#{prefix}.#{1 + rem(octet, 254)}"
+  end
+
   defp available_result(ip, checked_at \\ DateTime.utc_now()) do
     %{
       "host_ip" => ip,
@@ -4577,12 +4783,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   defp single_result([result]), do: result
   defp single_result(result), do: result
 
-  defp seed_sweep_group!(actor, name, enabled \\ true) do
+  # The group sweeps `ip` as a static target, so the sweep may seed a device there.
+  defp seed_sweep_group!(actor, name, ip, enabled \\ true) do
     assert {:ok, group} =
              SweepGroup
              |> Ash.Changeset.for_create(
                :create,
-               %{name: name, partition: "default", agent_ids: [], enabled: enabled},
+               %{
+                 name: name,
+                 partition: "default",
+                 agent_ids: [],
+                 static_targets: [ip],
+                 enabled: enabled
+               },
                actor: actor
              )
              |> Ash.create()

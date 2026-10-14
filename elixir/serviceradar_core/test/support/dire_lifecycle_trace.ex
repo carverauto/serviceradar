@@ -537,7 +537,9 @@ defmodule ServiceRadar.DireLifecycleTrace do
     before = raw(trace)
     agent_id = "trace-lifecycle-sweeper-#{trace.name}"
 
-    # Group names are unique, and a trace may sweep one address more than once.
+    # Group names are unique, and a trace may sweep one address more than once. A sweep seeds
+    # a device only inside its static targets (SweepJobs.DiscoveryScope), so the group
+    # declares the swept address as one, as a discovery sweep of it would.
     {:ok, group} =
       SweepGroup
       |> Ash.Changeset.for_create(
@@ -545,7 +547,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
         %{
           name: "DIRE lifecycle trace #{trace.name} #{p} #{System.unique_integer([:positive])}",
           partition: "default",
-          agent_ids: []
+          agent_ids: [],
+          static_targets: [trace.real.ip[p]]
         },
         actor: trace.actor
       )

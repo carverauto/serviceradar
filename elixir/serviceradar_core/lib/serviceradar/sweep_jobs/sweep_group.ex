@@ -19,6 +19,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   You can also add `static_targets` as explicit CIDRs/IPs to include.
 
+  A host that answers inside `static_targets` and is not in inventory becomes a
+  new provisional device while `discover_new_devices` is on (the default). A
+  host selected by `target_query` never creates a device: it was a device when
+  the agent config compiled, so finding none at its address now means it was
+  deleted or moved, not discovered.
+
   Compilation adds this group's device partition to a target query that does
   not already name one. Static targets are left as written. A selected agent
   that lives in another partition still runs the group, so an isolation scan
@@ -72,7 +78,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     :sweep_modes,
     :overrides,
     :profile_id,
-    :emit_availability_events
+    :emit_availability_events,
+    :discover_new_devices
   ]
 
   postgres do
@@ -341,6 +348,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       public? true
       default []
       description "Explicit CIDRs/IPs to include (merged with SRQL targets)"
+    end
+
+    attribute :discover_new_devices, :boolean do
+      allow_nil? false
+      public? true
+      default true
+      description "Add hosts that answer inside static_targets to inventory"
     end
 
     # Scan configuration (overrides profile)

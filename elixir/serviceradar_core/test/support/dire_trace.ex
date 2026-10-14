@@ -309,11 +309,18 @@ defmodule ServiceRadar.DireTrace do
     ip = real_ip!(trace, x)
     agent_id = "dire-trace-sweeper"
 
+    # A sweep seeds a device only inside its static targets (SweepJobs.DiscoveryScope), so
+    # the group declares the swept address as one, as a discovery sweep of it would.
     {:ok, group} =
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "DIRE trace #{trace.name} #{ip}", partition: "default", agent_ids: []},
+        %{
+          name: "DIRE trace #{trace.name} #{ip}",
+          partition: "default",
+          agent_ids: [],
+          static_targets: [ip]
+        },
         actor: trace.actor
       )
       |> Ash.create()

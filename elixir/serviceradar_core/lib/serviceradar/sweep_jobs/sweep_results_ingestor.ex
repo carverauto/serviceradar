@@ -49,6 +49,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AvailabilityEvents
+  alias ServiceRadar.SweepJobs.DiscoveryScope
   alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.PortCoverage
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -489,7 +490,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       create_available_unknown_devices(
         results,
         unknown_ips -- Map.keys(detected_device_map),
-        reporter_context.resolved_group_id,
+        reporter_context.group,
         actor,
         partition,
         track_collisions?: false
@@ -673,7 +674,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       create_available_unknown_devices(
         results,
         unknown_ips -- detected_ips,
-        reporter_context.resolved_group_id,
+        reporter_context.group,
         actor,
         partition,
         track_collisions?: true,
@@ -796,7 +797,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> prefix_promotion_stats()
   end
 
-  defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor, partition, opts) do
+  defp create_available_unknown_devices(_results, [], _group, _actor, partition, opts) do
     clear_seed_uid_collisions(
       partition,
       Keyword.get(opts, :resolved_ips, []),
@@ -806,23 +807,32 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {%{}, 0}
   end
 
-  defp create_available_unknown_devices(
-         results,
-         unknown_ips,
-         _sweep_group_id,
-         actor,
-         partition,
-         opts
-       ) do
+  # Only a host inside the group's discovery scope (DiscoveryScope) is seeded as a
+  # new device. The rest keep their host results, recorded without a device, exactly
+  # as an unavailable unknown host is.
+  defp create_available_unknown_devices(results, unknown_ips, group, actor, partition, opts) do
     track_collisions? = Keyword.get(opts, :track_collisions?, false)
     resolved_ips = Keyword.get(opts, :resolved_ips, [])
 
-    available_unknown_hosts =
+    answering_unknown_ips =
       results
       |> Enum.filter(fn result ->
         ip = extract_ip(result)
         result_available?(result) and ip in unknown_ips
       end)
+      |> Enum.map(&extract_ip/1)
+      |> Enum.uniq()
+
+    {seedable_ips, skipped_ips, skip_reason} =
+      DiscoveryScope.partition(group, answering_unknown_ips)
+
+    log_unseeded_hosts(group, skipped_ips, skip_reason)
+
+    seedable = MapSet.new(seedable_ips)
+
+    available_unknown_hosts =
+      results
+      |> Enum.filter(&(result_available?(&1) and MapSet.member?(seedable, extract_ip(&1))))
       |> Enum.reduce(%{}, fn result, acc -> Map.put_new(acc, extract_ip(result), result) end)
 
     unavailable_unknown_ips = unknown_ips -- Map.keys(available_unknown_hosts)
@@ -874,6 +884,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {created_map, seed_uid_collisions}
     end
   end
+
+  defp log_unseeded_hosts(_group, [], _reason), do: :ok
+
+  defp log_unseeded_hosts(group, skipped_ips, reason) do
+    why =
+      case reason do
+        :discovery_off -> "the group does not add new devices"
+        :outside_static_targets -> "they are outside the group's static targets"
+      end
+
+    Logger.info(
+      "SweepResultsIngestor: Not adding #{length(skipped_ips)} answering host(s) with no " <>
+        "device to inventory for sweep group #{group_label(group)}: #{why}"
+    )
+  end
+
+  defp group_label(%SweepGroup{name: name, id: id}), do: "#{inspect(name)} (#{id})"
+  defp group_label(_group), do: "(unresolved)"
 
   # Address seeds must not reuse a merged identity or revive a deleted seed after payload
   # retention. Both keep their permanent UID. A durable `_seed_successor` on the address-root

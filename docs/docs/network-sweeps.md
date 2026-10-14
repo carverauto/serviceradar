@@ -21,6 +21,9 @@ Sweep groups are the primary unit of configuration. Each group includes:
 - **Targets**:
   - **Target criteria** (matches devices from inventory)
   - **Static targets** (CIDR, IP, or IP range strings)
+- **Add newly found hosts to inventory**: Whether hosts that answer inside the
+  static targets are added as new devices (see
+  [Adding New Devices](#adding-new-devices)).
 - **Scanner profile** (optional): Base ports/modes/timeouts.
 - **Overrides**: Group-specific settings that override the profile.
 - **Partition / agent assignment**: Choose the target-device partition and
@@ -188,6 +191,23 @@ Static targets are always included in the sweep, regardless of criteria matches:
 ```json
 ["10.0.0.0/24", "192.168.1.10", "10.0.2.1-10.0.2.25"]
 ```
+
+### Adding New Devices
+
+A sweep can add the hosts it finds to inventory, but only from its static
+targets:
+
+- A host that answers inside the group's static targets and has no device in
+  inventory becomes a new provisional device while **Add newly found hosts to
+  inventory** is on. The setting is on by default.
+- Hosts selected by the target criteria (the device query) never create
+  devices. They were devices when the agent's sweep config compiled, so if no
+  device holds that address any more, it was deleted or moved since. The result
+  is recorded without a device rather than bringing back a bare copy.
+- Turn the setting off for a group that should watch its static targets
+  without adding to inventory.
+
+A result recorded without a device still counts toward the run's host totals.
 
 ## Running Scans Panel
 
