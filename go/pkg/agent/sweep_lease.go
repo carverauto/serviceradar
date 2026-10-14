@@ -378,8 +378,9 @@ func (s *sweepLeaseStore) path(groupID string) string {
 
 // validateSweepLease is the install gate: the structural contract of
 // SweepLeaseV1 (proto/edge/v1/sweep.proto) that must hold before any slot is
-// stored. Signature and plan verification happen when a slot runs (M2.0e) and
-// at the gateway; they are not repeated here.
+// stored. Plan and capability-structure checks happen when a slot runs
+// (sweep_lease_executor.go). Cryptographic signature verification stays at
+// the gateway (M2.0f). Neither is repeated here.
 func validateSweepLease(push *edgev1.SweepLeaseV1, wantGroup string) error {
 	if push == nil {
 		return fmt.Errorf("%w: empty push", errInvalidSweepLease)
