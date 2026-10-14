@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
   @moduledoc false
 
   @base "/api/admin"
-  @authority "Requires a human principal. OAuth clients are rejected. " <>
-               "Reads use ansible.runs.view or ansible.catalog.view. " <>
+  @human_principal "Requires a human principal. OAuth clients are rejected. "
+  @authority "Reads use ansible.runs.view or ansible.catalog.view. " <>
                "Membership and binding review use ansible.controllers.manage. " <>
                "Prepare and launch use ansible.runs.launch. Cancel uses ansible.runs.cancel. " <>
                "Token scope is intersected with account RBAC. " <>
@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           operation("Approve one membership from its exact current evidence", "AnsibleMembership",
             parameters: [id_parameter()],
             body: "AnsibleMembershipApproval",
+            human: true,
             description:
               human_description(
                 "ansible.controllers.manage",
@@ -40,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           operation("Create an approved binding version", "AnsibleTemplateBinding",
             body: "AnsibleBindingCreate",
             status: "201",
+            human: true,
             description:
               human_description(
                 "ansible.controllers.manage",
@@ -52,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
         "post" =>
           operation("Prepare an immutable binding review", "AnsibleBindingReview",
             body: "AnsibleBindingPrepare",
+            human: true,
             description:
               human_description(
                 "ansible.controllers.manage",
@@ -64,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           operation("Revoke a binding version", "AnsibleTemplateBinding",
             parameters: [id_parameter()],
             body: "AnsibleEmptyObject",
+            human: true,
             description: human_description("ansible.controllers.manage", "Accepts an empty JSON object.")
           )
       },
@@ -77,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           operation("Launch a reviewed operation", "AnsibleOperationBundle",
             body: "AnsibleOperationLaunch",
             status: "202",
+            human: true,
             description:
               human_description(
                 "ansible.runs.launch",
@@ -90,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
         "post" =>
           operation("Prepare a canonical operation", "AnsibleOperationPrepareResult",
             body: "AnsibleOperationPrepare",
+            human: true,
             description:
               human_description(
                 "ansible.runs.launch",
@@ -109,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           operation("Cancel is not available", nil,
             parameters: [id_parameter()],
             status: "501",
+            human: true,
             description:
               human_description(
                 "ansible.runs.cancel",
@@ -131,8 +138,8 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
           %{
             "kind" => nullable_string(),
             "controller_id" => nullable_string(),
-            "inventory_id" => nullable_string(),
-            "awx_host_id" => nullable_string(),
+            "inventory_id" => awx_id(),
+            "awx_host_id" => awx_id(),
             "matching_device_uids" => %{"type" => "array", "items" => %{"type" => "string"}},
             "match_count" => %{"type" => "integer", "nullable" => true}
           },
@@ -223,9 +230,9 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
             "type" => %{"type" => "string"},
             "required" => %{"type" => "boolean"},
             "choices" => %{"type" => "array", "items" => %{"type" => "string"}},
-            "min" => %{"type" => "integer"},
-            "max" => %{"type" => "integer"},
-            "help" => %{"type" => "string"}
+            "min" => nullable_number(),
+            "max" => nullable_number(),
+            "help" => nullable_string()
           },
           ["name"]
         )
@@ -250,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
       "responses" => %{
         status => success,
         "401" => %{"description" => "Authentication required"},
-        "403" => %{"description" => "Insufficient permission, token scope, or a non-human principal"},
+        "403" => %{"description" => forbidden_description(Keyword.get(opts, :human, false))},
         "404" => %{"description" => "Resource not found"},
         "422" => %{"description" => "The canonical review or launch contract rejected the request"}
       }
@@ -292,7 +299,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
       "controller_id" => uuid(),
       "inventory_id" => awx_id(),
       "awx_host_id" => awx_id(),
-      "canonical_device_uid" => %{"type" => "string"},
+      "canonical_device_uid" => nullable_string(),
       "host_name" => nullable_string(),
       "ansible_host" => nullable_string(),
       "enabled" => %{"type" => "boolean"},
@@ -484,7 +491,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
       "controller_id" => uuid(),
       "inventory_id" => awx_id(),
       "awx_host_id" => awx_id(),
-      "membership_generation" => decimal_string(),
+      "membership_generation" => %{"type" => "integer", "minimum" => 1},
       "host_name" => nullable_string(),
       "ansible_host" => nullable_string(),
       "status" => nullable_string(),
@@ -547,7 +554,13 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
 
   defp read_description(permission), do: "Requires #{permission}. " <> @authority
 
-  defp human_description(permission, detail), do: "Requires #{permission}. #{detail} " <> @authority
+  defp human_description(permission, detail),
+    do: "Requires #{permission}. #{detail} " <> @human_principal <> @authority
+
+  defp forbidden_description(true),
+    do: "Insufficient permission, token scope, or a non-human principal"
+
+  defp forbidden_description(false), do: "Insufficient permission or token scope"
 
   defp membership_collection, do: @base <> "/ansible-memberships"
   defp membership_item, do: membership_collection() <> "/{id}"
@@ -582,6 +595,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
   defp nullable_integer, do: Map.put(awx_id(), "nullable", true)
   defp datetime, do: %{"type" => "string", "format" => "date-time", "nullable" => true}
   defp nullable_string, do: %{"type" => "string", "nullable" => true}
+  defp nullable_number, do: %{"type" => "number", "nullable" => true}
   defp decimal_string, do: %{"type" => "string", "pattern" => "^(0|[1-9][0-9]*)$"}
   defp sha256, do: %{"type" => "string", "pattern" => "^[0-9a-f]{64}$"}
   defp digest, do: %{"type" => "string", "minLength" => 1}
