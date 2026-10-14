@@ -153,7 +153,7 @@ func TestScheduledRequestsMatchExactlyOneDeclaredGrant(t *testing.T) {
 	cache.on("GET", "/service-lines?page=0", 200, envelope(serviceLinesPage))
 	telemetryRec := &recordingDoer{inner: &streamThenFake{inner: cache, bodies: []string{streamBody(terminalColumns, row)}}}
 	cfg := actionConfig(t, actionTelemetryCollect)
-	runTelemetry(newAPIClient(telemetryRec, cfg), cfg, func(string) func([]sdk.TelemetryRecord) error {
+	runTelemetry(newAPIClient(telemetryRec, cfg), cfg, testObservedAt, func(string) func([]sdk.TelemetryRecord) error {
 		return func([]sdk.TelemetryRecord) error { return nil }
 	})
 

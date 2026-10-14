@@ -162,6 +162,9 @@ producer_schedules:
         telemetry_max_iterations:
           type: integer
           default: 8
+        telemetry_gap_seconds:
+          type: integer
+          default: 300
     credential_requirements:
       starlink_service_account:
         required: true

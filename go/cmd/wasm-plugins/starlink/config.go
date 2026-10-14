@@ -26,6 +26,11 @@ const (
 	// telemetryLingerHeadroomMS is how much of the request timeout is left for
 	// the response after the server stops lingering.
 	telemetryLingerHeadroomMS = 4000
+	// defaultTelemetryGapSeconds is how long telemetry may be missing before a
+	// run names the gap. The stream keeps 8 hours, which bounds the maximum.
+	defaultTelemetryGapSeconds = 300
+	minTelemetryGapSeconds     = 60
+	maxTelemetryGapSeconds     = 8 * 3600
 )
 
 // forbiddenConfigKeys are credential material. The service-account secret is
@@ -49,6 +54,7 @@ type Config struct {
 	TelemetryBatchSize    int
 	TelemetryMaxLingerMS  int
 	TelemetryMaxIteration int
+	TelemetryGapSeconds   int
 	// Invocation is the raw action invocation, kept for management actions.
 	Invocation gjson.Result
 }
@@ -91,6 +97,7 @@ func parseConfig(raw []byte) (Config, error) {
 		TelemetryBatchSize:    boundedInt(value("telemetry_batch_size"), defaultTelemetryBatchSize, 1, maxTelemetryBatchSize),
 		TelemetryMaxLingerMS:  boundedInt(value("telemetry_max_linger_ms"), defaultTelemetryLingerMS, 0, maxTelemetryLingerMS),
 		TelemetryMaxIteration: boundedInt(value("telemetry_max_iterations"), defaultTelemetryMaxIteration, 1, maxTelemetryMaxIteration),
+		TelemetryGapSeconds:   boundedInt(value("telemetry_gap_seconds"), defaultTelemetryGapSeconds, minTelemetryGapSeconds, maxTelemetryGapSeconds),
 		Invocation:            invocation,
 	}
 

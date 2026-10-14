@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +64,7 @@ func dispatch(cfg Config, doer httpDoer, now time.Time) *sdk.Result {
 	case actionInventoryRefresh:
 		return runInventory(client, now)
 	case actionTelemetryCollect:
-		return runTelemetry(client, cfg, emitTelemetryRecords)
+		return runTelemetry(client, cfg, now, emitTelemetryRecords)
 	case "":
 		return sdk.Unknown("starlink-cloud runs only as scheduled or operator actions; attach a Starlink credential rule")
 	default:
@@ -115,7 +116,7 @@ func runInventory(client *apiClient, now time.Time) *sdk.Result {
 		WithDeviceDiscovery(*discovery)
 }
 
-func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk.TelemetryRecord) error) *sdk.Result {
+func runTelemetry(client *apiClient, cfg Config, now time.Time, emitter func(string) func([]sdk.TelemetryRecord) error) *sdk.Result {
 	content, err := client.call(http.MethodGet, "/account", nil, nil, 0)
 	if err != nil {
 		return sdk.Critical(errorCode(err))
@@ -173,6 +174,11 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 		// service account and is reading the stream (each client ID has one
 		// read position, so two readers split the data between them).
 		problems = append(problems, "starlink_telemetry_no_rows")
+	}
+	if gap := telemetryGap(run, now, time.Duration(cfg.TelemetryGapSeconds)*time.Second); gap > 0 {
+		// At-most-once delivery means a gap is data that will not arrive:
+		// devices were down, or another consumer read this account's stream.
+		problems = append(problems, "starlink_telemetry_gap_"+strconv.Itoa(int(gap/time.Second))+"s")
 	}
 
 	result := sdk.Ok(summary)

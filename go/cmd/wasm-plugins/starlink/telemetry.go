@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/tidwall/gjson"
@@ -279,6 +280,11 @@ type telemetryRun struct {
 	Devices    int
 	CaughtUp   bool
 	Err        error
+	// NewestAt is the latest sample time seen, in Unix nanoseconds.
+	NewestAt uint64
+	// LongestHoleNs is the widest spacing between consecutive samples of one
+	// device within the run.
+	LongestHoleNs uint64
 }
 
 // drainTelemetry reads the stream until it is caught up or the per-run
@@ -287,7 +293,7 @@ type telemetryRun struct {
 // emitted before the next request.
 func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.TelemetryRecord) error) telemetryRun {
 	var run telemetryRun
-	devices := map[string]bool{}
+	lastAt := map[string]uint64{}
 	request := []byte(`{"batchSize":` + strconv.Itoa(cfg.TelemetryBatchSize) +
 		`,"maxLingerMs":` + strconv.Itoa(cfg.TelemetryMaxLingerMS) + `}`)
 
@@ -303,9 +309,15 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 		run.Rows += stats.Rows
 		run.Invalid += stats.Invalid
 		for _, s := range samples {
-			devices[s.DeviceRef] = true
+			if prev, seen := lastAt[s.DeviceRef]; !seen || s.At > prev {
+				if seen {
+					run.LongestHoleNs = max(run.LongestHoleNs, s.At-prev)
+				}
+				lastAt[s.DeviceRef] = s.At
+			}
+			run.NewestAt = max(run.NewestAt, s.At)
 		}
-		run.Devices = len(devices)
+		run.Devices = len(lastAt)
 
 		records := buildMetricRecords(samples, instance)
 		for start := 0; start < len(records); start += maxRecordsPerEmit {
@@ -322,6 +334,20 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 		}
 	}
 	return run
+}
+
+// telemetryGap is the longest stretch this run saw without telemetry: a hole
+// between one device's samples, or, once the stream is drained, the time since
+// the newest sample. It is zero when nothing exceeds the threshold.
+func telemetryGap(run telemetryRun, now time.Time, threshold time.Duration) time.Duration {
+	gap := time.Duration(run.LongestHoleNs)
+	if run.CaughtUp && run.NewestAt > 0 {
+		gap = max(gap, now.Sub(time.Unix(0, int64(run.NewestAt))))
+	}
+	if gap <= threshold {
+		return 0
+	}
+	return gap
 }
 
 func emitTelemetryRecords(instance string) func([]sdk.TelemetryRecord) error {

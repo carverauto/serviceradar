@@ -2,8 +2,10 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
@@ -48,22 +50,36 @@ func TestRateLimitedRunStopsRequesting(t *testing.T) {
 	}
 }
 
-func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
-	row := `["u",1700000000000000000,"ut` + testTerminalA + `",1,2,[],"x"]`
+// sampleAtNs is the timestamp of the fixture telemetry rows.
+const sampleAtNs = 1700000000000000000
+
+func terminalRow(atNs int64) string {
+	return `["u",` + strconv.FormatInt(atNs, 10) + `,"ut` + testTerminalA + `",1,2,[],"x"]`
+}
+
+// runTelemetryFixture runs one telemetry collection against a single-terminal
+// account whose stream returns rows, as of now.
+func runTelemetryFixture(t *testing.T, rows string, now time.Time) (*sdk.Result, []sdk.TelemetryRecord) {
+	t.Helper()
 	fake := &cacheHTTP{fakeHTTP: newFakeHTTP(t), wantBody: cacheQueryPage0, status: 200}
 	fake.on(http.MethodGet, "/account", 200, accountFixture())
 	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
 	// collectFlightStatus fetches service-lines to find aviation (tail number) terminals;
 	// the fixture has none so it short-circuits after this page.
 	fake.on(http.MethodGet, "/service-lines?page=0", 200, envelope(serviceLinesPage))
-	stream := &streamThenFake{inner: fake, bodies: []string{streamBody(terminalColumns, row)}}
+	stream := &streamThenFake{inner: fake, bodies: []string{streamBody(terminalColumns, rows)}}
 
 	var emitted []sdk.TelemetryRecord
-	result := runTelemetry(newAPIClient(stream, actionConfig(t, actionTelemetryCollect)),
-		actionConfig(t, actionTelemetryCollect),
+	cfg := actionConfig(t, actionTelemetryCollect)
+	result := runTelemetry(newAPIClient(stream, cfg), cfg, now,
 		func(string) func([]sdk.TelemetryRecord) error {
 			return func(r []sdk.TelemetryRecord) error { emitted = append(emitted, r...); return nil }
 		})
+	return result, emitted
+}
+
+func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
+	result, emitted := runTelemetryFixture(t, terminalRow(sampleAtNs), time.Unix(0, sampleAtNs).Add(time.Minute))
 
 	if result.Status != sdk.StatusOK {
 		t.Fatalf("status %q: %s", result.Status, result.Summary)
@@ -81,6 +97,36 @@ func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
 	// fixture plus the scope-complete marker.
 	if metrics != 1 || events != 4 {
 		t.Fatalf("metrics %d events %d", metrics, events)
+	}
+}
+
+// The stream delivers at most once, so a stretch with no telemetry is data
+// that will never arrive; the run names how long it was.
+func TestTelemetryCollectNamesAGapLongerThanTheThreshold(t *testing.T) {
+	minute := int64(time.Minute)
+	cases := map[string]struct {
+		rows string
+		now  time.Time
+		want string
+	}{
+		"stream drained but stale": {
+			rows: terminalRow(sampleAtNs),
+			now:  time.Unix(0, sampleAtNs).Add(10 * time.Minute),
+			want: "starlink_telemetry_gap_600s",
+		},
+		"hole between one device's samples": {
+			rows: terminalRow(sampleAtNs) + "," + terminalRow(sampleAtNs+15*minute),
+			now:  time.Unix(0, sampleAtNs+16*minute),
+			want: "starlink_telemetry_gap_900s",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result, _ := runTelemetryFixture(t, tc.rows, tc.now)
+			if result.Status != sdk.StatusWarning || !strings.Contains(result.Summary, tc.want) {
+				t.Fatalf("status %q summary %q, want a warning naming %s", result.Status, result.Summary, tc.want)
+			}
+		})
 	}
 }
 
