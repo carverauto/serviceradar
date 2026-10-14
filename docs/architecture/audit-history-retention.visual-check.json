@@ -6,9 +6,9 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Volumes/Build/serviceradar-seats-v3/.treehouse/serviceradar-6faf2f/8/serviceradar/docs/architecture/audit-history-retention.html",
-    "sha256": "fbdfe78c5e9338df23300160555bd8547d64f9bc5f9a0a25e4b8664755969211",
-    "bytes": 716552
+    "path": "/Users/mfreeman/.no-mistakes/worktrees/6e905cacf9f4/01M4WNDPJ8F20ZG00290HFJ4QM/docs/architecture/audit-history-retention.html",
+    "sha256": "8000708e90ba1f7f0029f990f6244e01335dc9f7db253461d0c2272c2eaea47c",
+    "bytes": 716831
   },
   "state": {
     "detail": "read",
