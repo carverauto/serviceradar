@@ -184,26 +184,10 @@ defmodule ServiceRadar.WebRTC.IceCredentials.StaticSecret do
 
   defp turn_urls(opts) do
     case opts[:urls] do
-      urls when is_list(urls) and urls != [] ->
-        if Enum.all?(urls, &turn_url?/1) do
-          {:ok, urls}
-        else
-          {:error, :non_turn_url}
-        end
-
-      _other ->
-        {:error, :missing_urls}
+      urls when is_list(urls) and urls != [] -> {:ok, urls}
+      _other -> {:error, :missing_urls}
     end
   end
-
-  defp turn_url?(url) when is_binary(url) do
-    url
-    |> String.trim()
-    |> String.downcase()
-    |> then(&(String.starts_with?(&1, "turn:") || String.starts_with?(&1, "turns:")))
-  end
-
-  defp turn_url?(_url), do: false
 
   defp backend_config do
     :serviceradar_core

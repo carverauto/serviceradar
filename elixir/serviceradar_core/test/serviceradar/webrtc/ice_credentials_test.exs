@@ -158,18 +158,31 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
       assert String.to_integer(exp_long) in (now + 3600)..(now + 3601)
     end
 
-    test "non-TURN URLs and missing secrets are rejected" do
+    test "mints mixed STUN and TURN URL lists and rejects a missing secret" do
       Application.put_env(:serviceradar_core, IceCredentials,
         backend: :static_secret,
         static_secret: [secret: @secret]
       )
 
-      assert {:error, :non_turn_url} =
+      urls = ["stun:stun.example:3478", "turn:turn.example:3478"]
+
+      assert {:ok, %{ice_servers: [server]}} =
                StaticSecret.mint({"camera", "s", "v"},
                  ttl_seconds: 60,
                  subject_digest: "d",
                  shared_secret: @secret,
-                 urls: ["stun:stun.example:3478"]
+                 urls: urls
+               )
+
+      assert server.urls == urls
+      assert server.credential == StaticSecret.turn_credential(@secret, server.username)
+
+      assert {:error, :missing_urls} =
+               StaticSecret.mint({"camera", "s", "v"},
+                 ttl_seconds: 60,
+                 subject_digest: "d",
+                 shared_secret: @secret,
+                 urls: []
                )
 
       # No secret anywhere: neither the opts, the app config backend block,
