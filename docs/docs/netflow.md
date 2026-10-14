@@ -20,17 +20,15 @@ for the observation path, the correlator, and the `in:attributed_flows` evidence
 ServiceRadar uses a single canonical NetFlow ingest path:
 
 ```
-Network Devices → NetFlow Collector → NATS JetStream stream `flows` → EventWriter (flow pipeline)
-   (v5/v9/IPFIX)    (Rust, UDP:2055)   subject flows.raw.netflow        (dedicated Broadway demand)
-                                              │
-                                              ▼
-                                    ocsf_network_activity  (+ bgp_routing_info)
+Network Devices → Flow Collector → NATS JetStream `flows` → EventWriter → ocsf_network_activity
+ v5 UDP :2055       (Rust)          flows.raw.netflow      (Broadway)     (+ bgp_routing_info)
+ IPFIX TLS :4740
 ```
 
 Raw flows use a **dedicated JetStream stream** (`flows` by default), not the shared multi-signal `events` bus used for logs/OTEL/Falco. EventWriter consumes flows on a **separate Broadway pipeline** so GenStage demand is not fair-shared with other telemetry.
 
 **Key Components:**
-- **Flow Collector**: Rust daemon listening on UDP port 2055 for NetFlow (configurable) and UDP port 6343 for sFlow when enabled
+- **Flow Collector**: Rust daemon for NetFlow, IPFIX, and sFlow. Ports and the UDP template opt-in are under [Collector Layout](#collector-layout).
 - **AutoScopedParser**: RFC-compliant per-source template isolation
 - **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
 - **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
@@ -105,7 +103,7 @@ spec:
       name: sflow
 ```
 
-Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTOR_ADDRESS>:6343/UDP`. Keep the actual collector address in private operations material. Syslog can use a shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
+Send template-free NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTOR_ADDRESS>:6343/UDP`. Mutually authenticated IPFIX uses TLS/TCP 4740; see [Flow Collector Scaling and Exporter Authentication](./flow-collector-scaling.md). Keep the actual collector address in private operations material. Syslog can use a shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 
 **Docker Compose:**
 
