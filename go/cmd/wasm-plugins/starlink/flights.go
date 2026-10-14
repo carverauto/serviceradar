@@ -132,7 +132,10 @@ func collectFlightStatus(c *apiClient, instance string, now time.Time) ([]sdk.Te
 
 		// Categorical fields as a device discovery enrichment so core can
 		// persist them as device metadata alongside the gauge metrics.
+		// Core matches a discovered device only through integration_id (see
+		// discovery.go); without it every run would mint a new device.
 		metadata := map[string]any{
+			"integration_id":  devID,
 			"in_flight":       inFlight,
 			"in_flight_str":   inFlightStr,
 			"source_instance": instance,
