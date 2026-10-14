@@ -341,3 +341,30 @@ alert_rules:
     alert:
       title: Starlink critical alert
       severity: critical
+  # Warning-level, so the critical rule above does not cover it. A dish off
+  # vertical keeps working with degraded alignment until someone fixes the mount.
+  - name: starlink_mast_not_vertical
+    description: A Starlink terminal reports that its mast is not vertical, which degrades alignment.
+    signal: event
+    match:
+      subject_prefix: starlink.alert
+      attribute_equals:
+        alert: mast_not_vertical
+      recovery:
+        subject_prefix: starlink.alert
+        attribute_equals:
+          alert: mast_not_vertical
+          level: ok
+    group_by:
+      - device.uid
+    threshold: 1
+    window_seconds: 300
+    bucket_seconds: 60
+    cooldown_seconds: 3600
+    renotify_seconds: 86400
+    event:
+      log_name: alert.starlink.mast_not_vertical
+      message: "Starlink device {device.uid} mast is not vertical"
+    alert:
+      title: Starlink mast not vertical
+      severity: warning
