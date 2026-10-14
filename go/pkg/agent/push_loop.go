@@ -142,9 +142,10 @@ type PushLoop struct {
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
-	sweepLeaseMu  sync.Mutex
-	sweepLeases   *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
-	sweepLeaseDir string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseMu   sync.Mutex
+	sweepLeases    *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir  string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseWake chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
@@ -285,6 +286,10 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	if gateway != nil && server != nil {
 		bindAddonOtlpRelayGateway(server, gateway, pushLoop.getSourceIP)
 	}
+
+	// Take already-leased groups off their local ticker before the server
+	// starts its services, so a restart never double-runs a leased group.
+	pushLoop.markInstalledSweepLeasesDriven()
 
 	return pushLoop
 }
@@ -472,6 +477,11 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	if p.syncRuntime != nil {
 		p.syncRuntime.SetContext(runCtx)
 	}
+
+	// The lease executor runs leased slots from the local clock whether or
+	// not the gateway is reachable, so it starts before connection state
+	// matters.
+	p.startSweepLeaseExecutor(runCtx)
 
 	// Start config polling in a separate goroutine
 	go p.configPollLoop(runCtx)

@@ -49,6 +49,17 @@ type SweepService struct {
 	sweepGroupID string // Current sweep group UUID from config
 	executionID  string // Current execution UUID (generated per sweep cycle)
 	configHash   string // Config hash for change detection
+
+	// pendingExecutionID, when set by RunOnceForExecution, is the
+	// core-minted execution the in-flight sweep belongs to; GetSweepResults
+	// adopts it instead of minting a fresh UUID for that cycle.
+	pendingExecutionID string
+
+	// Lease execution state reported in status; empty state means the group
+	// is on its local schedule.
+	leaseState            string
+	leaseNextSlotUnixNano int64
+	leaseSlotsRemaining   int
 }
 
 // NewSweepService creates a new SweepService.
@@ -124,6 +135,49 @@ func (s *SweepService) CancelRun() (bool, error) {
 	return canceller.CancelRun(), nil
 }
 
+// RunOnceForExecution runs one sweep as the core-minted executionID (a leased
+// slot). The completed cycle is reported under that id instead of a locally
+// minted one.
+func (s *SweepService) RunOnceForExecution(ctx context.Context, executionID string) error {
+	s.mu.Lock()
+	s.pendingExecutionID = executionID
+	s.mu.Unlock()
+
+	err := s.RunOnce(ctx)
+	if err != nil {
+		s.mu.Lock()
+		if s.pendingExecutionID == executionID {
+			s.pendingExecutionID = ""
+		}
+		s.mu.Unlock()
+	}
+
+	return err
+}
+
+// SetLeaseDriven replaces the group's local ticker with leased-slot
+// execution, or hands the group back to its local schedule.
+func (s *SweepService) SetLeaseDriven(driven bool) {
+	if scheduler, ok := s.sweeper.(interface{ SetManualSchedule(bool) }); ok {
+		scheduler.SetManualSchedule(driven)
+	}
+
+	if !driven {
+		s.SetLeaseState("", 0, 0)
+	}
+}
+
+// SetLeaseState records the lease execution state shown in status payloads:
+// "active" while slots remain, "exhausted" when none do, "" when unleased.
+func (s *SweepService) SetLeaseState(state string, nextSlotUnixNano int64, slotsRemaining int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.leaseState = state
+	s.leaseNextSlotUnixNano = nextSlotUnixNano
+	s.leaseSlotsRemaining = slotsRemaining
+}
+
 // Name returns the service name.
 func (*SweepService) Name() string {
 	return networkSweepServiceName
@@ -188,6 +242,14 @@ func (s *SweepService) GetStatusWithMetricPayload(ctx context.Context) (*proto.S
 	}
 	if bannerGrab != nil {
 		data["banner_grab"] = bannerGrab
+	}
+	if s.leaseState != "" {
+		data["sweep_lease"] = map[string]any{
+			"state":               s.leaseState,
+			"next_slot_unix_nano": s.leaseNextSlotUnixNano,
+			"slots_remaining":     s.leaseSlotsRemaining,
+			"sweep_group_id":      s.sweepGroupID,
+		}
 	}
 	s.mu.RUnlock()
 
@@ -355,8 +417,14 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		s.lastSweepTimestamp = summary.LastSweep
 		s.currentSequence++
 
-		// Generate a new execution ID for this sweep cycle
-		s.executionID = uuid.New().String()
+		// Generate a new execution ID for this sweep cycle, unless the
+		// cycle ran a leased slot: then it carries the core-minted id.
+		if s.pendingExecutionID != "" {
+			s.executionID = s.pendingExecutionID
+			s.pendingExecutionID = ""
+		} else {
+			s.executionID = uuid.New().String()
+		}
 
 		s.logger.Info().
 			Uint64("newSequence", s.currentSequence).

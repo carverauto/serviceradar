@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -39,7 +40,11 @@ type NetworkSweeper struct {
 	runMu             sync.Mutex
 	done              chan struct{}
 	stopped           bool
-	lastSweep         time.Time
+	// manualSchedule suppresses the local interval ticker (initial sweep
+	// included) while an external scheduler drives RunOnce calls, e.g. the
+	// agent running core-leased sweep slots at their signed times.
+	manualSchedule atomic.Bool
+	lastSweep      time.Time
 	// Device result aggregation for multi-IP devices
 	deviceResults      map[string]*DeviceResultAggregator
 	resultsMu          sync.Mutex

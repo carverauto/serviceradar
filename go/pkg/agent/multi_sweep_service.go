@@ -44,13 +44,17 @@ type MultiSweepService struct {
 	groupConfigs   map[string]SweepGroupConfig
 	groupSequences map[string]string
 	groupOrder     []string
-	nextIndex      int
-	configHash     string
-	started        bool
-	startCtx       context.Context
-	logger         logger.Logger
-	serverConfig   *ServerConfig
-	sweepOptions   []sweeper.Option
+	// leaseDriven remembers which groups run core-leased slots instead of
+	// their local ticker, so a config push that replaces a group's service
+	// keeps it lease-driven.
+	leaseDriven  map[string]bool
+	nextIndex    int
+	configHash   string
+	started      bool
+	startCtx     context.Context
+	logger       logger.Logger
+	serverConfig *ServerConfig
+	sweepOptions []sweeper.Option
 }
 
 // NewMultiSweepService creates a new MultiSweepService from sweep group configs.
@@ -77,6 +81,7 @@ func NewMultiSweepServiceWithContext(
 		groupConfigs:   make(map[string]SweepGroupConfig),
 		groupSequences: make(map[string]string),
 		groupOrder:     []string{},
+		leaseDriven:    make(map[string]bool),
 		configHash:     "",
 		logger:         log,
 		serverConfig:   cfg,
@@ -183,6 +188,54 @@ func (s *MultiSweepService) CancelSweepGroup(groupID string) (bool, error) {
 	}
 
 	return svc.CancelRun()
+}
+
+// RunSweepGroupExecution runs one sweep of groupID as the core-minted
+// executionID of a leased slot.
+func (s *MultiSweepService) RunSweepGroupExecution(ctx context.Context, groupID string, executionID string) error {
+	if groupID == "" {
+		return errSweepGroupIDRequired
+	}
+
+	s.mu.RLock()
+	svc := s.groups[groupID]
+	s.mu.RUnlock()
+
+	if svc == nil {
+		return errSweepGroupNotFound
+	}
+
+	return svc.RunOnceForExecution(ctx, executionID)
+}
+
+// SetGroupLeaseDriven replaces a group's local ticker with leased-slot
+// execution, or returns it to its local schedule. The choice is remembered
+// for services a later config push creates for the group, and applies to a
+// group whose service does not exist yet once it is created.
+func (s *MultiSweepService) SetGroupLeaseDriven(groupID string, driven bool) {
+	s.mu.Lock()
+	if s.leaseDriven == nil {
+		s.leaseDriven = make(map[string]bool)
+	}
+	s.leaseDriven[groupID] = driven
+	svc := s.groups[groupID]
+	s.mu.Unlock()
+
+	if svc != nil {
+		svc.SetLeaseDriven(driven)
+	}
+}
+
+// SetGroupLeaseState records a group's lease execution state for status
+// payloads ("active" or "exhausted"; see SweepService.SetLeaseState).
+func (s *MultiSweepService) SetGroupLeaseState(groupID string, state string, nextSlotUnixNano int64, slotsRemaining int) {
+	s.mu.RLock()
+	svc := s.groups[groupID]
+	s.mu.RUnlock()
+
+	if svc != nil {
+		svc.SetLeaseState(state, nextSlotUnixNano, slotsRemaining)
+	}
 }
 
 // AcknowledgeSweepResults marks a group's results sequence as delivered after
@@ -334,6 +387,12 @@ func (s *MultiSweepService) UpdateSweepGroupsContext(ctx context.Context, config
 	for groupID, svc := range createdGroups {
 		s.groups[groupID] = svc
 		s.groupSequences[groupID] = ""
+
+		// A lease-driven group's replacement service must not tick before
+		// it starts; set the mode while the service is still unstarted.
+		if s.leaseDriven[groupID] {
+			svc.SetLeaseDriven(true)
+		}
 	}
 	s.configHash = config.ConfigHash
 	s.groupOrder = sortedGroupIDs(newGroups)
