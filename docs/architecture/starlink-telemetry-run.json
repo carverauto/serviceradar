@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Starlink telemetry run: signals and where they land",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1040,
+      540
+    ]
+  },
+  "stages": [
+    {
+      "label": "Starlink API"
+    },
+    {
+      "label": "starlink-cloud run"
+    },
+    {
+      "label": "Agent host"
+    },
+    {
+      "label": "Core"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "query",
+      "type": "external",
+      "label": "telemetry/query",
+      "sublabel": "alert flags",
+      "stage": 0,
+      "row": 0
+    },
+    {
+      "id": "stream",
+      "type": "external",
+      "label": "telemetry/stream",
+      "sublabel": "at-most-once",
+      "stage": 0,
+      "row": 2
+    },
+    {
+      "id": "alerts",
+      "type": "backend",
+      "label": "Alert snapshot",
+      "sublabel": "listed devices",
+      "stage": 1,
+      "row": 0
+    },
+    {
+      "id": "drain",
+      "type": "backend",
+      "label": "Stream drain",
+      "sublabel": "samples, IpAllocs",
+      "stage": 1,
+      "row": 2,
+      "tag": "stateless"
+    },
+    {
+      "id": "debounce",
+      "type": "backend",
+      "label": "Condition debounce",
+      "sublabel": "raise / clear",
+      "stage": 2,
+      "row": 0,
+      "width": 150
+    },
+    {
+      "id": "jetstream",
+      "type": "messagebus",
+      "label": "EmitTelemetry",
+      "sublabel": "JetStream first",
+      "stage": 2,
+      "row": 1,
+      "width": 150
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Alert engine",
+      "sublabel": "offline + mast rules",
+      "stage": 3,
+      "row": 0,
+      "width": 150
+    },
+    {
+      "id": "inventory",
+      "type": "database",
+      "label": "Device inventory",
+      "sublabel": "by integration_id",
+      "stage": 3,
+      "row": 2,
+      "width": 150
+    }
+  ],
+  "flows": [
+    {
+      "from": "query",
+      "to": "alerts",
+      "label": "named flags",
+      "variant": "emphasis"
+    },
+    {
+      "from": "alerts",
+      "to": "debounce",
+      "label": "OCSF alert events",
+      "variant": "emphasis",
+      "labelDy": -23
+    },
+    {
+      "from": "debounce",
+      "to": "engine",
+      "label": "transitions",
+      "route": "straight"
+    },
+    {
+      "from": "stream",
+      "to": "drain",
+      "label": "columnar rows",
+      "variant": "emphasis"
+    },
+    {
+      "from": "drain",
+      "to": "jetstream",
+      "label": "sample counts",
+      "variant": "emphasis"
+    },
+    {
+      "from": "jetstream",
+      "to": "engine",
+      "label": "zeros included"
+    },
+    {
+      "from": "drain",
+      "to": "inventory",
+      "label": "public addresses",
+      "classification": "metadata only",
+      "route": "straight"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Offline without plugin state",
+      "items": [
+        "Each drained run reports every listed device's sample count, zero included; the engine fires after five silent runs"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Identity",
+      "items": [
+        "Enrichment devices carry integration_id; shared public addresses stay metadata"
+      ]
+    }
+  ]
+}
