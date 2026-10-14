@@ -391,11 +391,16 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     database = Map.get(config, :database, "serviceradar")
     fe = Map.get(config, :fe_http, "http://127.0.0.1:8030")
 
+    # The FE redirect and the BE can both answer a load from its headers alone
+    # (e.g. "Label already used") without reading the body. A pooled socket
+    # left with that unread body hands the next load a stale 400, so every
+    # load gets its own connection.
     %{
       method: :put,
       url: "#{fe}/api/#{database}/#{table}/_stream_load",
       headers:
         [
+          {"connection", "close"},
           {"expect", "100-continue"},
           {"content-type", "application/json"},
           {"format", "json"},

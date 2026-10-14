@@ -959,6 +959,22 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     refute_received {:wire_request, _, _}
   end
 
+  test "a load the coordinator rejects before reading its body does not poison the next load" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    start_supervised!({Task, fn -> serve_early_rejection_then_success(listener) end})
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+
+    assert {:error, {:load_status, "Fail", "rejected from headers", _label}} =
+             StreamLoad.persist("otel_traces", @rows, config: config, http_timeout: 3_000)
+
+    assert {:ok, %{loaded: 2}} =
+             StreamLoad.persist("otel_traces", @rows, config: config, http_timeout: 3_000)
+  end
+
   defp drain_leak_probes do
     receive do
       {{:leak_probe, _}, worker} ->
@@ -1014,6 +1030,37 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
       {:error, :timeout} ->
         serve_success_loads(listener, parent)
+    end
+  end
+
+  # Models the StarRocks BE HTTP server: it can answer a Stream Load from its
+  # headers alone without consuming the body. On a kept-alive socket the unread
+  # body then corrupts the request parser, so the next request sent on that
+  # socket is answered with a bare 400. A client `Connection: close` is honoured.
+  defp serve_early_rejection_then_success(listener) do
+    {:ok, socket} = :gen_tcp.accept(listener, 3_000)
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 3_000)
+    headers = receive_headers(socket, %{})
+    close? = String.downcase(headers["connection"] || "") == "close"
+    response = Jason.encode!(%{"Status" => "Fail", "Message" => "rejected from headers"})
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n",
+        if(close?, do: "Connection: close\r\n", else: ""),
+        "Content-Length: #{byte_size(response)}\r\n\r\n",
+        response
+      ])
+
+    if close? do
+      :gen_tcp.close(socket)
+      serve_success_loads(listener, self())
+    else
+      :ok = :inet.setopts(socket, packet: :raw)
+      {:ok, _unread_body} = :gen_tcp.recv(socket, String.to_integer(headers["content-length"]))
+      {:ok, _next_request} = :gen_tcp.recv(socket, 0, 3_000)
+      :ok = :gen_tcp.send(socket, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+      :gen_tcp.close(socket)
     end
   end
 
