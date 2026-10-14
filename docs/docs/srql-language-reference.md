@@ -151,8 +151,10 @@ in:events time:[,2026-01-02T00:00:00Z]      # open start
 ### Limits
 
 Most queries are capped at a 90-day time range. Aggregated metric queries (a metric
-entity combined with `stats:` or `bucket:`) may span a longer window. Hourly rollups
-serve the aggregates that have a stored column. `agg:last` does not use them; see
+entity combined with `stats:` or `bucket:`) may span 395 days. `in:sweep_coverage`
+may span 400 days, the coverage rollup's query ceiling. `in:sweep_results` keeps
+the 90-day cap. Hourly rollups serve the aggregates that have a stored column.
+`agg:last` does not use them; see
 [Downsampling with `bucket`](#downsampling-with-bucket).
 
 ## Sorting and pagination
@@ -1061,7 +1063,7 @@ CVSS, and last seen.
 | `unsupported entity '<x>'` | The entity name is not recognized. See [Queryable entities](#queryable-entities). |
 | `unsupported filter field` | The field is not valid for the chosen entity. Check [Filterable fields by entity](#filterable-fields-by-entity). |
 | `unsupported time token` / `invalid time literal` | The `time:` value is malformed. Use `last_<n><unit>`, `today`/`yesterday`, or `[start,end]`. |
-| `time range cannot exceed 90 days` | Narrow the window, or use a metric entity with `stats:`/`bucket:` for longer ranges. |
+| `time range cannot exceed <N> days` | Narrow the window to that entity's cap: 90 days for most queries, 395 for aggregated metric queries, 400 for `in:sweep_coverage`. |
 | `invalid limit` / `limit must be a positive integer` | `limit:` requires a positive integer. |
 | `expected scalar value` / `expected list value` | Operator/value mismatch — e.g. a list value where a scalar is expected. |
 | `InvalidRequest` on `in:composite_results stats:` | Unsupported aggregation (only `count()`) or group field. See [Composite-result stats](#composite-result-stats). |
