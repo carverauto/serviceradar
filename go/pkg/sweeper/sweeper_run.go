@@ -123,6 +123,13 @@ type sweepRun struct {
 }
 
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
+	return s.runSweepWithExecution(ctx, "")
+}
+
+// runSweepWithExecution holds the sweep lock for one cycle and publishes
+// executionID only if that cycle completes. A failed or stopped cycle leaves
+// the previously published id in place.
+func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID string) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 
@@ -133,6 +140,7 @@ func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 
 	s.mu.Lock()
 	s.activeRun = run
+	s.runExecutionID = executionID
 	s.mu.Unlock()
 
 	err := s.runSweep(runCtx)
@@ -141,6 +149,7 @@ func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 	if s.activeRun == run {
 		s.activeRun = nil
 	}
+	s.runExecutionID = ""
 	cancelled := run.cancelled
 	s.mu.Unlock()
 
@@ -400,6 +409,10 @@ func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt 
 
 	s.activeRun = nil
 	s.partialRunPending = false
+	s.lastExecutionID = s.runExecutionID
+	if summary != nil {
+		summary.ExecutionID = s.runExecutionID
+	}
 	s.lastSweep = completedAt
 	s.lastSummary = cloneSweepSummary(summary)
 	s.lastSweepCancelled = markCancelled

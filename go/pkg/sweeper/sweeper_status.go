@@ -46,6 +46,7 @@ func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, e
 
 	s.mu.RLock()
 	lastSweep := s.lastSweep
+	lastExecutionID := s.lastExecutionID
 	s.mu.RUnlock()
 
 	if lastSweep.IsZero() {
@@ -56,6 +57,7 @@ func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, e
 	} else {
 		summary.LastSweep = lastSweep.Unix()
 	}
+	summary.ExecutionID = lastExecutionID
 
 	return summary, nil
 }

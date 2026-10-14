@@ -131,20 +131,24 @@ func (e *sweepLeaseExecutor) step(ctx context.Context, now time.Time) time.Durat
 	installed := make(map[string]bool, len(groups))
 
 	for _, groupID := range groups {
-		installed[groupID] = true
-
 		lease := e.store.Get(groupID)
 		if lease == nil {
 			continue
 		}
+		installed[groupID] = true
 
 		if runner != nil && !e.driven[groupID] {
 			runner.SetGroupLeaseDriven(groupID, true)
 			e.driven[groupID] = true
 		}
 
-		if groupWait := e.runGroup(ctx, runner, groupID, lease, now); groupWait < wait {
+		if groupWait := e.runGroup(ctx, runner, groupID, now); groupWait < wait {
 			wait = groupWait
+		}
+
+		// A revocation during the pass must hand the group back in this pass.
+		if e.store.Get(groupID) == nil {
+			delete(installed, groupID)
 		}
 	}
 
@@ -167,24 +171,45 @@ func (e *sweepLeaseExecutor) step(ctx context.Context, now time.Time) time.Durat
 }
 
 // runGroup runs one group's due slots and reports its lease state. The
-// returned wait is when this group next needs attention.
-func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunner, groupID string, lease *edgev1.SweepLeaseV1, now time.Time) time.Duration {
+// returned wait is when this group next needs attention. Each slot is read
+// from the store again so a revocation or replacement during this pass is
+// not executed from the snapshot step started with.
+func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunner, groupID string, now time.Time) time.Duration {
 	nowNano := now.UnixNano()
 	wait := sweepLeaseExecutorMaxWait
 
-	for _, slot := range lease.GetSlots() {
-		if slot.GetCollectionExpiresUnixNano() <= nowNano || slot.GetSlotStartUnixNano() > nowNano {
+	initial := e.store.Get(groupID)
+	if initial == nil {
+		return wait
+	}
+
+	for _, listed := range initial.GetSlots() {
+		executionID, err := uuid.FromBytes(listed.GetExecutionId())
+		if err != nil {
 			continue
 		}
 
-		executionID, err := uuid.FromBytes(slot.GetExecutionId())
-		if err != nil || e.store.Executed(groupID, executionID.String()) {
+		current := e.store.Get(groupID)
+		if current == nil {
+			return wait
+		}
+
+		slot := sweepLeaseSlot(current, executionID.String())
+		if slot == nil || slot.GetCollectionExpiresUnixNano() <= nowNano || slot.GetSlotStartUnixNano() > nowNano {
+			continue
+		}
+		if e.store.Executed(groupID, executionID.String()) {
 			continue
 		}
 
-		if retryIn := e.runSlot(ctx, runner, groupID, lease, slot, executionID.String(), now); retryIn > 0 && retryIn < wait {
+		if retryIn := e.runSlot(ctx, runner, groupID, current, slot, executionID.String(), now); retryIn > 0 && retryIn < wait {
 			wait = retryIn
 		}
+	}
+
+	current := e.store.Get(groupID)
+	if current == nil {
+		return wait
 	}
 
 	// Remaining horizon after this pass: unexecuted slots whose collection
@@ -192,7 +217,7 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 	remaining := 0
 	var nextStart int64
 
-	for _, slot := range lease.GetSlots() {
+	for _, slot := range current.GetSlots() {
 		if slot.GetCollectionExpiresUnixNano() <= nowNano {
 			continue
 		}
@@ -225,9 +250,29 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 	return wait
 }
 
+func sweepLeaseSlot(lease *edgev1.SweepLeaseV1, executionID string) *edgev1.SweepLeaseSlotV1 {
+	if lease == nil {
+		return nil
+	}
+
+	for _, slot := range lease.GetSlots() {
+		id, err := uuid.FromBytes(slot.GetExecutionId())
+		if err != nil {
+			continue
+		}
+		if id.String() == executionID {
+			return slot
+		}
+	}
+
+	return nil
+}
+
 // runSlot executes one due slot. A positive return asks for a retry after
-// that long (clock floor or no group service yet); zero means the slot is
-// settled, whether it ran or was terminally refused.
+// that long (clock floor, no group service yet, or a sweep that did not
+// finish). Zero means the slot is settled: it ran, or it was terminally
+// refused. A failed or skipped run stays due until its collection window
+// closes.
 func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunner, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, executionID string, now time.Time) time.Duration {
 	nowNano := now.UnixNano()
 
@@ -275,14 +320,16 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		e.logger.Error().Err(err).
 			Str("sweep_group_id", groupID).
 			Str("execution_id", executionID).
-			Msg("Leased sweep slot run failed")
-	} else {
-		e.logger.Info().
-			Str("sweep_group_id", groupID).
-			Str("execution_id", executionID).
-			Int64("slot_start_unix_nano", slot.GetSlotStartUnixNano()).
-			Msg("Ran leased sweep slot")
+			Msg("Leased sweep slot run failed; it stays due until the collection window closes")
+
+		return sweepLeaseExecutorMinWait
 	}
+
+	e.logger.Info().
+		Str("sweep_group_id", groupID).
+		Str("execution_id", executionID).
+		Int64("slot_start_unix_nano", slot.GetSlotStartUnixNano()).
+		Msg("Ran leased sweep slot")
 
 	e.markExecuted(groupID, executionID, slot, now)
 

@@ -50,11 +50,6 @@ type SweepService struct {
 	executionID  string // Current execution UUID (generated per sweep cycle)
 	configHash   string // Config hash for change detection
 
-	// pendingExecutionID, when set by RunOnceForExecution, is the
-	// core-minted execution the in-flight sweep belongs to; GetSweepResults
-	// adopts it instead of minting a fresh UUID for that cycle.
-	pendingExecutionID string
-
 	// Lease execution state reported in status; empty state means the group
 	// is on its local schedule.
 	leaseState            string
@@ -136,23 +131,17 @@ func (s *SweepService) CancelRun() (bool, error) {
 }
 
 // RunOnceForExecution runs one sweep as the core-minted executionID (a leased
-// slot). The completed cycle is reported under that id instead of a locally
-// minted one.
+// slot). The sweeper publishes that id in the same update as the completed
+// cycle's LastSweep. This service does not keep a single pending id: the next
+// slot must not be able to relabel the previous cycle's results.
 func (s *SweepService) RunOnceForExecution(ctx context.Context, executionID string) error {
-	s.mu.Lock()
-	s.pendingExecutionID = executionID
-	s.mu.Unlock()
-
-	err := s.RunOnce(ctx)
-	if err != nil {
-		s.mu.Lock()
-		if s.pendingExecutionID == executionID {
-			s.pendingExecutionID = ""
-		}
-		s.mu.Unlock()
+	if runner, ok := s.sweeper.(interface {
+		RunOnceWithExecution(context.Context, string) error
+	}); ok {
+		return runner.RunOnceWithExecution(ctx, executionID)
 	}
 
-	return err
+	return s.RunOnce(ctx)
 }
 
 // SetLeaseDriven replaces the group's local ticker with leased-slot
@@ -243,29 +232,24 @@ func (s *SweepService) GetStatusWithMetricPayload(ctx context.Context) (*proto.S
 	if bannerGrab != nil {
 		data["banner_grab"] = bannerGrab
 	}
+	var leaseReport map[string]any
 	if s.leaseState != "" {
-		data["sweep_lease"] = map[string]any{
-			"state":               s.leaseState,
-			"next_slot_unix_nano": s.leaseNextSlotUnixNano,
-			"slots_remaining":     s.leaseSlotsRemaining,
-			"sweep_group_id":      s.sweepGroupID,
-		}
+		leaseReport = sweepLeaseReport(s.leaseState, s.leaseNextSlotUnixNano, s.leaseSlotsRemaining, s.sweepGroupID)
+		data["sweep_lease"] = leaseReport
 	}
 	s.mu.RUnlock()
 
-	statusJSON, err := json.Marshal(struct {
-		Network      string `json:"network"`
-		LastSweep    int64  `json:"last_sweep"`
-		DefinedCIDRs int    `json:"defined_cidrs"`
-		Sequence     uint64 `json:"sequence"`
-		Status       string `json:"status"`
-	}{
-		Network:      network,
-		LastSweep:    summary.LastSweep,
-		DefinedCIDRs: definedCIDRs,
-		Sequence:     s.currentSequence,
-		Status:       "collecting",
-	})
+	statusDoc := map[string]any{
+		"network":       network,
+		"last_sweep":    summary.LastSweep,
+		"defined_cidrs": definedCIDRs,
+		"sequence":      s.currentSequence,
+		"status":        "collecting",
+	}
+	if leaseReport != nil {
+		statusDoc["sweep_lease"] = []map[string]any{leaseReport}
+	}
+	statusJSON, err := json.Marshal(statusDoc)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to marshal status")
 		return nil, nil, fmt.Errorf("failed to marshal sweep status: %w", err)
@@ -417,11 +401,11 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		s.lastSweepTimestamp = summary.LastSweep
 		s.currentSequence++
 
-		// Generate a new execution ID for this sweep cycle, unless the
-		// cycle ran a leased slot: then it carries the core-minted id.
-		if s.pendingExecutionID != "" {
-			s.executionID = s.pendingExecutionID
-			s.pendingExecutionID = ""
+		// The id belongs to this LastSweep only when the sweeper published
+		// them together. A later cycle with an empty id gets a local UUID,
+		// and an id from a cycle that did not publish does not carry forward.
+		if summary.ExecutionID != "" {
+			s.executionID = summary.ExecutionID
 		} else {
 			s.executionID = uuid.New().String()
 		}
@@ -569,6 +553,15 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		SweepGroupId:    sweepGroupID,
 		SweepCompletion: sweepCompletion,
 	}, nil
+}
+
+func sweepLeaseReport(state string, nextSlotUnixNano int64, slotsRemaining int, sweepGroupID string) map[string]any {
+	return map[string]any{
+		"state":               state,
+		"next_slot_unix_nano": nextSlotUnixNano,
+		"slots_remaining":     slotsRemaining,
+		"sweep_group_id":      sweepGroupID,
+	}
 }
 
 // SetExecutionContext updates the sweep group ID and config hash from config.

@@ -107,12 +107,20 @@ func (s *NetworkSweeper) ManualSchedule() bool {
 
 // RunOnce triggers a single sweep cycle immediately.
 func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
+	return s.RunOnceWithExecution(ctx, "")
+}
+
+// RunOnceWithExecution triggers one sweep whose published summary carries
+// executionID. An empty id is a locally scheduled sweep. The id is bound in
+// the same update that publishes the completed sweep's LastSweep, and it is
+// not visible on the previous cycle while this run is still in progress.
+func (s *NetworkSweeper) RunOnceWithExecution(ctx context.Context, executionID string) error {
 	done := s.ensureControlChannels()
 
 	select {
 	case <-done:
 		s.logger.Info().Msg("Sweep already stopped, skipping run-once")
-		return nil
+		return errSweeperStopped
 	default:
 	}
 
@@ -121,7 +129,7 @@ func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
 	sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 	defer sweepCancel()
 
-	if err := s.runSweepWithLock(sweepCtx); err != nil {
+	if err := s.runSweepWithExecution(sweepCtx, executionID); err != nil {
 		s.logRunError(err, "Run-once sweep failed")
 		return err
 	}
