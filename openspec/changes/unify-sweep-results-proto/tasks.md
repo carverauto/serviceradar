@@ -202,8 +202,8 @@
       installs each push as the window replacement in Carrier (`design.md`):
       one protobuf file per sweep group under the agent state dir, answered
       with `SweepLeaseAck` (installed collection end and slot count, or the
-      refusal). Signature and plan checks, and running the slots, stay
-      M2.0e and M2.0f; the group's local schedule is untouched.
+      refusal). Plan checks and running the slots are M2.0e; cryptographic
+      signature verification stays at the gateway (M2.0f).
     - [x] M2.0d4 Remaining horizon. Core shows each agent's acknowledged
       horizon per leased group. Landed by
       [#5614](https://github.com/carverauto/serviceradar/pull/5614):
