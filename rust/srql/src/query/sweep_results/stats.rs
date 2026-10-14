@@ -39,7 +39,7 @@ impl GroupField {
             "agent_id" => Ok(Self::AgentId),
             "sweep_group_id" => Ok(Self::SweepGroupId),
             "status" => Ok(Self::Status),
-            "device_id" | "device_uid" | "uid" => Ok(Self::DeviceId),
+            "device_id" => Ok(Self::DeviceId),
             other => Err(ServiceError::InvalidRequest(format!(
                 "unsupported stats group field '{other}'. Supported fields: {SUPPORTED_GROUP_FIELDS}"
             ))),

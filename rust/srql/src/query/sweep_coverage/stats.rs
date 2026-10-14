@@ -38,7 +38,7 @@ impl GroupField {
         match raw.trim().to_ascii_lowercase().as_str() {
             "agent_id" => Ok(Self::AgentId),
             "sweep_group_id" => Ok(Self::SweepGroupId),
-            "device_uid" | "device_id" | "uid" => Ok(Self::DeviceUid),
+            "device_uid" => Ok(Self::DeviceUid),
             "day" => Ok(Self::Day),
             other => Err(ServiceError::InvalidRequest(format!(
                 "unsupported stats group field '{other}'. Supported fields: {SUPPORTED_GROUP_FIELDS}"

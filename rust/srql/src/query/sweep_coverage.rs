@@ -486,6 +486,29 @@ mod tests {
             "unexpected error: {err}"
         );
 
+        for alias in ["device_id", "uid"] {
+            let mut aliased = plan_with(vec![]);
+            let raw = format!("count() as n by {alias}");
+            aliased.stats = Some(crate::parser::StatsSpec::from_raw(&raw));
+            let err = to_sql_and_params(&aliased)
+                .expect_err("non-canonical device group field must error");
+            assert!(
+                err.to_string().contains("unsupported stats group field"),
+                "unexpected error for {alias}: {err}"
+            );
+        }
+
+        let mut canonical = plan_with(vec![]);
+        canonical.stats = Some(crate::parser::StatsSpec::from_raw(
+            "count() as n by device_uid",
+        ));
+        let (sql, _) =
+            to_sql_and_params(&canonical).expect("device_uid is the canonical group field");
+        assert!(
+            sql.contains("'device_uid', sweep_coverage_daily.device_uid"),
+            "expected device_uid response key: {sql}"
+        );
+
         let mut downsampled = plan_with(vec![]);
         downsampled.downsample = Some(crate::parser::DownsampleSpec {
             bucket_seconds: 86_400,
