@@ -32,6 +32,22 @@ func TestDispatchInventoryRefreshEmitsDiscovery(t *testing.T) {
 	}
 }
 
+// The vendor's rate limit is per account and shared with every other client,
+// so one 429 ends the run's requests instead of spending more of it.
+func TestRateLimitedRunStopsRequesting(t *testing.T) {
+	fake := newFakeHTTP(t)
+	fake.on(http.MethodGet, "/account", 200, accountFixture())
+	fake.onRateLimited(http.MethodGet, "/user-terminals?page=0", "60")
+
+	result := dispatch(actionConfig(t, actionInventoryRefresh), fake, testObservedAt)
+	if len(fake.requests) != 2 {
+		t.Fatalf("requests after the 429 = %d, want none", len(fake.requests)-2)
+	}
+	if result.Status != sdk.StatusWarning || !strings.Contains(result.Summary, "starlink_rate_limited") {
+		t.Fatalf("status %q summary %q", result.Status, result.Summary)
+	}
+}
+
 func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
 	row := `["u",1700000000000000000,"ut` + testTerminalA + `",1,2,[],"x"]`
 	fake := &cacheHTTP{fakeHTTP: newFakeHTTP(t), wantBody: cacheQueryPage0, status: 200}

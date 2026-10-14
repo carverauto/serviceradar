@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/tidwall/gjson"
@@ -37,6 +38,8 @@ type actionError struct {
 	class     string
 	message   string
 	retryable bool
+	// retryAfter is the vendor's Retry-After on a rate-limited step.
+	retryAfter time.Duration
 }
 
 func (e *actionError) Error() string { return e.message }
@@ -45,7 +48,8 @@ func stepError(step string, err error) *actionError {
 	code := errorCode(err)
 	switch code {
 	case "starlink_rate_limited", "starlink_upstream_error", "starlink_request_budget_exhausted", "starlink_request_failed":
-		return &actionError{class: "retryable", message: step + ": " + code, retryable: true}
+		retryAfter, _ := retryAfterOf(err)
+		return &actionError{class: "retryable", message: step + ": " + code, retryable: true, retryAfter: retryAfter}
 	}
 	return &actionError{class: "vendor_rejected", message: step + ": " + code}
 }
@@ -122,7 +126,7 @@ func runManagementAction(cfg Config, doer httpDoer) *sdk.ActionResult {
 		if err.retryable {
 			return sdk.ActionPolling(err.message).
 				WithContinuationState(continuation).
-				WithNextPollDelay(actionRetryDelaySecond).
+				WithNextPollDelay(nextPollDelaySeconds(err.retryAfter)).
 				WithSummary("completed_steps", run.completed)
 		}
 		return sdk.ActionFailed(err.class, err.message).
@@ -458,4 +462,14 @@ func (r *actionRun) deactivateLine(terminalID string, endNow bool, reason string
 		r.finish("deactivate")
 	}
 	return map[string]any{"service_line": sl, "end_now": endNow}, nil
+}
+
+// nextPollDelaySeconds resumes a retryable action no sooner than the vendor
+// asked, and never sooner than actionRetryDelaySecond.
+func nextPollDelaySeconds(retryAfter time.Duration) int {
+	seconds := int((retryAfter + time.Second - 1) / time.Second)
+	if seconds < actionRetryDelaySecond {
+		return actionRetryDelaySecond
+	}
+	return seconds
 }
