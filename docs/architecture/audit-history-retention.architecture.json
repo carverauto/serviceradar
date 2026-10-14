@@ -44,11 +44,15 @@
       "type": "backend",
       "label": "runtime.exs env vars",
       "sublabel": "AUDIT_RETENTION_* \u00b7 tier defaults",
-      "tag": "90d / 180d \u00b7 0 disables",
+      "tag": "versions: 0 disables",
       "sources": [
         {
           "path": "elixir/serviceradar_core/config/runtime.exs",
           "label": "env wiring"
+        },
+        {
+          "path": "elixir/serviceradar_core_elx/config/runtime.exs",
+          "label": "release env wiring"
         }
       ],
       "pos": [
@@ -64,7 +68,7 @@
       "id": "audit_worker",
       "type": "backend",
       "label": "AuditVersionRetentionWorker",
-      "sublabel": "daily 03:43 \u00b7 17 tables",
+      "sublabel": "daily 03:53 \u00b7 17 tables",
       "tag": "new",
       "sources": [
         {
@@ -85,7 +89,7 @@
       "id": "api_worker",
       "type": "backend",
       "label": "ApiEventsRetentionWorker",
-      "sublabel": "daily 03:37 \u00b7 delete_older_than",
+      "sublabel": "daily 03:51 \u00b7 delete_older_than",
       "tag": "new",
       "sources": [
         {
@@ -301,16 +305,16 @@
       "items": [
         "90 days: api_events, security_events, playbook-run and northbound execution tables",
         "180 days: config-audit-trail version tables (credentials, dashboards, lockouts)",
-        "Every window per-table overridable; 0 disables that table"
+        "0 disables a version table only; api and security event windows clamp at 1 day"
       ]
     },
     {
       "dot": "emerald",
-      "title": "Bounded Deletes Only",
+      "title": "Batch Bound On Version Tables",
       "items": [
         "DELETE \u2026 WHERE id IN (SELECT \u2026 ORDER BY version_inserted_at LIMIT batch_size)",
-        "One Oban run deletes at most batch_size rows per table",
-        "120 s query timeout per statement, matching RemoteAccessVersionRetentionWorker"
+        "One AuditVersionRetentionWorker run deletes at most batch_size rows per table",
+        "api_events and security_events bulk-destroy every row past the cutoff in that run"
       ]
     },
     {

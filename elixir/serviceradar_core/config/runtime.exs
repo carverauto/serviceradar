@@ -1694,6 +1694,14 @@ if config_env() == :prod do
            # runtime.exs -- that one is what the release actually loads.
            {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
             ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
+           # Audit-history retention. 03:23 / 03:51 / 03:53 sit clear of the
+           # 03:17 observability sweep, the 03:37 ledger prune, and the 03:43
+           # credential-broker delete. Kept in step with serviceradar_core_elx's
+           # runtime.exs, which the release loads.
+           {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance},
+           {"51 3 * * *", ServiceRadar.Observability.ApiEventsRetentionWorker,
+            queue: :maintenance},
+           {"53 3 * * *", ServiceRadar.Security.AuditVersionRetentionWorker, queue: :maintenance},
            # Kept in step with serviceradar_core_elx's runtime.exs, as above.
            {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
            # Composite checks' only scheduler: one evaluation job per enabled

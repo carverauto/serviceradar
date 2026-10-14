@@ -21,6 +21,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ServiceRadar.CompositeChecks.TickWorker,
     ServiceRadar.Identity.SAMLAssertionCleanupWorker,
     ServiceRadar.Jobs.AlertsRetentionWorker,
+    ServiceRadar.Jobs.SecurityEventsRetentionWorker,
+    ServiceRadar.Observability.ApiEventsRetentionWorker,
+    ServiceRadar.Security.AuditVersionRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
@@ -416,6 +419,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # and RootSpanRatioWorker.
   @mirrored_core_config_blocks [
     AgentCommandCleanupWorker,
+    ServiceRadar.Jobs.SecurityEventsRetentionWorker,
+    ServiceRadar.Observability.ApiEventsRetentionWorker,
+    ServiceRadar.Security.AuditVersionRetentionWorker,
     TopologyGraph,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
     ServiceRadar.WorkloadIdentity,
@@ -537,6 +543,95 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert read_prod_config()[:serviceradar_core][block][:retention_days] == 9
   end
 
+  # The chart sets these env vars on the core pod. Only this release's
+  # runtime.exs is evaluated there.
+  @audit_history_cron [
+    {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, [queue: :maintenance]},
+    {"51 3 * * *", ServiceRadar.Observability.ApiEventsRetentionWorker, [queue: :maintenance]},
+    {"53 3 * * *", ServiceRadar.Security.AuditVersionRetentionWorker, [queue: :maintenance]}
+  ]
+
+  @audit_version_defaults [
+    ansible_playbook_run_days: 90,
+    northbound_action_invocation_days: 90,
+    northbound_action_event_handler_days: 90,
+    network_credential_secret_days: 180,
+    network_credential_rule_days: 180,
+    proxmox_console_session_days: 180,
+    ansible_controller_days: 180,
+    ansible_playbook_days: 180,
+    ansible_playbook_schedule_days: 180,
+    ansible_playbook_repository_days: 180,
+    northbound_action_provider_days: 180,
+    northbound_action_descriptor_days: 180,
+    visibility_profile_days: 180,
+    auth_lockout_days: 180,
+    authored_dashboard_days: 180,
+    dashboard_report_schedule_days: 180,
+    sweep_group_days: 180
+  ]
+
+  @audit_retention_env [
+    "API_EVENTS_RETENTION_DAYS",
+    "SECURITY_EVENTS_RETENTION_DAYS",
+    "AUDIT_VERSION_RETENTION_BATCH_SIZE",
+    "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS",
+    "AUDIT_RETENTION_NORTHBOUND_ACTION_INVOCATION_DAYS",
+    "AUDIT_RETENTION_NORTHBOUND_ACTION_EVENT_HANDLER_DAYS",
+    "AUDIT_RETENTION_NETWORK_CREDENTIAL_SECRET_DAYS",
+    "AUDIT_RETENTION_NETWORK_CREDENTIAL_RULE_DAYS",
+    "AUDIT_RETENTION_PROXMOX_CONSOLE_SESSION_DAYS",
+    "AUDIT_RETENTION_ANSIBLE_CONTROLLER_DAYS",
+    "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_DAYS",
+    "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_SCHEDULE_DAYS",
+    "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_REPOSITORY_DAYS",
+    "AUDIT_RETENTION_NORTHBOUND_ACTION_PROVIDER_DAYS",
+    "AUDIT_RETENTION_NORTHBOUND_ACTION_DESCRIPTOR_DAYS",
+    "AUDIT_RETENTION_VISIBILITY_PROFILE_DAYS",
+    "AUDIT_RETENTION_AUTH_LOCKOUT_DAYS",
+    "AUDIT_RETENTION_AUTHORED_DASHBOARD_DAYS",
+    "AUDIT_RETENTION_DASHBOARD_REPORT_SCHEDULE_DAYS",
+    "AUDIT_RETENTION_SWEEP_GROUP_DAYS"
+  ]
+
+  test "audit history retention is scheduled and reads its windows from the environment" do
+    Enum.each(@audit_retention_env, &with_env(&1, nil))
+
+    crontab = oban_crontab(read_prod_config())
+
+    for entry <- @audit_history_cron do
+      assert entry in crontab
+      assert Enum.count(crontab, &(elem(&1, 1) == elem(entry, 1))) == 1
+    end
+
+    release = read_prod_config()[:serviceradar_core]
+    assert release[ServiceRadar.Observability.ApiEventsRetentionWorker][:retention_days] == 90
+    assert release[ServiceRadar.Jobs.SecurityEventsRetentionWorker][:retention_days] == 90
+
+    version = release[ServiceRadar.Security.AuditVersionRetentionWorker]
+    assert version[:batch_size] == 10_000
+
+    for {key, days} <- @audit_version_defaults do
+      assert version[key] == days
+    end
+
+    with_env("API_EVENTS_RETENTION_DAYS", "0")
+    with_env("SECURITY_EVENTS_RETENTION_DAYS", "0")
+    with_env("AUDIT_RETENTION_AUTH_LOCKOUT_DAYS", "0")
+    with_env("AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS", "0")
+    with_env("AUDIT_VERSION_RETENTION_BATCH_SIZE", "25")
+
+    release = read_prod_config()[:serviceradar_core]
+    assert release[ServiceRadar.Observability.ApiEventsRetentionWorker][:retention_days] == 1
+    assert release[ServiceRadar.Jobs.SecurityEventsRetentionWorker][:retention_days] == 1
+
+    version = release[ServiceRadar.Security.AuditVersionRetentionWorker]
+    assert version[:auth_lockout_days] == 0
+    assert version[:ansible_playbook_run_days] == 0
+    assert version[:batch_size] == 25
+    assert version[:sweep_group_days] == 180
+  end
+
   # Helm renders SYNC_INGESTOR_* for core. Only serviceradar_core's runtime.exs
   # read them, so in this release they were inert and the queue ran on its
   # compiled defaults whatever the chart said.
@@ -616,6 +711,15 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
 
   defp read_prod_config do
     Config.Reader.read!(@runtime_config, env: :prod)
+  end
+
+  defp oban_crontab(config) do
+    config[:serviceradar_core][Oban]
+    |> Keyword.fetch!(:plugins)
+    |> Enum.find_value([], fn
+      {Oban.Plugins.Cron, opts} -> Keyword.get(opts, :crontab, [])
+      _other -> nil
+    end)
   end
 
   defp response_policy_document do
