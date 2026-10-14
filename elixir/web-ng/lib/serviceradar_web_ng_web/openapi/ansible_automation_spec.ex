@@ -554,11 +554,9 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec do
 
   defp read_description(permission), do: "Requires #{permission}. " <> @authority
 
-  defp human_description(permission, detail),
-    do: "Requires #{permission}. #{detail} " <> @human_principal <> @authority
+  defp human_description(permission, detail), do: "Requires #{permission}. #{detail} " <> @human_principal <> @authority
 
-  defp forbidden_description(true),
-    do: "Insufficient permission, token scope, or a non-human principal"
+  defp forbidden_description(true), do: "Insufficient permission, token scope, or a non-human principal"
 
   defp forbidden_description(false), do: "Insufficient permission or token scope"
 
