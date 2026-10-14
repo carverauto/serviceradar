@@ -11,9 +11,12 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   Configuration (`config :serviceradar_core, #{__MODULE__}`):
 
     * `:backend` — `:none` (default; `mint/2` returns
-      `{:error, :no_backend}`), `:static_secret`, or `:cloudflare`.
+      `{:error, :no_backend}`) or `:static_secret`. `:cloudflare` is
+      reserved and returns `{:error, :invalid_backend}` until that backend
+      exists. Any other atom returns the same error.
     * `:default_ttl_seconds` — default 600, bounded to `60..3600`.
-    * `:rate_limit` — per-actor/per-session mint limit,
+    * `:rate_limit` — per-actor/per-session sliding-window mint limit over
+      the last `window_seconds`,
       `%{max_mints: pos_integer(), window_seconds: pos_integer()}`,
       default `%{max_mints: 30, window_seconds: 60}`. Exceeding it returns
       `{:error, :rate_limited}`.
@@ -23,9 +26,9 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   The subject binds one credential to one viewer:
   `{feature, session_id, viewer_id}`. By default the TURN username embeds
   the expiry and a non-reversible digest of the subject — never raw user or
-  session identifiers. Remote desktop opts into its legacy raw binding
-  (`legacy_subject: true`) because its shipped username format predates
-  this provider and stays byte-identical.
+  session identifiers. `legacy_subject: true` keeps a raw binding instead.
+  Remote desktop passes that binding as `legacy_subject_value` straight to
+  `StaticSecret` so its shipped username stays byte-identical.
 
   `ServiceRadar.WebRTC.IceCredentials.StaticSecret` implements the TURN
   REST scheme (`username = "<unix_expiry>:<subject>"`,
@@ -36,8 +39,6 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   @behaviour __MODULE__
 
   alias ServiceRadar.WebRTC.IceCredentials.MintLimiter
-
-  require Logger
 
   @min_ttl_seconds 60
   @max_ttl_seconds 3_600
@@ -52,8 +53,9 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   `"actor:session:viewer"` form).
 
   Returns `{:ok, %{ice_servers: [...], expires_at: DateTime.t()}}` or
-  `{:error, reason}` with reason class `:no_backend`, `:rate_limited`,
-  `:missing_binding`, `:missing_secret` or a backend-specific reason.
+  `{:error, reason}` with reason class `:no_backend`, `:invalid_backend`,
+  `:rate_limited`, `:missing_binding`, `:missing_secret` or a
+  backend-specific reason.
   """
   @callback mint(subject :: term(), opts :: keyword()) ::
               {:ok, %{ice_servers: list(), expires_at: DateTime.t()}} | {:error, term()}

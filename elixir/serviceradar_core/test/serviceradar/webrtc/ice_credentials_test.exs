@@ -234,7 +234,9 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
     end
 
     test "mint returns the secret file error and still accepts a short opts secret" do
-      path = Path.join(System.tmp_dir!(), "ice-cred-mint-short-#{System.unique_integer([:positive])}")
+      path =
+        Path.join(System.tmp_dir!(), "ice-cred-mint-short-#{System.unique_integer([:positive])}")
+
       File.write!(path, "short\n")
       on_exit(fn -> File.rm(path) end)
 
@@ -258,7 +260,8 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
                  legacy_subject_value: "actor-1:session-1:viewer-1"
                )
 
-      assert server.credential == StaticSecret.turn_credential("turn-rest-secret", server.username)
+      assert server.credential ==
+               StaticSecret.turn_credential("turn-rest-secret", server.username)
     end
   end
 
