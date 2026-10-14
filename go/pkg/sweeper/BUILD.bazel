@@ -48,6 +48,7 @@ go_test(
         "sticky_availability_test.go",
         "summary_snapshot_test.go",
         "sweeper_banner_grab_test.go",
+        "sweeper_execution_test.go",
         "sweeper_prune_test.go",
         "sweeper_test.go",
         "target_count_test.go",
