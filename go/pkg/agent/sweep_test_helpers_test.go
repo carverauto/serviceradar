@@ -28,10 +28,48 @@ type mockSweeper struct {
 	summary     *models.SweepSummary
 	updateCount int
 	bannerStats *models.BannerGrabStats
+
+	runCount       int
+	manualSchedule bool
+	runErr         error
+	onRun          func()
 }
 
 func (*mockSweeper) Start(_ context.Context) error {
 	return nil
+}
+
+// RunOnce completes one sweep cycle: the summary advances to a new sweep
+// time, which is what SweepService.GetSweepResults treats as a completed
+// cycle with new data.
+func (m *mockSweeper) RunOnce(ctx context.Context) error {
+	return m.RunOnceWithExecution(ctx, "")
+}
+
+// RunOnceWithExecution publishes executionID with the completed cycle's
+// LastSweep. An empty id clears any id a previous leased cycle published.
+func (m *mockSweeper) RunOnceWithExecution(_ context.Context, executionID string) error {
+	if m.onRun != nil {
+		m.onRun()
+	}
+
+	m.runCount++
+	if m.runErr != nil {
+		return m.runErr
+	}
+
+	if m.summary != nil {
+		m.summary.LastSweep++
+		m.summary.ExecutionID = executionID
+	}
+
+	return nil
+}
+
+// SetManualSchedule records the schedule mode SweepService.SetLeaseDriven
+// asks for, standing in for NetworkSweeper's ticker suppression.
+func (m *mockSweeper) SetManualSchedule(manual bool) {
+	m.manualSchedule = manual
 }
 
 func (*mockSweeper) Stop() error {

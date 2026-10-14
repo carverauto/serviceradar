@@ -94,8 +94,25 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 }
 
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
+	return s.runSweepWithExecution(ctx, "")
+}
+
+// runSweepWithExecution holds the sweep lock for one cycle and publishes
+// executionID only if that cycle completes. A failed or stopped cycle leaves
+// the previously published id in place.
+func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID string) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
+
+	s.mu.Lock()
+	s.runExecutionID = executionID
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.runExecutionID = ""
+		s.mu.Unlock()
+	}()
+
 	return s.runSweep(ctx)
 }
 
@@ -265,9 +282,10 @@ func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt 
 			return fmt.Errorf("failed to cache sweep summary: %w", err)
 		}
 
-		summary.LastSweep = completedAt.Unix()
-
 		s.mu.Lock()
+		summary.LastSweep = completedAt.Unix()
+		summary.ExecutionID = s.runExecutionID
+		s.lastExecutionID = s.runExecutionID
 		s.lastSweep = completedAt
 		s.lastSummary = cloneSweepSummary(summary)
 		s.mu.Unlock()
@@ -276,6 +294,7 @@ func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt 
 	}
 
 	s.mu.Lock()
+	s.lastExecutionID = s.runExecutionID
 	s.lastSweep = completedAt
 	s.lastSummary = nil
 	s.mu.Unlock()

@@ -202,11 +202,16 @@
       installs each push as the window replacement in Carrier (`design.md`):
       one protobuf file per sweep group under the agent state dir, answered
       with `SweepLeaseAck` (installed collection end and slot count, or the
-      refusal). Signature and plan checks, and running the slots, stay
-      M2.0e and M2.0f; the group's local schedule is untouched.
-    - [ ] M2.0d4 Remaining horizon. Core shows each agent's acknowledged
-      horizon per leased group.
-  - [ ] M2.0e Agent lease execution. For a leased group the agent's local
+      refusal). Plan checks and running the slots are M2.0e; cryptographic
+      signature verification stays at the gateway (M2.0f).
+    - [x] M2.0d4 Remaining horizon. Core shows each agent's acknowledged
+      horizon per leased group. Landed by
+      [#5614](https://github.com/carverauto/serviceradar/pull/5614):
+      `LeaseDelivery.horizons_for_groups/2` projects each delivery's
+      installed ack into a horizon (a newer unacked push degrades the status,
+      never the horizon), and the networks settings list and sweep-group
+      detail show it per agent.
+  - [x] M2.0e Agent lease execution. For a leased group the agent's local
     ticker is replaced by the lease: it runs each slot at its time from its own
     clock whether or not it is connected, and refuses a lease slot when its wall
     clock reads earlier than the lease's signed issuance time (the last
@@ -214,6 +219,21 @@
     There is no NTP-sync requirement. A clock running fast remains bounded by the
     signed slot windows. When no valid slot remains the agent stops
     authoritative output and reports the lease exhausted.
+    DONE: `go/pkg/agent/sweep_lease_executor.go` runs each due slot through
+    the group's sweep service under the slot's core-minted execution id after
+    the plan, capability-structure and claim-binding checks
+    (`edgerecord.ValidatePlanPages`/`ValidateCapability`); cryptographic
+    signature verification stays at the gateway, which alone holds issuer
+    public keys (M2.0f). The sweeper's manual-schedule mode suppresses the
+    leased group's local ticker (initial sweep included), executed slots
+    persist in the lease store so a restart never re-runs one, a revocation
+    returns the group to its local ticker, and the group's status payload
+    reports `sweep_lease` state `active`/`exhausted`. A live agent process
+    with packet scanning is not drivable inside the pipeline sandbox, so
+    there is no agent-binary lease test: the executor, lease store, and
+    sweeper tests cover this behavior against the real components, and
+    BazelCI on the PR is the remaining gate. Producing edge records
+    from these runs is M2.1, and which agents are leased at all is M2.2.
   - [ ] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
     fences from assignment epochs, agent-to-scope bindings) comes from core at
     runtime and follows changes. A record whose assignment epoch is current
