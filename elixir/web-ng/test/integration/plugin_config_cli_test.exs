@@ -114,7 +114,9 @@ defmodule ServiceRadarWebNGWeb.PluginConfigCliTest do
 
     ciphertext = encrypted_payload(secret["id"])
     assert is_binary(ciphertext) and byte_size(ciphertext) > 0
-    assert {:ok, plaintext} = ServiceRadar.Vault.decrypt(ciphertext)
+    assert {:ok, decoded} = Base.decode64(ciphertext)
+    assert {:ok, decrypted} = ServiceRadar.Vault.decrypt(decoded)
+    plaintext = Ash.Helpers.non_executable_binary_to_term(decrypted, [:safe])
     assert plaintext =~ "invented-inventory-token"
     assert :binary.match(ciphertext, "invented-inventory-token") == :nomatch
     refute Jason.encode!(observed) =~ "invented-inventory-token"
