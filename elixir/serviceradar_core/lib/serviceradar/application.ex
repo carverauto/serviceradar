@@ -87,6 +87,9 @@ defmodule ServiceRadar.Application do
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
+        # WebRTC ICE credential mint rate limiter (shared ETS counters)
+        ServiceRadar.WebRTC.IceCredentials.MintLimiter,
+
         # RBAC permission cache (shared ETS, must start after PubSub)
         ServiceRadar.Identity.RBAC.Cache,
 
