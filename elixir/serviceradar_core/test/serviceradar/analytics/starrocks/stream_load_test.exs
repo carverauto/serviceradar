@@ -975,6 +975,75 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("otel_traces", @rows, config: config, http_timeout: 3_000)
   end
 
+  test "a coordinator 400 is terminal and is not retried on the wire" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!(
+      {Task,
+       fn ->
+         {:ok, socket} = :gen_tcp.accept(listener, 3_000)
+         {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 3_000)
+         _headers = receive_headers(socket, %{})
+
+         :ok =
+           :gen_tcp.send(
+             socket,
+             "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+           )
+
+         :gen_tcp.close(socket)
+         send(parent, :saw_400)
+
+         case :gen_tcp.accept(listener, 1_000) do
+           {:ok, retry} ->
+             send(parent, :retried)
+             :gen_tcp.close(retry)
+
+           {:error, :timeout} ->
+             send(parent, :no_retry)
+         end
+       end}
+    )
+
+    assert {:error, {:http_status, 400, _label}} =
+             StreamLoad.persist("otel_traces", @rows,
+               config: %{fe_http: "http://127.0.0.1:#{port}"},
+               http_timeout: 4_000
+             )
+
+    assert_receive :saw_400
+    assert_receive :no_retry, 2_000
+    refute_received :retried
+  end
+
+  test "get_load_state omits connection close and the next load reuses that socket" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+    start_supervised!({Task, fn -> serve_pooled_load_state(listener, parent) end})
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+
+    assert {:ok, %{loaded: 2, reconciled: true}} =
+             StreamLoad.persist("otel_traces", @rows, config: config, http_timeout: 8_000)
+
+    assert {:ok, %{loaded: 2, reconciled: true}} =
+             StreamLoad.persist("otel_traces", @rows, config: config, http_timeout: 8_000)
+
+    assert_receive {:get_connection, first_get}
+    assert_receive :load_state_socket_reused
+    assert_receive {:get_connection, second_get}
+    refute first_get == "close"
+    refute second_get == "close"
+  end
+
   defp drain_leak_probes do
     receive do
       {{:leak_probe, _}, worker} ->
@@ -1062,6 +1131,70 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       :ok = :gen_tcp.send(socket, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
       :gen_tcp.close(socket)
     end
+  end
+
+  # A load that already exists is reconciled with get_load_state. That GET has
+  # no body, so it stays poolable: the socket left open by the state response
+  # carries the next Stream Load. The load itself still asks the server to close.
+  defp serve_pooled_load_state(listener, parent) do
+    serve_closed_put(listener)
+    get_socket = serve_kept_get(listener, parent)
+
+    case :gen_tcp.recv(get_socket, 0, 8_000) do
+      {:ok, {:http_request, :PUT, _, _}} ->
+        headers = receive_headers(get_socket, %{})
+        send(parent, :load_state_socket_reused)
+        send_label_exists(get_socket, headers)
+        :gen_tcp.close(get_socket)
+        _ = serve_kept_get(listener, parent)
+
+      other ->
+        send(parent, {:load_state_socket_not_reused, inspect(other)})
+    end
+  end
+
+  defp serve_closed_put(listener) do
+    {:ok, socket} = :gen_tcp.accept(listener, 8_000)
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 8_000)
+    headers = receive_headers(socket, %{})
+    send_label_exists(socket, headers)
+    :gen_tcp.close(socket)
+  end
+
+  defp serve_kept_get(listener, parent) do
+    {:ok, socket} = :gen_tcp.accept(listener, 8_000)
+    {:ok, {:http_request, :GET, _, _}} = :gen_tcp.recv(socket, 0, 8_000)
+    headers = receive_headers(socket, %{})
+    send(parent, {:get_connection, String.downcase(headers["connection"] || "")})
+    response = load_state_body("VISIBLE")
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ",
+        Integer.to_string(byte_size(response)),
+        "\r\n\r\n",
+        response
+      ])
+
+    socket
+  end
+
+  defp send_label_exists(socket, headers) do
+    response =
+      Jason.encode!(%{
+        "Status" => "Label Already Exists",
+        "Message" => "Label has already been used."
+      })
+
+    close? = String.downcase(headers["connection"] || "") == "close"
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n",
+        if(close?, do: "Connection: close\r\n", else: ""),
+        "Content-Length: #{byte_size(response)}\r\n\r\n",
+        response
+      ])
   end
 
   defp read_wire_request(socket, parent) do
