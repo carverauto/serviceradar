@@ -210,12 +210,25 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     if Enum.any?(urls, &turn_url?/1) do
       with shared_secret when is_binary(shared_secret) <- turn_shared_secret(server),
            {:ok, subject} <- turn_credential_subject(opts) do
-        username = "#{turn_credential_expires_at()}:#{subject}"
+        # Minting lives in the shared provider's static_secret backend
+        # (moved out of web-ng by the add-webrtc-turn-relay change); the
+        # legacy raw subject keeps credentials byte-identical to the
+        # minting web-ng shipped before the provider existed.
+        case ServiceRadar.WebRTC.IceCredentials.StaticSecret.mint(nil,
+               urls: urls,
+               shared_secret: shared_secret,
+               ttl_seconds: turn_credential_ttl_seconds(),
+               legacy_subject_value: subject
+             ) do
+          {:ok, %{ice_servers: [%{username: username, credential: credential}]}} ->
+            server
+            |> Map.delete(:turn_shared_secret)
+            |> Map.put(:username, username)
+            |> Map.put(:credential, credential)
 
-        server
-        |> Map.delete(:turn_shared_secret)
-        |> Map.put(:username, username)
-        |> Map.put(:credential, turn_credential(shared_secret, username))
+          {:error, _mint_failure} ->
+            nil
+        end
       else
         _missing_binding_or_secret -> nil
       end
@@ -229,10 +242,6 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
   defp turn_shared_secret(server) do
     server[:turn_shared_secret] ||
       optional_string(Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_shared_secret))
-  end
-
-  defp turn_credential_expires_at do
-    System.system_time(:second) + turn_credential_ttl_seconds()
   end
 
   defp turn_credential_ttl_seconds do
@@ -256,12 +265,6 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     else
       _missing_binding -> {:error, :turn_viewer_binding_required}
     end
-  end
-
-  defp turn_credential(shared_secret, username) do
-    :hmac
-    |> :crypto.mac(:sha, shared_secret, username)
-    |> Base.encode64()
   end
 
   defp turn_url?(url) when is_binary(url) do

@@ -7,12 +7,12 @@ runs in core-elx (the `serviceradar-core` pods):
   ICE list and relays signaling.
 - **Remote desktop (RDP)**: `remote_desktop/data_channel_provider.ex`.
   web-ng's `remote_desktop_webrtc.ex` and `remote_desktop_webrtc_config.ex`
-  load the ICE JSON and the TURN shared secret and mint credentials.
+  load the ICE JSON and the TURN shared secret. HMAC minting lives in
+  `ServiceRadar.WebRTC.IceCredentials.StaticSecret`.
 
-The camera relay gets STUN only. RDP already implements TURN REST HMAC
-minting, with a file-mounted secret, a session-bound username and a TTL of
-at most one hour, but only for itself. No deployment option ships a TURN
-server.
+The camera relay gets STUN only. RDP mints TURN REST HMAC credentials from
+a file-mounted secret, with a session-bound username and a TTL of at most
+one hour, but only for itself. No deployment option ships a TURN server.
 
 Constraints:
 - Single deployment, no multitenancy.
@@ -46,9 +46,12 @@ Constraints:
   load it.
   `mint(subject, opts) :: {:ok, %{ice_servers: [...], expires_at: DateTime.t()}} | {:error, reason}`.
 - **Subject:** the subject binds the credential to one viewer:
-  `{feature, session_id, viewer_id}`. The TURN username embeds the expiry
-  and a non-reversible digest of the subject, never raw user or session
-  identifiers.
+  `{feature, session_id, viewer_id}`. New callers embed the expiry and a
+  non-reversible digest: SHA-256 over a length-prefixed encoding of that
+  tuple, hex-encoded and truncated to 32 characters. Raw user or session
+  identifiers do not appear in that form. Remote desktop keeps its shipped
+  username (`<unix_expiry>:<actor>:<session>:<viewer>`) by passing that raw
+  binding as `legacy_subject_value`, so the same inputs stay byte-identical.
 - **web-ng mints for the browser.** It already authorizes the viewer and
   owns the signaling endpoint. The minted servers go into the signaling
   response only, not into page assigns rendered for every viewer.
@@ -60,15 +63,20 @@ Constraints:
   Inside a cluster that is a hairpin through the load balancer, which is not
   always routable. A core-side allocation on the in-cluster TURN Service
   avoids it.
-- **Move RDP over:** RDP's existing minting (`turn_credential/2`, the TTL
-  bounds, the file-backed secret loader) moves into the provider's
-  `static_secret` backend, and RDP calls the provider. Its behavior and
-  values keys do not change.
+- **Move RDP over:** HMAC minting (`turn_credential/2`) lives in the
+  provider's `static_secret` backend. This slice's remote desktop path
+  calls `StaticSecret.mint/2` with `legacy_subject_value` set to the raw
+  binding. The boot-time file check stays in `RemoteDesktopWebRTCConfig`;
+  `StaticSecret` repeats
+  that 32..512 byte file contract for provider callers. Calling the
+  dispatcher, rate limit included, is task 2.3. Behavior and values keys
+  do not change.
 
 ### Backends
 - **`static_secret`** (TURN REST API, the coturn `use-auth-secret` and
   eturnal `secret` scheme):
-  - `username = "<unix_expiry>:<subject_digest>"`.
+  - `username = "<unix_expiry>:<subject>"`, where `<subject>` is the digest
+    above, or remote desktop's legacy raw binding.
   - `credential = base64(HMAC-SHA1(secret, username))`. SHA-1 is required
     by the TURN REST scheme that servers verify.
   - TTL default 600s, bounded to 60..3600s.
