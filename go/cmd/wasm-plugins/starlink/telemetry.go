@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 const (
 	deviceTypeTerminal = "u"
 	deviceTypeRouter   = "r"
+	deviceTypeIPAllocs = "i"
 
 	// maxRecordsPerEmit bounds one emit_telemetry call; each record is one
 	// device's batch for one stream response.
@@ -106,7 +108,9 @@ type streamDecodeStats struct {
 // decodeTelemetryStream decodes one columnar stream response. Alert codes are
 // mapped only through the enum table carried in the same response: the
 // vendor reassigns codes, so a code is meaningless outside its response.
-func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeStats) {
+// The third result is each terminal's latest public address allocation from
+// IpAllocs rows, keyed by device reference.
+func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeStats, map[string]publicAddresses) {
 	initMetricMaps()
 	var stats streamDecodeStats
 	columns := map[string][]string{}
@@ -121,6 +125,7 @@ func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeSt
 	alertNames := body.Get("metadata.enums.AlertsByDeviceType")
 
 	var samples []telemetrySample
+	allocations := map[string]publicAddresses{}
 	for _, row := range body.Get("data.values").Array() {
 		stats.Rows++
 		cells := row.Array()
@@ -130,8 +135,14 @@ func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeSt
 		}
 		deviceType := cells[0].String()
 		names, ok := columns[deviceType]
+		if ok && deviceType == deviceTypeIPAllocs {
+			if ref, addrs, ok := decodeIPAllocation(names, cells); ok {
+				allocations[ref] = addrs
+			}
+			continue
+		}
 		if !ok || (deviceType != deviceTypeTerminal && deviceType != deviceTypeRouter) {
-			// IpAllocs and unknown device types carry no metrics.
+			// Unknown device types carry no metrics.
 			continue
 		}
 		sample, ok := decodeRow(deviceType, names, cells, alertNames.Get(deviceType))
@@ -141,7 +152,82 @@ func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeSt
 		}
 		samples = append(samples, sample)
 	}
-	return samples, stats
+	return samples, stats, allocations
+}
+
+// publicAddresses is a terminal's public address allocation. Carrier-grade
+// NAT shares public addresses across terminals, so they are metadata only and
+// never a device identifier.
+type publicAddresses struct {
+	IPv4 []string
+	IPv6 []string
+}
+
+// decodeIPAllocation reads one IpAllocs row. Address columns are matched by
+// name prefix and every value must parse as an address of that family.
+func decodeIPAllocation(names []string, cells []gjson.Result) (string, publicAddresses, bool) {
+	var ref string
+	var addrs publicAddresses
+	for i, name := range names {
+		if i >= len(cells) {
+			break
+		}
+		switch {
+		case name == "DeviceId":
+			ref = terminalDeviceID(cells[i].String())
+		case strings.HasPrefix(name, "Ipv4"):
+			addrs.IPv4 = appendAddresses(addrs.IPv4, cells[i], netip.Addr.Is4)
+		case strings.HasPrefix(name, "Ipv6"):
+			addrs.IPv6 = appendAddresses(addrs.IPv6, cells[i], netip.Addr.Is6)
+		}
+	}
+	if ref == "" || len(addrs.IPv4)+len(addrs.IPv6) == 0 {
+		return "", publicAddresses{}, false
+	}
+	return ref, addrs, true
+}
+
+func appendAddresses(out []string, cell gjson.Result, family func(netip.Addr) bool) []string {
+	values := cell.Array()
+	if !cell.IsArray() {
+		values = []gjson.Result{cell}
+	}
+	for _, v := range values {
+		if addr, err := netip.ParseAddr(strings.TrimSpace(v.String())); err == nil && family(addr) {
+			out = append(out, addr.String())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// buildAddressDiscovery enriches known terminals with their public addresses.
+// Each device carries the integration_id core matches on.
+func buildAddressDiscovery(allocations map[string]publicAddresses, instance string, now time.Time) *sdk.DeviceDiscovery {
+	if len(allocations) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(allocations))
+	for ref := range allocations {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+
+	discovery := sdk.NewDeviceDiscovery(sourceName)
+	discovery.ObservedAt = now.UTC().Format(time.RFC3339Nano)
+	for _, ref := range refs {
+		addrs := allocations[ref]
+		discovery.AddDevice(sdk.DiscoveredDevice{
+			DeviceID: ref,
+			Metadata: compactMetadata(map[string]any{
+				"integration_id":  ref,
+				"source_instance": instance,
+				"public_ipv4":     strings.Join(addrs.IPv4, ","),
+				"public_ipv6":     strings.Join(addrs.IPv6, ","),
+			}),
+		})
+	}
+	return discovery
 }
 
 func decodeRow(deviceType string, names []string, cells []gjson.Result, alertEnum gjson.Result) (telemetrySample, bool) {
@@ -280,6 +366,8 @@ type telemetryRun struct {
 	Devices    int
 	CaughtUp   bool
 	Err        error
+	// Allocations is each terminal's latest public addresses.
+	Allocations map[string]publicAddresses
 	// NewestAt is the latest sample time seen, in Unix nanoseconds.
 	NewestAt uint64
 	// LongestHoleNs is the widest spacing between consecutive samples of one
@@ -294,6 +382,7 @@ type telemetryRun struct {
 func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.TelemetryRecord) error) telemetryRun {
 	var run telemetryRun
 	lastAt := map[string]uint64{}
+	run.Allocations = map[string]publicAddresses{}
 	request := []byte(`{"batchSize":` + strconv.Itoa(cfg.TelemetryBatchSize) +
 		`,"maxLingerMs":` + strconv.Itoa(cfg.TelemetryMaxLingerMS) + `}`)
 
@@ -305,7 +394,10 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 		}
 		run.Iterations++
 
-		samples, stats := decodeTelemetryStream(body)
+		samples, stats, allocations := decodeTelemetryStream(body)
+		for ref, addrs := range allocations {
+			run.Allocations[ref] = addrs
+		}
 		run.Rows += stats.Rows
 		run.Invalid += stats.Invalid
 		for _, s := range samples {

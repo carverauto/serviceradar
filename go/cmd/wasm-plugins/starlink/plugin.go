@@ -188,6 +188,9 @@ func runTelemetry(client *apiClient, cfg Config, now time.Time, emitter func(str
 	if flightDiscovery != nil {
 		result.AddDeviceDiscovery(*flightDiscovery)
 	}
+	if addressDiscovery := buildAddressDiscovery(run.Allocations, instance, now); addressDiscovery != nil {
+		result.AddDeviceDiscovery(*addressDiscovery)
+	}
 	details, _ := json.Marshal(map[string]any{
 		"stream_iterations": run.Iterations,
 		"stream_rows":       run.Rows,

@@ -130,6 +130,29 @@ func TestTelemetryCollectNamesAGapLongerThanTheThreshold(t *testing.T) {
 	}
 }
 
+// Carrier-grade NAT gives many terminals one public address, so an address is
+// metadata on each terminal and never an identifier that could merge them.
+func TestSharedPublicAddressNeverMergesTerminals(t *testing.T) {
+	shared := `["192.0.2.10"]`
+	rows := terminalRow(sampleAtNs) + "," +
+		`["i",` + strconv.FormatInt(sampleAtNs, 10) + `,"ut` + testTerminalA + `","` + testAccountNumber + `",` + shared + `],` +
+		`["i",` + strconv.FormatInt(sampleAtNs, 10) + `,"ut` + testTerminalB + `","` + testAccountNumber + `",` + shared + `]`
+	result, _ := runTelemetryFixture(t, rows, time.Unix(0, sampleAtNs).Add(time.Minute))
+
+	if len(result.DeviceDiscovery) != 1 || len(result.DeviceDiscovery[0].Devices) != 2 {
+		t.Fatalf("want one enrichment with both terminals, got %+v", result.DeviceDiscovery)
+	}
+	for i, want := range []string{terminalDeviceID(testTerminalA), terminalDeviceID(testTerminalB)} {
+		device := result.DeviceDiscovery[0].Devices[i]
+		if device.DeviceID != want || device.Metadata["integration_id"] != want {
+			t.Fatalf("device %d identity %q / %v, want %q", i, device.DeviceID, device.Metadata["integration_id"], want)
+		}
+		if device.IP != "" || device.Metadata["public_ipv4"] != "192.0.2.10" {
+			t.Fatalf("device %d ip %q public_ipv4 %v: a shared address must be metadata only", i, device.IP, device.Metadata["public_ipv4"])
+		}
+	}
+}
+
 func TestDispatchWithoutActionIsUnknown(t *testing.T) {
 	if r := dispatch(mustConfig(t, `{}`), newFakeHTTP(t), testObservedAt); r.Status != sdk.StatusUnknown {
 		t.Fatalf("a plain scheduled check has no token and must not call the API: %q", r.Status)
