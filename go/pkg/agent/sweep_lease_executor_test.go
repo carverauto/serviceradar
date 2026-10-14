@@ -390,11 +390,49 @@ func TestSweepLeaseExecutorBindsExecutionIDToTheSweepThatFinished(t *testing.T) 
 		t.Fatal("executor pass did not finish")
 	}
 
+	fixture.multi.AcknowledgeSweepResults(response.SweepGroupId, response.CurrentSequence)
 	response, err = fixture.multi.GetSweepResults(context.Background(), "")
 	require.NoError(t, err)
 	require.True(t, response.HasNewData)
 	require.Equal(t, secondID, response.ExecutionId)
 	require.Equal(t, secondID, sweepResultHost(t, response.Data))
+}
+
+// Two due slots finish in one pass before anything is published. Each cycle
+// is returned in order under its own execution id, including when both
+// completions share a LastSweep unix second. An unacknowledged read repeats
+// the unpublished cycle instead of jumping ahead.
+func TestSweepLeaseExecutorPublishesEveryCatchUpSlot(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	lease, firstID, secondID := twoDueLeaseSlots(t)
+	fixture.install(t, lease)
+	fixture.service.sweeper = newSameSecondSweeper()
+
+	fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+
+	first, err := fixture.multi.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, first.HasNewData)
+	require.Equal(t, firstID, first.ExecutionId)
+	require.Equal(t, firstID, sweepResultHost(t, first.Data))
+
+	repeated, err := fixture.multi.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, repeated.HasNewData)
+	require.Equal(t, first.CurrentSequence, repeated.CurrentSequence)
+	require.Equal(t, firstID, repeated.ExecutionId)
+
+	fixture.multi.AcknowledgeSweepResults(first.SweepGroupId, first.CurrentSequence)
+	second, err := fixture.multi.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.True(t, second.HasNewData)
+	require.Equal(t, secondID, second.ExecutionId)
+	require.Equal(t, secondID, sweepResultHost(t, second.Data))
+
+	fixture.multi.AcknowledgeSweepResults(second.SweepGroupId, second.CurrentSequence)
+	done, err := fixture.multi.GetSweepResults(context.Background(), "")
+	require.NoError(t, err)
+	require.False(t, done.HasNewData)
 }
 
 // A leased cycle that publishes no hosts must not leave its execution id
@@ -670,3 +708,56 @@ func (*gatedSweeper) GetBannerGrabStats() *models.BannerGrabStats {
 	return nil
 }
 func (*gatedSweeper) SetManualSchedule(bool) {}
+
+// sameSecondSweeper keeps one summary and rewrites it in place. Both
+// completions share a LastSweep unix second, which is what a catch-up of
+// two slots in the same second looks like after the store has pruned the
+// earlier hosts.
+type sameSecondSweeper struct {
+	mu      sync.Mutex
+	summary *models.SweepSummary
+}
+
+func newSameSecondSweeper() *sameSecondSweeper {
+	return &sameSecondSweeper{
+		summary: &models.SweepSummary{
+			Network:        "192.0.2.0/24",
+			TotalHosts:     1,
+			AvailableHosts: 1,
+			LastSweep:      1_700_000_000,
+			Hosts:          []models.HostResult{{Available: true}},
+		},
+	}
+}
+
+func (s *sameSecondSweeper) RunOnce(ctx context.Context) error {
+	return s.RunOnceWithExecution(ctx, "")
+}
+
+func (s *sameSecondSweeper) RunOnceWithExecution(_ context.Context, executionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.summary.ExecutionID = executionID
+	s.summary.Hosts[0].Host = executionID
+
+	return nil
+}
+
+func (s *sameSecondSweeper) GetStatus(context.Context) (*models.SweepSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// The live summary is rewritten in place, the way the sweeper store keeps
+	// only the latest cycle. Callers have to snapshot it themselves.
+	return s.summary, nil
+}
+
+func (*sameSecondSweeper) Start(context.Context) error           { return nil }
+func (*sameSecondSweeper) Stop() error                           { return nil }
+func (*sameSecondSweeper) UpdateConfig(*models.Config) error     { return nil }
+func (*sameSecondSweeper) GetScannerStats() *models.ScannerStats { return nil }
+func (*sameSecondSweeper) GetBannerGrabStats() *models.BannerGrabStats {
+	return nil
+}
+func (*sameSecondSweeper) SetManualSchedule(bool) {}
