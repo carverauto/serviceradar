@@ -4,8 +4,10 @@ defmodule ServiceRadar.Jobs.SecurityEventsRetentionWorker do
   older than the configured retention window.
 
   Configured by `config :serviceradar_core, #{__MODULE__}, retention_days: N`
-  (default 90). Scheduled via the Oban cron entry in `config/config.exs`;
-  the worker is idempotent and safe to re-run.
+  (default 90; `SECURITY_EVENTS_RETENTION_DAYS` via `config/runtime.exs`,
+  clamped to at least 1 day). Scheduled daily at 03:23 UTC from the dev
+  crontab in `config/config.exs` and the release crontab in `runtime.exs`.
+  The worker is idempotent and safe to re-run.
   """
 
   use Oban.Worker,

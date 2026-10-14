@@ -5,10 +5,12 @@
 Bounded retention for the append-only tables behind Settings -> Audit -> History:
 the 17 AshPaperTrail `<resource>_versions` tables in the History allow-list,
 including `sweep_group_versions`, plus the `api_events` and `security_events`
-event logs. Without this capability every audit and event table grows forever;
-with it, each window is operator-configurable (Helm value or environment
-variable, per table). `AuditVersionRetentionWorker` prunes the version tables
-in bounded batches. `ApiEventsRetentionWorker` and
+event logs. Without this capability the History version tables and
+`api_events` grow without a bound; `security_events` already prunes at 90
+days, and this capability makes that window operator-configurable. Each
+window is a Helm value or environment variable, per table.
+`AuditVersionRetentionWorker` prunes the version tables in bounded batches.
+`ApiEventsRetentionWorker` and
 `SecurityEventsRetentionWorker` each delete every row past the cutoff in one
 run. The four `remote_access_*_versions` tables are covered separately by
 `RemoteAccessVersionRetentionWorker` and are out of scope here.

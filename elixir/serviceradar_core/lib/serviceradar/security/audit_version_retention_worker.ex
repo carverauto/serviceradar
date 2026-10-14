@@ -11,8 +11,8 @@ defmodule ServiceRadar.Security.AuditVersionRetentionWorker do
   one: a maintenance sweep bypassing Ash/policy overhead is the established
   pattern here, not a new one.
 
-  Per-table retention windows follow the two tiers from
-  `openspec/changes/add-audit-history-retention-compression/design.md`:
+  Per-table retention windows follow the two tiers in
+  `helm/serviceradar/values.yaml` (`core.auditHistoryRetention`):
 
     * **90 days** — execution/event-tier tables: every playbook run, every
       northbound action invocation and event-handler dispatch.

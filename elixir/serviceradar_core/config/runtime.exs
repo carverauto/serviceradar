@@ -1332,8 +1332,8 @@ if config_env() == :prod do
     retention_days: "API_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
   # Audit-history retention (Settings -> Audit -> History tables plus the
-  # api_events / security_events event logs). Two tiers per
-  # openspec/changes/add-audit-history-retention-compression/design.md:
+  # api_events / security_events event logs). Two tiers, matching
+  # helm/serviceradar/values.yaml `core.auditHistoryRetention`:
   # 90 days for execution/event-tier tables, 180 days for config-audit-trail
   # version tables. Every version-table window treats `0` as "disabled",
   # matching ANSIBLE_RETENTION_RUN_DETAIL_DAYS semantics.
