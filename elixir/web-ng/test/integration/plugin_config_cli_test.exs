@@ -19,6 +19,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigCliTest do
     agent_uid = "example-agent-#{marker}"
     register_control_session!(agent_uid, "example-gateway")
     package = approved_package(plugin_id)
+    approved_package("example-netbox-#{marker}", credential_integrations("netbox", "api_token"))
+    approved_package("example-awx-#{marker}", credential_integrations("awx", "bearer_token"))
     {:ok, token, _} = Guardian.create_access_token(admin_user_fixture())
 
     server =
@@ -192,10 +194,23 @@ defmodule ServiceRadarWebNGWeb.PluginConfigCliTest do
     payload
   end
 
-  defp approved_package(plugin_id) do
+  defp approved_package(plugin_id, integrations \\ nil) do
     Plugin
     |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Example config"}, actor: system_actor())
     |> Ash.create!()
+
+    manifest = %{
+      "id" => plugin_id,
+      "name" => "Example config",
+      "version" => "1.0.0",
+      "entrypoint" => "run_check",
+      "outputs" => "serviceradar.plugin_result.v1",
+      "capabilities" => ["get_config"],
+      "resources" => %{"requested_cpu_ms" => 1_000, "requested_memory_mb" => 64}
+    }
+
+    manifest =
+      if is_map(integrations), do: Map.put(manifest, "integrations", integrations), else: manifest
 
     package =
       PluginPackage
@@ -207,15 +222,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigCliTest do
           version: "1.0.0",
           entrypoint: "run_check",
           outputs: "serviceradar.plugin_result.v1",
-          manifest: %{
-            "id" => plugin_id,
-            "name" => "Example config",
-            "version" => "1.0.0",
-            "entrypoint" => "run_check",
-            "outputs" => "serviceradar.plugin_result.v1",
-            "capabilities" => ["get_config"],
-            "resources" => %{"requested_cpu_ms" => 1_000, "requested_memory_mb" => 64}
-          },
+          manifest: manifest,
           config_schema: %{},
           signature: %{}
         },
@@ -225,5 +232,37 @@ defmodule ServiceRadarWebNGWeb.PluginConfigCliTest do
 
     {:ok, approved} = Packages.approve(package.id, %{}, actor: system_actor())
     approved
+  end
+
+  defp credential_integrations(provider, auth_method) do
+    %{
+      "credential_profiles" => [
+        %{
+          "provider" => provider,
+          "label" => provider,
+          "supports_rules" => false,
+          "purposes" => ["inventory_sync"],
+          "scope_types" => ["agent"],
+          "auth_methods" => [
+            %{
+              "id" => auth_method,
+              "label" => auth_method,
+              "credential_kind" => "api_token",
+              "fields" => [
+                %{
+                  "id" => "api_token",
+                  "label" => "API token",
+                  "control" => "password",
+                  "required" => true,
+                  "secret" => true
+                }
+              ],
+              "payload" => %{"format" => "scalar", "field" => "api_token"}
+            }
+          ],
+          "provisioning" => %{"mode" => "credential_only"}
+        }
+      ]
+    }
   end
 end
