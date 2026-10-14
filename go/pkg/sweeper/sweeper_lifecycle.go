@@ -37,16 +37,18 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 	s.ensureScannersInitialized()
 
-	initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-	if err := s.runSweepWithLock(initialCtx); err != nil {
-		initialCancel()
-
-		s.logRunError(err, "Initial sweep failed")
+	if s.manualSchedule.Load() {
+		s.logger.Info().Msg("Manual schedule active, skipping initial sweep")
 	} else {
-		s.logger.Info().Msg("Initial sweep completed successfully")
-	}
+		initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
+		if err := s.runSweepWithLock(initialCtx); err != nil {
+			s.logRunError(err, "Initial sweep failed")
+		} else {
+			s.logger.Info().Msg("Initial sweep completed successfully")
+		}
 
-	initialCancel()
+		initialCancel()
+	}
 
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
@@ -70,6 +72,10 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			s.logger.Info().Dur("newInterval", newInterval).Msg("Resetting sweep ticker due to interval change")
 			ticker.Reset(newInterval)
 		case t := <-ticker.C:
+			if s.manualSchedule.Load() {
+				continue
+			}
+
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
 			sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
@@ -82,6 +88,21 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			sweepCancel()
 		}
 	}
+}
+
+// SetManualSchedule switches the local interval ticker off or on. While on,
+// Start runs no initial or periodic sweep; an external scheduler drives the
+// sweeper through RunOnce. Turning it back off resumes ticking from the next
+// interval boundary.
+func (s *NetworkSweeper) SetManualSchedule(manual bool) {
+	if s.manualSchedule.Swap(manual) != manual {
+		s.logger.Info().Bool("manual_schedule", manual).Msg("Sweep schedule mode changed")
+	}
+}
+
+// ManualSchedule reports whether the local interval ticker is suppressed.
+func (s *NetworkSweeper) ManualSchedule() bool {
+	return s.manualSchedule.Load()
 }
 
 // RunOnce triggers a single sweep cycle immediately.
