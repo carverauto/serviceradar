@@ -43,8 +43,6 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   @max_ttl_seconds 3_600
   @default_ttl_seconds 600
 
-  @default_rate_limit %{max_mints: 30, window_seconds: 60}
-
   @doc """
   Mints ICE servers for one viewer session.
 
@@ -76,9 +74,14 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
           {:error, :no_backend}
 
         backend when is_atom(backend) ->
-          module = backend_module(backend)
-          opts = opts |> Keyword.put(:ttl_seconds, ttl) |> put_subject(subject, config)
-          module.mint(normalized_subject(subject), opts)
+          case backend_module(backend) do
+            {:ok, module} ->
+              opts = opts |> Keyword.put(:ttl_seconds, ttl) |> put_subject(subject, config)
+              module.mint(normalized_subject(subject), opts)
+
+            {:error, reason} ->
+              {:error, reason}
+          end
 
         _other ->
           {:error, :invalid_backend}
@@ -88,16 +91,20 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
 
   @doc """
   The subject digest embedded in TURN usernames for non-legacy callers:
-  a non-reversible SHA-256 digest of the subject tuple, hex-encoded and
-  truncated to 32 characters. Raw user or session identifiers never reach
-  the username.
+  a non-reversible SHA-256 digest of a length-prefixed encoding of the
+  subject tuple, hex-encoded and truncated to 32 characters. Raw user or
+  session identifiers never reach the username.
   """
   @spec subject_digest({feature :: binary(), session_id :: binary(), viewer_id :: binary()}) ::
           String.t()
   def subject_digest({feature, session_id, viewer_id})
       when is_binary(feature) and is_binary(session_id) and is_binary(viewer_id) do
+    payload =
+      <<byte_size(feature)::32, feature::binary, byte_size(session_id)::32, session_id::binary,
+        byte_size(viewer_id)::32, viewer_id::binary>>
+
     :sha256
-    |> :crypto.hash(Enum.join([feature, session_id, viewer_id], ":"))
+    |> :crypto.hash(payload)
     |> Base.encode16(case: :lower)
     |> binary_part(0, 32)
   end
@@ -126,12 +133,7 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   end
 
   defp put_subject(opts, subject, _config) when is_binary(subject) do
-    # Per-actor/per-session sliding-window mint limiter. Counters live in a
     # Legacy raw subject string (remote desktop): passed through verbatim.
-    # bounded ETS table keyed by {actor_id, session_id, window_index}; each
-    # check prunes the caller's expired windows so the table stays bounded
-    # by active viewers.
-
     if opts[:legacy_subject], do: Keyword.put(opts, :legacy_subject_value, subject), else: opts
   end
 
@@ -149,9 +151,10 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
     end
   end
 
-  defp backend_module(:static_secret), do: ServiceRadar.WebRTC.IceCredentials.StaticSecret
-  defp backend_module(:cloudflare), do: ServiceRadar.WebRTC.IceCredentials.Cloudflare
-  defp backend_module(other), do: raise("unknown ICE credential backend: #{inspect(other)}")
+  defp backend_module(:static_secret), do: {:ok, ServiceRadar.WebRTC.IceCredentials.StaticSecret}
+  # Task 1.3 adds the Cloudflare backend; this slice only reserves the atom.
+  defp backend_module(:cloudflare), do: {:error, :invalid_backend}
+  defp backend_module(_other), do: {:error, :invalid_backend}
 end
 
 defmodule ServiceRadar.WebRTC.IceCredentials.MintLimiter do
@@ -160,6 +163,7 @@ defmodule ServiceRadar.WebRTC.IceCredentials.MintLimiter do
   use GenServer
 
   @table :webrtc_ice_mint_counters
+  @default_limit %{max_mints: 30, window_seconds: 60}
 
   def check(config, opts) do
     with {:ok, key} <- rate_key(opts) do
@@ -168,17 +172,15 @@ defmodule ServiceRadar.WebRTC.IceCredentials.MintLimiter do
   end
 
   defp limit(config) do
-    case Keyword.get(config, :rate_limit, @default_limit_missing) do
+    case Keyword.get(config, :rate_limit) do
       %{max_mints: m, window_seconds: w}
       when is_integer(m) and m > 0 and is_integer(w) and w > 0 ->
         %{max_mints: m, window_seconds: w}
 
       _other ->
-        %{max_mints: 30, window_seconds: 60}
+        @default_limit
     end
   end
-
-  @default_limit_missing nil
 
   defp rate_key(opts) do
     actor_id = normalize(Keyword.get(opts, :actor_id))
@@ -208,30 +210,43 @@ defmodule ServiceRadar.WebRTC.IceCredentials.MintLimiter do
         _from,
         table
       ) do
-    window = :second |> System.system_time() |> div(window_seconds)
-    prune(key, window)
+    now = System.monotonic_time(:millisecond)
+    cutoff = now - window_seconds * 1_000
+    drop_idle_keys(cutoff)
 
-    count =
-      case :ets.lookup(@table, {key, window}) do
-        [{_, existing}] -> existing
-        [] -> 0
+    queue =
+      case :ets.lookup(@table, key) do
+        [{^key, existing}] -> existing
+        [] -> :queue.new()
       end
 
-    if count >= max_mints do
+    if :queue.len(queue) >= max_mints do
       {:reply, {:error, :rate_limited}, table}
     else
-      :ets.insert(@table, {{key, window}, count + 1})
+      :ets.insert(@table, {key, :queue.in(now, queue)})
       {:reply, :ok, table}
     end
   end
 
-  defp prune(key, window) do
-    # The previous window may still be live (sliding edge); anything older
-    # is gone. Table growth is bounded by one entry per active viewer per
-    # two windows.
-    :ets.select_delete(@table, [
-      {{{key, :_}, :_}, [{:"=<", {:element, 2, {:element, 1, :"$_"}}, window - 2}], [true]}
-    ])
+  defp drop_idle_keys(cutoff) do
+    @table
+    |> :ets.tab2list()
+    |> Enum.each(fn {key, queue} ->
+      pruned = prune_deque(queue, cutoff)
+
+      if :queue.is_empty(pruned) do
+        :ets.delete(@table, key)
+      else
+        :ets.insert(@table, {key, pruned})
+      end
+    end)
+  end
+
+  defp prune_deque(queue, cutoff) do
+    case :queue.out(queue) do
+      {{:value, timestamp}, rest} when timestamp < cutoff -> prune_deque(rest, cutoff)
+      _still_live -> queue
+    end
   end
 
   def start_link(_) do

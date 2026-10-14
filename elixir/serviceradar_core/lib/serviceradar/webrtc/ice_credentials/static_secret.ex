@@ -17,7 +17,9 @@ defmodule ServiceRadar.WebRTC.IceCredentials.StaticSecret do
   The secret comes from `:shared_secret` in `opts` or
   `config :serviceradar_core, #{IceCredentials}, static_secret: [..]`
   (`:secret_file` is read once per mint through `load_shared_secret/1`,
-  which enforces the 32..512 byte bounds RDP uses today).
+  which enforces the same bounded read, trailing-CR/LF strip, and
+  32..512 printable-ASCII checks remote desktop uses today). Already
+  loaded secrets passed in opts are used as-is.
   """
 
   @behaviour ServiceRadar.WebRTC.IceCredentials
@@ -26,6 +28,8 @@ defmodule ServiceRadar.WebRTC.IceCredentials.StaticSecret do
 
   @min_secret_bytes 32
   @max_secret_bytes 512
+  # Remote desktop reads at most 512 secret bytes plus a trailing CRLF.
+  @max_secret_file_bytes @max_secret_bytes + 2
 
   @impl IceCredentials
   def mint(_subject, opts) do
@@ -53,19 +57,23 @@ defmodule ServiceRadar.WebRTC.IceCredentials.StaticSecret do
   end
 
   @doc """
-  Reads and validates a TURN shared secret file. Secrets must be 32..512
-  bytes after trimming (the same bounds remote desktop enforces today).
+  Reads and validates a TURN shared secret file.
+
+  Files larger than 514 bytes are rejected before the rest of the file is
+  read. Only trailing CR/LF bytes are stripped. The remaining secret must
+  be 32..512 printable ASCII bytes, the same contract remote desktop
+  enforces. Non-text bytes return `{:error, :invalid_secret}`.
   """
   @spec load_shared_secret(Path.t()) :: {:ok, binary()} | {:error, term()}
   def load_shared_secret(path) when is_binary(path) do
-    case File.read(path) do
-      {:ok, content} ->
-        secret = String.trim(content)
-
-        cond do
-          byte_size(secret) < @min_secret_bytes -> {:error, :secret_too_short}
-          byte_size(secret) > @max_secret_bytes -> {:error, :secret_too_long}
-          true -> {:ok, secret}
+    case :file.open(path, [:read, :binary, :raw]) do
+      {:ok, io_device} ->
+        try do
+          with {:ok, contents} <- read_bounded_secret(io_device) do
+            validate_secret_bytes(strip_trailing_crlf(contents))
+          end
+        after
+          :file.close(io_device)
         end
 
       {:error, reason} ->
@@ -87,25 +95,84 @@ defmodule ServiceRadar.WebRTC.IceCredentials.StaticSecret do
   end
 
   defp shared_secret(opts) do
-    secret =
-      opts[:shared_secret] ||
-        Keyword.get(backend_config(), :secret) ||
-        backend_config() |> Keyword.get(:secret_file) |> load_secret_file()
+    chosen = opts[:shared_secret] || Keyword.get(backend_config(), :secret)
 
-    case secret do
-      secret when is_binary(secret) and byte_size(secret) > 0 -> {:ok, secret}
-      _other -> {:error, :missing_secret}
+    cond do
+      is_binary(chosen) and byte_size(chosen) > 0 ->
+        {:ok, chosen}
+
+      chosen ->
+        {:error, :missing_secret}
+
+      true ->
+        case Keyword.get(backend_config(), :secret_file) do
+          path when is_binary(path) and path != "" -> load_shared_secret(path)
+          _missing -> {:error, :missing_secret}
+        end
     end
   end
 
-  defp load_secret_file(nil), do: nil
+  defp read_bounded_secret(io_device) do
+    case :file.position(io_device, :cur) do
+      {:ok, 0} ->
+        case :file.read(io_device, @max_secret_file_bytes + 1) do
+          :eof ->
+            {:ok, <<>>}
 
-  defp load_secret_file(path) when is_binary(path) do
-    case load_shared_secret(path) do
-      {:ok, secret} -> secret
-      {:error, _reason} -> nil
+          {:ok, contents} when byte_size(contents) <= @max_secret_file_bytes ->
+            case :file.read(io_device, 1) do
+              :eof -> {:ok, contents}
+              {:ok, _more} -> {:error, :secret_too_long}
+              {:error, reason} -> {:error, reason}
+            end
+
+          {:ok, _oversized} ->
+            {:error, :secret_too_long}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _non_regular ->
+        {:error, :invalid_secret}
     end
   end
+
+  defp strip_trailing_crlf(secret) do
+    secret
+    |> strip_trailing_byte(?\n)
+    |> strip_trailing_byte(?\r)
+  end
+
+  defp strip_trailing_byte(secret, byte) do
+    drop = count_trailing(secret, byte, byte_size(secret), 0)
+    binary_part(secret, 0, byte_size(secret) - drop)
+  end
+
+  defp count_trailing(_secret, _byte, 0, count), do: count
+
+  defp count_trailing(secret, byte, index, count) do
+    if :binary.at(secret, index - 1) == byte do
+      count_trailing(secret, byte, index - 1, count + 1)
+    else
+      count
+    end
+  end
+
+  defp validate_secret_bytes(secret) do
+    size = byte_size(secret)
+
+    cond do
+      size < @min_secret_bytes -> {:error, :secret_too_short}
+      size > @max_secret_bytes -> {:error, :secret_too_long}
+      not printable_ascii?(secret) -> {:error, :invalid_secret}
+      true -> {:ok, secret}
+    end
+  end
+
+  defp printable_ascii?(<<char, rest::binary>>) when char in ?!..?~, do: printable_ascii?(rest)
+  defp printable_ascii?(<<>>), do: true
+  defp printable_ascii?(_other), do: false
 
   defp subject_value(opts) do
     cond do

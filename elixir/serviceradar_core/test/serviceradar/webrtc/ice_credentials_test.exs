@@ -55,6 +55,19 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
       assert {:error, :missing_binding} =
                IceCredentials.mint({"camera", "session-1", "viewer-1"}, urls: ["turn:t:3478"])
     end
+
+    test "unknown and unimplemented backends return invalid_backend" do
+      for backend <- [:not_a_backend, :cloudflare] do
+        Application.put_env(:serviceradar_core, IceCredentials, backend: backend)
+
+        assert {:error, :invalid_backend} =
+                 IceCredentials.mint({"camera", "session-1", "viewer-1"},
+                   actor_id: "actor-1",
+                   session_id: "session-1",
+                   urls: ["turn:turn.example:3478"]
+                 )
+      end
+    end
   end
 
   describe "static_secret backend" do
@@ -81,7 +94,12 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
 
       # Non-legacy subjects embed only a digest, never raw identifiers.
       assert digest == IceCredentials.subject_digest({"camera", "session-1", "viewer-1"})
+      assert byte_size(digest) == 32
       refute server.username =~ "session-1"
+
+      refute IceCredentials.subject_digest({"camera", "a:b", "c"}) ==
+               IceCredentials.subject_digest({"camera:a", "b", "c"})
+
       assert server.credential == StaticSecret.turn_credential(@secret, server.username)
     end
 
@@ -168,27 +186,66 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
   end
 
   describe "secret file loader" do
-    test "enforces the 32..512 byte bounds" do
+    test "enforces the remote-desktop file contract" do
       dir = System.tmp_dir!()
-      short = Path.join(dir, "ice-cred-too-short")
-      long = Path.join(dir, "ice-cred-too-long")
-      ok = Path.join(dir, "ice-cred-ok")
+      nonce = System.unique_integer([:positive])
+      short = Path.join(dir, "ice-cred-too-short-#{nonce}")
+      long = Path.join(dir, "ice-cred-too-long-#{nonce}")
+      oversized = Path.join(dir, "ice-cred-oversized-#{nonce}")
+      ok = Path.join(dir, "ice-cred-ok-#{nonce}")
+      crlf = Path.join(dir, "ice-cred-crlf-#{nonce}")
+      leading_space = Path.join(dir, "ice-cred-leading-space-#{nonce}")
+      binary = Path.join(dir, "ice-cred-binary-#{nonce}")
 
       File.write!(short, String.duplicate("a", 31))
       File.write!(long, String.duplicate("a", 513))
+      File.write!(oversized, String.duplicate("a", 515))
       File.write!(ok, String.duplicate("a", 32))
+      File.write!(crlf, String.duplicate("a", 32) <> "\r\n")
+      File.write!(leading_space, " " <> String.duplicate("a", 32) <> "\n")
+      File.write!(binary, :binary.copy(<<0xFF>>, 32))
 
       assert {:error, :secret_too_short} = StaticSecret.load_shared_secret(short)
       assert {:error, :secret_too_long} = StaticSecret.load_shared_secret(long)
+      assert {:error, :secret_too_long} = StaticSecret.load_shared_secret(oversized)
       assert {:ok, secret} = StaticSecret.load_shared_secret(ok)
-      assert byte_size(secret) == 32
+      assert secret == String.duplicate("a", 32)
+      assert {:ok, ^secret} = StaticSecret.load_shared_secret(crlf)
+      assert {:error, :invalid_secret} = StaticSecret.load_shared_secret(leading_space)
+      assert {:error, :invalid_secret} = StaticSecret.load_shared_secret(binary)
 
       assert {:error, :enoent} =
-               StaticSecret.load_shared_secret(Path.join(dir, "ice-cred-absent"))
+               StaticSecret.load_shared_secret(Path.join(dir, "ice-cred-absent-#{nonce}"))
 
-      File.rm!(short)
-      File.rm!(long)
-      File.rm!(ok)
+      Enum.each([short, long, oversized, ok, crlf, leading_space, binary], &File.rm!/1)
+    end
+
+    test "mint returns the secret file error and still accepts a short opts secret" do
+      path = Path.join(System.tmp_dir!(), "ice-cred-mint-short-#{System.unique_integer([:positive])}")
+      File.write!(path, "short\n")
+      on_exit(fn -> File.rm(path) end)
+
+      Application.put_env(:serviceradar_core, IceCredentials,
+        backend: :static_secret,
+        static_secret: [secret_file: path]
+      )
+
+      assert {:error, :secret_too_short} =
+               IceCredentials.mint({"camera", "s", "v"},
+                 actor_id: "a",
+                 session_id: "s",
+                 urls: ["turn:t:3478"]
+               )
+
+      assert {:ok, %{ice_servers: [server]}} =
+               StaticSecret.mint(nil,
+                 urls: ["turn:turn.example:3478"],
+                 shared_secret: "turn-rest-secret",
+                 ttl_seconds: 600,
+                 legacy_subject_value: "actor-1:session-1:viewer-1"
+               )
+
+      assert server.credential == StaticSecret.turn_credential("turn-rest-secret", server.username)
     end
   end
 
@@ -220,6 +277,40 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
                  session_id: "other",
                  urls: ["turn:t:3478"]
                )
+    end
+
+    test "expires mints after the sliding window and deletes idle keys" do
+      Application.put_env(:serviceradar_core, IceCredentials,
+        backend: :static_secret,
+        rate_limit: %{max_mints: 1, window_seconds: 1},
+        static_secret: [secret: @secret]
+      )
+
+      assert {:ok, _} =
+               IceCredentials.mint({"camera", "s", "v"},
+                 actor_id: "old",
+                 session_id: "s",
+                 urls: ["turn:t:3478"]
+               )
+
+      assert {:error, :rate_limited} =
+               IceCredentials.mint({"camera", "s", "v"},
+                 actor_id: "old",
+                 session_id: "s",
+                 urls: ["turn:t:3478"]
+               )
+
+      Process.sleep(1_200)
+
+      assert {:ok, _} =
+               IceCredentials.mint({"camera", "s", "v"},
+                 actor_id: "new",
+                 session_id: "s",
+                 urls: ["turn:t:3478"]
+               )
+
+      assert :ets.info(:webrtc_ice_mint_counters, :size) == 1
+      assert :ets.lookup(:webrtc_ice_mint_counters, {"old", "s"}) == []
     end
   end
 end
