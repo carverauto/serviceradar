@@ -6,12 +6,16 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # would (required env stubbed) and asserts the Oban crontab is complete.
   use ExUnit.Case, async: false
 
+  alias Oban.Plugins.Cron
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
+  alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.Observability.ApiEventsRetentionWorker
   alias ServiceRadar.Observability.CapacityForecasting.Worker
+  alias ServiceRadar.Security.AuditVersionRetentionWorker
 
   @base_config Path.expand("../../config/config.exs", __DIR__)
   @prod_config Path.expand("../../config/prod.exs", __DIR__)
@@ -21,9 +25,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ServiceRadar.CompositeChecks.TickWorker,
     ServiceRadar.Identity.SAMLAssertionCleanupWorker,
     ServiceRadar.Jobs.AlertsRetentionWorker,
-    ServiceRadar.Jobs.SecurityEventsRetentionWorker,
-    ServiceRadar.Observability.ApiEventsRetentionWorker,
-    ServiceRadar.Security.AuditVersionRetentionWorker,
+    SecurityEventsRetentionWorker,
+    ApiEventsRetentionWorker,
+    AuditVersionRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
@@ -68,7 +72,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
       oban_config
       |> Keyword.fetch!(:plugins)
       |> Enum.find_value([], fn
-        {Oban.Plugins.Cron, opts} -> Keyword.get(opts, :crontab, [])
+        {Cron, opts} -> Keyword.get(opts, :crontab, [])
         _other -> nil
       end)
 
@@ -419,9 +423,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # and RootSpanRatioWorker.
   @mirrored_core_config_blocks [
     AgentCommandCleanupWorker,
-    ServiceRadar.Jobs.SecurityEventsRetentionWorker,
-    ServiceRadar.Observability.ApiEventsRetentionWorker,
-    ServiceRadar.Security.AuditVersionRetentionWorker,
+    SecurityEventsRetentionWorker,
+    ApiEventsRetentionWorker,
+    AuditVersionRetentionWorker,
     TopologyGraph,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
     ServiceRadar.WorkloadIdentity,
@@ -546,9 +550,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # The chart sets these env vars on the core pod. Only this release's
   # runtime.exs is evaluated there.
   @audit_history_cron [
-    {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, [queue: :maintenance]},
-    {"51 3 * * *", ServiceRadar.Observability.ApiEventsRetentionWorker, [queue: :maintenance]},
-    {"53 3 * * *", ServiceRadar.Security.AuditVersionRetentionWorker, [queue: :maintenance]}
+    {"23 3 * * *", SecurityEventsRetentionWorker, [queue: :maintenance]},
+    {"51 3 * * *", ApiEventsRetentionWorker, [queue: :maintenance]},
+    {"53 3 * * *", AuditVersionRetentionWorker, [queue: :maintenance]}
   ]
 
   @audit_version_defaults [
@@ -605,10 +609,10 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
 
     release = read_prod_config()[:serviceradar_core]
-    assert release[ServiceRadar.Observability.ApiEventsRetentionWorker][:retention_days] == 90
-    assert release[ServiceRadar.Jobs.SecurityEventsRetentionWorker][:retention_days] == 90
+    assert release[ApiEventsRetentionWorker][:retention_days] == 90
+    assert release[SecurityEventsRetentionWorker][:retention_days] == 90
 
-    version = release[ServiceRadar.Security.AuditVersionRetentionWorker]
+    version = release[AuditVersionRetentionWorker]
     assert version[:batch_size] == 10_000
 
     for {key, days} <- @audit_version_defaults do
@@ -622,10 +626,10 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     with_env("AUDIT_VERSION_RETENTION_BATCH_SIZE", "25")
 
     release = read_prod_config()[:serviceradar_core]
-    assert release[ServiceRadar.Observability.ApiEventsRetentionWorker][:retention_days] == 1
-    assert release[ServiceRadar.Jobs.SecurityEventsRetentionWorker][:retention_days] == 1
+    assert release[ApiEventsRetentionWorker][:retention_days] == 1
+    assert release[SecurityEventsRetentionWorker][:retention_days] == 1
 
-    version = release[ServiceRadar.Security.AuditVersionRetentionWorker]
+    version = release[AuditVersionRetentionWorker]
     assert version[:auth_lockout_days] == 0
     assert version[:ansible_playbook_run_days] == 0
     assert version[:batch_size] == 25
@@ -717,7 +721,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     config[:serviceradar_core][Oban]
     |> Keyword.fetch!(:plugins)
     |> Enum.find_value([], fn
-      {Oban.Plugins.Cron, opts} -> Keyword.get(opts, :crontab, [])
+      {Cron, opts} -> Keyword.get(opts, :crontab, [])
       _other -> nil
     end)
   end
