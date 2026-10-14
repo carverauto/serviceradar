@@ -1,8 +1,10 @@
 # mcp Specification
 
 ## Purpose
-TBD - created by archiving change fix-mcp-srql-sql-injection. Update Purpose after archive.
+Exposes ServiceRadar's read-only SRQL query engine, entity catalog, documentation resources, and inventory lookup tools over the Model Context Protocol (MCP) with OAuth bearer authentication, RBAC entity-access gating, rate limiting, and audit logging.
+
 ## Requirements
+
 ### Requirement: MCP tool parameters are quoted as SRQL literals
 The MCP server MUST treat structured tool parameters that represent scalar string values (for example identifiers, names, and timestamps) as bound values when constructing SRQL queries, and MUST NOT concatenate raw parameter text into SRQL fragments.
 
@@ -123,3 +125,52 @@ The identity diagnostic tools SHALL execute through the same SRQL path as `execu
 - **WHEN** that record is returned through `trace_device_identity`
 - **THEN** the unrecognized key SHALL be absent from the tool response
 
+### Requirement: Sweep diagnostics are discoverable through MCP
+
+The MCP SRQL tools SHALL surface the sweep diagnostics entities through the
+existing generic query and documentation tools, without adding sweep-specific
+tools.
+
+#### Scenario: Sweep entities appear in the catalog
+- **GIVEN** an MCP client calling the SRQL catalog tool
+- **WHEN** it requests a sweep diagnostics entity
+- **THEN** the entity's fields, enums and control tokens SHALL be returned
+- **AND** the entity SHALL appear in the generated entity list
+
+#### Scenario: Sweep recipes are discoverable by task
+- **GIVEN** an MCP client looking up SRQL documentation for sweeps
+- **WHEN** it searches for sweep, scan or port coverage
+- **THEN** recipes SHALL be returned for identifying which sweep groups target a
+  device, counting per-agent sweep results, and identifying where sweep groups
+  overlap or last wrote a device's availability
+
+#### Scenario: No new MCP tools are introduced
+- **GIVEN** the existing generic SRQL execute, catalog and lookup tools
+- **WHEN** sweep diagnostics are exposed
+- **THEN** they SHALL be reachable through those tools
+- **AND** no sweep-specific MCP tool SHALL be added
+
+#### Scenario: Documented retention prevents a false negative
+- **GIVEN** an operator querying raw sweep results beyond their retention window
+- **WHEN** the catalog documentation for the entity is read
+- **THEN** the retention window SHALL be stated
+- **AND** the operator SHALL be directed to the coverage rollup entity for older
+  history, so an empty result is not mistaken for an absence of sweep activity
+
+### Requirement: MCP sweep diagnostics respect authorization boundaries
+
+Sweep diagnostics reached through MCP SHALL be subject to the same partition and
+authorization boundaries as any other SRQL entity, and SHALL NOT expose
+credential material.
+
+#### Scenario: Sweep diagnostic entities require networks.sweeps.view in MCP
+- **GIVEN** an MCP caller without `networks.sweeps.view` permission
+- **WHEN** it calls `execute_srql` against any sweep diagnostic entity
+- **THEN** the tool call SHALL return JSON-RPC 200 with `isError: true` and
+  `"forbidden"`
+
+#### Scenario: Sweep diagnostics carry no credentials
+- **GIVEN** any sweep diagnostics entity reached through MCP
+- **WHEN** results are returned
+- **THEN** no community string, credential secret or compiled config document
+  SHALL be present in the response

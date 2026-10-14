@@ -91,38 +91,28 @@ device availability record.
   available to bind it to is null on exactly the declared-but-unobserved rows the
   entity exists to surface
 
-### Requirement: Compiled sweep config exposure excludes credentials
+### Requirement: Sweep diagnostic exposure excludes credentials and compiled config blobs
 
-SRQL SHALL expose the effective compiled sweep configuration delivered to an
-agent through a named-column allowlist, and SHALL NOT expose the stored
-compiled config document.
+SRQL sweep diagnostic entities SHALL expose declared sweep group and scanner
+profile configuration through explicit column projections, and SHALL NOT expose
+stored `compiled_config` documents, SNMP community strings, or raw `banner_grab`
+tuning blobs.
 
-#### Scenario: Compiled sweep settings are queryable
-- **GIVEN** an agent that has received a compiled sweep configuration
-- **WHEN** an operator queries the compiled sweep config entity
-- **THEN** the sweep group, scanner profile, effective ports, effective modes,
-  interval and enabled state SHALL be returned
-- **AND** an operator SHALL be able to see when a requested mode was dropped
-  during compilation
+#### Scenario: Credential material and compiled config blobs are structurally unreachable
+- **GIVEN** stored configurations that include compiler output or scanner
+  profile tuning
+- **WHEN** any sweep diagnostic entity (`sweep_groups`, `sweep_profiles`,
+  `sweep_executions`, `sweep_results`, `sweep_coverage`,
+  `device_sweep_overlap`) is queried
+- **THEN** no `compiled_config` document or SNMP `community` field SHALL be
+  projected in any form
+- **AND** `sweep_profiles` SHALL narrow `banner_grab` to `banner_grab_enabled`
+  and `banner_grab_protocols` only
 
-#### Scenario: Credential material is structurally unreachable
-- **GIVEN** stored compiled configurations that include SNMP and mapper output
-  carrying credential material
-- **WHEN** the compiled sweep config entity is queried
-- **THEN** only sweep configuration instances SHALL be selected
-- **AND** the compiled config document SHALL NOT be projected in any form
-- **AND** no credential material SHALL be returned
-
-#### Scenario: Widening the projection fails a test
-- **GIVEN** the allowlist of columns the entity exposes
-- **WHEN** a change adds a column to that projection
-- **THEN** an automated test SHALL fail
-- **AND** the failure SHALL occur before the field can be published
-
-#### Scenario: Compiled sweep config is admin scoped
-- **GIVEN** a caller without administrative scope
-- **WHEN** they query the compiled sweep config entity
-- **THEN** the query SHALL be denied
+#### Scenario: Admin-only scanner profiles are excluded from sweep_profiles
+- **GIVEN** a scanner profile flagged `admin_only = true`
+- **WHEN** `in:sweep_profiles` is queried
+- **THEN** only rows with `admin_only = false` SHALL be returned
 
 ### Requirement: Sweep coverage history entity
 
@@ -146,9 +136,9 @@ The SRQL entity permission gate SHALL identify the queried entity the same way
 the parser does, regardless of where the `in:` token appears in the query.
 
 #### Scenario: Entity token is not first
-- **GIVEN** a caller lacking the permission for an admin-scoped entity
+- **GIVEN** a caller lacking the permission for a gated sweep entity
 - **WHEN** they submit a query whose `in:` token is not the first token, such as
-  `limit:1 in:sweep_compiled_config`
+  `limit:1 in:sweep_groups`
 - **THEN** the gate SHALL resolve the entity and deny the query
 - **AND** the denial SHALL match the denial for the same query with `in:` first
 

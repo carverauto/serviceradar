@@ -50,22 +50,21 @@ device and agent but differing in sweep group is exactly the overlap case, and
 it survives in the rollup where `device_agent_availability` would have kept only
 the last writer.
 
-### Compiled config: allowlist, not filter
+### Compiled config: superseded by declared-targets relation (#4963 / #4970)
 
 `agent_config_versions.compiled_config` holds output from every compiler.
 `snmp_compiler.ex` and `mapper_compiler.ex` both place credential material
 there, so the table cannot be exposed as an SRQL entity.
 
-`sweep_compiled_config` therefore selects named columns only: sweep group id and
-name, profile id, ports, modes, interval, enabled, and compiled scan settings.
-The `compiled_config` jsonb is never projected, so there is no blob for a future
-compiler to hide a secret inside.
-
-An allowlist is chosen over a denylist because a denylist must be updated every
-time a compiler adds a field, and fails open when someone forgets. An
-integration test asserts the entity's exposed column set equals the allowlist
-exactly, so widening the projection turns a gate red rather than silently
-publishing a new field.
+An earlier draft proposed a `sweep_compiled_config` entity over
+`platform.agent_config_instances` (`config_type = 'sweep'`), but #4963
+confirmed that no production code path writes sweep rows to
+`agent_config_instances` (`SweepCompiler` caches compiled configs in ETS only).
+`persist-sweep-declared-targets` (#4970) superseded `sweep_compiled_config` by
+materializing declared `(sweep_group_id, device_uid)` pairs in
+`platform.sweep_group_declared_targets` and joining them in
+`platform.device_sweep_overlap` alongside `sweep_groups` and `sweep_profiles`,
+without persisting or projecting any `compiled_config` document.
 
 `sweep_profiles` exposes banner grab as `enabled` and `protocols` only. Banner
 grab writes are gated on `networks.sweeps.banner_grab`; reads through SRQL are
@@ -85,21 +84,16 @@ to an RBAC catalog key and returning `{:error, :forbidden}`. It is called from
 `Api.Access.execute_query/2`, which is the path HTTP `POST /api/query` and MCP
 `execute_srql` both take.
 
-Three consequences follow.
+Two consequences follow.
 
 **Mapping is mandatory, not optional.** `entity_access_test.exs` fails when any
 catalog entity other than `dashboards` has no permission mapping. An unmapped
 entity is `:passthrough`, meaning allowed, so that test is the only thing
-standing between a new entity and a silently ungated one. All seven sweep
-entities must be added to `EntityAccess` in the same change that adds them to
-the catalog. A second test asserts every catalog id parses through the Rust
-parser, so the Elixir and Rust entity lists cannot drift.
-
-**Gating `sweep_compiled_config` needs no new mechanism.** Add a permission to
-the RBAC catalog with admin default roles and list the entity under that key.
-`RoleProfileSeeder` re-syncs seeded profiles on boot, so there is no migration.
-There is no admin-only view key for sweeps today: `settings.networks.manage` is
-operator plus admin, so a new key is required rather than reused.
+standing between a new entity and a silently ungated one. All six sweep
+entities and their parser aliases are mapped to `networks.sweeps.view` in
+`EntityAccess` in the same change that adds them to the catalog. A second test
+asserts every catalog id parses through the Rust parser, so the Elixir and Rust
+entity lists cannot drift.
 
 **The gate has a token-order hole that this change must close.**
 `EntityAccess.extract_entity/1` anchors on `~r/^in:(\S+)/`, but the Rust parser

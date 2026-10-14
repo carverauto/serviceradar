@@ -1,6 +1,8 @@
 //! Query execution for the daily sweep coverage rollup entity (issue 4167).
 
-use super::{BindParam, QueryPlan};
+mod stats;
+
+use super::{BindParam, QueryPlan, bind_sql_param, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     models::SweepCoverageRow,
@@ -17,6 +19,7 @@ use diesel::prelude::*;
 use diesel::query_builder::{BoxedSelectStatement, FromClause};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
+use stats::{StatsPayload, build_stats_query, parse_stats_spec};
 
 type SweepCoverageTable = crate::schema::sweep_coverage_daily::table;
 type SweepCoverageFromClause = FromClause<SweepCoverageTable>;
@@ -33,6 +36,24 @@ type SweepCoverageQuery<'a> = BoxedSelectStatement<
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let built = build_stats_query(plan, &spec)?;
+        let sql = rewrite_placeholders(&built.sql);
+        let mut query = diesel::sql_query(sql).into_boxed();
+        for param in built.params {
+            query = bind_sql_param(query, param)?;
+        }
+        let rows: Vec<StatsPayload> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
+    }
+
     let rows: Vec<SweepCoverageRow> = build_query(plan)?
         .limit(plan.limit)
         .offset(plan.offset)
@@ -45,6 +66,12 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let built = build_stats_query(plan, &spec)?;
+        return Ok((rewrite_placeholders(&built.sql), built.params));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -79,12 +106,19 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
-    match plan.entity {
-        Entity::SweepCoverage => Ok(()),
-        _ => Err(ServiceError::InvalidRequest(
+    if !matches!(plan.entity, Entity::SweepCoverage) {
+        return Err(ServiceError::InvalidRequest(
             "entity not supported by sweep_coverage query".into(),
-        )),
+        ));
     }
+
+    if plan.downsample.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "sweep_coverage does not support bucket/downsample queries".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn build_query(plan: &QueryPlan) -> Result<SweepCoverageQuery<'static>> {
@@ -400,6 +434,70 @@ mod tests {
         assert!(
             sql.contains("ORDER BY \"sweep_coverage_daily\".\"day\" DESC"),
             "expected default ORDER BY to survive an unrecognized sort field: {sql}"
+        );
+    }
+
+    #[test]
+    fn builds_stats_count_by_agent_id_and_day_with_date_bounds() {
+        let mut plan = plan_with(vec![Filter {
+            field: "device_uid".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("sr:dev-1".to_string()),
+        }]);
+        let now = chrono::Utc::now();
+        plan.time_range = Some(TimeRange {
+            start: now - chrono::Duration::days(30),
+            end: now,
+        });
+        plan.stats = Some(crate::parser::StatsSpec::from_raw(
+            "count() as n by agent_id, day",
+        ));
+
+        let (sql, params) =
+            to_sql_and_params(&plan).expect("should build grouped stats SQL for sweep_coverage");
+        assert!(
+            sql.contains("SELECT jsonb_build_object('agent_id', sweep_coverage_daily.agent_id, 'day', sweep_coverage_daily.day, 'n', COUNT(*)) AS payload"),
+            "unexpected stats SELECT clause: {sql}"
+        );
+        assert!(
+            sql.contains("sweep_coverage_daily.day >= $1")
+                && sql.contains("sweep_coverage_daily.day <= $2")
+                && sql.contains("sweep_coverage_daily.device_uid = $3"),
+            "expected day date bounds and device_uid predicate in stats SQL: {sql}"
+        );
+        assert!(
+            sql.contains("GROUP BY sweep_coverage_daily.agent_id, sweep_coverage_daily.day"),
+            "expected GROUP BY agent_id, day in stats SQL: {sql}"
+        );
+        assert!(matches!(params[0], BindParam::Date(_)));
+        assert!(matches!(params[1], BindParam::Date(_)));
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn rejects_unsupported_stats_group_field_and_downsample() {
+        let mut bad_group = plan_with(vec![]);
+        bad_group.stats = Some(crate::parser::StatsSpec::from_raw(
+            "count() as n by execution_count",
+        ));
+        let err = to_sql_and_params(&bad_group).expect_err("unsupported group field must error");
+        assert!(
+            err.to_string().contains("unsupported stats group field"),
+            "unexpected error: {err}"
+        );
+
+        let mut downsampled = plan_with(vec![]);
+        downsampled.downsample = Some(crate::parser::DownsampleSpec {
+            bucket_seconds: 86_400,
+            agg: crate::parser::DownsampleAgg::Count,
+            series: None,
+            value_field: None,
+        });
+        let err = to_sql_and_params(&downsampled).expect_err("downsample must be rejected");
+        assert!(
+            err.to_string()
+                .contains("does not support bucket/downsample"),
+            "unexpected error: {err}"
         );
     }
 }

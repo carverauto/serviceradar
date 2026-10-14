@@ -131,6 +131,7 @@ in:sweep_groups partition:default enabled:true
 in:sweep_profiles name:%rids%
 in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc
 in:sweep_results time:last_7d
+in:sweep_results time:last_7d stats:count() as n by agent_id
 in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc
 in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc
 in:device_sweep_overlap device_uid:<device-uid>
@@ -150,6 +151,11 @@ in:device_sweep_overlap device_uid:<device-uid> relationship:declared_and_observ
   reachability, per-host errors)?
 - `in:sweep_results time:last_7d` -- every per-host sweep result within the
   retention window, across all devices.
+- `in:sweep_results time:last_7d stats:count() as n by agent_id` -- count sweep
+  host results per vantage-point agent across the 7-day retention window (`by`
+  supports `agent_id`, `sweep_group_id`, `status`, and `device_id`; `sweep_coverage`
+  also supports `stats:count() as n by agent_id,day` across `agent_id`,
+  `sweep_group_id`, `device_uid`, and `day`).
 - `in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc` --
   the daily coverage rollup for one device beyond the 7-day result window: how
   often it was scanned and available, day by day.

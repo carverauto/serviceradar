@@ -1,6 +1,8 @@
 //! Query execution for the sweep host result entity (issue 4167).
 
-use super::{BindParam, QueryPlan};
+mod stats;
+
+use super::{BindParam, QueryPlan, bind_sql_param, rewrite_placeholders};
 use crate::{
     error::{Result, ServiceError},
     models::SweepResultRow,
@@ -18,6 +20,7 @@ use diesel::prelude::*;
 use diesel::query_builder::{BoxedSelectStatement, FromClause};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
+use stats::{StatsPayload, build_stats_query, parse_stats_spec};
 
 type SweepResultsTable = crate::schema::sweep_host_results::table;
 type SweepResultsFromClause = FromClause<SweepResultsTable>;
@@ -30,6 +33,24 @@ type SweepResultsQuery<'a> =
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let built = build_stats_query(plan, &spec)?;
+        let sql = rewrite_placeholders(&built.sql);
+        let mut query = diesel::sql_query(sql).into_boxed();
+        for param in built.params {
+            query = bind_sql_param(query, param)?;
+        }
+        let rows: Vec<StatsPayload> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
+    }
+
     let rows: Vec<SweepResultRow> = build_query(plan)?
         .limit(plan.limit)
         .offset(plan.offset)
@@ -42,6 +63,12 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let built = build_stats_query(plan, &spec)?;
+        return Ok((rewrite_placeholders(&built.sql), built.params));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -73,12 +100,19 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
-    match plan.entity {
-        Entity::SweepResults => Ok(()),
-        _ => Err(ServiceError::InvalidRequest(
+    if !matches!(plan.entity, Entity::SweepResults) {
+        return Err(ServiceError::InvalidRequest(
             "entity not supported by sweep_results query".into(),
-        )),
+        ));
     }
+
+    if plan.downsample.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "sweep_results does not support bucket/downsample queries".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn build_query(plan: &QueryPlan) -> Result<SweepResultsQuery<'static>> {
@@ -429,6 +463,68 @@ mod tests {
         assert!(
             sql.contains("ORDER BY \"sweep_host_results\".\"inserted_at\" DESC"),
             "expected default ORDER BY to survive an unrecognized sort field: {sql}"
+        );
+    }
+
+    #[test]
+    fn builds_stats_count_by_agent_id_with_time_range() {
+        let mut plan = plan_with(vec![Filter {
+            field: "ip".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("10.0.1.50".to_string()),
+        }]);
+        let now = chrono::Utc::now();
+        plan.time_range = Some(TimeRange {
+            start: now - chrono::Duration::days(7),
+            end: now,
+        });
+        plan.stats = Some(crate::parser::StatsSpec::from_raw(
+            "count() as n by agent_id",
+        ));
+
+        let (sql, params) =
+            to_sql_and_params(&plan).expect("should build grouped stats SQL for sweep_results");
+        assert!(
+            sql.contains("SELECT jsonb_build_object('agent_id', sweep_host_results.agent_id, 'n', COUNT(*)) AS payload"),
+            "unexpected stats SELECT clause: {sql}"
+        );
+        assert!(
+            sql.contains("sweep_host_results.inserted_at >= $1")
+                && sql.contains("sweep_host_results.inserted_at <= $2")
+                && sql.contains("sweep_host_results.ip = $3"),
+            "expected time-range and ip predicates in stats SQL: {sql}"
+        );
+        assert!(
+            sql.contains("GROUP BY sweep_host_results.agent_id"),
+            "expected GROUP BY agent_id in stats SQL: {sql}"
+        );
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn rejects_unsupported_stats_group_field_and_downsample() {
+        let mut bad_group = plan_with(vec![]);
+        bad_group.stats = Some(crate::parser::StatsSpec::from_raw(
+            "count() as n by open_ports",
+        ));
+        let err = to_sql_and_params(&bad_group).expect_err("unsupported group field must error");
+        assert!(
+            err.to_string().contains("unsupported stats group field"),
+            "unexpected error: {err}"
+        );
+
+        let mut downsampled = plan_with(vec![]);
+        downsampled.downsample = Some(crate::parser::DownsampleSpec {
+            bucket_seconds: 300,
+            agg: crate::parser::DownsampleAgg::Count,
+            series: None,
+            value_field: None,
+        });
+        let err = to_sql_and_params(&downsampled).expect_err("downsample must be rejected");
+        assert!(
+            err.to_string()
+                .contains("does not support bucket/downsample"),
+            "unexpected error: {err}"
         );
     }
 }

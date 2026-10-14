@@ -169,16 +169,28 @@ defmodule ServiceRadarWebNGWeb.McpTest do
         actor: owner
       )
 
-    conn =
-      post(
-        authed(client, secret),
-        "/mcp",
-        tool_call("execute_srql", %{"query" => "in:devices"})
-      )
+    for query <- [
+          "in:devices",
+          "in:sweep_groups limit:1",
+          "in:sweep_profiles limit:1",
+          "in:sweep_executions limit:1",
+          "in:sweep_results limit:1",
+          "in:sweep_coverage limit:1",
+          "in:device_sweep_overlap limit:1"
+        ] do
+      conn =
+        post(
+          authed(client, secret),
+          "/mcp",
+          tool_call("execute_srql", %{"query" => query})
+        )
 
-    body = json_response(conn, 200)
-    assert body["result"]["isError"]
-    assert Enum.any?(body["result"]["content"], &String.contains?(&1["text"] || "", "forbidden"))
+      body = json_response(conn, 200)
+      assert body["result"]["isError"], "expected #{query} to be rejected with isError: true"
+
+      assert Enum.any?(body["result"]["content"], &String.contains?(&1["text"] || "", "forbidden")),
+             "expected #{query} denial content to include 'forbidden'"
+    end
   end
 
   test "execute_srql goes through Access/query_request", %{client: client, secret: secret} do
