@@ -19,6 +19,7 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	goproto "google.golang.org/protobuf/proto"
@@ -39,8 +41,8 @@ import (
 // SweepLeaseV1 window replacements on the control stream. This file owns the
 // agent side of that carrier: reassembly, install checks, the per-group
 // installed lease persisted across restarts, and the SweepLeaseAck answer.
-// Running the installed slots is M2.0e; until then an installed lease is held,
-// not executed, and the group's local schedule is untouched.
+// Running the installed slots is M2.0e, in sweep_lease_executor.go; an
+// installed lease there replaces the group's local ticker.
 
 const (
 	// sweepLeaseDirName is the per-group lease store under the agent state dir.
@@ -143,13 +145,20 @@ func reassembleSweepLeaseChunks(chunks []*proto.SweepLeaseChunk) ([]byte, error)
 // sweepLeaseStore holds the installed lease of each sweep group, one protobuf
 // file per group under dir. The file is the installed SweepLeaseV1 (the merged
 // result of every accepted push), rewritten atomically on each install, so a
-// restart reloads exactly what the last ack reported as installed.
+// restart reloads exactly what the last ack reported as installed. A JSON
+// sidecar per group records which slots the executor already ran (or refused
+// terminally), keyed by execution id with the slot's collection expiry, so a
+// restart never re-runs a slot and the record prunes itself once a slot can
+// no longer run anyway.
 type sweepLeaseStore struct {
 	dir string
 
-	mu     sync.Mutex
-	leases map[string]*edgev1.SweepLeaseV1
+	mu       sync.Mutex
+	leases   map[string]*edgev1.SweepLeaseV1
+	executed map[string]map[string]int64
 }
+
+const sweepLeaseExecutedSuffix = ".executed.json"
 
 func defaultSweepLeaseDir() string {
 	return filepath.Join(defaultStateDir(), sweepLeaseDirName)
@@ -164,7 +173,11 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 		return nil, fmt.Errorf("create sweep lease dir: %w", err)
 	}
 
-	store := &sweepLeaseStore{dir: dir, leases: make(map[string]*edgev1.SweepLeaseV1)}
+	store := &sweepLeaseStore{
+		dir:      dir,
+		leases:   make(map[string]*edgev1.SweepLeaseV1),
+		executed: make(map[string]map[string]int64),
+	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -175,7 +188,38 @@ func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".pb") {
+		if entry.IsDir() {
+			continue
+		}
+
+		if strings.HasSuffix(name, sweepLeaseExecutedSuffix) {
+			groupID := strings.TrimSuffix(name, sweepLeaseExecutedSuffix)
+
+			data, readErr := os.ReadFile(filepath.Join(dir, name))
+			if readErr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("read sweep lease executions %s: %w", groupID, readErr)
+				}
+
+				continue
+			}
+
+			executed := make(map[string]int64)
+			if decodeErr := json.Unmarshal(data, &executed); decodeErr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("decode sweep lease executions %s: %w", groupID, decodeErr)
+				}
+
+				continue
+			}
+
+			pruneExecuted(executed, time.Now().UnixNano())
+			store.executed[groupID] = executed
+
+			continue
+		}
+
+		if !strings.HasSuffix(name, ".pb") {
 			continue
 		}
 
@@ -218,6 +262,67 @@ func (s *sweepLeaseStore) Get(groupID string) *edgev1.SweepLeaseV1 {
 	return goproto.Clone(lease).(*edgev1.SweepLeaseV1)
 }
 
+// Groups lists the sweep groups with an installed lease, in stable order.
+func (s *sweepLeaseStore) Groups() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groups := make([]string, 0, len(s.leases))
+	for groupID := range s.leases {
+		groups = append(groups, groupID)
+	}
+	sort.Strings(groups)
+
+	return groups
+}
+
+// Executed reports whether the executor already ran (or terminally refused)
+// the slot with executionID in groupID.
+func (s *sweepLeaseStore) Executed(groupID string, executionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, ok := s.executed[groupID][executionID]
+
+	return ok
+}
+
+// MarkExecuted records executionID as done for groupID and persists the
+// group's record. Entries whose collection window has passed by now are
+// pruned first: such a slot can never run again, executed or not.
+func (s *sweepLeaseStore) MarkExecuted(groupID string, executionID string, collectionExpiresUnixNano int64, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	executed := s.executed[groupID]
+	if executed == nil {
+		executed = make(map[string]int64)
+		s.executed[groupID] = executed
+	}
+
+	pruneExecuted(executed, now.UnixNano())
+	executed[executionID] = collectionExpiresUnixNano
+
+	data, err := json.Marshal(executed)
+	if err != nil {
+		return fmt.Errorf("encode sweep lease executions: %w", err)
+	}
+
+	return writeSweepLeaseFile(s.executedPath(groupID), data)
+}
+
+func pruneExecuted(executed map[string]int64, nowUnixNano int64) {
+	for executionID, expires := range executed {
+		if expires <= nowUnixNano {
+			delete(executed, executionID)
+		}
+	}
+}
+
+func (s *sweepLeaseStore) executedPath(groupID string) string {
+	return filepath.Join(s.dir, groupID+sweepLeaseExecutedSuffix)
+}
+
 // Install checks push, applies it as a window replacement over the installed
 // lease, persists the result, and returns the lease the agent now holds for
 // the group (nil after a revocation). wantGroup is the sweep group the chunk
@@ -232,9 +337,14 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 
 	if push.GetRevoked() {
 		delete(s.leases, wantGroup)
+		delete(s.executed, wantGroup)
 
 		if err := os.Remove(s.path(wantGroup)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove revoked sweep lease: %w", err)
+		}
+
+		if err := os.Remove(s.executedPath(wantGroup)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove revoked sweep lease executions: %w", err)
 		}
 
 		return nil, nil
@@ -509,6 +619,7 @@ func (p *PushLoop) handleSweepLeaseChunk(chunk *proto.SweepLeaseChunk, assembler
 		return
 	}
 
+	p.onSweepLeaseInstalled(group, held)
 	p.sendSweepLeaseAck(sender, sweepLeaseAckInstalled(group, held, digest))
 }
 
