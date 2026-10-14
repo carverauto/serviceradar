@@ -9,6 +9,7 @@ alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
 alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
 alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
@@ -17,11 +18,13 @@ alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
 alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
 alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Notifications.StreamPublisher
+alias ServiceRadar.Observability.ApiEventsRetentionWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
+alias ServiceRadar.Security.AuditVersionRetentionWorker
 
 # Fail closed on invalid ingestion bounds; do not silently enable a larger queue.
 ingestion_positive_env = fn name, default ->
@@ -1167,6 +1170,13 @@ if config_env() == :prod do
       # large deletes do not overlap.
       {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
        ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
+      # Audit-history retention. 03:23 / 03:51 / 03:53 sit clear of the 03:17
+      # observability sweep, the 03:37 ledger prune, and the 03:43
+      # credential-broker delete. Kept in step with serviceradar_core's
+      # runtime.exs and config.exs.
+      {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
+      {"51 3 * * *", ApiEventsRetentionWorker, queue: :maintenance},
+      {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
       # Expired rows of the SAML assertion replay ledger. Rows are only needed
       # until the assertion's NotOnOrAfter (minutes), so an hourly sweep keeps
       # the table small.
@@ -1219,6 +1229,35 @@ if config_env() == :prod do
     retention_days: alerts_retention_days,
     batch_size: alerts_retention_batch_size,
     max_batches: alerts_retention_max_batches
+
+  config :serviceradar_core, ApiEventsRetentionWorker,
+    retention_days: "API_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  # Audit-history retention (Settings -> Audit -> History tables). Two tiers:
+  # 90 days for execution-tier version tables, 180 days for config-audit-trail
+  # version tables. Every version-table window treats 0 as disabled.
+  config :serviceradar_core, AuditVersionRetentionWorker,
+    batch_size: "AUDIT_VERSION_RETENTION_BATCH_SIZE" |> parse_int_env.(10_000) |> max(1),
+    ansible_playbook_run_days: "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS" |> parse_int_env.(90) |> max(0),
+    northbound_action_invocation_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_INVOCATION_DAYS" |> parse_int_env.(90) |> max(0),
+    northbound_action_event_handler_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_EVENT_HANDLER_DAYS" |> parse_int_env.(90) |> max(0),
+    network_credential_secret_days: "AUDIT_RETENTION_NETWORK_CREDENTIAL_SECRET_DAYS" |> parse_int_env.(180) |> max(0),
+    network_credential_rule_days: "AUDIT_RETENTION_NETWORK_CREDENTIAL_RULE_DAYS" |> parse_int_env.(180) |> max(0),
+    proxmox_console_session_days: "AUDIT_RETENTION_PROXMOX_CONSOLE_SESSION_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_controller_days: "AUDIT_RETENTION_ANSIBLE_CONTROLLER_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_playbook_days: "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_playbook_schedule_days: "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_SCHEDULE_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_playbook_repository_days: "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_REPOSITORY_DAYS" |> parse_int_env.(180) |> max(0),
+    northbound_action_provider_days: "AUDIT_RETENTION_NORTHBOUND_ACTION_PROVIDER_DAYS" |> parse_int_env.(180) |> max(0),
+    northbound_action_descriptor_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_DESCRIPTOR_DAYS" |> parse_int_env.(180) |> max(0),
+    visibility_profile_days: "AUDIT_RETENTION_VISIBILITY_PROFILE_DAYS" |> parse_int_env.(180) |> max(0),
+    auth_lockout_days: "AUDIT_RETENTION_AUTH_LOCKOUT_DAYS" |> parse_int_env.(180) |> max(0),
+    authored_dashboard_days: "AUDIT_RETENTION_AUTHORED_DASHBOARD_DAYS" |> parse_int_env.(180) |> max(0),
+    dashboard_report_schedule_days: "AUDIT_RETENTION_DASHBOARD_REPORT_SCHEDULE_DAYS" |> parse_int_env.(180) |> max(0),
+    sweep_group_days: "AUDIT_RETENTION_SWEEP_GROUP_DAYS" |> parse_int_env.(180) |> max(0)
 
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
@@ -1294,6 +1333,14 @@ if config_env() == :prod do
   config :serviceradar_core,
          SeasonalDispositionWorker,
          ProductionSchedule.seasonal_disposition_worker_config()
+
+  # Closes SecurityEventsRetentionWorker's config gap: its window was a
+  # hardcoded Elixir default with no Helm/env override. Default stays 90,
+  # so this is a no-op at deploy time unless an operator sets the var.
+  # Event windows clamp at 1 day; 0 is not a disable. Kept in step with
+  # serviceradar_core's runtime.exs -- this file is what the release loads.
+  config :serviceradar_core, SecurityEventsRetentionWorker,
+    retention_days: "SECURITY_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
 

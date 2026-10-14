@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Audit-History Retention Architecture",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/carverauto/serviceradar",
+      "revision": "da88a8f9b84aa6a2f35dae1c02f5feafbc382e3b"
+    },
+    "viewBox": [
+      930,
+      436
+    ]
+  },
+  "components": [
+    {
+      "id": "helm_values",
+      "type": "cloud",
+      "label": "auditHistoryRetention",
+      "sublabel": "values.yaml + docker-compose",
+      "tag": "Helm / Compose",
+      "sources": [
+        {
+          "path": "helm/serviceradar/values.yaml",
+          "label": "values block"
+        },
+        {
+          "path": "docker-compose.yml",
+          "label": "compose env"
+        }
+      ],
+      "pos": [
+        24,
+        100
+      ],
+      "size": [
+        160,
+        58
+      ]
+    },
+    {
+      "id": "runtime_env",
+      "type": "backend",
+      "label": "runtime.exs env vars",
+      "sublabel": "AUDIT_RETENTION_* \u00b7 tier defaults",
+      "tag": "versions: 0 disables",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/config/runtime.exs",
+          "label": "env wiring"
+        },
+        {
+          "path": "elixir/serviceradar_core_elx/config/runtime.exs",
+          "label": "release env wiring"
+        }
+      ],
+      "pos": [
+        24,
+        250
+      ],
+      "size": [
+        172,
+        62
+      ]
+    },
+    {
+      "id": "audit_worker",
+      "type": "backend",
+      "label": "AuditVersionRetentionWorker",
+      "sublabel": "daily 03:53 \u00b7 17 tables",
+      "tag": "new",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/security/audit_version_retention_worker.ex",
+          "label": "worker"
+        }
+      ],
+      "pos": [
+        400,
+        52
+      ],
+      "size": [
+        204,
+        64
+      ]
+    },
+    {
+      "id": "api_worker",
+      "type": "backend",
+      "label": "ApiEventsRetentionWorker",
+      "sublabel": "daily 03:51 \u00b7 delete_older_than",
+      "tag": "new",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/observability/api_events_retention_worker.ex",
+          "label": "worker"
+        }
+      ],
+      "pos": [
+        400,
+        164
+      ],
+      "size": [
+        204,
+        64
+      ]
+    },
+    {
+      "id": "sec_worker",
+      "type": "backend",
+      "label": "SecurityEventsRetentionWorker",
+      "sublabel": "daily 03:23 \u00b7 90d default unchanged",
+      "tag": "env-configurable now",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/jobs/security_events_retention_worker.ex",
+          "label": "worker"
+        }
+      ],
+      "pos": [
+        400,
+        276
+      ],
+      "size": [
+        204,
+        64
+      ]
+    },
+    {
+      "id": "version_tables",
+      "type": "database",
+      "label": "17 *_versions tables",
+      "sublabel": "PaperTrail \u00b7 History view reads",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/security/audit_history.ex",
+          "label": "History allow-list"
+        }
+      ],
+      "pos": [
+        700,
+        52
+      ],
+      "size": [
+        196,
+        64
+      ]
+    },
+    {
+      "id": "api_events",
+      "type": "database",
+      "label": "platform.api_events",
+      "sublabel": "AshEvents \u00b7 occurred_at",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/observability/api_event.ex",
+          "label": "resource"
+        }
+      ],
+      "pos": [
+        700,
+        164
+      ],
+      "size": [
+        196,
+        64
+      ]
+    },
+    {
+      "id": "security_events",
+      "type": "database",
+      "label": "platform.security_events",
+      "sublabel": "occurred_at",
+      "sources": [
+        {
+          "path": "elixir/serviceradar_core/lib/serviceradar/security/security_event.ex",
+          "label": "resource"
+        }
+      ],
+      "pos": [
+        700,
+        276
+      ],
+      "size": [
+        196,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Oban \u00b7 queue: maintenance",
+      "wraps": [
+        "audit_worker",
+        "api_worker",
+        "sec_worker"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "CNPG platform schema",
+      "wraps": [
+        "version_tables",
+        "api_events",
+        "security_events"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "values-to-env",
+      "from": "helm_values",
+      "to": "runtime_env",
+      "label": "values \u2192 env",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "env-to-audit-worker",
+      "from": "runtime_env",
+      "to": "audit_worker",
+      "label": "17 windows + batch_size",
+      "via": [
+        [
+          250,
+          281
+        ],
+        [
+          250,
+          84
+        ]
+      ],
+      "labelAt": [
+        350,
+        130
+      ]
+    },
+    {
+      "id": "env-to-api-worker",
+      "from": "runtime_env",
+      "to": "api_worker",
+      "label": "API_EVENTS_RETENTION_DAYS",
+      "variant": "dashed",
+      "via": [
+        [
+          270,
+          281
+        ],
+        [
+          270,
+          196
+        ]
+      ],
+      "labelAt": [
+        350,
+        242
+      ]
+    },
+    {
+      "id": "env-to-sec-worker",
+      "from": "runtime_env",
+      "to": "sec_worker",
+      "label": "SECURITY_EVENTS_RETENTION_DAYS",
+      "variant": "dashed",
+      "via": [
+        [
+          290,
+          281
+        ],
+        [
+          290,
+          308
+        ]
+      ],
+      "labelAt": [
+        350,
+        354
+      ]
+    },
+    {
+      "id": "audit-worker-to-tables",
+      "from": "audit_worker",
+      "to": "version_tables",
+      "label": "batched DELETE"
+    },
+    {
+      "id": "api-worker-to-events",
+      "from": "api_worker",
+      "to": "api_events",
+      "label": "system actor"
+    },
+    {
+      "id": "sec-worker-to-events",
+      "from": "sec_worker",
+      "to": "security_events",
+      "label": "bulk destroy"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two Retention Tiers",
+      "items": [
+        "90 days: api_events, security_events, playbook-run and northbound execution tables",
+        "180 days: config-audit-trail version tables (credentials, dashboards, lockouts)",
+        "0 disables a version table only; api and security event windows clamp at 1 day"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Batch Bound On Version Tables",
+      "items": [
+        "DELETE \u2026 WHERE id IN (SELECT \u2026 ORDER BY version_inserted_at LIMIT batch_size)",
+        "One AuditVersionRetentionWorker run deletes at most batch_size rows per table",
+        "api_events and security_events bulk-destroy every row past the cutoff in that run"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "No Behavior Change By Default",
+      "items": [
+        "security_events keeps its hardcoded 90-day window unless the new env var is set",
+        "remote_access_*_versions stay with their existing worker, untouched",
+        "No hypertable conversion, no compression, no UI controls in this change"
+      ]
+    }
+  ]
+}

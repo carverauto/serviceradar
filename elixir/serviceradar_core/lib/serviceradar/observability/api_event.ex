@@ -45,12 +45,30 @@ defmodule ServiceRadar.Observability.ApiEvent do
 
   code_interface do
     define :list, action: :read
+    define :delete_older_than, action: :delete_older_than, args: [:cutoff]
   end
 
   actions do
     read :read do
       primary? true
       prepare build(sort: [occurred_at: :desc])
+    end
+
+    destroy :destroy do
+      primary? true
+    end
+
+    # Retention sweep entry point (ApiEventsRetentionWorker), mirroring
+    # `ServiceRadar.Security.SecurityEvent`'s delete_older_than shape.
+    action :delete_older_than, :map do
+      argument :cutoff, :utc_datetime_usec, allow_nil?: false
+
+      run fn input, _ctx ->
+        ServiceRadar.Observability.ApiEvent.Retention.run(
+          input.arguments.cutoff,
+          actor: input.context[:private][:actor]
+        )
+      end
     end
   end
 

@@ -51,6 +51,7 @@
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
 {{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
+{{- $auditRetention := default (dict) $coreVals.auditHistoryRetention -}}
 {{- $ansibleVals := default (dict) $coreVals.ansible -}}
 {{- $eventWriter := default (dict) $coreVals.eventWriter -}}
 {{- $anomalyConfig := default (dict) $coreVals.anomalyDetectionConfig -}}
@@ -763,6 +764,50 @@ spec:
           value: {{ default 1 $observabilityRetention.datasetSnapshotKeepLast | quote }}
         - name: SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS
           value: {{ default 30 $observabilityRetention.topologyLinkDays | quote }}
+        # Audit-history retention (Settings -> Audit -> History version tables
+        # plus the api_events / security_events event logs). 0 disables a
+        # version-table window. The api and security event windows clamp to
+        # at least 1 day at runtime, and the version batch size clamps to 1.
+        - name: API_EVENTS_RETENTION_DAYS
+          value: {{ if hasKey $auditRetention "apiEventsDays" }}{{ get $auditRetention "apiEventsDays" | quote }}{{ else }}{{ 90 | quote }}{{ end }}
+        - name: SECURITY_EVENTS_RETENTION_DAYS
+          value: {{ if hasKey $auditRetention "securityEventsDays" }}{{ get $auditRetention "securityEventsDays" | quote }}{{ else }}{{ 90 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS
+          value: {{ if hasKey $auditRetention "ansiblePlaybookRunDays" }}{{ get $auditRetention "ansiblePlaybookRunDays" | quote }}{{ else }}{{ 90 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_NORTHBOUND_ACTION_INVOCATION_DAYS
+          value: {{ if hasKey $auditRetention "northboundActionInvocationDays" }}{{ get $auditRetention "northboundActionInvocationDays" | quote }}{{ else }}{{ 90 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_NORTHBOUND_ACTION_EVENT_HANDLER_DAYS
+          value: {{ if hasKey $auditRetention "northboundActionEventHandlerDays" }}{{ get $auditRetention "northboundActionEventHandlerDays" | quote }}{{ else }}{{ 90 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_NETWORK_CREDENTIAL_SECRET_DAYS
+          value: {{ if hasKey $auditRetention "networkCredentialSecretDays" }}{{ get $auditRetention "networkCredentialSecretDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_NETWORK_CREDENTIAL_RULE_DAYS
+          value: {{ if hasKey $auditRetention "networkCredentialRuleDays" }}{{ get $auditRetention "networkCredentialRuleDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_PROXMOX_CONSOLE_SESSION_DAYS
+          value: {{ if hasKey $auditRetention "proxmoxConsoleSessionDays" }}{{ get $auditRetention "proxmoxConsoleSessionDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_ANSIBLE_CONTROLLER_DAYS
+          value: {{ if hasKey $auditRetention "ansibleControllerDays" }}{{ get $auditRetention "ansibleControllerDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_DAYS
+          value: {{ if hasKey $auditRetention "ansiblePlaybookDays" }}{{ get $auditRetention "ansiblePlaybookDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_SCHEDULE_DAYS
+          value: {{ if hasKey $auditRetention "ansiblePlaybookScheduleDays" }}{{ get $auditRetention "ansiblePlaybookScheduleDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_REPOSITORY_DAYS
+          value: {{ if hasKey $auditRetention "ansiblePlaybookRepositoryDays" }}{{ get $auditRetention "ansiblePlaybookRepositoryDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_NORTHBOUND_ACTION_PROVIDER_DAYS
+          value: {{ if hasKey $auditRetention "northboundActionProviderDays" }}{{ get $auditRetention "northboundActionProviderDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_NORTHBOUND_ACTION_DESCRIPTOR_DAYS
+          value: {{ if hasKey $auditRetention "northboundActionDescriptorDays" }}{{ get $auditRetention "northboundActionDescriptorDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_VISIBILITY_PROFILE_DAYS
+          value: {{ if hasKey $auditRetention "visibilityProfileDays" }}{{ get $auditRetention "visibilityProfileDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_AUTH_LOCKOUT_DAYS
+          value: {{ if hasKey $auditRetention "authLockoutDays" }}{{ get $auditRetention "authLockoutDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_AUTHORED_DASHBOARD_DAYS
+          value: {{ if hasKey $auditRetention "authoredDashboardDays" }}{{ get $auditRetention "authoredDashboardDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_DASHBOARD_REPORT_SCHEDULE_DAYS
+          value: {{ if hasKey $auditRetention "dashboardReportScheduleDays" }}{{ get $auditRetention "dashboardReportScheduleDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_RETENTION_SWEEP_GROUP_DAYS
+          value: {{ if hasKey $auditRetention "sweepGroupDays" }}{{ get $auditRetention "sweepGroupDays" | quote }}{{ else }}{{ 180 | quote }}{{ end }}
+        - name: AUDIT_VERSION_RETENTION_BATCH_SIZE
+          value: {{ if hasKey $auditRetention "versionBatchSize" }}{{ get $auditRetention "versionBatchSize" | quote }}{{ else }}{{ 10000 | quote }}{{ end }}
         - name: ANSIBLE_RETENTION_RUN_DETAIL_DAYS
           value: {{ default 90 $ansibleVals.runDetailDays | quote }}
         - name: ANSIBLE_RETENTION_RUN_SUMMARY_DAYS
