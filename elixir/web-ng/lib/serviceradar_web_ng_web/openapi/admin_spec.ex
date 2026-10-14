@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   OpenAPI 3.0 spec for custom admin JSON endpoints.
   """
 
+  alias ServiceRadarWebNGWeb.OpenAPI.AnsibleAutomationSpec
   alias ServiceRadarWebNGWeb.OpenAPI.AnsibleRepositorySpec
 
   @portal_doc_version "v1"
@@ -13,7 +14,9 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   def document do
     base_document()
     |> Map.update!("paths", &Map.merge(&1, AnsibleRepositorySpec.paths()))
+    |> Map.update!("paths", &Map.merge(&1, AnsibleAutomationSpec.paths()))
     |> update_in(["components", "schemas"], &Map.merge(&1, AnsibleRepositorySpec.schemas()))
+    |> update_in(["components", "schemas"], &Map.merge(&1, AnsibleAutomationSpec.schemas()))
     |> portal_metadata()
   end
 

@@ -2,13 +2,13 @@
 
 - [x] 1.1 Inventory existing API, authentication, Ansible services, and active specifications.
 - [x] 1.2 Review and approve this proposal before implementing new capabilities.
-- [ ] 1.3 Define OpenAPI resources, pagination, errors, concurrency, idempotency, and readiness.
+- [x] 1.3 Define OpenAPI resources, pagination, errors, concurrency, idempotency, and readiness.
 - [x] 1.4 Enforce account RBAC intersected with token capabilities on configuration routes.
 - [x] 1.5 Complete credential/controller lifecycle with canonical guarded-deletion services.
 - [x] 1.6 Expose repository lifecycle and explicit sync/status through existing services.
-- [ ] 1.7 Expose inventory/membership discovery and evidence-backed review.
+- [x] 1.7 Expose inventory/membership discovery and evidence-backed review.
 - [ ] 1.8 Expose immutable binding prepare/review/revoke and canonical operation APIs.
-- [ ] 1.9 Test real bearer/API-key authentication, read-only tokens, revoked users, and resource scope.
+- [x] 1.9 Test real bearer/API-key authentication, read-only tokens, revoked users, and resource scope.
 
 ## 2. Upstream AWX Provisioning
 
@@ -35,6 +35,12 @@
 - [ ] 4.4 Run focused integration checks and the required complete Bazel unit suite before PR.
 
 ## Initial Delivery Status
+
+The admin OpenAPI document covers the shipped credential, rule, controller,
+repository, membership, binding, and operation routes. It does not describe
+upstream AWX project, inventory, source, environment, template, or role
+provisioning; those schemas stay with the unticked section 2 tasks. Cancel
+remains documented as not implemented.
 
 The first provider delivery manages ServiceRadar credentials, credential rules,
 controllers, and playbook repositories. Real Terraform CLI acceptance covers
