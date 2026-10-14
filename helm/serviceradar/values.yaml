@@ -504,7 +504,9 @@ core:
   # AuditVersionRetentionWorker / ApiEventsRetentionWorker /
   # SecurityEventsRetentionWorker. Two tiers: 90 days for execution/event
   # tables, 180 days for config-audit-trail tables. Set any version-table
-  # window to 0 to disable pruning for that table.
+  # window to 0 to disable pruning for that table. apiEventsDays and
+  # securityEventsDays of 0 are clamped to 1 day at runtime. versionBatchSize
+  # of 0 is clamped to 1.
   auditHistoryRetention:
     # Execution/event tier (90 days).
     apiEventsDays: 90
@@ -528,6 +530,7 @@ core:
     dashboardReportScheduleDays: 180
     sweepGroupDays: 180
     # Rows deleted per table per Oban run by AuditVersionRetentionWorker.
+    # 0 is clamped to 1 at runtime.
     versionBatchSize: 10000
   # Ansible integration: AWX/AAP playbook execution + observability.
   # Per-controller / per-repository / per-schedule overrides are stored

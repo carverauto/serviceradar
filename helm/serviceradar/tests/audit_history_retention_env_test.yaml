@@ -1,0 +1,390 @@
+suite: audit history retention environment
+templates:
+  - templates/core.yaml
+tests:
+  - it: renders the documented tier default for every audit history retention env
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: API_EVENTS_RETENTION_DAYS
+            value: "90"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SECURITY_EVENTS_RETENTION_DAYS
+            value: "90"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS
+            value: "90"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_INVOCATION_DAYS
+            value: "90"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_EVENT_HANDLER_DAYS
+            value: "90"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NETWORK_CREDENTIAL_SECRET_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NETWORK_CREDENTIAL_RULE_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_PROXMOX_CONSOLE_SESSION_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_CONTROLLER_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_SCHEDULE_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_REPOSITORY_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_PROVIDER_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_DESCRIPTOR_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_VISIBILITY_PROFILE_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_AUTH_LOCKOUT_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_AUTHORED_DASHBOARD_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_DASHBOARD_REPORT_SCHEDULE_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_SWEEP_GROUP_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_VERSION_RETENTION_BATCH_SIZE
+            value: "10000"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: quotes an explicit zero instead of substituting the tier default
+    set:
+      core.auditHistoryRetention.apiEventsDays: 0
+      core.auditHistoryRetention.securityEventsDays: 0
+      core.auditHistoryRetention.ansiblePlaybookRunDays: 0
+      core.auditHistoryRetention.northboundActionInvocationDays: 0
+      core.auditHistoryRetention.northboundActionEventHandlerDays: 0
+      core.auditHistoryRetention.networkCredentialSecretDays: 0
+      core.auditHistoryRetention.networkCredentialRuleDays: 0
+      core.auditHistoryRetention.proxmoxConsoleSessionDays: 0
+      core.auditHistoryRetention.ansibleControllerDays: 0
+      core.auditHistoryRetention.ansiblePlaybookDays: 0
+      core.auditHistoryRetention.ansiblePlaybookScheduleDays: 0
+      core.auditHistoryRetention.ansiblePlaybookRepositoryDays: 0
+      core.auditHistoryRetention.northboundActionProviderDays: 0
+      core.auditHistoryRetention.northboundActionDescriptorDays: 0
+      core.auditHistoryRetention.visibilityProfileDays: 0
+      core.auditHistoryRetention.authLockoutDays: 0
+      core.auditHistoryRetention.authoredDashboardDays: 0
+      core.auditHistoryRetention.dashboardReportScheduleDays: 0
+      core.auditHistoryRetention.sweepGroupDays: 0
+      core.auditHistoryRetention.versionBatchSize: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: API_EVENTS_RETENTION_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SECURITY_EVENTS_RETENTION_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_INVOCATION_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_EVENT_HANDLER_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NETWORK_CREDENTIAL_SECRET_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NETWORK_CREDENTIAL_RULE_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_PROXMOX_CONSOLE_SESSION_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_CONTROLLER_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_SCHEDULE_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_ANSIBLE_PLAYBOOK_REPOSITORY_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_PROVIDER_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_NORTHBOUND_ACTION_DESCRIPTOR_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_VISIBILITY_PROFILE_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_AUTH_LOCKOUT_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_AUTHORED_DASHBOARD_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_DASHBOARD_REPORT_SCHEDULE_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_RETENTION_SWEEP_GROUP_DAYS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUDIT_VERSION_RETENTION_BATCH_SIZE
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

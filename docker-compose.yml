@@ -495,7 +495,8 @@ services:
       - ANSIBLE_RETENTION_RUN_SUMMARY_DAYS=${ANSIBLE_RETENTION_RUN_SUMMARY_DAYS:-}
       # Audit-history retention (Settings -> Audit -> History version tables
       # plus the api_events / security_events event logs). 0 disables a
-      # version-table window.
+      # version-table window. The api and security event windows clamp to
+      # at least 1 day at runtime, and the version batch size clamps to 1.
       - API_EVENTS_RETENTION_DAYS=${API_EVENTS_RETENTION_DAYS:-90}
       - SECURITY_EVENTS_RETENTION_DAYS=${SECURITY_EVENTS_RETENTION_DAYS:-90}
       - AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS=${AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS:-90}

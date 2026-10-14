@@ -3,21 +3,23 @@
 ## Purpose
 
 Bounded retention for the append-only tables behind Settings -> Audit -> History:
-the AshPaperTrail `<resource>_versions` tables in the History allow-list, plus
-the `api_events` and `security_events` event logs. Without this capability
-every audit and event table grows forever; with it, each window is
-operator-configurable (Helm value or environment variable, per table) and
-pruned by bounded batched deletes. The four `remote_access_*_versions`
-tables are covered separately by `RemoteAccessVersionRetentionWorker` and are
-out of scope here.
+the 17 AshPaperTrail `<resource>_versions` tables in the History allow-list,
+including `sweep_group_versions`, plus the `api_events` and `security_events`
+event logs. Without this capability every audit and event table grows forever;
+with it, each window is operator-configurable (Helm value or environment
+variable, per table). `AuditVersionRetentionWorker` prunes the version tables
+in bounded batches. `ApiEventsRetentionWorker` and
+`SecurityEventsRetentionWorker` each delete every row past the cutoff in one
+run. The four `remote_access_*_versions` tables are covered separately by
+`RemoteAccessVersionRetentionWorker` and are out of scope here.
 
 ## Requirements
 
 ### Requirement: Every Audit-Relevant Table Has a Retention Window
 The system SHALL prune rows older than a configurable retention window from
-every table backing the Settings -> Audit -> History view (the 16
-AshPaperTrail `<resource>_versions` tables) plus `platform.api_events` and
-`platform.security_events`.
+every table backing the Settings -> Audit -> History view (the 17
+AshPaperTrail `<resource>_versions` tables, including `sweep_group_versions`)
+plus `platform.api_events` and `platform.security_events`.
 
 #### Scenario: A version row older than its table's retention window exists
 - **WHEN** the retention worker covering that table's tier runs
@@ -60,15 +62,25 @@ variable.
 - **THEN** `SecurityEventsRetentionWorker` SHALL prune at the same 90-day
   window it uses today
 
-### Requirement: Retention Pruning Runs as Batched Deletes, Not Unbounded Sweeps
-Each retention worker SHALL delete rows in bounded batches rather than in a
-single unbounded statement, matching the existing
+### Requirement: Version-Table Pruning Runs as Batched Deletes
+`AuditVersionRetentionWorker` SHALL delete rows from each History version
+table in bounded batches, matching the existing
 `RemoteAccessVersionRetentionWorker` pattern, so a large backlog cannot hold
 a long-running lock or exceed its query timeout.
+`ApiEventsRetentionWorker` and `SecurityEventsRetentionWorker` SHALL delete
+every row past the cutoff in one run, the same shape
+`SecurityEventsRetentionWorker` already uses.
 
-#### Scenario: A table has more prunable rows than one batch size
-- **WHEN** a retention worker runs against a table with more expired rows
-  than its configured batch size
-- **THEN** it SHALL delete at most `batch_size` rows in that run
+#### Scenario: A version table has more prunable rows than one batch size
+- **WHEN** `AuditVersionRetentionWorker` runs against a version table with
+  more expired rows than its configured batch size
+- **THEN** it SHALL delete at most `batch_size` rows from that table in that
+  run
 - **AND** remaining expired rows SHALL be pruned on a subsequent scheduled
   run
+
+#### Scenario: An event log has more expired rows than the version-table batch size
+- **WHEN** `ApiEventsRetentionWorker` or `SecurityEventsRetentionWorker` runs
+  and the event table has more expired rows than
+  `AUDIT_VERSION_RETENTION_BATCH_SIZE`
+- **THEN** that worker SHALL delete every row past the cutoff in that run
