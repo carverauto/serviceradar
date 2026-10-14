@@ -27,8 +27,9 @@ Expose these only if you are ingesting telemetry from network devices or externa
 | Syslog (`serviceradar-log-collector`) | 514 | UDP | Syslog ingestion (UDP) |
 | Syslog TCP (`serviceradar-log-collector-tcp`) | 514 | TCP | Syslog ingestion (TCP, optional deployment) |
 | SNMP traps (trapd) | 162 | UDP | SNMP trap ingestion |
-| NetFlow / IPFIX | 2055 | UDP | NetFlow v5/v9/IPFIX (IPFIX is decoded by the same NetFlow handler — there is no separate IPFIX collector) |
-| NetFlow / IPFIX (alternate) | 4739 | UDP | Optional alternate UDP port for the NetFlow handler. The Helm chart can expose this `ipfix` service port; route it to an additional `netflow` listener in the flow-collector config if used. |
+| NetFlow | 2055 | UDP | Template-free NetFlow v5 by default. Template-based v9/IPFIX UDP is rejected unless explicitly opted in. |
+| NetFlow / IPFIX (alternate) | 4739 | UDP | Optional alternate UDP port for the same NetFlow handler. The Helm chart can expose this `ipfix` service port; route it to an additional `netflow` listener if used. Template admission follows the same opt-in as 2055. |
+| IPFIX native TLS | 4740 | TCP | Mutually authenticated native IPFIX. See [Flow Collector Scaling and Exporter Authentication](./flow-collector-scaling.md). |
 | sFlow | 6343 | UDP | sFlow |
 | OTLP (otel) | 4317 | gRPC | OTEL ingestion over OTLP/gRPC (optional). No OTLP/HTTP `:4318` endpoint is served. |
 
@@ -41,6 +42,7 @@ Keep real deployment addresses in private operations material. Public docs shoul
 | Web UI/API | `<WEB_GATEWAY_ADDRESS>:443/TCP` | Shared Gateway HTTPS listener |
 | Syslog | `<SYSLOG_GATEWAY_ADDRESS>:514/UDP` | Shared Gateway `UDPRoute` to `serviceradar-log-collector` |
 | NetFlow | `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` | `serviceradar-flow-collector` |
+| IPFIX TLS | `<FLOW_COLLECTOR_ADDRESS>:4740/TCP` | `serviceradar-flow-collector` |
 | sFlow | `<FLOW_COLLECTOR_ADDRESS>:6343/UDP` | `serviceradar-flow-collector` |
 | SNMP traps | `<TRAP_COLLECTOR_ADDRESS>:162/UDP` | `serviceradar-trapd` |
 | BMP | `<BMP_COLLECTOR_ADDRESS>:11019/TCP` | `serviceradar-bmp-collector` |

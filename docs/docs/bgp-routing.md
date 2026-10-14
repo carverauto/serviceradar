@@ -18,9 +18,9 @@ BGP (Border Gateway Protocol) information is collected from network devices expo
 ## Architecture
 
 ```
-Network Devices     NetFlow Collector      NATS JetStream       EventWriter        CNPG
-    (BGP-enabled    →  (Rust UDP:2055)  →  (flows.raw.netflow) → (Elixir)     →   (Postgres + Timescale + AGE)
-     IPFIX exports)                                                                  ├─ ocsf_network_activity
+Network Devices     Flow Collector         NATS JetStream       EventWriter        CNPG
+    (BGP-enabled    →  (flow collector) →  (flows.raw.netflow) → (Elixir)     →   (Postgres + Timescale + AGE)
+     v9/IPFIX)                                                                       ├─ ocsf_network_activity
                                                                                      └─ bgp_routing_info
 ```
 
