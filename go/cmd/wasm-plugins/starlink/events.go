@@ -7,8 +7,6 @@ import (
 )
 
 const (
-	pluginVersion = "0.1.0"
-
 	// alertLogName distinguishes Starlink alert events from other plugin
 	// events for alert-rule subject matching.
 	alertLogName = "starlink.alert"
@@ -23,7 +21,7 @@ const (
 func alertSignalSchemaRef(producerID string) sdk.SignalSchemaRef {
 	return sdk.SignalSchemaRef{
 		ProducerID:             producerID,
-		ProducerVersion:        pluginVersion,
+		ProducerVersion:        producerVersion(producerID),
 		SchemaID:               alertSignalSchemaID,
 		SchemaVersion:          alertSignalSchemaVersion,
 		DisplayContractID:      alertSignalSchemaDisplayContractID,
@@ -32,6 +30,13 @@ func alertSignalSchemaRef(producerID string) sdk.SignalSchemaRef {
 		SignalType:             sdk.SignalSchemaSignalTypeEvent,
 		PayloadKind:            sdk.SignalSchemaPayloadKindOCSFEvent,
 	}
+}
+
+func producerVersion(producerID string) string {
+	if producerID == localPluginID {
+		return localPluginVersion
+	}
+	return cloudPluginVersion
 }
 
 // alertScope names the condition scope covering every alert of one account.
