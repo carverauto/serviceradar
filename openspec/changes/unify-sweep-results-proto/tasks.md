@@ -228,7 +228,11 @@
     leased group's local ticker (initial sweep included), executed slots
     persist in the lease store so a restart never re-runs one, a revocation
     returns the group to its local ticker, and the group's status payload
-    reports `sweep_lease` state `active`/`exhausted`. Producing edge records
+    reports `sweep_lease` state `active`/`exhausted`. A live agent process
+    with packet scanning is not drivable inside the pipeline sandbox, so
+    there is no agent-binary lease test: the executor, lease store, and
+    sweeper tests cover this behavior against the real components, and
+    BazelCI on the PR is the remaining gate. Producing edge records
     from these runs is M2.1, and which agents are leased at all is M2.2.
   - [ ] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
     fences from assignment epochs, agent-to-scope bindings) comes from core at
