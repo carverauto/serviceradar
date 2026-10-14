@@ -1,6 +1,6 @@
 ## 1. ICE credential provider
-- [ ] 1.1 Add the `ServiceRadar.WebRTC.IceCredentials` behaviour and dispatcher in `serviceradar_core`, with subject binding, TTL bounds (60..3600s, default 600s) and per-actor/per-session mint rate limits.
-- [ ] 1.2 Implement the `static_secret` backend (TURN REST HMAC) by moving RDP's minting and file-backed secret loader out of web-ng. RDP tests must pass unchanged, and credentials must be byte-identical for the same inputs.
+- [x] 1.1 Add the `ServiceRadar.WebRTC.IceCredentials` behaviour and dispatcher in `serviceradar_core`, with subject binding, TTL bounds (60..3600s, default 600s) and per-actor/per-session mint rate limits.
+- [x] 1.2 Implement the `static_secret` backend (TURN REST HMAC) by moving RDP's minting and file-backed secret loader out of web-ng. RDP tests must pass unchanged, and credentials must be byte-identical for the same inputs.
 - [ ] 1.3 Implement the `cloudflare` backend over `ServiceRadar.HTTP.EgressClient`, reading the TURN key ID from the relay settings and the key secret from the credential store, with a 5s timeout, URL-scheme validation of the returned servers, and no logging of tokens or credentials.
 - [ ] 1.4 Publish mint and candidate-pair metrics on `metrics.timeseries.webrtc.*` (generic timeseries shape) from web-ng and core-elx.
 
