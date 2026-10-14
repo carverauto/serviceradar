@@ -499,6 +499,36 @@ core:
     datasetSnapshotDays: 2
     datasetSnapshotKeepLast: 1
     topologyLinkDays: 30
+  # Audit-history retention (Settings -> Audit -> History version tables plus
+  # the api_events / security_events event logs), pruned by
+  # AuditVersionRetentionWorker / ApiEventsRetentionWorker /
+  # SecurityEventsRetentionWorker. Two tiers: 90 days for execution/event
+  # tables, 180 days for config-audit-trail tables. Set any version-table
+  # window to 0 to disable pruning for that table.
+  auditHistoryRetention:
+    # Execution/event tier (90 days).
+    apiEventsDays: 90
+    securityEventsDays: 90
+    ansiblePlaybookRunDays: 90
+    northboundActionInvocationDays: 90
+    northboundActionEventHandlerDays: 90
+    # Config-audit-trail tier (180 days).
+    networkCredentialSecretDays: 180
+    networkCredentialRuleDays: 180
+    proxmoxConsoleSessionDays: 180
+    ansibleControllerDays: 180
+    ansiblePlaybookDays: 180
+    ansiblePlaybookScheduleDays: 180
+    ansiblePlaybookRepositoryDays: 180
+    northboundActionProviderDays: 180
+    northboundActionDescriptorDays: 180
+    visibilityProfileDays: 180
+    authLockoutDays: 180
+    authoredDashboardDays: 180
+    dashboardReportScheduleDays: 180
+    sweepGroupDays: 180
+    # Rows deleted per table per Oban run by AuditVersionRetentionWorker.
+    versionBatchSize: 10000
   # Ansible integration: AWX/AAP playbook execution + observability.
   # Per-controller / per-repository / per-schedule overrides are stored
   # on the Ash resources themselves (e.g. AnsibleController.run_pulse_interval_ms);

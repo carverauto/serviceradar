@@ -1292,6 +1292,12 @@ if config_env() == :prod do
     interval_ms:
       "SERVICERADAR_INGESTION_METRICS_INTERVAL_MS" |> parse_int_env.(30_000) |> max(1_000)
 
+  # Closes SecurityEventsRetentionWorker's config gap: its window was a
+  # hardcoded Elixir default with no Helm/env override. Default stays 90,
+  # so this is a no-op at deploy time unless an operator sets the var.
+  config :serviceradar_core, ServiceRadar.Jobs.SecurityEventsRetentionWorker,
+    retention_days: "SECURITY_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
   # Heartbeat for the canonical-topology rebuild change-detection skip: when the
   # observed graph is structurally unchanged, still rebuild at most once per this
   # window so property-only edge changes are bounded to one heartbeat of staleness.
@@ -1321,6 +1327,50 @@ if config_env() == :prod do
     # prune (e.g. after a deliberate topology cutover), then unset.
     canonical_prune_guard_override:
       parse_bool.("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", false)
+
+  config :serviceradar_core, ServiceRadar.Observability.ApiEventsRetentionWorker,
+    retention_days: "API_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  # Audit-history retention (Settings -> Audit -> History tables plus the
+  # api_events / security_events event logs). Two tiers per
+  # openspec/changes/add-audit-history-retention-compression/design.md:
+  # 90 days for execution/event-tier tables, 180 days for config-audit-trail
+  # version tables. Every version-table window treats `0` as "disabled",
+  # matching ANSIBLE_RETENTION_RUN_DETAIL_DAYS semantics.
+  config :serviceradar_core, ServiceRadar.Security.AuditVersionRetentionWorker,
+    batch_size: "AUDIT_VERSION_RETENTION_BATCH_SIZE" |> parse_int_env.(10_000) |> max(1),
+    ansible_playbook_run_days:
+      "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_RUN_DAYS" |> parse_int_env.(90) |> max(0),
+    northbound_action_invocation_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_INVOCATION_DAYS" |> parse_int_env.(90) |> max(0),
+    northbound_action_event_handler_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_EVENT_HANDLER_DAYS" |> parse_int_env.(90) |> max(0),
+    network_credential_secret_days:
+      "AUDIT_RETENTION_NETWORK_CREDENTIAL_SECRET_DAYS" |> parse_int_env.(180) |> max(0),
+    network_credential_rule_days:
+      "AUDIT_RETENTION_NETWORK_CREDENTIAL_RULE_DAYS" |> parse_int_env.(180) |> max(0),
+    proxmox_console_session_days:
+      "AUDIT_RETENTION_PROXMOX_CONSOLE_SESSION_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_controller_days:
+      "AUDIT_RETENTION_ANSIBLE_CONTROLLER_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_playbook_days:
+      "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_playbook_schedule_days:
+      "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_SCHEDULE_DAYS" |> parse_int_env.(180) |> max(0),
+    ansible_playbook_repository_days:
+      "AUDIT_RETENTION_ANSIBLE_PLAYBOOK_REPOSITORY_DAYS" |> parse_int_env.(180) |> max(0),
+    northbound_action_provider_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_PROVIDER_DAYS" |> parse_int_env.(180) |> max(0),
+    northbound_action_descriptor_days:
+      "AUDIT_RETENTION_NORTHBOUND_ACTION_DESCRIPTOR_DAYS" |> parse_int_env.(180) |> max(0),
+    visibility_profile_days:
+      "AUDIT_RETENTION_VISIBILITY_PROFILE_DAYS" |> parse_int_env.(180) |> max(0),
+    auth_lockout_days: "AUDIT_RETENTION_AUTH_LOCKOUT_DAYS" |> parse_int_env.(180) |> max(0),
+    authored_dashboard_days:
+      "AUDIT_RETENTION_AUTHORED_DASHBOARD_DAYS" |> parse_int_env.(180) |> max(0),
+    dashboard_report_schedule_days:
+      "AUDIT_RETENTION_DASHBOARD_REPORT_SCHEDULE_DAYS" |> parse_int_env.(180) |> max(0),
+    sweep_group_days: "AUDIT_RETENTION_SWEEP_GROUP_DAYS" |> parse_int_env.(180) |> max(0)
 
   # Capability-retained plugin results are admitted by the bounded retained-plugin
   # lane. "false" is the kill switch back to the previous synchronous path.
