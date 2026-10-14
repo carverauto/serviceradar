@@ -27,7 +27,6 @@
       Completes at merge: the green PR merges (#5426 closure via closing
       keyword), issue state re-verified, and the leased worktree returned to
       the pool by the delivering seat.
-- [ ] 3.5 Merge green PR, verify issue closure and return the worktree.
 
 Verification note: the single allowed pre-PR RBE test invocation exposed a
 source-count borrow error before tests ran. The error is corrected; updated

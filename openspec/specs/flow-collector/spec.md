@@ -1,7 +1,7 @@
 # flow-collector Specification
 
 ## Purpose
-TBD - created by archiving change unified-flow-collector. Update Purpose after archive.
+Ingest sFlow and NetFlow/IPFIX, including mutually authenticated native IPFIX, and publish converted flow records to NATS JetStream.
 
 ## Requirements
 
@@ -137,12 +137,23 @@ The sFlow handler SHALL skip `CounterSample` and `ExpandedCounter` samples witho
 - **AND** the handler SHALL continue processing any flow samples in the same datagram
 
 ### Requirement: NetFlow datagram parsing
-The NetFlow handler SHALL parse each received UDP datagram using the `netflow_parser` crate's `AutoScopedParser` and convert flow records into `FlowMessage` protobufs. The parser SHALL support NetFlow v5, v9, and IPFIX.
+The NetFlow handler SHALL parse template-free NetFlow v5 UDP datagrams using the `netflow_parser` crate's `AutoScopedParser` and convert those flow records into `FlowMessage` protobufs. Template-based NetFlow v9 and IPFIX UDP datagrams SHALL be parsed only when `allow_unauthenticated_templates` is explicitly enabled, and insecure mode SHALL never attach shared template KV. The parser SHALL support NetFlow v5, v9, and IPFIX.
 
-#### Scenario: Receive and parse NetFlow datagram
-- **WHEN** a valid NetFlow datagram arrives on the configured UDP port
+#### Scenario: Receive and parse NetFlow v5 datagram
+- **WHEN** a valid template-free NetFlow v5 datagram arrives on the configured UDP port
 - **THEN** the handler SHALL parse the datagram using `iter_packets_from_source()` with the peer address as the scope key
 - **AND** the handler SHALL convert each parsed flow record into a `FlowMessage`
+
+#### Scenario: Receive and parse opted-in template-based datagram
+- **WHEN** a valid NetFlow v9 or IPFIX UDP datagram arrives and `allow_unauthenticated_templates` is explicitly enabled
+- **THEN** the handler SHALL parse the datagram using `iter_packets_from_source()` with the peer address as the scope key
+- **AND** the handler SHALL NOT attach shared template KV
+- **AND** the handler SHALL convert each parsed flow record into a `FlowMessage`
+
+#### Scenario: Reject template-based UDP without opt-in
+- **WHEN** a valid NetFlow v9 or IPFIX UDP datagram arrives and `allow_unauthenticated_templates` is unset
+- **THEN** the handler SHALL reject the datagram before parser admission
+- **AND** the handler SHALL NOT attach shared template KV
 
 #### Scenario: Malformed NetFlow datagram handling
 - **WHEN** a NetFlow datagram fails to parse
