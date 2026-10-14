@@ -103,8 +103,12 @@ only through the enum metadata of the same response.
 - **THEN** the agent produces one raise event and one clear event for that device and alert, and the plugin emits no event for alerts that were never active
 
 #### Scenario: Unknown alert code
-- **WHEN** a numeric alert code is not present in the response enum metadata
-- **THEN** an event named `unknown_alert_<code>` is emitted instead of dropping or guessing the alert
+- **WHEN** a numeric alert code in the telemetry stream is not present in the same response's enum metadata
+- **THEN** it is counted in the device's active-alert metric as `unknown_alert_<code>` instead of being dropped or guessed, and no alert event is derived from a stream code
+
+#### Scenario: Device stops reporting
+- **WHEN** a terminal or router listed on the account sends no telemetry on several consecutive runs
+- **THEN** each fully drained run reports a zero sample count for it, and the proposed offline rule can fire on that device
 
 #### Scenario: Proposed alert rules start disabled
 - **WHEN** the `starlink-cloud` package is approved

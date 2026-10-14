@@ -133,16 +133,29 @@ boolean alert fields). For each device and active alert the plugin emits an OCSF
 signal schema `com.carverauto.starlink.alert` and `unmapped.condition_key =
 starlink:<device_id>:<alert_name>` plus `unmapped.level`; the agent's condition debounce
 (`go/pkg/agent/plugin_condition_debounce.go`) turns levels into raise/clear transitions.
-When alert codes are read from the stream's `ActiveAlert(s)` column they are mapped only
-through `metadata.enums.AlertsByDeviceType` from the same response, because the vendor
-reassigns codes and its docs disagree on some values; unknown codes become an
-`unknown_alert_<code>` event rather than being dropped or guessed.
+Alert events come only from those named query flags. The stream's `ActiveAlert(s)` column
+carries numeric codes; they are mapped only through `metadata.enums.AlertsByDeviceType`
+from the same response, because the vendor reassigns codes and its docs disagree on some
+values, and an unknown code is named `unknown_alert_<code>` rather than dropped or guessed.
+Stream codes feed the per-device `starlink_active_alerts` count metric and never become
+events: the stream is not a complete per-device snapshot, so an event raised from it could
+never be cleared, and it would duplicate the query-derived events.
 
 The vendor publishes no severities. The plugin ships an explicit, reviewable
-alert-name -> severity table (unknown names default to `low`), and the manifest proposes
-`alert_rules` (created disabled, per `add-plugin-alert-rules`) for thermal shutdown,
-motors stuck, offline, and mast-not-vertical. No rule is proposed for the reboot-pending
-alert, which the vendor currently reports unreliably.
+alert-name -> severity table. Unknown names default to `warning`: the SDK has no `low`
+severity (`info` is its lowest), and a new vendor alert should not be under-reported until
+someone classifies it. The manifest proposes `alert_rules` (created disabled, per
+`add-plugin-alert-rules`): one for every critical-level alert (which covers thermal
+shutdown and stuck motors), one for mast-not-vertical, and one for an offline device. No
+rule is proposed for the reboot-pending alert, which the vendor currently reports
+unreliably.
+
+The vendor has no offline alert and the plugin keeps no state between runs (D11), so
+offline is derived: every telemetry run that drained the stream and walked the full
+listing reports `starlink_telemetry_samples` for each listed terminal and router, zero
+included. The `starlink_device_offline` metric rule fires when a device reports zero on
+five runs within ten minutes; the stateful alert engine, not the plugin, holds that
+history.
 
 ### D6. Management actions
 Actions are northbound actions on the existing path (UI or dashboard ->
