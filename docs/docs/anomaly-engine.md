@@ -389,10 +389,9 @@ flooding add-on, and three coordinator-scheduled tripwires catch the opposite
 failure, a silently dead pipeline. Each emits an operational health event on
 failure:
 
-- **Alert-path liveness**: replays a synthetic episode open and clear through
-  the rule engine and asserts the seeded rule contract.
-  `SERVICERADAR_ANOMALY_LIVENESS_ENABLED` (default `true`),
-  `SERVICERADAR_ANOMALY_LIVENESS_CRON` (default `23 */6 * * *`).
+- **Alert-path liveness**: when the scheduled probe runs, what it skips, and
+  its env knobs are in
+  [Silence Tripwires](./anomaly-detection.md#silence-tripwires).
 - **Ingest silence**: fires when zero anomaly upserts arrive for
   `SERVICERADAR_ANOMALY_SILENCE_HOURS` (default `6`) while
   `timeseries_metrics` ingest is alive.

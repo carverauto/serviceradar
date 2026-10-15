@@ -260,11 +260,15 @@ series.
 ## Silence Tripwires
 
 Volume ceilings catch a noisy fleet; silence is now monitored in the other
-direction too. Three scheduled tripwires emit operational health events when
-the anomaly path goes quiet, each tunable by env:
+direction too. Three scheduled tripwires watch for a quiet anomaly path,
+each tunable by env:
 
-- **Alert-path liveness**: a synthetic episode must flow through the seeded
-  rule to an alert and recover on clear.
+- **Alert-path liveness**: while alert evaluation is `active`, a synthetic
+  episode must flow through the seeded rule to an alert and recover on clear.
+  In `prepared` or `draining`, the scheduled run skips the probe, logs at
+  debug, and records no health event.
+  `mix serviceradar.anomaly_alert_liveness` still runs the check and fails
+  in those modes.
   `SERVICERADAR_ANOMALY_LIVENESS_ENABLED` (default `true`),
   `SERVICERADAR_ANOMALY_LIVENESS_CRON` (default `23 */6 * * *`).
 - **Ingest silence**: zero anomaly upserts for
@@ -278,7 +282,8 @@ the anomaly path goes quiet, each tunable by env:
   `true`), `SERVICERADAR_SEASONAL_BASELINE_TRIPWIRE_CRON` (default
   `37 * * * *`).
 
-Each check records a `core` health event. The seeded
+Each tripwire that runs records a `core` health event. A skipped alert-path
+run records nothing. The seeded
 `core_health_state_change_events` rule promotes those transitions into
 `health.core.state_change` events, and the managed `core_health_check_unhealthy`
 rule opens one critical alert per check while it is unhealthy and recovers it
