@@ -79,9 +79,11 @@ defmodule ServiceRadar.Notifications.EdgeCommandContractTest do
     # the HOST first if it is ever added.
     source = File.read!(@go_notify_path)
 
+    # The allowlist is a function, not a package var, so gochecknoglobals does
+    # not apply. The body is still the closed set of mode names.
     [[_block, body]] =
       Regex.scan(
-        ~r/notificationCredentialInjectionModes\s*=\s*map\[string\]struct\{\}\{(.*?)\n\}/s,
+        ~r/func notificationCredentialInjectionModes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\n\t\}/s,
         source
       )
 
