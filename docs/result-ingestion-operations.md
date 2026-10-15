@@ -3,9 +3,13 @@
 Core uses independent result lanes with one active job per ordering key. Mapper
 interfaces and topology share an agent key; sweeps use agent plus sweep group.
 Malformed or older sweep metadata falls back to the conservative agent key.
-Generic status snapshots keep per-agent order. Type ingestion and irreversible
-transitions are never coalesced. Only completed service-state projections with
-all five identity fields may replace an older pending projection.
+Generic status snapshots keep per-agent order. The retained plugin lane is the
+exception: each job is its own key, fixed in the lane and not selectable by
+callers, so its two workers can run two chunks from the same agent at once.
+Per-agent item and byte caps still apply, and the plugin database permit stays
+one. Type ingestion and irreversible transitions are never coalesced. Only
+completed service-state projections with all five identity fields may replace
+an older pending projection.
 
 ## Acknowledgements and version pairing
 

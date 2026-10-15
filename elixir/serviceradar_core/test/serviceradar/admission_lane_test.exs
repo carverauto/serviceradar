@@ -1001,11 +1001,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
         {RetainedPluginLane,
          name: Module.concat(__MODULE__, "Plugin#{System.unique_integer([:positive])}"),
          task_supervisor: plugin_tasks,
-         concurrency: 99}
+         concurrency: 99,
+         ordering: :per_agent}
       )
 
     assert %{concurrency: 1, config: flow_config} = :sys.get_state(flow_lane)
-    assert %{concurrency: 2, config: plugin_config} = :sys.get_state(plugin_lane)
+
+    assert %{concurrency: 2, ordering: :unordered, config: plugin_config} =
+             :sys.get_state(plugin_lane)
 
     for config <- [flow_config, plugin_config] do
       assert :ok = Lane.validate_config(config, 15_000)

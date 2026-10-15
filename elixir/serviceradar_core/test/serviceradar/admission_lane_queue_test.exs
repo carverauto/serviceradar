@@ -26,6 +26,30 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
     assert_empty(lane)
   end
 
+  test "an unordered lane runs a second item from the same agent before its queue wait expires" do
+    parent = self()
+
+    lane =
+      start_lane(held_processor(parent),
+        concurrency: 2,
+        ordering: :unordered,
+        max_items_per_agent: 2,
+        queue_wait_ms: 100
+      )
+
+    first = admit(lane, status("agent01.example.com", "first"))
+    assert_receive {:started, "first", first_worker}
+    second = admit(lane, status("agent01.example.com", "second"))
+
+    # A per-agent lane would hold "second" until the 100 ms queue wait expired.
+    assert_receive {:started, "second", second_worker}, 1_000
+    send(second_worker, :release)
+    assert_receive {^second, :ok}
+    send(first_worker, :release)
+    assert_receive {^first, :ok}
+    assert_empty(lane)
+  end
+
   test "metadata reservations bound admission before any payload or worker starts" do
     parent = self()
     lane = start_lane(held_processor(parent), max_items_per_agent: 2)
@@ -197,6 +221,7 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
 
   defp start_lane(processor, overrides \\ []) do
     {concurrency, overrides} = Keyword.pop(overrides, :concurrency, 1)
+    {ordering, overrides} = Keyword.pop(overrides, :ordering, :per_agent)
 
     task_supervisor =
       start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
@@ -204,6 +229,7 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
     opts = [
       lane: :test,
       concurrency: concurrency,
+      ordering: ordering,
       task_supervisor: task_supervisor,
       processor: processor,
       source_max_bytes: 1_024,

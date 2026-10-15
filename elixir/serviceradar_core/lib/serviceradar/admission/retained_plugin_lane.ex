@@ -15,6 +15,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     :config,
     :lane,
     :concurrency,
+    :ordering,
     :processor,
     :on_accepted_result,
     :lease_supervisor,
@@ -49,6 +50,13 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
           name: __MODULE__,
           lane: :retained_plugin_result,
           concurrency: 2,
+          # The gateway forwards a retained stream two chunks at a time, all from
+          # one agent. Per-agent ordering would queue the second chunk for the
+          # first one's whole run, and the queue wait is far shorter than the
+          # worker budget, so it would expire whenever the first chunk runs long.
+          # The plugin-result ingestor takes its own identity locks and picks the
+          # current-state winner by observation time; it needs no arrival order.
+          ordering: :unordered,
           task_supervisor: ServiceRadar.Admission.RetainedPluginTaskSupervisor,
           lease_supervisor: lease_supervisor,
           processor: {ServiceRadar.ResultsRouter, :process_retained_plugin, []},
