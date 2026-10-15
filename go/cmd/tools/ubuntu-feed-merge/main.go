@@ -145,7 +145,21 @@ var errProjectedWireByteBound = errors.New("projected wire byte bound overflow")
 
 var errResidentCap = errors.New("merge resident memory cap exceeded")
 
-//nolint:err113 // This internal validator returns exact CLI diagnostics; callers do not match these errors.
+// diagnostic is a validation failure reported verbatim at the CLI boundary.
+// Callers match the cap sentinels above with errors.Is; a diagnostic carries
+// only its text, so nothing matches on it.
+type diagnostic string
+
+func (d diagnostic) Error() string { return string(d) }
+
+// newDiagnostic returns text as a diagnostic.
+func newDiagnostic(text string) error { return diagnostic(text) }
+
+// diagnosticf formats a diagnostic.
+func diagnosticf(format string, args ...any) error {
+	return diagnostic(fmt.Sprintf(format, args...))
+}
+
 func validateLimits(lim limits) error {
 	maxInt := int64(^uint(0) >> 1)
 	if lim.members <= 0 || lim.pathBytes <= 0 || lim.pathBytes > maxInt ||
@@ -155,20 +169,20 @@ func validateLimits(lim limits) error {
 		lim.decoderBytes < minRunDecoderResidentBytes || lim.residentBytes <= 0 ||
 		lim.fanIn < 2 || lim.frameBytes <= 0 || lim.projection.logicalProducts <= 0 ||
 		lim.projection.assertions <= 0 || lim.projection.jsonTokens <= 0 || lim.projection.jsonNesting <= 0 {
-		return errors.New("invalid helper limits")
+		return newDiagnostic("invalid helper limits")
 	}
 	if _, err := projectedWireByteBound(lim); err != nil {
-		return errors.New("invalid helper limits")
+		return newDiagnostic("invalid helper limits")
 	}
 	if lim.members > (math.MaxInt64-(1<<20))/2048 {
-		return errors.New("invalid helper limits")
+		return newDiagnostic("invalid helper limits")
 	}
 	memberOverhead := lim.members * 2048
 	if lim.totalBytes > math.MaxInt64-memberOverhead-(1<<20) ||
 		lim.fileBytes > math.MaxInt64-lim.chunkBytes-(16<<20) ||
 		lim.fileBytes > math.MaxInt64-lim.pathBytes ||
 		lim.fileBytes+lim.pathBytes > math.MaxInt64-lim.decoderBytes {
-		return errors.New("invalid helper limits")
+		return newDiagnostic("invalid helper limits")
 	}
 	return nil
 }
@@ -233,7 +247,6 @@ type budgetWriter struct {
 	written int64
 }
 
-//nolint:err113 // The writer rejects malformed implementations with an exact internal diagnostic.
 func (w *budgetWriter) Write(p []byte) (int, error) {
 	if err := w.budget.reserve(int64(len(p))); err != nil {
 		return 0, err
@@ -241,7 +254,7 @@ func (w *budgetWriter) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	if n < 0 || n > len(p) {
 		w.budget.release(int64(len(p)))
-		return 0, errors.New("invalid file write count")
+		return 0, newDiagnostic("invalid file write count")
 	}
 	if n < len(p) {
 		w.budget.release(int64(len(p) - n))
@@ -253,17 +266,16 @@ func (w *budgetWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-//nolint:err113 // Header validation diagnostics are consumed as text at the CLI boundary.
 func safeHeader(h *tar.Header, lim limits) error {
 	name := strings.TrimSuffix(h.Name, "/")
 	if name == "" || int64(len(h.Name)) > lim.pathBytes || strings.ContainsAny(h.Name, "\\\x00") || path.IsAbs(h.Name) || path.Clean(name) != name || name == ".." || strings.HasPrefix(name, "../") {
-		return fmt.Errorf("unsafe path %q", h.Name)
+		return diagnosticf("unsafe path %q", h.Name)
 	}
 	if h.Size < 0 || h.Size > lim.fileBytes {
-		return fmt.Errorf("file cap exceeded for %q", h.Name)
+		return diagnosticf("file cap exceeded for %q", h.Name)
 	}
 	if !isRegularTarType(h.Typeflag) && h.Typeflag != tar.TypeDir {
-		return fmt.Errorf("unsupported type %d for %q", h.Typeflag, h.Name)
+		return diagnosticf("unsupported type %d for %q", h.Typeflag, h.Name)
 	}
 	return nil
 }
@@ -285,7 +297,6 @@ func validTimestamp(value string) bool {
 	return err == nil
 }
 
-//nolint:err113 // Path validation diagnostics are consumed as text at the CLI boundary.
 func archiveCVE(kind, name string) (string, bool, error) {
 	re := osvPath
 	prefix := "osv/cve/"
@@ -296,12 +307,12 @@ func archiveCVE(kind, name string) (string, bool, error) {
 	match := re.FindStringSubmatch(name)
 	if len(match) == 0 {
 		if strings.HasPrefix(name, prefix) {
-			return "", false, fmt.Errorf("unexpected %s CVE path %q", kind, name)
+			return "", false, diagnosticf("unexpected %s CVE path %q", kind, name)
 		}
 		return "", false, nil
 	}
 	if match[1] != match[3] {
-		return "", false, fmt.Errorf("%s CVE path year mismatch %q", kind, name)
+		return "", false, diagnosticf("%s CVE path year mismatch %q", kind, name)
 	}
 	return match[2], true, nil
 }
@@ -311,13 +322,12 @@ type hardLimitReader struct {
 	remaining int64
 }
 
-//nolint:err113 // The reader reports a precise local cap violation; callers do not match it.
 func (r *hardLimitReader) Read(p []byte) (int, error) {
 	if r.remaining == 0 {
 		var one [1]byte
 		n, err := r.r.Read(one[:])
 		if n > 0 {
-			return 0, errors.New("expanded archive cap exceeded")
+			return 0, newDiagnostic("expanded archive cap exceeded")
 		}
 		return 0, err
 	}
@@ -341,14 +351,13 @@ func (input *archiveInput) close() {
 	}
 }
 
-//nolint:err113 // Archive validation diagnostics are consumed as text at the CLI boundary.
 func openArchive(filename, kind string, lim limits) (*archiveInput, error) {
 	st, err := os.Lstat(filename)
 	if err != nil {
 		return nil, err
 	}
 	if !st.Mode().IsRegular() || st.Size() < 0 || st.Size() > lim.archiveBytes {
-		return nil, errors.New("unsafe or oversized input archive")
+		return nil, newDiagnostic("unsafe or oversized input archive")
 	}
 	f, err := os.Open(filename)
 	if err != nil {
@@ -357,7 +366,7 @@ func openArchive(filename, kind string, lim limits) (*archiveInput, error) {
 	openedInfo, err := f.Stat()
 	if err != nil || !openedInfo.Mode().IsRegular() || openedInfo.Size() != st.Size() || !os.SameFile(st, openedInfo) {
 		_ = f.Close()
-		return nil, errors.New("archive changed while opening")
+		return nil, newDiagnostic("archive changed while opening")
 	}
 	input := &archiveInput{file: f, info: openedInfo, size: openedInfo.Size()}
 	if lim.afterArchiveOpen != nil {
@@ -375,7 +384,6 @@ type archiveRunState struct {
 	runs       []runFile
 }
 
-//nolint:err113 // Duplicate identities are exact validation diagnostics local to this CLI.
 func (state *archiveRunState) flush(kind, outDir string, budget *workBudget) error {
 	if len(state.chunk) == 0 {
 		return nil
@@ -383,7 +391,7 @@ func (state *archiveRunState) flush(kind, outDir string, budget *workBudget) err
 	sort.Slice(state.chunk, func(i, j int) bool { return state.chunk[i].CVE < state.chunk[j].CVE })
 	for i := 1; i < len(state.chunk); i++ {
 		if state.chunk[i-1].CVE == state.chunk[i].CVE {
-			return fmt.Errorf("duplicate CVE %s", state.chunk[i].CVE)
+			return diagnosticf("duplicate CVE %s", state.chunk[i].CVE)
 		}
 	}
 	destination := filepath.Join(outDir, fmt.Sprintf(".%s-run-%06d.zst", kind, len(state.runs)))
@@ -408,7 +416,6 @@ func isRegularTarType(typeFlag byte) bool {
 	return typeFlag == tar.TypeReg || typeFlag == legacyTarRegularType
 }
 
-//nolint:err113 // Member validation diagnostics are consumed as text at the CLI boundary.
 func consumeArchiveMember(tr *tar.Reader, header *tar.Header, kind, outDir string, lim limits, budget *workBudget, inv *inventory, state *archiveRunState) error {
 	cve, matched, err := archiveCVE(kind, header.Name)
 	if err != nil {
@@ -426,11 +433,11 @@ func consumeArchiveMember(tr *tar.Reader, header *tar.Header, kind, outDir strin
 		return nil
 	}
 	if !isRegularTarType(header.Typeflag) {
-		return errors.New("CVE member not regular")
+		return newDiagnostic("CVE member not regular")
 	}
 	raw, err := io.ReadAll(tr)
 	if err != nil || int64(len(raw)) != header.Size {
-		return errors.New("truncated member")
+		return newDiagnostic("truncated member")
 	}
 	if err := validateIdentityWithLimits(kind, cve, raw, lim.projection); err != nil {
 		return fmt.Errorf("%s: %w", header.Name, err)
@@ -447,7 +454,6 @@ func consumeArchiveMember(tr *tar.Reader, header *tar.Header, kind, outDir strin
 	return nil
 }
 
-//nolint:err113 // Archive cap violations are exact validation diagnostics local to this CLI.
 func readArchiveMembers(tr *tar.Reader, kind, outDir string, lim limits, budget *workBudget, inv *inventory, state *archiveRunState) error {
 	for {
 		header, err := tr.Next()
@@ -459,13 +465,13 @@ func readArchiveMembers(tr *tar.Reader, kind, outDir string, lim limits, budget 
 		}
 		inv.Members++
 		if inv.Members > lim.members {
-			return errors.New("member cap exceeded")
+			return newDiagnostic("member cap exceeded")
 		}
 		if err := safeHeader(header, lim); err != nil {
 			return err
 		}
 		if header.Size > lim.totalBytes-inv.Total {
-			return errors.New("total cap exceeded")
+			return newDiagnostic("total cap exceeded")
 		}
 		inv.Total += header.Size
 		if err := consumeArchiveMember(tr, header, kind, outDir, lim, budget, inv, state); err != nil {
@@ -474,7 +480,6 @@ func readArchiveMembers(tr *tar.Reader, kind, outDir string, lim limits, budget 
 	}
 }
 
-//nolint:err113 // Preparation validates immutable archive identity and reports exact CLI diagnostics.
 func prepareOne(input *archiveInput, kind, outDir string, lim limits, budget *workBudget) (inventory, error) {
 	inv := inventory{Kind: kind, Spool: kind + ".spool", ArchiveBytes: input.size}
 	if _, err := input.file.Seek(0, io.SeekStart); err != nil {
@@ -497,18 +502,18 @@ func prepareOne(input *archiveInput, kind, outDir string, lim limits, budget *wo
 		return inv, fmt.Errorf("finish %s xz stream: %w", kind, err)
 	}
 	if _, err := io.Copy(io.Discard, hashed); err != nil || limited.N != 0 {
-		return inv, fmt.Errorf("%s archive changed during preparation", kind)
+		return inv, diagnosticf("%s archive changed during preparation", kind)
 	}
 	consumedInfo, err := input.file.Stat()
 	if err != nil || !consumedInfo.Mode().IsRegular() || consumedInfo.Size() != input.size || !os.SameFile(input.info, consumedInfo) {
-		return inv, fmt.Errorf("%s archive changed during preparation", kind)
+		return inv, diagnosticf("%s archive changed during preparation", kind)
 	}
 	inv.ArchiveSHA256 = hex.EncodeToString(hasher.Sum(nil))
 	if err := state.flush(kind, outDir, budget); err != nil {
 		return inv, err
 	}
 	if inv.Count == 0 {
-		return inv, errors.New("empty required CVE tree")
+		return inv, newDiagnostic("empty required CVE tree")
 	}
 	inv.InitialRuns = len(state.runs)
 	final, passes, err := collapseRuns(kind, outDir, state.runs, lim, budget)
@@ -600,10 +605,9 @@ func syncDirectory(directory string) error {
 	return f.Close()
 }
 
-//nolint:err113 // Run-record validation errors are local spool diagnostics and are not matched.
 func writeRunRecord(w io.Writer, record runRecord) error {
 	if uint64(len(record.CVE)) > uint64(^uint32(0)) || uint64(len(record.Raw)) > uint64(^uint32(0)) {
-		return errors.New("run record too large")
+		return newDiagnostic("run record too large")
 	}
 	var header [runHeaderBytes]byte
 	binary.BigEndian.PutUint32(header[0:4], uint32(len(record.CVE)))
@@ -619,10 +623,9 @@ func writeRunRecord(w io.Writer, record runRecord) error {
 	return writeAll(w, record.Raw)
 }
 
-//nolint:err113 // Empty-run validation is an exact internal diagnostic and is not matched.
 func collapseRuns(kind, outDir string, runs []runFile, lim limits, budget *workBudget) (runFile, int, error) {
 	if len(runs) == 0 {
-		return runFile{}, 0, errors.New("no sort runs")
+		return runFile{}, 0, newDiagnostic("no sort runs")
 	}
 	if len(runs) == 1 {
 		return runs[0], 0, nil
@@ -689,10 +692,9 @@ func boundedMergeFanIn(lim limits) (int, error) {
 	return int(capacity), nil
 }
 
-//nolint:err113 // Invalid run counts are exact internal diagnostics; cap errors remain sentinels.
 func requireMergeResidentCapacity(sourceCount int, lim limits) error {
 	if sourceCount <= 0 {
-		return errors.New("no sort runs")
+		return newDiagnostic("no sort runs")
 	}
 	capacity, err := mergeResidentCapacity(lim)
 	if err != nil {
@@ -704,7 +706,6 @@ func requireMergeResidentCapacity(sourceCount int, lim limits) error {
 	return nil
 }
 
-//nolint:err113 // Duplicate spool identities are exact internal validation diagnostics.
 func mergeRunGroup(destination string, sources []runFile, lim limits, budget *workBudget) (runFile, error) {
 	if err := requireMergeResidentCapacity(len(sources), lim); err != nil {
 		return runFile{}, err
@@ -735,7 +736,7 @@ func mergeRunGroup(destination string, sources []runFile, lim limits, budget *wo
 		for queue.Len() > 0 {
 			cursor := heap.Pop(&queue).(runCursor)
 			if cursor.record.CVE == lastCVE {
-				return fmt.Errorf("duplicate CVE %s", cursor.record.CVE)
+				return diagnosticf("duplicate CVE %s", cursor.record.CVE)
 			}
 			lastCVE = cursor.record.CVE
 			if err := yield(cursor.record); err != nil {
@@ -801,17 +802,16 @@ func openRun(filename string, lim limits) (*runReader, error) {
 	return openRunWithRecordLimit(filename, lim, lim.members)
 }
 
-//nolint:err113 // Sort-run validation diagnostics are local to the prepared-spool reader.
 func openRunWithRecordLimit(filename string, lim limits, recordLimit int64) (*runReader, error) {
 	if err := validateLimits(lim); err != nil {
 		return nil, err
 	}
 	if recordLimit <= 0 || recordLimit > lim.members {
-		return nil, errors.New("invalid sort run record limit")
+		return nil, newDiagnostic("invalid sort run record limit")
 	}
 	st, err := os.Lstat(filename)
 	if err != nil || !st.Mode().IsRegular() {
-		return nil, errors.New("invalid sort run")
+		return nil, newDiagnostic("invalid sort run")
 	}
 	f, err := os.Open(filename)
 	if err != nil {
@@ -820,7 +820,7 @@ func openRunWithRecordLimit(filename string, lim limits, recordLimit int64) (*ru
 	openedInfo, err := f.Stat()
 	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(st, openedInfo) {
 		_ = f.Close()
-		return nil, errors.New("sort run changed while opening")
+		return nil, newDiagnostic("sort run changed while opening")
 	}
 	decoder, err := newRunDecoder(f, lim)
 	if err != nil {
@@ -850,7 +850,6 @@ func closeRunReaders(readers []*runReader) {
 	}
 }
 
-//nolint:err113 // Sort-run validation diagnostics are local to the prepared-spool reader.
 func (r *runReader) next(lim limits) (runRecord, error) {
 	var header [runHeaderBytes]byte
 	n, err := io.ReadFull(r.decoder, header[:])
@@ -863,22 +862,22 @@ func (r *runReader) next(lim limits) (runRecord, error) {
 	cveLength := int64(binary.BigEndian.Uint32(header[0:4]))
 	rawLength := int64(binary.BigEndian.Uint32(header[4:8]))
 	if cveLength <= 0 || cveLength > lim.pathBytes || rawLength < 0 || rawLength > lim.fileBytes {
-		return runRecord{}, errors.New("invalid sort run record length")
+		return runRecord{}, newDiagnostic("invalid sort run record length")
 	}
 	if r.records >= r.recordLimit {
-		return runRecord{}, errors.New("sort run record cap exceeded")
+		return runRecord{}, newDiagnostic("sort run record cap exceeded")
 	}
 	remaining := lim.decodedBytes - r.decodedBytes
 	if remaining < int64(runHeaderBytes) {
-		return runRecord{}, errors.New("sort run decoded byte cap exceeded")
+		return runRecord{}, newDiagnostic("sort run decoded byte cap exceeded")
 	}
 	remaining -= int64(runHeaderBytes)
 	if cveLength > remaining {
-		return runRecord{}, errors.New("sort run decoded byte cap exceeded")
+		return runRecord{}, newDiagnostic("sort run decoded byte cap exceeded")
 	}
 	remaining -= cveLength
 	if rawLength > remaining {
-		return runRecord{}, errors.New("sort run decoded byte cap exceeded")
+		return runRecord{}, newDiagnostic("sort run decoded byte cap exceeded")
 	}
 	r.decodedBytes += int64(runHeaderBytes) + cveLength + rawLength
 	r.records++
@@ -891,11 +890,11 @@ func (r *runReader) next(lim limits) (runRecord, error) {
 		return runRecord{}, fmt.Errorf("truncated sort run payload: %w", err)
 	}
 	if !cveName.Match(cve) {
-		return runRecord{}, errors.New("invalid sort run CVE")
+		return runRecord{}, newDiagnostic("invalid sort run CVE")
 	}
 	digest := sha256.Sum256(raw)
 	if !equalBytes(header[8:], digest[:]) {
-		return runRecord{}, errors.New("sort run digest mismatch")
+		return runRecord{}, newDiagnostic("sort run digest mismatch")
 	}
 	return runRecord{CVE: string(cve), Raw: raw}, nil
 }
@@ -911,10 +910,9 @@ func equalBytes(a, b []byte) bool {
 	return different == 0
 }
 
-//nolint:err113 // Sort-run validation diagnostics are local to the prepared-spool reader.
 func scanRun(filename string, expected int64, lim limits) ([]ref, error) {
 	if expected <= 0 || expected > lim.members || expected > int64(^uint(0)>>1) {
-		return nil, errors.New("invalid expected sort run count")
+		return nil, newDiagnostic("invalid expected sort run count")
 	}
 	r, err := openRunWithRecordLimit(filename, lim, expected)
 	if err != nil {
@@ -933,20 +931,19 @@ func scanRun(filename string, expected int64, lim limits) ([]ref, error) {
 		}
 		if record.CVE <= lastCVE {
 			if record.CVE == lastCVE {
-				return nil, fmt.Errorf("duplicate CVE %s", record.CVE)
+				return nil, diagnosticf("duplicate CVE %s", record.CVE)
 			}
-			return nil, errors.New("sort run is not ordered")
+			return nil, newDiagnostic("sort run is not ordered")
 		}
 		lastCVE = record.CVE
 		refs = append(refs, ref{CVE: record.CVE})
 	}
 	if int64(len(refs)) != expected {
-		return nil, fmt.Errorf("sort run count %d does not match expected %d", len(refs), expected)
+		return nil, diagnosticf("sort run count %d does not match expected %d", len(refs), expected)
 	}
 	return refs, nil
 }
 
-//nolint:err113 // Input byte accounting is an exact internal validation diagnostic.
 func prepare(osv, vex, outDir string, lim limits) error {
 	if err := validateLimits(lim); err != nil {
 		return err
@@ -962,7 +959,7 @@ func prepare(osv, vex, outDir string, lim limits) error {
 	}
 	defer vexInput.close()
 	if osvInput.size > math.MaxInt64-vexInput.size {
-		return errors.New("input archive byte accounting overflow")
+		return newDiagnostic("input archive byte accounting overflow")
 	}
 	inputBytes := osvInput.size + vexInput.size
 	budget := &workBudget{limit: lim.workBytes}
@@ -1007,7 +1004,6 @@ func prepare(osv, vex, outDir string, lim limits) error {
 	return nil
 }
 
-//nolint:err113 // Convergence failure is an exact internal encoding diagnostic and is not matched.
 func encodeManifest(m *manifest, budget *workBudget) ([]byte, error) {
 	for i := 0; i < 12; i++ {
 		encoded, err := json.Marshal(m)
@@ -1028,10 +1024,9 @@ func encodeManifest(m *manifest, budget *workBudget) ([]byte, error) {
 		m.WorkBytes = workBytes
 		m.PeakWorkBytes = peakBytes
 	}
-	return nil, errors.New("manifest size did not converge")
+	return nil, newDiagnostic("manifest size did not converge")
 }
 
-//nolint:err113 // Manifest validation diagnostics are consumed as text at the CLI boundary.
 func validateManifestHeader(m *manifest, lim limits) error {
 	if m.Version != runVersion || m.ProjectionVersion != projectionVersion || m.OSV.Count <= 0 || m.VEX.Count <= 0 ||
 		m.OSV.Kind != osvKind || m.VEX.Kind != vexKind ||
@@ -1040,23 +1035,21 @@ func validateManifestHeader(m *manifest, lim limits) error {
 		m.WorkLimitBytes <= 0 || m.WorkLimitBytes > lim.workBytes ||
 		m.InputBytes <= 0 || m.WorkBytes <= 0 || m.PeakWorkBytes < m.WorkBytes ||
 		m.PeakWorkBytes > m.WorkLimitBytes || m.WorkBytes > m.WorkLimitBytes {
-		return errors.New("invalid manifest")
+		return newDiagnostic("invalid manifest")
 	}
 	return nil
 }
 
-//nolint:err113 // Manifest accounting diagnostics are consumed as text at the CLI boundary.
 func validateManifestAccounting(manifestBytes int64, m *manifest, lim limits) error {
 	if m.OSV.ArchiveBytes <= 0 || m.OSV.ArchiveBytes > lim.archiveBytes ||
 		m.VEX.ArchiveBytes <= 0 || m.VEX.ArchiveBytes > lim.archiveBytes ||
 		m.InputBytes != m.OSV.ArchiveBytes+m.VEX.ArchiveBytes ||
 		m.WorkBytes != m.InputBytes+m.OSV.SpoolBytes+m.VEX.SpoolBytes+manifestBytes {
-		return errors.New("invalid manifest work accounting")
+		return newDiagnostic("invalid manifest work accounting")
 	}
 	return nil
 }
 
-//nolint:err113 // Inventory validation diagnostics are consumed as text at the CLI boundary.
 func validateManifestInventory(dir string, inv *inventory, m *manifest, lim limits) error {
 	if inv.Count > lim.members || inv.Members < inv.Count || inv.Members > lim.members ||
 		inv.Total < 0 || inv.Total > lim.totalBytes || inv.SpoolBytes <= 0 ||
@@ -1064,24 +1057,24 @@ func validateManifestInventory(dir string, inv *inventory, m *manifest, lim limi
 		int64(inv.InitialRuns) > inv.Count || inv.MergePasses < 0 ||
 		(inv.InitialRuns == 1 && inv.MergePasses != 0) ||
 		(inv.InitialRuns > 1 && inv.MergePasses == 0) {
-		return errors.New("invalid manifest inventory")
+		return newDiagnostic("invalid manifest inventory")
 	}
 	if len(inv.ArchiveSHA256) != sha256.Size*2 {
-		return errors.New("invalid manifest archive digest")
+		return newDiagnostic("invalid manifest archive digest")
 	}
 	if _, err := hex.DecodeString(inv.ArchiveSHA256); err != nil {
-		return errors.New("invalid manifest archive digest")
+		return newDiagnostic("invalid manifest archive digest")
 	}
 	last := ""
 	for _, entry := range inv.Refs {
 		if !cveName.MatchString(entry.CVE) || entry.CVE <= last {
-			return errors.New("invalid manifest references")
+			return newDiagnostic("invalid manifest references")
 		}
 		last = entry.CVE
 	}
 	st, err := os.Lstat(filepath.Join(dir, inv.Spool))
 	if err != nil || !st.Mode().IsRegular() || st.Size() != inv.SpoolBytes {
-		return errors.New("invalid manifest spool")
+		return newDiagnostic("invalid manifest spool")
 	}
 	return nil
 }
@@ -1108,7 +1101,6 @@ func streamPrepared(dir string, out io.Writer, lim limits) error {
 	return projectPrepared(dir, out, lim)
 }
 
-//nolint:err113 // Prepared-manifest validation diagnostics are consumed as CLI text.
 func projectPrepared(dir string, out io.Writer, lim limits) error {
 	if err := validateLimits(lim); err != nil {
 		return err
@@ -1116,7 +1108,7 @@ func projectPrepared(dir string, out io.Writer, lim limits) error {
 	manifestPath := filepath.Join(dir, "manifest.json")
 	st, err := os.Lstat(manifestPath)
 	if err != nil || !st.Mode().IsRegular() || st.Size() > 32<<20 {
-		return errors.New("invalid manifest file")
+		return newDiagnostic("invalid manifest file")
 	}
 	b, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -1124,7 +1116,7 @@ func projectPrepared(dir string, out io.Writer, lim limits) error {
 	}
 	var m manifest
 	if err := json.Unmarshal(b, &m); err != nil {
-		return errors.New("invalid manifest")
+		return newDiagnostic("invalid manifest")
 	}
 	if err := validateManifest(dir, st.Size(), &m, lim); err != nil {
 		return err
@@ -1142,7 +1134,6 @@ func projectPrepared(dir string, out io.Writer, lim limits) error {
 	return projectPreparedPass(or, vr, &m, out, lim)
 }
 
-//nolint:err113 // Cross-spool validation diagnostics are consumed as CLI text.
 func projectPreparedPass(or, vr *runReader, m *manifest, out io.Writer, lim limits) error {
 	oRecord, oErr := or.next(lim)
 	vRecord, vErr := vr.next(lim)
@@ -1169,21 +1160,21 @@ func projectPreparedPass(or, vr *runReader, m *manifest, out io.Writer, lim limi
 		case errors.Is(vErr, io.EOF) || (oErr == nil && oRecord.CVE < vRecord.CVE):
 			cve, oraw = oRecord.CVE, oRecord.Raw
 			if oi >= len(m.OSV.Refs) || m.OSV.Refs[oi].CVE != cve {
-				return errors.New("OSV spool does not match manifest")
+				return newDiagnostic("OSV spool does not match manifest")
 			}
 			oi++
 			oRecord, oErr = or.next(lim)
 		case errors.Is(oErr, io.EOF) || vRecord.CVE < oRecord.CVE:
 			cve, vraw = vRecord.CVE, vRecord.Raw
 			if vi >= len(m.VEX.Refs) || m.VEX.Refs[vi].CVE != cve {
-				return errors.New("VEX spool does not match manifest")
+				return newDiagnostic("VEX spool does not match manifest")
 			}
 			vi++
 			vRecord, vErr = vr.next(lim)
 		default:
 			cve, oraw, vraw = oRecord.CVE, oRecord.Raw, vRecord.Raw
 			if oi >= len(m.OSV.Refs) || vi >= len(m.VEX.Refs) || m.OSV.Refs[oi].CVE != cve || m.VEX.Refs[vi].CVE != cve {
-				return errors.New("paired spools do not match manifest")
+				return newDiagnostic("paired spools do not match manifest")
 			}
 			oi++
 			vi++
@@ -1207,7 +1198,7 @@ func projectPreparedPass(or, vr *runReader, m *manifest, out io.Writer, lim limi
 		records++
 	}
 	if oi != len(m.OSV.Refs) || vi != len(m.VEX.Refs) {
-		return errors.New("spool ended before manifest references")
+		return newDiagnostic("spool ended before manifest references")
 	}
 	control := terminalDTO{
 		ProtocolVersion:               projectionVersion,
@@ -1247,18 +1238,17 @@ type wireCounters struct {
 	limit    int64
 }
 
-//nolint:err113 // Frame validation diagnostics are local to the bounded wire encoder.
 func writeCountedTypedFrame(w io.Writer, frameType byte, encoded []byte, configuredLimit int, counters *wireCounters) error {
 	frameBytes, err := checkedCollectionSize(1, len(encoded))
 	if err != nil {
-		return errors.New("frame size overflow")
+		return newDiagnostic("frame size overflow")
 	}
 	frameLimit := configuredLimit
 	if frameLimit > maxProjectionFrameBytes {
 		frameLimit = maxProjectionFrameBytes
 	}
 	if frameLimit <= 0 || frameBytes > frameLimit || uint64(frameBytes) > uint64(^uint32(0)) {
-		return fmt.Errorf("frame cap exceeded: %d > %d bytes", frameBytes, frameLimit)
+		return diagnosticf("frame cap exceeded: %d > %d bytes", frameBytes, frameLimit)
 	}
 	totalFrameBytes := int64(4 + frameBytes)
 	if counters.limit <= 0 || counters.bytes < 0 || counters.bytes > counters.limit || totalFrameBytes > counters.limit-counters.bytes {
@@ -1283,10 +1273,9 @@ func writeCountedTypedFrame(w io.Writer, frameType byte, encoded []byte, configu
 	return nil
 }
 
-//nolint:err113 // Frame validation diagnostics are local to the bounded wire encoder.
 func writeFrame(w io.Writer, payload []byte) error {
 	if len(payload) > maxProjectionFrameBytes || uint64(len(payload)) > uint64(^uint32(0)) {
-		return fmt.Errorf("frame cap exceeded: %d > %d bytes", len(payload), maxProjectionFrameBytes)
+		return diagnosticf("frame cap exceeded: %d > %d bytes", len(payload), maxProjectionFrameBytes)
 	}
 	var length [4]byte
 	binary.BigEndian.PutUint32(length[:], uint32(len(payload)))
@@ -1296,7 +1285,6 @@ func writeFrame(w io.Writer, payload []byte) error {
 	return writeAll(w, payload)
 }
 
-//nolint:err113 // Convergence failure is an exact internal encoding diagnostic and is not matched.
 func marshalTerminal(terminal terminalDTO, prior wireCounters) ([]byte, error) {
 	terminal.EmittedFrameCount = prior.frames + 1
 	for i := 0; i < 12; i++ {
@@ -1316,7 +1304,7 @@ func marshalTerminal(terminal terminalDTO, prior wireCounters) ([]byte, error) {
 		terminal.EmittedBytes = emittedBytes
 		terminal.MaxFrameBytes = maxFrame
 	}
-	return nil, errors.New("terminal size did not converge")
+	return nil, newDiagnostic("terminal size did not converge")
 }
 
 func writeAll(w io.Writer, p []byte) error {
@@ -1352,7 +1340,6 @@ type auditFrameWriter struct {
 	wire         wireCounters
 }
 
-//nolint:err113 // Audit validation diagnostics are local to the bounded stream checker.
 func (w *auditFrameWriter) Write(p []byte) (int, error) {
 	written := 0
 	for len(p) > 0 {
@@ -1369,12 +1356,12 @@ func (w *auditFrameWriter) Write(p []byte) (int, error) {
 				continue
 			}
 			if w.sawTerminal {
-				return written, errors.New("frame follows terminal control frame")
+				return written, newDiagnostic("frame follows terminal control frame")
 			}
 			w.frameBytes = int64(binary.BigEndian.Uint32(w.header[:]))
 			w.headerBytes = 0
 			if w.frameBytes < 1 || w.frameBytes > maxProjectionFrameBytes {
-				return written, errors.New("invalid audit frame length")
+				return written, newDiagnostic("invalid audit frame length")
 			}
 			w.remaining = w.frameBytes
 		}
@@ -1397,12 +1384,12 @@ func (w *auditFrameWriter) Write(p []byte) (int, error) {
 			case controlFrame:
 				w.control = w.control[:0]
 			default:
-				return written, errors.New("invalid audit frame type")
+				return written, newDiagnostic("invalid audit frame type")
 			}
 		}
 		if w.frameType == controlFrame && len(chunk) > 0 {
 			if len(w.control) > maxAuditControlBytes-len(chunk) {
-				return written, errors.New("audit control frame cap exceeded")
+				return written, newDiagnostic("audit control frame cap exceeded")
 			}
 			w.control = append(w.control, chunk...)
 		}
@@ -1417,7 +1404,7 @@ func (w *auditFrameWriter) Write(p []byte) (int, error) {
 			}
 			if w.frameType == controlFrame {
 				if w.sawTerminal || json.Unmarshal(w.control, &w.terminal) != nil {
-					return written, errors.New("invalid audit terminal control frame")
+					return written, newDiagnostic("invalid audit terminal control frame")
 				}
 				w.sawTerminal = true
 			}
@@ -1429,17 +1416,16 @@ func (w *auditFrameWriter) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-//nolint:err113 // Audit validation diagnostics are local to the bounded stream checker.
 func (w *auditFrameWriter) finish() (terminalDTO, error) {
 	if w.headerBytes != 0 || w.remaining != 0 || w.typeSeen || !w.sawTerminal {
-		return terminalDTO{}, errors.New("incomplete audit stream")
+		return terminalDTO{}, newDiagnostic("incomplete audit stream")
 	}
 	if w.terminal.RecordCount != w.recordFrames ||
 		w.terminal.CVECount != w.recordFrames ||
 		w.terminal.EmittedFrameCount != w.wire.frames ||
 		w.terminal.EmittedBytes != w.wire.bytes ||
 		w.terminal.MaxFrameBytes != w.wire.maxFrame {
-		return terminalDTO{}, errors.New("audit terminal counters do not match stream")
+		return terminalDTO{}, newDiagnostic("audit terminal counters do not match stream")
 	}
 	return w.terminal, nil
 }

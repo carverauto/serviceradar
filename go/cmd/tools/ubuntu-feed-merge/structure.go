@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 )
@@ -88,10 +87,9 @@ type jsonContainer struct {
 	fieldBytes int64
 }
 
-//nolint:err113 // Structural validation diagnostics are consumed as text by the internal parser.
 func preflightDocumentStructure(kind, cve string, raw []byte, limits projectionLimits) (documentStructure, error) {
 	if limits.logicalProducts <= 0 || limits.assertions <= 0 || limits.jsonTokens <= 0 || limits.jsonNesting <= 0 {
-		return documentStructure{}, errors.New("invalid projection limits")
+		return documentStructure{}, newDiagnostic("invalid projection limits")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -102,12 +100,12 @@ func preflightDocumentStructure(kind, cve string, raw []byte, limits projectionL
 	case osvKind:
 		structure.osvID, err = preflight.scanOSVDocument()
 		if err == nil && structure.osvID != "UBUNTU-"+cve {
-			err = errors.New("OSV identity mismatch")
+			err = newDiagnostic("OSV identity mismatch")
 		}
 	case vexKind:
 		structure.vex, err = preflight.scanVEXDocument(cve)
 	default:
-		err = errors.New("unknown advisory document kind")
+		err = newDiagnostic("unknown advisory document kind")
 	}
 	if err != nil {
 		return documentStructure{}, err
@@ -118,10 +116,9 @@ func preflightDocumentStructure(kind, cve string, raw []byte, limits projectionL
 	return structure, nil
 }
 
-//nolint:err113 // Token-cap validation is local to the bounded parser and is not matched.
 func (preflight *structuralPreflight) nextToken() (json.Token, error) {
 	if preflight.tokens >= preflight.limits.jsonTokens {
-		return nil, errors.New("JSON token cap exceeded")
+		return nil, newDiagnostic("JSON token cap exceeded")
 	}
 	token, err := preflight.decoder.Token()
 	if err != nil {
@@ -131,7 +128,6 @@ func (preflight *structuralPreflight) nextToken() (json.Token, error) {
 	return token, nil
 }
 
-//nolint:err113 // Structural validation diagnostics are local to the bounded parser.
 func (preflight *structuralPreflight) finish() error {
 	_, err := preflight.decoder.Token()
 	if errors.Is(err, io.EOF) {
@@ -140,10 +136,9 @@ func (preflight *structuralPreflight) finish() error {
 	if err != nil {
 		return err
 	}
-	return errors.New("multiple JSON values")
+	return newDiagnostic("multiple JSON values")
 }
 
-//nolint:err113 // Structural validation diagnostics are local to the bounded parser.
 func (preflight *structuralPreflight) startContainer(want json.Delim, allowNull bool) (bool, error) {
 	token, err := preflight.nextToken()
 	if err != nil {
@@ -154,17 +149,16 @@ func (preflight *structuralPreflight) startContainer(want json.Delim, allowNull 
 	}
 	delimiter, ok := token.(json.Delim)
 	if !ok || delimiter != want {
-		return false, errors.New("invalid JSON structure")
+		return false, newDiagnostic("invalid JSON structure")
 	}
 	if preflight.nesting >= preflight.limits.jsonNesting {
-		return false, errors.New("JSON nesting cap exceeded")
+		return false, newDiagnostic("JSON nesting cap exceeded")
 	}
 	preflight.nesting++
 	preflight.containers = append(preflight.containers, jsonContainer{delimiter: want})
 	return true, nil
 }
 
-//nolint:err113 // Structural validation diagnostics are local to the bounded parser.
 func (preflight *structuralPreflight) finishContainer(want json.Delim) error {
 	token, err := preflight.nextToken()
 	if err != nil {
@@ -172,16 +166,16 @@ func (preflight *structuralPreflight) finishContainer(want json.Delim) error {
 	}
 	delimiter, ok := token.(json.Delim)
 	if !ok || delimiter != want {
-		return errors.New("invalid JSON structure")
+		return newDiagnostic("invalid JSON structure")
 	}
 	if preflight.nesting <= 0 || len(preflight.containers) != preflight.nesting || preflight.containers[len(preflight.containers)-1].delimiter != matchingOpenDelimiter(want) {
-		return errors.New("invalid JSON structure")
+		return newDiagnostic("invalid JSON structure")
 	}
 	last := len(preflight.containers) - 1
 	container := preflight.containers[last]
 	fieldCount := int64(len(container.fields))
 	if preflight.storedFields < fieldCount || container.fieldBytes < 0 || preflight.storedFieldBytes < container.fieldBytes {
-		return errors.New("invalid JSON field storage accounting")
+		return newDiagnostic("invalid JSON field storage accounting")
 	}
 	preflight.storedFields -= fieldCount
 	preflight.storedFieldBytes -= container.fieldBytes
@@ -198,7 +192,6 @@ func matchingOpenDelimiter(close json.Delim) json.Delim {
 	return '['
 }
 
-//nolint:err113 // Object-field validation diagnostics are local to the bounded parser.
 func (preflight *structuralPreflight) nextFieldName() (string, error) {
 	token, err := preflight.nextToken()
 	if err != nil {
@@ -206,23 +199,23 @@ func (preflight *structuralPreflight) nextFieldName() (string, error) {
 	}
 	field, ok := token.(string)
 	if !ok {
-		return "", errors.New("invalid JSON object field")
+		return "", newDiagnostic("invalid JSON object field")
 	}
 	if len(field) > maxJSONFieldBytes {
-		return "", errors.New("JSON object field cap exceeded")
+		return "", newDiagnostic("JSON object field cap exceeded")
 	}
 	if preflight.nesting <= 0 || len(preflight.containers) != preflight.nesting {
-		return "", errors.New("JSON object field outside object")
+		return "", newDiagnostic("JSON object field outside object")
 	}
 	container := &preflight.containers[len(preflight.containers)-1]
 	if container.delimiter != '{' {
-		return "", errors.New("JSON object field outside object")
+		return "", newDiagnostic("JSON object field outside object")
 	}
 	if _, exists := container.fields[field]; exists {
-		return "", fmt.Errorf("duplicate JSON field %q", field)
+		return "", diagnosticf("duplicate JSON field %q", field)
 	}
 	if len(container.fields) >= maxJSONObjectFields || preflight.storedFields >= maxJSONStoredFields || int64(len(field)) > maxJSONStoredFieldBytes-preflight.storedFieldBytes {
-		return "", errors.New("JSON object field storage cap exceeded")
+		return "", newDiagnostic("JSON object field storage cap exceeded")
 	}
 	if container.fields == nil {
 		container.fields = make(map[string]struct{})
@@ -234,7 +227,6 @@ func (preflight *structuralPreflight) nextFieldName() (string, error) {
 	return field, nil
 }
 
-//nolint:err113 // Field canonicalization reports the rejected spelling verbatim to its parser caller.
 func canonicalField(field, known string) (string, error) {
 	noncanonical := false
 	for {
@@ -249,7 +241,7 @@ func canonicalField(field, known string) (string, error) {
 		known = remainder
 	}
 	if noncanonical {
-		return "", fmt.Errorf("noncanonical JSON field %q", field)
+		return "", diagnosticf("noncanonical JSON field %q", field)
 	}
 	return "", nil
 }
@@ -262,7 +254,6 @@ func (preflight *structuralPreflight) skipValue() error {
 	return preflight.skipStartedValue(token)
 }
 
-//nolint:err113 // Structural validation diagnostics are local to the bounded parser.
 func (preflight *structuralPreflight) skipStartedValue(token json.Token) error {
 	delimiter, ok := token.(json.Delim)
 	if !ok {
@@ -275,10 +266,10 @@ func (preflight *structuralPreflight) skipStartedValue(token json.Token) error {
 	case '[':
 		closeDelimiter = ']'
 	default:
-		return errors.New("invalid JSON structure")
+		return newDiagnostic("invalid JSON structure")
 	}
 	if preflight.nesting >= preflight.limits.jsonNesting {
-		return errors.New("JSON nesting cap exceeded")
+		return newDiagnostic("JSON nesting cap exceeded")
 	}
 	preflight.nesting++
 	preflight.containers = append(preflight.containers, jsonContainer{delimiter: delimiter})
@@ -295,7 +286,6 @@ func (preflight *structuralPreflight) skipStartedValue(token json.Token) error {
 	return preflight.finishContainer(closeDelimiter)
 }
 
-//nolint:err113 // Caller-provided cap text is an exact internal parser diagnostic.
 func (preflight *structuralPreflight) scanCappedArray(allowNull bool, limit int64, capError string, scanElement func() error) (int64, error) {
 	started, err := preflight.startContainer('[', allowNull)
 	if err != nil || !started {
@@ -304,7 +294,7 @@ func (preflight *structuralPreflight) scanCappedArray(allowNull bool, limit int6
 	var count int64
 	for preflight.decoder.More() {
 		if limit < 0 || count >= limit {
-			return 0, errors.New(capError)
+			return 0, newDiagnostic(capError)
 		}
 		count++
 		if scanElement == nil {
@@ -329,10 +319,9 @@ func (preflight *structuralPreflight) scanBoundedStringArray(allowNull bool, cou
 	})
 }
 
-//nolint:err113 // Product-cap validation is local to the bounded parser and is not matched.
 func (preflight *structuralPreflight) reserveLogicalProduct() error {
 	if preflight.limits.logicalProducts <= 0 || preflight.logicalProducts >= preflight.limits.logicalProducts {
-		return errors.New("logical product cap exceeded")
+		return newDiagnostic("logical product cap exceeded")
 	}
 	preflight.logicalProducts++
 	return nil
@@ -469,7 +458,6 @@ func (preflight *structuralPreflight) scanOSVRange() error {
 	return preflight.finishContainer('}')
 }
 
-//nolint:err113 // Event component-cap validation is local to the bounded parser.
 func (preflight *structuralPreflight) scanOSVEvent() error {
 	started, err := preflight.startContainer('{', true)
 	if err != nil || !started {
@@ -478,7 +466,7 @@ func (preflight *structuralPreflight) scanOSVEvent() error {
 	fields := 0
 	for preflight.decoder.More() {
 		if fields >= maxOSVEventFields {
-			return errors.New("OSV range event field cap exceeded")
+			return newDiagnostic("OSV range event field cap exceeded")
 		}
 		fields++
 		if _, err := preflight.nextFieldName(); err != nil {
@@ -592,7 +580,6 @@ func (preflight *structuralPreflight) scanLogicalProductArray() (int64, error) {
 	})
 }
 
-//nolint:err113 // VEX structure diagnostics are local to the bounded parser and are not matched.
 func (preflight *structuralPreflight) scanVEXDocument(cve string) (vexStructure, error) {
 	var structure vexStructure
 	started, err := preflight.startContainer('{', false)
@@ -630,7 +617,7 @@ func (preflight *structuralPreflight) scanVEXDocument(cve string) (vexStructure,
 		return vexStructure{}, err
 	}
 	if !structure.statementsPresent {
-		return vexStructure{}, errors.New("VEX statements missing")
+		return vexStructure{}, newDiagnostic("VEX statements missing")
 	}
 	if structure.statementCount == 0 {
 		if err := validateStructuralVEXTombstone(structure, cve); err != nil {
@@ -640,7 +627,6 @@ func (preflight *structuralPreflight) scanVEXDocument(cve string) (vexStructure,
 	return structure, nil
 }
 
-//nolint:err113 // VEX identity diagnostics are local to the bounded parser and are not matched.
 func (preflight *structuralPreflight) scanVEXStatement(cve string) error {
 	started, err := preflight.startContainer('{', true)
 	if err != nil || !started {
@@ -676,7 +662,7 @@ func (preflight *structuralPreflight) scanVEXStatement(cve string) error {
 		return err
 	}
 	if vulnerabilityName != cve {
-		return errors.New("VEX identity mismatch")
+		return newDiagnostic("VEX identity mismatch")
 	}
 	return nil
 }
@@ -718,7 +704,6 @@ func (preflight *structuralPreflight) scanVEXVulnerability() (string, error) {
 	return name, nil
 }
 
-//nolint:err113 // Product-depth validation is local to the bounded parser and is not matched.
 func (preflight *structuralPreflight) scanVEXProducts(depth int) error {
 	started, err := preflight.startContainer('[', true)
 	if err != nil || !started {
@@ -726,7 +711,7 @@ func (preflight *structuralPreflight) scanVEXProducts(depth int) error {
 	}
 	for preflight.decoder.More() {
 		if depth > maxProductDepth {
-			return errors.New("VEX product nesting cap exceeded")
+			return newDiagnostic("VEX product nesting cap exceeded")
 		}
 		if err := preflight.reserveLogicalProduct(); err != nil {
 			return err
@@ -854,7 +839,6 @@ func (preflight *structuralPreflight) scanVEXMetadataField(fields *vexMetadataFi
 	return nil
 }
 
-//nolint:err113 // Caller-provided cap text is an exact internal parser diagnostic.
 func (preflight *structuralPreflight) readBoundedString(limit int, capError string) (string, error) {
 	token, err := preflight.nextToken()
 	if err != nil {
@@ -865,15 +849,14 @@ func (preflight *structuralPreflight) readBoundedString(limit int, capError stri
 	}
 	value, ok := token.(string)
 	if !ok {
-		return "", errors.New("invalid JSON string")
+		return "", newDiagnostic("invalid JSON string")
 	}
 	if limit < 0 || len(value) > limit {
-		return "", errors.New(capError)
+		return "", newDiagnostic(capError)
 	}
 	return value, nil
 }
 
-//nolint:err113 // Integer validation diagnostics are local to the bounded parser and are not matched.
 func (preflight *structuralPreflight) readNullableInt64() (int64, error) {
 	token, err := preflight.nextToken()
 	if err != nil {
@@ -884,19 +867,18 @@ func (preflight *structuralPreflight) readNullableInt64() (int64, error) {
 	}
 	number, ok := token.(json.Number)
 	if !ok {
-		return 0, errors.New("invalid JSON integer")
+		return 0, newDiagnostic("invalid JSON integer")
 	}
 	if len(number.String()) > maxJSONIntegerBytes {
-		return 0, errors.New("JSON integer component cap exceeded")
+		return 0, newDiagnostic("JSON integer component cap exceeded")
 	}
 	value, err := number.Int64()
 	if err != nil {
-		return 0, errors.New("invalid JSON integer")
+		return 0, newDiagnostic("invalid JSON integer")
 	}
 	return value, nil
 }
 
-//nolint:err113 // Metadata conflict diagnostics are local to the bounded parser and are not matched.
 func mergedVEXMetadata(structure vexStructure) (vexMetadataFields, error) {
 	if !structure.metadataPresent {
 		return structure.top, nil
@@ -916,30 +898,29 @@ func mergedVEXMetadata(structure vexStructure) (vexMetadataFields, error) {
 	}
 	for _, check := range checks {
 		if check.topPresent && (!check.metadataPresent || check.topValue != check.metadataValue) {
-			return vexMetadataFields{}, fmt.Errorf("conflicting VEX document metadata %s", check.field)
+			return vexMetadataFields{}, diagnosticf("conflicting VEX document metadata %s", check.field)
 		}
 	}
 	if structure.top.versionPresent && (!structure.metadata.versionPresent || structure.top.version != structure.metadata.version) {
-		return vexMetadataFields{}, errors.New("conflicting VEX document metadata version")
+		return vexMetadataFields{}, newDiagnostic("conflicting VEX document metadata version")
 	}
 	return structure.metadata, nil
 }
 
-//nolint:err113 // Tombstone validation diagnostics are local to the bounded parser and are not matched.
 func validateStructuralVEXTombstone(structure vexStructure, cve string) error {
 	metadata, err := mergedVEXMetadata(structure)
 	if err != nil {
 		return err
 	}
 	if metadata.context != canonicalTombstoneContext || metadata.id == "" || metadata.author != canonicalAuthor || metadata.version <= 0 || !validTimestamp(metadata.timestamp) {
-		return errors.New("invalid Canonical empty-statements tombstone metadata")
+		return newDiagnostic("invalid Canonical empty-statements tombstone metadata")
 	}
 	if metadata.lastUpdatedSet && !validTimestamp(metadata.lastUpdated) {
-		return errors.New("invalid Canonical tombstone last_updated")
+		return newDiagnostic("invalid Canonical tombstone last_updated")
 	}
 	for _, embedded := range cveInID.FindAllString(metadata.id, -1) {
 		if embedded != cve {
-			return errors.New("canonical tombstone identity mismatch")
+			return newDiagnostic("canonical tombstone identity mismatch")
 		}
 	}
 	return nil
