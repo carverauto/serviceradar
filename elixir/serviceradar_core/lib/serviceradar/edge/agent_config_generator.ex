@@ -1311,6 +1311,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
              package.entrypoint,
              host_params
            ) do
+      note_plugin_assignment_delivered(assignment, package)
+
       %{
         assignment_id: to_string(assignment.id),
         plugin_id: package.plugin_id,
@@ -1345,16 +1347,57 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       # HERE would unwind into the rescue around the caller and drop every plugin
       # assignment for the agent, not just this one.
       {:error, reason} ->
-        Logger.warning(
-          "Skipping plugin assignment #{assignment.id}: authoritative source and host " <>
-            "binding validation failed: plugin=#{package.plugin_id} " <>
-            "entrypoint=#{package.entrypoint} agent=#{assignment.agent_uid} " <>
-            "reason=#{inspect(reason)}"
-        )
-
+        report_plugin_assignment_skipped(assignment, package, reason)
         nil
     end
   end
+
+  # Config is compiled on every agent poll, on core and again on each gateway,
+  # so a skip that persists would otherwise WARN every cycle. Mirror the
+  # refuse_addon_delivery/note_addon_delivery_resumed pattern: one
+  # persistent_term marker per assignment holds the fingerprint of the last
+  # skip reason. WARN when the skip first appears or its reason changes, DEBUG
+  # while it persists, INFO once when the assignment is delivered again. The
+  # marker is erased on recovery and holds one entry per skipped assignment, so
+  # it stays bounded; persistent_term is written only on those transitions.
+  defp report_plugin_assignment_skipped(assignment, package, reason) do
+    marker_key = plugin_assignment_skip_marker_key(assignment.id)
+    fingerprint = {:skipped, :erlang.phash2(reason)}
+
+    message =
+      "plugin assignment #{assignment.id}: authoritative source and host " <>
+        "binding validation failed: plugin=#{package.plugin_id} " <>
+        "entrypoint=#{package.entrypoint} agent=#{assignment.agent_uid} " <>
+        "reason=#{inspect(reason)}"
+
+    if :persistent_term.get(marker_key, :none) == fingerprint do
+      Logger.debug("Still skipping " <> message)
+    else
+      :persistent_term.put(marker_key, fingerprint)
+      Logger.warning("Skipping " <> message)
+    end
+  end
+
+  defp note_plugin_assignment_delivered(assignment, package) do
+    marker_key = plugin_assignment_skip_marker_key(assignment.id)
+
+    case :persistent_term.get(marker_key, :none) do
+      {:skipped, _fingerprint} ->
+        :persistent_term.erase(marker_key)
+
+        Logger.info(
+          "Plugin assignment #{assignment.id} is delivered again: " <>
+            "plugin=#{package.plugin_id} entrypoint=#{package.entrypoint} " <>
+            "agent=#{assignment.agent_uid}"
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp plugin_assignment_skip_marker_key(assignment_id),
+    do: {__MODULE__, :plugin_assignment_skipped, assignment_id}
 
   defp resolve_proxmox_assignment_scope(
          %PluginAssignment{} = assignment,
@@ -1622,10 +1665,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     item = normalize_map(item)
     device_uid = Map.get(item, "device_uid") || Map.get(item, "uid") || Map.get(item, "device_id")
 
-    with device_uid when is_binary(device_uid) and device_uid != "" <- device_uid,
-         {:ok, %Device{} = device} <- Device.get_by_uid(device_uid, false, actor: actor),
+    with {:ok, device} <- proxmox_console_target_device(device_uid, actor),
          {:ok, target} <-
-           RemoteConsoleTargetResolver.resolve_proxmox(device, %{}, ash_opts: [actor: actor]),
+           RemoteConsoleTargetResolver.resolve_proxmox(device, %{},
+             ash_opts: [actor: actor],
+             identity_scope: proxmox_identity_scope(source_scope)
+           ),
          :ok <- ensure_proxmox_target_source_scope(target, source_scope) do
       controller = Map.get(target, :controller, %{})
 
@@ -1669,12 +1714,49 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       )
       |> then(&{:ok, &1})
     else
-      _ -> {:error, :authoritative_proxmox_console_target_unavailable}
+      {:error, reason} -> proxmox_console_target_unavailable(device_uid, reason)
+      other -> proxmox_console_target_unavailable(device_uid, {:unexpected_result, other})
     end
   end
 
   defp enrich_proxmox_console_target(_item, _actor, _source_scope, _assignment),
     do: {:error, :invalid_proxmox_console_target}
+
+  # The resolver's own reason (and the item it rejected) must survive to the
+  # skip log; collapsing it to one atom is what left this failure undiagnosable.
+  defp proxmox_console_target_unavailable(device_uid, reason),
+    do:
+      {:error,
+       {:authoritative_proxmox_console_target_unavailable,
+        %{device_uid: device_uid, reason: reason}}}
+
+  defp proxmox_console_target_device(device_uid, actor)
+       when is_binary(device_uid) and device_uid != "" do
+    case Device.get_by_uid(device_uid, false, actor: actor) do
+      {:ok, %Device{} = device} ->
+        {:ok, device}
+
+      {:ok, nil} ->
+        {:error, :console_target_device_not_found}
+
+      {:error, error} when is_exception(error) ->
+        {:error, {:console_target_device_lookup_failed, Exception.message(error)}}
+
+      {:error, error} ->
+        {:error, {:console_target_device_lookup_failed, error}}
+    end
+  end
+
+  defp proxmox_console_target_device(_device_uid, _actor),
+    do: {:error, :console_target_device_uid_missing}
+
+  # The assignment's own credential rule names the Proxmox source, so legacy
+  # virtualization rows are completed against it exactly as an interactive
+  # console session completes them against the device's rule scope.
+  # ensure_proxmox_target_source_scope/2 still rejects any authoritative row
+  # that belongs to a different source.
+  defp proxmox_identity_scope(source_scope),
+    do: Map.take(source_scope, [:integration_id, :controller_id])
 
   defp ensure_proxmox_target_source_scope(target, source_scope) do
     if target.integration_id == source_scope.integration_id and
