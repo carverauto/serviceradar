@@ -116,7 +116,14 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
              )
 
     second_alert = create_alert!(actor, "Later grouped incident")
-    later_now = DateTime.shift(sent.finished_at, second: 1)
+
+    # `finished_at` and `triggered_at` are both wall-clock stamps. Route after the
+    # later of the two so the new alert's first rung is already due however long
+    # the sibling route above took.
+    later_now =
+      [sent.finished_at, second_alert.triggered_at]
+      |> Enum.max(DateTime)
+      |> DateTime.shift(second: 1)
 
     assert {:ok, %{planned: [second_delivery_id]}} =
              Dispatcher.route(second_alert.id, :fire, actor: actor, now: later_now)
