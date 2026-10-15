@@ -275,6 +275,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     assert html =~ "Capabilities"
     assert html =~ "Unavailable capability markers"
     assert html =~ "host-network-visibility.dpi.unavailable"
+    # A marker that withholds work explains why the agent gets none of it.
+    assert html =~ "icmp.unavailable"
+    assert html =~ "cannot open raw ICMP sockets"
   end
 
   defmodule RecordingSRQLStub do
@@ -314,7 +317,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
             "capabilities" => [
               "agent",
               "host-network-visibility",
-              "host-network-visibility.dpi.unavailable"
+              "host-network-visibility.dpi.unavailable",
+              "icmp.unavailable"
             ]
           }
         ]

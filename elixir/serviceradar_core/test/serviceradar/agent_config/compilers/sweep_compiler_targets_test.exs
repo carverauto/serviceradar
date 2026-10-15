@@ -703,4 +703,73 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       end)
     end
   end
+
+  describe "agent capability eligibility" do
+    @mixed_mtr_id "sg-icmp-mtr"
+
+    defp eligibility_groups do
+      pinned_groups() ++
+        [
+          group(%{
+            id: @mixed_mtr_id,
+            name: "icmp-mtr",
+            static_targets: ["192.0.2.40"],
+            sweep_modes: ["icmp", "mtr"]
+          })
+        ]
+    end
+
+    defp compile_for_agent(capabilities) do
+      with_log(fn ->
+        compile_by_id(eligibility_groups(),
+          query_page_fn: fake_inventory(self()),
+          agent_id: "agent-01",
+          agent_capabilities: capabilities
+        )
+      end)
+    end
+
+    test "an agent that cannot open raw ICMP sockets gets only the modes it can run" do
+      {compiled, log} = compile_for_agent(["sweep", "icmp.unavailable", "mtr"])
+
+      assert compiled |> Map.keys() |> Enum.sort() ==
+               Enum.sort([@lab_tcp_id, @edge_id, @mixed_mtr_id])
+
+      assert compiled[@lab_tcp_id]["modes"] == ["tcp"]
+
+      assert compiled[@lab_tcp_id]["device_targets"]
+             |> Enum.map(& &1["sweep_modes"])
+             |> Enum.uniq() == [["tcp"]]
+
+      # MTR falls back to unprivileged ICMP, so it survives without raw ICMP.
+      assert compiled[@mixed_mtr_id]["modes"] == ["mtr"]
+
+      for {id, name} <- [{@static_id, "static-only"}, {@lab_icmp_id, "lab-icmp"}] do
+        assert log =~
+                 "group #{inspect(name)} (#{id}) not sent to agent_id=\"agent-01\": " <>
+                   "the agent reports icmp.unavailable"
+      end
+    end
+
+    test "a group needing only sockets the agent lacks names every missing capability" do
+      {compiled, log} = compile_for_agent(["icmp.unavailable", "mtr.unavailable"])
+
+      refute Map.has_key?(compiled, @mixed_mtr_id)
+      assert log =~ "the agent reports icmp.unavailable, mtr.unavailable"
+    end
+
+    # An older agent omits "icmp" when its probe fails but never reports the
+    # marker, so a missing "icmp" cannot withhold work: upgrading core would
+    # otherwise stop ICMP across a fleet of older agents.
+    test "an agent that predates the unavailable markers keeps every mode" do
+      for capabilities <- [nil, ["sweep"], ["sweep", "icmp", "mtr"]] do
+        {compiled, log} = compile_for_agent(capabilities)
+
+        assert map_size(compiled) == length(eligibility_groups())
+        assert compiled[@lab_tcp_id]["modes"] == ["icmp", "tcp"]
+        assert compiled[@mixed_mtr_id]["modes"] == ["icmp", "mtr"]
+        refute log =~ "not sent to agent_id"
+      end
+    end
+  end
 end

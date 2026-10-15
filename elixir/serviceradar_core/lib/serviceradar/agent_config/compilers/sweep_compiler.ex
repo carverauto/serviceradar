@@ -35,6 +35,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigCache
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
@@ -83,6 +84,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     with {:ok, groups} <- load_sweep_groups(partition, agent_id, actor),
          {:ok, profiles} <- load_profiles(group_profile_ids(groups), actor) do
       profile_map = Map.new(profiles, &{&1.id, &1})
+
+      opts =
+        opts
+        |> Keyword.put(:agent_id, agent_id)
+        |> Keyword.put_new_lazy(:agent_capabilities, fn ->
+          load_agent_capabilities(agent_id, actor)
+        end)
 
       case compile_groups(groups, profile_map, opts) do
         {:error, reason} ->
@@ -134,7 +142,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   @doc false
   # The compile step after groups and profiles are loaded. `:query_page_fn`
-  # replaces `SRQLRunner.query_page/2` for target queries.
+  # replaces `SRQLRunner.query_page/2` for target queries. `:agent_capabilities`
+  # is the compiling agent's capability list (nil when unknown), which
+  # withholds the modes the agent reports it cannot run; `:agent_id` names the
+  # agent in the resulting log lines.
   #
   # Returns the compiled groups, or `{:error, reason}` when a target-query read
   # fails. A successful compile stays a list so callers can sort and hash it;
@@ -144,12 +155,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   def compile_groups(groups, profile_map, opts \\ []) do
     query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
 
+    agent = %{
+      id: Keyword.get(opts, :agent_id),
+      capabilities: Keyword.get(opts, :agent_capabilities)
+    }
+
     # The memo also holds failed results, so a failing query runs once per
     # compile rather than once per group that uses it.
     groups
     |> Enum.reduce_while({:ok, [], %{}}, fn group, {:ok, acc, query_memo} ->
-      case compile_group(group, profile_map, query_memo, query_page_fn) do
+      case compile_group(group, profile_map, agent, query_memo, query_page_fn) do
         {:ok, compiled, query_memo} -> {:cont, {:ok, [compiled | acc], query_memo}}
+        {:skip, query_memo} -> {:cont, {:ok, acc, query_memo}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
@@ -297,6 +314,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
+  # nil means unknown: every mode stays, as for an agent predating the
+  # unavailable markers. A failed read must not stop an agent's ICMP sweeps.
+  defp load_agent_capabilities(nil, _actor), do: nil
+
+  defp load_agent_capabilities(agent_id, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %Agent{capabilities: capabilities}} ->
+        capabilities
+
+      other ->
+        Logger.debug(
+          "SweepCompiler: no capabilities for agent_id=#{inspect(agent_id)} (#{inspect(other)}); compiling every mode"
+        )
+
+        nil
+    end
+  end
+
   defp load_profiles(profile_ids, _actor) when profile_ids == [], do: {:ok, []}
 
   defp load_profiles(profile_ids, actor) do
@@ -312,7 +347,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, query_memo, query_page_fn) do
+  defp compile_group(group, profile_map, agent, query_memo, query_page_fn) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -332,7 +367,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     modes = drop_unsupported_modes(modes, group)
 
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    with {:ok, targets, device_targets, query_memo} <-
+    with {:ok, modes} <- agent_modes(modes, group, agent),
+         {:ok, targets, device_targets, query_memo} <-
            compile_targets(group, modes, query_memo, query_page_fn) do
       # Build settings from profile with overrides
       settings = compile_settings(profile, group)
@@ -356,6 +392,36 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         )
 
       {:ok, compiled, query_memo}
+    else
+      :withheld -> {:skip, query_memo}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The modes this agent can run. A group left with none is not sent to the
+  # agent at all, and the warning is the diagnostic for a group whose only
+  # agent cannot run it: such a group otherwise just never reports results.
+  defp agent_modes(modes, group, agent) do
+    case withhold_unavailable_modes(modes, agent.capabilities) do
+      {_modes, []} ->
+        {:ok, modes}
+
+      {[], withheld} ->
+        Logger.warning(
+          "SweepCompiler: group #{inspect(group.name)} (#{group.id}) not sent to agent_id=#{inspect(agent.id)}: " <>
+            "the agent reports #{Enum.map_join(withheld, ", ", &unavailable_marker/1)} " <>
+            "and the group has no other sweep mode"
+        )
+
+        :withheld
+
+      {kept, withheld} ->
+        Logger.debug(
+          "SweepCompiler: withholding modes #{inspect(withheld)} of group #{group.name} (#{group.id}) " <>
+            "from agent_id=#{inspect(agent.id)}"
+        )
+
+        {:ok, kept}
     end
   end
 
@@ -753,6 +819,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       {ports, modes}
     end
   end
+
+  # Modes an agent runs only when it can open the sockets they need: raw ICMP
+  # for the ICMP sweep scanner, any ICMP socket for MTR. An agent that cannot
+  # reports the mode's `.unavailable` marker, and the mode is withheld from it.
+  # An agent reporting neither the mode nor its marker predates the marker and
+  # keeps every mode, so upgrading core never stops its sweeps.
+  @capability_gated_modes ["icmp", "mtr"]
+
+  defp withhold_unavailable_modes(modes, capabilities) do
+    reported = MapSet.new(capabilities || [], &to_string/1)
+
+    Enum.split_with(modes, fn mode ->
+      mode not in @capability_gated_modes or
+        not MapSet.member?(reported, unavailable_marker(mode))
+    end)
+  end
+
+  defp unavailable_marker(mode), do: mode <> ".unavailable"
 
   # Modes the Go sweeper actually executes. Profile/UI historically offered
   # "arp", but parseSweepModes ignores it.
