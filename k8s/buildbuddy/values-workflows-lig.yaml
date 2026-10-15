@@ -151,7 +151,7 @@ config:
       estimated_memory_bytes: 2147483648 # 2 GiB
     runner_pool:
       max_runner_memory_usage_bytes: -1
-      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; 40 GB filecache + two 6GiB disk caches fit the 120Gi emptyDir
+      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; 40 GB filecache leaves ~28.8GB of the 120Gi emptyDir for one in-flight disk cache
       # One action uses this pool and does not run concurrently, so one warm runner is all it
       # can reuse; a second slot would only park ~20 GB of memory for nothing.
       max_runner_count: 1

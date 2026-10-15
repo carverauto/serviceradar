@@ -161,7 +161,8 @@ build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.
 # workspace bind. That bind is the only tree Workspace.DiskUsageBytes walks for
 # max_runner_disk_size_bytes (60GB in //k8s/buildbuddy/values-workflows.yaml). Checkout +
 # output-base + a cache that GC will not trim until the server has been idle for 5 minutes
-# (cap 6G) can cross 60GB, and the runner is rejected with max_disk_usage_exceeded -- which
+# (idle target 6G; the in-flight cache measured ~22G) can cross 60GB, and the runner is
+# rejected with max_disk_usage_exceeded -- which
 # drops the warm cache this profile exists to keep. build:remote below still uses `~`: a
 # workstation HOME is the real home, and nothing there measures the workspace against a recycle
 # budget.
@@ -177,11 +178,12 @@ build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.
 # stays warm across its own runs; removing the runner deletes the bundle and the cache with it.
 # The path is outside /buildbuddy-execroot, so it does not count against the 60GB workspace
 # recycle limit. The overlay upperdir is on the executor's 120Gi /cache emptyDir, next to the
-# 40GB filecache and the workspace. The GC cap is that bound, PER RUNNER: 6G. The workflows
-# pool can have two paused runners plus the in-flight one, so three caches plus 40GB + 60GB
-# stay under 120Gi (~8.9GiB left). workflows-lig keeps one paused runner, so the same cap
-# leaves more. Action outputs missing from a fresh runner's cache come from the remote
-# cache instead -- that is what it is for.
+# 40GB filecache and the workspace. The 6G GC cap is the idle target, not a write limit:
+# GC waits until the server has been idle for 5 minutes, and the cache measured on this
+# pool was ~22G. Both workflow pools keep one paused runner (max_runner_count 1). 40GB +
+# 60GB leaves ~28.8GB of the 120Gi emptyDir, which holds that one in-flight cache. Action
+# outputs missing from a fresh runner's cache come from the remote cache instead -- that
+# is what it is for.
 build:ci --disk_cache=/home/buildbuddy/bazel-disk-cache
 build:ci --repository_cache=/bazel-cache/repo
 build:ci --repo_contents_cache=/bazel-cache/repo-contents

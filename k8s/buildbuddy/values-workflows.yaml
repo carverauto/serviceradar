@@ -306,18 +306,15 @@ config:
       # rootfs, in the home directory uid 1001 already owns), so this 60GB does not include
       # the disk cache. That cache still sits on this volume: the runner rootfs overlay is
       # /cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper inside the 120Gi emptyDir.
-      # Its bound is build:ci --experimental_disk_cache_gc_max_size=6G per runner. This pool
-      # can hold two paused runners plus the in-flight one, and each keeps its container, so
-      # three caches can be resident at once. 40GB filecache + 60GB workspace + 3*6GiB disk
-      # cache stays under the 120Gi (~128.8 GB) sizeLimit.
+      # Its idle target is build:ci --experimental_disk_cache_gc_max_size=6G. GC does not
+      # run until the server has been idle for 5 minutes, so the in-flight cache is larger.
+      # The one retired off the shared hostPath was ~22G. 40GB filecache + 60GB workspace
+      # leaves ~28.8GB of the 120Gi emptyDir, which holds that one cache and not a second.
       max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; disk cache is outside it, on this volume
-      # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
-      # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
-      # 2, not 1: with one slot, BazelCI and every other workflow on this pool evict each other's
-      # warm runner, and a cold `bazel build //...` costs up to ~36 min against 1-5 warm. A paused
-      # runner holds ~20 GB, so two idle plus one active build fit the 80Gi limit; farm01's 56Gi
-      # pods do not (see README).
-      max_runner_count: 2
+      # One paused slot, as on farm01 and in ./values-workflows-lig.yaml. BuildBuddy counts
+      # this against paused runners, and the in-flight runner is extra. A second paused
+      # runner would keep another disk cache on this emptyDir beside the ~22G in-flight one.
+      max_runner_count: 1
 
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
@@ -356,8 +353,7 @@ config:
     local_cache_directory: /cache
 
     # Read-through cache OF the remote CAS. On the 120Gi /cache emptyDir this shares with
-    # the workspace and the per-runner disk caches: 40GB + 60GB + 3*6GiB (two paused
-    # runners plus the in-flight one).
+    # the workspace: 40GB + 60GB leaves ~28.8GB for the one in-flight runner disk cache.
     # Plain int64 byte count: "40Gi" does not parse.
     local_cache_size_bytes: 40000000000
     root_directory: /cache/remotebuilds/
