@@ -40,30 +40,35 @@ const (
 	maxLaunchPreflightMembershipGeneration = math.MaxInt64 // Inventory generations are Unix nanoseconds, not AWX resource IDs.
 )
 
-// Static arrays keep validation available when the host calls an exported
-// TinyGo entrypoint without running WASI _start and its map initializers.
-var launchPreflightRequestKeys = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
-	"schema",
-	"controller_id",
-	"template_id",
-	"project_id",
-	"inventory_id",
-	"credential_ids",
-	"execution_environment_id",
-	"selected_hosts",
+// The key lists are function-local literals so validation stays available when
+// the host calls an exported TinyGo entrypoint without running WASI _start and
+// its package initializers.
+func launchPreflightRequestKeys() []string {
+	return []string{
+		"schema",
+		"controller_id",
+		"template_id",
+		"project_id",
+		"inventory_id",
+		"credential_ids",
+		"execution_environment_id",
+		"selected_hosts",
+	}
 }
 
-var launchPreflightTargetKeys = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
-	"membership_id",
-	"controller_id",
-	"inventory_id",
-	"awx_host_id",
-	"canonical_device_uid",
-	"host_name",
-	"ansible_host",
-	"enabled",
-	"membership_generation",
-	"source_fingerprint",
+func launchPreflightTargetKeys() []string {
+	return []string{
+		"membership_id",
+		"controller_id",
+		"inventory_id",
+		"awx_host_id",
+		"canonical_device_uid",
+		"host_name",
+		"ansible_host",
+		"enabled",
+		"membership_generation",
+		"source_fingerprint",
+	}
 }
 
 // launchPreflightRequest is a secret-free, fully reviewed selector set. It is
@@ -326,7 +331,7 @@ func runFetchLaunchPreflight(cfg Config) *sdk.Result {
 }
 
 func decodeLaunchPreflightRequest(args map[string]any) (launchPreflightRequest, error) {
-	if !exactAnyKeys(args, launchPreflightRequestKeys[:]) {
+	if !exactAnyKeys(args, launchPreflightRequestKeys()) {
 		return launchPreflightRequest{}, fmt.Errorf("preflight request contains unreviewed fields")
 	}
 	schema, ok := exactStringArg(args, "schema")
@@ -456,7 +461,7 @@ func launchPreflightTargets(args map[string]any, controllerID, inventoryID strin
 	seenMemberships := make(map[string]struct{}, len(values))
 	for _, rawTarget := range values {
 		value, ok := rawTarget.(map[string]any)
-		if !ok || !exactAnyKeys(value, launchPreflightTargetKeys[:]) {
+		if !ok || !exactAnyKeys(value, launchPreflightTargetKeys()) {
 			return nil, false
 		}
 		target, ok := decodeLaunchPreflightTarget(value, controllerID, inventoryID)
