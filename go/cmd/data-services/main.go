@@ -19,7 +19,9 @@ package main
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -37,119 +39,62 @@ import (
 //go:embed config.json
 var defaultConfig []byte
 
-// untracedMethods lists high-frequency gRPC methods whose OTel spans are pure
-// noise and are excluded from datasvc tracing. proto.KVService/Put fires on
-// every KV write and would otherwise dominate span volume. Add further methods
-// here (e.g. "/proto.KVService/Get") if they become equally noisy.
-//nolint:gochecknoglobals // a small, immutable allowlist; a package-level slice is the clearest form
-var untracedMethods = []string{
-	"/proto.KVService/Put",
+// untracedMethod reports whether an RPC is a high-frequency gRPC method whose
+// OTel spans are pure noise and are excluded from datasvc tracing.
+// proto.KVService/Put fires on every KV write and would otherwise dominate span
+// volume. Add further methods here (e.g. "/proto.KVService/Get") if they
+// become equally noisy.
+func untracedMethod(fullMethodName string) bool {
+	switch fullMethodName {
+	case "/proto.KVService/Put":
+		return true
+	default:
+		return false
+	}
 }
 
 // datasvcTelemetryFilter reports whether an RPC should emit a span. It drops the
-// methods listed in untracedMethods while tracing everything else. Health and
+// methods untracedMethod names while tracing everything else. Health and
 // reflection chatter is already filtered by the shared gRPC server.
 func datasvcTelemetryFilter(info *grpcstats.RPCTagInfo) bool {
-	if info == nil {
-		return true
-	}
-
-	for _, method := range untracedMethods {
-		if info.FullMethodName == method {
-			return false
-		}
-	}
-
-	return true
+	return info == nil || !untracedMethod(info.FullMethodName)
 }
+
+var errDatasvcDescriptorMissing = errors.New("datasvc descriptor missing")
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/datasvc.json", "Path to config file")
 	flag.Parse()
 
+	if err := run(*configPath); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run loads the datasvc config and serves until the server stops.
+func run(configPath string) error {
 	ctx := context.Background()
 
 	var cfg datasvc.Config
 	desc, ok := config.ServiceDescriptorFor("datasvc")
 	if !ok {
-		log.Fatalf("datasvc descriptor missing")
+		return errDatasvcDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
-		ConfigPath:   *configPath,
+		ConfigPath:   configPath,
 		DisableWatch: true,
 	})
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 	defer func() { _ = bootstrapResult.Close() }()
 
 	server, err := datasvc.NewServer(ctx, &cfg)
 	if err != nil {
-		_ = bootstrapResult.Close()
-		log.Fatalf("Failed to create data service server: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
+		return fmt.Errorf("failed to create data service server: %w", err)
 	}
 
-	// Initialize NATS account service
-	// This service is stateless - it only holds the operator key for signing operations.
-	// Account state (seeds, JWTs) is stored by Elixir in CNPG with AshCloak encryption.
-	// The service can start without an operator and bootstrap later via gRPC.
-	var natsAccountServer *datasvc.NATSAccountServer
-	if cfg.NATSOperator != nil {
-		operator, opErr := accounts.NewOperator(cfg.NATSOperator)
-		if opErr != nil {
-			// Operator not available yet - that's okay, bootstrap will be called later
-			log.Printf("NATS account service starting without operator (will bootstrap later): %v", opErr)
-			natsAccountServer = datasvc.NewNATSAccountServer(nil)
-		} else {
-			natsAccountServer = datasvc.NewNATSAccountServer(operator)
-			log.Printf("NATS account service initialized with operator %s", operator.Name())
-		}
-
-		natsAccountServer.SetAllowedClientIdentities(cfg.NATSOperator.AllowedClientIdentities)
-		if len(cfg.NATSOperator.AllowedClientIdentities) == 0 {
-			log.Printf("Warning: no allowed client identities configured for NATS account service; requests will be rejected")
-		} else {
-			log.Printf("NATS account service allowed identities: %v", cfg.NATSOperator.AllowedClientIdentities)
-		}
-
-		// Configure resolver paths for file-based JWT resolver
-		// Priority: environment variables > config file
-		operatorConfigPath := cfg.NATSOperator.OperatorConfigPath
-		if envPath := os.Getenv("NATS_OPERATOR_CONFIG_PATH"); envPath != "" {
-			operatorConfigPath = envPath
-		}
-
-		resolverPath := cfg.NATSOperator.ResolverPath
-		if envPath := os.Getenv("NATS_RESOLVER_PATH"); envPath != "" {
-			resolverPath = envPath
-		}
-
-		if operatorConfigPath != "" || resolverPath != "" {
-			natsAccountServer.SetResolverPaths(operatorConfigPath, resolverPath)
-			log.Printf("NATS resolver paths configured: operator=%s resolver=%s", operatorConfigPath, resolverPath)
-
-			// If operator is already initialized, write the config now
-			// This ensures config files exist even when datasvc restarts with an existing operator
-			if operator != nil {
-				if err := natsAccountServer.WriteOperatorConfig(); err != nil {
-					log.Printf("Warning: failed to write initial operator config: %v", err)
-				} else {
-					log.Printf("Wrote initial operator config to %s", operatorConfigPath)
-				}
-			}
-		}
-
-		systemCredsFile := cfg.NATSOperator.SystemAccountCredsFile
-		if envPath := os.Getenv("NATS_SYSTEM_ACCOUNT_CREDS_FILE"); envPath != "" {
-			systemCredsFile = envPath
-		}
-		if systemCredsFile == "" {
-			log.Printf("Warning: no system account creds configured; PushAccountJWT will fail")
-		} else {
-			natsAccountServer.SetResolverClient(cfg.NATSURL, cfg.NATSSecurity, systemCredsFile)
-			log.Printf("NATS resolver client configured with system creds at %s", systemCredsFile)
-		}
-	}
+	natsAccountServer := newNATSAccountServer(&cfg)
 
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
@@ -185,6 +130,78 @@ func main() {
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		return fmt.Errorf("server failed: %w", err)
 	}
+
+	return nil
+}
+
+// newNATSAccountServer builds the NATS account service when the config names
+// an operator, and returns nil otherwise.
+//
+// This service is stateless - it only holds the operator key for signing operations.
+// Account state (seeds, JWTs) is stored by Elixir in CNPG with AshCloak encryption.
+// The service can start without an operator and bootstrap later via gRPC.
+func newNATSAccountServer(cfg *datasvc.Config) *datasvc.NATSAccountServer {
+	if cfg.NATSOperator == nil {
+		return nil
+	}
+
+	var natsAccountServer *datasvc.NATSAccountServer
+	operator, opErr := accounts.NewOperator(cfg.NATSOperator)
+	if opErr != nil {
+		// Operator not available yet - that's okay, bootstrap will be called later
+		log.Printf("NATS account service starting without operator (will bootstrap later): %v", opErr)
+		natsAccountServer = datasvc.NewNATSAccountServer(nil)
+	} else {
+		natsAccountServer = datasvc.NewNATSAccountServer(operator)
+		log.Printf("NATS account service initialized with operator %s", operator.Name())
+	}
+
+	natsAccountServer.SetAllowedClientIdentities(cfg.NATSOperator.AllowedClientIdentities)
+	if len(cfg.NATSOperator.AllowedClientIdentities) == 0 {
+		log.Printf("Warning: no allowed client identities configured for NATS account service; requests will be rejected")
+	} else {
+		log.Printf("NATS account service allowed identities: %v", cfg.NATSOperator.AllowedClientIdentities)
+	}
+
+	// Configure resolver paths for file-based JWT resolver
+	// Priority: environment variables > config file
+	operatorConfigPath := cfg.NATSOperator.OperatorConfigPath
+	if envPath := os.Getenv("NATS_OPERATOR_CONFIG_PATH"); envPath != "" {
+		operatorConfigPath = envPath
+	}
+
+	resolverPath := cfg.NATSOperator.ResolverPath
+	if envPath := os.Getenv("NATS_RESOLVER_PATH"); envPath != "" {
+		resolverPath = envPath
+	}
+
+	if operatorConfigPath != "" || resolverPath != "" {
+		natsAccountServer.SetResolverPaths(operatorConfigPath, resolverPath)
+		log.Printf("NATS resolver paths configured: operator=%s resolver=%s", operatorConfigPath, resolverPath)
+
+		// If operator is already initialized, write the config now
+		// This ensures config files exist even when datasvc restarts with an existing operator
+		if operator != nil {
+			if err := natsAccountServer.WriteOperatorConfig(); err != nil {
+				log.Printf("Warning: failed to write initial operator config: %v", err)
+			} else {
+				log.Printf("Wrote initial operator config to %s", operatorConfigPath)
+			}
+		}
+	}
+
+	systemCredsFile := cfg.NATSOperator.SystemAccountCredsFile
+	if envPath := os.Getenv("NATS_SYSTEM_ACCOUNT_CREDS_FILE"); envPath != "" {
+		systemCredsFile = envPath
+	}
+	if systemCredsFile == "" {
+		log.Printf("Warning: no system account creds configured; PushAccountJWT will fail")
+	} else {
+		natsAccountServer.SetResolverClient(cfg.NATSURL, cfg.NATSSecurity, systemCredsFile)
+		log.Printf("NATS resolver client configured with system creds at %s", systemCredsFile)
+	}
+
+	return natsAccountServer
 }
