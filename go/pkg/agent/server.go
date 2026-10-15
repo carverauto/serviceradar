@@ -92,6 +92,7 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 		done:      make(chan struct{}),
 		config:    cfg,
 		logger:    log,
+		sockets:   probeHostSockets(),
 	}
 }
 
@@ -582,7 +583,7 @@ func (s *Server) gatewayArtifactHTTPClient() *http.Client {
 // Start initializes and starts all agent services.
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting agent service...")
-	logSocketProbe(s.logger, probeSockets())
+	logSocketProbe(s.logger, s.sockets)
 
 	s.logger.Info().Int("services", len(s.services)).Msg("Found services to start")
 
