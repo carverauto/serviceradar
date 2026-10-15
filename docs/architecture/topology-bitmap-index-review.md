@@ -7,9 +7,9 @@ This is documentation validation for
 
 | Artifact | SHA-256 | Bytes |
 | --- | --- | ---: |
-| [Architecture source](topology-bitmap-index.architecture.json) | `d9eb21f5c81ddf50e9ea6ef1dbe0906605e14d7d800c4d11ae2d97a593745e80` | 2555 |
-| [Architecture HTML](topology-bitmap-index.html) | `f8ab0d75ca5bd3c7d762fccd55e21ba013e9b728715600cc4852ff6c7095d074` | 707818 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `82d9338ff304025b6984ec24a4f6d396ebf5cdf65a8736954cbfa8bf5ea2da4f` | 792453 |
+| [Architecture source](topology-bitmap-index.architecture.json) | `aa7094f022eb464b0d39338759f72138e69d0ed2ab4b59239033ee1ae531d6fe` | 2557 |
+| [Architecture HTML](topology-bitmap-index.html) | `432b1e89cbe513cf1d17a95e506523b991e630951098ee1210eb9529eacb3843` | 707820 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `dbba9d9f92df76e833dc49446385e3db436a3de52b224bf57d242124966ada1a` | 796492 |
 
 The portable proposal embeds the complete proposal, design, delta requirements,
 unchecked implementation tasks and the architecture viewer. Each source document

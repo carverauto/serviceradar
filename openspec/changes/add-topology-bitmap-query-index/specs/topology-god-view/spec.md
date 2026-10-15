@@ -38,6 +38,13 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** it SHALL NOT silently drop membership changes or label partial counts exact
 - **AND** unavailable causal evidence SHALL NOT be synthesized from availability
 
+#### Scenario: Independent replicas and expired replay history
+- **GIVEN** two web pods maintain local indexes from a durable dirty-event stream
+- **WHEN** one replica acknowledges an update or another falls behind retention
+- **THEN** the first acknowledgment SHALL NOT consume the second replica's delivery
+- **AND** missing history, expired ownership or a changed durable rescan generation SHALL fence that replica until a complete reseed
+- **AND** outbox and stream retention SHALL remain bounded without waiting for an offline replica
+
 ### Requirement: Authorized Bitmap Query and Exact Facets
 The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported facet sets and intersect current effective visibility before returning any result, count or membership.
 
@@ -61,6 +68,13 @@ The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported 
 - **AND** cache reuse SHALL prove unchanged dependencies
 - **AND** a page cursor SHALL bind query, epochs, revision, authority, entity kind and last ordinal
 - **AND** expired revisions SHALL require restart rather than mixed pages
+
+#### Scenario: Cursor request reaches a different web pod
+- **WHEN** a pinned cursor is presented to a pod other than its live index owner
+- **THEN** the request SHALL route to the fenced owner under the same deadline and current authorization
+- **AND** the authenticated handle SHALL resolve its owner through trusted service membership rather than a caller-supplied address
+- **AND** owner loss SHALL require an explicit restart and fresh baseline
+- **AND** the request SHALL NOT silently run against another replica's revision
 
 ### Requirement: Bitmap Filters Preserve Bounded Tile Geometry
 The system SHALL apply query membership to the persistent tiled world without changing layout, inventing graph edges or expanding the full result into browser objects.
@@ -108,7 +122,7 @@ The system SHALL validate the query index with independently synthetic scale ben
 - **WHEN** uncached representative work is benchmarked after declared warmup
 - **THEN** four-term filter p95 SHALL be below 5 ms and fifty exact facet counts p95 below 50 ms
 - **AND** full-population one-percent state-churn delta p95 SHALL be below 50,000 bytes including all changed sets and envelope
-- **AND** steady-state index-owned memory SHALL be below 200,000,000 bytes including dictionaries, caches and retained revisions
+- **AND** steady-state index-owned memory per replica SHALL be below 200,000,000 bytes including dictionaries, caches and retained revisions, with cluster totals reported separately
 - **AND** the current array baseline, peak rebuild memory and end-to-end authorization latency SHALL be reported separately
 
 #### Scenario: Sustained operation and browser lifecycle

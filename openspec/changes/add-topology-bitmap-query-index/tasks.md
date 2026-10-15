@@ -11,6 +11,7 @@
 - [ ] 1.5 Implement canonical inventory/availability indexes, value and memory caps, and explicit unavailable/stale states.
 - [ ] 1.6 Prove identity persistence, merge/delete/restore, crash replay, high IDs, epoch rejection and complete current-state convergence with behavioral tests.
 - [ ] 1.7 Add declared synthetic Bazel benchmarks comparing set algebra and memory with the current array baseline; publish measured results.
+- [ ] 1.8 Add transactional outbox-to-JetStream fanout, leased per-replica delivery/checkpoints, bounded retention and durable rescan fencing; prove two-replica pause/reseed and crash replay.
 
 ## 2. Authorized query, facets and tiled membership
 
@@ -20,6 +21,7 @@
 - [ ] 2.4 Bind queries to admitted tile receipts; compute authorized leaf/aggregate/bundle membership without relayout or whole-fleet browser enumeration.
 - [ ] 2.5 Specify and test canonical site/role, causal, alert/incident, impact and complete search adapters; expose only supported predicates and retain separate availability semantics.
 - [ ] 2.6 Prove reference-evaluator parity, empty results, bounded pages, stale cursors, revocation races, count isolation and layout/geometry independence.
+- [ ] 2.7 Route pinned query/cursor requests to their fenced index owner and prove non-owner ingress, owner loss and explicit restart behavior without load-balancer affinity.
 
 ## 3. Binary browser membership
 

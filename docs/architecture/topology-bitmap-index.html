@@ -5033,7 +5033,7 @@
 
 
         <!-- Connection paths (before components for correct z-order) -->
-        <path data-edge-from="inventory" data-edge-to="index" data-edge-label="dirty IDs" data-edge-key="0" data-edge-id="current-rows" data-composition-points="250,348;360,348" d="M 250 348 L 360 348" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="inventory" data-edge-to="index" data-edge-label="JetStream" data-edge-key="0" data-edge-id="current-rows" data-composition-points="250,348;360,348" d="M 250 348 L 360 348" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="index" data-edge-to="query" data-edge-label="AND / OR" data-edge-key="1" data-edge-id="set-algebra" data-composition-points="570,348;680,348" d="M 570 348 L 680 348" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="query" data-edge-to="browser" data-edge-label="Roaring" data-edge-key="2" data-edge-id="binary-membership" data-composition-points="890,348;1000,348" d="M 890 348 L 1000 348" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="authority" data-edge-to="query" data-edge-label="visibility" data-edge-key="3" data-edge-id="current-permissions" data-composition-points="785,131;785,310" d="M 785 131 L 785 310" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
@@ -5054,15 +5054,15 @@
         <text data-detail="context" x="145" y="362" class="t-muted" font-size="9" text-anchor="middle">Persistent device ordinals</text>
         </g>
 
-        <g id="node-index" data-node-id="index" data-node-label="Rust bitmap index" tabindex="0" role="button" aria-label="Focus Rust bitmap index, Atomic membership revisions, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Atomic membership revisions" data-node-context="Architecture component">
-          <title>Rust bitmap index · Atomic membership revisions · Architecture component</title>
+        <g id="node-index" data-node-id="index" data-node-label="Rust index per pod" tabindex="0" role="button" aria-label="Focus Rust index per pod, Leased consumer + revision, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Leased consumer + revision" data-node-context="Architecture component">
+          <title>Rust index per pod · Leased consumer + revision · Architecture component</title>
           <rect x="360" y="310" width="210" height="76" rx="6" class="c-mask"/>
           <rect x="360" y="310" width="210" height="76" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(366 316) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="465" y="346" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Rust bitmap index</text>
-        <text data-detail="context" x="465" y="362" class="t-muted" font-size="9" text-anchor="middle">Atomic membership revisions</text>
+          <text data-node-label="" data-detail-anchor="" x="465" y="346" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Rust index per pod</text>
+        <text data-detail="context" x="465" y="362" class="t-muted" font-size="9" text-anchor="middle">Leased consumer + revision</text>
         </g>
 
         <g id="node-query" data-node-id="query" data-node-label="Authorized query" tabindex="0" role="button" aria-label="Focus Authorized query, Sets, facets, bounded pages, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Sets, facets, bounded pages" data-node-context="Architecture component">
@@ -5128,9 +5128,9 @@
         </g>
 
         <!-- Connection labels -->
-        <g data-detail="context" data-edge-from="inventory" data-edge-to="index" data-edge-label="dirty IDs" data-edge-key="0" data-edge-id="current-rows">
+        <g data-detail="context" data-edge-from="inventory" data-edge-to="index" data-edge-label="JetStream" data-edge-key="0" data-edge-id="current-rows">
           <rect x="278.4" y="328" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="305" y="338" class="t-backend" font-size="8" text-anchor="middle">dirty IDs</text>
+          <text x="305" y="338" class="t-backend" font-size="8" text-anchor="middle">JetStream</text>
         </g>
         <g data-detail="context" data-edge-from="index" data-edge-to="query" data-edge-label="AND / OR" data-edge-key="1" data-edge-id="set-algebra">
           <rect x="600.8" y="328" width="48.4" height="14" rx="3" class="c-mask"/>
@@ -5376,8 +5376,8 @@
           <h3>Explicit recovery</h3>
         </div>
         <ul>
-          <li>&bull; Epoch, revision and sequence fence every update.</li>
-          <li>&bull; Gaps reset membership; geometry stays independent.</li>
+          <li>&bull; Expired replica history requires a complete reseed.</li>
+          <li>&bull; View gaps reset membership; geometry stays valid.</li>
         </ul>
       </div>
     </div>

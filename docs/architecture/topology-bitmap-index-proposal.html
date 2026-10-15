@@ -5049,7 +5049,7 @@
 
 
         <!-- Connection paths (before components for correct z-order) -->
-        <path data-edge-from=&quot;inventory&quot; data-edge-to=&quot;index&quot; data-edge-label=&quot;dirty IDs&quot; data-edge-key=&quot;0&quot; data-edge-id=&quot;current-rows&quot; data-composition-points=&quot;250,348;360,348&quot; d=&quot;M 250 348 L 360 348&quot; class=&quot;a-emphasis&quot; stroke-width=&quot;1.8&quot; marker-end=&quot;url(#arrowhead-emphasis)&quot; />
+        <path data-edge-from=&quot;inventory&quot; data-edge-to=&quot;index&quot; data-edge-label=&quot;JetStream&quot; data-edge-key=&quot;0&quot; data-edge-id=&quot;current-rows&quot; data-composition-points=&quot;250,348;360,348&quot; d=&quot;M 250 348 L 360 348&quot; class=&quot;a-emphasis&quot; stroke-width=&quot;1.8&quot; marker-end=&quot;url(#arrowhead-emphasis)&quot; />
         <path data-edge-from=&quot;index&quot; data-edge-to=&quot;query&quot; data-edge-label=&quot;AND / OR&quot; data-edge-key=&quot;1&quot; data-edge-id=&quot;set-algebra&quot; data-composition-points=&quot;570,348;680,348&quot; d=&quot;M 570 348 L 680 348&quot; class=&quot;a-emphasis&quot; stroke-width=&quot;1.8&quot; marker-end=&quot;url(#arrowhead-emphasis)&quot; />
         <path data-edge-from=&quot;query&quot; data-edge-to=&quot;browser&quot; data-edge-label=&quot;Roaring&quot; data-edge-key=&quot;2&quot; data-edge-id=&quot;binary-membership&quot; data-composition-points=&quot;890,348;1000,348&quot; d=&quot;M 890 348 L 1000 348&quot; class=&quot;a-emphasis&quot; stroke-width=&quot;1.8&quot; marker-end=&quot;url(#arrowhead-emphasis)&quot; />
         <path data-edge-from=&quot;authority&quot; data-edge-to=&quot;query&quot; data-edge-label=&quot;visibility&quot; data-edge-key=&quot;3&quot; data-edge-id=&quot;current-permissions&quot; data-composition-points=&quot;785,131;785,310&quot; d=&quot;M 785 131 L 785 310&quot; class=&quot;a-security&quot; stroke-width=&quot;1.5&quot; marker-end=&quot;url(#arrowhead-security)&quot; />
@@ -5070,15 +5070,15 @@
         <text data-detail=&quot;context&quot; x=&quot;145&quot; y=&quot;362&quot; class=&quot;t-muted&quot; font-size=&quot;9&quot; text-anchor=&quot;middle&quot;>Persistent device ordinals</text>
         </g>
 
-        <g id=&quot;node-index&quot; data-node-id=&quot;index&quot; data-node-label=&quot;Rust bitmap index&quot; tabindex=&quot;0&quot; role=&quot;button&quot; aria-label=&quot;Focus Rust bitmap index, Atomic membership revisions, Architecture component&quot; aria-pressed=&quot;false&quot; data-node-kind=&quot;backend&quot; data-node-sublabel=&quot;Atomic membership revisions&quot; data-node-context=&quot;Architecture component&quot;>
-          <title>Rust bitmap index · Atomic membership revisions · Architecture component</title>
+        <g id=&quot;node-index&quot; data-node-id=&quot;index&quot; data-node-label=&quot;Rust index per pod&quot; tabindex=&quot;0&quot; role=&quot;button&quot; aria-label=&quot;Focus Rust index per pod, Leased consumer + revision, Architecture component&quot; aria-pressed=&quot;false&quot; data-node-kind=&quot;backend&quot; data-node-sublabel=&quot;Leased consumer + revision&quot; data-node-context=&quot;Architecture component&quot;>
+          <title>Rust index per pod · Leased consumer + revision · Architecture component</title>
           <rect x=&quot;360&quot; y=&quot;310&quot; width=&quot;210&quot; height=&quot;76&quot; rx=&quot;6&quot; class=&quot;c-mask&quot; />
           <rect x=&quot;360&quot; y=&quot;310&quot; width=&quot;210&quot; height=&quot;76&quot; rx=&quot;6&quot; class=&quot;c-backend&quot; stroke-width=&quot;1.5&quot; />
           <g aria-hidden=&quot;true&quot; data-semantic-sigil=&quot;backend&quot; class=&quot;semantic-sigil s-backend&quot; transform=&quot;translate(366 316) scale(0.6875)&quot;>
             <path d=&quot;M6 3 3 8l3 5M10 3l3 5-3 5&quot; />
           </g>
-          <text data-node-label=&quot;&quot; data-detail-anchor=&quot;&quot; x=&quot;465&quot; y=&quot;346&quot; class=&quot;t-primary&quot; font-size=&quot;11&quot; font-weight=&quot;600&quot; text-anchor=&quot;middle&quot;>Rust bitmap index</text>
-        <text data-detail=&quot;context&quot; x=&quot;465&quot; y=&quot;362&quot; class=&quot;t-muted&quot; font-size=&quot;9&quot; text-anchor=&quot;middle&quot;>Atomic membership revisions</text>
+          <text data-node-label=&quot;&quot; data-detail-anchor=&quot;&quot; x=&quot;465&quot; y=&quot;346&quot; class=&quot;t-primary&quot; font-size=&quot;11&quot; font-weight=&quot;600&quot; text-anchor=&quot;middle&quot;>Rust index per pod</text>
+        <text data-detail=&quot;context&quot; x=&quot;465&quot; y=&quot;362&quot; class=&quot;t-muted&quot; font-size=&quot;9&quot; text-anchor=&quot;middle&quot;>Leased consumer + revision</text>
         </g>
 
         <g id=&quot;node-query&quot; data-node-id=&quot;query&quot; data-node-label=&quot;Authorized query&quot; tabindex=&quot;0&quot; role=&quot;button&quot; aria-label=&quot;Focus Authorized query, Sets, facets, bounded pages, Architecture component&quot; aria-pressed=&quot;false&quot; data-node-kind=&quot;backend&quot; data-node-sublabel=&quot;Sets, facets, bounded pages&quot; data-node-context=&quot;Architecture component&quot;>
@@ -5144,9 +5144,9 @@
         </g>
 
         <!-- Connection labels -->
-        <g data-detail=&quot;context&quot; data-edge-from=&quot;inventory&quot; data-edge-to=&quot;index&quot; data-edge-label=&quot;dirty IDs&quot; data-edge-key=&quot;0&quot; data-edge-id=&quot;current-rows&quot;>
+        <g data-detail=&quot;context&quot; data-edge-from=&quot;inventory&quot; data-edge-to=&quot;index&quot; data-edge-label=&quot;JetStream&quot; data-edge-key=&quot;0&quot; data-edge-id=&quot;current-rows&quot;>
           <rect x=&quot;278.4&quot; y=&quot;328&quot; width=&quot;53.199999999999996&quot; height=&quot;14&quot; rx=&quot;3&quot; class=&quot;c-mask&quot; />
-          <text x=&quot;305&quot; y=&quot;338&quot; class=&quot;t-backend&quot; font-size=&quot;8&quot; text-anchor=&quot;middle&quot;>dirty IDs</text>
+          <text x=&quot;305&quot; y=&quot;338&quot; class=&quot;t-backend&quot; font-size=&quot;8&quot; text-anchor=&quot;middle&quot;>JetStream</text>
         </g>
         <g data-detail=&quot;context&quot; data-edge-from=&quot;index&quot; data-edge-to=&quot;query&quot; data-edge-label=&quot;AND / OR&quot; data-edge-key=&quot;1&quot; data-edge-id=&quot;set-algebra&quot;>
           <rect x=&quot;600.8&quot; y=&quot;328&quot; width=&quot;48.4&quot; height=&quot;14&quot; rx=&quot;3&quot; class=&quot;c-mask&quot; />
@@ -5392,8 +5392,8 @@
           <h3>Explicit recovery</h3>
         </div>
         <ul>
-          <li>&amp;bull; Epoch, revision and sequence fence every update.</li>
-          <li>&amp;bull; Gaps reset membership; geometry stays independent.</li>
+          <li>&amp;bull; Expired replica history requires a complete reseed.</li>
+          <li>&amp;bull; View gaps reset membership; geometry stays valid.</li>
         </ul>
       </div>
     </div>
@@ -14805,7 +14805,7 @@
 </body>
 </html>
 " loading="lazy"></iframe></section>
-<section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before enabling the next.</h2><div class="grid"><article class="card"><div class="num">Phase 1</div><h3>Dictionary + index</h3><p>Preserve IDs, add bounded dirty work and shadow native indexing. Measure query parity, unsigned IDs and memory.</p></article><article class="card"><div class="num">Phase 2</div><h3>Query + facets</h3><p>Expose only supported sources. Enforce authorization, exact counts, cursor revisions and tile membership.</p></article><article class="card"><div class="num">Phase 3</div><h3>Browser deltas</h3><p>Negotiate the binary protocol, prove codec parity, then test duplicate/gap recovery and GPU resource lifetime.</p></article></div><div class="approval"><h3>Approval covers the design and phased implementation scope.</h3><p>No deployment, release or live data cleanup is included. The complete proposal, design, requirements and unchecked implementation tasks follow. Canonical approval is recorded through the task's Agentboard decision.</p></div></section>
+<section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before enabling the next.</h2><div class="grid"><article class="card"><div class="num">Phase 1</div><h3>Dictionary + index</h3><p>Preserve IDs, add per-pod JetStream delivery and shadow native indexing. Prove missed-history reseeding, query parity and memory.</p></article><article class="card"><div class="num">Phase 2</div><h3>Query + facets</h3><p>Expose only supported sources. Enforce authorization, exact counts, cursor revisions and tile membership.</p></article><article class="card"><div class="num">Phase 3</div><h3>Browser deltas</h3><p>Negotiate the binary protocol, prove codec parity, then test duplicate/gap recovery and GPU resource lifetime.</p></article></div><div class="approval"><h3>Approval covers the design and phased implementation scope.</h3><p>No deployment, release or live data cleanup is included. The complete proposal, design, requirements and unchecked implementation tasks follow. Canonical approval is recorded through the task's Agentboard decision.</p></div></section>
 <section id="proposal" class="source"><div class="section-label">Complete source document</div><h1>Change: Add a topology bitmap query index</h1>
 <h2>Why</h2>
 <p>The topology renderer currently builds Roaring state sets over temporary node
@@ -14963,16 +14963,36 @@ never an unbounded NIF on a normal BEAM scheduler. Structural sharing avoids
 copying all indexes per update. Revision pins, concurrent readers and retired
 revisions have byte/time caps; cancel slow readers before retiring resources.</p>
 <p>Use current-state reads as truth. Dirty notifications contain IDs and act as
-hints. Add durable, transactionally recorded dirty work for inventory attributes
-and identity transitions, including raw upserts. Its consumer claims pending
-rows, rereads current canonical data, publishes a complete native update, then
-acknowledges work. A sequence maximum alone is not a commit-order watermark:
+hints. Add a transactionally recorded dirty outbox for inventory attributes and
+identity transitions, including raw upserts. Its relay claims pending rows,
+publishes bounded invalidation batches to a dedicated JetStream control stream,
+and acknowledges the outbox only after the broker confirms durable receipt.
+Duplicate publication is safe. A sequence maximum alone is not a commit-order watermark:
 late commits and claimed-but-crashed rows must remain discoverable. Coalesce by
 identity with a change token; acknowledge only the consumed token so a newer
-change cannot be lost. A crash after native publication causes an idempotent
-replay. Periodic keyset reconciliation repairs missed hints and reports age.</p>
-<p>Seed with bounded current-state pages and drain the durable dirty work across
-the scan boundary before announcing readiness. Deletions and merges must be
+change cannot be lost. This is control-state invalidation, not a new telemetry
+writer or a path around the existing telemetry pipeline.</p>
+<p>Every web pod owns its local native index and a separate leased JetStream
+consumer. Replicas must not share a competing consumer or destructively consume
+each other's dirty rows. Each replica rereads current canonical state, publishes
+one complete native revision, and acknowledges its own delivery only afterward;
+a crash after publication causes an idempotent replay. Replica identity, lease
+and index epoch fence stale owners. Periodic keyset reconciliation repairs
+missed hints and reports age.</p>
+<p>Retention is bounded by bytes and age, not by the slowest pod. A lagging or
+expired consumer whose required history was trimmed is fenced as not ready and
+must reseed; it cannot resume from a new tail and claim completeness. Outbox
+growth also has a bounded coalescing/compaction policy: before dropping pending
+detail, persist a global rescan generation in the same transaction. Every replica
+checks that generation independently of stream delivery and reseeds when it
+changes. Inventory writes must not wait for an offline index consumer. Provision
+the control stream and permissions through existing NATS infrastructure; do not
+create device credentials or per-customer routing.</p>
+<p>Seed with bounded current-state pages while retaining each replica's stream
+position from before the scan, then drain through a captured broker watermark
+before announcing readiness. Recheck the rescan generation and retention floor
+before acceptance; a changed generation or missing history invalidates the seed.
+Deletions and merges must be
 represented in dirty work even if the source row disappears. Publish one index
 revision atomically, including live membership, attributes, availability and
 source revision markers; never expose half-applied state changes. If a source
@@ -15057,6 +15077,14 @@ entity kind and last ordinal. Tile/detail cursors additionally bind the current
 world generation/layout revision. Revisions that have expired require restart,
 not mixed pages. Existing detail limits remain: 128 devices, 256 relations and
 at most 4,096 scanned candidates per request.</p>
+<p>Server-issued authenticated query handles and cursors also identify their
+replica owner and index epoch. Resolve owners through trusted service membership,
+never a caller-supplied host or URL.
+An authenticated request arriving at another web pod routes to that owner under
+the same deadline, with current authorization rechecked at the owner. Never
+silently evaluate a pinned cursor against another pod's index. Owner loss or an
+expired lease returns an explicit restart-required response and a new baseline;
+it does not require sticky load-balancer routing to make pagination correct.</p>
 <p>Hot-result caches store dependencies and changed-ID sets. On a relevant change,
 re-evaluate affected IDs against the new consistent revision and patch the
 cached result, or discard it. Changes to negated predicates, live universe,
@@ -15172,7 +15200,7 @@ peak memory and baseline results; do not substitute cached no-work operations.</
 </tr>
 <tr>
 <td>Server index steady-state memory</td>
-<td>&lt; 200,000,000 bytes; include index-owned ID maps, facet sets, query caches and retained revisions. Exclude durable database pages and geometry, report them separately.</td>
+<td>&lt; 200,000,000 bytes per replica; include index-owned ID maps, facet sets, query caches and retained revisions. Report the cluster total and durable database/stream storage plus geometry separately.</td>
 </tr>
 <tr>
 <td>Rebuild and sustained churn</td>
@@ -15189,7 +15217,10 @@ Exercise at least 100 concurrent synthetic view subscriptions with a slow
 consumer group; report per-viewer memory and total fanout work. Test an
 adversarial high-cardinality tag set, selective and broad queries, authority
 revocation, missed notifications, publisher crashes, deletes/merges/restores,
-baseline cancellation, sequence gaps/duplicates and malformed binary lengths.</p>
+baseline cancellation, sequence gaps/duplicates and malformed binary lengths.
+Use at least two index replicas: pause one beyond stream retention while the
+other advances, verify reseeding and count parity, and route cursor requests
+through the non-owner pod before and after owner loss.</p>
 <p>Benchmarks and fixture provisioning are declared Bazel targets executed on
 BuildBuddy. Unit, integration and browser layers own distinct contracts; avoid
 source-text assertions. The README reports measured behavior and limitations,
@@ -15208,7 +15239,7 @@ remain unsupported. This is an explicit rollout condition, not inferred data.</l
 <li>The benchmark must establish realistic concurrency and rebuild headroom;
 the issue's steady-state targets are acceptance criteria, not evidence.</li>
 </ul>
-<p class="checksum">Source SHA-256: 9ac51666d9c3ddffc45baa347bd706ea41f00b2b042cac315c2e1dd77e155ce4</p></section>
+<p class="checksum">Source SHA-256: 9f9709033d69d27ee84fa961bb1aa9a98f4b5b87a02815c5680842f54b30531a</p></section>
 <section id="requirements" class="source"><div class="section-label">Complete source document</div><h2>ADDED Requirements</h2>
 <h3>Requirement: Persistent Typed Bitmap Identity</h3>
 <p>The system SHALL reuse persisted device fleet ordinals for topology query membership and SHALL namespace every bitmap by dictionary epoch and entity kind.</p>
@@ -15251,6 +15282,14 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li><strong>AND</strong> it SHALL NOT silently drop membership changes or label partial counts exact</li>
 <li><strong>AND</strong> unavailable causal evidence SHALL NOT be synthesized from availability</li>
 </ul>
+<h4>Scenario: Independent replicas and expired replay history</h4>
+<ul>
+<li><strong>GIVEN</strong> two web pods maintain local indexes from a durable dirty-event stream</li>
+<li><strong>WHEN</strong> one replica acknowledges an update or another falls behind retention</li>
+<li><strong>THEN</strong> the first acknowledgment SHALL NOT consume the second replica's delivery</li>
+<li><strong>AND</strong> missing history, expired ownership or a changed durable rescan generation SHALL fence that replica until a complete reseed</li>
+<li><strong>AND</strong> outbox and stream retention SHALL remain bounded without waiting for an offline replica</li>
+</ul>
 <h3>Requirement: Authorized Bitmap Query and Exact Facets</h3>
 <p>The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported facet sets and intersect current effective visibility before returning any result, count or membership.</p>
 <h4>Scenario: Exact query and facet semantics</h4>
@@ -15276,6 +15315,14 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li><strong>AND</strong> cache reuse SHALL prove unchanged dependencies</li>
 <li><strong>AND</strong> a page cursor SHALL bind query, epochs, revision, authority, entity kind and last ordinal</li>
 <li><strong>AND</strong> expired revisions SHALL require restart rather than mixed pages</li>
+</ul>
+<h4>Scenario: Cursor request reaches a different web pod</h4>
+<ul>
+<li><strong>WHEN</strong> a pinned cursor is presented to a pod other than its live index owner</li>
+<li><strong>THEN</strong> the request SHALL route to the fenced owner under the same deadline and current authorization</li>
+<li><strong>AND</strong> the authenticated handle SHALL resolve its owner through trusted service membership rather than a caller-supplied address</li>
+<li><strong>AND</strong> owner loss SHALL require an explicit restart and fresh baseline</li>
+<li><strong>AND</strong> the request SHALL NOT silently run against another replica's revision</li>
 </ul>
 <h3>Requirement: Bitmap Filters Preserve Bounded Tile Geometry</h3>
 <p>The system SHALL apply query membership to the persistent tiled world without changing layout, inventing graph edges or expanding the full result into browser objects.</p>
@@ -15326,7 +15373,7 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li><strong>WHEN</strong> uncached representative work is benchmarked after declared warmup</li>
 <li><strong>THEN</strong> four-term filter p95 SHALL be below 5 ms and fifty exact facet counts p95 below 50 ms</li>
 <li><strong>AND</strong> full-population one-percent state-churn delta p95 SHALL be below 50,000 bytes including all changed sets and envelope</li>
-<li><strong>AND</strong> steady-state index-owned memory SHALL be below 200,000,000 bytes including dictionaries, caches and retained revisions</li>
+<li><strong>AND</strong> steady-state index-owned memory per replica SHALL be below 200,000,000 bytes including dictionaries, caches and retained revisions, with cluster totals reported separately</li>
 <li><strong>AND</strong> the current array baseline, peak rebuild memory and end-to-end authorization latency SHALL be reported separately</li>
 </ul>
 <h4>Scenario: Sustained operation and browser lifecycle</h4>
@@ -15337,7 +15384,7 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li><strong>AND</strong> the GPU lifecycle SHALL prevent destruction of buffers still used by queued work</li>
 <li><strong>AND</strong> software-GPU functional results SHALL NOT be presented as actual-hardware frame-rate proof or an end-to-end zero-copy guarantee</li>
 </ul>
-<p class="checksum">Source SHA-256: 45a7ff340b16afba8df6c2cc478b7f1feb8064ef8b81083a0112b1cd3958cb31</p></section>
+<p class="checksum">Source SHA-256: 79453e8660f86bfda23ee9e17bbbb4669e5750ec11a58ab432416b1dc7b3dd8b</p></section>
 <section id="implementation-tasks" class="source"><div class="section-label">Complete source document</div><h2>0. Proposal approval</h2>
 <ul>
 <li>[ ] 0.1 Obtain approval for this proposal and its phased scope before implementation.</li>
@@ -15351,6 +15398,7 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li>[ ] 1.5 Implement canonical inventory/availability indexes, value and memory caps, and explicit unavailable/stale states.</li>
 <li>[ ] 1.6 Prove identity persistence, merge/delete/restore, crash replay, high IDs, epoch rejection and complete current-state convergence with behavioral tests.</li>
 <li>[ ] 1.7 Add declared synthetic Bazel benchmarks comparing set algebra and memory with the current array baseline; publish measured results.</li>
+<li>[ ] 1.8 Add transactional outbox-to-JetStream fanout, leased per-replica delivery/checkpoints, bounded retention and durable rescan fencing; prove two-replica pause/reseed and crash replay.</li>
 </ul>
 <h2>2. Authorized query, facets and tiled membership</h2>
 <ul>
@@ -15360,6 +15408,7 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li>[ ] 2.4 Bind queries to admitted tile receipts; compute authorized leaf/aggregate/bundle membership without relayout or whole-fleet browser enumeration.</li>
 <li>[ ] 2.5 Specify and test canonical site/role, causal, alert/incident, impact and complete search adapters; expose only supported predicates and retain separate availability semantics.</li>
 <li>[ ] 2.6 Prove reference-evaluator parity, empty results, bounded pages, stale cursors, revocation races, count isolation and layout/geometry independence.</li>
+<li>[ ] 2.7 Route pinned query/cursor requests to their fenced index owner and prove non-owner ingress, owner loss and explicit restart behavior without load-balancer affinity.</li>
 </ul>
 <h2>3. Binary browser membership</h2>
 <ul>
@@ -15378,6 +15427,6 @@ the issue's steady-state targets are acceptance criteria, not evidence.</li>
 <li>[ ] 4.4 Update README and binary-path documentation to match shipped behavior, measured copies and tested scale; remove metadata-only bitmap claims.</li>
 <li>[ ] 4.5 Refresh Archify/portable review artifacts, obtain rollout approval separately, and archive only after the implemented change has shipped.</li>
 </ul>
-<p class="checksum">Source SHA-256: b1b031a595ea0f99a06e7a92d9dbe7384f923623e3249ef6e94e87f4a5ea0a05</p></section>
+<p class="checksum">Source SHA-256: c1180909a27b2a0d3fac6c4cb0a0b6420072aaa8ca06c9ecff33d5979bd8d6c0</p></section>
 <footer>Design source: ServiceRadar's existing dark/light colors and Avenir typography in <code>elixir/web-ng/assets/css/app.css</code>. The embedded diagram uses the installed Archify viewer. This portable review contains all four source documents and the architecture; no external assets are needed to read it. External links provide supporting repository evidence.</footer>
 </main><script>document.getElementById('theme').addEventListener('click',function(){const root=document.documentElement;const next=root.dataset.theme==='dark'?'light':'dark';root.dataset.theme=next;this.textContent=next==='dark'?'Light theme':'Dark theme';});</script></body></html>

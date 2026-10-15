@@ -67,17 +67,39 @@ copying all indexes per update. Revision pins, concurrent readers and retired
 revisions have byte/time caps; cancel slow readers before retiring resources.
 
 Use current-state reads as truth. Dirty notifications contain IDs and act as
-hints. Add durable, transactionally recorded dirty work for inventory attributes
-and identity transitions, including raw upserts. Its consumer claims pending
-rows, rereads current canonical data, publishes a complete native update, then
-acknowledges work. A sequence maximum alone is not a commit-order watermark:
+hints. Add a transactionally recorded dirty outbox for inventory attributes and
+identity transitions, including raw upserts. Its relay claims pending rows,
+publishes bounded invalidation batches to a dedicated JetStream control stream,
+and acknowledges the outbox only after the broker confirms durable receipt.
+Duplicate publication is safe. A sequence maximum alone is not a commit-order watermark:
 late commits and claimed-but-crashed rows must remain discoverable. Coalesce by
 identity with a change token; acknowledge only the consumed token so a newer
-change cannot be lost. A crash after native publication causes an idempotent
-replay. Periodic keyset reconciliation repairs missed hints and reports age.
+change cannot be lost. This is control-state invalidation, not a new telemetry
+writer or a path around the existing telemetry pipeline.
 
-Seed with bounded current-state pages and drain the durable dirty work across
-the scan boundary before announcing readiness. Deletions and merges must be
+Every web pod owns its local native index and a separate leased JetStream
+consumer. Replicas must not share a competing consumer or destructively consume
+each other's dirty rows. Each replica rereads current canonical state, publishes
+one complete native revision, and acknowledges its own delivery only afterward;
+a crash after publication causes an idempotent replay. Replica identity, lease
+and index epoch fence stale owners. Periodic keyset reconciliation repairs
+missed hints and reports age.
+
+Retention is bounded by bytes and age, not by the slowest pod. A lagging or
+expired consumer whose required history was trimmed is fenced as not ready and
+must reseed; it cannot resume from a new tail and claim completeness. Outbox
+growth also has a bounded coalescing/compaction policy: before dropping pending
+detail, persist a global rescan generation in the same transaction. Every replica
+checks that generation independently of stream delivery and reseeds when it
+changes. Inventory writes must not wait for an offline index consumer. Provision
+the control stream and permissions through existing NATS infrastructure; do not
+create device credentials or per-customer routing.
+
+Seed with bounded current-state pages while retaining each replica's stream
+position from before the scan, then drain through a captured broker watermark
+before announcing readiness. Recheck the rescan generation and retention floor
+before acceptance; a changed generation or missing history invalidates the seed.
+Deletions and merges must be
 represented in dirty work even if the source row disappears. Publish one index
 revision atomically, including live membership, attributes, availability and
 source revision markers; never expose half-applied state changes. If a source
@@ -142,6 +164,15 @@ entity kind and last ordinal. Tile/detail cursors additionally bind the current
 world generation/layout revision. Revisions that have expired require restart,
 not mixed pages. Existing detail limits remain: 128 devices, 256 relations and
 at most 4,096 scanned candidates per request.
+
+Server-issued authenticated query handles and cursors also identify their
+replica owner and index epoch. Resolve owners through trusted service membership,
+never a caller-supplied host or URL.
+An authenticated request arriving at another web pod routes to that owner under
+the same deadline, with current authorization rechecked at the owner. Never
+silently evaluate a pinned cursor against another pod's index. Owner loss or an
+expired lease returns an explicit restart-required response and a new baseline;
+it does not require sticky load-balancer routing to make pagination correct.
 
 Hot-result caches store dependencies and changed-ID sets. On a relevant change,
 re-evaluate affected IDs against the new consistent revision and patch the
@@ -255,7 +286,7 @@ peak memory and baseline results; do not substitute cached no-work operations.
 | Four-term native AND/ANDNOT query | p95 < 5 ms; also report authorization and end-to-end latency separately. |
 | Fifty exact conjunctive facet counts | p95 < 50 ms, same pinned result revision; include result computation. |
 | One-percent state churn per tick | p95 < 50,000 serialized bytes summed across all changed state sets and envelope on the full synthetic population; report viewport payload separately. |
-| Server index steady-state memory | < 200,000,000 bytes; include index-owned ID maps, facet sets, query caches and retained revisions. Exclude durable database pages and geometry, report them separately. |
+| Server index steady-state memory | < 200,000,000 bytes per replica; include index-owned ID maps, facet sets, query caches and retained revisions. Report the cluster total and durable database/stream storage plus geometry separately. |
 | Rebuild and sustained churn | Report peak old+new index memory, convergence lag and backlog; enforce a separately configured peak cap and fail rollout if it is exceeded. |
 | Browser | Prove the existing geometry caps plus 8 MiB membership cap using retained CPU/WASM/GPU accounting, repeated zoom/eviction/reconnect, and real-GPU frame timings. Software GPU results cannot certify hardware FPS. |
 
@@ -265,6 +296,9 @@ consumer group; report per-viewer memory and total fanout work. Test an
 adversarial high-cardinality tag set, selective and broad queries, authority
 revocation, missed notifications, publisher crashes, deletes/merges/restores,
 baseline cancellation, sequence gaps/duplicates and malformed binary lengths.
+Use at least two index replicas: pause one beyond stream retention while the
+other advances, verify reseeding and count parity, and route cursor requests
+through the non-owner pod before and after owner loss.
 
 Benchmarks and fixture provisioning are declared Bazel targets executed on
 BuildBuddy. Unit, integration and browser layers own distinct contracts; avoid
