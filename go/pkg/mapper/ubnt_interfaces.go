@@ -19,6 +19,7 @@ package mapper
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -109,14 +110,11 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 		e.addPoEMetadata(metadata, port)
 
-		// Safe conversion to prevent integer overflow
-		var ifIndex int32
-
-		if port.Idx <= defaultMaxValueInt32 { // Max value for int32
-			//nolint:gosec // G115: This is a safe conversion since we check the value
+		// Safe conversion to prevent integer overflow: an index outside the
+		// int32 range is reported as the max int32 value.
+		ifIndex := int32(defaultMaxValueInt32)
+		if port.Idx >= math.MinInt32 && port.Idx <= math.MaxInt32 {
 			ifIndex = int32(port.Idx)
-		} else {
-			ifIndex = defaultMaxValueInt32 // Use max int32 value if overflow would occur
 		}
 
 		// Safe conversion for speed calculation
@@ -129,7 +127,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 		}
 
 		// Direct conversion for admin status
-		var ifAdminStatus = int32(adminStatus) //nolint:gosec // G115: This is a safe conversion since adminStatus is 1 or 2
+		var ifAdminStatus = int32(adminStatus)
 
 		iface := &DiscoveredInterface{
 			DeviceIP:      device.IPAddress,
@@ -139,7 +137,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 			IfDescr:       ifDescr,
 			IfSpeed:       ifSpeed,
 			IfAdminStatus: ifAdminStatus,
-			IfOperStatus:  int32(operStatus), //nolint:gosec // G115: This is a safe conversion since operStatus is 1 or 2
+			IfOperStatus:  int32(operStatus),
 			Metadata:      metadata,
 		}
 

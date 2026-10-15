@@ -879,36 +879,41 @@ func TestStartWorkersDoesNotDropResultsWhenResultChannelIsFull(t *testing.T) {
 }
 
 func BenchmarkStartWorkersProbeComparison(b *testing.B) {
-	bench := func(b *testing.B, useProber bool) { //nolint:thelper // not a standalone test helper
-		for i := 0; i < b.N; i++ {
-			engine := &DiscoveryEngine{done: make(chan struct{}), logger: logger.NewTestLogger()}
-			if useProber {
-				engine.hostProber = &countingProber{}
-			}
-			job := &DiscoveryJob{
-				ID: fmt.Sprintf("job-%d", i),
-				Results: &DiscoveryResults{
-					Contract: DiscoveryContract{},
-				},
-				ctx: context.Background(),
-			}
+	for _, bc := range []struct {
+		name      string
+		useProber bool
+	}{
+		{name: "without_prober"},
+		{name: "with_shared_prober", useProber: true},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				engine := &DiscoveryEngine{done: make(chan struct{}), logger: logger.NewTestLogger()}
+				if bc.useProber {
+					engine.hostProber = &countingProber{}
+				}
+				job := &DiscoveryJob{
+					ID: fmt.Sprintf("job-%d", i),
+					Results: &DiscoveryResults{
+						Contract: DiscoveryContract{},
+					},
+					ctx: context.Background(),
+				}
 
-			targetChan := make(chan string, 50)
-			resultChan := make(chan bool, 50)
-			for t := 0; t < 50; t++ {
-				targetChan <- fmt.Sprintf("10.0.0.%d", t+1)
-			}
-			close(targetChan)
+				targetChan := make(chan string, 50)
+				resultChan := make(chan bool, 50)
+				for t := 0; t < 50; t++ {
+					targetChan <- fmt.Sprintf("10.0.0.%d", t+1)
+				}
+				close(targetChan)
 
-			var wg sync.WaitGroup
-			engine.startWorkers(job, &wg, targetChan, resultChan, 10, func(_ *DiscoveryJob, _ string) {})
-			wg.Wait()
-			close(resultChan)
-		}
+				var wg sync.WaitGroup
+				engine.startWorkers(job, &wg, targetChan, resultChan, 10, func(_ *DiscoveryJob, _ string) {})
+				wg.Wait()
+				close(resultChan)
+			}
+		})
 	}
-
-	b.Run("without_prober", func(b *testing.B) { bench(b, false) })
-	b.Run("with_shared_prober", func(b *testing.B) { bench(b, true) })
 }
 
 func TestMaybeExportDebugBundle(t *testing.T) {

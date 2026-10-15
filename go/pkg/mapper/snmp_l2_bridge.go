@@ -19,8 +19,6 @@ package mapper
 import (
 	"fmt"
 
-	"math"
-
 	"sort"
 
 	"strconv"
@@ -80,14 +78,14 @@ func (e *DiscoveryEngine) collectBridgePortIfIndexMap(client *gosnmp.GoSNMP) map
 			return nil
 		}
 
-		bridgePort, convErr := strconv.Atoi(parts[len(baseParts)])
-		if convErr != nil || bridgePort < 0 || bridgePort > math.MaxInt32 {
+		bridgePort, convErr := strconv.ParseInt(parts[len(baseParts)], 10, 32)
+		if convErr != nil || bridgePort < 0 {
 			return nil
 		}
 
 		val, ok := e.getInt32FromPDU(pdu, "dot1dBasePortIfIndex")
 		if ok && val > 0 {
-			bridgePortToIfIndex[int32(bridgePort)] = val //nolint:gosec // G115: bounds checked above
+			bridgePortToIfIndex[int32(bridgePort)] = val
 		}
 		return nil
 	})
@@ -504,10 +502,10 @@ func macFromDot1qFDBOID(oidName string) (string, int32, bool) {
 		macBytes[i] = byte(val)
 	}
 
-	fdbID, err := strconv.Atoi(parts[len(parts)-7])
-	if err != nil || fdbID < 0 || fdbID > math.MaxInt32 {
+	fdbID, err := strconv.ParseInt(parts[len(parts)-7], 10, 32)
+	if err != nil || fdbID < 0 {
 		return "", 0, false
 	}
 
-	return formatMACAddress(macBytes), int32(fdbID), true //nolint:gosec // G115: bounds checked above
+	return formatMACAddress(macBytes), int32(fdbID), true
 }

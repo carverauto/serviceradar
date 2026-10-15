@@ -66,9 +66,9 @@ const (
 	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8"
 
 	// IP address table OIDs
-	oidIPAddrTable      = ".1.3.6.1.2.1.4.20.1"
-	oidIPAdEntAddr      = ".1.3.6.1.2.1.4.20.1.1"
-	oidIPAdEntIfIndex   = ".1.3.6.1.2.1.4.20.1.2"
+	oidIPAddrTable    = ".1.3.6.1.2.1.4.20.1"
+	oidIPAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
+	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
 	// ipAddressTable (IP-MIB, RFC 4293). Unlike the legacy ipAddrTable above,
 	// which is structurally IPv4-only, this one is address-family aware: its
 	// INDEX carries an InetAddressType, so it is the ONLY standard way to learn
