@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ServiceRadar bitmap query index - proposed",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [1240, 650]
+  },
+  "components": [
+    {"id": "inventory", "type": "database", "label": "Canonical inventory", "sublabel": "Persistent device ordinals", "pos": [40, 310], "size": [210, 76]},
+    {"id": "index", "type": "backend", "label": "Rust bitmap index", "sublabel": "Atomic membership revisions", "pos": [360, 310], "size": [210, 76]},
+    {"id": "query", "type": "backend", "label": "Authorized query", "sublabel": "Sets, facets, bounded pages", "pos": [680, 310], "size": [210, 76]},
+    {"id": "browser", "type": "frontend", "label": "Browser / WASM", "sublabel": "Active-view bitmaps only", "pos": [1000, 310], "size": [210, 76]},
+    {"id": "authority", "type": "security", "label": "Current RBAC", "sublabel": "Recheck before delivery", "pos": [680, 55], "size": [210, 76]},
+    {"id": "tiles", "type": "backend", "label": "World / Arrow tiles", "sublabel": "Stable ELK geometry", "pos": [680, 560], "size": [210, 76]},
+    {"id": "gpu", "type": "frontend", "label": "WebGPU renderer", "sublabel": "Bounded masks and uploads", "pos": [1000, 560], "size": [210, 76]}
+  ],
+  "connections": [
+    {"id": "current-rows", "from": "inventory", "to": "index", "label": "dirty IDs", "variant": "emphasis"},
+    {"id": "set-algebra", "from": "index", "to": "query", "label": "AND / OR", "variant": "emphasis"},
+    {"id": "binary-membership", "from": "query", "to": "browser", "label": "Roaring", "variant": "emphasis"},
+    {"id": "current-permissions", "from": "authority", "to": "query", "label": "visibility", "variant": "security", "labelDy": 100},
+    {"id": "tile-membership", "from": "tiles", "to": "query", "label": "glyph members"},
+    {"id": "arrow-geometry", "from": "tiles", "to": "gpu", "label": "Arrow IPC"},
+    {"id": "visible-mask", "from": "browser", "to": "gpu", "label": "typed masks", "labelDy": 100}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "Stable identity", "items": ["Reuse device_fleet_ordinals; never recycle IDs.", "Typed ID spaces prevent invalid intersections."]},
+    {"dot": "cyan", "title": "Bounded browser", "items": ["Server evaluates fleet queries and aggregate counts.", "Only admitted tiles and membership reach the client."]},
+    {"dot": "amber", "title": "Explicit recovery", "items": ["Epoch, revision and sequence fence every update.", "Gaps reset membership; geometry stays independent."]}
+  ]
+}
