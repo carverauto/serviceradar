@@ -29,8 +29,9 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
-// Test helper function to create a test sweeper with mocks
-func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultProcessor, *MockDeviceRegistryService, *gomock.Controller) { //nolint:unparam
+// createTestSweeper returns a sweeper wired to mocks, and its device registry
+// mock. The controller verifies the mocks' expectations when t ends.
+func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockDeviceRegistryService) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 
@@ -60,12 +61,11 @@ func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultPr
 		deviceResults:  make(map[string]*DeviceResultAggregator),
 	}
 
-	return sweeper, mockStore, mockProcessor, mockDeviceRegistry, ctrl
+	return sweeper, mockDeviceRegistry
 }
 
 func TestExtractDeviceID(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
-	defer ctrl.Finish()
+	sweeper, _ := createTestSweeper(t)
 
 	tests := []struct {
 		name     string
@@ -120,8 +120,7 @@ func TestExtractDeviceID(t *testing.T) {
 }
 
 func TestPrepareDeviceAggregators(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
-	defer ctrl.Finish()
+	sweeper, _ := createTestSweeper(t)
 
 	targets := []models.Target{
 		// Device with multiple IPs (should create aggregator)
@@ -189,8 +188,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 }
 
 func TestShouldAggregateResult(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
-	defer ctrl.Finish()
+	sweeper, _ := createTestSweeper(t)
 
 	// Set up aggregator for device 123
 	sweeper.deviceResults["armis:123"] = &DeviceResultAggregator{
@@ -247,8 +245,7 @@ func TestShouldAggregateResult(t *testing.T) {
 }
 
 func TestAddResultToAggregator(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
-	defer ctrl.Finish()
+	sweeper, _ := createTestSweeper(t)
 
 	// Set up aggregator
 	aggregator := &DeviceResultAggregator{
@@ -278,8 +275,7 @@ func TestAddResultToAggregator(t *testing.T) {
 }
 
 func TestAddAggregatedScanResults(t *testing.T) {
-	sweeper, _, _, _, ctrl := createTestSweeper(t) //nolint:dogsled // test helper returns many values
-	defer ctrl.Finish()
+	sweeper, _ := createTestSweeper(t)
 
 	results := []*models.Result{
 		{
@@ -337,8 +333,7 @@ func TestAddAggregatedScanResults(t *testing.T) {
 }
 
 func TestProcessAggregatedResults(t *testing.T) {
-	sweeper, _, _, mockDeviceRegistry, ctrl := createTestSweeper(t)
-	defer ctrl.Finish()
+	sweeper, mockDeviceRegistry := createTestSweeper(t)
 
 	aggregator := &DeviceResultAggregator{
 		DeviceID:  "armis:123",
