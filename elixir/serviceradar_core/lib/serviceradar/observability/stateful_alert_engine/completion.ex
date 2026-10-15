@@ -31,8 +31,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Completion do
           observe(keys, receipts, deadline)
 
         {:error, _} = error ->
-          # The database transaction shares this deadline. It can expire while
-          # reading receipts or restoring its timeouts and report a rollback.
+          # PostgreSQL cancels a statement that outlives this deadline and the
+          # read reports that rollback. Past the deadline, report the deadline.
           if System.monotonic_time(:millisecond) >= deadline do
             {:error, :evaluation_completion_timeout}
           else
