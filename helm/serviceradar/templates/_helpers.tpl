@@ -823,6 +823,137 @@ port are rejected so PHX_HOST and Endpoint.url cannot disagree.
 {{- end -}}
 
 {{/*
+Resolved WebRTC ICE credential configuration (add-webrtc-turn-relay), returned
+as YAML for `fromYaml`:
+
+  backend         none | static_secret
+  ttlSeconds      credential TTL, 60..3600
+  secretName      the operator-owned TURN REST shared-secret Secret
+  secretKey       its key
+  browserTurnUrls turn:/turns: URLs web-ng mints for browsers (external)
+  peerTurnUrls    turn: URLs core-elx mints for its own ExWebRTC peer (in-cluster)
+  turnServer      whether the chart-managed eturnal server renders
+
+The shared secret is ServiceRadar-to-itself material (it authenticates
+ServiceRadar to its own TURN server), so it lives in a Kubernetes Secret
+mounted as a file into web-ng, core-elx and the TURN server only -- never in
+values, an environment value, or the unified credential store.
+*/}}
+{{- define "serviceradar.webrtcIce" -}}
+{{- $webrtc := default (dict) .Values.webrtc -}}
+{{- $ice := default (dict) $webrtc.iceCredentials -}}
+{{- $staticSecret := default (dict) $ice.staticSecret -}}
+{{- $turn := default (dict) $webrtc.turnServer -}}
+{{- $turnEnabled := default false $turn.enabled -}}
+{{- $backend := default "none" $ice.backend -}}
+{{- if not (has $backend (list "none" "static_secret")) -}}
+  {{- fail (printf "webrtc.iceCredentials.backend must be none or static_secret, got %q" $backend) -}}
+{{- end -}}
+{{- $ttl := int (default 600 $ice.ttlSeconds) -}}
+{{- if or (lt $ttl 60) (gt $ttl 3600) -}}
+  {{- fail "webrtc.iceCredentials.ttlSeconds must be between 60 and 3600" -}}
+{{- end -}}
+{{- $turnUrlPattern := `^turns?:([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?(\?transport=(udp|tcp))?$` -}}
+{{- $browserUrls := list -}}
+{{- $peerUrls := list -}}
+{{- if $turnEnabled -}}
+  {{- if ne $backend "static_secret" -}}
+    {{- fail "webrtc.turnServer.enabled requires webrtc.iceCredentials.backend=static_secret (the TURN server verifies the same shared secret)" -}}
+  {{- end -}}
+  {{- $host := default "" $turn.externalHostname -}}
+  {{- if eq $host "" -}}
+    {{- fail "webrtc.turnServer.externalHostname is required when webrtc.turnServer.enabled=true" -}}
+  {{- end -}}
+  {{- if not (regexMatch `^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$` $host) -}}
+    {{- fail (printf "webrtc.turnServer.externalHostname must be a DNS name, got %q" $host) -}}
+  {{- end -}}
+  {{- $externalPorts := default (dict) $turn.externalPorts -}}
+  {{- $browserUrls = append $browserUrls (printf "turn:%s:%d?transport=udp" $host (int (default 3478 $externalPorts.udp))) -}}
+  {{- $browserUrls = append $browserUrls (printf "turn:%s:%d?transport=tcp" $host (int (default 3478 $externalPorts.tcp))) -}}
+  {{- if default false (default (dict) $turn.tls).enabled -}}
+    {{- $browserUrls = append $browserUrls (printf "turns:%s:%d?transport=tcp" $host (int (default 5349 $externalPorts.tls))) -}}
+  {{- end -}}
+  {{- $peerUrls = append $peerUrls (printf "turn:%s.%s.svc.cluster.local:3478?transport=udp" (include "serviceradar.webrtcTurnServerName" .) .Release.Namespace) -}}
+{{- end -}}
+{{- range $key := list "turnUrls" "peerTurnUrls" -}}
+  {{- $urls := default (list) (get $ice $key) -}}
+  {{- if not (kindIs "slice" $urls) -}}
+    {{- fail (printf "webrtc.iceCredentials.%s must be a list of turn:/turns: URLs" $key) -}}
+  {{- end -}}
+  {{- range $url := $urls -}}
+    {{- if not (and (kindIs "string" $url) (regexMatch $turnUrlPattern $url)) -}}
+      {{- fail (printf "webrtc.iceCredentials.%s entries must be turn:/turns: URLs with a host, optional port and optional transport=udp|tcp; credentials are forbidden" $key) -}}
+    {{- end -}}
+    {{- if eq $key "turnUrls" -}}
+      {{- $browserUrls = append $browserUrls $url -}}
+    {{- else -}}
+      {{- $peerUrls = append $peerUrls $url -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- if gt (len $browserUrls) 8 -}}
+  {{- fail "webrtc.iceCredentials allows at most 8 browser TURN URLs" -}}
+{{- end -}}
+{{- if eq $backend "static_secret" -}}
+  {{- if eq (default "" $staticSecret.existingSecretName) "" -}}
+    {{- fail "webrtc.iceCredentials.staticSecret.existingSecretName is required when webrtc.iceCredentials.backend=static_secret" -}}
+  {{- end -}}
+  {{- if eq (default "" $staticSecret.secretKey) "" -}}
+    {{- fail "webrtc.iceCredentials.staticSecret.secretKey is required when webrtc.iceCredentials.backend=static_secret" -}}
+  {{- end -}}
+  {{- if eq (len $browserUrls) 0 -}}
+    {{- fail "webrtc.iceCredentials.backend=static_secret needs browser TURN URLs: enable webrtc.turnServer or set webrtc.iceCredentials.turnUrls" -}}
+  {{- end -}}
+  {{- if eq (len $peerUrls) 0 -}}
+    {{- fail "webrtc.iceCredentials.backend=static_secret needs a TURN URL core-elx can reach: enable webrtc.turnServer or set webrtc.iceCredentials.peerTurnUrls" -}}
+  {{- end -}}
+{{- end -}}
+{{- toYaml (dict "backend" $backend "ttlSeconds" $ttl "secretName" (default "" $staticSecret.existingSecretName) "secretKey" (default "shared-secret" $staticSecret.secretKey) "browserTurnUrls" $browserUrls "peerTurnUrls" $peerUrls "turnServer" $turnEnabled) -}}
+{{- end -}}
+
+{{- define "serviceradar.webrtcTurnServerName" -}}
+{{- printf "%s-turn" (include "serviceradar.fullname" .) -}}
+{{- end -}}
+
+{{/*
+ICE credential provider env for web-ng (audience "browser") or core-elx
+(audience "peer"). Usage:
+  {{ include "serviceradar.webrtcIceEnv" (dict "ice" $webrtcIce "audience" "browser") }}
+*/}}
+{{- define "serviceradar.webrtcIceEnv" -}}
+- name: SERVICERADAR_WEBRTC_ICE_BACKEND
+  value: {{ .ice.backend | quote }}
+{{- if eq .ice.backend "static_secret" }}
+- name: SERVICERADAR_WEBRTC_ICE_CREDENTIAL_TTL_SECONDS
+  value: {{ .ice.ttlSeconds | quote }}
+- name: SERVICERADAR_WEBRTC_TURN_SHARED_SECRET_FILE
+  value: "/etc/serviceradar/webrtc-turn/shared-secret"
+- name: SERVICERADAR_WEBRTC_TURN_URLS_JSON
+  value: {{ toJson (ternary .ice.browserTurnUrls .ice.peerTurnUrls (eq .audience "browser")) | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.webrtcIceVolumeMount" -}}
+{{- if eq .backend "static_secret" -}}
+- name: webrtc-turn-shared-secret
+  mountPath: /etc/serviceradar/webrtc-turn
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.webrtcIceVolume" -}}
+{{- if eq .backend "static_secret" -}}
+- name: webrtc-turn-shared-secret
+  secret:
+    secretName: {{ .secretName | quote }}
+    defaultMode: 0440
+    items:
+      - key: {{ .secretKey | quote }}
+        path: shared-secret
+{{- end }}
+{{- end -}}
+
+{{/*
 Convert a Kubernetes storage quantity to whole GiB.
 
 Three CNPG WAL parameters derive from cnpg.storageSize, and pg_wal shares the data

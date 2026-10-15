@@ -1,6 +1,6 @@
-suite: remote access RDP WebRTC egress network policy
+suite: WebRTC core-elx egress network policy (and its remote desktop alias)
 templates:
-  - templates/remote-access-rdp-webrtc-network-policy.yaml
+  - templates/webrtc-egress-network-policy.yaml
 tests:
   - it: renders one core-only additive ICE egress policy with explicit CIDRs and ports
     set:
@@ -20,7 +20,7 @@ tests:
           count: 1
       - equal:
           path: metadata.name
-          value: serviceradar-remote-access-rdp-webrtc-egress
+          value: serviceradar-webrtc-egress
       - equal:
           path: spec.podSelector.matchLabels.app
           value: serviceradar-core
@@ -79,13 +79,13 @@ tests:
           value: 999
         documentSelector:
           path: metadata.name
-          value: serviceradar-remote-access-rdp-webrtc-egress-calico
+          value: serviceradar-webrtc-egress-calico
       - equal:
           path: spec.selector
           value: "app == 'serviceradar-core'"
         documentSelector:
           path: metadata.name
-          value: serviceradar-remote-access-rdp-webrtc-egress-calico
+          value: serviceradar-webrtc-egress-calico
       - equal:
           path: spec.egress
           value:
@@ -119,7 +119,7 @@ tests:
                   - 5349
         documentSelector:
           path: metadata.name
-          value: serviceradar-remote-access-rdp-webrtc-egress-calico
+          value: serviceradar-webrtc-egress-calico
 
   - it: fails closed when RDP is disabled
     set:
@@ -206,3 +206,61 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: 'remoteAccess.desktop.rdp.webRTC.networkPolicy TCP port "65536" must be an integer between 1 and 65535'
+
+  - it: renders the same core-only egress policy from the webrtc.networkPolicy key without remote desktop
+    set:
+      networkPolicy.enabled: true
+      webrtc.networkPolicy.enabled: true
+      webrtc.networkPolicy.allowedCIDRs:
+        - 198.51.100.20/32
+      webrtc.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: serviceradar-webrtc-egress
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-core
+      - equal:
+          path: spec.egress[0].to
+          value:
+            - ipBlock:
+                cidr: 198.51.100.20/32
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: UDP
+              port: 3478
+
+  - it: names the webrtc key in validation errors
+    set:
+      networkPolicy.enabled: true
+      webrtc.networkPolicy.enabled: true
+      webrtc.networkPolicy.allowedCIDRs:
+        - 0.0.0.0/0
+      webrtc.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: webrtc.networkPolicy.allowedCIDRs contains invalid or catch-all CIDR "0.0.0.0/0"
+
+  - it: refuses the key and its remote desktop alias together
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+      webrtc.networkPolicy.enabled: true
+      webrtc.networkPolicy.allowedCIDRs:
+        - 198.51.100.20/32
+      webrtc.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: set only one of webrtc.networkPolicy and its alias remoteAccess.desktop.rdp.webRTC.networkPolicy

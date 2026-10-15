@@ -2817,6 +2817,122 @@ automationCallbacks:
   # for at least the maximum outstanding callback-grant TTL before removing it.
   # The chart validates but never silently replaces an existing keyring.
 
+# WebRTC connectivity for camera relay viewers (and, later, remote desktop):
+# the shared ICE credential provider and an optional chart-managed TURN relay.
+# Browsers cannot reach core-elx's ExWebRTC peer inside the cluster, so without
+# a TURN relay camera viewers fall back to the websocket transports after the
+# viewer's WebRTC deadline. See docs/docs/webrtc-turn-relay.md.
+webrtc:
+  iceCredentials:
+    # none: STUN only (the static iceServers lists). static_secret: mint
+    # short-lived TURN REST credentials per viewer from a shared secret.
+    backend: none
+    # Lifetime of each minted credential, 60..3600 seconds.
+    ttlSeconds: 600
+    # The TURN REST shared secret: an operator-created Secret (32..512
+    # printable, non-whitespace bytes) mounted as a file into web-ng, core-elx
+    # and the TURN server. The chart never accepts the secret in values.
+    staticSecret:
+      existingSecretName: ""
+      secretKey: "shared-secret"
+    # Extra TURN servers outside this chart (e.g. an existing coturn) that
+    # verify the same shared secret. URLs only, no credentials.
+    #   turnUrls:     what browsers dial (externally reachable)
+    #   peerTurnUrls: what core-elx dials (must be reachable from the pod and
+    #                 use transport=udp)
+    # The chart-managed turnServer below adds its own URLs to both lists.
+    turnUrls: []
+    peerTurnUrls: []
+  # Optional additive egress policy for the core-elx pods that originate
+  # WebRTC ICE traffic (an external TURN server, a public STUN server). It
+  # replaces remoteAccess.desktop.rdp.webRTC.networkPolicy, which still works
+  # as an alias; set only one. Requires the chart-wide NetworkPolicy and accepts
+  # only explicit IPv4/IPv6 CIDRs plus numeric UDP/TCP ports. Not needed for the
+  # chart-managed turnServer, which is in-cluster.
+  networkPolicy:
+    enabled: false
+    allowedCIDRs: []
+    allowedUDPPorts: []
+    allowedTCPPorts: []
+  # Chart-managed TURN relay (eturnal). Requires iceCredentials.backend
+  # static_secret. Browsers reach it on UDP/TCP 3478 and, with tls.enabled, TLS
+  # 5349; core-elx reaches it through the in-cluster Service. The relay port
+  # range is never published: every relayed connection's far end is core-elx,
+  # so relay addresses are the pod address and only in-cluster traffic reaches
+  # them.
+  turnServer:
+    enabled: false
+    image:
+      repository: ghcr.io/processone/eturnal
+      tag: "1.12.3"
+      pullPolicy: IfNotPresent
+    # Required. The DNS name browsers dial in the turn:/turns: URLs; it must
+    # resolve to the gateway (exposure gateway) or the Service (exposure
+    # service) and match the TLS certificate when tls.enabled.
+    externalHostname: ""
+    # Ports browsers dial. Match these to the gateway listeners or the
+    # Service ports actually exposed.
+    externalPorts:
+      udp: 3478
+      tcp: 3478
+      tls: 5349
+    # gateway: UDPRoute/TCPRoute 3478 and a passthrough TLSRoute 5349 on a
+    #          Gateway API gateway (the chart's managed gateway, or the
+    #          parentRefs below for a shared gateway).
+    # service: the TURN Service itself is a LoadBalancer or NodePort.
+    exposure: gateway
+    gateway:
+      # Namespace of the gateway data-plane (envoy) pods, admitted to the TURN
+      # client ports by the TURN NetworkPolicy.
+      envoyGatewayNamespace: envoy-gateway-system
+      # Listener references for a gateway this chart does not manage. Empty
+      # lists use the chart's managed gateway (gatewayApi.mode=managed), which
+      # then gains turn-udp/turn-tcp/turn-tls listeners.
+      udp:
+        parentRefs: []
+      tcp:
+        parentRefs: []
+      tls:
+        parentRefs: []
+    service:
+      type: LoadBalancer
+      annotations: {}
+      loadBalancerIP: ""
+      externalTrafficPolicy: Local
+      # Client CIDRs admitted to the TURN client ports in exposure service.
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    tls:
+      # TURNS on 5349 for clients whose networks block UDP. eturnal terminates
+      # TLS itself (the gateway passes it through), so it needs a certificate
+      # for externalHostname: an existing kubernetes.io/tls Secret, or one
+      # cert-manager issues when certManager.issuerRef.name is set.
+      enabled: false
+      secretName: "serviceradar-turn-tls"
+      certManager:
+        issuerRef:
+          kind: ClusterIssuer
+          name: ""
+    # Relay ports. Each viewer holds one allocation per TURN URL its browser
+    # gathers (up to three) plus one for core-elx, so budget about four ports
+    # per concurrent viewer. In-cluster only; at most 1000 ports.
+    relayPortRange:
+      min: 49160
+      max: 49359
+    # Extra peer networks to refuse relaying to, on top of eturnal's
+    # "recommended" list (RFC 1918, loopback, link-local, CGNAT, ULA, ...).
+    # Add the cluster pod and service CIDRs when they fall outside it.
+    deniedPeerCIDRs: []
+    # Per-username TURN permission cap (eturnal max_permissions).
+    maxPermissions: 10
+    logLevel: info
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
 # External-command SSH user-certificate signer. The chart mounts only one key
 # from an operator-created Secret and never accepts private CA material in
 # values. Keep the default workload scope to web-ng, which owns interactive
