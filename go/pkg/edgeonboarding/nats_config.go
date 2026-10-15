@@ -117,23 +117,23 @@ type NATSServerConfig struct {
 // DefaultNATSServerConfig returns a NATSServerConfig with sensible defaults.
 func DefaultNATSServerConfig() *NATSServerConfig {
 	return &NATSServerConfig{
-		ServerName:       "serviceradar-nats",
-		ListenPort:       4222,
-		OperatorJWTPath:  "/etc/nats/operator.jwt",
-		ResolverDir:      "/etc/nats/jwt",
-		TLSEnabled:       true,
-		TLSCertPath:      "/etc/nats/server.pem",
-		TLSKeyPath:       "/etc/nats/server-key.pem",
-		TLSCAPath:        "/etc/nats/ca.pem",
-		TLSVerify:        true,
-		JetStreamEnabled: true,
-		JetStreamStoreDir: "/var/lib/nats/jetstream",
-		JetStreamMaxMemory: 1 << 30, // 1GB
+		ServerName:         "serviceradar-nats",
+		ListenPort:         4222,
+		OperatorJWTPath:    "/etc/nats/operator.jwt",
+		ResolverDir:        "/etc/nats/jwt",
+		TLSEnabled:         true,
+		TLSCertPath:        "/etc/nats/server.pem",
+		TLSKeyPath:         "/etc/nats/server-key.pem",
+		TLSCAPath:          "/etc/nats/ca.pem",
+		TLSVerify:          true,
+		JetStreamEnabled:   true,
+		JetStreamStoreDir:  "/var/lib/nats/jetstream",
+		JetStreamMaxMemory: 1 << 30,  // 1GB
 		JetStreamMaxFile:   10 << 30, // 10GB
-		HTTPMonitorPort:   8222,
-		MaxPayload:        1 << 20, // 1MB
-		PingInterval:      120,
-		MaxPingsOut:       2,
+		HTTPMonitorPort:    8222,
+		MaxPayload:         1 << 20, // 1MB
+		PingInterval:       120,
+		MaxPingsOut:        2,
 	}
 }
 
