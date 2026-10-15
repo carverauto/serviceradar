@@ -5,9 +5,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
   The periodic scan recovers node death, timed-out jobs, discarded wake-ups and
   queue restarts. It never relies on a single self-rescheduling job remaining
   alive. Accepted work and receipt retention are independent of Oban pruning.
+
+  The scan is driven by an every-minute cron entry, so a run that finds the
+  consumers disabled simply completes: the next tick checks again. It must not
+  snooze. A snoozed job never completes and does not consume an attempt, so a
+  cron that inserts one per minute grew an unbounded backlog of permanently
+  pending priority-0 jobs while the deployment sat in `:prepared` mode. That
+  backlog held every slot of the queue it ran on and starved the priority-3
+  AshOban schedulers sharing it, which silently stopped device identity
+  reconciliation. The uniqueness below keeps at most one pending scan even when
+  no node consumes the queue.
   """
 
-  use Oban.Worker, queue: :alert_recovery, max_attempts: 3
+  use Oban.Worker,
+    queue: :alert_recovery,
+    max_attempts: 3,
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
@@ -36,7 +49,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    if Rollout.consumers_enabled?(), do: recover(), else: {:snooze, 5}
+    if Rollout.consumers_enabled?(), do: recover(), else: :ok
   end
 
   defp recover do

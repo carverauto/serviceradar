@@ -1080,6 +1080,9 @@ if config_env() == :prod do
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
+      # StatefulAlertEngine.RecoveryWorker's queue. Kept in step with
+      # serviceradar_core's runtime.exs; without it the recovery scan never runs here.
+      alert_recovery: String.to_integer(System.get_env("OBAN_QUEUE_ALERT_RECOVERY") || "1"),
       topology_world: 1,
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
@@ -1170,9 +1173,13 @@ if config_env() == :prod do
       {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
       {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
       {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
+      # Alert-evaluation recovery scan. It runs on its own queue: on :maintenance it
+      # shares slots with the priority-3 AshOban schedulers (device identity
+      # reconciliation among them), and any backlog of it starves them. Kept in
+      # step with serviceradar_core's config.exs and runtime.exs.
+      {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, queue: :alert_recovery},
       # Drops evaluated-event ids past the redelivery window. Offset from the
       # 03:17 observability sweep.
-      {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, queue: :maintenance},
       {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker, queue: :maintenance},
       # Credential broker grants and secret resolution audits had no retention at
       # all: nothing destroys a grant and nothing calls its :expire transition, so
