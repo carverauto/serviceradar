@@ -50,193 +50,199 @@ type KeyContext struct {
 	GatewayID string
 }
 
-//nolint:gochecknoglobals // Service registry must be package-level
-var serviceDescriptors = map[string]ServiceDescriptor{
-	"core": {
-		Name:        "core",
-		DisplayName: "Core Service",
-		ServiceType: "core",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/core.json",
-		Format:      ConfigFormatJSON,
-		CriticalFields: []string{
-			"edge_onboarding.encryption_key",
-			"auth.jwt_public_key_pem",
+// serviceDescriptorTable lists every known service's descriptor.
+func serviceDescriptorTable() []ServiceDescriptor {
+	return []ServiceDescriptor{
+		{
+			Name:        "core",
+			DisplayName: "Core Service",
+			ServiceType: "core",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/core.json",
+			Format:      ConfigFormatJSON,
+			CriticalFields: []string{
+				"edge_onboarding.encryption_key",
+				"auth.jwt_public_key_pem",
+			},
 		},
-	},
-	"gateway": {
-		Name:          "gateway",
-		DisplayName:   "Gateway",
-		ServiceType:   "gateway",
-		Scope:         ConfigScopeGateway,
-		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
-		Format:        ConfigFormatJSON,
-		CriticalFields: []string{
-			"kv_address",
-			"core_address",
+		{
+			Name:          "gateway",
+			DisplayName:   "Gateway",
+			ServiceType:   "gateway",
+			Scope:         ConfigScopeGateway,
+			KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
+			Format:        ConfigFormatJSON,
+			CriticalFields: []string{
+				"kv_address",
+				"core_address",
+			},
 		},
-	},
-	"agent": {
-		Name:          "agent",
-		DisplayName:   "Agent Defaults",
-		ServiceType:   "agent",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "config/agents/{{agent_id}}.json",
-		Format:        ConfigFormatJSON,
-		CriticalFields: []string{
-			"kv_address",
+		{
+			Name:          "agent",
+			DisplayName:   "Agent Defaults",
+			ServiceType:   "agent",
+			Scope:         ConfigScopeAgent,
+			KVKeyTemplate: "config/agents/{{agent_id}}.json",
+			Format:        ConfigFormatJSON,
+			CriticalFields: []string{
+				"kv_address",
+			},
 		},
-	},
-	"flowgger": {
-		Name:        "flowgger",
-		DisplayName: "Flowgger Collector",
-		ServiceType: "flowgger",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/flowgger.toml",
-		Format:      ConfigFormatTOML,
-	},
-	"otel": {
-		Name:        "otel",
-		DisplayName: "OTel Collector",
-		ServiceType: "otel",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/otel.toml",
-		Format:      ConfigFormatTOML,
-	},
-	"trapd": {
-		Name:        "trapd",
-		DisplayName: "Trap Daemon",
-		ServiceType: "trapd",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/trapd.json",
-		Format:      ConfigFormatJSON,
-	},
-	"datasvc": {
-		Name:        "datasvc",
-		DisplayName: "Data Service",
-		ServiceType: "datasvc",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/datasvc.json",
-		Format:      ConfigFormatJSON,
-		CriticalFields: []string{
-			"kv_address",
+		{
+			Name:        "flowgger",
+			DisplayName: "Flowgger Collector",
+			ServiceType: "flowgger",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/flowgger.toml",
+			Format:      ConfigFormatTOML,
 		},
-	},
-	"sysmon-osx-checker": {
-		Name:        "sysmon-osx-checker",
-		DisplayName: "Sysmon-OSX Checker",
-		ServiceType: "sysmon-osx-checker",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/sysmon-osx-checker.json",
-		Format:      ConfigFormatJSON,
-	},
-	"sysmon-checker": {
-		Name:        "sysmon-checker",
-		DisplayName: "Sysmon Checker",
-		ServiceType: "sysmon-checker",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/sysmon-checker.json",
-		Format:      ConfigFormatJSON,
-	},
-	"rperf-checker": {
-		Name:        "rperf-checker",
-		DisplayName: "RPerf Checker",
-		ServiceType: "rperf-checker",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/rperf-checker.json",
-		Format:      ConfigFormatJSON,
-	},
-	"profiler": {
-		Name:        "profiler",
-		DisplayName: "Profiler Service",
-		ServiceType: "profiler",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/profiler.toml",
-		Format:      ConfigFormatTOML,
-	},
-	"faker": {
-		Name:        "faker",
-		DisplayName: "Faker API",
-		ServiceType: "faker",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/faker.json",
-		Format:      ConfigFormatJSON,
-	},
-	"agent-sweep": {
-		Name:          "agent-sweep",
-		DisplayName:   "Sweep Checker",
-		ServiceType:   "sweep",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "agents/{{agent_id}}/checkers/sweep/sweep.json",
-		Format:        ConfigFormatJSON,
-	},
-	"agent-snmp": {
-		Name:          "agent-snmp",
-		DisplayName:   "Agent SNMP Checker",
-		ServiceType:   "snmp",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "agents/{{agent_id}}/checkers/snmp/snmp.json",
-		Format:        ConfigFormatJSON,
-	},
-	"agent-trapd": {
-		Name:          "agent-trapd",
-		DisplayName:   "Trapd Checker",
-		ServiceType:   "trapd",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "agents/{{agent_id}}/checkers/trapd/trapd.json",
-		Format:        ConfigFormatJSON,
-	},
-	"agent-rperf": {
-		Name:          "agent-rperf",
-		DisplayName:   "RPerf Checker",
-		ServiceType:   "rperf",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "agents/{{agent_id}}/checkers/rperf/rperf.json",
-		Format:        ConfigFormatJSON,
-	},
-	"agent-sysmon": {
-		Name:          "agent-sysmon",
-		DisplayName:   "Sysmon Checker",
-		ServiceType:   "sysmon",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "agents/{{agent_id}}/checkers/sysmon/sysmon.json",
-		Format:        ConfigFormatJSON,
-	},
-	"gateway-icmp": {
-		Name:          "gateway-icmp",
-		DisplayName:   "ICMP Check",
-		ServiceType:   "icmp",
-		Scope:         ConfigScopeGateway,
-		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
-		Format:        ConfigFormatJSON,
-	},
-	"gateway-port": {
-		Name:          "gateway-port",
-		DisplayName:   "Port Check",
-		ServiceType:   "port",
-		Scope:         ConfigScopeGateway,
-		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
-		Format:        ConfigFormatJSON,
-	},
-	"gateway-process": {
-		Name:          "gateway-process",
-		DisplayName:   "Process Check",
-		ServiceType:   "process",
-		Scope:         ConfigScopeGateway,
-		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
-		Format:        ConfigFormatJSON,
-	},
+		{
+			Name:        "otel",
+			DisplayName: "OTel Collector",
+			ServiceType: "otel",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/otel.toml",
+			Format:      ConfigFormatTOML,
+		},
+		{
+			Name:        "trapd",
+			DisplayName: "Trap Daemon",
+			ServiceType: "trapd",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/trapd.json",
+			Format:      ConfigFormatJSON,
+		},
+		{
+			Name:        "datasvc",
+			DisplayName: "Data Service",
+			ServiceType: "datasvc",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/datasvc.json",
+			Format:      ConfigFormatJSON,
+			CriticalFields: []string{
+				"kv_address",
+			},
+		},
+		{
+			Name:        "sysmon-osx-checker",
+			DisplayName: "Sysmon-OSX Checker",
+			ServiceType: "sysmon-osx-checker",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/sysmon-osx-checker.json",
+			Format:      ConfigFormatJSON,
+		},
+		{
+			Name:        "sysmon-checker",
+			DisplayName: "Sysmon Checker",
+			ServiceType: "sysmon-checker",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/sysmon-checker.json",
+			Format:      ConfigFormatJSON,
+		},
+		{
+			Name:        "rperf-checker",
+			DisplayName: "RPerf Checker",
+			ServiceType: "rperf-checker",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/rperf-checker.json",
+			Format:      ConfigFormatJSON,
+		},
+		{
+			Name:        "profiler",
+			DisplayName: "Profiler Service",
+			ServiceType: "profiler",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/profiler.toml",
+			Format:      ConfigFormatTOML,
+		},
+		{
+			Name:        "faker",
+			DisplayName: "Faker API",
+			ServiceType: "faker",
+			Scope:       ConfigScopeGlobal,
+			KVKey:       "config/faker.json",
+			Format:      ConfigFormatJSON,
+		},
+		{
+			Name:          "agent-sweep",
+			DisplayName:   "Sweep Checker",
+			ServiceType:   "sweep",
+			Scope:         ConfigScopeAgent,
+			KVKeyTemplate: "agents/{{agent_id}}/checkers/sweep/sweep.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "agent-snmp",
+			DisplayName:   "Agent SNMP Checker",
+			ServiceType:   "snmp",
+			Scope:         ConfigScopeAgent,
+			KVKeyTemplate: "agents/{{agent_id}}/checkers/snmp/snmp.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "agent-trapd",
+			DisplayName:   "Trapd Checker",
+			ServiceType:   "trapd",
+			Scope:         ConfigScopeAgent,
+			KVKeyTemplate: "agents/{{agent_id}}/checkers/trapd/trapd.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "agent-rperf",
+			DisplayName:   "RPerf Checker",
+			ServiceType:   "rperf",
+			Scope:         ConfigScopeAgent,
+			KVKeyTemplate: "agents/{{agent_id}}/checkers/rperf/rperf.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "agent-sysmon",
+			DisplayName:   "Sysmon Checker",
+			ServiceType:   "sysmon",
+			Scope:         ConfigScopeAgent,
+			KVKeyTemplate: "agents/{{agent_id}}/checkers/sysmon/sysmon.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "gateway-icmp",
+			DisplayName:   "ICMP Check",
+			ServiceType:   "icmp",
+			Scope:         ConfigScopeGateway,
+			KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "gateway-port",
+			DisplayName:   "Port Check",
+			ServiceType:   "port",
+			Scope:         ConfigScopeGateway,
+			KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
+			Format:        ConfigFormatJSON,
+		},
+		{
+			Name:          "gateway-process",
+			DisplayName:   "Process Check",
+			ServiceType:   "process",
+			Scope:         ConfigScopeGateway,
+			KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
+			Format:        ConfigFormatJSON,
+		},
+	}
 }
 
 // ServiceDescriptorFor returns the descriptor for a named service if it exists.
 func ServiceDescriptorFor(name string) (ServiceDescriptor, bool) {
-	desc, ok := serviceDescriptors[name]
-	return desc, ok
+	for _, desc := range serviceDescriptorTable() {
+		if desc.Name == name {
+			return desc, true
+		}
+	}
+	return ServiceDescriptor{}, false
 }
 
 // ServiceDescriptorByType returns the descriptor matching a service type within the provided scope.
 func ServiceDescriptorByType(serviceType string, scope ConfigScope) (ServiceDescriptor, bool) {
-	for _, desc := range serviceDescriptors {
+	for _, desc := range serviceDescriptorTable() {
 		if desc.Scope != scope {
 			continue
 		}
@@ -249,16 +255,8 @@ func ServiceDescriptorByType(serviceType string, scope ConfigScope) (ServiceDesc
 
 // ServiceDescriptors returns the known service descriptors in deterministic order.
 func ServiceDescriptors() []ServiceDescriptor {
-	names := make([]string, 0, len(serviceDescriptors))
-	for name := range serviceDescriptors {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	result := make([]ServiceDescriptor, 0, len(names))
-	for _, name := range names {
-		result = append(result, serviceDescriptors[name])
-	}
+	result := serviceDescriptorTable()
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 
