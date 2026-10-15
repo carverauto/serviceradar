@@ -741,7 +741,7 @@ actions:
           # compiled. This runner cannot grant its Linux capabilities, so the
           # suite does not execute it. Leave $FLAGS off this command: those
           # options are test-only and bazel build rejects them.
-          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test
 
           START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
@@ -762,6 +762,9 @@ actions:
           bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test
           # Dgraph owns a separate scratch namespace and verifies its deletion.
           bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test
+          # The worker combines its owned Dgraph namespace with serial_0; run
+          # after the ordinary lanes and focused DB cases have released it.
+          bazel test $FLAGS //rust/dgraph-topology:world_worker_test
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #

@@ -989,13 +989,15 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
     # Same run id and build selection as the suite, before the clone. The manual
-    # netprobe target is named because a wildcard skips it. $FLAGS stays off:
+    # netprobe and world worker targets are named because a wildcard skips
+    # them. $FLAGS stays off:
     # bazel build rejects the test-only options that string carries.
     integration_compile = (
         "bazel build -c opt --config=ci --//build:enable_integration_tests "
         "--//build:run_id=$RUN_ID --build_tests_only "
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
-        "//... //rust/netprobe:loaded_tcp_attribution_test"
+        "//... //rust/netprobe:loaded_tcp_attribution_test "
+        "//rust/dgraph-topology:world_worker_test"
     )
     unit_suite = (
         "scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests "
@@ -1005,6 +1007,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     plugin_config_cli_suite = "bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test"
     topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
     dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
+    world_worker_suite = "bazel test $FLAGS //rust/dgraph-topology:world_worker_test"
     playwright_targets = (
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance",
         "//elixir/web-ng/test/playwright:world_gpu_test",
@@ -1530,6 +1533,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.plugin_config_cli_suite,
                 self.topology_db_suite,
                 self.dgraph_schema_suite,
+                self.world_worker_suite,
             ),
             commands,
         )
@@ -1537,6 +1541,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(action.index(self.web_db_suite), action.index(self.plugin_config_cli_suite))
         self.assertLess(action.index(self.plugin_config_cli_suite), action.index(self.topology_db_suite))
         self.assertLess(action.index(self.topology_db_suite), action.index(self.dgraph_schema_suite))
+        self.assertLess(action.index(self.dgraph_schema_suite), action.index(self.world_worker_suite))
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(
