@@ -24,4 +24,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorkerTest do
 
     assert :ok = RecoveryWorker.perform(%Oban.Job{})
   end
+
+  # The cron has no Oban uniqueness of its own. The worker's insert contract is
+  # what stops a second pending scan from landing while consumers are off.
+  test "inserts onto alert_recovery and stays unique over pending states" do
+    job = RecoveryWorker.new(%{})
+
+    assert job.valid?
+    assert job.changes.queue == "alert_recovery"
+
+    unique = job.changes.unique
+    assert unique.period == :infinity
+
+    states = unique.states |> Enum.map(&to_string/1) |> Enum.sort()
+    assert states == ["available", "retryable", "scheduled"]
+  end
 end

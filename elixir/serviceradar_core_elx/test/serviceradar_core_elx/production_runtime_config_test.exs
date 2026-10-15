@@ -15,6 +15,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Observability.ApiEventsRetentionWorker
   alias ServiceRadar.Observability.CapacityForecasting.Worker
+  alias ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker
   alias ServiceRadar.Security.AuditVersionRetentionWorker
 
   @base_config Path.expand("../../config/config.exs", __DIR__)
@@ -36,6 +37,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     Worker,
     ServiceRadar.Observability.DataRetentionWorker,
     ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
+    RecoveryWorker,
     ServiceRadar.Observability.SeasonalBaselineFreshnessWorker,
     ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
     ServiceRadar.Observability.SeasonalDisposition.Worker
@@ -81,6 +83,31 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     for worker <- @required_production_workers do
       assert worker in scheduled, "missing production cron entry for #{inspect(worker)}"
     end
+  end
+
+  test "alert recovery is scheduled on its own queue, off maintenance" do
+    oban = read_prod_config()[:serviceradar_core][Oban]
+    queues = Keyword.fetch!(oban, :queues)
+
+    assert queues[:alert_recovery] == 1
+    assert is_integer(queues[:maintenance]) and queues[:maintenance] > 0
+
+    entry =
+      oban
+      |> Keyword.fetch!(:plugins)
+      |> Enum.find_value(fn
+        {Cron, opts} ->
+          Enum.find(Keyword.get(opts, :crontab, []), fn
+            {_expr, RecoveryWorker, _opts} -> true
+            _other -> false
+          end)
+
+        _other ->
+          nil
+      end)
+
+    assert {"* * * * *", RecoveryWorker, cron_opts} = entry
+    assert cron_opts[:queue] == :alert_recovery
   end
 
   test "prod config uses the shipped Req client for Swoosh API adapters" do
