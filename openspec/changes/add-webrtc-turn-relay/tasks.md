@@ -19,17 +19,17 @@
 - [ ] 1B.3 Add the SRQL-backed usage panel (relay share, mint failures by reason, Cloudflare bytes per day, 30-day trend) and the relay-bytes threshold alert.
 
 ## 2. Feature wiring
-- [ ] 2.1 Camera relay: web-ng signaling returns minted ICE servers per viewer session, or the STUN-only list plus `ice_credentials: "unavailable"` on failure.
-- [ ] 2.2 Camera relay: the core-elx ExWebRTC peer gets server-side minted credentials using the in-cluster TURN Service URL.
+- [x] 2.1 Camera relay: web-ng signaling returns minted ICE servers per viewer session, or the STUN-only list plus `ice_credentials: "unavailable"` on failure.
+- [x] 2.2 Camera relay: the core-elx ExWebRTC peer gets server-side minted credentials using the in-cluster TURN Service URL.
 - [ ] 2.3 Remote desktop: call the provider. Existing `remoteAccess.desktop.rdp.webRTC.turn` values keep working.
 - [ ] 2.4 Add the `forceRelay` option (browser `iceTransportPolicy: relay`), rejected when the backend is `none`.
 - [ ] 2.5 Add an ICE health indicator to the camera relay and remote desktop settings.
 
 ## 3. Helm
-- [ ] 3.1 Add `webrtc.iceCredentials` values for infrastructure only (the `static_secret` Secret reference and its TTL bounds) with render-time validation that fails on missing Secrets, keys or out-of-range TTLs. No Cloudflare token value exists.
-- [ ] 3.2 Add an optional eturnal `turnServer` component: Deployment; exposure via shared Envoy Gateway routes (UDPRoute/TCPRoute 3478, passthrough TLSRoute 5349 with a cert-manager Certificate) or a LoadBalancer/NodePort Service; required `externalHostname`; in-cluster-only bounded relay range; a peer deny list covering private, loopback, link-local, CGNAT, ULA and the cluster CIDRs with allows for the server's own relay addresses and core-elx pods; a NetworkPolicy (client ports from the gateway, relay ports from core-elx only).
-- [ ] 3.3 Generalize RDP's core-only WebRTC egress NetworkPolicy to `webrtc.networkPolicy` and alias the RDP keys to it.
-- [ ] 3.4 Add Helm unittest coverage: backend validation, Secret mounts reaching only web-ng and core, TURN server rendering, the deny list, and the alias compatibility.
+- [x] 3.1 Add `webrtc.iceCredentials` values for infrastructure only (the `static_secret` Secret reference and its TTL bounds) with render-time validation that fails on missing Secrets, keys or out-of-range TTLs. No Cloudflare token value exists.
+- [x] 3.2 Add an optional eturnal `turnServer` component: Deployment; exposure via shared Envoy Gateway routes (UDPRoute/TCPRoute 3478, passthrough TLSRoute 5349 with a cert-manager Certificate) or a LoadBalancer/NodePort Service; required `externalHostname`; in-cluster-only bounded relay range; a peer deny list covering private, loopback, link-local, CGNAT, ULA and the cluster CIDRs with allows for the server's own relay addresses and core-elx pods; a NetworkPolicy (client ports from the gateway, relay ports from core-elx only).
+- [x] 3.3 Generalize RDP's core-only WebRTC egress NetworkPolicy to `webrtc.networkPolicy` and alias the RDP keys to it.
+- [x] 3.4 Add Helm unittest coverage: backend validation, Secret mounts reaching only web-ng and core, TURN server rendering, the deny list, and the alias compatibility.
 
 ## 4. Docs and rollout
 - [ ] 4.1 Add an operator guide for both backends: the Cloudflare token permissions and the Settings flow, the Smokescreen ACL entries `api.cloudflare.com` and `rtc.live.cloudflare.com`, the automation API path, and the listeners to expose for self-hosted TURN.
