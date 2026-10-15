@@ -482,6 +482,234 @@ tests:
           errorMessage: webrtc.turnServer.gateway.udp.parentRefs is required unless gatewayApi is enabled in managed mode
         template: templates/webrtc-turn-server.yaml
 
+  - it: publishes externalPorts on the LoadBalancer and points core-elx at that UDP port
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.order: 1000
+      webrtc.iceCredentials.backend: static_secret
+      webrtc.iceCredentials.staticSecret.existingSecretName: turn-shared-secret
+      webrtc.turnServer.enabled: true
+      webrtc.turnServer.externalHostname: turn.example.com
+      webrtc.turnServer.exposure: service
+      webrtc.turnServer.tls.enabled: true
+      webrtc.turnServer.externalPorts.udp: 3479
+      webrtc.turnServer.externalPorts.tcp: 3480
+      webrtc.turnServer.externalPorts.tls: 5350
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: kind
+          value: Service
+      - equal:
+          path: spec.ports
+          value:
+            - name: turn-udp
+              port: 3479
+              targetPort: turn-udp
+              protocol: UDP
+            - name: turn-tcp
+              port: 3480
+              targetPort: turn-tcp
+              protocol: TCP
+            - name: turn-tls
+              port: 5350
+              targetPort: turn-tls
+              protocol: TCP
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: kind
+          value: Service
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WEBRTC_TURN_URLS_JSON
+            value: '["turn:turn.example.com:3479?transport=udp","turn:turn.example.com:3480?transport=tcp","turns:turn.example.com:5350?transport=tcp"]'
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WEBRTC_TURN_URLS_JSON
+            value: '["turn:serviceradar-turn.serviceradar-test.svc.cluster.local:3479?transport=udp"]'
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: UDP
+              port: 3479
+            - protocol: UDP
+              port: 49160
+              endPort: 49359
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-core-egress
+      - equal:
+          path: spec.egress[0].destination.ports
+          value:
+            - 3479
+            - "49160:49359"
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-core-egress-calico
+      - equal:
+          path: spec.ingress[1].ports[0]
+          value:
+            protocol: UDP
+            port: 3478
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-ingress
+
+  - it: keeps the gateway Service on the pod listen port when externalPorts differ
+    set:
+      webrtc.iceCredentials.backend: static_secret
+      webrtc.iceCredentials.staticSecret.existingSecretName: turn-shared-secret
+      webrtc.turnServer.enabled: true
+      webrtc.turnServer.externalHostname: turn.example.com
+      webrtc.turnServer.externalPorts.udp: 3479
+      webrtc.turnServer.externalPorts.tcp: 3480
+      webrtc.turnServer.gateway.udp.parentRefs:
+        - name: shared-gateway
+          namespace: gateway-system
+          sectionName: turn-udp
+      webrtc.turnServer.gateway.tcp.parentRefs:
+        - name: shared-gateway
+          namespace: gateway-system
+          sectionName: turn-tcp
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: kind
+          value: Service
+      - equal:
+          path: spec.ports
+          value:
+            - name: turn-udp
+              port: 3478
+              targetPort: turn-udp
+              protocol: UDP
+            - name: turn-tcp
+              port: 3478
+              targetPort: turn-tcp
+              protocol: TCP
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: kind
+          value: Service
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WEBRTC_TURN_URLS_JSON
+            value: '["turn:serviceradar-turn.serviceradar-test.svc.cluster.local:3478?transport=udp"]'
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects NodePort for service exposure
+    set:
+      webrtc.iceCredentials.backend: static_secret
+      webrtc.iceCredentials.staticSecret.existingSecretName: turn-shared-secret
+      webrtc.turnServer.enabled: true
+      webrtc.turnServer.externalHostname: turn.example.com
+      webrtc.turnServer.exposure: service
+      webrtc.turnServer.service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorMessage: webrtc.turnServer.exposure=service supports only service.type LoadBalancer; use webrtc.turnServer.exposure=gateway instead
+        template: templates/webrtc-turn-server.yaml
+
+  - it: rejects a non-LoadBalancer service type for service exposure
+    set:
+      webrtc.iceCredentials.backend: static_secret
+      webrtc.iceCredentials.staticSecret.existingSecretName: turn-shared-secret
+      webrtc.turnServer.enabled: true
+      webrtc.turnServer.externalHostname: turn.example.com
+      webrtc.turnServer.exposure: service
+      webrtc.turnServer.service.type: ClusterIP
+    asserts:
+      - failedTemplate:
+          errorMessage: webrtc.turnServer.exposure=service supports only service.type LoadBalancer; use webrtc.turnServer.exposure=gateway instead
+        template: templates/webrtc-turn-server.yaml
+
+  - it: lets the TURN pod send relay media to itself when same-namespace egress is off
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.allowSameNamespace: false
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.order: 1000
+      webrtc.iceCredentials.backend: static_secret
+      webrtc.iceCredentials.staticSecret.existingSecretName: turn-shared-secret
+      webrtc.turnServer.enabled: true
+      webrtc.turnServer.externalHostname: turn.example.com
+      webrtc.turnServer.exposure: service
+      webrtc.turnServer.relayPortRange.min: 50000
+      webrtc.turnServer.relayPortRange.max: 50099
+    asserts:
+      - equal:
+          path: spec
+          value:
+            podSelector:
+              matchLabels:
+                app: serviceradar-turn
+            policyTypes:
+              - Egress
+            egress:
+              - to:
+                  - podSelector:
+                      matchLabels:
+                        app: serviceradar-turn
+                ports:
+                  - protocol: UDP
+                    port: 50000
+                    endPort: 50099
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-relay-egress
+      - equal:
+          path: spec.order
+          value: 999
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-relay-egress-calico
+      - equal:
+          path: spec.selector
+          value: app == 'serviceradar-turn'
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-relay-egress-calico
+      - equal:
+          path: spec.egress[0]
+          value:
+            action: Allow
+            protocol: UDP
+            destination:
+              selector: app == 'serviceradar-turn'
+              ports:
+                - "50000:50099"
+        template: templates/webrtc-turn-server.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-turn-relay-egress-calico
+
   - it: fails rendering a relay range wider than 1000 ports
     set:
       webrtc.iceCredentials.backend: static_secret

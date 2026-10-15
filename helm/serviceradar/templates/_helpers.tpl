@@ -877,7 +877,11 @@ values, an environment value, or the unified credential store.
   {{- if default false (default (dict) $turn.tls).enabled -}}
     {{- $browserUrls = append $browserUrls (printf "turns:%s:%d?transport=tcp" $host (int (default 5349 $externalPorts.tls))) -}}
   {{- end -}}
-  {{- $peerUrls = append $peerUrls (printf "turn:%s.%s.svc.cluster.local:3478?transport=udp" (include "serviceradar.webrtcTurnServerName" .) .Release.Namespace) -}}
+  {{- $peerPort := 3478 -}}
+  {{- if eq (default "gateway" $turn.exposure) "service" -}}
+    {{- $peerPort = int (default 3478 $externalPorts.udp) -}}
+  {{- end -}}
+  {{- $peerUrls = append $peerUrls (printf "turn:%s.%s.svc.cluster.local:%d?transport=udp" (include "serviceradar.webrtcTurnServerName" .) .Release.Namespace $peerPort) -}}
 {{- end -}}
 {{- range $key := list "turnUrls" "peerTurnUrls" -}}
   {{- $urls := default (list) (get $ice $key) -}}

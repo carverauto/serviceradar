@@ -253,8 +253,9 @@ SRQL-queryable. No new table.
       passthrough TLSRoute for 5349. eturnal terminates TLS itself with a
       cert-manager `Certificate` (or an existing TLS Secret) for the TURN
       hostname.
-    - `service`: a `LoadBalancer` or `NodePort` Service on the same ports, for
-      installations without Gateway API.
+    - `service`: a LoadBalancer Service publishing `externalPorts`, for
+      installations without Gateway API. Any other `service.type` fails
+      rendering. NodePort is not used.
   - `externalHostname` (required when enabled) is the name browsers dial in
     the `turn:`/`turns:` URLs.
   - A bounded relay port range (default 49160-49359, at most 1000 ports) that

@@ -3,7 +3,7 @@ Chart-managed TURN relay (eturnal) for WebRTC viewers (add-webrtc-turn-relay).
 
 Traffic model:
   browser  --UDP/TCP 3478, TLS 5349--> gateway or Service --> eturnal (client side)
-  core-elx --UDP 3478 (in-cluster Service)--------------> eturnal (client side)
+  core-elx --UDP (in-cluster Service port)-------------> eturnal (client side)
   browser relay allocation <--> core-elx relay allocation, both on this pod
 
 Relay addresses are the pod address, so the relay port range is reachable only
@@ -53,9 +53,17 @@ container renders the final eturnal.yml into a memory-backed emptyDir.
 {{- $gatewayApi := default (dict) .Values.gatewayApi -}}
 {{- $managedGateway := and (default false $gatewayApi.enabled) (eq (default "managed" $gatewayApi.mode) "managed") -}}
 {{- $service := default (dict) $turn.service -}}
-{{- $serviceType := ternary (default "LoadBalancer" $service.type) "ClusterIP" (eq $exposure "service") -}}
-{{- if and (eq $exposure "service") (not (has $serviceType (list "LoadBalancer" "NodePort"))) -}}
-  {{- fail "webrtc.turnServer.service.type must be LoadBalancer or NodePort" -}}
+{{- $externalPorts := default (dict) $turn.externalPorts -}}
+{{- $serviceType := "ClusterIP" -}}
+{{- if eq $exposure "service" -}}
+  {{- $serviceType = default "LoadBalancer" $service.type -}}
+  {{- if ne $serviceType "LoadBalancer" -}}
+    {{- fail "webrtc.turnServer.exposure=service supports only service.type LoadBalancer; use webrtc.turnServer.exposure=gateway instead" -}}
+  {{- end -}}
+{{- end -}}
+{{- $allocatePort := 3478 -}}
+{{- if eq $exposure "service" -}}
+  {{- $allocatePort = int (default 3478 $externalPorts.udp) -}}
 {{- end -}}
 {{- $clientPorts := list (dict "name" "turn-udp" "protocol" "UDP" "port" 3478) (dict "name" "turn-tcp" "protocol" "TCP" "port" 3478) -}}
 {{- if $tlsEnabled -}}
@@ -278,11 +286,28 @@ spec:
   selector:
     app: {{ $name }}
   ports:
+  {{- if eq $exposure "service" }}
+  - name: turn-udp
+    port: {{ int (default 3478 $externalPorts.udp) }}
+    targetPort: turn-udp
+    protocol: UDP
+  - name: turn-tcp
+    port: {{ int (default 3478 $externalPorts.tcp) }}
+    targetPort: turn-tcp
+    protocol: TCP
+  {{- if $tlsEnabled }}
+  - name: turn-tls
+    port: {{ int (default 5349 $externalPorts.tls) }}
+    targetPort: turn-tls
+    protocol: TCP
+  {{- end }}
+  {{- else }}
   {{- range $port := $clientPorts }}
   - name: {{ $port.name }}
     port: {{ $port.port }}
     targetPort: {{ $port.name }}
     protocol: {{ $port.protocol }}
+  {{- end }}
   {{- end }}
 {{- if and $tlsEnabled $issuerRef.name }}
 ---
@@ -417,7 +442,32 @@ spec:
               app: {{ $name }}
       ports:
         - protocol: UDP
-          port: 3478
+          port: {{ $allocatePort }}
+        - protocol: UDP
+          port: {{ $relayMin }}
+          endPort: {{ $relayMax }}
+---
+# Relay-to-relay is a UDP send from this pod to its own relay address.
+# Explicit, so it holds when same-namespace egress is not allowed chart-wide.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-relay-egress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ $name }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: {{ $name }}
+      ports:
         - protocol: UDP
           port: {{ $relayMin }}
           endPort: {{ $relayMax }}
@@ -443,7 +493,28 @@ spec:
       destination:
         selector: {{ printf "app == '%s'" $name | quote }}
         ports:
-          - 3478
+          - {{ $allocatePort }}
+          - {{ printf "%d:%d" $relayMin $relayMax | quote }}
+---
+# Same relay-to-relay exception, ordered just before Calico's final Deny.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-relay-egress-calico
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  order: {{ subf (default 1000 $calico.order) 1 }}
+  selector: {{ printf "app == '%s'" $name | quote }}
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: {{ printf "app == '%s'" $name | quote }}
+        ports:
           - {{ printf "%d:%d" $relayMin $relayMax | quote }}
 {{- end }}
 {{- end }}

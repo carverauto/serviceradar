@@ -2871,8 +2871,9 @@ webrtc:
     # resolve to the gateway (exposure gateway) or the Service (exposure
     # service) and match the TLS certificate when tls.enabled.
     externalHostname: ""
-    # Ports browsers dial. Match these to the gateway listeners or the
-    # Service ports actually exposed.
+    # Ports browsers dial. Gateway listeners use these. With exposure
+    # service they are also the LoadBalancer Service ports; the pod still
+    # listens on 3478 and 5349.
     externalPorts:
       udp: 3478
       tcp: 3478
@@ -2880,7 +2881,8 @@ webrtc:
     # gateway: UDPRoute/TCPRoute 3478 and a passthrough TLSRoute 5349 on a
     #          Gateway API gateway (the chart's managed gateway, or the
     #          parentRefs below for a shared gateway).
-    # service: the TURN Service itself is a LoadBalancer or NodePort.
+    # service: the TURN Service itself is a LoadBalancer. Anything else
+    # fails rendering; use exposure gateway instead of NodePort.
     exposure: gateway
     gateway:
       # Namespace of the gateway data-plane (envoy) pods, admitted to the TURN

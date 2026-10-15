@@ -72,7 +72,9 @@ web-ng mints the browser's credential (feature `camera_relay`) after core-elx
 has assigned the viewer session, and returns it only in that viewer's signaling
 response. core-elx mints its own credential (feature `camera_relay_peer`) for
 its peer, against the in-cluster TURN Service. Minting is rate limited to 30
-credentials per minute per user and relay session.
+credentials per minute. A browser mint is keyed on the user and the relay
+session. A core-elx peer mint is keyed on the actor `core-elx` and the viewer
+session, so viewers of one camera do not share that bucket.
 
 The shared secret is ServiceRadar-to-itself material: it authenticates
 ServiceRadar to its own media relay. It therefore lives in an operator-owned
@@ -105,11 +107,11 @@ start.
 | `webrtc.turnServer.enabled` | `false` | Deploy the chart-managed TURN server (eturnal). Requires `backend: static_secret`. |
 | `webrtc.turnServer.image.repository` / `.tag` | `ghcr.io/processone/eturnal` / `1.12.3` | TURN server image. |
 | `webrtc.turnServer.externalHostname` | `""` | Required. The DNS name browsers dial. |
-| `webrtc.turnServer.externalPorts.udp` / `.tcp` / `.tls` | `3478` / `3478` / `5349` | Ports browsers dial. Match them to the listeners you expose. |
-| `webrtc.turnServer.exposure` | `gateway` | `gateway` (Gateway API routes) or `service` (the TURN Service is a LoadBalancer or NodePort). |
+| `webrtc.turnServer.externalPorts.udp` / `.tcp` / `.tls` | `3478` / `3478` / `5349` | Ports browsers dial. Gateway listeners use them. With `exposure: service` they are the LoadBalancer Service ports. |
+| `webrtc.turnServer.exposure` | `gateway` | `gateway` (Gateway API routes) or `service` (the TURN Service is a LoadBalancer). |
 | `webrtc.turnServer.gateway.envoyGatewayNamespace` | `envoy-gateway-system` | Namespace of the gateway data-plane pods, admitted by the TURN NetworkPolicy. |
 | `webrtc.turnServer.gateway.udp/tcp/tls.parentRefs` | `[]` | Listener references on a gateway this chart does not manage. Empty uses the chart-managed gateway. |
-| `webrtc.turnServer.service.type` | `LoadBalancer` | `LoadBalancer` or `NodePort` when `exposure: service`. |
+| `webrtc.turnServer.service.type` | `LoadBalancer` | Only `LoadBalancer` is accepted when `exposure: service`. Any other type fails rendering; use `exposure: gateway` instead. |
 | `webrtc.turnServer.service.annotations`, `.loadBalancerIP`, `.externalTrafficPolicy` | `{}`, `""`, `Local` | Service tuning for `exposure: service`. |
 | `webrtc.turnServer.service.allowedCIDRs` | `["0.0.0.0/0"]` | Client CIDRs admitted to the TURN ports when `exposure: service`. |
 | `webrtc.turnServer.tls.enabled` | `false` | Serve TURNS on 5349 for networks that block UDP. |
@@ -254,10 +256,14 @@ When `networkPolicy.enabled` is true, the chart adds:
 - `serviceradar-turn-ingress`: client ports from the gateway namespace (or
   from `service.allowedCIDRs`), UDP 3478 and the relay range from
   `serviceradar-core` pods, and the relay range from the TURN pod itself.
-- `serviceradar-turn-core-egress`: core-elx to the TURN pod on UDP 3478 and the
-  relay range.
-- With `networkPolicy.calicoLogDenied.enabled`, a Calico `Allow` for the same
-  core-elx egress, ordered just before the final log-and-deny policy.
+- `serviceradar-turn-core-egress`: core-elx to the TURN pod on the in-cluster
+  Service UDP port (3478 with gateway exposure, `externalPorts.udp` with
+  service exposure) and the relay range.
+- `serviceradar-turn-relay-egress`: the TURN pod to itself on the relay range,
+  so relay-to-relay media still flows when same-namespace egress is off.
+- With `networkPolicy.calicoLogDenied.enabled`, Calico `Allow` rules for that
+  core-elx egress and for the TURN pod's relay egress, ordered just before the
+  final log-and-deny policy.
 
 The TURN server also refuses to relay to eturnal's `recommended` networks
 (RFC 1918, loopback, link-local, CGNAT, ULA and similar) and to

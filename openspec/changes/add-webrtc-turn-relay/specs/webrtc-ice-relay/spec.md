@@ -101,7 +101,7 @@ It SHALL answer requests over the limit with the STUN-only list and a rate-limit
 
 ### Requirement: Optional chart-managed TURN server
 The Helm chart SHALL offer an optional TURN server, disabled by default.
-When enabled, it SHALL expose UDP and TCP 3478 and, optionally, TLS 5349 to clients, through the shared Gateway API gateway when available or otherwise a LoadBalancer or NodePort Service.
+When enabled, it SHALL expose UDP and TCP 3478 and, optionally, TLS 5349 to clients, through the shared Gateway API gateway or otherwise a LoadBalancer Service whose ports are `externalPorts`. `service.type` other than LoadBalancer SHALL fail rendering and direct the operator to gateway exposure.
 Its relay port range SHALL be bounded and reachable only from inside the cluster.
 It SHALL require an explicit external hostname and authenticate with the same shared-secret Secret as the `static_secret` backend.
 It SHALL deny relaying to loopback, link-local, RFC 1918, CGNAT, ULA and the configured cluster pod and service CIDRs, except its own relay addresses.
