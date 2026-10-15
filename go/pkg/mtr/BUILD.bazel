@@ -9,6 +9,7 @@ go_library(
         "options.go",
         "socket.go",
         "socket_darwin.go",
+        "socket_ipv4_header.go",
         "socket_linux.go",
         "socket_unsupported.go",
         "tcp_flow_connect.go",

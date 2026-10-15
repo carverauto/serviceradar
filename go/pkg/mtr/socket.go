@@ -154,6 +154,26 @@ const (
 	tcpSynLen = 24
 	// tcpSynWindow is the advertised receive window on probe SYNs.
 	tcpSynWindow = 64240
+	// tcpSynDataOffset is the SYN's data offset field: its 24-byte header is
+	// six 32-bit words, carried in the high nibble.
+	tcpSynDataOffset = 0x60
+	// tcpSynMSSv4 and tcpSynMSSv6 are the MSS a probe SYN advertises: a
+	// 1500-byte Ethernet MTU less the IPv4 or IPv6 header and the TCP header.
+	tcpSynMSSv4 = 1460
+	tcpSynMSSv6 = 1440
+
+	// ipv4PseudoHeaderLen and ipv6PseudoHeaderLen are the sizes of the TCP
+	// checksum pseudo-headers (RFC 793, RFC 8200 section 8.1).
+	ipv4PseudoHeaderLen = 12
+	ipv6PseudoHeaderLen = 40
+
+	// quotedTransportLen is how much of the offending datagram's transport
+	// header an ICMP error quotes at minimum (RFC 792): the ICMP id and
+	// sequence, or the UDP/TCP ports followed by the TCP sequence number.
+	quotedTransportLen = 8
+	// quotedPortsLen is the length of the source and destination ports at the
+	// start of a quoted UDP or TCP header.
+	quotedPortsLen = 4
 
 	// tcpProbeModeSyn and tcpProbeModeConnect report how a TCP trace sent its
 	// probes: crafted SYNs on one stable flow, or the connect() fallback.
@@ -168,17 +188,17 @@ func parseQuotedTransport(resp *ICMPResponse, proto byte, data []byte) {
 
 	switch proto {
 	case ipProtoICMP, ipProtoICMPv6:
-		if len(data) >= 8 { //nolint:mnd
+		if len(data) >= quotedTransportLen {
 			resp.InnerID = int(binary.BigEndian.Uint16(data[4:6]))
 			resp.InnerSeq = int(binary.BigEndian.Uint16(data[6:8]))
 		}
 	case ipProtoUDP, ipProtoTCP:
-		if len(data) >= 4 { //nolint:mnd
+		if len(data) >= quotedPortsLen {
 			resp.InnerSrcPort = int(binary.BigEndian.Uint16(data[0:2]))
 			resp.InnerDstPort = int(binary.BigEndian.Uint16(data[2:4]))
 			resp.InnerSeq = resp.InnerDstPort
 		}
-		if proto == ipProtoTCP && len(data) >= 8 { //nolint:mnd
+		if proto == ipProtoTCP && len(data) >= quotedTransportLen {
 			resp.InnerTCPSeq = binary.BigEndian.Uint32(data[4:8])
 		}
 	}
@@ -198,13 +218,13 @@ func buildTCPSyn(buf []byte, src, dst net.IP, srcPort, dstPort int, seq uint32) 
 	binary.BigEndian.PutUint16(seg[0:2], uint16(srcPort))
 	binary.BigEndian.PutUint16(seg[2:4], uint16(dstPort))
 	binary.BigEndian.PutUint32(seg[4:8], seq)
-	seg[12] = (tcpSynLen / 4) << 4 //nolint:mnd // data offset in 32-bit words
+	seg[12] = tcpSynDataOffset
 	seg[13] = tcpFlagSYN
 	binary.BigEndian.PutUint16(seg[14:16], tcpSynWindow)
 
-	mss := uint16(1460) //nolint:mnd
+	mss := uint16(tcpSynMSSv4)
 	if src.To4() == nil {
-		mss = 1440 //nolint:mnd
+		mss = tcpSynMSSv6
 	}
 
 	seg[20] = 2 // MSS option kind
@@ -221,13 +241,13 @@ func tcpChecksum(src, dst net.IP, seg []byte) uint16 {
 	var pseudo []byte
 
 	if src4, dst4 := src.To4(), dst.To4(); src4 != nil && dst4 != nil {
-		pseudo = make([]byte, 12, 12+len(seg)) //nolint:mnd
+		pseudo = make([]byte, ipv4PseudoHeaderLen, ipv4PseudoHeaderLen+len(seg))
 		copy(pseudo[0:4], src4)
 		copy(pseudo[4:8], dst4)
 		pseudo[9] = ipProtoTCP
 		binary.BigEndian.PutUint16(pseudo[10:12], uint16(len(seg)))
 	} else {
-		pseudo = make([]byte, 40, 40+len(seg)) //nolint:mnd
+		pseudo = make([]byte, ipv6PseudoHeaderLen, ipv6PseudoHeaderLen+len(seg))
 		copy(pseudo[0:16], src.To16())
 		copy(pseudo[16:32], dst.To16())
 		binary.BigEndian.PutUint32(pseudo[32:36], uint32(len(seg)))

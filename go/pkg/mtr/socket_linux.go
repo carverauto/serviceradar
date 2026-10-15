@@ -337,7 +337,7 @@ func (s *linuxRawSocket) parseInnerPacketV4(resp *ICMPResponse) {
 		return
 	}
 
-	ihl := int(inner[0]&0x0f) * 4 //nolint:mnd
+	ihl := ipv4HeaderLen(inner[0])
 	if ihl < ipv4HeaderMinLen || len(inner) < ihl+icmpHeaderLen {
 		return
 	}

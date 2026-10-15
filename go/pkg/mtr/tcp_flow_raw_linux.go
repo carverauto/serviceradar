@@ -17,9 +17,10 @@
 package mtr
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"syscall"
 	"time"
@@ -104,9 +105,19 @@ func openRawTCPFlow(dst net.IP, dstPort int, ipv6 bool) (*rawTCPFlow, error) {
 		dst:     append(net.IP(nil), dst...),
 		srcPort: srcPort,
 		dstPort: dstPort,
-		isnBase: rand.Uint32(), //nolint:gosec // probe identity, not a security boundary
+		isnBase: randomISNBase(),
 		recvBuf: make([]byte, recvBufSize),
 	}, nil
+}
+
+// randomISNBase draws the flow's initial sequence number base. Probe SYNs
+// carry base+seq, so an unpredictable base keeps an off-path host from
+// forging replies that match them.
+func randomISNBase() uint32 {
+	var b [4]byte
+	_, _ = cryptorand.Read(b[:]) // never returns an error
+
+	return binary.BigEndian.Uint32(b[:])
 }
 
 // routeSourceAddr asks the kernel which local address it would use toward dst.
@@ -323,7 +334,7 @@ func splitRawTCP(pkt []byte, from syscall.Sockaddr, ipv6 bool) ([]byte, net.IP, 
 		return nil, nil, false
 	}
 
-	ihl := int(pkt[0]&0x0f) * 4 //nolint:mnd
+	ihl := ipv4HeaderLen(pkt[0])
 	if ihl < ipv4HeaderMinLen || len(pkt) < ihl {
 		return nil, nil, false
 	}

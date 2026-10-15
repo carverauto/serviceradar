@@ -27,6 +27,8 @@ const (
 	dnsWorkers  = 4
 	dnsCacheTTL = 10 * time.Minute
 	dnsTimeout  = 2 * time.Second
+	// dnsPendingQueueSize bounds lookups queued for the worker pool.
+	dnsPendingQueueSize = 256
 )
 
 type dnsEntry struct {
@@ -54,7 +56,7 @@ func NewDNSResolver(ctx context.Context) *DNSResolver {
 
 	r := &DNSResolver{
 		cache:   make(map[string]dnsEntry),
-		pending: make(chan dnsRequest, 256), //nolint:mnd
+		pending: make(chan dnsRequest, dnsPendingQueueSize),
 		cancel:  cancel,
 	}
 

@@ -279,13 +279,8 @@ func TestResolveHopHostnamesUsesDNSCache(t *testing.T) {
 // of a raw socket is a bare descriptor number, so a second close(2) closes
 // whichever descriptor the process was handed that number in between -- with
 // traces running concurrently, another trace's probe or DNS socket.
-//
-// Not parallel: it swaps the package-level socket opener.
 func TestTracerRun_ClosesOwnedSocketOnce(t *testing.T) {
 	socket := &fakeRawSocket{}
-	original := openProbeSocket
-	openProbeSocket = func(bool) (RawSocket, error) { return socket, nil }
-	t.Cleanup(func() { openProbeSocket = original })
 
 	opts := DefaultOptions("192.0.2.10")
 	opts.MaxHops = 2
@@ -298,6 +293,7 @@ func TestTracerRun_ClosesOwnedSocketOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new tracer: %v", err)
 	}
+	tracer.openSocket = func(bool) (RawSocket, error) { return socket, nil }
 
 	runCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
