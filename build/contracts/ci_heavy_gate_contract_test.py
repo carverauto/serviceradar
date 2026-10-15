@@ -1002,6 +1002,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
     )
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
+    plugin_config_cli_suite = "bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test"
     topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
     dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
     playwright_targets = (
@@ -1526,13 +1527,15 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.measured_migrate_command,
                 self.ordinary_suite,
                 self.web_db_suite,
+                self.plugin_config_cli_suite,
                 self.topology_db_suite,
                 self.dgraph_schema_suite,
             ),
             commands,
         )
         self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
-        self.assertLess(action.index(self.web_db_suite), action.index(self.topology_db_suite))
+        self.assertLess(action.index(self.web_db_suite), action.index(self.plugin_config_cli_suite))
+        self.assertLess(action.index(self.plugin_config_cli_suite), action.index(self.topology_db_suite))
         self.assertLess(action.index(self.topology_db_suite), action.index(self.dgraph_schema_suite))
         self.assertEqual(
             (self.ordinary_suite,),
