@@ -417,6 +417,18 @@ go_test(
 )
 
 go_test(
+    name = "plugin_partial_ack_grpc_test",
+    srcs = ["push_loop_plugin_partial_ack_grpc_test.go"],
+    embed = [":agent"],
+    deps = [
+        "//go/pkg/agentgateway",
+        "//go/pkg/logger",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_test(
     name = "plugin_runtime_action_test",
     srcs = ["plugin_runtime_action_test.go"],
     data = [

@@ -1947,14 +1947,20 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp reduce_retained_item({chunk_index, {:ok, {item_outcome, item_directives}}}, {outcome, directives, committed}) do
+  defp reduce_retained_item(
+         {chunk_index, {:ok, {item_outcome, item_directives}}},
+         {outcome, directives, committed}
+       ) do
     committed =
       if item_outcome == :agent_retained_committed, do: [chunk_index | committed], else: committed
 
     {combine_delivery_outcomes(outcome, item_outcome), directives ++ item_directives, committed}
   end
 
-  defp reduce_retained_item({_chunk_index, {:exit, reason}}, {_outcome, _directives, committed}) do
+  defp reduce_retained_item(
+         {_chunk_index, {:exit, reason}},
+         {_outcome, _directives, committed}
+       ) do
     Logger.warning("Agent-retained gateway forward task exited: #{inspect(reason)}")
     {:agent_retained_uncommitted, [], committed}
   end
