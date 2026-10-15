@@ -4,7 +4,8 @@
 # THE RELEASE NAME AND THE `-f` MUST MATCH, AND NOTHING ENFORCES IT.
 # `helm upgrade buildbuddy-workflows ... -f values.yaml` is accepted silently and turns this
 # release into a second copy of the build fleet: no poolName (so it registers into the DEFAULT
-# pool and `workflows` goes empty), replicas 3, and the shared cache hostPath. No error at any
+# pool and `workflows` goes empty), replicas 3, and the build fleet's bazel-caches hostPath and
+# cache budgets. No error at any
 # layer -- the next staging push just fails with `no registered executors in pool "workflows"`,
 # which reads like the fleet was never deployed. This has happened once. Check what is actually
 # deployed rather than what the file says:
@@ -122,30 +123,26 @@ resources:
   requests:
     cpu: "12"
     memory: "72Gi"
-    ephemeral-storage: "45Gi"
+    ephemeral-storage: "130Gi"
   limits:
     cpu: "16"
     memory: "80Gi"
-    ephemeral-storage: "50Gi"
+    ephemeral-storage: "140Gi"
 
 # k8s-cp3-worker3 is eligible again. Same story as ./values.yaml: the 2026-08-09
 # DiskPressure pin was leftover after the cache moved to /mnt/buildbuddy. A second
 # workflow replica still needs hostname anti-affinity against other workflow pods
-# (shared hostPath), not an exclusion of this node.
+# (shared bazel-caches-workflows hostPath), not an exclusion of this node.
 
 extraVolumes:
-  # A DIFFERENT hostPath from ./values.yaml, and this is not cosmetic.
-  #
-  # hostPath is per node, and nothing stops this pod being scheduled onto a node that already
-  # runs a build executor. BuildBuddy's filecache assumes it owns its directory: it tracks
-  # size and evicts against local_cache_size_bytes. Two executors sharing one directory means
-  # two independent eviction loops deleting each other's entries while both believe they are
-  # under budget -- cache thrash at best, and each one's accounting is wrong.
+  # Per-pod bounded emptyDir instead of a node-shared hostPath (/mnt/buildbuddy/cache-workflows).
+  # Every executor pod instance creates its own <uuid> directory under /cache and never reclaims
+  # prior pods' UUID directories when rescheduled (see ./values.yaml). Kubelet enforces sizeLimit
+  # and deletes the volume when the pod leaves, and each pod has an isolated filecache directory
+  # even if two executors ever share a node.
   - name: cache-volume
-    hostPath:
-      # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
-      path: /mnt/buildbuddy/cache-workflows
-      type: DirectoryOrCreate
+    emptyDir:
+      sizeLimit: 120Gi
   # Bazel client REPO caches (repository, repo contents). Its own volume so a fresh runner
   # starts warm, and so the small files are not walked by the filecache startup scan. The
   # client DISK cache is deliberately NOT here: several Bazel servers share one executor pod
@@ -306,13 +303,12 @@ config:
       # container that bind is /buildbuddy-execroot: the repo checkout, the sibling output-base,
       # and .home. A single real build clears the old 16GB default on checkout + output-base
       # alone. /home/buildbuddy/bazel-disk-cache is not under that bind (it is on the runner
-      # rootfs, in the home directory uid 1001 already owns), so this 100GB does not include
-      # the disk cache. The cache's own bound
-      # is build:ci --experimental_disk_cache_gc_max_size=50G per runner, on the cache-workflows
-      # xfs via the overlay. Capped rather than -1 because the workspace itself lands on the
-      # node's /mnt/buildbuddy volume; DiskPressure on that disk is what originally cost a node,
-      # not the OS root.
-      max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind; disk cache is outside it
+      # rootfs, in the home directory uid 1001 already owns), so this 60GB does not include
+      # the disk cache. The cache's own bound is build:ci --experimental_disk_cache_gc_max_size=50G
+      # per runner on the runner rootfs overlay inside the 120Gi /cache emptyDir. Capped at 60GB
+      # so 40GB local_cache_size_bytes + 60GB runner workspace = 100GB, staying within the 120Gi
+      # (~128.8 GB) emptyDir sizeLimit with headroom for the in-flight action workspace.
+      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; disk cache is outside it
       # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
       # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
       # 2, not 1: with one slot, BazelCI and every other workflow on this pool evict each other's
@@ -357,8 +353,9 @@ config:
             - rw
     local_cache_directory: /cache
 
-    # Read-through cache OF the remote CAS
-    # Plain int64 byte count: "100Gi" does not parse.
-    local_cache_size_bytes: 100000000000
+    # Read-through cache OF the remote CAS. 40 GB cache + 60 GB max_runner_disk_size_bytes =
+    # 100 GB inside the 120Gi (~128.8 GB) /cache emptyDir sizeLimit.
+    # Plain int64 byte count: "40Gi" does not parse.
+    local_cache_size_bytes: 40000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

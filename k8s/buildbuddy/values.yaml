@@ -31,14 +31,18 @@ autoscaler:
   enabled: false
 
 resources:
+  # The emptyDir at /cache counts toward the pod's ephemeral storage. Cover the 120Gi cache
+  # plus executor-data, logs and the writable layer, so the cache filling up evicts on
+  # sizeLimit (the cache's own bound) rather than on a too-small container limit. The request
+  # sits near the real footprint so the scheduler cannot overpack a node.
   requests:
     cpu: "16"
     memory: "16Gi"
-    ephemeral-storage: "45Gi"
+    ephemeral-storage: "130Gi"
   limits:
     cpu: "32"
     memory: "32Gi"
-    ephemeral-storage: "50Gi"
+    ephemeral-storage: "140Gi"
 
 # k8s-cp3-worker3 used to be NotIn here after the 2026-08-09 DiskPressure incident
 # (BuildBuddy hostPath on /var/lib/buildbuddy filling the OS disk). That cache was
@@ -47,11 +51,14 @@ resources:
 # cache disk. Do not put caches back on root.
 
 extraVolumes:
+  # Per-pod bounded emptyDir instead of a hostPath (/mnt/buildbuddy/cache). Each executor pod
+  # instance creates its own <uuid> directory under /cache and never reclaims prior pods' UUID
+  # directories across reschedules, which leaked 508G on k8s-cp4-worker2 (2026-10-07) and
+  # triggered DiskPressure evictions. Kubelet enforces sizeLimit and deletes the volume when
+  # the pod leaves.
   - name: cache-volume
-    hostPath:
-      # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
-      path: /mnt/buildbuddy/cache
-      type: DirectoryOrCreate
+    emptyDir:
+      sizeLimit: 120Gi
   # Bazel client cache directories for this pool, on their own volume so a fresh runner
   # starts warm and these small files are not walked by the filecache startup scan. Which
   # names are created, and why `disk` is not build:ci --disk_cache, is the init container
@@ -245,16 +252,14 @@ config:
             - rbind
             - rw
     local_cache_directory: /cache
-    # Read-through cache OF the remote CAS named by app_target above. Every eviction here
-    # becomes a re-fetch across the WAN, so this wants to be as large as the node disk
-    # tolerates rather than as small as it can get away with.
-
-    # Change it only while watching `kubectl get nodes` for DiskPressure, because
-    # `root_directory` below shares this filesystem and is NOT counted against this budget --
-    # concurrent action working dirs spike outside it.
+    # Read-through cache OF the remote CAS named by app_target above (routed via cache_target).
     #
-    # Plain int64 byte count, not a k8s quantity: "100Gi" does not parse here. It also does
-    # NOT draw against the ephemeral-storage limit above, because /cache is a hostPath.
-    local_cache_size_bytes: 100000000000
+    # Sized at 80 GB below the 120Gi (~128.8 GB) /cache emptyDir sizeLimit so `root_directory`
+    # (/cache/remotebuilds/), which shares the same volume and is NOT counted against this
+    # budget, has ~45 GiB of headroom for concurrent action working directories.
+    #
+    # Plain int64 byte count, not a k8s quantity: "80Gi" does not parse here. Because /cache is
+    # now an emptyDir, it DOES count toward the 130Gi/140Gi ephemeral-storage request/limit above.
+    local_cache_size_bytes: 80000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

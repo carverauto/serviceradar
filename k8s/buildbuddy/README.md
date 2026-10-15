@@ -26,19 +26,18 @@ Key fields you should see in `values.yaml`:
 ```yaml
 resources:
   requests:
-    cpu: "8"
-    memory: "16Gi"
-    ephemeral-storage: "45Gi"
-  limits:
     cpu: "16"
+    memory: "16Gi"
+    ephemeral-storage: "130Gi"
+  limits:
+    cpu: "32"
     memory: "32Gi"
-    ephemeral-storage: "50Gi"
+    ephemeral-storage: "140Gi"
 
 extraVolumes:
   - name: cache-volume
-    hostPath:
-      path: /mnt/buildbuddy/cache
-      type: DirectoryOrCreate
+    emptyDir:
+      sizeLimit: 120Gi
 
 extraVolumeMounts:
   - name: cache-volume
@@ -47,7 +46,7 @@ extraVolumeMounts:
 config:
   executor:
     local_cache_directory: /cache
-    local_cache_size_bytes: 50000000000
+    local_cache_size_bytes: 80000000000
     root_directory: /cache/remotebuilds/
 ```
 
@@ -55,10 +54,11 @@ config:
 
 - **Replicas**: 3 (autoscaler target queue length = 5, min=3, max=10)
 - **Resources per executor**:
-  - CPU: 8-16 cores (request-limit)
+  - CPU: 16-32 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
-  - Ephemeral Storage: 20-25Gi (request-limit)
-- **Cache path**: `/cache` (hostPath `/mnt/buildbuddy/cache` on each node)
+  - Ephemeral Storage: 130-140Gi (request-limit, covering the 120Gi `/cache` `emptyDir`)
+- **Cache path**: `/cache` (per-pod `emptyDir` with `sizeLimit: 120Gi`; `local_cache_size_bytes: 80GB` on `buildbuddy`, `40GB` + `60GB` `max_runner_disk_size_bytes` on `buildbuddy-workflows` / `buildbuddy-workflows-lig`)
+- **Bazel repo cache hostPath**: `/mnt/buildbuddy/bazel-caches` (`buildbuddy`), `/mnt/buildbuddy/bazel-caches-workflows` (`buildbuddy-workflows`), `/mnt/buildbuddy/bazel-caches-workflows-lig` (`buildbuddy-workflows-lig`)
 - **Remote builds dir**: `/cache/remotebuilds/`
 
 ### Node Affinity
@@ -159,7 +159,7 @@ kubectl get hpa -n buildbuddy
 If pods are being evicted due to resource pressure:
 1. Check node resources: `kubectl describe node <node-name>`
 2. Common causes:
-   - **Ephemeral storage exhaustion**: Ensure `resources.requests/limits.ephemeral-storage` reflect 20Gi/25Gi
+   - **Ephemeral storage exhaustion**: Ensure `resources.requests/limits.ephemeral-storage` reflect `130Gi`/`140Gi` (covering the `120Gi` `/cache` `emptyDir` plus container logs/writable layer)
    - **Memory pressure**: Adjust memory limits
    - **Disk pressure**: Check node disk usage
 3. Confirm the cache mount is present: `kubectl exec -n buildbuddy <pod> -- ls -la /cache`
@@ -170,11 +170,22 @@ If pods are being evicted due to resource pressure:
 
 ### Cache Backing Storage
 
-- Executors mount a hostPath volume named `cache-volume` at `/cache`.
-- The host path (`/mnt/buildbuddy/cache`) is created per node and is not shared across nodes.
-- **Must stay on `/mnt/buildbuddy` (dedicated ~1.2T disk).** Never use `/var/lib/buildbuddy` — that is on the OS root volume and previously caused node DiskPressure / pod evictions.
-- After a Proxmox resize of the BB volume: `sudo xfs_growfs /mnt/buildbuddy` on each worker.
-- If a node runs out of disk, grow `/mnt/buildbuddy` or adjust `local_cache_size_bytes` / cache-proxy `max_size_bytes`.
+- **Executor `/cache` (`cache-volume`)**: per-pod `emptyDir` with `sizeLimit: 120Gi` (`130Gi` request / `140Gi` limit on `ephemeral-storage`).
+  - **Why not `hostPath`**: `/cache` previously mounted `/mnt/buildbuddy/cache` (`values.yaml`) and `/mnt/buildbuddy/cache-workflows` (`values-workflows.yaml`). Every executor pod instance creates its own `<uuid>` directory under `/cache`, capped at `local_cache_size_bytes`, and never reclaims prior pods' UUID directories across rollouts or node reschedules. On 2026-10-07, `k8s-cp4-worker2` accumulated 9 orphaned UUID directories (508 GB), crossing the kubelet's 10% free eviction threshold and evicting CNPG, StarRocks, and the executor pod under `DiskPressure`. Using a size-limited `emptyDir` lets the kubelet enforce the `120Gi` ceiling and delete the directory automatically whenever a pod terminates (`carverauto/gitops` PR #161).
+  - **Cache + workspace sizing inside `120Gi` (~128.8 GB)**:
+
+    | Fleet | `/cache` `emptyDir` `sizeLimit` | `ephemeral-storage` (req / lim) | `local_cache_size_bytes` | `max_runner_disk_size_bytes` | Headroom for `/cache/remotebuilds/` |
+    |---|---|---|---|---|---|
+    | `buildbuddy` (`values.yaml`) | `120Gi` | `130Gi` / `140Gi` | `80 GB` | — | ~45 GiB for active action working dirs |
+    | `buildbuddy-workflows` (`values-workflows.yaml`) | `120Gi` | `130Gi` / `140Gi` | `40 GB` | `60 GB` | ~28.8 GB for in-flight workspace & runner rootfs overlay |
+    | `buildbuddy-workflows-lig` (`values-workflows-lig.yaml`) | `120Gi` | `130Gi` / `140Gi` | `40 GB` | `60 GB` | ~28.8 GB for in-flight workspace & runner rootfs overlay |
+
+- **Bazel repo caches and cache proxy remain `hostPath`s**:
+  - `/mnt/buildbuddy/bazel-caches`, `/mnt/buildbuddy/bazel-caches-workflows`, and `/mnt/buildbuddy/bazel-caches-workflows-lig` hold stable per-node Bazel `--repository_cache` and `--repo_contents_cache` trees (16–27 GB, no per-instance UUID directories) that runners reuse across pod restarts.
+  - `/mnt/buildbuddy/cache-proxy` backs `bb-cache-proxy` (`values-cache-proxy.yaml`, 100 GB).
+- **Orphaned `hostPath` cleanup after migrating from pre-`emptyDir` releases**:
+  - Once all executor pods on a cluster run with `emptyDir` for `cache-volume` (verify via `kubectl -n buildbuddy get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.volumes[?(@.name=="cache-volume")]}{"\n"}{end}'`), remove `/mnt/buildbuddy/cache`, `/mnt/buildbuddy/cache-workflows`, and `/mnt/buildbuddy/cache-workflows-lig` on each worker node by exact absolute path (`farm01` cleaned up on 2026-10-08).
+  - **Do NOT delete** `/mnt/buildbuddy/bazel-caches*` or `/mnt/buildbuddy/cache-proxy`.
 
 ### Connection Issues
 
@@ -245,10 +256,10 @@ the lockstep rule was retired). After changing `docker/images/Dockerfile.workflo
 There are **two helm releases of the same chart** in this namespace, and they must not be
 confused:
 
-| release | values | pool | replicas | mem requests | hostPath cache | runs |
-|---|---|---|---|---|---|---|
-| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/mnt/buildbuddy/cache` | build actions |
-| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 72Gi | `/mnt/buildbuddy/cache-workflows` | the CI runner |
+| release | values | pool | replicas | mem requests | `/cache` volume | Bazel repo `hostPath` | runs |
+|---|---|---|---|---|---|---|---|
+| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `emptyDir` (`120Gi`, `80GB` cache) | `/mnt/buildbuddy/bazel-caches` | build actions |
+| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 72Gi | `emptyDir` (`120Gi`, `40GB` cache + `60GB` runner) | `/mnt/buildbuddy/bazel-caches-workflows` | the CI runner |
 
 The fleet is sized for two concurrent runs of BazelCI (40GB each,
 measured — see `values-workflows.yaml`); an unmeasured benchmark action still requests 50GB
@@ -272,9 +283,9 @@ overwrite the build fleet with these values.
 
 Four things to know before deploying:
 
-- **The release name and the `-f` must agree, and nothing checks it.** Because the workflow fleet has no scripted path, its upgrades are typed by hand, and `helm upgrade buildbuddy-workflows ... -f values.yaml` succeeds silently. It strips `poolName` (the pod joins the default pool, `workflows` goes empty), sets `replicas: 3`, and reverts to the shared cache hostPath — with no error until the next staging push reports `no registered executors in pool "workflows"`. The mirror-image slip is worse: an edit to `values.yaml` applied to the *workflows* release leaves the build fleet silently un-upgraded, on values weeks old. Both have happened. After either deploy, diff intent against reality: `helm get values <release> -n buildbuddy`.
+- **The release name and the `-f` must agree, and nothing checks it.** Because the workflow fleet has no scripted path, its upgrades are typed by hand, and `helm upgrade buildbuddy-workflows ... -f values.yaml` succeeds silently. It strips `poolName` (the pod joins the default pool, `workflows` goes empty), sets `replicas: 3`, and reverts to the build fleet's `bazel-caches` `hostPath` and cache budgets — with no error until the next staging push reports `no registered executors in pool "workflows"`. The mirror-image slip is worse: an edit to `values.yaml` applied to the *workflows* release leaves the build fleet silently un-upgraded, on values weeks old. Both have happened. After either deploy, diff intent against reality: `helm get values <release> -n buildbuddy`.
 - **Check a node can hold 72Gi first.** `kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'`. A request nothing can satisfy leaves the pod `Pending` and the workflow fails with the same `no registered executors` message as before, only now after a helm deploy.
-- **The hostPath differs on purpose.** This pod can land on a node already running a build executor. BuildBuddy's filecache assumes it owns its directory and evicts against `local_cache_size_bytes`; two executors sharing one directory means two eviction loops deleting each other's entries while both believe they are under budget.
+- **The Bazel repo-cache `hostPath` differs on purpose, while `/cache` is a per-pod `emptyDir`.** Each executor pod gets its own `120Gi` `emptyDir` at `/cache` (so two pods can never share or leak filecache directories), and `/mnt/buildbuddy/bazel-caches-workflows` stays distinct from `/mnt/buildbuddy/bazel-caches` so the two fleets' init containers and runners cannot contend on a single node.
 - **KEDA does not touch this release.** `scaledobject.yaml` targets the Deployment `buildbuddy-buildbuddy-executor` by name, and a second release produces a different name. Rename this release into a collision and KEDA will start driving it to `minReplicaCount: 3`.
 
 Verify after deploying. A `Running` pod proves scheduling, not pool registration — check both:
@@ -309,9 +320,9 @@ Pool `workflows` has members on two clusters: `buildbuddy-workflows` (and
 `buildbuddy-workflows-2`) here, and farm01's `buildbuddy-workflows` release (3 replicas,
 56Gi limits). A further release on this cluster serves a pool of its own:
 
-| cluster | release | values | pool | replicas | hostPath cache | runs |
+| cluster | release | values | pool | replicas | volumes | runs |
 |---|---|---|---|---|---|---|
-| carverauto | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/mnt/buildbuddy/cache-workflows-lig`, `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
+| carverauto | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/cache`: `emptyDir` (`120Gi`); `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
 
 Why a pool of its own: LargeIngestionGate (each staging push plus nightly, ~16 runs/day) and
 BazelCI (PRs, ~49 runs/day, ~22 min) shared pool `workflows` and kept evicting each other's
@@ -519,20 +530,19 @@ on the shared mount. `~` does not work either. The workflow OCI spec sets no `HO
 `PATH` and `HOSTNAME`), so `ci_runner` `ensureHomeDir()` sets `HOME` to
 `/buildbuddy-execroot/.home` before Bazel, and Bazel expands `~` from `user.home`. That
 directory is inside the workspace bind. `Workspace.DiskUsageBytes` walks only that bind when
-deciding `max_runner_disk_size_bytes` (100GB in `values-workflows.yaml`), so a cache there is
+deciding `max_runner_disk_size_bytes` (60GB in `values-workflows.yaml`), so a cache there is
 added to the checkout and the output base. GC does not trim it until the server has been idle
 for 5 minutes, and a recycled runner holding all three can be rejected with
 `max_disk_usage_exceeded`.
 
 `/home/buildbuddy/bazel-disk-cache` is on the runner rootfs. Each container's writable layer
 is its own overlay upperdir,
-`/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper`, on the cache-workflows xfs
-(`/mnt/buildbuddy/cache-workflows`), the same disk as the workspace and the filecache, not
+`/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper`, inside the pod's `120Gi`
+`/cache` `emptyDir` volume alongside the workspace and the 40 GB filecache, not
 tmpfs. The filecache startup scan does not walk `remotebuilds` (it only scans group
-directories). The upperdir is outside `/buildbuddy-execroot`, so the 100GB recycle limit does
-not include the disk cache. The cache counts against that xfs disk instead, bounded per runner
-by `--experimental_disk_cache_gc_max_size=50G`: two concurrent runners can hold 100G of disk
-cache there, on top of workspaces that are measured separately. A recycled runner keeps the
+directories). The upperdir is outside `/buildbuddy-execroot`, so the 60GB recycle limit does
+not include the disk cache. The cache counts against the `120Gi` `/cache` `emptyDir` instead,
+bounded per runner by `--experimental_disk_cache_gc_max_size=50G`. A recycled runner keeps the
 same container, so its cache stays warm; removing the runner deletes the bundle, and the cache
 with it. A fresh runner's missing action outputs come from the remote cache. Do not add an
 `oci.mounts` entry for this path: one shared directory is the Exit 34 race.
@@ -733,10 +743,11 @@ executor fleets in **Two fleets** above, so the warnings there about matching re
 `-f` apply with one addition: the proxy's API key is not in the file, so an upgrade that omits
 `--set config.cache_proxy.api_key=...` leaves it unable to authenticate upstream.
 
-Each of the three keeps its own hostPath — `/mnt/buildbuddy/cache`, `cache-workflows`, and
-`cache-proxy` — for the reason `values-workflows.yaml` spells out: two caches sharing a
-directory run two eviction loops that delete each other's entries while both believe they are
-under budget. Their size budgets do stack on one disk, though; see the `max_size_bytes` note in
+Executor `/cache` now uses a per-pod `120Gi` `emptyDir` (`values.yaml`,
+`values-workflows.yaml`, `values-workflows-lig.yaml`), while the remaining `hostPath`s in this
+namespace stay distinct — `/mnt/buildbuddy/bazel-caches*` for the executors' Bazel repo caches
+and `/mnt/buildbuddy/cache-proxy` for the cache proxy — so no two cache managers ever share a
+directory. Their size budgets still stack on one worker disk; see the `max_size_bytes` note in
 `values-cache-proxy.yaml` for the DiskPressure arithmetic before raising any of them.
 
 ### Measuring the split

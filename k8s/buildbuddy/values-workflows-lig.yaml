@@ -4,7 +4,8 @@
 # (pool `workflows`). See "Dedicated LargeIngestionGate pool" in ./README.md for the install
 # command. The rationale for nearly every key below (sizing, runner recycling, hostPath
 # ownership, OCI mounts, private-IP allowlist) is written out in ./values-workflows.yaml and is
-# not repeated here; this file is a copy of it with a different pool, hostPaths and runner count.
+# not repeated here; this file is a copy of it with a different pool, bazel-caches hostPath and
+# runner count.
 #
 # WHY THIS POOL EXISTS.
 #
@@ -57,17 +58,18 @@ resources:
   requests:
     cpu: "12"
     memory: "72Gi"
-    ephemeral-storage: "45Gi"
+    ephemeral-storage: "130Gi"
   limits:
     cpu: "16"
     memory: "80Gi"
-    ephemeral-storage: "50Gi"
+    ephemeral-storage: "140Gi"
 
 # One executor per node: never beside a build executor (`buildbuddy`, keeps RBE capacity
-# intact), either workflow release, or a second LIG pod. The hostPaths below are distinct, so
-# this is about memory and RBE headroom, not cache ownership. Required, not preferred: with no
-# eligible node the pod stays Pending and the next staging push fails with `no registered
-# executors in pool "workflows-lig"` -- check node allocatable before adding workflow releases.
+# intact), either workflow release, or a second LIG pod. The bazel-caches hostPaths below are
+# distinct, so this is about memory and RBE headroom, not cache ownership. Required, not
+# preferred: with no eligible node the pod stays Pending and the next staging push fails with
+# `no registered executors in pool "workflows-lig"` -- check node allocatable before adding
+# workflow releases.
 affinity:
   podAntiAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
@@ -83,12 +85,11 @@ affinity:
         topologyKey: kubernetes.io/hostname
 
 extraVolumes:
-  # Own hostPaths: BuildBuddy's filecache assumes it owns its directory, so no two executors
-  # may share one (see ./values-workflows.yaml).
+  # Per-pod bounded emptyDir instead of a hostPath (/mnt/buildbuddy/cache-workflows-lig);
+  # see ./values-workflows.yaml.
   - name: cache-volume
-    hostPath:
-      path: /mnt/buildbuddy/cache-workflows-lig
-      type: DirectoryOrCreate
+    emptyDir:
+      sizeLimit: 120Gi
   - name: bazel-cache-volume
     hostPath:
       path: /mnt/buildbuddy/bazel-caches-workflows-lig
@@ -150,7 +151,7 @@ config:
       estimated_memory_bytes: 2147483648 # 2 GiB
     runner_pool:
       max_runner_memory_usage_bytes: -1
-      max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind
+      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind (with 40 GB cache inside 120Gi emptyDir)
       # One action uses this pool and does not run concurrently, so one warm runner is all it
       # can reuse; a second slot would only park ~20 GB of memory for nothing.
       max_runner_count: 1
@@ -170,7 +171,7 @@ config:
             - rbind
             - rw
     local_cache_directory: /cache
-    local_cache_size_bytes: 100000000000
+    local_cache_size_bytes: 40000000000
     root_directory: /cache/remotebuilds/
     # Never committed. Supplied at install time with --set; see ./README.md.
     api_key: ""
