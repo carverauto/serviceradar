@@ -158,9 +158,11 @@ defmodule ServiceRadarWebNGWeb.PluginConfigCliTest do
         relative_executable
       ])
 
+    # rules_js exits before Node starts when the working directory is outside
+    # bazel-out and BAZEL_BINDIR is unset. "." keeps this process in the test directory.
     {output, status} =
       System.cmd(executable, ["plugin" | arguments] ++ ["--instance", instance],
-        env: [{"SERVICERADAR_TOKEN", token} | environment],
+        env: [{"BAZEL_BINDIR", "."}, {"SERVICERADAR_TOKEN", token} | environment],
         stderr_to_stdout: true
       )
 
