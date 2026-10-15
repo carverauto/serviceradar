@@ -304,11 +304,13 @@ config:
       # and .home. A single real build clears the old 16GB default on checkout + output-base
       # alone. /home/buildbuddy/bazel-disk-cache is not under that bind (it is on the runner
       # rootfs, in the home directory uid 1001 already owns), so this 60GB does not include
-      # the disk cache. The cache's own bound is build:ci --experimental_disk_cache_gc_max_size=50G
-      # per runner on the runner rootfs overlay inside the 120Gi /cache emptyDir. Capped at 60GB
-      # so 40GB local_cache_size_bytes + 60GB runner workspace = 100GB, staying within the 120Gi
-      # (~128.8 GB) emptyDir sizeLimit with headroom for the in-flight action workspace.
-      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; disk cache is outside it
+      # the disk cache. That cache still sits on this volume: the runner rootfs overlay is
+      # /cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper inside the 120Gi emptyDir.
+      # Its bound is build:ci --experimental_disk_cache_gc_max_size=6G per runner. This pool
+      # can hold two paused runners plus the in-flight one, and each keeps its container, so
+      # three caches can be resident at once. 40GB filecache + 60GB workspace + 3*6GiB disk
+      # cache stays under the 120Gi (~128.8 GB) sizeLimit.
+      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; disk cache is outside it, on this volume
       # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
       # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
       # 2, not 1: with one slot, BazelCI and every other workflow on this pool evict each other's
@@ -353,8 +355,9 @@ config:
             - rw
     local_cache_directory: /cache
 
-    # Read-through cache OF the remote CAS. 40 GB cache + 60 GB max_runner_disk_size_bytes =
-    # 100 GB inside the 120Gi (~128.8 GB) /cache emptyDir sizeLimit.
+    # Read-through cache OF the remote CAS. On the 120Gi /cache emptyDir this shares with
+    # the workspace and the per-runner disk caches: 40GB + 60GB + 3*6GiB (two paused
+    # runners plus the in-flight one).
     # Plain int64 byte count: "40Gi" does not parse.
     local_cache_size_bytes: 40000000000
     root_directory: /cache/remotebuilds/

@@ -177,8 +177,8 @@ If pods are being evicted due to resource pressure:
     | Fleet | `/cache` `emptyDir` `sizeLimit` | `ephemeral-storage` (req / lim) | `local_cache_size_bytes` | `max_runner_disk_size_bytes` | Headroom for `/cache/remotebuilds/` |
     |---|---|---|---|---|---|
     | `buildbuddy` (`values.yaml`) | `120Gi` | `130Gi` / `140Gi` | `80 GB` | — | ~45 GiB for active action working dirs |
-    | `buildbuddy-workflows` (`values-workflows.yaml`) | `120Gi` | `130Gi` / `140Gi` | `40 GB` | `60 GB` | ~28.8 GB for in-flight workspace & runner rootfs overlay |
-    | `buildbuddy-workflows-lig` (`values-workflows-lig.yaml`) | `120Gi` | `130Gi` / `140Gi` | `40 GB` | `60 GB` | ~28.8 GB for in-flight workspace & runner rootfs overlay |
+    | `buildbuddy-workflows` (`values-workflows.yaml`) | `120Gi` | `130Gi` / `140Gi` | `40 GB` | `60 GB` | ~8.9 GiB after three `6GiB` runner disk caches |
+    | `buildbuddy-workflows-lig` (`values-workflows-lig.yaml`) | `120Gi` | `130Gi` / `140Gi` | `40 GB` | `60 GB` | ~14.9 GiB after two `6GiB` runner disk caches |
 
 - **Bazel repo caches and cache proxy remain `hostPath`s**:
   - `/mnt/buildbuddy/bazel-caches`, `/mnt/buildbuddy/bazel-caches-workflows`, and `/mnt/buildbuddy/bazel-caches-workflows-lig` hold stable per-node Bazel `--repository_cache` and `--repo_contents_cache` trees (16–27 GB, no per-instance UUID directories) that runners reuse across pod restarts.
@@ -542,7 +542,11 @@ is its own overlay upperdir,
 tmpfs. The filecache startup scan does not walk `remotebuilds` (it only scans group
 directories). The upperdir is outside `/buildbuddy-execroot`, so the 60GB recycle limit does
 not include the disk cache. The cache counts against the `120Gi` `/cache` `emptyDir` instead,
-bounded per runner by `--experimental_disk_cache_gc_max_size=50G`. A recycled runner keeps the
+bounded per runner by `--experimental_disk_cache_gc_max_size=6G` (`build:ci` only;
+`build:remote` stays `50G` on workstation disks). The workflows pool can have two paused
+runners plus the in-flight one; three caches at that cap, plus the 40 GB filecache and the
+60 GB workspace, stay under the `120Gi` sizeLimit. The LIG pool keeps one paused runner, so
+at most two caches, and the same cap uses less of its volume. A recycled runner keeps the
 same container, so its cache stays warm; removing the runner deletes the bundle, and the cache
 with it. A fresh runner's missing action outputs come from the remote cache. Do not add an
 `oci.mounts` entry for this path: one shared directory is the Exit 34 race.
