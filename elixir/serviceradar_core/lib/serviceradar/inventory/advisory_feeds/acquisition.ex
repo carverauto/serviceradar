@@ -3,10 +3,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   Disk-staged feed acquisition (design D2, tasks 3.1/3.2).
 
   * **VulnCheck** uses the verified two-step backup flow: `GET /v3/backup/<index>`
-    with `Authorization: Bearer <token>` returns `data[].url`, a presigned S3 zip
-    (15-min TTL). The presigned URL is fetched **without** the Authorization
-    header and streamed straight to `download.zip` on disk. When the index entry
-    carries a `sha256` it is verified.
+    with `Authorization: Bearer <token>` returns `data[].url`, a presigned zip
+    (15-min TTL). VulnCheck chooses the host of that URL -- it has been an S3
+    Global Access Point and is now `serve.vulncheck.com` -- so an egress
+    allowlist must admit it alongside `api.vulncheck.com`. The presigned URL is
+    fetched **without** the Authorization header and streamed straight to
+    `download.zip` on disk. When the index entry carries a `sha256` it is
+    verified.
   * **CISA** is a single public JSON streamed to disk.
 
   Every download (CISA, presigned VulnCheck, and the Ubuntu OSV/VEX pair) uses
@@ -86,7 +89,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   @doc """
   Resolve and download a VulnCheck backup index to disk, then extract it.
 
-  `index` is e.g. `"vulncheck-kev"` or `"nist-nvd2"`.
+  `index` is e.g. `"vulncheck-kev"` or `"nist-nvd2"`. A failed archive transfer
+  names the host it came from: `{:download_failed, %{host: "...", reason: reason}}`.
   """
   @spec acquire_vulncheck(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, acquired()} | {:error, term()}
@@ -116,7 +120,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     end
   end
 
-  @doc "Download CISA KEV JSON to disk (no archive)."
+  @doc """
+  Download CISA KEV JSON to disk (no archive).
+
+  A failed transfer names the URL host:
+  `{:download_failed, %{host: "...", reason: reason}}`.
+  """
   @spec acquire_cisa(String.t(), String.t(), keyword()) :: {:ok, acquired()} | {:error, term()}
   def acquire_cisa(url, run_id, opts \\ []) do
     with {:ok, paths} <- Staging.prepare_run("cisa-kev", run_id) do
@@ -519,7 +528,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     _ = File.mkdir_p(Path.dirname(dest_path))
     _ = File.rm(dest_path)
 
-    # No Authorization header on the presigned S3 GET — the URL is self-signed.
+    # No Authorization header on the presigned GET — the URL is self-signed.
     download_opts =
       opts
       |> Keyword.take([:proxy, :profile, :cacerts, :cacertfile])
@@ -528,13 +537,21 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     case http_get.(url, download_opts) do
       :ok -> :ok
       {:ok, %{status: status}} when status in 200..299 -> :ok
-      {:ok, %{status: status}} -> download_error(dest_path, {:http_status, status})
-      {:error, reason} -> download_error(dest_path, reason)
-      other -> download_error(dest_path, {:invalid_http_result, other})
+      {:ok, %{status: status}} -> download_error(dest_path, url, {:http_status, status})
+      {:error, reason} -> download_error(dest_path, url, reason)
+      other -> download_error(dest_path, url, {:invalid_http_result, other})
     end
   rescue
-    error -> download_error(dest_path, error)
+    error -> download_error(dest_path, url, error)
   end
+
+  # The reason names the host because the transport error does not. The
+  # VulnCheck archive comes from whichever host the backup index hands back, and
+  # an egress proxy that refuses it answers CONNECT with a 407 that :httpc
+  # reports as `{:could_not_establish_ssl_tunnel, {_, 407, _}}` -- with no
+  # destination in it. Only the host: a presigned URL's query is a credential.
+  defp download_error(dest_path, url, reason),
+    do: download_error(dest_path, %{host: url_host(url), reason: reason})
 
   defp download_error(dest_path, reason) do
     _ = File.rm(dest_path)

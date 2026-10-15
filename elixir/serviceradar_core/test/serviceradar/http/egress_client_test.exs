@@ -22,6 +22,11 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   alias ServiceRadar.Observability.IpinfoMmdbDownloadWorker
 
   @goproxy_connect_reply "HTTP/1.0 200 OK\r\n\r\n"
+  @proxy_refusal_body "destination is not on the egress allowlist"
+  @proxy_refusal_reply "HTTP/1.1 407 Request rejected by proxy\r\n" <>
+                         "content-type: text/plain\r\n" <>
+                         "content-length: #{byte_size(@proxy_refusal_body)}\r\n\r\n" <>
+                         @proxy_refusal_body
   @body "synthetic-release-artifact"
   @stall_body String.duplicate(@body, 4_096)
 
@@ -76,17 +81,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   @tag :tmp_dir
   test "acquires CISA through CONNECT and cleans up failed transfers", ctx do
-    previous_root = System.get_env("SERVICERADAR_ADVISORY_STAGING_DIR")
-    System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", ctx.tmp_dir)
-
-    on_exit(fn ->
-      if previous_root do
-        System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", previous_root)
-      else
-        System.delete_env("SERVICERADAR_ADVISORY_STAGING_DIR")
-      end
-    end)
-
+    use_advisory_staging_dir(ctx.tmp_dir)
     download_opts = opts(ctx, timeout_ms: 2_000)
 
     assert {:ok, acquired} =
@@ -98,7 +93,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
     assert File.read!(Path.join(acquired.extracted_dir, "cisa-kev.json")) == @body
 
-    assert {:error, {:download_failed, {:http_status, 302}}} =
+    assert {:error, {:download_failed, %{host: "localhost", reason: {:http_status, 302}}}} =
              Acquisition.acquire_cisa(
                "https://localhost/redirect",
                "connect-redirect",
@@ -107,7 +102,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
     refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-redirect"]))
 
-    assert {:error, {:download_failed, :timeout}} =
+    assert {:error, {:download_failed, %{host: "localhost", reason: :timeout}}} =
              Acquisition.acquire_cisa(
                "https://localhost/stall",
                "connect-timeout",
@@ -115,6 +110,42 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              )
 
     refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-timeout"]))
+  end
+
+  # Smokescreen refuses a destination that is not on its allowlist by answering
+  # CONNECT with 407, which :httpc reports without the destination. VulnCheck
+  # picks the archive host in its backup index, so when that host moved off the
+  # allowlist the feed failed with an error that never said which host to allow.
+  @tag :tmp_dir
+  test "names the archive host an egress proxy refused", ctx do
+    use_advisory_staging_dir(ctx.tmp_dir)
+    refusing_proxy = start_connect_proxy(ctx.origin.port, @proxy_refusal_reply)
+    on_exit(refusing_proxy.stop)
+
+    backup_index = fn _url, _headers ->
+      {:ok, %{"data" => [%{"url" => "https://localhost/backup.zip?X-Signature=synthetic"}]}}
+    end
+
+    assert {:error,
+            {:download_failed,
+             %{
+               host: "localhost",
+               reason:
+                 {:could_not_establish_ssl_tunnel,
+                  {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}}
+             }}} =
+             Acquisition.acquire_vulncheck(
+               "vulncheck-kev",
+               "synthetic-token",
+               "proxy-refused",
+               opts(ctx,
+                 proxy: %{scheme: :http, host: "127.0.0.1", port: refusing_proxy.port},
+                 http_get_json: backup_index,
+                 timeout_ms: 2_000
+               )
+             )
+
+    refute File.exists?(Path.join([ctx.tmp_dir, "vulncheck-kev", "proxy-refused"]))
   end
 
   test "revalidates an artifact's validators with HEAD through the tunnel", ctx do
@@ -586,6 +617,19 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   defp redirect_response(location) do
     "HTTP/1.1 302 Found\r\nlocation: #{location}\r\n" <>
       "content-length: 0\r\nconnection: close\r\n\r\n"
+  end
+
+  defp use_advisory_staging_dir(dir) do
+    previous_root = System.get_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+    System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", dir)
+
+    on_exit(fn ->
+      if previous_root do
+        System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", previous_root)
+      else
+        System.delete_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+      end
+    end)
   end
 
   # An HTTP CONNECT proxy shaped like elazarl/goproxy: it answers with an
