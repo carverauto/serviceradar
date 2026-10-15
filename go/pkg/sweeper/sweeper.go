@@ -57,6 +57,10 @@ type NetworkSweeper struct {
 	// partialRunPending marks partial results left in the store by a cancelled
 	// run. GetStatus serves lastSummary until the next sweep completes.
 	partialRunPending bool
+	// unavailableScannerWarned holds the modes whose "scanner is not
+	// available" warning was logged, until that scanner is available again.
+	unavailableScannerMu     sync.Mutex
+	unavailableScannerWarned map[string]bool
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs

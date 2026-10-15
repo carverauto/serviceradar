@@ -53,6 +53,41 @@ func summarizeTargetRoutes(targets []models.Target) targetRouteSummary {
 	return summary
 }
 
+// scannerReady reports whether a mode's targets can be scanned. When they
+// cannot, it warns once and then stays quiet until the mode's scanner is
+// available again: core withholds work from an agent whose scanner cannot
+// open its sockets, so this skip is a safety net, not a per-sweep event.
+func (s *NetworkSweeper) scannerReady(scanType string, scanner scan.Scanner, targets int) bool {
+	if targets == 0 {
+		return false
+	}
+
+	s.unavailableScannerMu.Lock()
+	defer s.unavailableScannerMu.Unlock()
+
+	if scanner != nil {
+		delete(s.unavailableScannerWarned, scanType)
+
+		return true
+	}
+
+	event := s.logger.Debug()
+	if !s.unavailableScannerWarned[scanType] {
+		if s.unavailableScannerWarned == nil {
+			s.unavailableScannerWarned = make(map[string]bool)
+		}
+
+		s.unavailableScannerWarned[scanType] = true
+		event = s.logger.Warn()
+	}
+
+	event.Str("scanType", scanType).
+		Int("targets", targets).
+		Msg("Targets found but scanner is not available, skipping scan")
+
+	return false
+}
+
 func scannerCapabilities(scanner scan.Scanner) scan.ScannerCapabilities {
 	if provider, ok := scanner.(scan.CapabilityProvider); ok {
 		return provider.Capabilities()

@@ -26,13 +26,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -63,6 +66,14 @@ const (
 	// capabilitySweepCancel: this agent handles sweep.cancel_group, aborting a
 	// group's in-flight run without streaming its partial results.
 	capabilitySweepCancel = "sweep_cancel"
+	// capabilityICMP / capabilityICMPUnavailable: whether the ICMP sweep
+	// scanner can open its raw sockets. Core withholds ICMP sweep work from an
+	// agent reporting the unavailable marker.
+	capabilityICMP            = "icmp"
+	capabilityICMPUnavailable = "icmp.unavailable"
+	// capabilityMTRUnavailable: no ICMP socket for MTR, raw or unprivileged.
+	// Core withholds the MTR sweep mode from an agent reporting it.
+	capabilityMTRUnavailable = "mtr.unavailable"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -335,7 +346,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 	sweepBannerGrabAvailable bool,
 	rdpAdapterPath string,
 ) []string {
-	icmpAvailable, mtrAvailable := probeICMPAndMTRSockets()
+	sockets := probeSockets()
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
@@ -345,16 +356,24 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
 		endpointInventory:                       cfg != nil && cfg.EndpointInventory != nil && cfg.EndpointInventory.Enabled,
-		icmpAvailable:                           icmpAvailable,
-		mtrAvailable:                            mtrAvailable,
-		mtrTCPSyn:                               mtrAvailable && mtr.RawTCPProbeAvailable(),
+		icmpAvailable:                           sockets.icmp.Available(),
+		mtrAvailable:                            sockets.mtr,
+		mtrTCPSyn:                               sockets.mtrTCPSyn,
 	})
 }
 
 func agentCapabilities(options agentCapabilityOptions) []string {
 	capabilities := make([]string, 0, 24)
+	// ICMP and MTR unavailability is reported as an explicit marker. Core
+	// withholds the work only from an agent that reports the marker: a
+	// missing "icmp" cannot tell a failed probe from an agent that predates it.
 	if options.icmpAvailable {
-		capabilities = append(capabilities, "icmp")
+		capabilities = append(capabilities, capabilityICMP)
+	} else {
+		capabilities = append(capabilities, capabilityICMPUnavailable)
+	}
+	if !options.mtrAvailable {
+		capabilities = append(capabilities, capabilityMTRUnavailable)
 	}
 	if options.mtrTCPSyn {
 		// mtr_tcp_syn: TCP traces craft SYNs on one stable flow and report the
@@ -445,16 +464,62 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	return capabilities
 }
 
-func probeICMPAndMTRSockets() (icmpOK bool, mtrOK bool) {
+// socketProbe records which ICMP sweep and MTR sockets this process can open.
+type socketProbe struct {
+	icmp      scan.ICMPSocketProbe
+	mtr       bool
+	mtrErr    error
+	mtrTCPSyn bool
+}
+
+// probeSockets runs once per process. Socket permission does not change while
+// the agent runs, so every capability report reuses the startup result.
+//
+// The ICMP sweep scanner needs raw sockets, while MTR on Linux falls back to
+// unprivileged ICMP, so an agent can trace without being able to sweep.
+//
+//nolint:gochecknoglobals // one process-wide probe; the startup log and every capability report must agree
+var probeSockets = sync.OnceValue(func() socketProbe {
+	probe := socketProbe{icmp: scan.ProbeICMPSockets()}
+
 	sock, err := mtr.NewRawSocket(false)
-	if err != nil {
-		return false, false
-	}
-	if closeErr := sock.Close(); closeErr != nil {
-		return false, false
+	if err == nil {
+		err = sock.Close()
 	}
 
-	return true, true
+	probe.mtr = err == nil
+	probe.mtrErr = err
+	probe.mtrTCPSyn = probe.mtr && mtr.RawTCPProbeAvailable()
+
+	return probe
+})
+
+// logSocketProbe reports the startup socket probe once, with the reason for
+// each unavailable capability, so an agent that receives no ICMP sweep work
+// says why in its own log.
+func logSocketProbe(log logger.Logger, probe socketProbe) {
+	if probe.icmp.Available() {
+		log.Info().
+			Bool("ipv4", probe.icmp.IPv4).
+			Bool("ipv6", probe.icmp.IPv6).
+			AnErr("ipv4Error", probe.icmp.IPv4Err).
+			AnErr("ipv6Error", probe.icmp.IPv6Err).
+			Msg("ICMP sweep capability available")
+	} else {
+		log.Warn().
+			AnErr("ipv4Error", probe.icmp.IPv4Err).
+			AnErr("ipv6Error", probe.icmp.IPv6Err).
+			Msg("ICMP sweep capability unavailable: cannot open raw ICMP sockets " +
+				"(needs CAP_NET_RAW or root); advertising icmp.unavailable, core will not assign ICMP sweeps")
+	}
+
+	if probe.mtr {
+		log.Info().Bool("tcpSyn", probe.mtrTCPSyn).Msg("MTR capability available")
+	} else {
+		log.Warn().
+			Err(probe.mtrErr).
+			Msg("MTR capability unavailable: cannot open ICMP sockets; advertising mtr.unavailable")
+	}
 }
 
 func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {

@@ -699,12 +699,20 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         {cap_name, InfrastructureAgent.capability_info(cap_name)}
       end)
 
+    # A marker with a known meaning carries an explanation of what the agent
+    # cannot do and which work core withholds from it.
+    unavailable_caps =
+      Enum.map(capability_summary.unavailable, fn cap_name ->
+        info = InfrastructureAgent.capability_info(cap_name)
+        {cap_name, if(info.description != cap_name, do: info.description)}
+      end)
+
     plugin_caps = plugin_capability_rows(assigns.plugin_assignments)
 
     assigns =
       assigns
       |> assign(:available_caps, available_caps)
-      |> assign(:unavailable_caps, capability_summary.unavailable)
+      |> assign(:unavailable_caps, unavailable_caps)
       |> assign(:plugin_caps, plugin_caps)
       |> assign(:capability_count, capability_summary.total + length(plugin_caps))
 
@@ -747,9 +755,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </summary>
           <div class="sr-ui-collapse-content pb-3">
             <ul class="divide-y divide-sr-line/60 rounded-md bg-sr-surface px-3">
-              <li :for={cap <- @unavailable_caps} class="flex min-w-0 items-start gap-2 py-2">
+              <li
+                :for={{cap, reason} <- @unavailable_caps}
+                class="flex min-w-0 items-start gap-2 py-2"
+              >
                 <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable"></span>
-                <code class="min-w-0 break-all text-xs text-sr-muted">{cap}</code>
+                <div class="min-w-0">
+                  <code class="break-all text-xs text-sr-muted">{cap}</code>
+                  <p :if={reason} class="mt-1 text-xs leading-5 text-sr-muted">{reason}</p>
+                </div>
               </li>
             </ul>
           </div>

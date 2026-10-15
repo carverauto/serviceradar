@@ -110,6 +110,24 @@ defmodule ServiceRadar.Infrastructure.Agent do
       "host-network-visibility." <> _surface ->
         %{icon: "hero-eye", color: "ghost", description: capability}
 
+      "icmp.unavailable" ->
+        %{
+          icon: "hero-signal-slash",
+          color: "warning",
+          description:
+            "The agent cannot open raw ICMP sockets (it needs CAP_NET_RAW or root), " <>
+              "so ICMP sweeps are not assigned to it"
+        }
+
+      "mtr.unavailable" ->
+        %{
+          icon: "hero-signal-slash",
+          color: "warning",
+          description:
+            "The agent cannot open ICMP sockets for traceroute, " <>
+              "so MTR sweeps and traces are not assigned to it"
+        }
+
       _ ->
         capability_info(String.to_existing_atom(capability))
     end

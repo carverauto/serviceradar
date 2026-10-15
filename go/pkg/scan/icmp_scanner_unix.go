@@ -94,43 +94,22 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 	// Create identifier for this scanner instance
 	identifier := int(time.Now().UnixNano() % defaultIdentifierMod)
 
-	// Create raw socket for IPv4 sending.
-	fd := invalidRawSocketFD
-	socketFD, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
+	sockets, err := openICMPSockets()
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to create ICMPv4 raw socket")
-	} else {
-		fd = socketFD
+		return nil, err
 	}
 
-	var conn *icmp.PacketConn
-	if fd >= 0 {
-		var listenErr error
-
-		// Create IPv4 listener for receiving.
-		conn, listenErr = icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-		if listenErr != nil {
-			if closeErr := syscall.Close(fd); closeErr != nil {
-				log.Error().Err(closeErr).Msg("Failed to close ICMPv4 raw socket")
-				return nil, closeErr
-			}
-
-			fd = invalidRawSocketFD
-			log.Warn().Err(listenErr).Msg("Failed to create ICMPv4 listener")
-		}
+	if sockets.probe.IPv4Err != nil {
+		log.Warn().Err(sockets.probe.IPv4Err).Msg("Failed to open ICMPv4 sockets")
 	}
 
-	conn6, err6 := icmp.ListenPacket("ip6:ipv6-icmp", "::")
-	if err6 != nil {
-		log.Warn().Err(err6).Msg("Failed to create ICMPv6 listener")
+	if sockets.probe.IPv6Err != nil {
+		log.Warn().Err(sockets.probe.IPv6Err).Msg("Failed to open ICMPv6 listener")
 	}
 
-	if conn == nil && conn6 == nil {
-		if err != nil {
-			return nil, fmt.Errorf("failed to create ICMP sockets: %w", err)
-		}
-
-		return nil, fmt.Errorf("failed to create ICMP sockets: %w", err6)
+	if !sockets.probe.Available() {
+		return nil, fmt.Errorf("failed to create ICMP sockets: %w",
+			errors.Join(sockets.probe.IPv4Err, sockets.probe.IPv6Err))
 	}
 
 	s := &ICMPSweeper{
@@ -138,9 +117,9 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 		timeout:     timeout,
 		identifier:  identifier,
 		icmpCount:   defaultICMPCount,
-		rawSocketFD: fd,
-		conn:        conn,
-		conn6:       conn6,
+		rawSocketFD: sockets.rawSocketFD,
+		conn:        sockets.conn,
+		conn6:       sockets.conn6,
 		results:     make(map[string]models.Result),
 		hostStats:   make(map[string]*hostICMPStats),
 		logger:      log,
@@ -160,6 +139,72 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 		Msg("Created ICMP sweeper with multi-packet support")
 
 	return s, nil
+}
+
+// icmpSockets are the sockets an ICMPSweeper sends and receives on. A family
+// that could not be opened is left closed, with its reason in probe.
+type icmpSockets struct {
+	rawSocketFD int
+	conn        *icmp.PacketConn
+	conn6       *icmp.PacketConn
+	probe       ICMPSocketProbe
+}
+
+// openICMPSockets opens the IPv4 raw send socket with its listener, and the
+// IPv6 listener. It fails only when a half-opened IPv4 socket cannot be closed.
+func openICMPSockets() (icmpSockets, error) {
+	sockets := icmpSockets{rawSocketFD: invalidRawSocketFD}
+
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
+	if err != nil {
+		sockets.probe.IPv4Err = fmt.Errorf("ICMPv4 raw socket: %w", err)
+	} else {
+		conn, listenErr := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+		if listenErr != nil {
+			if closeErr := syscall.Close(fd); closeErr != nil {
+				return icmpSockets{}, fmt.Errorf("close ICMPv4 raw socket: %w", closeErr)
+			}
+
+			sockets.probe.IPv4Err = fmt.Errorf("ICMPv4 listener: %w", listenErr)
+		} else {
+			sockets.rawSocketFD = fd
+			sockets.conn = conn
+			sockets.probe.IPv4 = true
+		}
+	}
+
+	conn6, err6 := icmp.ListenPacket("ip6:ipv6-icmp", "::")
+	if err6 != nil {
+		sockets.probe.IPv6Err = fmt.Errorf("ICMPv6 listener: %w", err6)
+	} else {
+		sockets.conn6 = conn6
+		sockets.probe.IPv6 = true
+	}
+
+	return sockets, nil
+}
+
+// ProbeICMPSockets opens and closes the sockets NewICMPSweeper uses, so it
+// reports exactly the address families an ICMP sweep could run on.
+func ProbeICMPSockets() ICMPSocketProbe {
+	sockets, err := openICMPSockets()
+	if err != nil {
+		return ICMPSocketProbe{IPv4Err: err, IPv6Err: err}
+	}
+
+	if sockets.conn != nil {
+		_ = sockets.conn.Close()
+	}
+
+	if sockets.conn6 != nil {
+		_ = sockets.conn6.Close()
+	}
+
+	if rawSocketAvailable(sockets.rawSocketFD) {
+		_ = syscall.Close(sockets.rawSocketFD)
+	}
+
+	return sockets.probe
 }
 
 func (s *ICMPSweeper) Capabilities() ScannerCapabilities {

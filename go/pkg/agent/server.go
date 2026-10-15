@@ -582,6 +582,7 @@ func (s *Server) gatewayArtifactHTTPClient() *http.Client {
 // Start initializes and starts all agent services.
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting agent service...")
+	logSocketProbe(s.logger, probeSockets())
 
 	s.logger.Info().Int("services", len(s.services)).Msg("Found services to start")
 
