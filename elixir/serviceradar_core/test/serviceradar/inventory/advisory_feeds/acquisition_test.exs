@@ -398,7 +398,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
     } do
       http_get = fn _url, _opts -> {:error, %Req.TransportError{reason: :timeout}} end
 
-      assert {:error, {:download_failed, %Req.TransportError{reason: :timeout}}} =
+      assert {:error,
+              {:download_failed,
+               %{host: "example.invalid", reason: %Req.TransportError{reason: :timeout}}}} =
                Acquisition.acquire_cisa("https://example.invalid/cisa.json", "timeout-run",
                  http_get: http_get
                )
@@ -414,7 +416,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
         {:ok, %{status: 503}}
       end
 
-      assert {:error, {:download_failed, {:http_status, 503}}} =
+      assert {:error, {:download_failed, %{host: "example.invalid", reason: {:http_status, 503}}}} =
                Acquisition.acquire_cisa("https://example.invalid/cisa.json", "failed-run",
                  http_get: http_get
                )

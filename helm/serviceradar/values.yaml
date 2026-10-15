@@ -689,8 +689,11 @@ core:
   #   github-releases.githubusercontent.com (GitHub release assets), and
   #   registry.carverauto.dev (plugin OCI artifacts)
   # Advisory-feed and threat-intel fetches additionally need their feed hosts
-  # (for example api.vulncheck.com, otx.alienvault.com) and Geo/ASN datasets
-  # their download hosts.
+  # (for example api.vulncheck.com and its archive host serve.vulncheck.com,
+  # otx.alienvault.com; see networkPolicy.egress.advisoryFeedsFQDNs) and
+  # Geo/ASN datasets their download hosts. Smokescreen refuses a host that is
+  # not on its ACL with HTTP 407, which is a denial, not a request for proxy
+  # credentials.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # OpenBao providers can also use Kubernetes auth with the pod service account
@@ -2760,12 +2763,18 @@ networkPolicy:
     # layer (Cilium/Calico DNS policy) or pin their resolved CIDRs above:
     #   - www.cisa.gov                 (CISA KEV JSON)
     #   - api.vulncheck.com            (VulnCheck backup index, Bearer)
-    #   - *.amazonaws.com              (VulnCheck presigned S3 archive download)
+    #   - serve.vulncheck.com          (VulnCheck presigned archive download,
+    #                                   vulncheck-kev and nist-nvd2)
+    #   - *.amazonaws.com              (VulnCheck's former presigned S3 host)
     #   - services.nvd.nist.gov        (NVD CVE 2.0 API fallback)
     #   - security-metadata.canonical.com (Ubuntu OSV + OpenVEX tar.xz)
+    # VulnCheck chooses the archive host in each backup-index response, so it
+    # can move without a ServiceRadar change; a feed error naming a host shows
+    # which one to admit.
     advisoryFeedsFQDNs:
       - www.cisa.gov
       - api.vulncheck.com
+      - serve.vulncheck.com
       - "*.amazonaws.com"
       - services.nvd.nist.gov
       - security-metadata.canonical.com
