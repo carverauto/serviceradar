@@ -359,6 +359,30 @@ networkPolicy:
       - "192.168.0.0/16"
 ```
 
+## WebRTC TURN Relay
+
+Camera live view over WebRTC needs a TURN relay to work for browsers outside
+the cluster; without one, viewers fall back to the websocket transports after
+an 8-second WebRTC attempt. The chart can mint per-viewer TURN credentials
+(`webrtc.iceCredentials`) and deploy an optional eturnal TURN server
+(`webrtc.turnServer`) behind the Gateway API gateway or a LoadBalancer:
+
+```yaml
+webrtc:
+  iceCredentials:
+    backend: static_secret
+    staticSecret:
+      existingSecretName: serviceradar-webrtc-turn
+  turnServer:
+    enabled: true
+    externalHostname: turn.example.com
+```
+
+Both are off by default. The shared secret comes from an operator-created
+Secret and is never a value. See [WebRTC TURN Relay](./webrtc-turn-relay.md)
+for the full values reference, exposure, DNS, certificates, NetworkPolicy and
+verification.
+
 ## Gateway API Syslog
 
 When `gatewayApi.enabled=true`, the chart can attach syslog to a shared Gateway API UDP listener. This is the preferred way to receive syslog in clusters that already have a shared Envoy Gateway because it avoids allocating another collector address.

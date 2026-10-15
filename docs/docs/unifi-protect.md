@@ -145,3 +145,8 @@ A working lab rule looks like:
   self-signed cert.
 - **Streams fail after inventory works**: confirm port `7447`/`7441` is
   allowed and that the rule purpose includes `camera_stream`.
+- **Live view plays, but only after about 8 seconds**: the browser tried
+  WebRTC, could not reach the WebRTC peer inside the cluster, and fell back to
+  the websocket transport. Deploy the TURN relay, or disable
+  `webNg.cameraRelay.webRTC.enabled` so viewers start on the websocket
+  directly. See [WebRTC TURN Relay](./webrtc-turn-relay.md).
