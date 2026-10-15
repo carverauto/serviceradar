@@ -259,13 +259,13 @@ confused:
 | release | values | pool | replicas | mem requests | `/cache` volume | Bazel repo `hostPath` | runs |
 |---|---|---|---|---|---|---|---|
 | `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `emptyDir` (`120Gi`, `80GB` cache) | `/mnt/buildbuddy/bazel-caches` | build actions |
-| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 72Gi | `emptyDir` (`120Gi`, `40GB` cache + `60GB` runner) | `/mnt/buildbuddy/bazel-caches-workflows` | the CI runner |
+| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 40Gi | `emptyDir` (`120Gi`, `40GB` cache + `60GB` runner) | `/mnt/buildbuddy/bazel-caches-workflows` | the CI runner |
 
-The fleet is sized for two concurrent runs of BazelCI (40GB each,
-measured — see `values-workflows.yaml`); an unmeasured benchmark action still requests 50GB
-and fits alone. Putting this on the build fleet means either it cannot be placed (16Gi
-advertised) or, if you size the build fleet up, one runner reserves 72Gi on all three pods and
-squeezes out the very fan-out it is driving.
+The fleet places one BazelCI run (40GB). `limits.memory` is 56Gi, matching farm01, and that
+limit is advertised in full (60,129,542,144 bytes), so a second 40GB run does not fit. An
+unmeasured benchmark action still requests 50GB and fits alone. Putting this on the build
+fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet up,
+one runner reserves 40Gi on all three pods and squeezes out the very fan-out it is driving.
 
 Deploy the workflow fleet with the same API key the build fleet uses:
 
@@ -284,7 +284,7 @@ overwrite the build fleet with these values.
 Four things to know before deploying:
 
 - **The release name and the `-f` must agree, and nothing checks it.** Because the workflow fleet has no scripted path, its upgrades are typed by hand, and `helm upgrade buildbuddy-workflows ... -f values.yaml` succeeds silently. It strips `poolName` (the pod joins the default pool, `workflows` goes empty), sets `replicas: 3`, and reverts to the build fleet's `bazel-caches` `hostPath` and cache budgets — with no error until the next staging push reports `no registered executors in pool "workflows"`. The mirror-image slip is worse: an edit to `values.yaml` applied to the *workflows* release leaves the build fleet silently un-upgraded, on values weeks old. Both have happened. After either deploy, diff intent against reality: `helm get values <release> -n buildbuddy`.
-- **Check a node can hold 72Gi first.** `kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'`. A request nothing can satisfy leaves the pod `Pending` and the workflow fails with the same `no registered executors` message as before, only now after a helm deploy.
+- **Check a node can hold 40Gi first.** `kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'`. A request nothing can satisfy leaves the pod `Pending` and the workflow fails with the same `no registered executors` message as before, only now after a helm deploy.
 - **The Bazel repo-cache `hostPath` differs on purpose, while `/cache` is a per-pod `emptyDir`.** Each executor pod gets its own `120Gi` `emptyDir` at `/cache` (so two pods can never share or leak filecache directories), and `/mnt/buildbuddy/bazel-caches-workflows` stays distinct from `/mnt/buildbuddy/bazel-caches` so the two fleets' init containers and runners cannot contend on a single node.
 - **KEDA does not touch this release.** `scaledobject.yaml` targets the Deployment `buildbuddy-buildbuddy-executor` by name, and a second release produces a different name. Rename this release into a collision and KEDA will start driving it to `minReplicaCount: 3`.
 
@@ -300,19 +300,20 @@ kubectl exec -n buildbuddy <workflow-pod> -- printenv | grep -i pool
 
 kubectl logs -n buildbuddy -l app.kubernetes.io/instance=buildbuddy-workflows --tail=200 \
   | grep "Initialized task scheduler"
-#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 85,899,345,920 bytes allocated
+#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 60,129,542,144 bytes allocated
 ```
 
 `MY_POOL` is the variable the chart renders top-level `poolName` into; that is how you know
 the key was not silently ignored. Empty output means it was, in which case this pod joined the
 default pool and is now accepting build actions — the workflow would fail with `no registered
-executors in pool "workflows"` while a 72Gi executor quietly competed with the build fleet.
+executors in pool "workflows"` while a 40Gi executor quietly competed with the build fleet.
 
 The scheduler line is the second half, because the right pool at the wrong size fails the same
 way. On the build fleet, memory is `limits.memory` minus a flat 10 GB; the workflows fleet
-advertises the full `limits.memory` with no reduction (measured 2026-09-27 at 80Gi — see
-`values-workflows.yaml`). Read the number off the log line rather than assuming either rule,
-and confirm it clears what `resource_requests` in `buildbuddy.yaml` asks for.
+advertises the full `limits.memory` with no reduction (farm01's 56Gi executors advertise
+60,129,542,144, and this fleet uses that same limit — see `values-workflows.yaml`). Read the
+number off the log line rather than assuming either rule, and confirm it clears what
+`resource_requests` in `buildbuddy.yaml` asks for. One 40GB task fits; two do not.
 
 ### Dedicated LargeIngestionGate pool
 
@@ -341,9 +342,10 @@ again only once it has a local srql-fixtures instance (planned separately); unti
 not register a `workflows-lig` executor there, because BuildBuddy would hand it runs that
 cannot pass.
 
-Sizing is the same as `buildbuddy-workflows` (72Gi requests / 80Gi limits, 12/16 CPU,
-`max_shutdown_duration: 3570s`, `runner_pool.max_runner_count: 1`). One paused runner
-leaves the ~28.8 GB emptyDir headroom for the in-flight disk cache.
+Memory stays 72Gi requests / 80Gi limits (12/16 CPU, `max_shutdown_duration: 3570s`,
+`runner_pool.max_runner_count: 1`). `buildbuddy-workflows` is 40Gi/56Gi so it places one
+40GB run; this pool's one LargeIngestionGate action fits the 80Gi advertisement. One paused
+runner leaves the ~28.8 GB emptyDir headroom for the in-flight disk cache.
 
 Required pod anti-affinity on `kubernetes.io/hostname` keeps this pod off any node running
 `buildbuddy`, `buildbuddy-workflows`, `buildbuddy-workflows-2` or another
@@ -440,7 +442,7 @@ kubectl logs -n buildbuddy <pod> | grep "Initialized task scheduler"
 | fleet | `limits.memory` | advertised | largest task |
 |---|---|---|---|
 | build | 32Gi = 34,359,738,368 | 24,359,738,368 (22.7 GiB, limits − 10e9) | 22 GiB |
-| workflows | 80Gi = 85,899,345,920 | 85,899,345,920 (80 GiB, full limit — no reduction, measured 2026-09-27) | 40 GiB |
+| workflows | 56Gi = 60,129,542,144 | 60,129,542,144 (56 GiB, full limit — same figure farm01 advertises) | 40 GiB, one at a time |
 
 The build fleet still advertises `limits` minus a flat 10 GB; the workflows fleet does not
 reduce at all as of the 2026-09-27 resize (farm01's 56Gi workflow fleet likewise advertises its
@@ -508,9 +510,9 @@ live there and are shared by every Bazel server on the pod; the third deliberate
 | `--repo_contents_cache` | `/bazel-cache/repo-contents` | yes -- file-locked (`gc_lock`) | no -- same mount |
 | `--disk_cache` | `/home/buildbuddy/bazel-disk-cache` on each runner's rootfs | no -- one overlay per container | no -- outside the workspace bind |
 
-The disk cache cannot be shared because one executor pod hosts several Bazel servers at
-once. Two concurrent 40GB runs exactly fill its 80GiB advertisement (the whole point of the 80Gi sizing),
-and every parked recycled runner keeps a resident Bazel server (`startup --max_idle_secs=0`),
+The disk cache cannot be shared because a paused runner keeps a resident Bazel server
+(`startup --max_idle_secs=0`) beside the in-flight one. The workflows pod advertises 56Gi,
+which fits one 40GB run and not two. That paused server stays
 idle but alive until its next task or eviction. With `--experimental_disk_cache_gc_max_size`
 set, **each** of those servers runs its own disk-cache GC as an idle task after
 `--experimental_disk_cache_gc_idle_delay` (5m default). The GC serializes only against other
@@ -558,10 +560,10 @@ commit. The `values-workflows.yaml` change (the init container stops creating
 extra directory is harmless -- the init container chowns the `/bazel-caches` parent, so a
 pre-fix checkout that still asks for `/bazel-cache/disk` can create it.
 
-**farm01 is unaffected.** Its three workflow replicas (56Gi limits, ~46Gi assignable) each
-fit only one 40GB run, so the two-active-runs case never occurs there -- but they park
-recycled runners exactly the same way, so the idle-GC race was latent on farm01 too and the
-same per-runner cache closes it. No farm01 values change is needed.
+**farm01 is unaffected.** Its workflow replicas already use a 56Gi limit, which places one
+40GB run; this fleet now matches that. They park recycled runners the same way, so the
+idle-GC race was latent on farm01 too and the same per-runner cache closes it. No farm01
+values change is needed.
 
 **Reclaiming the old shared disk cache.** The stale host directories
 `/mnt/buildbuddy/bazel-caches-workflows/disk` (~22G when retired; plus

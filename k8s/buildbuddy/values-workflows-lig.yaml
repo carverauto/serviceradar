@@ -52,8 +52,9 @@ replicas: 1
 autoscaler:
   enabled: false
 
-# Same sizing as ./values-workflows.yaml (see the measurements there). The executor advertises
-# the full 80Gi limit, so one 36GB LargeIngestionGate run fits with room to spare.
+# Memory stays 72Gi/80Gi. ./values-workflows.yaml is 40Gi/56Gi so that pool places one 40GB
+# run; this pool runs one LargeIngestionGate action and advertises the full 80Gi limit, so
+# one 36GB run fits with room to spare.
 resources:
   requests:
     cpu: "12"

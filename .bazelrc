@@ -143,10 +143,10 @@ build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.
 # writable by the runner user; CI-only -- these paths exist on the workflow executors and
 # nowhere else.
 #
-# The DISK cache is deliberately NOT on that volume, and NOT under `~`. One workflow-executor
-# pod hosts several Bazel servers at once: two concurrent 36GB runs fit its memory limits, and
-# every parked recycled runner keeps a resident server alive (startup --max_idle_secs=0 from the
-# ci_runner). With --experimental_disk_cache_gc_max_size set, EACH server runs its own disk-cache
+# The DISK cache is deliberately NOT on that volume, and NOT under `~`. A paused runner keeps
+# a resident Bazel server beside the in-flight one (startup --max_idle_secs=0 from the
+# ci_runner). The workflows pod limit is 56Gi, which fits one 40GB run and not two.
+# With --experimental_disk_cache_gc_max_size set, EACH server runs its own disk-cache
 # GC as an idle task once it has been idle for --experimental_disk_cache_gc_idle_delay (default
 # 5m). That GC only locks out other GC passes (<cache>/gc/lock); readers and writers take no
 # lock, so one server's background deletions raced another server's reads on the shared directory
