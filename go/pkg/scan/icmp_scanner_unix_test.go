@@ -55,6 +55,38 @@ func TestRawSocketFDZeroIsAvailable(t *testing.T) {
 	}
 }
 
+// The agent advertises the icmp capability from ProbeICMPSockets, and core
+// assigns ICMP sweeps by it, so the probe must agree with the scanner it
+// stands in for under whatever privileges this test process has.
+func TestProbeICMPSocketsMatchesScanner(t *testing.T) {
+	probe := ProbeICMPSockets()
+
+	sweeper, err := NewICMPSweeper(0, 0, logger.NewTestLogger())
+	if !probe.Available() {
+		if err == nil {
+			_ = sweeper.Stop()
+			t.Fatal("probe reported ICMP unavailable but the scanner opened its sockets")
+		}
+
+		if probe.IPv4Err == nil || probe.IPv6Err == nil {
+			t.Fatalf("an unavailable probe must carry a reason per family: %+v", probe)
+		}
+
+		return
+	}
+
+	if err != nil {
+		t.Fatalf("probe reported ICMP available but the scanner failed: %v", err)
+	}
+
+	defer func() { _ = sweeper.Stop() }()
+
+	caps := sweeper.Capabilities()
+	if caps.ICMPv4 != probe.IPv4 || caps.ICMPv6 != probe.IPv6 {
+		t.Fatalf("probe %+v disagrees with scanner capabilities %+v", probe, caps)
+	}
+}
+
 func TestPrepareEchoRequestForFamilyIPv6(t *testing.T) {
 	sweeper := &ICMPSweeper{identifier: 1234}
 

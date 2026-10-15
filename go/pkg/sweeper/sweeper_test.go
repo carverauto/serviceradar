@@ -17,16 +17,20 @@
 package sweeper
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
 func TestMockSweeper(t *testing.T) {
@@ -266,4 +270,37 @@ func TestNetworkSweeper_GetStatusHidesInitialInProgressPartialResults(t *testing
 	assert.Empty(t, status.Hosts)
 	assert.Equal(t, 0, status.TotalHosts)
 	assert.Equal(t, 0, status.AvailableHosts)
+}
+
+// warnCaptureLogger records Warn events and discards every other level.
+type warnCaptureLogger struct {
+	logger.Logger
+	output zerolog.Logger
+}
+
+func (l warnCaptureLogger) Warn() *zerolog.Event { return l.output.Warn() }
+
+// A mode whose scanner cannot open its sockets is skipped on every sweep. The
+// warning is logged on the first skip and again only after the scanner was
+// available in between, not once per sweep.
+func TestScannerUnavailableWarningOncePerStateChange(t *testing.T) {
+	var output bytes.Buffer
+	s := &NetworkSweeper{
+		logger: warnCaptureLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)},
+	}
+	warnings := func() int { return strings.Count(output.String(), "scanner is not available") }
+	available := scan.NewMockScanner(gomock.NewController(t))
+
+	assert.False(t, s.scannerReady("icmp", nil, 3))
+	assert.False(t, s.scannerReady("icmp", nil, 3))
+	assert.Equal(t, 1, warnings(), "repeated skips of an unavailable scanner warn once")
+
+	assert.False(t, s.scannerReady("tcp", nil, 2))
+	assert.Equal(t, 2, warnings(), "each mode warns on its own")
+
+	assert.True(t, s.scannerReady("icmp", available, 3))
+	assert.False(t, s.scannerReady("icmp", nil, 3))
+	assert.Equal(t, 3, warnings(), "a scanner lost again after being available warns again")
+
+	assert.False(t, s.scannerReady("icmp", available, 0), "a mode with no targets is not scanned")
 }

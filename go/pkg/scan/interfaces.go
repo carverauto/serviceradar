@@ -62,6 +62,21 @@ type ScannerCapabilities struct {
 	Diagnostics    map[string]string
 }
 
+// ICMPSocketProbe reports which address families the ICMP sweep scanner can
+// open sockets for on this host, and why a family is unavailable.
+type ICMPSocketProbe struct {
+	IPv4    bool
+	IPv6    bool
+	IPv4Err error
+	IPv6Err error
+}
+
+// Available reports whether the ICMP sweep scanner can run at all. It runs
+// with whichever address family it opened.
+func (p ICMPSocketProbe) Available() bool {
+	return p.IPv4 || p.IPv6
+}
+
 // CapabilityProvider is an optional interface for scanners that can report
 // runtime protocol/address-family support.
 type CapabilityProvider interface {

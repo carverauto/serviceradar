@@ -148,11 +148,7 @@ func (r *sweepBatchRunner) flushMode(scanType string, scanner scan.Scanner, targ
 		return nil
 	}
 
-	if scanner == nil {
-		r.sweeper.logger.Warn().
-			Str("scanType", scanType).
-			Int("targets", len(*targets)).
-			Msg("Targets found but scanner is not available, skipping scan batch")
+	if !r.sweeper.scannerReady(scanType, scanner, len(*targets)) {
 		*targets = (*targets)[:0]
 
 		return nil

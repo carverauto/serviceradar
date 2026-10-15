@@ -1083,17 +1083,54 @@ func TestHandleConsoleFrameClosesTCPSessionAfterWriteQuotaError(t *testing.T) {
 	}
 }
 
-func TestAgentCapabilitiesOmitICMPAndMTRUnlessSocketsWork(t *testing.T) {
+// Core withholds ICMP and MTR sweep work only from an agent reporting the
+// unavailable marker, so a failed probe must report it rather than just omit
+// the capability.
+func TestAgentCapabilitiesReportICMPAndMTRSocketProbe(t *testing.T) {
 	t.Parallel()
 
-	base := agentCapabilities(agentCapabilityOptions{})
-	if slices.Contains(base, "icmp") || slices.Contains(base, "mtr") {
-		t.Fatalf("unprobed capabilities must not claim icmp/mtr: %#v", base)
-	}
+	for _, tc := range []struct {
+		name    string
+		options agentCapabilityOptions
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "no sockets",
+			options: agentCapabilityOptions{},
+			want:    []string{"icmp.unavailable", "mtr.unavailable"},
+			notWant: []string{"icmp", "mtr"},
+		},
+		{
+			// Linux without CAP_NET_RAW: MTR falls back to unprivileged ICMP,
+			// the sweep scanner has no fallback.
+			name:    "mtr through the unprivileged fallback",
+			options: agentCapabilityOptions{mtrAvailable: true},
+			want:    []string{"icmp.unavailable", "mtr"},
+			notWant: []string{"icmp", "mtr.unavailable"},
+		},
+		{
+			name:    "raw sockets",
+			options: agentCapabilityOptions{icmpAvailable: true, mtrAvailable: true},
+			want:    []string{"icmp", "mtr"},
+			notWant: []string{"icmp.unavailable", "mtr.unavailable"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	available := agentCapabilities(agentCapabilityOptions{icmpAvailable: true, mtrAvailable: true})
-	if !slices.Contains(available, "icmp") || !slices.Contains(available, "mtr") {
-		t.Fatalf("probed capabilities missing icmp/mtr: %#v", available)
+			capabilities := agentCapabilities(tc.options)
+			for _, capability := range tc.want {
+				if !slices.Contains(capabilities, capability) {
+					t.Errorf("capabilities missing %q: %#v", capability, capabilities)
+				}
+			}
+			for _, capability := range tc.notWant {
+				if slices.Contains(capabilities, capability) {
+					t.Errorf("capabilities must not contain %q: %#v", capability, capabilities)
+				}
+			}
+		})
 	}
 }
 

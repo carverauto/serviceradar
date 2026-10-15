@@ -61,6 +61,7 @@ go_test(
         "//go/pkg/models",
         "//go/pkg/scan",
         "//go/pkg/scan/banner_grab",
+        "@com_github_rs_zerolog//:zerolog",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_uber_go_mock//gomock",

@@ -98,6 +98,33 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 	return s, nil
 }
 
+// errICMPv6SweepUnsupported: the Windows sweeper sends ICMPv4 only.
+var errICMPv6SweepUnsupported = errors.New("ICMPv6 sweep is not implemented on Windows")
+
+// ProbeICMPSockets opens and closes the sockets NewICMPSweeper uses, so it
+// reports exactly the address families an ICMP sweep could run on.
+func ProbeICMPSockets() ICMPSocketProbe {
+	probe := ICMPSocketProbe{IPv6Err: errICMPv6SweepUnsupported}
+
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, windows.IPPROTO_ICMP)
+	if err != nil {
+		probe.IPv4Err = fmt.Errorf("ICMPv4 raw socket: %w", err)
+		return probe
+	}
+	defer func() { _ = syscall.Close(fd) }()
+
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		probe.IPv4Err = fmt.Errorf("ICMPv4 listener: %w", err)
+		return probe
+	}
+	_ = conn.Close()
+
+	probe.IPv4 = true
+
+	return probe
+}
+
 func (s *ICMPSweeper) Capabilities() ScannerCapabilities {
 	if s == nil {
 		return ScannerCapabilities{}
