@@ -226,6 +226,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert placements() == positions
 
       assert_drain_success()
+      drained = Repo.get!(Oban.Job, job.id, prefix: "platform")
+      assert drained.state == "completed"
+      assert drained.args["layout_version"] == next_version
       assert {:ok, latest} = World.active_manifest(scope())
       assert latest.layout_version == next_version
       assert latest.generation == current.generation + 1
@@ -956,6 +959,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     resumed = Repo.get!(Oban.Job, repair.id, prefix: "platform")
     assert resumed.args["checkpoint"]["guests_done"]
     assert resumed.args["checkpoint"]["edges_done"]
+    # Direct perform/1 writes the checkpoint and leaves the row available.
+    # The queue drains the oldest available job, and the parent-tree case
+    # that follows has one slot, so the engine must complete this repair first.
+    assert resumed.state == "available"
+    assert_drain_success()
+    assert Repo.get!(Oban.Job, repair.id, prefix: "platform").state == "completed"
+    assert reconcile_job!().id != repair.id
   end
 
   defp guest_host!(uid) do
