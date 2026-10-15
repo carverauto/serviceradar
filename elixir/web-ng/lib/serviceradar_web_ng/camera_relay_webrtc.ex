@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTC do
   Browser-facing WebRTC signaling metadata and delegation for camera relays.
   """
 
+  alias ServiceRadar.WebRTC.IceCredentials
   alias ServiceRadarWebNG.CameraRelayWebRTCSignalingManager
 
   @webrtc_transport "membrane_webrtc"
@@ -37,9 +38,34 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTC do
     "/api/camera-relay-sessions/#{relay_session_id}/webrtc/session"
   end
 
+  @doc """
+  Creates a WebRTC viewer session for a relay session.
+
+  core-elx gets only the static (credential-free) ICE servers and mints its
+  own peer credentials. Once core-elx has assigned the viewer session id,
+  the browser's ICE servers are minted for exactly that viewer and returned
+  with the signaling response (`ice_servers`, `ice_credentials`), never in
+  page assigns.
+  """
   def create_session(relay_session_id, opts) when is_binary(relay_session_id) do
     if enabled?() do
-      manager().create_session(relay_session_id, Keyword.put_new(opts, :ice_servers, ice_servers()))
+      static_servers = ice_servers()
+
+      case manager().create_session(relay_session_id, Keyword.put_new(opts, :ice_servers, static_servers)) do
+        {:ok, %{viewer_session_id: viewer_session_id} = signal_session} when is_binary(viewer_session_id) ->
+          browser_ice =
+            IceCredentials.peer_ice_servers(
+              {"camera_relay", relay_session_id, viewer_session_id},
+              static_servers,
+              actor_id: actor_id(Keyword.get(opts, :scope)),
+              session_id: relay_session_id
+            )
+
+          {:ok, Map.merge(signal_session, browser_ice)}
+
+        other ->
+          other
+      end
     else
       {:error, "camera relay webrtc playback is unavailable"}
     end
@@ -78,6 +104,9 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTC do
     |> Enum.map(&normalize_ice_server/1)
     |> Enum.reject(&is_nil/1)
   end
+
+  defp actor_id(%{user: %{id: id}}) when not is_nil(id), do: to_string(id)
+  defp actor_id(_scope), do: nil
 
   defp manager do
     Application.get_env(

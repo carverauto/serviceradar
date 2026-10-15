@@ -197,8 +197,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
     |> Map.merge(%{
       "relay_session_id" => relay_session_id,
       "transport" => CameraRelayWebRTC.transport_name(),
-      "signaling_path" => CameraRelayWebRTC.signaling_path(relay_session_id),
-      "ice_servers" => CameraRelayWebRTC.ice_servers()
+      "signaling_path" => CameraRelayWebRTC.signaling_path(relay_session_id)
     })
   end
 
