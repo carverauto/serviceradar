@@ -120,7 +120,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     end
   end
 
-  @doc "Download CISA KEV JSON to disk (no archive)."
+  @doc """
+  Download CISA KEV JSON to disk (no archive).
+
+  A failed transfer names the URL host:
+  `{:download_failed, %{host: "...", reason: reason}}`.
+  """
   @spec acquire_cisa(String.t(), String.t(), keyword()) :: {:ok, acquired()} | {:error, term()}
   def acquire_cisa(url, run_id, opts \\ []) do
     with {:ok, paths} <- Staging.prepare_run("cisa-kev", run_id) do
@@ -523,7 +528,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     _ = File.mkdir_p(Path.dirname(dest_path))
     _ = File.rm(dest_path)
 
-    # No Authorization header on the presigned S3 GET — the URL is self-signed.
+    # No Authorization header on the presigned GET — the URL is self-signed.
     download_opts =
       opts
       |> Keyword.take([:proxy, :profile, :cacerts, :cacertfile])

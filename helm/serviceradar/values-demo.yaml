@@ -487,10 +487,12 @@ networkPolicy:
       # timing out again.
       - "162.159.128.0/18"
       # VulnCheck backup index currently lands on CloudFront 99.84.203.0/24
-      # (already listed above). The presigned archive is S3 Global MRAP
-      # (*.mrap.accesspoint.s3-global.amazonaws.com). Resolved 2026-08-15 to
-      # 13.248.232.82 and 76.223.103.50. Re-resolve if VulnCheck downloads
-      # start timing out again.
+      # (already listed above). The archive host is serve.vulncheck.com; the
+      # FQDN list is networkPolicy.egress.advisoryFeedsFQDNs in values.yaml.
+      # These CIDRs are the former S3 Global MRAP
+      # (*.mrap.accesspoint.s3-global.amazonaws.com), resolved 2026-08-15 to
+      # 13.248.232.82 and 76.223.103.50. They do not cover serve.vulncheck.com.
+      # Re-resolve that host before relying on this CIDR list for archives.
       - "13.248.232.0/24"
       - "76.223.103.0/24"
   calicoLogDenied:
