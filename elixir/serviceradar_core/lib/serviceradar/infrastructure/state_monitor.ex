@@ -394,8 +394,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   # A pushed version only counts as un-acked while it is still OUTSTANDING: the
   # agent must not have committed any config version since the push was recorded.
   #
-  # `config_pushed_at` is anchored to a version's FIRST proactive control-stream
-  # push. `config_acked_at` advances (debounced on the version) whenever the agent
+  # `config_pushed_at` is anchored to the oldest proactive control-stream push the
+  # agent has not acked since (a superseding version pushed while that push is
+  # outstanding keeps the anchor; see `AgentGatewaySync.record_config_push/2`).
+  # `config_acked_at` advances (debounced on the version) whenever the agent
   # reports a newly-committed version — including versions it converged on via the
   # config POLL path, which delivers the latest config but never updates
   # `pushed_config_version`. So `pushed_config_version` can freeze on a proactive-push

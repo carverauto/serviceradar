@@ -223,7 +223,7 @@
       },
       "agent-filter-config_pushed_at": {
         "additionalProperties": false,
-        "description": "When the currently-pushed config version was first pushed",
+        "description": "Time of the oldest config push the agent has not acked since",
         "properties": {
           "eq": {
             "format": "date-time",
@@ -31148,7 +31148,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "When the currently-pushed config version was first pushed. Field included by default."
+                "description": "Time of the oldest config push the agent has not acked since. Field included by default."
               },
               "metadata": {
                 "anyOf": [
