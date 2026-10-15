@@ -477,6 +477,8 @@ type socketProbe struct {
 //
 // The ICMP sweep scanner needs raw sockets, while MTR on Linux falls back to
 // unprivileged ICMP, so an agent can trace without being able to sweep.
+//
+//nolint:gochecknoglobals // one process-wide probe; the startup log and every capability report must agree
 var probeSockets = sync.OnceValue(func() socketProbe {
 	probe := socketProbe{icmp: scan.ProbeICMPSockets()}
 
