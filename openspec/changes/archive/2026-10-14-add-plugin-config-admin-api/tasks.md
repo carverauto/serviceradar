@@ -28,10 +28,10 @@
   - [x] 5.3 Help text, README, version bump (0.1.6)
   - [x] 5.4 CLI tests against a canned HTTP server
 
-- [ ] 6. Demo playbook
+- [x] 6. Demo playbook
   - [x] 6.1 Check in `playbooks/demo-plugins.yaml` with non-secret params and env var names
   - [x] 6.2 Document apply against demo.serviceradar.cloud
-  - [ ] 6.3 Prove apply through real web-ng HTTP and CNPG using hosted synthetic fixtures, and show assignments/rules via the API
+  - [x] 6.3 Prove apply through real web-ng HTTP and CNPG using hosted synthetic fixtures, and show assignments/rules via the API
 
 - [x] 7. Docs
   - [x] 7.1 Update `docs/docs/credentials.md` so it no longer claims there is no REST surface
@@ -50,7 +50,7 @@
   stub admin API: the playbook at that revision
   planned correctly; this is not verification of the current playbook.
 
-## Remaining acceptance proof
+## Acceptance proof (`//elixir/web-ng:plugin_config_cli_db_test`)
 
 The admin routes are now on staging; their absence is no longer a blocker.
 The existing canned CLI server and controller stubs do not prove that apply
@@ -65,5 +65,8 @@ the CLI. A second apply removes the secret environment values and verifies
 stable resource identities, unchanged encrypted material and no duplicate
 assignment. No monitored deployment is modified.
 
-Task 6.3 remains unchecked until that hosted execution passes. Record its
-invocation and actual result before completing the checklist and archiving.
+- Hosted `BazelCI` execution on PR #5560 head `654d55e36b06f028de4ae5a1d23ea1119aeeb7d5`
+  (merged to `staging` as `c231963308fbebd5a0782bcd89f154c224d2ca17`):
+  invocation `https://carverauto.buildbuddy.io/invocation/89875849-aef1-4cd7-861e-fa5db1be0d6f`
+  (`//elixir/web-ng:plugin_config_cli_db_test` PASSED on the guarded `serial_0`
+  disposable CNPG clone; 1 test, 0 failures).
