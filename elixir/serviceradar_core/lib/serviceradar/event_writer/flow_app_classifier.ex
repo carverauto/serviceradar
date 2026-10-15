@@ -112,7 +112,7 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
     actor = SystemActor.system(:flow_enrichment)
 
     NetflowAppClassificationRule
-    |> Ash.Query.for_read(:read, actor: actor)
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(enabled == true)
     |> Ash.read(actor: actor)
     |> case do
