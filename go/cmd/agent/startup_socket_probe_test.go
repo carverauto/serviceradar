@@ -52,7 +52,7 @@ func TestRunningAgentAdvertisesItsStartupSocketProbe(t *testing.T) {
 	defer cancel()
 
 	gateway := &startupProbeGateway{}
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -87,9 +87,9 @@ func TestRunningAgentAdvertisesItsStartupSocketProbe(t *testing.T) {
 	cmd := exec.CommandContext(ctx, binary, "--config", configPath)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "SR_ALLOW_INSECURE=true")
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+	logs := &agentOutput{}
+	cmd.Stdout = logs
+	cmd.Stderr = logs
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start agent: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestRunningAgentAdvertisesItsStartupSocketProbe(t *testing.T) {
 	var icmpLine, mtrLine string
 	var hello, status []string
 	for time.Now().Before(deadline) {
-		icmpLine, mtrLine = socketProbeLogLines(output.Bytes())
+		icmpLine, mtrLine = socketProbeLogLines(logs.snapshot())
 		hello = gateway.helloCapabilities()
 		status = gateway.statusCapabilities()
 		if icmpLine != "" && mtrLine != "" && hello != nil && status != nil {
@@ -119,7 +119,7 @@ func TestRunningAgentAdvertisesItsStartupSocketProbe(t *testing.T) {
 		_ = cmd.Process.Kill()
 	}
 
-	logText := output.String()
+	logText := string(logs.snapshot())
 	if icmpLine == "" || mtrLine == "" {
 		t.Fatalf("startup log missing a single ICMP and MTR probe line\nicmp=%q\nmtr=%q\nlog:\n%s", icmpLine, mtrLine, logText)
 	}
@@ -141,6 +141,25 @@ func TestRunningAgentAdvertisesItsStartupSocketProbe(t *testing.T) {
 	if strings.Join(gotStatus, ",") != strings.Join(want, ",") {
 		t.Errorf("status socket capabilities = %v, log calls for %v", gotStatus, want)
 	}
+}
+
+// agentOutput is the running agent's combined log. exec writes it from its
+// own goroutines, and the test reads it while that copy is still running.
+type agentOutput struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (o *agentOutput) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.Write(p)
+}
+
+func (o *agentOutput) snapshot() []byte {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]byte(nil), o.buf.Bytes()...)
 }
 
 type startupProbeGateway struct {
@@ -216,7 +235,7 @@ func socketProbeLogLines(raw []byte) (icmpLine, mtrLine string) {
 		if err := json.Unmarshal(line, &event); err == nil && event.Message != "" {
 			message = event.Message
 			if event.TCPSyn != nil && strings.Contains(message, "MTR capability") {
-				message = message + fmt.Sprintf(" tcpSyn=%t", *event.TCPSyn)
+				message += fmt.Sprintf(" tcpSyn=%t", *event.TCPSyn)
 			}
 		}
 		if strings.Contains(message, "ICMP sweep capability") {
