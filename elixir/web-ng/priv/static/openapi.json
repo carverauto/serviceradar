@@ -223,7 +223,7 @@
       },
       "agent-filter-config_pushed_at": {
         "additionalProperties": false,
-        "description": "Time of the oldest config push the agent has not acked since",
+        "description": "Anchor of the oldest outstanding config push. A matching acked version, or an ack at or after this time, lets the next push replace it",
         "properties": {
           "eq": {
             "format": "date-time",
@@ -31148,7 +31148,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Time of the oldest config push the agent has not acked since. Field included by default."
+                "description": "Anchor of the oldest outstanding config push. A matching acked version, or an ack at or after this time, lets the next push replace it. Field included by default."
               },
               "metadata": {
                 "anyOf": [

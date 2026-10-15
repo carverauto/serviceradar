@@ -829,7 +829,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp forward_reported_config_version(state, _hello), do: state
 
-  # Record the pushed config version on core: it anchors the no-ack wedge window.
+  # Record the pushed config version on core
+  # (`ConfigSyncForwarder.record_config_push/2`). Core keeps the no-ack anchor
+  # on the oldest outstanding push.
   # Unlike a detached fire-and-forget task, the live session owns retry state and
   # keeps the registry marked pending until both persistence and an exact agent
   # acknowledgement have completed.

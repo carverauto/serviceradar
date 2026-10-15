@@ -145,14 +145,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   Records the config version most recently pushed to an agent over the control
   stream.
 
-  `config_pushed_at` anchors wedge detection: an agent that does not ack within the
-  window after it becomes config-unhealthy. The anchor is the oldest push
-  `StateMonitor.push_still_outstanding?/1` still treats as outstanding (the pushed
-  version differs from the acked version, and the agent has not acked at or after
-  that push). A re-push of the same version keeps the anchor. A newer version keeps
-  it only while the recorded push is still outstanding, and otherwise takes the new
-  timestamp. Re-anchoring on every superseding version would restart the no-ack
-  window and report a still-wedged agent as recovered.
+  `config_pushed_at` is the no-ack wedge anchor. A same-version re-push leaves it
+  unchanged. A newer version keeps the recorded anchor while
+  `StateMonitor.push_still_outstanding?/1` is true, and otherwise takes this
+  push's timestamp. Re-anchoring on every superseding version would restart the
+  no-ack window and report a still-wedged agent as recovered.
   """
   @spec record_config_push(String.t(), map()) :: :ok | {:error, term()}
   def record_config_push(agent_id, attrs) do

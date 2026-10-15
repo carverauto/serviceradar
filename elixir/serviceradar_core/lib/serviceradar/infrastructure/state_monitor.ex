@@ -288,9 +288,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   #     acknowledged within `config_ack_timeout` while remaining connected. The
   #     rule is anchored on the PUSHED version (not on ack staleness alone), so a
   #     quiet fleet with no config changes never false-positives. It also requires
-  #     the push to still be OUTSTANDING — the pushed version differs from the
-  #     acked version, and the agent has not acked at or after the push (see
-  #     `push_still_outstanding?/1`), so a
+  #     the push to still be OUTSTANDING (see `push_still_outstanding?/1`). A
   #     stale proactive-push snapshot the agent skipped past by converging on a
   #     newer version via the poll path does not false-wedge (and flap) a healthy
   #     agent that is already running the version core currently generates.
