@@ -8,7 +8,7 @@ defmodule ServiceRadar.Jobs.CronBacklogRepair do
   its job pending while the next tick inserts another, so the backlog grows by one
   job per interval for as long as the condition lasts. Two pending ticks of the
   same worker, queue and args do the same work, so every pending tick but the
-  newest is cancelled.
+  newest is cancelled once it is `available`.
 
   **Starved schedulers.** Oban fetches by priority before age. AshOban enqueues its
   schedulers at priority 3, so a queue that always has priority-0 work available
@@ -72,6 +72,7 @@ defmodule ServiceRadar.Jobs.CronBacklogRepair do
         where: fragment("coalesce(?->>'cron', 'false') = 'true'", j.meta),
         select: %{
           id: j.id,
+          state: j.state,
           rank:
             over(row_number(),
               partition_by: [j.worker, j.queue, j.args],
@@ -82,17 +83,22 @@ defmodule ServiceRadar.Jobs.CronBacklogRepair do
 
     redundant =
       from(r in subquery(ranked),
-        where: r.rank > 1,
+        where: r.rank > 1 and r.state == "available",
         order_by: [asc: r.id],
         limit: ^limit,
         select: r.id
       )
 
-    # The state is re-checked here so a tick fetched between the two reads is
-    # left alone.
+    # Only `available` rows are cancelled, and the state is re-checked in the
+    # UPDATE so a tick fetched between the two reads is left alone. A `scheduled`
+    # row is not touched: Oban's stager moves due `scheduled` rows to `available`
+    # with an UPDATE that joins on id alone and does not re-check state, so a
+    # cancel that commits while the stager waits on its row lock is overwritten
+    # back to `available` (cancelled_at left set). A redundant `scheduled` tick is
+    # cancelled on a later pass, once staged.
     {count, _} =
       Repo.update_all(
-        from(j in Job, where: j.id in subquery(redundant), where: j.state in ^@pending_states),
+        from(j in Job, where: j.id in subquery(redundant), where: j.state == "available"),
         set: [state: "cancelled", cancelled_at: now]
       )
 

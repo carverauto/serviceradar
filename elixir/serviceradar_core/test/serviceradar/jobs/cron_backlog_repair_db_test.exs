@@ -70,11 +70,23 @@ defmodule ServiceRadar.Jobs.CronBacklogRepairDbTest do
 
     rows = rows_by_id(queue)
 
-    for tick <- stale_ticks, do: assert(%{state: "cancelled"} = rows[tick.id])
+    # Mid-snooze ticks are left for Oban's stager, whose UPDATE would overwrite a
+    # concurrent cancel; they are cancelled once staged.
+    {snoozed, waiting} = Enum.split_with(stale_ticks, &(&1.state == "scheduled"))
+    for tick <- waiting, do: assert(%{state: "cancelled"} = rows[tick.id])
+    for tick <- snoozed, do: assert(%{state: "scheduled"} = rows[tick.id])
     assert %{state: "available"} = rows[newest_tick.id]
     assert %{state: "executing"} = rows[running_tick.id]
     assert %{state: "available", priority: 0} = rows[starved_scheduler.id]
     assert %{state: "available", priority: 0} = rows[starved_worker.id]
+
+    snoozed_ids = Enum.map(snoozed, & &1.id)
+    Repo.update_all(from(j in Job, where: j.id in ^snoozed_ids), set: [state: "available"])
+
+    assert :ok = ReapStalePeriodicJobsWorker.perform(%Job{})
+    rows = rows_by_id(queue)
+    for tick <- stale_ticks, do: assert(%{state: "cancelled"} = rows[tick.id])
+    assert %{state: "available"} = rows[newest_tick.id]
 
     assert :ok = ReapStalePeriodicJobsWorker.perform(%Job{})
     assert rows_by_id(queue) == rows
