@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
   @moduletag :integration
   @actor SystemActor.system(:device_cleanup_worker_purge_test)
+  @source_fingerprint "sha256:" <> String.duplicate("e", 64)
 
   setup_all do
     TestSupport.start_core!()
@@ -101,6 +102,40 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
              1
 
     refute device_exists?(purgeable)
+  end
+
+  test "a device with an approved AWX membership is purged and the membership quarantined", %{
+    prefix: prefix
+  } do
+    uid = insert_expired_device!("#{prefix}-a")
+    {_controller_id, membership_id} = insert_approved_membership!(uid)
+
+    assert {%{deleted: 1, errors: 0}, 1} = purge([uid])
+
+    refute device_exists?(uid)
+
+    assert %{
+             disposition: "quarantined",
+             device_uid: nil,
+             evidence: %{"canonical_device_deleted" => %{"device_uid" => ^uid}}
+           } = membership(membership_id)
+  end
+
+  test "an approved AWX membership cannot drop a device that still exists", %{prefix: prefix} do
+    uid = insert_expired_device!("#{prefix}-a")
+    {_controller_id, membership_id} = insert_approved_membership!(uid)
+
+    assert_raise Postgrex.Error, ~r/ansible_awx_host_memberships_approved_link/, fn ->
+      Repo.query!(
+        """
+        UPDATE platform.ansible_awx_host_memberships SET canonical_device_uid = NULL
+        WHERE id = CAST(CAST($1 AS text) AS uuid)
+        """,
+        [membership_id]
+      )
+    end
+
+    assert %{disposition: "approved", device_uid: ^uid} = membership(membership_id)
   end
 
   test "a batch that purges nothing does not end the run", %{prefix: prefix} do
@@ -239,13 +274,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
       end
   end
 
-  # An AWX execution that targeted `device_uid`: the audit row whose RESTRICT
-  # foreign key keeps the device from being purged.
-  defp insert_execution_target!(device_uid) do
-    suffix = System.unique_integer([:positive])
+  # A controller and an approved AWX host membership linked to `device_uid`.
+  defp insert_approved_membership!(device_uid) do
     controller_id = Ash.UUID.generate()
     membership_id = Ash.UUID.generate()
-    source_fingerprint = "sha256:" <> String.duplicate("e", 64)
 
     Repo.query!(
       """
@@ -257,7 +289,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
       """,
       [
         controller_id,
-        "purge-test-#{suffix}",
+        "purge-test-#{System.unique_integer([:positive])}",
         CredentialIntegrationFixtures.secret_id!(),
         CredentialIntegrationFixtures.secret_id!()
       ]
@@ -273,8 +305,31 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
               'host01', '192.0.2.10', true, true,
               (now() AT TIME ZONE 'utc'), 'approved', $4)
       """,
-      [membership_id, controller_id, device_uid, source_fingerprint]
+      [membership_id, controller_id, device_uid, @source_fingerprint]
     )
+
+    {controller_id, membership_id}
+  end
+
+  defp membership(membership_id) do
+    %{rows: [[disposition, device_uid, evidence]]} =
+      Repo.query!(
+        """
+        SELECT link_disposition, canonical_device_uid, link_evidence
+        FROM platform.ansible_awx_host_memberships
+        WHERE id = CAST(CAST($1 AS text) AS uuid)
+        """,
+        [membership_id]
+      )
+
+    %{disposition: disposition, device_uid: device_uid, evidence: evidence}
+  end
+
+  # An AWX execution that targeted `device_uid`: the audit row whose RESTRICT
+  # foreign key keeps the device from being purged.
+  defp insert_execution_target!(device_uid) do
+    suffix = System.unique_integer([:positive])
+    {controller_id, membership_id} = insert_approved_membership!(device_uid)
 
     {:ok, operation} =
       AutomationOperation.create_operation(
@@ -332,7 +387,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
           inventory_id: 34,
           awx_host_id: 7,
           membership_generation: 3,
-          source_fingerprint: source_fingerprint,
+          source_fingerprint: @source_fingerprint,
           host_name: "host01",
           ansible_host: "192.0.2.10",
           snapshot_digest: String.duplicate("d", 64)
