@@ -264,7 +264,7 @@ confused:
 The fleet places one BazelCI run (40GB). `limits.memory` is 56Gi, matching farm01, and that
 limit is advertised in full (60,129,542,144 bytes), so a second 40GB run does not fit. An
 unmeasured benchmark action still requests 50GB and fits alone. Putting this on the build
-fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet up,
+fleet means either it cannot be placed (22.7 GiB advertised) or, if you size the build fleet up,
 one runner reserves 40Gi on all three pods and squeezes out the very fan-out it is driving.
 
 Deploy the workflow fleet with the same API key the build fleet uses:
@@ -436,7 +436,7 @@ fleet.** Read it off the executor's own startup line rather than inferring it:
 
 ```bash
 kubectl logs -n buildbuddy <pod> | grep "Initialized task scheduler"
-#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 58,719,476,736 bytes allocated   (build fleet)
+#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 24,359,738,368 bytes allocated   (build fleet)
 ```
 
 | fleet | `limits.memory` | advertised | largest task |

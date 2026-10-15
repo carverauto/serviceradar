@@ -80,10 +80,10 @@ autoscaler:
 # THE TWO FIELDS DO DIFFERENT JOBS, AND IT IS `limits` THAT SIZES TASKS.
 #
 #   requests -> what the kube scheduler reserves on a node. Governs whether the POD schedules.
-#   limits   -> what BuildBuddy advertises as assignable, MINUS a flat 10 GB reserve.
+#   limits   -> what this fleet advertises as assignable, in full (no 10 GB reserve).
 #               Governs whether a TASK can be placed on it.
 #
-# Confirmed from this executor's own startup line at an earlier 64Gi limit:
+# An earlier chart, at a 64Gi limit, did subtract a flat 10 GB:
 #
 #   Initialized task scheduler: CPU: 0 of 16,000 milliCPU allocated,
 #   Memory: 0 of 58,719,476,736 bytes allocated
@@ -92,15 +92,17 @@ autoscaler:
 #   advertised         = 58,719,476,736   <- exactly 10,000,000,000 less
 #   limits.cpu "16"   -> 16,000 milliCPU  <- CPU is the limit, not reduced
 #
-# The rule also explains ./values.yaml: limits 32Gi - 10e9 = 22.7 GiB assignable, which is why
-# a 24 GiB task was rejected by the build fleet while 14 GiB fit.
+# That subtraction is still what ./values.yaml's build fleet shows (32Gi - 10e9 = 22.7 GiB),
+# which is why a 24 GiB task was rejected there while 14 GiB fit. This fleet does not: the
+# 2026-09-27 line at 80Gi was the full limit, and the 56Gi limit above is advertised whole.
+# Do not subtract 10 GB from it.
 #
 # SIZING HISTORY -- every step measured, none guessed. Each quoted line is BuildBuddy's own
 # low-memory notice, whose "total" is the ASSIGNABLE figure, not the cgroup limit:
 #   14 GiB action, 24Gi limits -> "31.24GB used of 15.03GB total", survived, far too tight
 #   28 GiB action, 40Gi limits -> "35.31GB used of 30.06GB total", survived, still short
 #   32 GiB action, 48Gi limits -> 38.7 GiB assignable, only ~6 GB over that 35.31GB peak
-#   32 GiB action, 64Gi limits -> this configuration, 54.7 GiB assignable
+#   32 GiB action, 64Gi limits -> that 64Gi configuration, 54.7 GiB assignable
 #
 # Surviving well over the cgroup limit each time means most of that usage is reclaimable page
 # cache -- disk-cache writes and --jobs=100 input uploads -- rather than resident demand. That
