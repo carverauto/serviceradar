@@ -79,7 +79,12 @@ ExUnit.configure(
 # refused; a run that finishes before the click keeps its completed state), all
 # covered by the file's existing @moduletag :web_ng_shared_fixture_db with no
 # skip/exclude. 2469 + 6 = 2475, with no lowering, removal, bypass, or exclusion.
-expected_selected_tests = 2475
+# The authored-dashboard breadcrumb adds +1 lane-selected test in
+# authored_dashboard_live_test.exs ("saved dashboard renders breadcrumb link to
+# Dashboards and shows canonical ID when opened by slug"), tagged
+# :web_ng_shared_fixture_db with no skip/exclude. 2475 + 1 = 2476, with no
+# lowering, removal, bypass, or exclusion.
+expected_selected_tests = 2476
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
