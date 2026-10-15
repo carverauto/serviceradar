@@ -13,6 +13,11 @@
 {{- $leafnodesEnabled := default false $leafnodes.enabled -}}
 {{- $leafnodesPort := int (default 7422 $leafnodes.port) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
+{{- /* Server debug/trace logging (issue #5635). Off by default: debug makes every
+     server write [DBG] RAFT and ping-timer lines continuously. Rendered as a strict
+     boolean so a stray string cannot reach the server config. */ -}}
+{{- $natsDebug := ternary "true" "false" (eq (toString (default false $nats.debug)) "true") -}}
+{{- $natsTrace := ternary "true" "false" (eq (toString (default false $nats.trace)) "true") -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- $flowCollector := default (dict) .Values.flowCollector -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
@@ -592,8 +597,8 @@ spec:
           }
 
           system_account: SYS
-          debug: true
-          trace: false
+          debug: {{ $natsDebug }}
+          trace: {{ $natsTrace }}
           EOF
 
           exec nats-server --config /tmp/nats-server.conf

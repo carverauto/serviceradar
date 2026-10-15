@@ -798,9 +798,10 @@ data:
       # Set system account
       system_account: "SYS"
   
-      # Logging settings
-      debug: true
-      trace: false
+      # Logging settings (nats.debug / nats.trace, both off by default)
+      {{- $natsLogging := default (dict) .Values.nats }}
+      debug: {{ ternary "true" "false" (eq (toString (default false $natsLogging.debug)) "true") }}
+      trace: {{ ternary "true" "false" (eq (toString (default false $natsLogging.trace)) "true") }}
   
   otel.toml: |
       # ServiceRadar OTEL Collector Configuration for Kubernetes Deployment

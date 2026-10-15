@@ -237,16 +237,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
             {:error, reason} ->
               failures = state.outage_failures + 1
-
-              if failures == 1 or rem(failures, outage_reminder_every(state.interval)) == 0 do
-                Logger.warning(
-                  "Ingestion lane metrics publish failing; buffering one frame",
-                  subject: @subject,
-                  failures: failures,
-                  reason: publish_error_class(reason)
-                )
-              end
-
+              log_publish_failure(failures, reason, state.interval)
               record(:service_state, :publish_failure, %{})
               held = {body, id, counters, frame_start}
               {held, state.reported, state.interval_start, failures}
@@ -263,6 +254,32 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
          interval_start: interval_start,
          outage_failures: outage_failures
      }}
+  end
+
+  # A single failed publish that the next cadence tick retries is what a JetStream
+  # stall or leader election produces, so the first failure is info. The
+  # outage warns from the second consecutive failure, then once per reminder
+  # window while it lasts.
+  defp log_publish_failure(1, reason, _interval) do
+    Logger.info(
+      "Ingestion lane metrics publish failed once; retrying the frame next interval",
+      subject: @subject,
+      failures: 1,
+      reason: publish_error_class(reason)
+    )
+  end
+
+  defp log_publish_failure(failures, reason, interval) do
+    if failures == 2 or rem(failures, outage_reminder_every(interval)) == 0 do
+      Logger.warning(
+        "Ingestion lane metrics publish failing; buffering one frame",
+        subject: @subject,
+        failures: failures,
+        reason: publish_error_class(reason)
+      )
+    end
+
+    :ok
   end
 
   defp outage_reminder_every(interval), do: max(1, div(@publish_outage_reminder_ms, interval))

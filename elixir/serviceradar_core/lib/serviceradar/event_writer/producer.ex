@@ -1289,31 +1289,41 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp pull_inflight_started_at(_state), do: %{}
 
+  # A JetStream stall or RAFT re-election leaves every consumer's pull
+  # unanswered at once, so the pulls expired in one sweep share one warning
+  # instead of logging a line per consumer at the same instant.
   defp expire_stale_pulls(state, now_ms) when is_integer(now_ms) do
     timeout_ms = stale_pull_timeout_ms(state.config)
 
+    {state, expired} =
+      state
+      |> pull_inflight_started_at()
+      |> Enum.reduce({state, []}, fn {pull_subject, started_at}, {acc, expired} ->
+        age_ms = now_ms - started_at
+        remaining = Map.get(acc.pull_inflight_by_subject, pull_subject, 0)
+
+        if remaining > 0 and age_ms > timeout_ms do
+          EventWriterTelemetry.emit_stale_pull(remaining, age_ms, pull_subject)
+          {clear_pull_inflight(acc, pull_subject), [{pull_subject, remaining, age_ms} | expired]}
+        else
+          {acc, expired}
+        end
+      end)
+
+    log_expired_pulls(expired, timeout_ms)
     state
-    |> pull_inflight_started_at()
-    |> Enum.reduce(state, fn {pull_subject, started_at}, acc ->
-      age_ms = now_ms - started_at
-      remaining = Map.get(acc.pull_inflight_by_subject, pull_subject, 0)
+  end
 
-      if remaining > 0 and age_ms > timeout_ms do
-        EventWriterTelemetry.emit_stale_pull(remaining, age_ms, pull_subject)
+  defp log_expired_pulls([], _timeout_ms), do: :ok
 
-        Logger.warning(
-          "EventWriter dropping stale JetStream pull inflight; re-arming consumer",
-          pull_subject: pull_subject,
-          expired_inflight: remaining,
-          age_ms: age_ms,
-          timeout_ms: timeout_ms
-        )
-
-        clear_pull_inflight(acc, pull_subject)
-      else
-        acc
-      end
-    end)
+  defp log_expired_pulls(expired, timeout_ms) do
+    Logger.warning(
+      "EventWriter dropping stale JetStream pull inflight; re-arming #{length(expired)} consumer(s)",
+      pull_subjects: expired |> Enum.map(&elem(&1, 0)) |> Enum.sort(),
+      expired_inflight: expired |> Enum.map(&elem(&1, 1)) |> Enum.sum(),
+      max_age_ms: expired |> Enum.map(&elem(&1, 2)) |> Enum.max(),
+      timeout_ms: timeout_ms
+    )
   end
 
   defp build_ack_fun(conn, reply_to) when is_binary(reply_to) and reply_to != "" do

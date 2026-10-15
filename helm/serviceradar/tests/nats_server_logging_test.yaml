@@ -1,0 +1,42 @@
+suite: nats-server debug and trace logging follow nats.debug / nats.trace
+templates:
+  - templates/nats.yaml
+  - templates/serviceradar-config.yaml
+release:
+  namespace: sr-nats-logging
+tests:
+  # Both NATS configs used to hard-code `debug: true`, so every installed server
+  # logged [DBG] RAFT and ping-timer lines with no value to turn it off.
+  - it: renders debug and trace off in the StatefulSet server config by default
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '\n\s*debug: false\n\s*trace: false\n'
+
+  - it: renders debug and trace off in the nats.conf ConfigMap entry by default
+    template: templates/serviceradar-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["nats.conf"]
+          pattern: '\n\s*debug: false\n\s*trace: false\n'
+
+  - it: turns debug and trace on in both configs when the values are true
+    set:
+      nats.debug: true
+      nats.trace: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '\n\s*debug: true\n\s*trace: true\n'
+        template: templates/nats.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - matchRegex:
+          path: data["nats.conf"]
+          pattern: '\n\s*debug: true\n\s*trace: true\n'
+        template: templates/serviceradar-config.yaml

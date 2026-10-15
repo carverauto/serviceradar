@@ -214,6 +214,11 @@ partitionId: ""
 nats:
   replicas: 3
   clusterName: "serviceradar"
+  # nats-server debug and trace logging. Debug writes [DBG] RAFT and ping-timer
+  # lines continuously on every server; trace also logs every protocol message.
+  # Turn them on only while diagnosing the NATS cluster.
+  debug: false
+  trace: false
   jetstream:
     maxMemoryStore: 1G
     # JetStream sizing profile: small (default), medium or large. A profile sets

@@ -60,6 +60,13 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadHealth do
         :ok ->
           :ok
 
+        {:error, :timeout} = error ->
+          # The load failure this sample counts is already logged as a
+          # warning; a missed PubAck during a JetStream stall only drops the
+          # sample.
+          Logger.debug("Warehouse failure metric publish timed out", dataset: dataset)
+          error
+
         {:error, reason} = error ->
           Logger.warning("Warehouse failure metric publish failed",
             dataset: dataset,
