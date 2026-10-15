@@ -723,7 +723,7 @@ func GenerateAgentFlowCollectorCreds(
 
 	permissions := &accounts.UserPermissions{
 		PublishAllow: append([]string{subject}, flowCollectorStreamPermissions()...),
-		PublishDeny: []string{"$SYS.>", "flow.attributed.>"},
+		PublishDeny:  []string{"$SYS.>", "flow.attributed.>"},
 		SubscribeAllow: []string{
 			"_INBOX.>",
 			"config.flow-collector." + agentID + ".>",
@@ -752,7 +752,7 @@ func generateFlowCollectorCreds(accountName string, accountSeed string) (*accoun
 			"flow.raw.>",
 			"flows.raw.>",
 		}, flowCollectorStreamPermissions()...),
-		PublishDeny:   []string{"$SYS.>", "flow.attributed.>"},
+		PublishDeny:    []string{"$SYS.>", "flow.attributed.>"},
 		SubscribeAllow: []string{"_INBOX.>", "config.flow-collector.>"},
 		SubscribeDeny:  []string{"$SYS.>", "flow.host-slice.>", "flow.attributed.>"},
 		AllowResponses: true,

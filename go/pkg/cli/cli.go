@@ -156,18 +156,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// handleKeyMsg acts on the four keys the form binds and hands every other key
+// to the focused input.
 func (m *model) handleKeyMsg(msg tea.KeyMsg, cmd tea.Cmd) (tea.Model, tea.Cmd) {
-	//nolint:exhaustive
-	switch msg.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+	if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
 		return m.quit()
-	case tea.KeyEnter:
-		return m.handleEnter(cmd)
-	case tea.KeyTab:
-		return m.handleTab(cmd)
-	default:
-		return m.handleDefault(msg, cmd)
 	}
+
+	if msg.Type == tea.KeyEnter {
+		return m.handleEnter(cmd)
+	}
+
+	if msg.Type == tea.KeyTab {
+		return m.handleTab(cmd)
+	}
+
+	return m.handleDefault(msg, cmd)
 }
 
 func (m *model) quit() (tea.Model, tea.Cmd) {
