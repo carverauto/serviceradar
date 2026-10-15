@@ -17,11 +17,19 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   path, or the resolve-stale sweep — converges it. A failed check records the
   unhealthy event and returns `:ok`: the health event is the signal and the
   next cron run is the retry.
+
+  The scheduled run only probes while alert evaluation is `:active`. In
+  `:prepared` or `:draining` mode admission refuses the synthetic events, so the
+  probe could only fail, and core already reports that evaluation is off. The
+  run is skipped with a debug log and records no health event, so a deployment
+  that has not activated evaluation does not read as a broken anomaly path. The
+  mix task calls the check directly and still fails in those modes.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
   alias ServiceRadar.Observability.AnomalyAlertLivenessCheck
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
   alias ServiceRadar.Observability.TripwireHealth
 
   require Logger
@@ -33,7 +41,8 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   def perform(_job), do: run()
 
   @doc """
-  Execute the liveness check and record its outcome as a health event.
+  Execute the liveness check and record its outcome as a health event, or skip
+  it when alert evaluation is not `:active`.
 
   Injectables for tests: `:check` (arity 1, the liveness check), `:cleanup`
   (arity 1, best-effort clear for the synthetic series), `:health_recorder`
@@ -41,6 +50,20 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   """
   @spec run(keyword()) :: :ok
   def run(opts \\ []) do
+    case Rollout.mode() do
+      :active ->
+        run_active(opts)
+
+      mode ->
+        Logger.debug("Anomaly alert liveness check skipped: alert evaluation is not active",
+          alert_evaluation_mode: mode
+        )
+
+        :ok
+    end
+  end
+
+  defp run_active(opts) do
     check = Keyword.get(opts, :check, &AnomalyAlertLivenessCheck.run/1)
     cleanup = Keyword.get(opts, :cleanup, &AnomalyAlertLivenessCheck.emit_clear/1)
     health = Keyword.get(opts, :health_recorder, &TripwireHealth.record/3)

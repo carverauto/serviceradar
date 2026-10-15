@@ -1,5 +1,6 @@
 defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorkerTest do
-  use ExUnit.Case, async: true
+  # Not async: one case changes the global alert evaluation mode.
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -81,6 +82,39 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorkerTest do
     assert log =~ "Anomaly alert liveness check failed"
     assert_received {:health, "anomaly-alert-liveness", false, metadata}
     assert metadata["reason"] =~ "engine boom"
+  end
+
+  test "skips the probe without recording a failure while alert evaluation is not active" do
+    pid = self()
+    {:ok, previous_mode} = Application.fetch_env(:serviceradar_core, :alert_evaluation_mode)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :alert_evaluation_mode, previous_mode)
+    end)
+
+    check = fn opts ->
+      send(pid, {:check_opts, opts})
+      {:error, :alert_evaluation_not_activated}
+    end
+
+    for mode <- [:prepared, :draining] do
+      Application.put_env(:serviceradar_core, :alert_evaluation_mode, mode)
+
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   AnomalyAlertLivenessWorker.run(
+                     check: check,
+                     cleanup: cleanup(pid),
+                     health_recorder: health_recorder(pid)
+                   )
+        end)
+
+      refute log =~ "Anomaly alert liveness check failed"
+      refute_received {:check_opts, _opts}
+      refute_received {:cleanup, _series_key}
+      refute_received {:health, _check, _healthy?, _metadata}
+    end
   end
 
   test "a raising cleanup does not prevent the unhealthy record" do
