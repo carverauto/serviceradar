@@ -40,43 +40,49 @@ defmodule ServiceRadar.Inventory.SyncRunLedger do
   end
 
   defp record_one(source, run, meta, rejected) do
+    case record_in_transaction(source, run, meta, rejected) do
+      {:ok, notifications} ->
+        # Ash cannot send notifications from inside a transaction it did not start; they
+        # are returned and sent once the receipt has committed, so a rollback sends none.
+        Ash.Notifier.notify(notifications)
+        :ok
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp record_in_transaction(source, run, meta, rejected) do
     actor = SystemActor.system(:sync_ingestor)
 
-    case Repo.transaction(fn ->
-           Repo.query!(
-             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-             ["sync-ingest-run:" <> source <> ":" <> run]
-           )
+    Repo.transaction(fn ->
+      Repo.query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        ["sync-ingest-run:" <> source <> ":" <> run]
+      )
 
-           case read(source, run) do
-             {:ok, row} ->
-               attrs = receipt_attrs(row, meta, rejected)
+      with {:ok, row} <- read(source, run),
+           {:ok, _receipt, notifications} <-
+             write_receipt(row, receipt_attrs(row, meta, rejected), source, run, actor) do
+        notifications
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
 
-               result =
-                 if row do
-                   row
-                   |> Ash.Changeset.for_update(:record, attrs, actor: actor)
-                   |> Ash.update(actor: actor)
-                 else
-                   attrs = Map.merge(attrs, %{sync_service_id: source, sync_run_id: run})
+  defp write_receipt(nil, attrs, source, run, actor) do
+    attrs = Map.merge(attrs, %{sync_service_id: source, sync_run_id: run})
 
-                   SyncIngestRun
-                   |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-                   |> Ash.create(actor: actor)
-                 end
+    SyncIngestRun
+    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+    |> Ash.create(actor: actor, return_notifications?: true)
+  end
 
-               case result do
-                 {:ok, _} -> :ok
-                 {:error, reason} -> Repo.rollback(reason)
-               end
-
-             {:error, reason} ->
-               Repo.rollback(reason)
-           end
-         end) do
-      {:ok, :ok} -> :ok
-      {:error, _} = error -> error
-    end
+  defp write_receipt(row, attrs, _source, _run, actor) do
+    row
+    |> Ash.Changeset.for_update(:record, attrs, actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
   end
 
   defp receipt_attrs(row, meta, rejected) do

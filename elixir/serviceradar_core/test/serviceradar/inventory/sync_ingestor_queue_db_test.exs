@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.Infrastructure.Agent
@@ -181,11 +183,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
     first = meta(source.id, run, 0, 0, false, population(0))
     final = meta(source.id, run, 2, 3, true, population(0))
     middle = meta(source.id, run, 1, 3, false, population(0))
-    assert :ok = SyncRunLedger.committed([first, final])
-    assert {:error, :sync_run_incomplete} = SyncRunLedger.complete(final)
-    assert :ok = SyncRunLedger.reject(middle)
-    assert :ok = SyncRunLedger.committed([middle, first, final])
-    assert {:error, :sync_run_incomplete} = SyncRunLedger.complete(final)
+
+    # Receipts are written inside a transaction; Ash drops (and logs) any notification the
+    # ledger does not collect and send after the commit.
+    log =
+      capture_log(fn ->
+        assert :ok = SyncRunLedger.committed([first, final])
+        assert {:error, :sync_run_incomplete} = SyncRunLedger.complete(final)
+        assert :ok = SyncRunLedger.reject(middle)
+        assert :ok = SyncRunLedger.committed([middle, first, final])
+        assert {:error, :sync_run_incomplete} = SyncRunLedger.complete(final)
+      end)
+
+    refute log =~ "notifications in action ServiceRadar.Inventory.SyncIngestRun."
 
     assert %{rows: [[true, [0, 1, 2], 3]]} =
              Repo.query!(
