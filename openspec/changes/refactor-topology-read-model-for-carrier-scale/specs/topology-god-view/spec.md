@@ -69,7 +69,7 @@ The system SHALL distinguish local presentation filters, viewport tile selection
 
 #### Scenario: Geometry publication invalidates affected tiles
 - **WHEN** canonical membership, static geometry content, or relation bindings change
-- **THEN** the backend SHALL publish a complete new generation within the current layout version unless explicit relayout is required
+- **THEN** the backend SHALL publish a complete new generation within the current layout version unless a trusted parent-tree change or another required full relayout stages a new layout version
 - **AND** only changed tiles and changed bounded detail identities SHALL be invalidated
 - **AND** unchanged tiles SHALL retain their content revisions
 
