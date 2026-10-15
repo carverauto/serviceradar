@@ -1,6 +1,6 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {TileLayer, _Tileset2D as Tileset2D} from "@deck.gl/geo-layers"
-import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {LineLayer, ScatterplotLayer, TextLayer, _MultiIconLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {GOD_VIEW_ALPHA_BLEND, GOD_VIEW_ADDITIVE_BLEND} from "./gpu_parameters"
 import {nodeGlyphLayerData} from "./rendering_node_frame"
@@ -33,6 +33,23 @@ class BoundedWorldTileset extends Tileset2D {
 
 const geometryFrames = new WeakMap()
 const flowFrames = new WeakMap()
+
+// Tile completion and viewport refinement also update text outside Deck's
+// draw callbacks. Submit references to the old character buffers before the
+// owning layer reallocates or finalizes them, including rowIndexes.
+class WorldLabelCharactersLayer extends _MultiIconLayer {
+  static layerName = "WorldLabelCharactersLayer"
+
+  updateState(params) {
+    this.context.device.submit()
+    super.updateState(params)
+  }
+
+  finalizeState() {
+    this.context.device.submit()
+    super.finalizeState()
+  }
+}
 
 function geometryFrame(geometry) {
   let frame = geometryFrames.get(geometry.positions)
@@ -188,6 +205,7 @@ export default class WorldTileLayer extends TileLayer {
     return [layers, new TextLayer(this.getSubLayerProps({id: "labels"}), {
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND,
       data: labels, pickable: false, getPosition: item => item.position,
+      _subLayerProps: {characters: {type: WorldLabelCharactersLayer}},
       getText: item => item.text,
       getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
       // Placement is already projected above. A constant offset avoids the
