@@ -23,7 +23,8 @@ const (
 	cycloneDXCollectionCadenceKey = "serviceradar:collection_cadence"
 )
 
-//nolint:gocyclo // This integration-style test validates the full payload shape.
+// TestRunnerBuildsCycloneDXFromFixturePackages validates the full payload a
+// scan of one dpkg package produces.
 func TestRunnerBuildsCycloneDXFromFixturePackages(t *testing.T) {
 	tmpDir := t.TempDir()
 	osReleasePath := filepath.Join(tmpDir, "os-release")
@@ -67,6 +68,22 @@ Version: 1.24.0-2ubuntu7
 	if payload.PackageCount != 1 {
 		t.Fatalf("PackageCount = %d, want 1", payload.PackageCount)
 	}
+	assertGenericPluginDiagnostics(t, payload)
+	if payload.SBOM == nil || payload.OS.ID != "ubuntu" || payload.SBOM.BOMFormat != CycloneDXFormat {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if len(payload.SBOM.Components) != 1 || payload.SBOM.Components[0].PURL != "pkg:deb/nginx@1.24.0-2ubuntu7" {
+		t.Fatalf("unexpected components: %#v", payload.SBOM.Components)
+	}
+	assertFixtureCollectionPolicy(t, payload)
+}
+
+// assertGenericPluginDiagnostics checks that a dpkg-only scan reports its
+// plugins and diagnostics through the generic fields, and that no
+// source-specific field reaches the wire.
+func assertGenericPluginDiagnostics(t *testing.T, payload *ScanPayload) {
+	t.Helper()
+
 	if got, want := payload.EnabledPlugins, []string{"dpkg"}; !sameStrings(got, want) {
 		t.Fatalf("EnabledPlugins = %#v, want %#v", got, want)
 	}
@@ -89,12 +106,13 @@ Version: 1.24.0-2ubuntu7
 		bytes.Contains(encoded, []byte(`"source"`)) {
 		t.Fatalf("scan payload should expose only generic diagnostics fields: %s", encoded)
 	}
-	if payload.SBOM == nil || payload.OS.ID != "ubuntu" || payload.SBOM.BOMFormat != CycloneDXFormat {
-		t.Fatalf("unexpected payload: %#v", payload)
-	}
-	if len(payload.SBOM.Components) != 1 || payload.SBOM.Components[0].PURL != "pkg:deb/nginx@1.24.0-2ubuntu7" {
-		t.Fatalf("unexpected components: %#v", payload.SBOM.Components)
-	}
+}
+
+// assertFixtureCollectionPolicy checks the collection and redaction policy the
+// fixture's config records in the payload and the SBOM.
+func assertFixtureCollectionPolicy(t *testing.T, payload *ScanPayload) {
+	t.Helper()
+
 	policy, ok := payload.Metadata[collectionPolicyMetadataKey].(map[string]any)
 	if !ok ||
 		policy["cadence"] != endpointInventoryTestCadence ||
