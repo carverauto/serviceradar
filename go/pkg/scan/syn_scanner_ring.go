@@ -21,6 +21,7 @@ package scan
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -126,116 +127,28 @@ func (r *ringBuf) block(i uint32) []byte {
 	return r.mem[base:end]
 }
 
-//nolint:gocyclo // Complex packet processing logic with inherent branching
+// runRingReader hands every frame the ring delivers to processEthernetFrame
+// until ctx ends, the wake descriptor fires, or the ring socket fails.
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 	if r == nil || r.blockNr == 0 {
 		return
 	}
 
-	// Build pollfd set: ring FD + optional wake FD for cancellation
-	var pfd []unix.PollFd
-	if s.wakeFD > 0 {
-		pfd = []unix.PollFd{
-			{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL},
-			{Fd: int32(s.wakeFD), Events: unix.POLLIN},
-		}
-	} else {
-		pfd = []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
-	}
-
+	pfd := s.ringPollFDs(r)
 	cur := atomic.LoadUint32(&r.cursor) % r.blockNr
 
 	for {
 		// First, drain any ready blocks without polling
-		drained := false
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			blk := r.block(cur)
-			if blk == nil || len(blk) < int(h1_first_pkt_off+uint32Size) {
-				break
-			}
-
-			status := loadU32(blk)
-			if status&tpStatusUser == 0 {
-				break // no more ready blocks
-			}
-
-			// Check for TP_STATUS_LOSING - indicates buffer overrun/dropped block
-			if status&tpStatusLosing != 0 {
-				atomic.AddUint64(&s.stats.RingBlocksDropped, 1)
-			}
-
-			// process one ready block
-			numPkts := hostEndian.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
-			first := hostEndian.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
-
-			if int(first) >= 0 && int(first) < len(blk) && numPkts > 0 {
-				off := int(first)
-
-				for p := uint32(0); p < numPkts; p++ {
-					if off+int(pkt_mac_off+2) > len(blk) {
-						break
-					}
-
-					ph := blk[off:]
-
-					if int(pkt_next_off+uint32Size) > len(ph) ||
-						int(pkt_snaplen_off+uint32Size) > len(ph) ||
-						int(pkt_mac_off+2) > len(ph) {
-						break
-					}
-
-					snap := int(hostEndian.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
-					mac := int(hostEndian.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
-
-					if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
-						s.processEthernetFrame(ph[mac : mac+snap])
-					}
-
-					next := int(hostEndian.Uint32(ph[pkt_next_off : pkt_next_off+4]))
-					if next <= 0 || off+next > len(blk) {
-						break
-					}
-
-					off += next
-				}
-			}
-
-			// hand ownership back
-			storeU32(blk, h1_status_off, 0)
-
-			cur = (cur + 1) % r.blockNr
-			atomic.StoreUint32(&r.cursor, cur)
-			drained = true
-
-			// Update stats counter for each processed block
-			atomic.AddUint64(&s.stats.RingBlocksProcessed, 1)
+		drained, canceled := s.drainReadyRingBlocks(ctx, r, &cur)
+		if canceled {
+			return
 		}
 
 		if drained {
 			continue // see if more blocks are ready without poll
 		}
 
-		// Nothing ready; block in poll. If wakeFD is present, block indefinitely
-		// and wake via eventfd on cancellation. Otherwise, use configured timeout.
-		to := -1
-		if s.wakeFD <= 0 {
-			to = s.ringPollTimeoutMs
-			if to <= 0 {
-				to = int(s.retireTovMs)
-				if to < 50 {
-					to = 50
-				}
-			}
-		}
-
-		_, err := unix.Poll(pfd, to)
+		_, err := unix.Poll(pfd, s.ringPollTimeout())
 		if err != nil {
 			// EINTR and EAGAIN are fine; anything else, exit this reader
 			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
@@ -247,36 +160,133 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			return
 		}
 
-		// If wakeFD fired, drain it and exit (context likely canceled)
-		if s.wakeFD > 0 && len(pfd) > 1 && (pfd[1].Revents&unix.POLLIN) != 0 {
-			var buf [8]byte
-
-			_, _ = unix.Read(s.wakeFD, buf[:])
-
-			return
-		}
-
-		// Check for socket errors after successful poll
-		if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-			// Socket is in error state, exit this reader
+		if s.ringReaderDone(pfd) {
 			return
 		}
 	}
 }
 
-// NewSYNScanner creates a new SYN scanner with custom options
-//
-// The scanner automatically detects a safe port range that doesn't conflict with
-// the system's ephemeral ports or other local applications by reading:
-// - /proc/sys/net/ipv4/ip_local_port_range (system ephemeral range)
-// - /proc/sys/net/ipv4/ip_local_reserved_ports (reserved ports)
-//
-// Rate limiting guidance:
-// Set rate limit to avoid source-port exhaustion. The available window depends
-// on the detected safe range. Each port is in-flight for ~timeout+grace.
-// Safe starting rate: pps ≈ window/(timeout+grace)
-//
-// Configure rate limit before starting a scan for best results, though SetRateLimit
-// uses atomic.Value and is safe to call anytime, including during active scans.
-//
-// Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
+// ringPollFDs is the poll set of a ring reader: the ring socket, plus the wake
+// descriptor that signals cancellation when the scanner has one.
+func (s *SYNScanner) ringPollFDs(r *ringBuf) []unix.PollFd {
+	ring := unix.PollFd{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}
+	if s.wakeFD > 0 {
+		return []unix.PollFd{ring, {Fd: int32(s.wakeFD), Events: unix.POLLIN}}
+	}
+
+	return []unix.PollFd{ring}
+}
+
+// drainReadyRingBlocks processes every block the kernel has handed to user
+// space, starting at *cur, and returns each to the kernel. It reports whether
+// it processed any block, and whether ctx ended.
+func (s *SYNScanner) drainReadyRingBlocks(ctx context.Context, r *ringBuf, cur *uint32) (drained, canceled bool) {
+	for {
+		select {
+		case <-ctx.Done():
+			return drained, true
+		default:
+		}
+
+		blk := r.block(*cur)
+		if blk == nil || len(blk) < int(h1_first_pkt_off+uint32Size) {
+			return drained, false
+		}
+
+		status := loadU32(blk)
+		if status&tpStatusUser == 0 {
+			return drained, false // no more ready blocks
+		}
+
+		// Check for TP_STATUS_LOSING - indicates buffer overrun/dropped block
+		if status&tpStatusLosing != 0 {
+			atomic.AddUint64(&s.stats.RingBlocksDropped, 1)
+		}
+
+		s.processRingBlock(blk)
+
+		// hand ownership back
+		storeU32(blk, h1_status_off, 0)
+
+		*cur = (*cur + 1) % r.blockNr
+		atomic.StoreUint32(&r.cursor, *cur)
+		drained = true
+
+		// Update stats counter for each processed block
+		atomic.AddUint64(&s.stats.RingBlocksProcessed, 1)
+	}
+}
+
+// processRingBlock hands each frame of one ready TPACKET_V3 block to
+// processEthernetFrame, stopping at the first header that does not fit.
+func (s *SYNScanner) processRingBlock(blk []byte) {
+	numPkts := binary.NativeEndian.Uint32(blk[h1_num_pkts_off : h1_num_pkts_off+4])
+	first := binary.NativeEndian.Uint32(blk[h1_first_pkt_off : h1_first_pkt_off+4])
+
+	if int(first) < 0 || int(first) >= len(blk) || numPkts == 0 {
+		return
+	}
+
+	off := int(first)
+
+	for p := uint32(0); p < numPkts; p++ {
+		if off+int(pkt_mac_off+2) > len(blk) {
+			return
+		}
+
+		ph := blk[off:]
+
+		if int(pkt_next_off+uint32Size) > len(ph) ||
+			int(pkt_snaplen_off+uint32Size) > len(ph) ||
+			int(pkt_mac_off+2) > len(ph) {
+			return
+		}
+
+		snap := int(binary.NativeEndian.Uint32(ph[pkt_snaplen_off : pkt_snaplen_off+4]))
+		mac := int(binary.NativeEndian.Uint16(ph[pkt_mac_off : pkt_mac_off+2]))
+
+		if mac >= 0 && snap >= 0 && mac+snap <= len(ph) {
+			s.processEthernetFrame(ph[mac : mac+snap])
+		}
+
+		next := int(binary.NativeEndian.Uint32(ph[pkt_next_off : pkt_next_off+4]))
+		if next <= 0 || off+next > len(blk) {
+			return
+		}
+
+		off += next
+	}
+}
+
+// ringPollTimeout is how long a ring reader blocks in poll when no block is
+// ready. With a wake descriptor it blocks indefinitely and is woken on
+// cancellation; otherwise it uses the configured timeout, falling back to
+// max(retireTovMs, 50ms).
+func (s *SYNScanner) ringPollTimeout() int {
+	if s.wakeFD > 0 {
+		return -1
+	}
+
+	if s.ringPollTimeoutMs > 0 {
+		return s.ringPollTimeoutMs
+	}
+
+	return max(int(s.retireTovMs), 50)
+}
+
+// ringReaderDone reports whether a ring reader must exit after a poll: the
+// wake descriptor fired (it is drained here) or the ring socket is in an error
+// state.
+func (s *SYNScanner) ringReaderDone(pfd []unix.PollFd) bool {
+	// If wakeFD fired, drain it and exit (context likely canceled)
+	if s.wakeFD > 0 && len(pfd) > 1 && (pfd[1].Revents&unix.POLLIN) != 0 {
+		var buf [8]byte
+
+		_, _ = unix.Read(s.wakeFD, buf[:])
+
+		return true
+	}
+
+	// Check for socket errors after successful poll
+	return pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0
+}

@@ -49,26 +49,10 @@ func storeU32(b []byte, off int, v uint32) {
 	atomic.StoreUint32(u32ptr(b, off), v)
 }
 
-// Host-endian detector for tpacket headers (host-endian on Linux)
-//
-//nolint:gochecknoglobals // performance optimization, computed once at startup
-var hostEndian = func() binary.ByteOrder {
-	var x uint16 = 0x0102
-
-	b := *(*[2]byte)(unsafe.Pointer(&x))
-
-	if b[0] == ipv4ProtocolCheck {
-		return binary.BigEndian
-	}
-
-	return binary.LittleEndian
-}()
-
 // Host to network short/long byte order conversions
 func htons(n uint16) uint16 {
-	if hostEndian == binary.LittleEndian {
-		return (n << 8) | (n >> 8)
-	}
+	var network [2]byte
+	binary.BigEndian.PutUint16(network[:], n)
 
-	return n
+	return binary.NativeEndian.Uint16(network[:])
 }

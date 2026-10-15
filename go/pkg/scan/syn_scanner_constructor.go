@@ -34,8 +34,22 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// NewSYNScanner creates a new SYN scanner with custom options
 //
-//nolint:gocyclo // Complex initialization with many configuration options and platform-specific setup
+// The scanner automatically detects a safe port range that doesn't conflict with
+// the system's ephemeral ports or other local applications by reading:
+// - /proc/sys/net/ipv4/ip_local_port_range (system ephemeral range)
+// - /proc/sys/net/ipv4/ip_local_reserved_ports (reserved ports)
+//
+// Rate limiting guidance:
+// Set rate limit to avoid source-port exhaustion. The available window depends
+// on the detected safe range. Each port is in-flight for ~timeout+grace.
+// Safe starting rate: pps ≈ window/(timeout+grace)
+//
+// Configure rate limit before starting a scan for best results, though SetRateLimit
+// uses atomic.Value and is safe to call anytime, including during active scans.
+//
+// Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Debug().Msg("Starting SYN scanner initialization")
 
@@ -47,100 +61,16 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		concurrency = 256 // Reasonable default to avoid port exhaustion
 	}
 
-	log.Debug().Msg("Creating raw socket for sending")
-
-	// Create raw socket for sending packets with custom IP headers
-	sendSocket, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
+	sendSocket, sendSocket6, err := openRawSendSockets(log)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create raw send socket (requires root): %w", err)
+		return nil, err
 	}
 
-	log.Debug().Int("socket", sendSocket).Msg("Raw socket created successfully")
-	log.Debug().Msg("Setting IP_HDRINCL socket option")
-
-	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
-		if closeErr := syscall.Close(sendSocket); closeErr != nil {
-			log.Warn().Err(closeErr).Msg("Failed to close socket")
-		}
-
-		return nil, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
-	}
-
-	// Optional performance optimizations
-	_ = unix.SetNonblock(sendSocket, true)
-	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift) // 8MB send buffer
-
-	sendSocket6 := 0
-	if fd, err := syscall.Socket(syscall.AF_INET6, syscall.SOCK_RAW, syscall.IPPROTO_RAW); err != nil {
-		log.Warn().Err(err).Msg("Raw IPv6 send socket unavailable; raw SYN IPv6 will be disabled")
-	} else {
-		sendSocket6 = fd
-		_ = unix.SetNonblock(sendSocket6, true)
-		_ = syscall.SetsockoptInt(sendSocket6, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift)
-		if err := unix.SetsockoptInt(sendSocket6, unix.IPPROTO_IPV6, unix.IPV6_HDRINCL, 1); err != nil {
-			log.Debug().Err(err).Msg("IPV6_HDRINCL not accepted on raw IPv6 socket; continuing with IPPROTO_RAW")
-		}
-	}
-
-	log.Debug().Msg("IP_HDRINCL set successfully")
-	log.Debug().Msg("Getting local IP and interface")
-
-	// Find a local IP and interface to use
-	var routeDiscoveryTarget string
-
-	if opts != nil && opts.RouteDiscoveryHost != "" {
-		routeDiscoveryTarget = opts.RouteDiscoveryHost
-		log.Debug().Str("target", routeDiscoveryTarget).Msg("Using configured route discovery target")
-	} else {
-		routeDiscoveryTarget = "8.8.8.8:80"
-	}
-
-	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
+	sourceIP, iface, err := resolveScannerSource(log, opts)
 	if err != nil {
 		closeRawSendSockets(log, sendSocket, sendSocket6)
 
-		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
-	}
-
-	log.Debug().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Local IP and interface found")
-
-	// Honor SYNScannerOptions.Interface - override auto-discovered interface if specified
-	if opts != nil && opts.Interface != "" {
-		ifi, err := net.InterfaceByName(opts.Interface)
-		if err != nil {
-			closeRawSendSockets(log, sendSocket, sendSocket6)
-
-			return nil, fmt.Errorf("interface %q: %w", opts.Interface, err)
-		}
-
-		addrs, _ := ifi.Addrs()
-
-		var ip4 net.IP
-
-		for _, a := range addrs {
-			if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
-				ip4 = ipnet.IP.To4()
-				break
-			}
-		}
-
-		if ip4 == nil {
-			closeRawSendSockets(log, sendSocket, sendSocket6)
-
-			return nil, fmt.Errorf("%w: %q", ErrInterfaceNoIPv4, opts.Interface)
-		}
-
-		sourceIP = ip4
-		iface = ifi.Name
-
-		log.Info().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Using user-specified interface")
-	}
-
-	sourceIP = sourceIP.To4()
-	if sourceIP == nil {
-		closeRawSendSockets(log, sendSocket, sendSocket6)
-
-		return nil, ErrNonIPv4SourceIP
+		return nil, err
 	}
 
 	sourceIP6 := getInterfaceIPv6(iface)
@@ -152,43 +82,11 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		log.Info().Str("sourceIP6", sourceIP6.String()).Str("interface", iface).Msg("Using local IPv6 source for raw SYN scanner")
 	}
 
-	// Detect safe port range for scanning
-	log.Debug().Msg("Detecting safe port range for scanning")
-
-	scanPortStart, scanPortEnd := findSafeScannerPortRange(log)
-	// Log at Info level if non-default range chosen (ops folks want to see the actual window)
-	if scanPortStart != defaultEphemeralPortStart || scanPortEnd != defaultEphemeralPortEnd {
-		log.Info().Uint16("start", scanPortStart).Uint16("end", scanPortEnd).
-			Int("windowSize", int(scanPortEnd-scanPortStart+1)).
-			Msg("Scanner using dynamically selected port range")
-	} else {
-		log.Debug().Uint16("scanPortStart", scanPortStart).Uint16("scanPortEnd", scanPortEnd).
-			Msg("Using default port range for scanning")
-	}
-
-	// Document SuppressRSTReply option with actionable guidance
-	if opts != nil && opts.SuppressRSTReply {
-		log.Warn().Msg("SuppressRSTReply requested. Consider applying:\n" +
-			"  nft add rule inet filter output tcp flags rst tcp sport " +
-			fmt.Sprintf("%d-%d", scanPortStart, scanPortEnd) + " drop")
-	}
+	scanPortStart, scanPortEnd := selectScannerPortRange(log, opts)
 
 	log.Debug().Msg("Setting up ring buffers")
 
-	// Build NumCPU ring readers with BPF + FANOUT
-	// Setup order: open → fanout → BPF → TPACKET_V3 → mmap
-	// This order is preferred by most codebases and avoids potential PACKET_RX_RING EINVAL issues.
-	fanoutGroup := 0
-
-	// Determine ring reader count
-	ringCount := runtime.NumCPU()
-	if opts != nil && opts.RingReaders > 0 && opts.RingReaders < ringCount {
-		ringCount = opts.RingReaders
-	}
-
-	if ringCount > defaultRingCount { // default cap to avoid excessive idle wakeups
-		ringCount = defaultRingCount
-	}
+	ringCount := scannerRingCount(opts)
 
 	log.Debug().Int("ringCount", ringCount).Msg("Ring setup parameters")
 
@@ -202,125 +100,13 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	}
 
 	layout := computeRingLayout(opts, ringCount, uint32(os.Getpagesize()))
+	logRingLayout(log, layout)
 
-	if layout.raisedToMinimum {
-		log.Warn().
-			Uint32("globalCapMB", uint32(layout.globalCapMB)).
-			Int("totalRings", layout.totalRings).
-			Uint32("computedPerRing", layout.computedPerRingBytes).
-			Uint32("minPerRingBytes", layout.perRingBytes).
-			Msg("Global ring memory cap too low for CPU count, using minimum per-ring size")
-	}
+	rings, fanoutGroup, err := openCaptureRings(log, iface, ringCount, layout)
+	if err != nil {
+		closeRawSendSockets(log, sendSocket, sendSocket6)
 
-	if layout.adjusted() {
-		log.Info().
-			Uint32("originalBlockSize", layout.requestedBlockSize).
-			Uint32("originalBlockCount", layout.requestedBlockCount).
-			Uint32("globalCapMB", uint32(layout.globalCapMB)).
-			Int("totalRings", layout.totalRings).
-			Uint32("perRingBytes", layout.perRingBytes).
-			Uint32("finalBlockSize", layout.blockSize).
-			Uint32("finalBlockCount", layout.blockCount).
-			Uint32("finalRingMemoryMB", (layout.blockSize*layout.blockCount)/(1024*1024)).
-			Msg("Applied global ring memory cap distributed across CPUs")
-	}
-
-	rings := make([]*ringBuf, 0, ringCount)
-
-	for i := 0; i < ringCount; i++ {
-		log.Debug().Int("ringIndex", i).Msg("Creating ring buffer")
-		log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
-
-		fd, err := openSnifferOnInterface(iface)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to open sniffer on interface")
-
-			for _, r := range rings {
-				_ = unix.Munmap(r.mem)
-				_ = unix.Close(r.fd)
-			}
-
-			closeRawSendSockets(log, sendSocket, sendSocket6)
-
-			return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
-		}
-
-		log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
-
-		if i == 0 {
-			fanoutGroup, err = createFanoutGroup(fd)
-		} else {
-			err = enableFanout(fd, fanoutGroup)
-		}
-
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to enable packet fanout")
-
-			_ = unix.Close(fd)
-
-			for _, r := range rings {
-				_ = unix.Munmap(r.mem)
-				_ = unix.Close(r.fd)
-			}
-
-			closeRawSendSockets(log, sendSocket, sendSocket6)
-
-			return nil, fmt.Errorf("configure packet fanout failed: %w", err)
-		}
-
-		if i == 0 {
-			log.Info().
-				Int("fanoutGroup", fanoutGroup).
-				Int("ringCount", ringCount).
-				Str("interface", iface).
-				Msg("Created isolated packet fanout group")
-		} else {
-			log.Debug().Int("fanoutGroup", fanoutGroup).Int("ringIndex", i).
-				Msg("Joined packet ring to scanner fanout group")
-		}
-
-		log.Debug().Msg("Attaching idle BPF filter")
-
-		if err := attachSocketFilter(fd, idleCaptureFilter()); err != nil {
-			log.Error().Err(err).Msg("Failed to attach BPF filter")
-
-			_ = unix.Close(fd)
-
-			for _, r := range rings {
-				_ = unix.Munmap(r.mem)
-				_ = unix.Close(r.fd)
-			}
-
-			closeRawSendSockets(log, sendSocket, sendSocket6)
-
-			return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
-		}
-
-		log.Debug().Msg("BPF filter attached successfully")
-
-		ringRetireTov := getRetireTovMs()
-
-		log.Debug().Uint32("blockSize", layout.blockSize).Uint32("blockCount", layout.blockCount).Uint32("frameSize", layout.frameSize).Uint32("retireMs", ringRetireTov).Msg("Setting up TPACKET_V3")
-
-		rb, err := setupTPacketV3(fd, layout.blockSize, layout.blockCount, layout.frameSize, ringRetireTov)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
-
-			_ = unix.Close(fd)
-
-			for _, r := range rings {
-				_ = unix.Munmap(r.mem)
-				_ = unix.Close(r.fd)
-			}
-
-			closeRawSendSockets(log, sendSocket, sendSocket6)
-
-			return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
-		}
-
-		log.Debug().Msg("TPACKET_V3 setup successfully")
-
-		rings = append(rings, rb)
+		return nil, err
 	}
 
 	log.Debug().Int("ringCount", len(rings)).Msg("All ring buffers created successfully")
@@ -328,15 +114,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	retireTov := getRetireTovMs()
 	log.Debug().Uint32("retireTovMs", retireTov).Msg("Using configurable retire TOV")
 
-	// Determine batch size from options, env var, or default
-	batchSize := defaultSendBatchSize
-
-	if opts != nil && opts.SendBatchSize > 0 {
-		batchSize = opts.SendBatchSize
-	} else {
-		// Fall back to env var if no option provided
-		batchSize = getSendBatchSize()
-	}
+	batchSize := scannerSendBatchSize(opts)
 
 	log.Debug().Int("sendBatchSize", batchSize).Msg("Using configurable sendmmsg batch size")
 
@@ -370,19 +148,8 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		results:       make(map[string]models.Result),
 		portDeadline:  make(map[uint16]time.Time),
 		// Initialize thread-safe random source for IP ID generation
-		rand: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(os.Getpid()))),
-	}
-
-	// Configure ring poll timeout: default to max(retireTovMs, 50ms) unless overridden
-	if opts != nil && opts.RingPollTimeoutMs > 0 {
-		scanner.ringPollTimeoutMs = opts.RingPollTimeoutMs
-	} else {
-		pollMs := int(retireTov)
-		if pollMs < 50 {
-			pollMs = 50
-		}
-
-		scanner.ringPollTimeoutMs = pollMs
+		rand:              rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(os.Getpid()))),
+		ringPollTimeoutMs: scannerRingPollTimeoutMs(opts, retireTov),
 	}
 
 	// Initialize batch pool for sendmmsg arrays
@@ -397,19 +164,323 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		},
 	}
 
-	// Initialize packet buffer pool to reduce GC churn in hot path
+	// Initialize packet buffer pool to reduce GC churn in hot path. It holds
+	// array pointers so Put does not allocate a slice header per packet.
 	scanner.packetPool = sync.Pool{
 		New: func() interface{} {
-			return make([]byte, ipv4TcpPacketSize)
+			return new([ipv4TcpPacketSize]byte)
 		},
 	}
 
 	// Initialize packet template for reuse
 	scanner.initPacketTemplate()
 
-	// Set rate limit from options or calculate safe default
-	var rateLimitPPS, rateLimitBurst int
+	rateLimitPPS, rateLimitBurst := scannerRateLimit(log, opts, timeout, scanPortStart, scanPortEnd)
+	scanner.SetRateLimit(rateLimitPPS, rateLimitBurst)
 
+	log.Debug().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("Set rate limit to prevent port exhaustion")
+
+	// Start the coarse port cleanup reaper
+	scanner.startReaper()
+
+	// Initialize LastStatsReset so first telemetry log has meaningful baseline
+	scanner.ResetStats()
+
+	log.Info().
+		Dur("tcp_timeout", scanner.timeout).
+		Uint16("scanPortStart", scanner.scanPortStart).
+		Uint16("scanPortEnd", scanner.scanPortEnd).
+		Int("windowSize", int(scanner.scanPortEnd-scanner.scanPortStart+1)).
+		Int("rateLimitPPS", rateLimitPPS).
+		Int("rateLimitBurst", rateLimitBurst).
+		Msg("SYN scanner configuration")
+
+	return scanner, nil
+}
+
+// openRawSendSockets opens the IPv4 raw send socket the scanner writes its own
+// IP headers to, and the optional IPv6 one; sendSocket6 is 0 when IPv6 raw
+// sending is unavailable.
+func openRawSendSockets(log logger.Logger) (sendSocket, sendSocket6 int, err error) {
+	log.Debug().Msg("Creating raw socket for sending")
+
+	// Create raw socket for sending packets with custom IP headers
+	sendSocket, err = syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
+	if err != nil {
+		return 0, 0, fmt.Errorf("cannot create raw send socket (requires root): %w", err)
+	}
+
+	log.Debug().Int("socket", sendSocket).Msg("Raw socket created successfully")
+	log.Debug().Msg("Setting IP_HDRINCL socket option")
+
+	if err = syscall.SetsockoptInt(sendSocket, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1); err != nil {
+		if closeErr := syscall.Close(sendSocket); closeErr != nil {
+			log.Warn().Err(closeErr).Msg("Failed to close socket")
+		}
+
+		return 0, 0, fmt.Errorf("cannot set IP_HDRINCL (requires root): %w", err)
+	}
+
+	// Optional performance optimizations
+	_ = unix.SetNonblock(sendSocket, true)
+	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift) // 8MB send buffer
+
+	if fd, err := syscall.Socket(syscall.AF_INET6, syscall.SOCK_RAW, syscall.IPPROTO_RAW); err != nil {
+		log.Warn().Err(err).Msg("Raw IPv6 send socket unavailable; raw SYN IPv6 will be disabled")
+	} else {
+		sendSocket6 = fd
+		_ = unix.SetNonblock(sendSocket6, true)
+		_ = syscall.SetsockoptInt(sendSocket6, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift)
+		if err := unix.SetsockoptInt(sendSocket6, unix.IPPROTO_IPV6, unix.IPV6_HDRINCL, 1); err != nil {
+			log.Debug().Err(err).Msg("IPV6_HDRINCL not accepted on raw IPv6 socket; continuing with IPPROTO_RAW")
+		}
+	}
+
+	log.Debug().Msg("IP_HDRINCL set successfully")
+
+	return sendSocket, sendSocket6, nil
+}
+
+// resolveScannerSource picks the IPv4 source address and interface the scanner
+// sends from: the route toward the discovery target, unless the options name an
+// interface.
+func resolveScannerSource(log logger.Logger, opts *SYNScannerOptions) (net.IP, string, error) {
+	log.Debug().Msg("Getting local IP and interface")
+
+	// Find a local IP and interface to use
+	routeDiscoveryTarget := "8.8.8.8:80"
+	if opts != nil && opts.RouteDiscoveryHost != "" {
+		routeDiscoveryTarget = opts.RouteDiscoveryHost
+		log.Debug().Str("target", routeDiscoveryTarget).Msg("Using configured route discovery target")
+	}
+
+	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get local IP and interface: %w", err)
+	}
+
+	log.Debug().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Local IP and interface found")
+
+	// Honor SYNScannerOptions.Interface - override auto-discovered interface if specified
+	if opts != nil && opts.Interface != "" {
+		sourceIP, err = interfaceIPv4(opts.Interface)
+		if err != nil {
+			return nil, "", err
+		}
+
+		iface = opts.Interface
+
+		log.Info().Str("sourceIP", sourceIP.String()).Str("interface", iface).Msg("Using user-specified interface")
+	}
+
+	sourceIP = sourceIP.To4()
+	if sourceIP == nil {
+		return nil, "", ErrNonIPv4SourceIP
+	}
+
+	return sourceIP, iface, nil
+}
+
+// interfaceIPv4 returns the first IPv4 address of the named interface.
+func interfaceIPv4(name string) (net.IP, error) {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, fmt.Errorf("interface %q: %w", name, err)
+	}
+
+	addrs, _ := ifi.Addrs()
+
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+			return ipnet.IP.To4(), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %q", ErrInterfaceNoIPv4, name)
+}
+
+// selectScannerPortRange picks the source-port window the scanner owns and
+// logs it.
+func selectScannerPortRange(log logger.Logger, opts *SYNScannerOptions) (start, end uint16) {
+	// Detect safe port range for scanning
+	log.Debug().Msg("Detecting safe port range for scanning")
+
+	start, end = findSafeScannerPortRange(log)
+	// Log at Info level if non-default range chosen (ops folks want to see the actual window)
+	if start != defaultEphemeralPortStart || end != defaultEphemeralPortEnd {
+		log.Info().Uint16("start", start).Uint16("end", end).
+			Int("windowSize", int(end-start+1)).
+			Msg("Scanner using dynamically selected port range")
+	} else {
+		log.Debug().Uint16("scanPortStart", start).Uint16("scanPortEnd", end).
+			Msg("Using default port range for scanning")
+	}
+
+	// Document SuppressRSTReply option with actionable guidance
+	if opts != nil && opts.SuppressRSTReply {
+		log.Warn().Msg("SuppressRSTReply requested. Consider applying:\n" +
+			"  nft add rule inet filter output tcp flags rst tcp sport " +
+			fmt.Sprintf("%d-%d", start, end) + " drop")
+	}
+
+	return start, end
+}
+
+// scannerRingCount is the number of capture rings: one per CPU, lowered by the
+// options and capped at defaultRingCount to avoid excessive idle wakeups.
+func scannerRingCount(opts *SYNScannerOptions) int {
+	ringCount := runtime.NumCPU()
+	if opts != nil && opts.RingReaders > 0 && opts.RingReaders < ringCount {
+		ringCount = opts.RingReaders
+	}
+
+	return min(ringCount, defaultRingCount)
+}
+
+// logRingLayout reports when the ring geometry departs from what was requested.
+func logRingLayout(log logger.Logger, layout ringLayout) {
+	if layout.raisedToMinimum {
+		log.Warn().
+			Uint32("globalCapMB", uint32(layout.globalCapMB)).
+			Int("totalRings", layout.totalRings).
+			Uint32("computedPerRing", layout.computedPerRingBytes).
+			Uint32("minPerRingBytes", layout.perRingBytes).
+			Msg("Global ring memory cap too low for CPU count, using minimum per-ring size")
+	}
+
+	if layout.adjusted() {
+		log.Info().
+			Uint32("originalBlockSize", layout.requestedBlockSize).
+			Uint32("originalBlockCount", layout.requestedBlockCount).
+			Uint32("globalCapMB", uint32(layout.globalCapMB)).
+			Int("totalRings", layout.totalRings).
+			Uint32("perRingBytes", layout.perRingBytes).
+			Uint32("finalBlockSize", layout.blockSize).
+			Uint32("finalBlockCount", layout.blockCount).
+			Uint32("finalRingMemoryMB", (layout.blockSize*layout.blockCount)/(1024*1024)).
+			Msg("Applied global ring memory cap distributed across CPUs")
+	}
+}
+
+// openCaptureRings opens ringCount TPACKET_V3 rings on iface in one isolated
+// packet fanout group, each with the idle filter attached. Setup order is
+// open, fanout, BPF, TPACKET_V3, mmap: the order most codebases use, which
+// avoids PACKET_RX_RING EINVAL. On failure every ring opened so far is closed.
+func openCaptureRings(log logger.Logger, iface string, ringCount int, layout ringLayout) ([]*ringBuf, int, error) {
+	rings := make([]*ringBuf, 0, ringCount)
+	fanoutGroup := 0
+
+	for i := 0; i < ringCount; i++ {
+		rb, err := openCaptureRing(log, iface, i, ringCount, layout, &fanoutGroup)
+		if err != nil {
+			for _, r := range rings {
+				_ = unix.Munmap(r.mem)
+				_ = unix.Close(r.fd)
+			}
+
+			return nil, 0, err
+		}
+
+		rings = append(rings, rb)
+	}
+
+	return rings, fanoutGroup, nil
+}
+
+// openCaptureRing opens ring index of the scanner. The first ring creates the
+// fanout group and stores it in fanoutGroup; later rings join it.
+func openCaptureRing(log logger.Logger, iface string, index, ringCount int, layout ringLayout, fanoutGroup *int) (*ringBuf, error) {
+	log.Debug().Int("ringIndex", index).Msg("Creating ring buffer")
+	log.Debug().Str("interface", iface).Msg("Opening sniffer on interface")
+
+	fd, err := openSnifferOnInterface(iface)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to open sniffer on interface")
+
+		return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
+	}
+
+	log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
+
+	if index == 0 {
+		*fanoutGroup, err = createFanoutGroup(fd)
+	} else {
+		err = enableFanout(fd, *fanoutGroup)
+	}
+
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to enable packet fanout")
+
+		_ = unix.Close(fd)
+
+		return nil, fmt.Errorf("configure packet fanout failed: %w", err)
+	}
+
+	if index == 0 {
+		log.Info().
+			Int("fanoutGroup", *fanoutGroup).
+			Int("ringCount", ringCount).
+			Str("interface", iface).
+			Msg("Created isolated packet fanout group")
+	} else {
+		log.Debug().Int("fanoutGroup", *fanoutGroup).Int("ringIndex", index).
+			Msg("Joined packet ring to scanner fanout group")
+	}
+
+	log.Debug().Msg("Attaching idle BPF filter")
+
+	if err := attachSocketFilter(fd, idleCaptureFilter()); err != nil {
+		log.Error().Err(err).Msg("Failed to attach BPF filter")
+
+		_ = unix.Close(fd)
+
+		return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
+	}
+
+	log.Debug().Msg("BPF filter attached successfully")
+
+	ringRetireTov := getRetireTovMs()
+
+	log.Debug().Uint32("blockSize", layout.blockSize).Uint32("blockCount", layout.blockCount).Uint32("frameSize", layout.frameSize).Uint32("retireMs", ringRetireTov).Msg("Setting up TPACKET_V3")
+
+	rb, err := setupTPacketV3(fd, layout.blockSize, layout.blockCount, layout.frameSize, ringRetireTov)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to setup TPACKET_V3")
+
+		_ = unix.Close(fd)
+
+		return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
+	}
+
+	log.Debug().Msg("TPACKET_V3 setup successfully")
+
+	return rb, nil
+}
+
+// scannerSendBatchSize is the sendmmsg batch size: the options' value, else the
+// environment's, else the default.
+func scannerSendBatchSize(opts *SYNScannerOptions) int {
+	if opts != nil && opts.SendBatchSize > 0 {
+		return opts.SendBatchSize
+	}
+
+	return getSendBatchSize()
+}
+
+// scannerRingPollTimeoutMs is the ring poll timeout: the options' value, else
+// max(retireTovMs, 50ms).
+func scannerRingPollTimeoutMs(opts *SYNScannerOptions, retireTov uint32) int {
+	if opts != nil && opts.RingPollTimeoutMs > 0 {
+		return opts.RingPollTimeoutMs
+	}
+
+	return max(int(retireTov), 50)
+}
+
+// scannerRateLimit returns the send rate limit and burst: the options' rate,
+// else the most the source-port window can sustain for the reply hold time,
+// bounded to [1k, maxConservativeRate] pps.
+func scannerRateLimit(log logger.Logger, opts *SYNScannerOptions, timeout time.Duration, scanPortStart, scanPortEnd uint16) (rateLimitPPS, rateLimitBurst int) {
 	// Calculate safe default capacity to prevent source port exhaustion
 	window := int(scanPortEnd - scanPortStart + 1) // actual available ports
 
@@ -463,42 +534,15 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				Dur("holdDuration", hold).
 				Msg("User rate limit exceeds safe window/hold capacity - may cause port allocator starvation")
 		}
-	} else {
-		// Use calculated safe default
-		rateLimitPPS = safeCapacityPPS
 
-		// Apply reasonable bounds
-		if rateLimitPPS < 1000 {
-			rateLimitPPS = 1000 // minimum 1k pps
-		}
-
-		if rateLimitPPS > maxConservativeRate {
-			rateLimitPPS = maxConservativeRate // conservative cap at 25k pps
-		}
-
-		rateLimitBurst = rateLimitPPS
+		return rateLimitPPS, rateLimitBurst
 	}
 
-	scanner.SetRateLimit(rateLimitPPS, rateLimitBurst)
+	// Use calculated safe default with reasonable bounds: minimum 1k pps,
+	// conservative cap at maxConservativeRate.
+	rateLimitPPS = min(max(safeCapacityPPS, 1000), maxConservativeRate)
 
-	log.Debug().Int("rateLimit", rateLimitPPS).Int("burst", rateLimitBurst).Msg("Set rate limit to prevent port exhaustion")
-
-	// Start the coarse port cleanup reaper
-	scanner.startReaper()
-
-	// Initialize LastStatsReset so first telemetry log has meaningful baseline
-	scanner.ResetStats()
-
-	log.Info().
-		Dur("tcp_timeout", scanner.timeout).
-		Uint16("scanPortStart", scanner.scanPortStart).
-		Uint16("scanPortEnd", scanner.scanPortEnd).
-		Int("windowSize", int(scanner.scanPortEnd-scanner.scanPortStart+1)).
-		Int("rateLimitPPS", rateLimitPPS).
-		Int("rateLimitBurst", rateLimitBurst).
-		Msg("SYN scanner configuration")
-
-	return scanner, nil
+	return rateLimitPPS, rateLimitPPS
 }
 
 func closeRawSendSockets(log logger.Logger, sendSocket, sendSocket6 int) {

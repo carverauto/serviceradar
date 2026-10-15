@@ -1,5 +1,4 @@
-//go:build !ci
-// +build !ci
+//go:build !ci && !windows
 
 package scan
 

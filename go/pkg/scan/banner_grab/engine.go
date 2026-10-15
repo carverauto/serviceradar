@@ -289,7 +289,7 @@ func (e *Engine) probeCandidate(ctx context.Context, candidate Candidate) {
 	}
 	if len(observation.BannerBytes) == 0 {
 		atomic.AddUint64(&e.stats.EmptyResponseTotal, 1)
-		e.planner.recordBackoff(candidate, defaultBackoff)
+		e.planner.recordBackoff(candidate)
 		return
 	}
 
@@ -310,13 +310,13 @@ func (e *Engine) recordProbeError(candidate Candidate, err error) {
 		atomic.AddUint64(&e.stats.UnsupportedTotal, 1)
 	case isTimeout(err):
 		atomic.AddUint64(&e.stats.TimeoutTotal, 1)
-		e.planner.recordBackoff(candidate, defaultBackoff)
+		e.planner.recordBackoff(candidate)
 	case isReset(err):
 		atomic.AddUint64(&e.stats.ConnectionResetTotal, 1)
-		e.planner.recordBackoff(candidate, defaultBackoff)
+		e.planner.recordBackoff(candidate)
 	default:
 		atomic.AddUint64(&e.stats.ErrorsTotal, 1)
-		e.planner.recordBackoff(candidate, defaultBackoff)
+		e.planner.recordBackoff(candidate)
 	}
 }
 

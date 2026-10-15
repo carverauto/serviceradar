@@ -565,8 +565,8 @@ func markRingBlockReady(t *testing.T, ring *ringBuf, idx uint32) {
 	require.GreaterOrEqual(t, len(blk), int(h1_first_pkt_off+uint32Size))
 
 	storeU32(blk, h1_status_off, tpStatusUser)
-	hostEndian.PutUint32(blk[h1_num_pkts_off:h1_num_pkts_off+uint32Size], 0)
-	hostEndian.PutUint32(blk[h1_first_pkt_off:h1_first_pkt_off+uint32Size], h1_first_pkt_off+uint32Size)
+	binary.NativeEndian.PutUint32(blk[h1_num_pkts_off:h1_num_pkts_off+uint32Size], 0)
+	binary.NativeEndian.PutUint32(blk[h1_first_pkt_off:h1_first_pkt_off+uint32Size], h1_first_pkt_off+uint32Size)
 }
 
 func runSyntheticRingReaderUntil(t *testing.T, scanner *SYNScanner, ring *ringBuf, ready func() bool) {
