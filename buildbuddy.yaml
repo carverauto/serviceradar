@@ -737,10 +737,13 @@ actions:
           # the suite selects the target after a fixture is provisioned. That is
           # how //integration_tests/srql failed with `no external crate
           # serviceradar_integration_db`. //rust/netprobe:loaded_tcp_attribution_test
-          # is manual, so the wildcard does not select it; name it so it stays
-          # compiled. This runner cannot grant its Linux capabilities, so the
-          # suite does not execute it. Leave $FLAGS off this command: those
-          # options are test-only and bazel build rejects them.
+          # and //rust/dgraph-topology:world_worker_test are manual, so the
+          # wildcard does not select them; name them so they stay compiled.
+          # This runner cannot grant the netprobe target's Linux capabilities,
+          # so the suite does not execute that target. The world worker runs
+          # in the explicit test below, after serial_0 is free. Leave $FLAGS
+          # off this command: those options are test-only and bazel build
+          # rejects them.
           bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test
 
           START_NS="$(date +%s%N)"
