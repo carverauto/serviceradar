@@ -15,6 +15,10 @@ ServiceRadar SHALL identify an AWX inventory membership by `(controller_id, inve
 - **WHEN** host ID, inventory, enabled state, address, generation, or canonical-device link differs from the approved launch snapshot
 - **THEN** ServiceRadar rejects the target without hostname/IP fallback
 
+#### Scenario: Linked canonical device is purged
+- **WHEN** the device purge hard-deletes the canonical device of an approved membership
+- **THEN** the delete succeeds and the membership becomes `quarantined` with no canonical device and evidence naming the deleted device; inventory reconciliation keeps it quarantined, so no device that later matches the same AWX host inherits the approval
+
 ### Requirement: Launch planning is exact, partitioned, and transactional
 ServiceRadar SHALL create one immutable parent operation and partition it into child executions by controller, inventory, job template, immutable project/SCM commit/content hash, execution environment, approved machine credential reference, reviewed static custom credential or dynamic custom-credential type/slot, and check/run mode. It SHALL re-fetch current template/host state, reject moving refs and project `update_on_launch`, require an explicit compatible inventory and literal-only non-empty limit, persist all child targets in one transaction before dispatch, and prove equality among requested, planned, persisted, and command target tuples/counts. AWX acceptance SHALL echo the exact inventory and literal limit; post-start job-host summaries SHALL reconcile to the snapshotted host IDs before ServiceRadar marks scope verified. The system MUST NOT claim synchronous AWX acceptance returns an expanded host-ID set.
 
