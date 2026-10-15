@@ -33,15 +33,15 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
       start_lane(held_processor(parent),
         concurrency: 2,
         ordering: :unordered,
-        max_items_per_agent: 2,
-        queue_wait_ms: 100
+        max_items_per_agent: 2
       )
 
     first = admit(lane, status("agent01.example.com", "first"))
-    assert_receive {:started, "first", first_worker}
+    assert_receive {:started, "first", first_worker}, 1_000
     second = admit(lane, status("agent01.example.com", "second"))
 
-    # A per-agent lane would hold "second" until the 100 ms queue wait expired.
+    # A per-agent lane holds "second" behind the running "first", which is
+    # released only after "second" starts, so "second" never starts there.
     assert_receive {:started, "second", second_worker}, 1_000
     send(second_worker, :release)
     assert_receive {^second, :ok}
