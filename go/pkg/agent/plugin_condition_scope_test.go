@@ -36,8 +36,10 @@ const (
 	testKeyMot = "example:dev-02:motors_stuck"
 )
 
-//nolint:gochecknoglobals // fixed reference time shared by every test case in this file
-var testScopeEpoch = time.Date(2026, time.January, 2, 3, 0, 0, 0, time.UTC)
+// testScopeEpoch is the fixed reference time every test case in this file shares.
+func testScopeEpoch() time.Time {
+	return time.Date(2026, time.January, 2, 3, 0, 0, 0, time.UTC)
+}
 
 func scopedConditionPayload(key, scope, level string) map[string]any {
 	unmapped := map[string]any{
@@ -77,8 +79,8 @@ func ocsfRecord(t *testing.T, eventID string, payload map[string]any) *addonpb.T
 	}
 	return &addonpb.TelemetryRecord{
 		EventId:              eventID,
-		ObservedTimeUnixNano: testScopeEpoch.Add(-time.Minute).UnixNano(),
-		EventTimeUnixNano:    testScopeEpoch.Add(-time.Minute).UnixNano(),
+		ObservedTimeUnixNano: testScopeEpoch().Add(-time.Minute).UnixNano(),
+		EventTimeUnixNano:    testScopeEpoch().Add(-time.Minute).UnixNano(),
 		PayloadKind:          addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
 		Payload:              raw,
 		Metadata:             map[string]string{"schema_id": "example.alert", "schema_version": "1.0.0"},
@@ -304,7 +306,7 @@ func TestConditionScopeSnapshots(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			clock := testScopeEpoch
+			clock := testScopeEpoch()
 			d := newTestScopeDebouncer(&clock)
 			for i, step := range tc.steps {
 				clock = clock.Add(step.advance)
@@ -329,7 +331,7 @@ func TestConditionScopeSnapshots(t *testing.T) {
 // though the plugin reports it ok on every run and the refresh interval passes
 // many times over.
 func TestConditionScopeHealthyKeysNeverForwarded(t *testing.T) {
-	clock := testScopeEpoch
+	clock := testScopeEpoch()
 	d := newTestScopeDebouncer(&clock)
 
 	for run := 0; run < 24; run++ {
@@ -340,11 +342,11 @@ func TestConditionScopeHealthyKeysNeverForwarded(t *testing.T) {
 		}}
 		out := d.filter("a1", batch)
 		if len(out.GetRecords()) != 1 || describeRecord(t, out.GetRecords()[0]) != "marker:"+testScopeA {
-			t.Fatalf("run %d at +%s: want only the marker, got %d records", run, clock.Sub(testScopeEpoch), len(out.GetRecords()))
+			t.Fatalf("run %d at +%s: want only the marker, got %d records", run, clock.Sub(testScopeEpoch()), len(out.GetRecords()))
 		}
 		clock = clock.Add(5 * time.Minute)
 	}
-	if clock.Sub(testScopeEpoch) <= conditionRefreshInterval {
+	if clock.Sub(testScopeEpoch()) <= conditionRefreshInterval {
 		t.Fatal("test must span more than one refresh interval")
 	}
 	if len(d.scopes) != 0 {
@@ -354,7 +356,7 @@ func TestConditionScopeHealthyKeysNeverForwarded(t *testing.T) {
 
 // The synthesized clear is a valid event built from the forwarded raise.
 func TestConditionScopeClearRecordFields(t *testing.T) {
-	clock := testScopeEpoch
+	clock := testScopeEpoch()
 	d := newTestScopeDebouncer(&clock)
 
 	raise := scopedEvent(t, testKeyHot, testScopeA, "critical")
@@ -431,7 +433,7 @@ func TestConditionScopeClearTemplateShapes(t *testing.T) {
 	}{
 		{
 			name:   "numeric time stays numeric",
-			mutate: func(p map[string]any) { p["time"] = testScopeEpoch.Add(-time.Minute).UnixMilli() },
+			mutate: func(p map[string]any) { p["time"] = testScopeEpoch().Add(-time.Minute).UnixMilli() },
 			checkFn: func(t *testing.T, now time.Time, payload map[string]any, _ *addonpb.TelemetryRecord) {
 				t.Helper()
 				if payload["time"] != float64(now.UnixMilli()) {
@@ -463,7 +465,7 @@ func TestConditionScopeClearTemplateShapes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			clock := testScopeEpoch
+			clock := testScopeEpoch()
 			d := newTestScopeDebouncer(&clock)
 			raw := scopedConditionPayload(testKeyHot, testScopeA, "critical")
 			tc.mutate(raw)
@@ -484,7 +486,7 @@ func TestConditionScopeClearTemplateShapes(t *testing.T) {
 // refreshed, and a marker never clears an unscoped key, even one with the same
 // condition_key as a scoped key.
 func TestConditionScopeLeavesUnscopedConditionsAlone(t *testing.T) {
-	clock := testScopeEpoch
+	clock := testScopeEpoch()
 	d := newTestScopeDebouncer(&clock)
 
 	steps := []scopeStep{

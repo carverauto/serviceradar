@@ -49,6 +49,9 @@ type SyncRuntime struct {
 	stateMu sync.Mutex
 	ctx     context.Context
 	sources map[string]*syncSourceRunner
+	// drivers resolves a source type to its driver; supported integrations
+	// are defined solely by it.
+	drivers syncsources.Registry
 
 	// runTimeout overrides the per-run deadline derived from the source's
 	// interval. Zero means derive it (see syncRunTimeout).
@@ -107,6 +110,7 @@ func NewSyncRuntime(server *Server, gateway *agentgateway.GatewayClient, log log
 		gateway: gateway,
 		logger:  log,
 		sources: make(map[string]*syncSourceRunner),
+		drivers: syncSourceDrivers(),
 	}
 }
 
@@ -152,7 +156,7 @@ func (r *SyncRuntime) ApplyConfig(configJSON []byte) {
 	}
 
 	for key, source := range sources {
-		if !isSupportedSource(source.Type) {
+		if !r.drivers.IsSupported(source.Type) {
 			r.logger.Warn().Str("source", key).Str("type", source.Type).
 				Msg("Skipping unsupported sync source type")
 			continue
@@ -349,7 +353,7 @@ func (r *SyncRuntime) runSourceOnce(
 	runID string,
 ) (int, error) {
 	sourceType := syncsources.NormalizeType(runner.config.Type)
-	ctor, ok := syncsources.Lookup(sourceType)
+	ctor, ok := r.drivers.Lookup(sourceType)
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", errUnsupportedSyncSourceType, sourceType)
 	}
@@ -644,13 +648,6 @@ func syncSourceHash(source models.SourceConfig) string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:8])
-}
-
-// isSupportedSource reports whether a driver is registered for the source
-// type. Supported integrations are defined solely by the syncsources
-// registry; the runtime has no knowledge of individual integrations.
-func isSupportedSource(sourceType string) bool {
-	return syncsources.IsSupported(sourceType)
 }
 
 type syncChunkMeta struct {

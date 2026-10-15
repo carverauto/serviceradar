@@ -679,7 +679,7 @@ func TestConfigRefreshPreservesLocalOverride(t *testing.T) {
 
 	// Simulate a config refresh by calling the internal check
 	// (In production this happens on a timer)
-	svc.checkConfigUpdate(ctx)
+	svc.checkConfigUpdate()
 
 	// Config should remain the same since local file hasn't changed
 	afterSource := svc.GetConfigSource()
@@ -692,7 +692,6 @@ func TestConfigRefreshPreservesLocalOverride(t *testing.T) {
 func TestSysmonRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
 	log := logger.NewTestLogger()
 	cachePath := filepath.Join(t.TempDir(), "cache", "sysmon-config.json")
 	initialConfig := sysmon.Config{
@@ -752,7 +751,7 @@ func TestSysmonRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
 	err = os.WriteFile(cachePath, []byte(conflictingCache), 0644)
 	require.NoError(t, err)
 
-	svc.checkConfigUpdate(ctx)
+	svc.checkConfigUpdate()
 
 	assert.Equal(t, configSourceRemote, svc.GetConfigSource())
 	assert.Equal(t, remoteHash, svc.GetConfigHash())

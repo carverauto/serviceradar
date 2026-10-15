@@ -127,6 +127,11 @@ type flowAttributionDeliveryWindow struct {
 type flowAttributionDeliveryQueue struct {
 	mu      sync.Mutex
 	pending *flowAttributionPendingBatch
+	// droppedAcked is the netprobe sidecar's cumulative drop count as of the
+	// last batch the gateway acknowledged, so each batch reports only the
+	// drops since then. It resets across agent restarts, as the sidecar's
+	// counter does.
+	droppedAcked atomic.Uint64
 }
 
 func (q *flowAttributionDeliveryQueue) getOrLoad(load func() *flowAttributionPendingBatch) *flowAttributionPendingBatch {
@@ -284,7 +289,8 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 			return nil
 		}
 
-		cumulativeDropped, dropped := observeFlowAttributionDropped(netprobeSidecar)
+		cumulativeDropped := netprobeSidecar.DroppedFlowAttributionEvents()
+		dropped := p.flowAttributionDelivery.observeDropped(cumulativeDropped)
 
 		return &flowAttributionPendingBatch{
 			events:              flattenFlowAttributionEventBatches(eventBatches, totalEvents),
@@ -406,7 +412,7 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 
 		agentFlowAttributionEventsForwardedTotal.Add(uint64(window.eventCount))
 		if commitDropBaseline {
-			commitFlowAttributionDropped(cumulativeDropped)
+			p.flowAttributionDelivery.commitDropped(cumulativeDropped)
 		}
 		sentAny = true
 
@@ -703,42 +709,29 @@ func newFlowAttributionGatewayStatusChunk(
 	}
 }
 
-// observeFlowAttributionDropped reads the cumulative drop counter from
-// the netprobe sidecar's IPC client and returns (cumulative, delta
-// since the previous successful push). It does NOT advance the
-// baseline — callers must invoke commitFlowAttributionDropped with the
-// returned cumulative value only after the gateway has acked the batch.
-// A transport failure leaves the baseline unmoved so the next push
-// replays the unreported delta.
-//
-// Tracked per-process; resets across agent restarts but is consistent
-// with the rest of the agent's counter conventions.
-func observeFlowAttributionDropped(s *agentnetprobe.Sidecar) (cumulative uint64, delta uint32) {
-	cumulative = s.DroppedFlowAttributionEvents()
-	prev := lastDroppedFlowAttribution.Load()
+// observeDropped returns the drops since the acknowledged baseline, given the
+// sidecar's cumulative drop count. It does NOT advance the baseline: callers
+// commit the cumulative value only after the gateway has acked the batch, so a
+// transport failure leaves the baseline unmoved and the next push replays the
+// unreported delta.
+func (q *flowAttributionDeliveryQueue) observeDropped(cumulative uint64) uint32 {
+	prev := q.droppedAcked.Load()
 	if cumulative < prev {
 		// Counter wrapped or client was replaced. Treat the current
 		// value as the delta and let the commit reset the baseline.
-		return cumulative, clampToUint32(cumulative)
+		return clampToUint32(cumulative)
 	}
-	return cumulative, clampToUint32(cumulative - prev)
+	return clampToUint32(cumulative - prev)
 }
 
-// commitFlowAttributionDropped advances the dropped-counter baseline after a
-// successful gateway ack. Storing the same cumulative value again is harmless.
-func commitFlowAttributionDropped(cumulative uint64) {
+// commitDropped advances the drop baseline after a successful gateway ack.
+// Storing the same cumulative value again is harmless.
+func (q *flowAttributionDeliveryQueue) commitDropped(cumulative uint64) {
 	// Plain Store is sufficient — only one push goroutine reaches here
 	// at a time per agent, and a later observe will pick up further
 	// drops naturally.
-	lastDroppedFlowAttribution.Store(cumulative)
+	q.droppedAcked.Store(cumulative)
 }
-
-// lastDroppedFlowAttribution holds the previously-observed cumulative
-// drop count so the next batch can publish a delta. Package-level
-// because the counter on the netprobe client is also process-global.
-//
-//nolint:gochecknoglobals // process-global baseline for cumulative-counter delta
-var lastDroppedFlowAttribution atomic.Uint64
 
 func clampToUint32(v uint64) uint32 {
 	const maxU32 uint64 = 1<<32 - 1

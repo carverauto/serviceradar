@@ -322,32 +322,23 @@ func TestEndpointInventorySpoolServiceOverridesExistingAgentID(t *testing.T) {
 	}
 }
 
-// TestEndpointInventorySpoolPayloadCapDefaultsToTransportLimit pins the tunable to the
-// real transport constant. shrinkEndpointInventorySpoolPayloadCap lets tests move it, so
+// TestEndpointInventorySpoolPayloadCapDefaultsToTransportLimit pins the constructed
+// service's cap to the real transport constant. The cap test below shrinks it, so
 // without this a wrong default would ship and every cap test would still pass.
 func TestEndpointInventorySpoolPayloadCapDefaultsToTransportLimit(t *testing.T) {
-	if endpointInventorySpoolPayloadCap != endpointinventory.MaxSpoolPayloadBytes {
+	service := NewEndpointInventorySpoolService(endpointInventorySpoolTestAgentID, &EndpointInventoryStatusConfig{})
+	if service.payloadCap != endpointinventory.MaxSpoolPayloadBytes {
 		t.Fatalf("production cap = %d, want %d",
-			endpointInventorySpoolPayloadCap, endpointinventory.MaxSpoolPayloadBytes)
+			service.payloadCap, endpointinventory.MaxSpoolPayloadBytes)
 	}
 }
 
-// shrinkEndpointInventorySpoolPayloadCap lowers the status-transport size budget for the
-// duration of one test. Building a fixture at the real 32 MiB cap costs two marshals of a
-// 32 MiB document plus a disk round trip, which under -race was 5.75s -- 20% of this
-// package's entire test runtime for one assertion about a size comparison.
-func shrinkEndpointInventorySpoolPayloadCap(t *testing.T, limit int64) {
-	t.Helper()
-
-	orig := endpointInventorySpoolPayloadCap
-	endpointInventorySpoolPayloadCap = limit
-	t.Cleanup(func() { endpointInventorySpoolPayloadCap = orig })
-}
-
+// TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation shrinks the
+// service's size budget: building a fixture at the real 32 MiB cap costs two marshals
+// of a 32 MiB document plus a disk round trip, which under -race was 5.75s -- 20% of
+// this package's entire test runtime for one assertion about a size comparison.
 func TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation(t *testing.T) {
 	const capBytes = int64(8192)
-
-	shrinkEndpointInventorySpoolPayloadCap(t, capBytes)
 
 	root := t.TempDir()
 	spoolPath := filepath.Join(root, "latest.json")
@@ -389,6 +380,7 @@ func TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation(t *testing
 			TmpDir:    filepath.Join(root, "tmp"),
 		},
 	)
+	service.payloadCap = capBytes
 	_, err = service.GetStatus(context.Background())
 	if !errors.Is(err, errEndpointInventorySpoolTooLarge) {
 		t.Fatalf("status error = %v, want errEndpointInventorySpoolTooLarge", err)

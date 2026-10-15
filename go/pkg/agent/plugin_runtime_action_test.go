@@ -725,7 +725,7 @@ func TestCredentialBrokerOAuth2PasswordBearerKeepsTokenExchangeHostSide(t *testi
 	}}
 
 	if err := exec.applyCredentialBrokerOAuth2Bearer(
-		t.Context(), upstreamReq, grant, material, oauth2GrantShapes[injectTypeOAuth2PasswordBearer], false,
+		t.Context(), upstreamReq, grant, material, mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer), false,
 	); err != nil {
 		t.Fatalf("applyCredentialBrokerOAuth2Bearer returned error: %v", err)
 	}
@@ -771,7 +771,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDeniesBeforeTokenExchangeOnTargetMi
 			"username": "inventory-user",
 			"password": "long-lived-password",
 		}},
-		oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
+		mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer),
 		false,
 	)
 	if !errors.Is(err, errCredentialBrokerTokenExchangeInvalid) {
@@ -816,7 +816,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDoesNotFollowTokenRedirects(t *test
 			"username": "inventory-user",
 			"password": "long-lived-password",
 		}},
-		oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
+		mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer),
 		false,
 	)
 	if !errors.Is(err, errCredentialBrokerTokenExchangeFailed) {
@@ -1216,13 +1216,13 @@ func TestCredentialBrokerOAuth2PasswordBearerSkipsTLSWhenRequested(t *testing.T)
 	}}
 
 	if err := exec.applyCredentialBrokerOAuth2Bearer(
-		t.Context(), req, grant, material, oauth2GrantShapes[injectTypeOAuth2PasswordBearer], false,
+		t.Context(), req, grant, material, mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer), false,
 	); err == nil {
 		t.Fatal("expected verified TLS against the untrusted test certificate to fail")
 	}
 
 	if err := exec.applyCredentialBrokerOAuth2Bearer(
-		t.Context(), req, grant, material, oauth2GrantShapes[injectTypeOAuth2PasswordBearer], true,
+		t.Context(), req, grant, material, mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer), true,
 	); err != nil {
 		t.Fatalf("insecure skip-verify token exchange failed: %v", err)
 	}
@@ -1682,7 +1682,7 @@ func TestCredentialBrokerOAuth2ClientCredentialsExchangesSecretForBearer(t *test
 			"client_id":     "clearpass-monitor",
 			"client_secret": "long-lived-client-secret",
 		}},
-		oauth2GrantShapes[injectTypeOAuth2ClientCredentials],
+		mustOAuth2GrantShape(injectTypeOAuth2ClientCredentials),
 		false,
 	); err != nil {
 		t.Fatalf("applyCredentialBrokerOAuth2Bearer returned error: %v", err)
@@ -1726,14 +1726,14 @@ func TestCredentialBrokerOAuth2GrantShapesRequireTheirOwnCredentialFields(t *tes
 	}{
 		{
 			name:     "client credentials grant refuses to run on password fields",
-			shape:    oauth2GrantShapes[injectTypeOAuth2ClientCredentials],
+			shape:    mustOAuth2GrantShape(injectTypeOAuth2ClientCredentials),
 			base:     oauth2ClientCredentialsTestInject,
 			mappings: map[string]string{"field_username": "username", "field_password": "password"},
 			fields:   map[string]string{"username": "u", "password": "p"},
 		},
 		{
 			name:     "password grant refuses to run on client credential fields",
-			shape:    oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
+			shape:    mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer),
 			base:     oauth2PasswordBearerTestInject,
 			mappings: map[string]string{"field_client_id": "client_id", "field_client_secret": "client_secret"},
 			fields:   map[string]string{"client_id": "c", "client_secret": "s"},
@@ -1819,4 +1819,14 @@ func TestOAuth2GrantShapeForRoutesOnlyOAuth2Types(t *testing.T) {
 			t.Errorf("oauth2GrantShapeFor(%q) wrongly routed to the token exchange", injectType)
 		}
 	}
+}
+
+// mustOAuth2GrantShape returns the grant shape of an OAuth2 inject type the
+// caller knows to be one.
+func mustOAuth2GrantShape(injectType string) oauth2GrantShape {
+	shape, ok := oauth2GrantShapeFor(injectType)
+	if !ok {
+		panic("not an OAuth2 inject type: " + injectType)
+	}
+	return shape
 }

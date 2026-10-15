@@ -147,13 +147,7 @@ func (s *SysmonService) Start(ctx context.Context) error {
 		source = configSourceTest
 	} else {
 		// Load configuration (local file takes precedence)
-		var err error
-		config, source, err = s.loadConfig(ctx)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to load sysmon config, using defaults")
-			config = sysmon.DefaultConfig()
-			source = configSourceDefault
-		}
+		config, source = s.loadConfig()
 	}
 
 	// Check if sysmon is enabled
@@ -216,8 +210,6 @@ func (s *SysmonService) Start(ctx context.Context) error {
 }
 
 // Stop halts the sysmon collector and config refresh loop.
-//
-//nolint:dupl // Intentional parallel structure with SNMPAgentService.Stop
 func (s *SysmonService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 
@@ -236,17 +228,7 @@ func (s *SysmonService) Stop(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	// Wait for refresh loop to finish (with timeout from context)
-	if s.refreshDone != nil {
-		select {
-		case <-s.refreshDone:
-			// Refresh loop stopped
-		case <-ctx.Done():
-			s.logger.Warn().Msg("Timeout waiting for config refresh loop to stop")
-		case <-time.After(5 * time.Second):
-			s.logger.Warn().Msg("Timeout waiting for config refresh loop to stop")
-		}
-	}
+	awaitConfigRefreshLoop(ctx, s.refreshDone, s.logger, "Timeout waiting for config refresh loop to stop")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -348,16 +330,13 @@ func (s *SysmonService) InjectSyntheticSpike(metric string, value float64, sampl
 
 // loadConfig loads the sysmon configuration from local file or defaults.
 // It also tracks the source of the config for logging/debugging.
-// The ctx parameter and error return are kept for future remote config fetching support.
-//
-//nolint:unparam // error return reserved for future remote config fetching
-func (s *SysmonService) loadConfig(_ context.Context) (sysmon.Config, string, error) {
+func (s *SysmonService) loadConfig() (sysmon.Config, string) {
 	// Try local config file first (highest priority)
 	localPath := s.getLocalConfigPath()
 	if localPath != "" {
 		if cfg, err := sysmon.LoadConfigFromFile(localPath); err == nil {
 			s.logger.Info().Str("path", localPath).Msg("Loaded sysmon config from local file")
-			return *cfg, "local:" + localPath, nil
+			return *cfg, "local:" + localPath
 		}
 	}
 
@@ -366,7 +345,7 @@ func (s *SysmonService) loadConfig(_ context.Context) (sysmon.Config, string, er
 		configPath := filepath.Join(s.configDir, "sysmon.json")
 		if cfg, err := sysmon.LoadConfigFromFile(configPath); err == nil {
 			s.logger.Info().Str("path", configPath).Msg("Loaded sysmon config from config directory")
-			return *cfg, "local:" + configPath, nil
+			return *cfg, "local:" + configPath
 		}
 	}
 
@@ -375,13 +354,13 @@ func (s *SysmonService) loadConfig(_ context.Context) (sysmon.Config, string, er
 	if cachePath != "" {
 		if cfg, err := sysmon.LoadConfigFromFile(cachePath); err == nil {
 			s.logger.Info().Str("path", cachePath).Msg("Loaded sysmon config from cache")
-			return *cfg, "cache:" + cachePath, nil
+			return *cfg, "cache:" + cachePath
 		}
 	}
 
 	// Fall back to defaults
 	s.logger.Info().Msg("Using default sysmon configuration")
-	return sysmon.DefaultConfig(), configSourceDefault, nil
+	return sysmon.DefaultConfig(), configSourceDefault
 }
 
 // cacheConfig writes the current config to the cache file for resilience.
@@ -447,13 +426,13 @@ func (s *SysmonService) configRefreshLoop(ctx context.Context) {
 			s.logger.Debug().Msg("Config refresh loop stopping due to stop signal")
 			return
 		case <-ticker.C:
-			s.checkConfigUpdate(ctx)
+			s.checkConfigUpdate()
 		}
 	}
 }
 
 // checkConfigUpdate checks for config changes and reconfigures if needed.
-func (s *SysmonService) checkConfigUpdate(ctx context.Context) {
+func (s *SysmonService) checkConfigUpdate() {
 	s.mu.RLock()
 	currentHash := s.configHash
 	currentSource := s.configSource
@@ -465,11 +444,7 @@ func (s *SysmonService) checkConfigUpdate(ctx context.Context) {
 	}
 
 	// Load fresh config
-	newConfig, source, err := s.loadConfig(ctx)
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to load config during refresh")
-		return
-	}
+	newConfig, source := s.loadConfig()
 
 	// Compute hash of new config
 	newHash := computeConfigHash(newConfig)
@@ -699,4 +674,25 @@ func (s *SysmonService) GetConfigHash() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.configHash
+}
+
+// configRefreshStopTimeout bounds how long Stop waits for a service's config
+// refresh loop to exit.
+const configRefreshStopTimeout = 5 * time.Second
+
+// awaitConfigRefreshLoop waits for a service's config refresh loop to report
+// that it exited, giving up with timeoutMsg when ctx ends or after
+// configRefreshStopTimeout. A nil done means no loop was started.
+func awaitConfigRefreshLoop(ctx context.Context, done <-chan struct{}, log logger.Logger, timeoutMsg string) {
+	if done == nil {
+		return
+	}
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		log.Warn().Msg(timeoutMsg)
+	case <-time.After(configRefreshStopTimeout):
+		log.Warn().Msg(timeoutMsg)
+	}
 }

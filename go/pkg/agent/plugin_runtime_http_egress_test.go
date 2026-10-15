@@ -162,7 +162,7 @@ func TestPluginHostHTTPRequestEnforcesManifestEgressDestination(t *testing.T) {
 			requestURL: "https://192.168.1.1/proxy/protect/api/bootstrap",
 			permissions: pluginPermissions{
 				AllowedDomains:  []string{"*"},
-				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedNetworks: onPremApplianceAllowedNetworks(),
 				AllowedPorts:    []int{443},
 			},
 			wantAllowed: true,
@@ -172,7 +172,7 @@ func TestPluginHostHTTPRequestEnforcesManifestEgressDestination(t *testing.T) {
 			requestURL: "https://100.64.0.7/proxy/protect/api/bootstrap",
 			permissions: pluginPermissions{
 				AllowedDomains:  []string{"*"},
-				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedNetworks: onPremApplianceAllowedNetworks(),
 				AllowedPorts:    []int{443},
 			},
 			wantAllowed: true,
@@ -182,7 +182,7 @@ func TestPluginHostHTTPRequestEnforcesManifestEgressDestination(t *testing.T) {
 			requestURL: "https://169.254.0.1/proxy/protect/api/bootstrap",
 			permissions: pluginPermissions{
 				AllowedDomains:  []string{"*"},
-				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedNetworks: onPremApplianceAllowedNetworks(),
 				AllowedPorts:    []int{443},
 			},
 		},
@@ -238,7 +238,7 @@ func TestPluginHTTPEgressDeniedReasonNamesTheFailedGate(t *testing.T) {
 			name:       "permitted host on an unlisted port fails the port gate",
 			requestURL: "https://192.168.1.1:8443/proxy/protect/api/bootstrap",
 			permissions: pluginPermissions{
-				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedNetworks: onPremApplianceAllowedNetworks(),
 				AllowedPorts:    []int{443},
 			},
 			want: pluginHTTPDeniedReasonEgressPort,
@@ -247,7 +247,7 @@ func TestPluginHTTPEgressDeniedReasonNamesTheFailedGate(t *testing.T) {
 			name:       "unsupported scheme is not attributed to either gate",
 			requestURL: "ftp://192.168.1.1/resource",
 			permissions: pluginPermissions{
-				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedNetworks: onPremApplianceAllowedNetworks(),
 				AllowedPorts:    []int{443},
 			},
 			want: pluginHTTPDeniedReasonEgress,

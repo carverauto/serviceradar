@@ -29,10 +29,10 @@ import (
 
 const testDNSProtocol = "dns"
 
-// streaming event delivery; the branching mirrors the frame types under test and keeping
-// them in one test preserves ordering guarantees that splitting into subtests would lose.
-//
-//nolint:gocyclo // end-to-end integration scenario exercising ping, apply_config, and
+// TestClientPingApplyConfigAndEvents drives one connection end to end: a ping
+// handshake, an apply_config round trip, then one event of each streamed type.
+// It stays a single scenario because the event frames must follow the two
+// acknowledged requests on the same connection.
 func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer func() { _ = serverConn.Close() }()
@@ -40,75 +40,7 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	serverDone := make(chan struct{})
 	go func() {
 		defer close(serverDone)
-		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
-			ping := frame.GetPing()
-			if ping == nil {
-				t.Errorf("first frame payload = %T, want ping", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
-			}
-			return &netprobepb.NetprobeFrame{
-				Sequence: frame.GetSequence(),
-				Payload: &netprobepb.NetprobeFrame_PingAck{
-					PingAck: &netprobepb.PingAck{
-						SentAtUnixNano:                     ping.GetSentAtUnixNano(),
-						AckedAtUnixNano:                    ping.GetSentAtUnixNano() + 1,
-						FingerprintEngineVersion:           "test-engine",
-						P0FCorpusRevision:                  "p0f-rev",
-						ServiceradarAdditionsRevision:      "sr-additions-rev",
-						Ja4SpecRevision:                    "ja4-rev",
-						MuonfpCorpusRevision:               "muonfp-rev",
-						RecogCorpusRevision:                "recog-rev",
-						SatoriCorpusRevision:               "satori-rev",
-						ServiceradarRecogAdditionsRevision: "sr-recog-rev",
-						RecogCorpusLoaded:                  true,
-					},
-				},
-			}
-		})
-		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
-			if frame.GetApplyConfig() == nil {
-				t.Errorf("second frame payload = %T, want apply_config", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected apply_config")
-			}
-			return &netprobepb.NetprobeFrame{
-				Sequence: frame.GetSequence(),
-				Payload: &netprobepb.NetprobeFrame_ConfigAck{
-					ConfigAck: &netprobepb.ConfigAck{ConfigHash: "hash-1"},
-				},
-			}
-		})
-		err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
-			Payload: &netprobepb.NetprobeFrame_FingerprintEvent{
-				FingerprintEvent: &netprobepb.FingerprintEvent{Ip: "192.0.2.10"},
-			},
-		})
-		if err != nil {
-			t.Errorf("write event frame: %v", err)
-		}
-		err = writeFrame(serverConn, &netprobepb.NetprobeFrame{
-			Payload: &netprobepb.NetprobeFrame_DpiEvent{
-				DpiEvent: &netprobepb.DpiEvent{Protocol: testDNSProtocol},
-			},
-		})
-		if err != nil {
-			t.Errorf("write DPI event frame: %v", err)
-		}
-		err = writeFrame(serverConn, &netprobepb.NetprobeFrame{
-			Payload: &netprobepb.NetprobeFrame_FlowAttributionEvent{
-				FlowAttributionEvent: &netprobepb.FlowAttributionEvent{LocalIp: "192.0.2.10", Pid: 123},
-			},
-		})
-		if err != nil {
-			t.Errorf("write flow attribution event frame: %v", err)
-		}
-		err = writeFrame(serverConn, &netprobepb.NetprobeFrame{
-			Payload: &netprobepb.NetprobeFrame_ProcessSnapshot{
-				ProcessSnapshot: &netprobepb.ProcessSnapshot{Fingerprint: "fp-1"},
-			},
-		})
-		if err != nil {
-			t.Errorf("write process snapshot frame: %v", err)
-		}
+		serveClientScenario(t, serverConn)
 	}()
 
 	client := NewClient(clientConn, 4)
@@ -120,33 +52,7 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("Ping() error = %v", err)
 	}
-	if got := client.FingerprintEngineVersion(); got != "test-engine" {
-		t.Fatalf("FingerprintEngineVersion() = %q, want test-engine", got)
-	}
-	if got := client.P0fCorpusRevision(); got != "p0f-rev" {
-		t.Fatalf("P0fCorpusRevision() = %q, want p0f-rev", got)
-	}
-	if got := client.ServiceRadarAdditionsRevision(); got != "sr-additions-rev" {
-		t.Fatalf("ServiceRadarAdditionsRevision() = %q, want sr-additions-rev", got)
-	}
-	if got := client.JA4SpecRevision(); got != "ja4-rev" {
-		t.Fatalf("JA4SpecRevision() = %q, want ja4-rev", got)
-	}
-	if got := client.MuonFPCorpusRevision(); got != "muonfp-rev" {
-		t.Fatalf("MuonFPCorpusRevision() = %q, want muonfp-rev", got)
-	}
-	if got := client.RecogCorpusRevision(); got != "recog-rev" {
-		t.Fatalf("RecogCorpusRevision() = %q, want recog-rev", got)
-	}
-	if got := client.SatoriCorpusRevision(); got != "satori-rev" {
-		t.Fatalf("SatoriCorpusRevision() = %q, want satori-rev", got)
-	}
-	if got := client.ServiceRadarRecogAdditionsRevision(); got != "sr-recog-rev" {
-		t.Fatalf("ServiceRadarRecogAdditionsRevision() = %q, want sr-recog-rev", got)
-	}
-	if !client.RecogCorpusLoaded() {
-		t.Fatal("RecogCorpusLoaded() = false, want true")
-	}
+	assertScenarioCorpusRevisions(t, client)
 
 	hash, err := client.ApplyConfig(ctx, &netprobepb.VisibilityAgentConfig{
 		Enabled:           true,
@@ -159,41 +65,128 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 		t.Fatalf("ApplyConfig() hash = %q, want hash-1", hash)
 	}
 
-	select {
-	case event := <-client.Events():
-		if event.GetIp() != "192.0.2.10" {
-			t.Fatalf("event IP = %q, want 192.0.2.10", event.GetIp())
-		}
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for fingerprint event")
+	if event := receiveScenarioEvent(ctx, t, client.Events(), "fingerprint event"); event.GetIp() != "192.0.2.10" {
+		t.Fatalf("event IP = %q, want 192.0.2.10", event.GetIp())
 	}
-	select {
-	case event := <-client.DpiEvents():
-		if event.GetProtocol() != testDNSProtocol {
-			t.Fatalf("DPI event protocol = %q, want dns", event.GetProtocol())
-		}
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for DPI event")
+	if event := receiveScenarioEvent(ctx, t, client.DpiEvents(), "DPI event"); event.GetProtocol() != testDNSProtocol {
+		t.Fatalf("DPI event protocol = %q, want dns", event.GetProtocol())
 	}
-	select {
-	case event := <-client.FlowAttributionEvents():
-		if event.GetPid() != 123 {
-			t.Fatalf("flow attribution event PID = %d, want 123", event.GetPid())
-		}
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for flow attribution event")
+	if event := receiveScenarioEvent(ctx, t, client.FlowAttributionEvents(), "flow attribution event"); event.GetPid() != 123 {
+		t.Fatalf("flow attribution event PID = %d, want 123", event.GetPid())
 	}
-	select {
-	case snapshot := <-client.ProcessSnapshots():
-		if snapshot.GetFingerprint() != "fp-1" {
-			t.Fatalf("process snapshot fingerprint = %q, want fp-1", snapshot.GetFingerprint())
-		}
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for process snapshot")
+	if snapshot := receiveScenarioEvent(ctx, t, client.ProcessSnapshots(), "process snapshot"); snapshot.GetFingerprint() != "fp-1" {
+		t.Fatalf("process snapshot fingerprint = %q, want fp-1", snapshot.GetFingerprint())
 	}
 
 	_ = client.Close()
 	<-serverDone
+}
+
+// serveClientScenario is the sidecar half of TestClientPingApplyConfigAndEvents:
+// it acknowledges the ping and the apply_config, then streams one event of each
+// type.
+func serveClientScenario(t *testing.T, conn net.Conn) {
+	t.Helper()
+
+	handleTestFrame(t, conn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+		ping := frame.GetPing()
+		if ping == nil {
+			t.Errorf("first frame payload = %T, want ping", frame.GetPayload())
+			return errorResponse(frame.GetSequence(), "expected ping")
+		}
+		return &netprobepb.NetprobeFrame{
+			Sequence: frame.GetSequence(),
+			Payload: &netprobepb.NetprobeFrame_PingAck{
+				PingAck: &netprobepb.PingAck{
+					SentAtUnixNano:                     ping.GetSentAtUnixNano(),
+					AckedAtUnixNano:                    ping.GetSentAtUnixNano() + 1,
+					FingerprintEngineVersion:           "test-engine",
+					P0FCorpusRevision:                  "p0f-rev",
+					ServiceradarAdditionsRevision:      "sr-additions-rev",
+					Ja4SpecRevision:                    "ja4-rev",
+					MuonfpCorpusRevision:               "muonfp-rev",
+					RecogCorpusRevision:                "recog-rev",
+					SatoriCorpusRevision:               "satori-rev",
+					ServiceradarRecogAdditionsRevision: "sr-recog-rev",
+					RecogCorpusLoaded:                  true,
+				},
+			},
+		}
+	})
+	handleTestFrame(t, conn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+		if frame.GetApplyConfig() == nil {
+			t.Errorf("second frame payload = %T, want apply_config", frame.GetPayload())
+			return errorResponse(frame.GetSequence(), "expected apply_config")
+		}
+		return &netprobepb.NetprobeFrame{
+			Sequence: frame.GetSequence(),
+			Payload: &netprobepb.NetprobeFrame_ConfigAck{
+				ConfigAck: &netprobepb.ConfigAck{ConfigHash: "hash-1"},
+			},
+		}
+	})
+
+	for _, frame := range []*netprobepb.NetprobeFrame{
+		{Payload: &netprobepb.NetprobeFrame_FingerprintEvent{
+			FingerprintEvent: &netprobepb.FingerprintEvent{Ip: "192.0.2.10"},
+		}},
+		{Payload: &netprobepb.NetprobeFrame_DpiEvent{
+			DpiEvent: &netprobepb.DpiEvent{Protocol: testDNSProtocol},
+		}},
+		{Payload: &netprobepb.NetprobeFrame_FlowAttributionEvent{
+			FlowAttributionEvent: &netprobepb.FlowAttributionEvent{LocalIp: "192.0.2.10", Pid: 123},
+		}},
+		{Payload: &netprobepb.NetprobeFrame_ProcessSnapshot{
+			ProcessSnapshot: &netprobepb.ProcessSnapshot{Fingerprint: "fp-1"},
+		}},
+	} {
+		if err := writeFrame(conn, frame); err != nil {
+			t.Errorf("write %T frame: %v", frame.GetPayload(), err)
+		}
+	}
+}
+
+// assertScenarioCorpusRevisions checks that the client exposes the corpus
+// revisions serveClientScenario put in its ping ack.
+func assertScenarioCorpusRevisions(t *testing.T, client *Client) {
+	t.Helper()
+
+	for _, revision := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"FingerprintEngineVersion", client.FingerprintEngineVersion(), "test-engine"},
+		{"P0fCorpusRevision", client.P0fCorpusRevision(), "p0f-rev"},
+		{"ServiceRadarAdditionsRevision", client.ServiceRadarAdditionsRevision(), "sr-additions-rev"},
+		{"JA4SpecRevision", client.JA4SpecRevision(), "ja4-rev"},
+		{"MuonFPCorpusRevision", client.MuonFPCorpusRevision(), "muonfp-rev"},
+		{"RecogCorpusRevision", client.RecogCorpusRevision(), "recog-rev"},
+		{"SatoriCorpusRevision", client.SatoriCorpusRevision(), "satori-rev"},
+		{"ServiceRadarRecogAdditionsRevision", client.ServiceRadarRecogAdditionsRevision(), "sr-recog-rev"},
+	} {
+		if revision.got != revision.want {
+			t.Fatalf("%s() = %q, want %q", revision.name, revision.got, revision.want)
+		}
+	}
+	if !client.RecogCorpusLoaded() {
+		t.Fatal("RecogCorpusLoaded() = false, want true")
+	}
+}
+
+// receiveScenarioEvent waits for the next value on events, failing the test
+// when ctx ends first.
+func receiveScenarioEvent[T any](ctx context.Context, t *testing.T, events <-chan T, what string) T {
+	t.Helper()
+
+	select {
+	case event := <-events:
+		return event
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for %s", what)
+		var zero T
+		return zero
+	}
 }
 
 // backpressureTestCase wires a typed-event-stream backpressure test into the
@@ -234,7 +227,7 @@ func runBackpressureTest(t *testing.T, tc backpressureTestCase) {
 			ping := frame.GetPing()
 			if ping == nil {
 				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
+				return errorResponse(frame.GetSequence(), "expected ping")
 			}
 			return &netprobepb.NetprobeFrame{
 				Sequence: frame.GetSequence(),
@@ -304,7 +297,7 @@ func TestClientMatchBanners(t *testing.T) {
 			batch := frame.GetBannerBatch()
 			if batch == nil || len(batch.GetObservations()) != 1 {
 				t.Errorf("frame payload = %T, want one banner observation", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected banner_batch")
+				return errorResponse(frame.GetSequence(), "expected banner_batch")
 			}
 
 			return &netprobepb.NetprobeFrame{
@@ -361,7 +354,7 @@ func TestClientIngestExternalFlow(t *testing.T) {
 			record := frame.GetExternalFlowRecord()
 			if record == nil || record.GetExternalFlowId() != 42 {
 				t.Errorf("frame payload = %T, want external_flow_record 42", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected external_flow_record")
+				return errorResponse(frame.GetSequence(), "expected external_flow_record")
 			}
 
 			return &netprobepb.NetprobeFrame{
@@ -519,12 +512,12 @@ func TestClientDropsProcessSnapshotsOnBackpressure(t *testing.T) {
 	})
 }
 
-//nolint:unparam // code parameterized for future error-code coverage in tests
-func errorResponse(sequence uint64, code, message string) *netprobepb.NetprobeFrame {
+// errorResponse is the error frame a test sidecar answers an unexpected frame with.
+func errorResponse(sequence uint64, message string) *netprobepb.NetprobeFrame {
 	return &netprobepb.NetprobeFrame{
 		Sequence: sequence,
 		Payload: &netprobepb.NetprobeFrame_Error{
-			Error: &netprobepb.ErrorFrame{Code: code, Message: message},
+			Error: &netprobepb.ErrorFrame{Code: "unexpected_frame", Message: message},
 		},
 	}
 }

@@ -52,18 +52,29 @@ const (
 	trustedChconPath           = "/usr/bin/chcon"
 )
 
-// Privileged helper paths must never be resolved through the caller's PATH. The
-// updater is installed setuid-root on package installations, so PATH lookup would
-// let its unprivileged caller select the executable run with elevated privileges.
-// Tests temporarily retarget these variables to synthetic helpers.
-var (
-	systemctlCommandPath = trustedSystemctlPath //nolint:gochecknoglobals // test seam for an external command
-	chconCommandPath     = trustedChconPath     //nolint:gochecknoglobals // test seam for an external command
-)
+// systemHost is the host surface the root-owned updater acts on: the
+// privileged helper executables it runs and the systemd unit directory it
+// installs unit files into. Helper paths are absolute and never resolved through the caller's PATH:
+// the updater is installed setuid-root on package installations, so a PATH lookup
+// would let its unprivileged caller select the executable run with elevated
+// privileges.
+type systemHost struct {
+	systemctlPath string
+	chconPath     string
+	setcapPath    string
+	unitDir       string
+}
 
-// systemdUnitDir is where the root-owned updater installs add-on unit files.
-// Tests retarget it at a temp directory.
-var systemdUnitDir = "/etc/systemd/system" //nolint:gochecknoglobals // tunable for tests
+// trustedSystemHost is the production host: the fixed system tool paths and
+// the system unit directory.
+func trustedSystemHost() systemHost {
+	return systemHost{
+		systemctlPath: trustedSystemctlPath,
+		chconPath:     trustedChconPath,
+		setcapPath:    trustedSetcapPath,
+		unitDir:       defaultSystemdUnitDir,
+	}
+}
 
 // systemdUnitFileMode is the on-disk mode for an installed unit file (root:root 0644).
 const systemdUnitFileMode = 0o644
@@ -186,8 +197,8 @@ func resolveStagedAddonUnit(runtimeRoot, addonID, unitName string) (string, erro
 
 // runSystemctl runs `systemctl <args...>`, returning a wrapped error (with output) on
 // failure and ErrSystemctlUnavailable when systemctl is not installed.
-func runSystemctl(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, systemctlCommandPath, args...)
+func (h systemHost) runSystemctl(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, h.systemctlPath, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("%w: %w", ErrSystemctlUnavailable, err)
@@ -250,7 +261,7 @@ func resolvePrivilegedAddonUnit(privRoot, addonID, unitName string) (string, err
 
 // relabelPrivilegedAddonExecutables sets SELinux type bin_t on privileged add-on
 // binaries so systemd (init_t) can exec them.
-func relabelPrivilegedAddonExecutables(privRoot, addonID string) {
+func (h systemHost) relabelPrivilegedAddonExecutables(privRoot, addonID string) {
 	if !safeAddonSegment(addonID) {
 		return
 	}
@@ -267,7 +278,7 @@ func relabelPrivilegedAddonExecutables(privRoot, addonID string) {
 		if err != nil || !isStagedAddonExecutable(entry.Name(), info.Mode()) {
 			continue
 		}
-		relabelPathAsBinT(filepath.Join(currentDir, entry.Name()))
+		h.relabelPathAsBinT(filepath.Join(currentDir, entry.Name()))
 	}
 }
 
@@ -278,6 +289,10 @@ func relabelPrivilegedAddonExecutables(privRoot, addonID string) {
 // enables (--now) the primary unit. On any failure it removes newly installed units,
 // drop-ins, and rolls the privileged current symlink back to its previous target.
 func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallRequest) error {
+	return trustedSystemHost().installUnits(ctx, req)
+}
+
+func (h systemHost) installUnits(ctx context.Context, req AddonSystemdInstallRequest) error {
 	if err := validateAddonSystemdInstallRequest(req); err != nil {
 		return err
 	}
@@ -285,11 +300,11 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 	if err != nil {
 		return err
 	}
-	privRoot, rollbackPrivCurrent, err := materializePrivilegedAddon(req, data, wantSHA)
+	privRoot, rollbackPrivCurrent, err := h.materializePrivilegedAddon(req, data, wantSHA)
 	if err != nil {
 		return err
 	}
-	return installMaterializedAddonUnits(ctx, req, privRoot, rollbackPrivCurrent)
+	return h.installMaterializedAddonUnits(ctx, req, privRoot, rollbackPrivCurrent)
 }
 
 func validateAddonSystemdInstallRequest(req AddonSystemdInstallRequest) error {
@@ -348,7 +363,7 @@ func readVerifiedAddonArtifact(req AddonSystemdInstallRequest) ([]byte, string, 
 	return data, wantSHA, nil
 }
 
-func materializePrivilegedAddon(req AddonSystemdInstallRequest, data []byte, wantSHA string) (string, func(), error) {
+func (h systemHost) materializePrivilegedAddon(req AddonSystemdInstallRequest, data []byte, wantSHA string) (string, func(), error) {
 	privRoot, err := effectivePrivilegedAddonRoot(req.PrivilegedRoot, req.RuntimeRoot)
 	if err != nil {
 		return "", nil, err
@@ -401,7 +416,7 @@ func materializePrivilegedAddon(req AddonSystemdInstallRequest, data []byte, wan
 			_ = os.Remove(filepath.Join(privAddonDir, addonCurrentLink))
 		}
 	}
-	relabelPrivilegedAddonExecutables(privRoot, req.AddonID)
+	h.relabelPrivilegedAddonExecutables(privRoot, req.AddonID)
 	return privRoot, rollbackPrivCurrent, nil
 }
 
@@ -410,16 +425,16 @@ type privilegedUnitPayload struct {
 	data []byte
 }
 
-func installMaterializedAddonUnits(ctx context.Context, req AddonSystemdInstallRequest, privRoot string, rollbackPrivCurrent func()) error {
+func (h systemHost) installMaterializedAddonUnits(ctx context.Context, req AddonSystemdInstallRequest, privRoot string, rollbackPrivCurrent func()) error {
 	enable := strings.TrimSpace(req.Enable)
-	staged, timerService, err := loadPrivilegedUnitPayloads(ctx, req, privRoot, enable, rollbackPrivCurrent)
+	staged, timerService, err := h.loadPrivilegedUnitPayloads(ctx, req, privRoot, enable, rollbackPrivCurrent)
 	if err != nil {
 		return err
 	}
-	return commitPrivilegedUnitInstall(ctx, req, enable, staged, timerService, rollbackPrivCurrent)
+	return h.commitPrivilegedUnitInstall(ctx, req, enable, staged, timerService, rollbackPrivCurrent)
 }
 
-func loadPrivilegedUnitPayloads(ctx context.Context, req AddonSystemdInstallRequest, privRoot, enable string, rollbackPrivCurrent func()) ([]privilegedUnitPayload, string, error) {
+func (h systemHost) loadPrivilegedUnitPayloads(ctx context.Context, req AddonSystemdInstallRequest, privRoot, enable string, rollbackPrivCurrent func()) ([]privilegedUnitPayload, string, error) {
 	type privUnit struct{ name, src string }
 	resolved := make([]privUnit, 0, len(req.Units))
 	for _, name := range req.Units {
@@ -464,7 +479,7 @@ func loadPrivilegedUnitPayloads(ctx context.Context, req AddonSystemdInstallRequ
 	}
 
 	if len(req.Capabilities) > 0 {
-		if err := ApplyAddonCapabilities(ctx, AddonCapabilityRequest{
+		if err := h.applyAddonCapabilities(ctx, AddonCapabilityRequest{
 			RuntimeRoot:    req.RuntimeRoot,
 			PrivilegedRoot: privRoot,
 			AddonID:        req.AddonID,
@@ -478,7 +493,7 @@ func loadPrivilegedUnitPayloads(ctx context.Context, req AddonSystemdInstallRequ
 	return staged, timerService, nil
 }
 
-func commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallRequest, enable string, staged []privilegedUnitPayload, timerService string, rollbackPrivCurrent func()) error {
+func (h systemHost) commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallRequest, enable string, staged []privilegedUnitPayload, timerService string, rollbackPrivCurrent func()) error {
 	type unitSnapshot struct {
 		name    string
 		existed bool
@@ -486,7 +501,7 @@ func commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallReq
 	}
 	snapshots := make([]unitSnapshot, 0, len(staged))
 	for _, u := range staged {
-		dest := filepath.Join(systemdUnitDir, u.name)
+		dest := filepath.Join(h.unitDir, u.name)
 		snap := unitSnapshot{name: u.name}
 		prev, err := os.ReadFile(dest)
 		switch {
@@ -505,7 +520,7 @@ func commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallReq
 	if enable != "" {
 		for _, snap := range snapshots {
 			if snap.name == enable && snap.existed {
-				priorEnabled = runSystemctl(ctx, "is-enabled", "--quiet", enable) == nil
+				priorEnabled = h.runSystemctl(ctx, "is-enabled", "--quiet", enable) == nil
 				break
 			}
 		}
@@ -517,19 +532,19 @@ func commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallReq
 			dropIn.restore()
 		}
 		for _, snap := range snapshots {
-			dest := filepath.Join(systemdUnitDir, snap.name)
+			dest := filepath.Join(h.unitDir, snap.name)
 			if snap.existed {
 				_ = os.WriteFile(dest, snap.data, systemdUnitFileMode)
 			} else {
 				_ = os.Remove(dest)
 			}
 		}
-		_ = runSystemctl(ctx, "daemon-reload")
+		_ = h.runSystemctl(ctx, "daemon-reload")
 		rollbackPrivCurrent()
 	}
 
 	for _, u := range staged {
-		dest := filepath.Join(systemdUnitDir, u.name)
+		dest := filepath.Join(h.unitDir, u.name)
 		if err := os.WriteFile(dest, u.data, systemdUnitFileMode); err != nil {
 			cleanup()
 			return fmt.Errorf("install unit %s: %w", u.name, err)
@@ -537,19 +552,19 @@ func commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallReq
 	}
 
 	if enable != "" && !req.Resources.IsZero() {
-		snap, err := snapshotDropIn(filepath.Join(systemdUnitDir, enable+".d"))
+		snap, err := snapshotDropIn(filepath.Join(h.unitDir, enable+".d"))
 		if err != nil {
 			cleanup()
 			return err
 		}
 		dropIn = &snap
-		if err := writeSystemdResourceDropIn(enable, req.Resources); err != nil {
+		if err := h.writeSystemdResourceDropIn(enable, req.Resources); err != nil {
 			cleanup()
 			return err
 		}
 	}
 
-	if err := runSystemctl(ctx, "daemon-reload"); err != nil {
+	if err := h.runSystemctl(ctx, "daemon-reload"); err != nil {
 		cleanup()
 		return err
 	}
@@ -560,14 +575,14 @@ func commitPrivilegedUnitInstall(ctx context.Context, req AddonSystemdInstallReq
 		return err
 	}
 	if enable != "" {
-		if err := activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
-			_ = runSystemctl(ctx, "disable", "--now", enable)
+		if err := h.activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
+			_ = h.runSystemctl(ctx, "disable", "--now", enable)
 			cleanup()
 			if restoreErr := restoreState(); restoreErr != nil {
 				return restoreErr
 			}
 			if priorEnabled {
-				_ = runSystemctl(ctx, "enable", "--now", enable)
+				_ = h.runSystemctl(ctx, "enable", "--now", enable)
 			}
 			return err
 		}
@@ -613,22 +628,22 @@ func stagedTimerService(path, timer string, units []string) (string, error) {
 	return service, nil
 }
 
-func activateAddonSystemdUnits(ctx context.Context, enable, timerService string) error {
+func (h systemHost) activateAddonSystemdUnits(ctx context.Context, enable, timerService string) error {
 	if timerService != "" {
-		if err := runSystemctl(ctx, "reset-failed", timerService); err != nil {
+		if err := h.runSystemctl(ctx, "reset-failed", timerService); err != nil {
 			return err
 		}
 	}
-	if err := runSystemctl(ctx, "enable", "--now", enable); err != nil {
+	if err := h.runSystemctl(ctx, "enable", "--now", enable); err != nil {
 		return err
 	}
-	if err := runSystemctl(ctx, "restart", enable); err != nil {
+	if err := h.runSystemctl(ctx, "restart", enable); err != nil {
 		return err
 	}
 	if timerService != "" {
 		// Queue a fresh execution of the staged candidate without blocking the
 		// updater for an entire scan. Its own outcome remains visible to health.
-		return runSystemctl(ctx, "restart", "--no-block", timerService)
+		return h.runSystemctl(ctx, "restart", "--no-block", timerService)
 	}
 	return nil
 }
@@ -638,6 +653,10 @@ func activateAddonSystemdUnits(ctx context.Context, enable, timerService string)
 // are tolerated so teardown is idempotent. Used when an assignment is disabled/removed
 // and as part of rollback.
 func UninstallAddonSystemdUnits(ctx context.Context, units []string) error {
+	return trustedSystemHost().uninstallUnits(ctx, units)
+}
+
+func (h systemHost) uninstallUnits(ctx context.Context, units []string) error {
 	if len(units) == 0 {
 		return ErrAddonSystemdNoUnits
 	}
@@ -651,16 +670,16 @@ func UninstallAddonSystemdUnits(ctx context.Context, units []string) error {
 	for _, name := range units {
 		// Disable is best-effort: a unit that was never enabled (or already removed)
 		// must not fail teardown.
-		_ = runSystemctl(ctx, "disable", "--now", name)
-		if err := os.Remove(filepath.Join(systemdUnitDir, name)); err != nil && !os.IsNotExist(err) {
+		_ = h.runSystemctl(ctx, "disable", "--now", name)
+		if err := os.Remove(filepath.Join(h.unitDir, name)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove unit %s: %w", name, err)
 		}
 		// Remove the agent-owned resource drop-in dir alongside the unit it modifies
 		// (best-effort; the unit is going away, so its drop-in must not linger).
-		_ = os.RemoveAll(filepath.Join(systemdUnitDir, name+".d"))
+		_ = os.RemoveAll(filepath.Join(h.unitDir, name+".d"))
 	}
 
-	return runSystemctl(ctx, "daemon-reload")
+	return h.runSystemctl(ctx, "daemon-reload")
 }
 
 // systemdDropInFileName is the drop-in the agent owns for an add-on's resource
@@ -671,11 +690,11 @@ const systemdDropInFileName = "50-serviceradar-resources.conf"
 // writeSystemdResourceDropIn writes a root:root 0644 systemd drop-in under
 // <unit>.d applying the manifest resource limits to the enabled unit, creating
 // the drop-in dir as needed. The unit name is already validated by the caller.
-func writeSystemdResourceDropIn(unit string, res agentaddon.Resources) error {
+func (h systemHost) writeSystemdResourceDropIn(unit string, res agentaddon.Resources) error {
 	if err := validateAddonResourceSlice(res.Slice); err != nil {
 		return err
 	}
-	dir := filepath.Join(systemdUnitDir, unit+".d")
+	dir := filepath.Join(h.unitDir, unit+".d")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create systemd drop-in dir for %s: %w", unit, err)
 	}
@@ -758,10 +777,10 @@ func isStagedAddonExecutable(name string, mode os.FileMode) bool {
 	}
 }
 
-func relabelPathAsBinT(path string) {
+func (h systemHost) relabelPathAsBinT(path string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = exec.CommandContext(ctx, chconCommandPath, "-t", "bin_t", path).Run()
+	_ = exec.CommandContext(ctx, h.chconPath, "-t", "bin_t", path).Run()
 }
 
 // containsString reports whether s is in list.

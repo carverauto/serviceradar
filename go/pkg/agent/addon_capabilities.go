@@ -38,23 +38,22 @@ import (
 
 const trustedSetcapPath = "/usr/sbin/setcap"
 
-// Tests temporarily retarget this to a synthetic helper. Production never
-// resolves the privileged executable through the caller-controlled PATH.
-var setcapCommandPath = trustedSetcapPath //nolint:gochecknoglobals // test seam for an external command
-
-// allowedAddonCapabilities bounds what an add-on may request through
+// allowedAddonCapability bounds what an add-on may request through
 // requires.os_capabilities. Keeping an explicit allowlist means an approved manifest
 // (or a compromised control plane) cannot have the root-owned updater grant arbitrary
 // capabilities such as cap_sys_admin. Extend deliberately as real add-ons need them.
-//
-//nolint:gochecknoglobals // an effectively-const allowlist shared read-only by the updater path.
-var allowedAddonCapabilities = map[string]bool{
-	"cap_net_raw":          true, // raw/packet sockets (netprobe capture)
-	"cap_net_admin":        true, // interface/qdisc configuration
-	"cap_net_bind_service": true, // bind privileged ports
-	"cap_bpf":              true, // load eBPF programs (netprobe)
-	"cap_perfmon":          true, // perf/AF_XDP rings (netprobe)
-	"cap_dac_read_search":  true, // read-any-file (privileged scanners)
+func allowedAddonCapability(name string) bool {
+	switch name {
+	case "cap_net_raw", // raw/packet sockets (netprobe capture)
+		"cap_net_admin",        // interface/qdisc configuration
+		"cap_net_bind_service", // bind privileged ports
+		"cap_bpf",              // load eBPF programs (netprobe)
+		"cap_perfmon",          // perf/AF_XDP rings (netprobe)
+		"cap_dac_read_search":  // read-any-file (privileged scanners)
+		return true
+	default:
+		return false
+	}
 }
 
 // addonCapabilityActionSuffix is appended to the comma-joined capability set to form
@@ -102,7 +101,7 @@ func normalizeAddonCapabilities(caps []string) ([]string, error) {
 		if name == "" {
 			continue
 		}
-		if !allowedAddonCapabilities[name] {
+		if !allowedAddonCapability(name) {
 			return nil, fmt.Errorf("%w: %q", ErrAddonCapabilityUnsafe, name)
 		}
 		if seen[name] {
@@ -204,12 +203,12 @@ func capabilityRootOverlapsWritable(privRoot, runtimeRoot string) bool {
 	return false
 }
 
-// ApplyAddonCapabilities is the privileged operation invoked inside the root-owned
+// applyAddonCapabilities is the privileged operation invoked inside the root-owned
 // serviceradar-agent-updater: it validates the requested capabilities, re-resolves the
 // staged binary under the controlled add-on root, and applies the capabilities with
 // setcap. It is Linux-only in practice (setcap); on a host without libcap it returns
 // ErrSetcapUnavailable.
-func ApplyAddonCapabilities(ctx context.Context, req AddonCapabilityRequest) error {
+func (h systemHost) applyAddonCapabilities(ctx context.Context, req AddonCapabilityRequest) error {
 	caps, err := normalizeAddonCapabilities(req.Capabilities)
 	if err != nil {
 		return err
@@ -220,7 +219,7 @@ func ApplyAddonCapabilities(ctx context.Context, req AddonCapabilityRequest) err
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, setcapCommandPath, setcapCapabilityString(caps), binary)
+	cmd := exec.CommandContext(ctx, h.setcapPath, setcapCapabilityString(caps), binary)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

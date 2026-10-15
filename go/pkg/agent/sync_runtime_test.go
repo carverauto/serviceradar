@@ -45,15 +45,13 @@ var (
 	errFakeSyncDriverFailed        = errors.New("fake sync driver failed")
 )
 
-//nolint:gochecknoglobals // Tests register a synthetic driver once per process.
-var registerFakeSyncDriverOnce sync.Once
-
-func registerFakeSyncDriver() {
-	registerFakeSyncDriverOnce.Do(func() {
-		syncsources.Register(fakeSyncSourceType, func() syncsources.SourceDriver {
-			return &fakeSyncDriver{}
-		})
+// fakeSyncDrivers is the driver registry of a test runtime: the synthetic driver only.
+func fakeSyncDrivers() syncsources.Registry {
+	drivers := syncsources.Registry{}
+	drivers.Register(fakeSyncSourceType, func() syncsources.SourceDriver {
+		return &fakeSyncDriver{}
 	})
+	return drivers
 }
 
 // fakeSyncDriver emits synthetic device updates. Its behavior is configured
@@ -136,6 +134,7 @@ func newSyncTestRuntime(gateway *fakeSyncGateway) *SyncRuntime {
 		server:  &Server{config: &ServerConfig{AgentID: "agent-a", Partition: "partition-a"}},
 		gateway: gateway,
 		logger:  createTestLogger(),
+		drivers: fakeSyncDrivers(),
 	}
 }
 
@@ -152,8 +151,6 @@ func newFakeSourceRunner(credentials map[string]string) *syncSourceRunner {
 }
 
 func TestRunSourceOnceStreamsPagedDriverUpdatesAsGatewayResults(t *testing.T) {
-	registerFakeSyncDriver()
-
 	const (
 		pages          = 3
 		devicesPerPage = 100
@@ -212,8 +209,6 @@ func TestRunSourceOnceStreamsPagedDriverUpdatesAsGatewayResults(t *testing.T) {
 }
 
 func TestRunSourceOnceSendsCollectionFinalAsOwnStreamWhenPopulationReported(t *testing.T) {
-	registerFakeSyncDriver()
-
 	const (
 		pages          = 2
 		devicesPerPage = 5
@@ -259,8 +254,6 @@ func TestRunSourceOnceSendsCollectionFinalAsOwnStreamWhenPopulationReported(t *t
 }
 
 func TestExecuteRunEndsAStalledRunAtItsDeadlineSoTheNextRunProceeds(t *testing.T) {
-	registerFakeSyncDriver()
-
 	gateway := &fakeSyncGateway{}
 	runtime := newSyncTestRuntime(gateway)
 	runtime.runTimeout = 200 * time.Millisecond
@@ -306,8 +299,6 @@ func TestSyncRunTimeoutFollowsTheScheduleWithinBounds(t *testing.T) {
 }
 
 func TestRunSourceOnceFlushesEmittedPagesWhenDriverFails(t *testing.T) {
-	registerFakeSyncDriver()
-
 	gateway := &fakeSyncGateway{}
 	runtime := newSyncTestRuntime(gateway)
 	runner := newFakeSourceRunner(map[string]string{
@@ -339,8 +330,6 @@ func TestRunSourceOnceFlushesEmittedPagesWhenDriverFails(t *testing.T) {
 }
 
 func TestRunSourceOnceNormalizesEmittedUpdatesForEverySource(t *testing.T) {
-	registerFakeSyncDriver()
-
 	gateway := &fakeSyncGateway{}
 	runtime := newSyncTestRuntime(gateway)
 	runner := newFakeSourceRunner(map[string]string{
@@ -395,15 +384,15 @@ func TestRunSourceOnceRejectsUnregisteredSourceType(t *testing.T) {
 }
 
 func TestIsSupportedSourceDerivesFromRegistry(t *testing.T) {
-	registerFakeSyncDriver()
+	drivers := fakeSyncDrivers()
 
-	if !isSupportedSource(fakeSyncSourceType) {
+	if !drivers.IsSupported(fakeSyncSourceType) {
 		t.Fatalf("registered source type %q should be supported", fakeSyncSourceType)
 	}
-	if !isSupportedSource("  SYNTHETIC ") {
+	if !drivers.IsSupported("  SYNTHETIC ") {
 		t.Fatal("source type matching should be case-insensitive and trimmed")
 	}
-	if isSupportedSource("no-such-source") {
+	if drivers.IsSupported("no-such-source") {
 		t.Fatal("unregistered source type should not be supported")
 	}
 }

@@ -176,7 +176,7 @@ func migrateAgentServiceSharedRuntime(runtimeRoot string) error {
 		return nil
 	}
 
-	return installAgentSharedRuntimeDropIn(context.Background(), defaultSystemdUnitDir, runSystemctl)
+	return installAgentSharedRuntimeDropIn(context.Background(), defaultSystemdUnitDir, trustedSystemHost().runSystemctl)
 }
 
 type systemctlRunner func(context.Context, ...string) error

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -91,7 +92,7 @@ const notificationDeliveryConfigKey = "notification_delivery"
 // tasks 3.4.5, never by re-deriving state from the command plane.
 const notificationDeliveryResultSchema = "serviceradar.notification_delivery_result.v1"
 
-// notificationCredentialInjectionModes is the CLOSED set of credential-broker
+// notificationCredentialInjectionModes returns the CLOSED set of credential-broker
 // injection modes a notification dispatch may declare. It is the same six names
 // the manifest validator allows
 // (`ServiceRadar.Plugins.Manifest.@allowed_credential_injection_modes`), and it
@@ -114,16 +115,22 @@ const notificationDeliveryResultSchema = "serviceradar.notification_delivery_res
 //  2. A plugin author never learns a spelling one surface accepts and another
 //     rejects. A manifest carrying `header` fails validation in Elixir; a
 //     notification grant carrying `header` fails here.
-//
-//nolint:gochecknoglobals // closed allowlist, read-only after init
-var notificationCredentialInjectionModes = map[string]struct{}{
-	"http_header":               {},
-	"bearer_token":              {},
-	"basic_auth":                {},
-	"query":                     {},
-	"form_urlencoded":           {},
-	"oauth2_password_bearer":    {},
-	"oauth2_client_credentials": {},
+func notificationCredentialInjectionModes() []string {
+	return []string{
+		"http_header",
+		"bearer_token",
+		"basic_auth",
+		"query",
+		"form_urlencoded",
+		"oauth2_password_bearer",
+		"oauth2_client_credentials",
+	}
+}
+
+// notificationCredentialInjectionModeSupported reports whether mode is one of
+// notificationCredentialInjectionModes.
+func notificationCredentialInjectionModeSupported(mode string) bool {
+	return slices.Contains(notificationCredentialInjectionModes(), mode)
 }
 
 // errPluginNotifyCapabilityDenied is returned when an assignment is asked to
@@ -396,7 +403,7 @@ func notificationCredentialGrantsServiceable(invocationPayload json.RawMessage) 
 		if mode == "" {
 			continue
 		}
-		if _, ok := notificationCredentialInjectionModes[mode]; !ok {
+		if !notificationCredentialInjectionModeSupported(mode) {
 			return fmt.Errorf("%w: %q", errNotificationCredentialInjectionUnsupported, mode)
 		}
 	}

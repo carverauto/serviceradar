@@ -192,13 +192,7 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 		source = snmpConfigSourceTest
 	} else {
 		// Load configuration (local file takes precedence)
-		var err error
-		config, source, err = s.loadConfig(ctx)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to load SNMP config, using defaults")
-			config = snmp.DefaultConfig()
-			source = snmpConfigSourceDefault
-		}
+		config, source = s.loadConfig()
 	}
 
 	// Check if SNMP is enabled
@@ -246,8 +240,6 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 }
 
 // Stop halts the SNMP service and config refresh loop.
-//
-//nolint:dupl // Intentional parallel structure with SysmonService.Stop
 func (s *SNMPAgentService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 
@@ -265,17 +257,7 @@ func (s *SNMPAgentService) Stop(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	// Wait for refresh loop to finish (with timeout from context)
-	if s.refreshDone != nil {
-		select {
-		case <-s.refreshDone:
-			// Refresh loop stopped
-		case <-ctx.Done():
-			s.logger.Warn().Msg("Timeout waiting for SNMP config refresh loop to stop")
-		case <-time.After(5 * time.Second):
-			s.logger.Warn().Msg("Timeout waiting for SNMP config refresh loop to stop")
-		}
-	}
+	awaitConfigRefreshLoop(ctx, s.refreshDone, s.logger, "Timeout waiting for SNMP config refresh loop to stop")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -417,15 +399,13 @@ func (s *SNMPAgentService) DrainMetrics(ctx context.Context) (map[string][]snmp.
 }
 
 // loadConfig loads the SNMP configuration from local file or defaults.
-//
-//nolint:unparam // error return reserved for future remote config fetching
-func (s *SNMPAgentService) loadConfig(_ context.Context) (*snmp.SNMPConfig, string, error) {
+func (s *SNMPAgentService) loadConfig() (*snmp.SNMPConfig, string) {
 	// Try local config file first (highest priority)
 	localPath := s.getSNMPLocalConfigPath()
 	if localPath != "" {
 		if cfg, err := snmp.LoadConfigFromFile(localPath); err == nil {
 			s.logger.Info().Str("path", localPath).Msg("Loaded SNMP config from local file")
-			return cfg, "local:" + localPath, nil
+			return cfg, "local:" + localPath
 		}
 	}
 
@@ -434,7 +414,7 @@ func (s *SNMPAgentService) loadConfig(_ context.Context) (*snmp.SNMPConfig, stri
 		configPath := filepath.Join(s.configDir, "snmp.json")
 		if cfg, err := snmp.LoadConfigFromFile(configPath); err == nil {
 			s.logger.Info().Str("path", configPath).Msg("Loaded SNMP config from config directory")
-			return cfg, "local:" + configPath, nil
+			return cfg, "local:" + configPath
 		}
 	}
 
@@ -443,13 +423,13 @@ func (s *SNMPAgentService) loadConfig(_ context.Context) (*snmp.SNMPConfig, stri
 	if cachePath != "" {
 		if cfg, err := snmp.LoadConfigFromFile(cachePath); err == nil {
 			s.logger.Info().Str("path", cachePath).Msg("Loaded SNMP config from cache")
-			return cfg, "cache:" + cachePath, nil
+			return cfg, "cache:" + cachePath
 		}
 	}
 
 	// Fall back to defaults
 	s.logger.Info().Msg("Using default SNMP configuration")
-	return snmp.DefaultConfig(), snmpConfigSourceDefault, nil
+	return snmp.DefaultConfig(), snmpConfigSourceDefault
 }
 
 // cacheConfig writes the current config to the cache file for resilience.
@@ -533,11 +513,7 @@ func (s *SNMPAgentService) checkConfigUpdate(ctx context.Context) {
 	}
 
 	// Load fresh config
-	newConfig, source, err := s.loadConfig(ctx)
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to load SNMP config during refresh")
-		return
-	}
+	newConfig, source := s.loadConfig()
 
 	// Compute hash of new config
 	newHash := computeSNMPConfigHash(newConfig)

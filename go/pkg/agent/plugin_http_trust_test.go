@@ -102,6 +102,7 @@ func TestUnavailablePluginHTTPClientRejectsTransport(t *testing.T) {
 }
 
 func TestInvalidPluginHTTPTrustRemainsUnavailableForInsecureRequest(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	t.Parallel()
 
 	var dials atomic.Int32
@@ -119,7 +120,7 @@ func TestInvalidPluginHTTPTrustRemainsUnavailableForInsecureRequest(t *testing.T
 	}
 
 	unavailable := unavailablePluginHTTPClient(trustErr)
-	client := pluginHTTPClient(unavailable, true, time.Second)
+	client := transports.client(unavailable, true, time.Second)
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 	if err != nil {
 		t.Fatalf("build request: %v", err)

@@ -224,12 +224,7 @@ func runConcurrentConfigLoadTest(t *testing.T, numAgents int, maxAvgMs, maxMaxMs
 			}
 
 			// Load config (this is what we're measuring)
-			ctx := context.Background()
-			cfg, source, err := svc.loadConfig(ctx)
-			if err != nil {
-				errors[agentIdx] = err
-				return
-			}
+			cfg, source := svc.loadConfig()
 
 			// Verify config was loaded correctly
 			if !cfg.Enabled {
@@ -332,11 +327,7 @@ func BenchmarkConcurrentConfigLoad(b *testing.B) {
 				b.Fatal(err)
 			}
 
-			ctx := context.Background()
-			_, _, err = svc.loadConfig(ctx)
-			if err != nil {
-				b.Fatal(err)
-			}
+			svc.loadConfig()
 			agentID++
 		}
 	})

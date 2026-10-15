@@ -80,7 +80,7 @@
   capabilities now flow end to end: `os_capabilities` added to `AddonAssignmentConfig`
   (proto), emitted by `AgentConfigGenerator` from the manifest's `requires`, and applied
   by `agent-updater`'s `--addon-id/--addon-binary/--addon-capabilities` mode
-  (`ApplyAddonCapabilities`: allowlist-bounded, safe-segment + symlink-escape guarded
+  (`applyAddonCapabilities`: allowlist-bounded, safe-segment + symlink-escape guarded
   `setcap`). `applyAddonAssignments` captures the prior version, stages, applies
   capabilities, and on failure rolls back + keeps the last-known-good assignment.
   Verified: unit tests for normalize/resolve/escape/rollback; real `setcap` exec +

@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,21 +72,25 @@ var (
 	errPluginHostAuthorityMalformed = errors.New("plugin host authority configuration is invalid")
 )
 
-var allowedPluginHostAuthorityTargetIDKeys = map[string]struct{}{ //nolint:gochecknoglobals
-	"device_uid":              {},
-	"integration_id":          {},
-	"provider_ref":            {},
-	proxmoxObjectKindNode:     {},
-	proxmoxObjectKindCluster:  {},
-	"vmid":                    {},
-	"target_kind":             {},
-	"controller_id":           {},
-	"provider_instance_ref":   {},
-	"native_cluster_id":       {},
-	"object_kind":             {},
-	"native_object_id":        {},
-	"controller_device_uid":   {},
-	"controller_provider_ref": {},
+// allowedPluginHostAuthorityTargetIDKey reports whether key may appear in a
+// host authority binding's target identifiers.
+func allowedPluginHostAuthorityTargetIDKey(key string) bool {
+	return slices.Contains([]string{
+		"device_uid",
+		"integration_id",
+		"provider_ref",
+		proxmoxObjectKindNode,
+		proxmoxObjectKindCluster,
+		"vmid",
+		"target_kind",
+		"controller_id",
+		"provider_instance_ref",
+		"native_cluster_id",
+		"object_kind",
+		"native_object_id",
+		"controller_device_uid",
+		"controller_provider_ref",
+	}, key)
 }
 
 type pluginHostAuthorityEnvelope struct {
@@ -356,7 +361,7 @@ func validatePluginHostAuthorityTargetIDs(values map[string]string) (map[string]
 
 	out := make(map[string]string, len(values))
 	for key, value := range values {
-		if _, allowed := allowedPluginHostAuthorityTargetIDKeys[key]; !allowed ||
+		if !allowedPluginHostAuthorityTargetIDKey(key) ||
 			!validPluginHostAuthorityString(value) {
 			return nil, errPluginHostAuthorityMalformed
 		}

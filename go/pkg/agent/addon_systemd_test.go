@@ -34,18 +34,13 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-func useSystemctlFixture(t *testing.T, path string) {
-	t.Helper()
-	original := systemctlCommandPath
-	systemctlCommandPath = path
-	t.Cleanup(func() { systemctlCommandPath = original })
-}
-
-func useSetcapFixture(t *testing.T, path string) {
-	t.Helper()
-	original := setcapCommandPath
-	setcapCommandPath = path
-	t.Cleanup(func() { setcapCommandPath = original })
+// fixtureSystemHost returns the trusted host with its unit directory moved
+// to unitDir, so a test never writes the real system unit directory. Tests point
+// the helper paths at synthetic executables as they need them.
+func fixtureSystemHost(unitDir string) systemHost {
+	host := trustedSystemHost()
+	host.unitDir = unitDir
+	return host
 }
 
 func TestPrivilegedSystemToolsIgnoreCallerPATH(t *testing.T) {
@@ -61,16 +56,15 @@ func TestPrivilegedSystemToolsIgnoreCallerPATH(t *testing.T) {
 	writeCommandFixture(t, filepath.Join(trustedDir, "chcon"), trustedChconLog)
 	writeCommandFixture(t, filepath.Join(callerDir, "chcon"), callerChconLog)
 
-	useSystemctlFixture(t, filepath.Join(trustedDir, "systemctl"))
-	originalChcon := chconCommandPath
-	chconCommandPath = filepath.Join(trustedDir, "chcon")
-	t.Cleanup(func() { chconCommandPath = originalChcon })
+	host := fixtureSystemHost(t.TempDir())
+	host.systemctlPath = filepath.Join(trustedDir, "systemctl")
+	host.chconPath = filepath.Join(trustedDir, "chcon")
 	t.Setenv("PATH", callerDir)
 
-	if err := runSystemctl(context.Background(), "daemon-reload"); err != nil {
+	if err := host.runSystemctl(context.Background(), "daemon-reload"); err != nil {
 		t.Fatalf("run trusted systemctl: %v", err)
 	}
-	relabelPathAsBinT("/synthetic/addon")
+	host.relabelPathAsBinT("/synthetic/addon")
 
 	for _, path := range []string{trustedSystemctlLog, trustedChconLog} {
 		if _, err := os.Stat(path); err != nil {
@@ -226,15 +220,13 @@ func TestInstalledBundledUnitsExecuteFromPrivilegedRoot(t *testing.T) {
 			if err := os.MkdirAll(unitDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			origUnitDir := systemdUnitDir
-			systemdUnitDir = unitDir
-			t.Cleanup(func() { systemdUnitDir = origUnitDir })
-			installMockSystemctl(t, t.TempDir())
+			host := fixtureSystemHost(unitDir)
+			host.systemctlPath = installMockSystemctl(t, t.TempDir())
 
 			artPath, sha, sig := createTestSignedAddonTarball(t, binary, map[string][]byte{
 				unitName: bundled,
 			})
-			err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+			err = host.installUnits(context.Background(), AddonSystemdInstallRequest{
 				RuntimeRoot:    root,
 				PrivilegedRoot: filepath.Join(root, "privileged"),
 				AddonID:        tc.addonID,
@@ -287,10 +279,8 @@ func TestInstallAddonSystemdUnitsRejectsAgentWritableExecPath(t *testing.T) {
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
-	installMockSystemctl(t, t.TempDir())
+	host := fixtureSystemHost(unitDir)
+	host.systemctlPath = installMockSystemctl(t, t.TempDir())
 
 	writableExec := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
 	publishedExec := "/var/lib/serviceradar/agent/addons/np/current/serviceradar-np"
@@ -300,7 +290,7 @@ func TestInstallAddonSystemdUnitsRejectsAgentWritableExecPath(t *testing.T) {
 			artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 				"serviceradar-np.service": []byte(unit),
 			})
-			err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+			err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 				RuntimeRoot:    root,
 				PrivilegedRoot: filepath.Join(root, "privileged"),
 				AddonID:        "np",
@@ -325,7 +315,7 @@ func TestInstallAddonSystemdUnitsRejectsAgentWritableExecPath(t *testing.T) {
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte(preOnly),
 	})
-	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:    root,
 		PrivilegedRoot: filepath.Join(root, "privileged"),
 		AddonID:        "np",
@@ -352,9 +342,7 @@ func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	orig := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = orig })
+	host := fixtureSystemHost(unitDir)
 
 	previous := []byte("{\n  \"mode\": \"v1\"\n}\n")
 	candidate := []byte("{\n  \"mode\": \"v2\"\n}\n")
@@ -378,7 +366,7 @@ func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
+	host.systemctlPath = filepath.Join(mockDir, "systemctl")
 	t.Setenv("ENABLE_ONCE", filepath.Join(root, "enabled-once"))
 	t.Setenv("STATE_FILE", statePath)
 	t.Setenv("CAPTURED_STATE", captured)
@@ -386,7 +374,7 @@ func TestInstallAddonSystemdUnitsRestoresStateBeforeReenable(t *testing.T) {
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
 	})
-	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err = host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:       root,
 		PrivilegedRoot:    filepath.Join(root, "privileged"),
 		AddonID:           "np",
@@ -421,9 +409,7 @@ func TestInstallAddonSystemdUnitsDoesNotReenableWhenStateRestoreFails(t *testing
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	orig := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = orig })
+	host := fixtureSystemHost(unitDir)
 
 	target := filepath.Join(root, "elsewhere")
 	if err := os.WriteFile(target, []byte("untouched"), 0o644); err != nil {
@@ -448,13 +434,13 @@ func TestInstallAddonSystemdUnitsDoesNotReenableWhenStateRestoreFails(t *testing
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
+	host.systemctlPath = filepath.Join(mockDir, "systemctl")
 	t.Setenv("SYSTEMCTL_LOG", logPath)
 
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
 	})
-	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err = host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:       root,
 		PrivilegedRoot:    filepath.Join(root, "privileged"),
 		AddonID:           "np",
@@ -503,10 +489,8 @@ func TestInstallAddonSystemdUnitsIgnoresSnapshotDir(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	orig := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = orig })
-	installMockSystemctl(t, t.TempDir())
+	host := fixtureSystemHost(unitDir)
+	host.systemctlPath = installMockSystemctl(t, t.TempDir())
 
 	marker := filepath.Join(canary, "keep")
 	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
@@ -545,12 +529,12 @@ func TestInstallAddonSystemdUnitsIgnoresSnapshotDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
+	host.systemctlPath = filepath.Join(mockDir, "systemctl")
 
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
 	})
-	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err = host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:       root,
 		PrivilegedRoot:    filepath.Join(root, "privileged"),
 		AddonID:           "np",
@@ -613,9 +597,7 @@ func TestInstallAddonSystemdUnitsRestoresPreviousUnitWhenActivationFails(t *test
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	host := fixtureSystemHost(unitDir)
 
 	logPath := filepath.Join(root, "systemctl.log")
 	failOnce := filepath.Join(root, "fail-once")
@@ -625,7 +607,7 @@ func TestInstallAddonSystemdUnitsRestoresPreviousUnitWhenActivationFails(t *test
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
+	host.systemctlPath = filepath.Join(mockDir, "systemctl")
 	t.Setenv("SYSTEMCTL_LOG", logPath)
 	t.Setenv("SYSTEMCTL_FAIL_ONCE", failOnce)
 
@@ -637,7 +619,7 @@ func TestInstallAddonSystemdUnitsRestoresPreviousUnitWhenActivationFails(t *test
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": replacement,
 	})
-	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:    root,
 		PrivilegedRoot: priv,
 		AddonID:        "np",
@@ -688,10 +670,8 @@ func TestInstallAddonSystemdUnitsSetcapTargetsPrivilegedBinary(t *testing.T) {
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
-	installMockSystemctl(t, t.TempDir())
+	host := fixtureSystemHost(unitDir)
+	host.systemctlPath = installMockSystemctl(t, t.TempDir())
 
 	setcapLog := filepath.Join(root, "setcap.log")
 	setcapDir := t.TempDir()
@@ -700,7 +680,7 @@ func TestInstallAddonSystemdUnitsSetcapTargetsPrivilegedBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", setcapDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSetcapFixture(t, filepath.Join(setcapDir, "setcap"))
+	host.setcapPath = filepath.Join(setcapDir, "setcap")
 	t.Setenv("SETCAP_LOG", setcapLog)
 
 	writableBin := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
@@ -714,7 +694,7 @@ func TestInstallAddonSystemdUnitsSetcapTargetsPrivilegedBinary(t *testing.T) {
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
 	})
-	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:    root,
 		PrivilegedRoot: priv,
 		AddonID:        "np",
@@ -772,7 +752,9 @@ func createTestSignedAddonTarball(t *testing.T, binName string, files map[string
 	return artifactPath, sha, sig
 }
 
-func installMockSystemctl(t *testing.T, dir string) {
+// installMockSystemctl writes a permissive systemctl fixture into dir and returns
+// its path.
+func installMockSystemctl(t *testing.T, dir string) string {
 	t.Helper()
 	script := `#!/bin/sh
 set -eu
@@ -794,7 +776,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(dir, "systemctl"))
+	return filepath.Join(dir, "systemctl")
 }
 
 func TestInstallAddonSystemdUnitsFailureVectors(t *testing.T) {
@@ -890,12 +872,10 @@ func TestInstallAddonSystemdUnitsStagedFileReplacementResistance(t *testing.T) {
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	host := fixtureSystemHost(unitDir)
 
 	mockDir := t.TempDir()
-	installMockSystemctl(t, mockDir)
+	host.systemctlPath = installMockSystemctl(t, mockDir)
 
 	authenticContent := "[Service]\nExecStart=/usr/lib/serviceradar/addons/np/current/serviceradar-np\n"
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
@@ -933,7 +913,7 @@ func TestInstallAddonSystemdUnitsStagedFileReplacementResistance(t *testing.T) {
 		Enable:         "serviceradar-np.service",
 	}
 
-	if err := InstallAddonSystemdUnits(context.Background(), req); err != nil {
+	if err := host.installUnits(context.Background(), req); err != nil {
 		t.Fatalf("InstallAddonSystemdUnits failed: %v", err)
 	}
 
@@ -948,7 +928,7 @@ func TestInstallAddonSystemdUnitsStagedFileReplacementResistance(t *testing.T) {
 	if err := os.WriteFile(stagedArtPath, []byte("tampered-archive-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallAddonSystemdUnits(context.Background(), req); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+	if err := host.installUnits(context.Background(), req); !errors.Is(err, ErrAddonArtifactHashMismatch) {
 		t.Fatalf("want ErrAddonArtifactHashMismatch on tampered archive, got %v", err)
 	}
 }
@@ -960,12 +940,10 @@ func TestInstallAddonSystemdUnitsLifecycle(t *testing.T) {
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	host := fixtureSystemHost(unitDir)
 
 	mockDir := t.TempDir()
-	installMockSystemctl(t, mockDir)
+	host.systemctlPath = installMockSystemctl(t, mockDir)
 
 	// Step 1: Initial activation of v1.0.0
 	art1, sha1, sig1 := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
@@ -986,7 +964,7 @@ func TestInstallAddonSystemdUnitsLifecycle(t *testing.T) {
 		Enable:         "serviceradar-np.service",
 	}
 
-	if err := InstallAddonSystemdUnits(context.Background(), req1); err != nil {
+	if err := host.installUnits(context.Background(), req1); err != nil {
 		t.Fatalf("Install v1.0.0 failed: %v", err)
 	}
 
@@ -1061,7 +1039,7 @@ exit 0
 		Enable:         "serviceradar-np.service",
 	}
 
-	if err := InstallAddonSystemdUnits(context.Background(), req2); err == nil {
+	if err := host.installUnits(context.Background(), req2); err == nil {
 		t.Fatal("expected Install v2.0.0 to fail when systemctl fails")
 	}
 
@@ -1130,7 +1108,7 @@ func TestTimerCandidateActivationReevaluatesBackingServiceHealth(t *testing.T) {
 			if err := os.WriteFile(state, []byte("failed"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			installTimerSystemctlFixture(t, root, state, run, tc.service)
+			host := systemHost{systemctlPath: installTimerSystemctlFixture(t, root, state, run, tc.service)}
 			timerPath := filepath.Join(root, "serviceradar-np.timer")
 			if err := os.WriteFile(timerPath, []byte(tc.timerContent), 0o600); err != nil {
 				t.Fatal(err)
@@ -1146,7 +1124,7 @@ func TestTimerCandidateActivationReevaluatesBackingServiceHealth(t *testing.T) {
 			if health().state != agentaddon.StateUnhealthy {
 				t.Fatal("the previous scanner failure must be visible before candidate activation")
 			}
-			if err := activateAddonSystemdUnits(context.Background(), units[0], service); err != nil {
+			if err := host.activateAddonSystemdUnits(context.Background(), units[0], service); err != nil {
 				t.Fatal(err)
 			}
 			if got := health(); got.state != agentaddon.StateRunning || got.lastError != "" {
@@ -1164,7 +1142,7 @@ func TestTimerCandidateActivationReevaluatesBackingServiceHealth(t *testing.T) {
 			if err := os.Remove(run); err != nil {
 				t.Fatal(err)
 			}
-			if err := activateAddonSystemdUnits(context.Background(), units[0], ""); err != nil {
+			if err := host.activateAddonSystemdUnits(context.Background(), units[0], ""); err != nil {
 				t.Fatal(err)
 			}
 			if health().state != agentaddon.StateUnhealthy {
@@ -1184,18 +1162,16 @@ func TestTimerCandidateActivationRejectsUnbundledServiceBeforeInstallation(t *te
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	host := fixtureSystemHost(unitDir)
 
 	mockDir := t.TempDir()
-	installMockSystemctl(t, mockDir)
+	host.systemctlPath = installMockSystemctl(t, mockDir)
 
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.timer": []byte("[Timer]\nUnit=unrelated-host.service\n"),
 	})
 
-	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:    root,
 		PrivilegedRoot: privRoot,
 		AddonID:        "np",
@@ -1223,9 +1199,9 @@ func TestTimerCandidateActivationPropagatesResetAndQueueFailures(t *testing.T) {
 			root := t.TempDir()
 			state := filepath.Join(root, "service-state")
 			run := filepath.Join(root, "candidate-run")
-			installTimerSystemctlFixture(t, root, state, run, "serviceradar-np.service")
+			host := systemHost{systemctlPath: installTimerSystemctlFixture(t, root, state, run, "serviceradar-np.service")}
 			t.Setenv("TIMER_FIXTURE_FAIL", fail)
-			if err := activateAddonSystemdUnits(context.Background(), "serviceradar-np.timer",
+			if err := host.activateAddonSystemdUnits(context.Background(), "serviceradar-np.timer",
 				"serviceradar-np.service"); err == nil {
 				t.Fatal("a failed fresh activation must not be reported as successful")
 			}
@@ -1236,7 +1212,9 @@ func TestTimerCandidateActivationPropagatesResetAndQueueFailures(t *testing.T) {
 	}
 }
 
-func installTimerSystemctlFixture(t *testing.T, dir, state, run, service string) {
+// installTimerSystemctlFixture writes a stateful timer systemctl fixture into dir
+// and returns its path.
+func installTimerSystemctlFixture(t *testing.T, dir, state, run, service string) string {
 	t.Helper()
 	// This executable supplies only the external systemctl protocol. Production
 	// command execution and health parsing run unchanged, without host systemd.
@@ -1280,10 +1258,10 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(dir, "systemctl"))
 	t.Setenv("TIMER_FIXTURE_STATE", state)
 	t.Setenv("TIMER_FIXTURE_RUN", run)
 	t.Setenv("TIMER_FIXTURE_SERVICE", service)
+	return filepath.Join(dir, "systemctl")
 }
 
 func TestUninstallAddonSystemdUnitsValidation(t *testing.T) {
@@ -1457,11 +1435,9 @@ func TestRenderSystemdResourceDropIn(t *testing.T) {
 
 func TestWriteSystemdResourceDropInRejectsSliceInjection(t *testing.T) {
 	root := t.TempDir()
-	orig := systemdUnitDir
-	systemdUnitDir = root
-	t.Cleanup(func() { systemdUnitDir = orig })
+	host := fixtureSystemHost(root)
 
-	err := writeSystemdResourceDropIn("serviceradar-np.service", agentaddon.Resources{
+	err := host.writeSystemdResourceDropIn("serviceradar-np.service", agentaddon.Resources{
 		MemoryMaxBytes: 1024,
 		Slice:          "x\nExecStartPre=/tmp/pwn",
 	})
@@ -1489,9 +1465,7 @@ func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dropInDir, systemdDropInFileName), previous, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	orig := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = orig })
+	host := fixtureSystemHost(unitDir)
 
 	mockDir := t.TempDir()
 	script := "#!/bin/sh\nset -eu\ncmd=\"${1:-}\"\nif [ \"$cmd\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
@@ -1499,7 +1473,7 @@ func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	useSystemctlFixture(t, filepath.Join(mockDir, "systemctl"))
+	host.systemctlPath = filepath.Join(mockDir, "systemctl")
 
 	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1507,7 +1481,7 @@ func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
 		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
 	})
-	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:    root,
 		PrivilegedRoot: priv,
 		AddonID:        "np",
