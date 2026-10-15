@@ -11,4 +11,10 @@ await build({
   format: "esm",
   target: "node20",
   external: ["vite", "@vitejs/plugin-react", "ajv/*"],
+  // yaml's CJS build calls require("process"). esbuild's ESM __require helper
+  // uses that binding, which Node ESM does not provide. One createRequire
+  // covers every bundled Node builtin require, including process.
+  banner: {
+    js: `import {createRequire as createBundleRequire} from "node:module";\nconst require = createBundleRequire(import.meta.url);`,
+  },
 });
