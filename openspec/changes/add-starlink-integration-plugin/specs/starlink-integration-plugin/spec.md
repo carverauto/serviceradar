@@ -90,8 +90,8 @@ and emit terminal and router measurements as `serviceradar.metric.v1` records th
 - **THEN** the run stops at the budget, reports success, and the remaining backlog is drained by later runs
 
 #### Scenario: Telemetry gap detected
-- **WHEN** no telemetry arrives for longer than the configured interval while devices are known online
-- **THEN** the run reports a warning status that names the gap
+- **WHEN** a hole between one device's samples, or the age of the newest sample once the stream is drained, exceeds `telemetry_gap_seconds` (default 300)
+- **THEN** the run reports a warning status that names the gap in seconds
 
 ### Requirement: Starlink Alerts As Events
 The plugins SHALL convert active Starlink alerts into OCSF events carrying a declared

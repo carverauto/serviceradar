@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -178,12 +180,58 @@ func TestTelemetryReportsEveryListedDeviceIncludingSilentOnes(t *testing.T) {
 		for _, ref := range []string{terminalDeviceID(testTerminalA), routerDeviceID(testRouterA)} {
 			if strings.HasPrefix(r.EventID, "starlink-reporting-"+ref+"-") {
 				reported[ref]++
+				body := metricPayloadText(t, r)
+				if !strings.Contains(body, "starlink_telemetry_samples") || !strings.Contains(body, "starlink_device_ref") || !strings.Contains(body, ref) {
+					t.Fatalf("reporting record for %s does not carry the stable device ref tag: %q", ref, body)
+				}
 			}
 		}
 	}
 	if reported[terminalDeviceID(testTerminalA)] != 1 || reported[routerDeviceID(testRouterA)] != 1 {
 		t.Fatalf("reporting records %v; want exactly one for the sampled terminal and one for the silent router", reported)
 	}
+}
+
+// Stream alert codes that the vendor has not named are counted on
+// starlink_active_alerts. They are not condition events: an unknown code must
+// not page anyone, and the cache snapshot is the only event source.
+func TestUnknownStreamAlertIsCountedAndNotAnEvent(t *testing.T) {
+	row := `["u",` + strconv.FormatInt(sampleAtNs, 10) + `,"ut` + testTerminalA + `",1,2,[99],"x"]`
+	_, emitted := runTelemetryFixture(t, row, time.Unix(0, sampleAtNs).Add(time.Minute))
+
+	var counted bool
+	for _, r := range emitted {
+		switch r.PayloadKind {
+		case sdk.SignalSchemaPayloadKindOCSFEvent:
+			raw, err := json.Marshal(r.Payload)
+			if err != nil {
+				t.Fatalf("event payload: %v", err)
+			}
+			if strings.Contains(string(raw), "unknown_alert_99") {
+				t.Fatalf("unknown stream alert became an event: %s", raw)
+			}
+		case sdk.SignalSchemaPayloadKindServiceRadarMetrics:
+			if strings.Contains(metricPayloadText(t, r), "starlink_active_alerts") {
+				counted = true
+			}
+		}
+	}
+	if !counted {
+		t.Fatal("stream alert code 99 was not counted on starlink_active_alerts")
+	}
+}
+
+func metricPayloadText(t *testing.T, r sdk.TelemetryRecord) string {
+	t.Helper()
+	encoded, ok := r.Payload.(string)
+	if !ok {
+		t.Fatalf("metric payload is %T, want the base64 batch", r.Payload)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("metric payload is not base64: %v", err)
+	}
+	return string(raw)
 }
 
 func TestDispatchWithoutActionIsUnknown(t *testing.T) {

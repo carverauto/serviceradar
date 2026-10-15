@@ -124,7 +124,8 @@ and units normalized (Mbps, ms, ratio, seconds). `IpAllocs` rows update metadata
 The stream cursor is per client ID and account and delivery is at-most-once. Therefore:
 exactly one ServiceRadar consumer per service account (`target_cardinality: single`), docs
 tell operators to create a dedicated service account for ServiceRadar, and the plugin
-reports a warning status when it observes a data gap longer than its interval. The
+reports a warning when a hole between one device's samples, or the age of the newest
+sample once the stream is drained, exceeds `telemetry_gap_seconds` (default 300). The
 8-hour retention bounds recoverable downtime.
 
 ### D5. Alerts to events
@@ -181,8 +182,11 @@ Actions are northbound actions on the existing path (UI or dashboard ->
 | `starlink.change_product`, `starlink.deactivate_line`, `starlink.reactivate_line` | destructive, confirm | preflight; single call; verify |
 
 Multi-step actions run as long-running actions: every step boundary is persisted in
-`continuation_state` and the action returns `polling`, so an agent restart, timeout or
-vendor 429 resumes at the failed step instead of repeating completed ones. Each step
+`continuation_state` and the action returns `polling`, so an agent restart or timeout
+resumes at the failed step instead of repeating completed ones. A vendor 429 does the
+same, no sooner than the vendor's `Retry-After` and never sooner than 30 seconds. A
+collection run stops at the first 429 and makes no further vendor calls, because the
+limit is per account. Each step
 re-reads current vendor state before acting (idempotent resume). Preflight captures
 everything needed to roll forward or report (service line, product
 `maxNumberOfUserTerminals`, L2VPN circuits) and fails fast when a precondition is unmet.
@@ -302,7 +306,8 @@ reconciliation can close such alerts (tracked as an open question).
 
 ## Risks / Trade-offs
 - Vendor alert docs are inconsistent and codes can be reassigned -> map only through
-  response metadata; unknown codes are surfaced, not dropped.
+  response metadata; an unknown stream code is counted on the active-alert metric and
+  does not become an event.
 - Telemetry stream is at-most-once with one cursor per client -> single consumer per
   service account, gap detection, dedicated-service-account guidance.
 - 250 requests/minute is shared with every other tool using the account -> per-run request

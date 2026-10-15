@@ -59,7 +59,7 @@ Kit and dish serials, service line, product, nickname, and the router-to-termina
 
 Terminal and router measurements (throughput, PoP latency and drop rate, obstruction, signal quality, uptime, router client counts and link quality) are emitted as `serviceradar.metric.v1` records under a `starlink_` prefix and flow through NATS JetStream like every other metric. Column names are read from every telemetry response, so a vendor reordering or adding columns does not mis-map values.
 
-The vendor retains stream data for 8 hours and delivers it at most once. A collection outage shorter than that catches up automatically; a run that receives no rows reports a warning (every device offline, or another reader is sharing the service account).
+The vendor retains stream data for 8 hours and delivers it at most once. A collection outage shorter than that catches up automatically; a run that receives no rows reports a warning (every device offline, or another reader is sharing the service account). A hole between one device's samples, or a drained stream whose newest sample is older than `telemetry_gap_seconds` (default 300), is also a warning: that stretch will not be delivered again.
 
 ## Alerts
 
@@ -67,7 +67,17 @@ Active vendor alerts become OCSF events with signal schema `com.carverauto.starl
 
 The vendor publishes no severities. ServiceRadar classifies `thermal_shutdown`, `actuator_motor_stuck` and every `disabled_*` alert as critical, informational alerts such as `pop_change` as informational, and everything else (including alerts the vendor adds later) as warning. The software-update-reboot-pending alert is informational only because the vendor currently reports it unreliably.
 
-The package proposes one alert rule, `starlink_terminal_critical_alert`, which is created **disabled**; enable and tune it under alert rules.
+A telemetry run that drains the stream and reads the full listing reports `starlink_telemetry_samples` for every listed terminal and router, including a zero when that device sent nothing, and once per device even when the listing repeats a row.
+
+The package proposes three alert rules, all created **disabled**; enable and tune them under alert rules.
+
+| Rule | Fires when |
+| --- | --- |
+| `starlink_terminal_critical_alert` | a critical vendor alert, such as thermal shutdown, a stuck actuator, or service disabled |
+| `starlink_mast_not_vertical` | the dish reports that its mast is not vertical |
+| `starlink_device_offline` | `starlink_telemetry_samples` stays at zero for five collection runs within ten minutes |
+
+The offline rule groups by the `starlink_device_ref` metric tag, which stays the same after core attaches the point to the canonical device.
 
 ## Management actions
 
@@ -83,7 +93,7 @@ All actions are device actions on a terminal or router and require confirmation.
 | Deactivate service line | destructive | ends service at the next bill day, or immediately |
 | Reactivate service line | destructive | reactivates an inactive line on the chosen product |
 
-Multi-step actions check preconditions before changing anything (for example, a swap is refused if the line's product already exceeds its terminal limit). They record progress after every step and re-read vendor state before each change, so a retry after a rate limit or outage resumes where it stopped and never repeats a completed change. Nothing is rolled back automatically; a failed action reports exactly which steps completed. Each action's credential is limited to the vendor endpoints and methods that action uses.
+Multi-step actions check preconditions before changing anything (for example, a swap is refused if the line's product already exceeds its terminal limit). They record progress after every step and re-read vendor state before each change, so a retry after an outage resumes where it stopped and never repeats a completed change. A rate-limited step waits for the vendor's `Retry-After`, and at least 30 seconds, before that retry. Nothing is rolled back automatically; a failed action reports exactly which steps completed. Each action's credential is limited to the vendor endpoints and methods that action uses.
 
 ## Local diagnostics (`starlink-local`)
 
@@ -110,7 +120,8 @@ Assign `starlink-local` to an agent on the devices' LAN and list the device endp
 | --- | --- |
 | `starlink_auth_failed` | the token exchange or a request was rejected: check the client secret and that the service account is enabled |
 | `starlink_permission_denied` | the service account lacks a permission from the table above |
-| `starlink_rate_limited` | the account's request limit (shared with every other client of the account) was reached; collection resumes next run, actions retry automatically |
+| `starlink_rate_limited` | the account's request limit (shared with every other client of the account) was reached. The run makes no further vendor calls. Collection tries again on its next schedule. A management action waits, then resumes, as described above |
+| `starlink_telemetry_gap_<seconds>s` | the stream contained a hole, or its newest sample was older than `telemetry_gap_seconds` (default 300) after the run caught up. That stretch is not delivered again |
 | `starlink_telemetry_no_rows` | no telemetry arrived: devices offline, or another reader shares the service account |
 | `starlink_config_contains_credential` | credential material was placed in plugin configuration; remove it and use a credential rule |
 | `*_diagnostics_unreachable` (local) | the agent could not reach a configured device endpoint |
