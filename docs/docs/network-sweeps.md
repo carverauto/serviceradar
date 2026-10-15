@@ -110,14 +110,23 @@ Groups can either reference a profile or define settings inline.
 
 ### Sweep Modes
 
-All three sweep modes are supported by the agent:
+The agent runs these sweep modes:
 
 - **`tcp`**: SYN scanning. Fast, but raw SYN packets break upstream connection
   tracking. Tune rate limits and apply conntrack mitigation before scaling it up
   — see [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 - **`tcp_connect`**: Full TCP connect scanning. Slower than SYN, but completes
   the handshake so it is conntrack-safe and works without raw-socket privileges.
-- **`icmp`**: ICMP echo (ping) sweeps for host reachability.
+- **`icmp`**: ICMP echo (ping) sweeps for host reachability. The sweep scanner
+  needs raw ICMP sockets (`CAP_NET_RAW` or root).
+
+An agent probes its ICMP sockets once at startup. If it cannot open raw ICMP
+sockets it reports `icmp.unavailable`, and core leaves the `icmp` mode out of
+that agent's compiled sweep config. If it cannot open any ICMP socket for
+traceroute it reports `mtr.unavailable`, and core leaves the `mtr` sweep mode
+out. A group that has no modes left is not sent to that agent. An agent that
+reports neither marker still receives every mode. The agent detail page
+explains each marker.
 
 ## Target Criteria Syntax
 
