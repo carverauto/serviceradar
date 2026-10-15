@@ -216,6 +216,40 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert log =~ "Ingestion lane metrics publish recovered"
   end
 
+  # A JetStream stall costs one PubAck; the held frame goes out on the next
+  # tick. That routine retry must not warn -- only a second consecutive failure.
+  test "one failed metrics publish that the next tick recovers does not warn" do
+    parent = self()
+
+    request = fn _subject, body, _opts ->
+      send(parent, {:metric_publish, self(), body})
+
+      receive do
+        {:puback, response} -> response
+      after
+        2_000 -> {:error, :timeout}
+      end
+    end
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
+        RuntimeMetrics.record(:sweep, :state, %{pending_count: 1})
+
+        assert_receive {:metric_publish, publisher, frame}, 1_000
+        send(publisher, {:puback, {:error, :timeout}})
+
+        assert_receive {:metric_publish, ^publisher, ^frame}, 1_000
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
+
+        # The next frame proves the recovered publish was fully handled.
+        assert_receive {:metric_publish, ^publisher, _next}, 1_000
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
+      end)
+
+    refute log =~ "Ingestion lane metrics publish failing"
+  end
+
   test "a timed-out submit never dispatches while an independent lane stays responsive" do
     parent = self()
 

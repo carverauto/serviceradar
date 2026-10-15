@@ -79,6 +79,9 @@ Optional public endpoint inventory
 - Demo values (`values-demo.yaml`) enable it with `clusterId: demo` once the
   `serviceradar-k8s-inventory` image is available for that release tag.
 
+NATS server logging
+- `nats.debug` and `nats.trace` (both default `false`) set `debug` and `trace` in the nats-server configuration. Debug logs RAFT and ping-timer activity continuously on every server, and trace also logs every protocol message, so turn them on only while diagnosing the NATS cluster.
+
 JetStream sizing values
 - `nats.jetstream.profile` selects a sizing profile: `small` (default, `max_file_store` 36G for the default 36Gi PVC), `medium` (100G for a 100Gi PVC) or `large` (500G for a 500Gi PVC), plus `tenant-2g` (2G) for hosted tenant plans. With `nats.replicas` of 1 or 2 the shipped profiles use their single-server size table (the Docker Compose sizes). A profile sets `max_file_store` and the default size of every stream, KV bucket and object store ServiceRadar creates. Every size key below is unset by default so the profile supplies it; an explicit value wins, and so does `nats.jetstream.maxFileStore`. The chart renders `max_file_store` as an exact byte count (NATS reads `G` as 10^9 and `Gi` as 2^30).
 - The chart checks the budget at render time: `helm template` and `helm upgrade` fail, listing every reservation, when the most loaded NATS server would reserve more than 85% of `max_file_store`. `nats.jetstream.allowOvercommit: true` skips that check. `flows` and `ARANCINI_CAUSAL` are always counted at the collector size, even when the collector is disabled.

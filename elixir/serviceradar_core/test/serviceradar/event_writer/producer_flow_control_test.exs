@@ -598,6 +598,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
   describe "stale pull-inflight expiry" do
     @stale_netflow "_INBOX.serviceradar.event_writer.pull.test.netflow_raw"
     @fresh_sflow "_INBOX.serviceradar.event_writer.pull.test.sflow_raw"
+    @stale_sflow "_INBOX.serviceradar.event_writer.pull.test.sflow_events"
 
     test "long-poll timeout is pull_expires plus slack" do
       assert Producer.stale_pull_timeout_ms(build_config(pull_expires_ns: 2_000_000_000)) ==
@@ -643,6 +644,32 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
                       %{count: 1, expired_inflight: 4, age_ms: age_ms}, %{subject_class: "other"}}
 
       assert age_ms > timeout
+    end
+
+    # A JetStream stall expires every consumer's pull in the same sweep; that
+    # is one warning, not one per consumer.
+    test "pulls expired in one sweep share a single warning" do
+      config = build_config(max_ack_pending: 64, pull_expires_ns: 2_000_000_000)
+      now = 50_000
+      stale_at = now - Producer.stale_pull_timeout_ms(config) - 1
+
+      state =
+        config
+        |> init_state()
+        |> Map.merge(%{
+          demand: 0,
+          pull_inflight: 26,
+          pull_inflight_by_subject: %{@stale_netflow => 4, @stale_sflow => 22},
+          pull_inflight_started_at: %{@stale_netflow => stale_at, @stale_sflow => stale_at},
+          pull_subjects: MapSet.new([@stale_netflow, @stale_sflow])
+        })
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+          assert {:noreply, [], %{pull_inflight: 0}} = Producer.handle_info({:fetch, now}, state)
+        end)
+
+      assert log =~ "EventWriter dropping stale JetStream pull inflight; re-arming 2 consumer(s)"
     end
 
     test "fetch does not expire a pull that is still within the deadline" do

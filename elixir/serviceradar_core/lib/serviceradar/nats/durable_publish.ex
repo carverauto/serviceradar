@@ -72,7 +72,7 @@ defmodule ServiceRadar.NATS.DurablePublish do
         :ok
 
       {:error, reason} ->
-        Logger.warning("JetStream publish failed; retrying from a durable job",
+        log_publish_fallback(reason,
           subject: subject,
           msg_id: msg_id,
           reason: inspect(reason)
@@ -81,6 +81,16 @@ defmodule ServiceRadar.NATS.DurablePublish do
         enqueue_retry(subject, body, msg_id, on_published, opts)
     end
   end
+
+  # The fallback is lossless. A PubAck timeout is what a JetStream stall or
+  # leader election produces, and it clears on its own, so it logs at info.
+  # Any other reason (a permissions violation, a stream API error) will not
+  # clear by retrying and stays a warning.
+  defp log_publish_fallback(:timeout, metadata),
+    do: Logger.info("JetStream publish timed out; retrying from a durable job", metadata)
+
+  defp log_publish_fallback(_reason, metadata),
+    do: Logger.warning("JetStream publish failed; retrying from a durable job", metadata)
 
   @doc """
   The module that performs the acknowledged publish: `JetStreamPublish`,
