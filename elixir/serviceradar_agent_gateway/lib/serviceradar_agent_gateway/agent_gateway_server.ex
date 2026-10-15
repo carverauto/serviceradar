@@ -1929,17 +1929,34 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     results = forward_agent_retained_stream(prepared, source)
 
-    {outcome, directives} =
-      Enum.reduce(results, {:agent_retained_committed, []}, fn
-        {:ok, {item_outcome, item_directives}}, {outcome, directives} ->
-          {combine_delivery_outcomes(outcome, item_outcome), directives ++ item_directives}
+    {outcome, directives, committed_indexes} =
+      non_empty_chunks
+      |> Enum.map(fn {_services, metadata} -> metadata.chunk_index end)
+      |> Enum.zip(results)
+      |> Enum.reduce({:agent_retained_committed, [], []}, &reduce_retained_item/2)
 
-        {:exit, reason}, {_outcome, _directives} ->
-          Logger.warning("Agent-retained gateway forward task exited: #{inspect(reason)}")
-          {:agent_retained_uncommitted, []}
-      end)
+    # A negative acknowledgement still names the chunks that committed, so the
+    # agent can drop them and retry only the rest instead of re-running their
+    # handlers. An agent that ignores the field retries the whole set.
+    case delivery_response(outcome, directives) do
+      %Monitoring.GatewayStatusResponse{received: false} = response ->
+        %{response | committed_chunk_indexes: Enum.reverse(committed_indexes)}
 
-    delivery_response(outcome, directives)
+      response ->
+        response
+    end
+  end
+
+  defp reduce_retained_item({chunk_index, {:ok, {item_outcome, item_directives}}}, {outcome, directives, committed}) do
+    committed =
+      if item_outcome == :agent_retained_committed, do: [chunk_index | committed], else: committed
+
+    {combine_delivery_outcomes(outcome, item_outcome), directives ++ item_directives, committed}
+  end
+
+  defp reduce_retained_item({_chunk_index, {:exit, reason}}, {_outcome, _directives, committed}) do
+    Logger.warning("Agent-retained gateway forward task exited: #{inspect(reason)}")
+    {:agent_retained_uncommitted, [], committed}
   end
 
   defp validate_agent_retained_stream_isolation!(all_chunks, non_empty_chunks, source) do

@@ -228,6 +228,11 @@ message GatewayStatusRequest {
 message GatewayStatusResponse {
   bool received = 1;
   repeated GatewayStatusDirective directives = 2;
+  // For an agent-retained StreamStatus answered with received=false: the
+  // chunk_index of every chunk the gateway durably committed anyway, so the
+  // sender can retry only the rest. Empty when nothing committed, and from a
+  // gateway that predates the field; received=true covers every chunk.
+  repeated int32 committed_chunk_indexes = 3;
 }
 
 // GatewayStatusDirective carries bounded server-to-agent instructions produced

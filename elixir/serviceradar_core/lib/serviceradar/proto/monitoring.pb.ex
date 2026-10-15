@@ -346,6 +346,11 @@ defmodule Monitoring.GatewayStatusResponse do
 
   field :received, 1, type: :bool
   field :directives, 2, repeated: true, type: Monitoring.GatewayStatusDirective
+
+  field :committed_chunk_indexes, 3,
+    repeated: true,
+    type: :int32,
+    json_name: "committedChunkIndexes"
 end
 
 defmodule Monitoring.GatewayStatusDirective do
