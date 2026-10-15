@@ -10,6 +10,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.MetricAlertAdmission
   alias ServiceRadar.EventWriter.PluginDeviceAttribution
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.EventWriter.SignalTelemetry
@@ -51,7 +52,11 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
     with {:ok, count} <- result do
       SignalTelemetry.emit(:metrics, :written, count)
-      {:ok, count}
+
+      # After the insert, so alert evaluation never delays or loses a point. A
+      # refused admission fails the batch; its redelivery rewrites the same
+      # stored points and is not admitted twice (see MetricAlertAdmission).
+      with :ok <- MetricAlertAdmission.admit(numeric_rows), do: {:ok, count}
     end
   rescue
     e ->
