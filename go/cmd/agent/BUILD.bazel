@@ -40,6 +40,7 @@ go_test(
     srcs = [
         "main_test.go",
         "main_windows_test.go",
+        "startup_socket_probe_test.go",
     ],
     data = [":agent"],
     embed = [":agent_lib"],
@@ -47,7 +48,10 @@ go_test(
         "SERVICERADAR_TEST_AGENT_BINARY": "$(rootpath :agent)",
         "SERVICERADAR_TEST_AGENT_VERSION": FULL_VERSION,
     },
-    deps = select({
+    deps = [
+        "//proto:proto",
+        "@org_golang_google_grpc//:grpc",
+    ] + select({
         "@io_bazel_rules_go//go/platform:windows": [
             "@org_golang_x_sys//windows/svc",
         ],
