@@ -64,8 +64,11 @@ overrides are capped at the effective lane credit, including runtime byte
 overrides.
 
 The node also limits DB-active ingestion workers. A Repo pool of ten reserves
-three slots for other core services, one each for flow, plugin, and endpoint,
-and four for other ingestion. A pool below seven cannot start this topology.
+three slots for other core services, one for flow, two for retained plugin
+(one per lane worker, so both chunks of the gateway's pair reach the database),
+one for endpoint, and three for other ingestion. Other ingestion takes up to
+four once the pool reaches eleven. A pool below eight cannot start this
+topology.
 Sync device batches execute sequentially inside their permit. The gate bounds
 this topology's writers, not all unrelated application DB callers.
 

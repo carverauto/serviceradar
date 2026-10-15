@@ -1,6 +1,23 @@
 defmodule ServiceRadar.Ingestion.WorkerBudget do
-  @moduledoc "Limits database-active workers while reserving capacity for each acknowledged lane."
+  @moduledoc """
+  Limits database-active workers while reserving capacity for each acknowledged lane.
+
+  The Repo pool is split into `:repo_reserve` connections (default 3) for other
+  core services, a dedicated permit count per acknowledged lane, and up to
+  `:general_workers` (default 4) permits shared by every other ingestion lane.
+
+  The retained plugin-result lane has two permits because the gateway forwards
+  each agent's retained stream two chunks at a time and the lane runs both on its
+  two workers. With one permit the second chunk would wait here and spend its
+  execution budget before reaching the database.
+
+  Boot fails when the pool cannot fund the reserve, every dedicated permit, and
+  at least one general permit. With the defaults that minimum is eight, and a
+  pool of ten leaves three general permits.
+  """
   use GenServer
+
+  @dedicated_limits %{flow: 1, plugin: 2, endpoint: 1}
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -31,14 +48,17 @@ defmodule ServiceRadar.Ingestion.WorkerBudget do
       raise ArgumentError, "invalid ingestion Repo budget"
     end
 
-    general = min(workers, pool_size - reserve - 3)
+    dedicated = @dedicated_limits |> Map.values() |> Enum.sum()
+    general = min(workers, pool_size - reserve - dedicated)
 
     if general < 1 do
-      {:stop, {:insufficient_ingestion_repo_budget, pool_size, reserve}}
+      {:stop,
+       {:insufficient_ingestion_repo_budget,
+        pool_size: pool_size, repo_reserve: reserve, minimum_pool_size: reserve + dedicated + 1}}
     else
       {:ok,
        %{
-         limits: %{flow: 1, plugin: 1, endpoint: 1, general: general},
+         limits: Map.put(@dedicated_limits, :general, general),
          active: %{},
          waiting: :queue.new(),
          monitors: %{}

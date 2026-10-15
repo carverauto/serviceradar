@@ -396,7 +396,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   test "legacy plugins cannot occupy the retained database reservation" do
-    budget = start_supervised!({WorkerBudget, pool_size: 7})
+    budget = start_supervised!({WorkerBudget, pool_size: 8})
     tasks = start_supervised!({Task.Supervisor, []})
     parent = self()
 
@@ -423,6 +423,40 @@ defmodule ServiceRadar.AdmissionLaneTest do
     send(legacy, :release)
   end
 
+  test "both workers of the retained plugin pair hold a database permit at once" do
+    budget = start_supervised!({WorkerBudget, pool_size: 8})
+    tasks = start_supervised!({Task.Supervisor, []})
+    parent = self()
+
+    hold = fn tag ->
+      {:ok, pid} =
+        Task.Supervisor.start_child(tasks, fn ->
+          WorkerBudget.run(budget, :retained_plugin_result, fn ->
+            send(parent, {:permit_held, tag, self()})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+
+      pid
+    end
+
+    first = hold.(:first)
+    second = hold.(:second)
+    assert_receive {:permit_held, :first, ^first}, 1_000
+    assert_receive {:permit_held, :second, ^second}, 1_000
+
+    third = hold.(:third)
+    refute_receive {:permit_held, :third, _}, 100
+
+    send(first, :release)
+    assert_receive {:permit_held, :third, ^third}, 1_000
+    send(second, :release)
+    send(third, :release)
+  end
+
   test "boot rejects queues that exceed memory or reserved Repo capacity" do
     key = ServiceRadar.Ingestion.Supervisor
     previous = Application.get_env(:serviceradar_core, key)
@@ -436,7 +470,11 @@ defmodule ServiceRadar.AdmissionLaneTest do
     Application.put_env(:serviceradar_core, key, memory_budget_bytes: 1_024)
     assert {:error, _} = start_supervised(ServiceRadar.Ingestion.Supervisor)
     assert Process.whereis(ServiceRadar.Ingestion.Supervisor) == nil
-    assert {:error, _} = start_supervised({WorkerBudget, pool_size: 6})
+
+    assert {:error, {{:insufficient_ingestion_repo_budget, budget}, _child}} =
+             start_supervised({WorkerBudget, pool_size: 7})
+
+    assert budget[:minimum_pool_size] == 8
     assert Process.whereis(WorkerBudget) == nil
   end
 
