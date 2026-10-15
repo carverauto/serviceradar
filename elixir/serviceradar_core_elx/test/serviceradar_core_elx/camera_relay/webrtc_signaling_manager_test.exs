@@ -3,6 +3,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
 
   alias Membrane.WebRTC.Signaling
   alias ServiceRadar.Camera.RelayPubSub
+  alias ServiceRadar.WebRTC.IceCredentials
+  alias ServiceRadar.WebRTC.IceCredentials.MintLimiter
+  alias ServiceRadar.WebRTC.IceCredentials.StaticSecret
   alias ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager
 
   defmodule SessionTrackerStub do
@@ -50,8 +53,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
   defmodule PipelineManagerStub do
     @moduledoc false
 
-    def add_webrtc_viewer(relay_session_id, viewer_session_id, signaling, _opts) do
+    def add_webrtc_viewer(relay_session_id, viewer_session_id, signaling, opts) do
       send(test_pid(), {:add_webrtc_viewer, relay_session_id, viewer_session_id})
+      send(test_pid(), {:webrtc_sink_ice_servers, viewer_session_id, Keyword.fetch!(opts, :ice_servers)})
       :ok = Signaling.register_peer(signaling, message_format: :json_data, pid: self())
 
       :ok =
@@ -190,6 +194,42 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
 
     assert_receive {:remove_webrtc_viewer, ^relay_session_id, ^viewer_session_id}
     assert reason == "viewer closed webrtc signaling session"
+  end
+
+  test "configures the viewer's sink with TURN credentials minted for this peer" do
+    secret = String.duplicate("p", 32)
+    previous_ice_config = Application.get_env(:serviceradar_core, IceCredentials)
+
+    Application.put_env(:serviceradar_core, IceCredentials,
+      backend: :static_secret,
+      turn_urls: ["turn:serviceradar-turn.example.svc:3478?transport=udp"],
+      static_secret: [secret: secret]
+    )
+
+    on_exit(fn -> restore_core_env(IceCredentials, previous_ice_config) end)
+    # `elixir -r` runs leave serviceradar_core, whose tree owns the limiter, down.
+    if is_nil(Process.whereis(MintLimiter)), do: start_supervised!(MintLimiter)
+
+    relay_session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+    stun = %{urls: ["stun:stun.example.com:3478"]}
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name,
+       session_tracker: SessionTrackerStub,
+       pipeline_manager: PipelineManagerStub,
+       session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name, ice_servers: [stun])
+
+    assert_receive {:webrtc_sink_ice_servers, ^viewer_session_id, [^stun, turn]}
+    assert turn.urls == ["turn:serviceradar-turn.example.svc:3478?transport=udp"]
+    assert [_expiry, digest] = String.split(turn.username, ":")
+    assert digest == IceCredentials.subject_digest({"camera_relay_peer", relay_session_id, viewer_session_id})
+    assert turn.credential == StaticSecret.turn_credential(secret, turn.username)
   end
 
   test "expires idle viewer signaling sessions" do
@@ -395,5 +435,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
+  defp restore_core_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
   defp unique_server_name, do: :"camera_relay_webrtc_core_test_#{System.unique_integer([:positive])}"
 end

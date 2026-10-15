@@ -14,6 +14,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
 
   alias Membrane.WebRTC.Signaling
   alias ServiceRadar.Camera.RelayPubSub
+  alias ServiceRadar.WebRTC.IceCredentials
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
 
@@ -127,7 +128,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
              relay_session_id,
              viewer_session_id,
              signaling,
-             ice_servers: Keyword.get(opts, :ice_servers, []),
+             ice_servers: peer_ice_servers(relay_session_id, viewer_session_id, opts),
              timeout: state.offer_timeout_ms,
              notify: self()
            ) do
@@ -319,6 +320,25 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
       :error ->
         {:noreply, state}
     end
+  end
+
+  # The browser's ICE list arrives without TURN credentials (web-ng mints
+  # those for the browser only). This peer mints its own, against the
+  # in-cluster TURN Service, so a relay candidate exists on both sides: a
+  # browser relay can then pair with this peer's relay on the same TURN
+  # server, which is the only pair a cluster-internal peer can offer to a
+  # browser behind NAT. `ice_transport_policy` stays `:all`, so host and
+  # server-reflexive pairs are still tried first.
+  defp peer_ice_servers(relay_session_id, viewer_session_id, opts) do
+    %{ice_servers: ice_servers} =
+      IceCredentials.peer_ice_servers(
+        {"camera_relay_peer", relay_session_id, viewer_session_id},
+        Keyword.get(opts, :ice_servers, []),
+        actor_id: "core-elx",
+        session_id: relay_session_id
+      )
+
+    ice_servers
   end
 
   defp session_tracker(state), do: Map.get(state, :session_tracker, CameraMediaSessionTracker)
