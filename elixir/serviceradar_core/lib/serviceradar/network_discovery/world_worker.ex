@@ -104,31 +104,34 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mode" => mode, "layout_version" => version}} = job)
       when mode in ["reconcile", "relayout"] and is_binary(version) do
-    with_result =
-      with {:ok, _job} <- record_request(job),
-           {:ok, state} <- prepare(mode, version),
-           {:ok, graph} <- TopologyAtlas.read_graph(),
-           {:ok, builder} <-
-             WorldInventory.stream(state.builder, fn rows, builder ->
-               with :ok <- TopologyAtlas.add_inventory(builder, rows), do: {:ok, builder}
-             end),
-           {:ok, candidate} <- TopologyAtlas.reconcile(builder, graph),
-           {:ok, info} <- TopologyAtlas.candidate_info(candidate) do
-        publish(state, candidate, info)
-      end
+    with {:ok, job} <- record_request(job) do
+      result =
+        case build_and_publish(mode, version) do
+          {:error, "layout_tree_changed"} when mode == "reconcile" ->
+            build_and_publish("relayout", version)
 
-    case with_result do
-      {:error, "layout_tree_changed"} when mode == "reconcile" ->
-        # Reuse the job's new version with the staged publication fence. A
-        # losing or failed rebuild must leave the accepted world available.
-        perform(%{job | args: Map.put(job.args, "mode", "relayout")})
+          result ->
+            result
+        end
 
-      result ->
-        job_result(result)
+      job_result(result, job)
     end
   end
 
   def perform(_job), do: {:cancel, :invalid_world_job}
+
+  defp build_and_publish(mode, version) do
+    with {:ok, state} <- prepare(mode, version),
+         {:ok, graph} <- TopologyAtlas.read_graph(),
+         {:ok, builder} <-
+           WorldInventory.stream(state.builder, fn rows, builder ->
+             with :ok <- TopologyAtlas.add_inventory(builder, rows), do: {:ok, builder}
+           end),
+         {:ok, candidate} <- TopologyAtlas.reconcile(builder, graph),
+         {:ok, info} <- TopologyAtlas.candidate_info(candidate) do
+      publish(state, candidate, info)
+    end
+  end
 
   defp record_request(%Oban.Job{args: %{"mode" => "reconcile"}} = job) do
     Oban.update_job(job.id, %{
@@ -263,11 +266,25 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   defp page(candidate, operation, cursor),
     do: TopologyAtlas.delta_page(candidate, operation, cursor, @batch_size)
 
-  defp job_result(:ok), do: :ok
-  defp job_result({:ok, _manifest}), do: :ok
-  defp job_result({:error, :layout_already_published}), do: :ok
-  defp job_result({:error, :stale_generation}), do: {:snooze, 5}
-  defp job_result({:error, _reason} = error), do: error
+  defp job_result(
+         {:error, :layout_already_published},
+         %Oban.Job{args: %{"mode" => "reconcile"}} = job
+       ) do
+    # Activation may have succeeded before the executor acknowledged the job.
+    # A later source change needs a new version, persisted before another try.
+    with {:ok, _job} <-
+           Oban.update_job(job.id, %{
+             args: Map.put(job.args, "layout_version", Ash.UUID.generate())
+           }) do
+      {:snooze, 5}
+    end
+  end
+
+  defp job_result(:ok, _job), do: :ok
+  defp job_result({:ok, _manifest}, _job), do: :ok
+  defp job_result({:error, :layout_already_published}, _job), do: :ok
+  defp job_result({:error, :stale_generation}, _job), do: {:snooze, 5}
+  defp job_result({:error, _reason} = error, _job), do: error
 
   defp incomplete_reconcile do
     query =
