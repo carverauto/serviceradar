@@ -19,6 +19,20 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias ServiceRadar.Ingestion.WorkerBudget
   alias Serviceradar.Metric.V1.MetricBatch
 
+  # A crashed worker's DOWN reaches the lane only after Task and its supervisor
+  # have logged the crash, so on a loaded executor the crash can outlast the
+  # 100 ms default execution budget and be reported as :execution_timeout, and
+  # the next admission can outwait the 100 ms queue budget. The crash tests
+  # assert classification and released capacity, not latency, so they run with
+  # budgets no crash path approaches and wait on the lane's replies and
+  # telemetry instead of on the clock.
+  @crash_budget_ms 5_000
+  @crash_budget [
+    queue_wait_ms: 2_000,
+    worker_timeout_ms: @crash_budget_ms,
+    gateway_call_timeout_ms: 10_000
+  ]
+
   test "JetStream metrics publish interval deltas with PubAck-gated watermarks" do
     parent = self()
 
@@ -702,13 +716,13 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
   test "a crashing worker releases capacity and returns worker_crash" do
     state_capture = capture_lane_state()
-    lane = start_lane(fn _status -> exit(:forced_crash) end, max_items: 1)
+    lane = start_lane(fn _status -> exit(:forced_crash) end, [max_items: 1] ++ @crash_budget)
     reply_ref = admit(lane, status("agent-a", "crash"))
 
-    assert_receive {^reply_ref, {:error, :worker_crash}}, 250
+    assert_receive {^reply_ref, {:error, :worker_crash}}, @crash_budget_ms
 
     next_ref = admit(lane, status("agent-b", "also-crash"))
-    assert_receive {^next_ref, {:error, :worker_crash}}, 250
+    assert_receive {^next_ref, {:error, :worker_crash}}, @crash_budget_ms
     assert_empty(lane)
     assert_occupied_then_empty(state_capture)
   end
@@ -749,30 +763,33 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
   test "lease death after a worker crash falls back to the original caller" do
     parent = self()
+    crash_capture = capture_lane_crash()
 
     lane =
-      start_lane(fn status ->
-        send(parent, {:started, status.message, self()})
+      start_lane(
+        fn status ->
+          send(parent, {:started, status.message, self()})
 
-        receive do
-          :crash -> exit(:synthetic_worker_crash)
-        end
-      end)
+          receive do
+            :crash -> exit(:synthetic_worker_crash)
+          end
+        end,
+        @crash_budget
+      )
 
     reply_ref = admit(lane, status("agent-a", "crashing"))
-    assert_receive {:started, "crashing", worker}
+    assert_receive {:started, "crashing", worker}, @crash_budget_ms
 
     [%{lease: lease}] = lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values()
     true = :erlang.suspend_process(lease)
     send(worker, :crash)
 
-    assert_eventually(fn ->
-      case lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values() do
-        [] -> true
-        [%{phase: :delivering}] -> true
-        _jobs -> false
-      end
-    end)
+    # The lane emits the crash before it hands the result to the suspended
+    # lease, so the next state read sees the undelivered crash.
+    assert_receive {:lane_crash, ^crash_capture}, @crash_budget_ms
+
+    assert [%{phase: :delivering, delivery_result: {:error, :worker_crash}}] =
+             lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values()
 
     Process.exit(lease, :kill)
 
@@ -1279,6 +1296,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   defp capture_lane_state(lane \\ :test) do
+    capture_lane_event(:state, lane, &{:lane_state, &1, &2})
+  end
+
+  defp capture_lane_crash do
+    capture_lane_event(:crash, :test, fn ref, _measurements -> {:lane_crash, ref} end)
+  end
+
+  defp capture_lane_event(suffix, lane, message) do
     parent = self()
     capture_ref = make_ref()
     handler_id = {__MODULE__, capture_ref}
@@ -1286,9 +1311,9 @@ defmodule ServiceRadar.AdmissionLaneTest do
     :ok =
       :telemetry.attach(
         handler_id,
-        [:serviceradar, :admission_lane, :state],
+        [:serviceradar, :admission_lane, suffix],
         fn _event, measurements, metadata, {pid, ref} ->
-          if metadata[:lane] == lane, do: send(pid, {:lane_state, ref, measurements})
+          if metadata[:lane] == lane, do: send(pid, message.(ref, measurements))
         end,
         {parent, capture_ref}
       )
