@@ -44,12 +44,15 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
     end
 
     test "pushed version acked is not wedged, however old the push" do
+      # The ack can precede the push stamp: the gateway records the push after the
+      # send, and the agent ack is an earlier unix second. Matching versions still
+      # mean the push is not outstanding.
       healthy =
         agent(
           pushed_config_version: "v2",
           config_pushed_at: before_threshold(),
           acked_config_version: "v2",
-          config_acked_at: before_threshold()
+          config_acked_at: well_before_threshold()
         )
 
       assert StateMonitor.config_wedge_reason(healthy, @threshold) == nil

@@ -6,9 +6,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
   - `record_config_ack/2` persists the acked version + per-section statuses;
     legacy acks (no section statuses) update the version without touching the
     previously recorded section detail.
-  - `record_config_push/2` anchors `config_pushed_at` at the oldest push the agent
-    has not acked since: a same-version re-push or a superseding version keeps it,
-    and only a push after an ack moves it.
+  - `record_config_push/2` anchors `config_pushed_at` at the oldest outstanding
+    push: a same-version re-push or a superseding version keeps it while that
+    push is outstanding, and the next new version re-anchors once the pushed
+    version is acked or the agent acks at or after the anchor.
   - `evaluate_agent_config_health/3` transitions config_health on wedge and clear.
   """
 
@@ -165,6 +166,36 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
       agent = reload!(uid, actor)
       assert agent.pushed_config_version == "v4"
       assert agent.config_pushed_at == ~U[2026-07-04 12:00:00Z]
+    end
+
+    test "ack before the push stamp re-anchors the next version",
+         %{uid: uid, actor: actor} do
+      assert :ok =
+               AgentGatewaySync.record_config_push(uid, %{
+                 config_version: "v2",
+                 pushed_at: ~U[2026-07-04 12:00:01Z]
+               })
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v2",
+          acked_at: ~U[2026-07-04 12:00:00Z],
+          section_statuses: nil
+        })
+
+      next_push = ~U[2026-07-04 13:00:00Z]
+
+      assert :ok =
+               AgentGatewaySync.record_config_push(uid, %{
+                 config_version: "v3",
+                 pushed_at: next_push
+               })
+
+      agent = reload!(uid, actor)
+      assert agent.pushed_config_version == "v3"
+      assert agent.acked_config_version == "v2"
+      assert agent.config_acked_at == ~U[2026-07-04 12:00:00Z]
+      assert agent.config_pushed_at == next_push
     end
   end
 

@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadar.Infrastructure.StateMonitor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -145,12 +146,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   stream.
 
   `config_pushed_at` anchors wedge detection: an agent that does not ack within the
-  window after it becomes config-unhealthy. The anchor is the oldest push the agent
-  has not acked since, so it only moves forward once the agent acks at or after the
-  recorded push. A re-push of the same version, or a newer version pushed while an
-  earlier push is still outstanding, keeps the existing anchor. Re-anchoring on
-  every superseding version would restart the no-ack window and report a
-  still-wedged agent as recovered.
+  window after it becomes config-unhealthy. The anchor is the oldest push
+  `StateMonitor.push_still_outstanding?/1` still treats as outstanding (the pushed
+  version differs from the acked version, and the agent has not acked at or after
+  that push). A re-push of the same version keeps the anchor. A newer version keeps
+  it only while the recorded push is still outstanding, and otherwise takes the new
+  timestamp. Re-anchoring on every superseding version would restart the no-ack
+  window and report a still-wedged agent as recovered.
   """
   @spec record_config_push(String.t(), map()) :: :ok | {:error, term()}
   def record_config_push(agent_id, attrs) do
@@ -183,15 +185,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  # The recorded push is still outstanding while the agent has not acked at or after
-  # it: the same rule StateMonitor uses to tell a wedged push from a superseded one.
-  defp push_anchor(%Agent{config_pushed_at: %DateTime{} = anchor} = agent, pushed_at) do
-    acked_at = agent.config_acked_at
-
-    if is_nil(acked_at) or DateTime.before?(acked_at, anchor), do: anchor, else: pushed_at
+  defp push_anchor(%Agent{} = agent, pushed_at) do
+    if StateMonitor.push_still_outstanding?(agent), do: agent.config_pushed_at, else: pushed_at
   end
-
-  defp push_anchor(_agent, pushed_at), do: pushed_at
 
   defp maybe_put_section_statuses(attrs, statuses) when is_list(statuses),
     do: Map.put(attrs, :config_section_statuses, statuses)
