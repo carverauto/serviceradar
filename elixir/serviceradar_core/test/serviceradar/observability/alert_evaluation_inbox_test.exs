@@ -812,6 +812,36 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert alert_id == snapshot.alert_id
   end
 
+  test "cleanup removes a stale snapshot whose incident alert retention already deleted", %{
+    rule: rule,
+    actor: actor
+  } do
+    rule =
+      rule |> Ash.Changeset.for_update(:update, %{threshold: 1}, actor: actor) |> Ash.update!()
+
+    assert {:ok, [_]} = Inbox.admit(:event, [event()])
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+
+    assert [%{alert_id: alert_id} = snapshot] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    # Alerts retention hard-deletes by id; the snapshot keeps the dangling reference.
+    assert %{num_rows: 1} =
+             Repo.query!("DELETE FROM platform.alerts WHERE id = $1", [Ecto.UUID.dump!(alert_id)])
+
+    cutoff = DateTime.shift(@time, day: 31)
+    assert {:ok, :deleted} = Owner.cleanup_snapshot(rule.id, snapshot.id, cutoff)
+    # A cleanup that rechecks after another run deleted the snapshot reports it kept.
+    assert {:ok, :kept} = Owner.cleanup_snapshot(rule.id, snapshot.id, cutoff)
+
+    assert [] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+  end
+
   test "equal occurrences remain distinct and source replay survives changed batch boundaries", %{
     rule: rule,
     actor: actor

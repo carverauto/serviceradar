@@ -109,7 +109,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
   end
 
   defp cleanup_owned(rule_id, snapshot_id, cutoff) do
-    case Ash.get(StatefulAlertRuleState, snapshot_id, actor: Inbox.actor()) do
+    # A snapshot removed between the caller's list read and this locked recheck
+    # reads as nil and is simply no longer ours to delete.
+    case Ash.get(StatefulAlertRuleState, snapshot_id,
+           actor: Inbox.actor(),
+           not_found_error?: false
+         ) do
       {:ok, %{rule_id: ^rule_id} = snapshot} ->
         stale? = is_nil(snapshot.last_seen_at) or DateTime.before?(snapshot.last_seen_at, cutoff)
 
@@ -137,8 +142,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
 
   defp terminal_alert?(nil), do: true
 
+  # Alerts retention hard-deletes resolved alerts and `alert_id` has no foreign
+  # key, so a missing alert is the normal fate of a long-stale snapshot's
+  # incident. A deleted alert cannot be open, so it counts as terminal.
   defp terminal_alert?(alert_id) do
-    case Ash.get(Alert, alert_id, actor: Inbox.actor()) do
+    case Ash.get(Alert, alert_id, actor: Inbox.actor(), not_found_error?: false) do
       {:ok, %{status: :resolved}} -> true
       {:ok, nil} -> true
       {:ok, _open} -> false
