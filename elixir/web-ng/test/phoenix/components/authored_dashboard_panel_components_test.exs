@@ -3,10 +3,61 @@ defmodule ServiceRadarWebNGWeb.Components.AuthoredDashboardPanelComponentsTest d
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents
 
   @moduletag :unit
   @moduletag :db_free
+
+  test "dashboard_breadcrumb_header links back to Dashboards and surfaces canonical ID when opened by slug" do
+    dashboard = %{
+      id: "01900000-0000-7000-8000-000000000001",
+      dashboard_ref: 4_821_903,
+      slug: "wan-health",
+      title: "WAN Health"
+    }
+
+    assert Dashboards.authored_dashboard_route_ref(dashboard) == "wan-health"
+    assert Dashboards.authored_dashboard_canonical_id(dashboard) == "4821903"
+
+    slug_html =
+      render_component(&WorkbenchComponents.dashboard_breadcrumb_header/1, %{
+        dashboard: dashboard,
+        route_param: "wan-health"
+      })
+
+    slug_doc = LazyHTML.from_fragment(slug_html)
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(slug_doc, "nav[aria-label='Breadcrumb'] a"),
+             "href"
+           ) == ["/dashboards"]
+
+    assert slug_doc
+           |> LazyHTML.query("nav[aria-label='Breadcrumb'] [aria-current='page']")
+           |> LazyHTML.text()
+           |> String.trim() == "WAN Health"
+
+    assert slug_doc
+           |> LazyHTML.query("#authored-dashboard-canonical-id code")
+           |> LazyHTML.text()
+           |> String.trim() == "4821903"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(slug_doc, "#authored-dashboard-canonical-id button"),
+             "phx-click"
+           ) == ["copy_dashboard_id"]
+
+    canonical_html =
+      render_component(&WorkbenchComponents.dashboard_breadcrumb_header/1, %{
+        dashboard: dashboard,
+        route_param: "4821903"
+      })
+
+    canonical_doc = LazyHTML.from_fragment(canonical_html)
+    assert Enum.empty?(LazyHTML.query(canonical_doc, "#authored-dashboard-canonical-id"))
+  end
 
   test "line chart threads the saved timezone and canonicalizes naive UTC chart timestamps" do
     panel = %{

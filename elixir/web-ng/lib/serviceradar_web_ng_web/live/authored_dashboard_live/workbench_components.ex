@@ -5,9 +5,61 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents
 
+  alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
+
+  attr :dashboard, :any, default: nil
+  attr :route_param, :string, default: nil
+
+  def dashboard_breadcrumb_header(assigns) do
+    canonical_id = Dashboards.authored_dashboard_canonical_id(assigns.dashboard)
+
+    assigns =
+      assigns
+      |> assign(:canonical_id, canonical_id)
+      |> assign(
+        :show_canonical_id?,
+        show_canonical_id?(assigns.dashboard, assigns.route_param, canonical_id)
+      )
+
+    ~H"""
+    <header
+      id="authored-dashboard-header"
+      class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5"
+    >
+      <nav class="sr-ui-breadcrumbs min-w-0 text-sm" aria-label="Breadcrumb">
+        <ul>
+          <li>
+            <.link navigate={~p"/dashboards"}>Dashboards</.link>
+          </li>
+          <li class="min-w-0 font-medium text-sr-ink" aria-current="page">
+            <span class="truncate">{if @dashboard, do: @dashboard.title, else: "Dashboard"}</span>
+          </li>
+        </ul>
+      </nav>
+
+      <div
+        :if={@show_canonical_id?}
+        id="authored-dashboard-canonical-id"
+        class="flex shrink-0 items-center gap-1.5 text-xs text-sr-muted"
+      >
+        <span>ID</span>
+        <code class="font-mono text-xs text-sr-muted">{@canonical_id}</code>
+        <.ui_button
+          type="button"
+          size="xs"
+          variant="ghost"
+          phx-click="copy_dashboard_id"
+          aria-label="Copy canonical dashboard ID"
+        >
+          Copy ID
+        </.ui_button>
+      </div>
+    </header>
+    """
+  end
 
   attr :dashboard, :any, required: true
   attr :settings_open?, :boolean, default: false
@@ -125,4 +177,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
     |> Map.take([:can_edit?, :can_share?, :can_schedule_reports?, :can_view_groups?])
     |> Map.put(:current_scope, assigns.current_scope)
   end
+
+  defp show_canonical_id?(%{slug: slug}, route_param, canonical_id)
+       when is_binary(slug) and slug != "" and canonical_id != "" do
+    is_nil(route_param) or route_param == slug or route_param != canonical_id
+  end
+
+  defp show_canonical_id?(_dashboard, _route_param, _canonical_id), do: false
 end

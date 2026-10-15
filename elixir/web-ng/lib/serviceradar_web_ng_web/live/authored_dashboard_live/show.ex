@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       socket
       |> assign(:page_title, "Dashboard")
       |> assign(:current_path, nil)
+      |> assign(:route_param, nil)
       |> assign(:dashboard, nil)
       |> assign(:access_grants, [])
       |> assign(:user_groups, [])
@@ -75,7 +76,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         socket
       end
 
-    {:noreply, assign(socket, :current_path, "/dashboard/#{dashboard_id}")}
+    {:noreply,
+     socket
+     |> assign(:route_param, dashboard_id)
+     |> assign(:current_path, "/dashboard/#{dashboard_id}")}
   end
 
   def handle_params(_params, _uri, socket) do
@@ -137,6 +141,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      socket
      |> assign(:user_grant_params, merge_params(socket.assigns.user_grant_params, params))
      |> assign_grant_forms()}
+  end
+
+  def handle_event("copy_dashboard_id", _params, socket) do
+    canonical_id = Dashboards.authored_dashboard_canonical_id(socket.assigns.dashboard)
+    {:noreply, push_event(socket, "clipboard", %{text: canonical_id})}
   end
 
   def handle_event("open_settings", _params, socket) do
@@ -756,6 +765,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       shell={:operations}
     >
       <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+        <.dashboard_breadcrumb_header
+          dashboard={@dashboard}
+          route_param={@route_param}
+        />
+
         <.variable_bar
           :if={@dashboard && DashboardVariables.list(@dashboard) != []}
           dashboard={@dashboard}

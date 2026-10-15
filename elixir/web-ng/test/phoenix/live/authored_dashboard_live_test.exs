@@ -694,6 +694,58 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     refute html =~ "Create Group"
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "saved dashboard renders breadcrumb link to Dashboards and shows canonical ID when opened by slug",
+       %{
+         conn: conn,
+         scope: scope
+       } do
+    unique = System.unique_integer([:positive])
+    slug = "wan-overview-#{unique}"
+
+    {slugged_dashboard, _panel} =
+      dashboard_with_panel!(scope,
+        title: "WAN Overview",
+        slug: slug
+      )
+
+    canonical_id = Integer.to_string(slugged_dashboard.dashboard_ref)
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{slug}")
+    _html = render_async(view, 5_000)
+
+    assert has_element?(
+             view,
+             "#authored-dashboard-header nav[aria-label='Breadcrumb'] a[href='/dashboards']",
+             "Dashboards"
+           )
+
+    assert has_element?(
+             view,
+             "#authored-dashboard-header nav[aria-label='Breadcrumb'] [aria-current='page']",
+             slugged_dashboard.title
+           )
+
+    assert has_element?(view, "#authored-dashboard-canonical-id code", canonical_id)
+
+    view
+    |> element("#authored-dashboard-canonical-id button[phx-click='copy_dashboard_id']", "Copy ID")
+    |> render_click()
+
+    assert_push_event(view, "clipboard", %{text: ^canonical_id})
+
+    {:ok, by_id_view, _html} = live(conn, ~p"/dashboard/#{canonical_id}")
+    _html = render_async(by_id_view, 5_000)
+
+    assert has_element?(
+             by_id_view,
+             "#authored-dashboard-header nav[aria-label='Breadcrumb'] a[href='/dashboards']",
+             "Dashboards"
+           )
+
+    refute has_element?(by_id_view, "#authored-dashboard-canonical-id")
+  end
+
   defp dashboard_with_panel!(scope, attrs) do
     title = Keyword.fetch!(attrs, :title)
 
@@ -701,6 +753,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       Dashboards.create_authored_dashboard(scope, %{
         title: "#{title} #{System.unique_integer([:positive])}",
         description: "LiveView workflow coverage",
+        slug: Keyword.get(attrs, :slug),
         status: :active,
         visibility: :private,
         variables: Keyword.get(attrs, :variables, %{})
