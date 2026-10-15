@@ -35,7 +35,6 @@
 -define(ENSURE_COOLDOWN_MS, 10000).
 -define(MAX_METADATA_BYTES, 2048).
 -define(MAX_REPORT_BYTES, 8192).
--define(INSPECT_DEPTH, 6).
 %% Words, not bytes. `io_lib:format("~0P", ...)` walks the whole term before
 %% truncate_binary/2 can cap it; a multi-megabyte Logger report (protobuf
 %% structs, agent config JSON) pinned the handler in inspect_term/2 while
@@ -243,7 +242,7 @@ sanitize_metadata_value(Value) when is_binary(Value) ->
 sanitize_metadata_value(Value) when is_atom(Value); is_integer(Value); is_float(Value) ->
     Value;
 sanitize_metadata_value(Value) when is_list(Value) ->
-    case charlist_to_binary(Value) of
+    case chardata_to_binary(Value) of
         {ok, Binary} ->
             truncate_binary(Binary, ?MAX_METADATA_BYTES);
         error ->
@@ -277,7 +276,7 @@ sanitize_message(Other) ->
 truncate_iodata(Value, Max) when is_binary(Value) ->
     truncate_binary(Value, Max);
 truncate_iodata(Value, Max) when is_list(Value) ->
-    case charlist_to_binary(Value) of
+    case chardata_to_binary(Value) of
         {ok, Bin} ->
             truncate_binary(Bin, Max);
         error ->
@@ -317,7 +316,7 @@ sanitize_report_value(Value) when is_binary(Value) ->
 sanitize_report_value(Value) when is_atom(Value); is_integer(Value); is_float(Value) ->
     Value;
 sanitize_report_value(Value) when is_list(Value) ->
-    case charlist_to_binary(Value) of
+    case chardata_to_binary(Value) of
         {ok, Binary} ->
             truncate_binary(Binary, ?MAX_REPORT_BYTES);
         error ->
@@ -349,19 +348,21 @@ proper_list(Value) ->
             false
     end.
 
-charlist_to_binary(Value) ->
-    case proper_list(Value) of
-        true ->
-            try unicode:characters_to_binary(Value) of
-                Binary when is_binary(Binary) ->
-                    {ok, Binary};
-                _Other ->
-                    error
-            catch
-                _:_ ->
-                    error
-            end;
-        false ->
+%% Logger `{string, _}` messages are chardata, and chardata may be an improper
+%% list whose tail is a binary: DBConnection logs its disconnect as
+%% `[Mod, $\s, $(, Pid, ") disconnected: " | Banner]`. A `length/1` precheck
+%% rejected that shape and sent the message to inspect_term/2, which exported
+%% a depth-limited dump of the list instead of the error text.
+%% unicode:characters_to_binary/1 accepts every chardata shape. Only a binary
+%% result is text; an error tuple, an incomplete tuple, or badarg is not.
+chardata_to_binary(Value) ->
+    try unicode:characters_to_binary(Value) of
+        Binary when is_binary(Binary) ->
+            {ok, Binary};
+        _InvalidOrIncomplete ->
+            error
+    catch
+        _:_ ->
             error
     end.
 
@@ -371,9 +372,13 @@ inspect_term(Value, MaxBytes) ->
         true ->
             <<"<truncated>">>;
         false ->
+            %% Bound the rendering by characters, then by bytes. A depth limit
+            %% (the old io_lib:print/4 call, depth 6) elided binaries to
+            %% `<<"Perm"...>>`, which dropped exactly the text an operator
+            %% needed; the flat_size guard above already bounds the walk.
             try
-                Chars = io_lib:print(Value, 1, MaxBytes, ?INSPECT_DEPTH),
-                truncate_binary(iolist_to_binary(Chars), MaxBytes)
+                Chars = io_lib:format("~0tp", [Value], [{chars_limit, MaxBytes}]),
+                truncate_binary(unicode:characters_to_binary(Chars), MaxBytes)
             catch
                 _:_ ->
                     <<"<uninspectable>">>
@@ -429,9 +434,9 @@ coerce_msg_to_string(Other) ->
 normalize_report(Report, Meta) ->
     case report_to_metadata(Report) of
         [] ->
-            {format_report(Report), Meta};
+            {format_report(Report, Meta), Meta};
         Attributes ->
-            {format_report(Report), maps:merge(maps:from_list(Attributes), Meta)}
+            {format_report(Report, Meta), maps:merge(maps:from_list(Attributes), Meta)}
     end.
 
 report_to_metadata(Report) when is_map(Report) ->
@@ -447,8 +452,45 @@ report_to_metadata(Report) when is_list(Report) ->
 report_to_metadata(_Report) ->
     [].
 
-format_report(Report) ->
-    inspect_term(Report, ?MAX_REPORT_BYTES).
+%% Render a report the way logger_formatter would: through the event's
+%% `report_cb` when it has one (gen_server, proc_lib and supervisor reports all
+%% do), otherwise as a bounded single-line term.
+format_report(Report, Meta) ->
+    Size = try erts_debug:flat_size(Report) catch _:_ -> ?MAX_TERM_WORDS + 1 end,
+    case Size > ?MAX_TERM_WORDS of
+        true ->
+            <<"<truncated>">>;
+        false ->
+            case report_cb_chardata(Report, maps:get(report_cb, Meta, undefined)) of
+                {ok, Chardata} ->
+                    truncate_iodata(Chardata, ?MAX_REPORT_BYTES);
+                error ->
+                    inspect_term(Report, ?MAX_REPORT_BYTES)
+            end
+    end.
+
+report_cb_chardata(Report, ReportCb) when is_function(ReportCb, 1) ->
+    try ReportCb(Report) of
+        {Format, Args} when is_list(Args) ->
+            {ok, io_lib:format(Format, Args, [{chars_limit, ?MAX_REPORT_BYTES}])};
+        _Other ->
+            error
+    catch
+        _:_ ->
+            error
+    end;
+report_cb_chardata(Report, ReportCb) when is_function(ReportCb, 2) ->
+    Config = #{depth => unlimited,
+               chars_limit => ?MAX_REPORT_BYTES,
+               single_line => true},
+    try
+        {ok, ReportCb(Report, Config)}
+    catch
+        _:_ ->
+            error
+    end;
+report_cb_chardata(_Report, _ReportCb) ->
+    error.
 
 %% `otel_otlp_common:to_any_value/1` encodes Erlang lists as arrays, which is
 %% usually correct but breaks log bodies because formatted logger messages are

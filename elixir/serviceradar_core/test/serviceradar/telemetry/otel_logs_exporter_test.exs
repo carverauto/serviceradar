@@ -137,6 +137,72 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
     assert length(records) == 2
   end
 
+  test "prepare renders improper chardata bodies as their text, not an inspected list" do
+    # The shape DBConnection logs on disconnect: binaries and chars ending in a
+    # binary tail. Valid chardata, but an improper list.
+    chardata = [
+      "Example.Protocol",
+      ?\s,
+      ?(,
+      "#PID<0.1.0>",
+      ") disconnected: " | "** (Example.Error) connection closed"
+    ]
+
+    batch = %{undefined: [%{level: :error, msg: {:string, chardata}, meta: %{time: 1}}]}
+
+    assert %{undefined: [%{msg: {:string, body}}]} =
+             :otel_exporter_logs_otlp.prepare_logs_for_export(batch)
+
+    assert body ==
+             "Example.Protocol (#PID<0.1.0>) disconnected: ** (Example.Error) connection closed"
+  end
+
+  test "prepare inspects a UTF-8 body that contains an invalid byte" do
+    # é is valid UTF-8; the trailing 0xFF is not. Conversion must not decode
+    # those bytes as Latin-1 or keep only the valid prefix.
+    chardata = ["status " | <<0xC3, 0xA9, 0xFF>>]
+
+    batch = %{undefined: [%{level: :error, msg: {:string, chardata}, meta: %{time: 1}}]}
+
+    assert %{undefined: [%{msg: {:string, body}}]} =
+             :otel_exporter_logs_otlp.prepare_logs_for_export(batch)
+
+    assert body == ~s([<<"status ">>|<<"Ã©ÿ">>])
+  end
+
+  test "prepare renders reports through their report_cb, else as an unelided term" do
+    report_cb = fn %{peer: peer}, _config -> ["link to ", peer, " lost"] end
+    denied = %{label: {:example, :report}, reason: "permission denied on example.subject"}
+
+    batch = %{
+      undefined: [
+        %{
+          level: :error,
+          msg: {:report, %{peer: "node-a"}},
+          meta: %{time: 1, report_cb: report_cb}
+        },
+        %{
+          level: :error,
+          msg: {:report, %{peer: "node-b"}},
+          meta: %{time: 2, report_cb: fn %{peer: peer} -> {~c"peer ~ts gone", [peer]} end}
+        },
+        %{
+          level: :error,
+          msg: {:report, denied},
+          meta: %{time: 3}
+        }
+      ]
+    }
+
+    assert %{undefined: [first, second, third]} =
+             :otel_exporter_logs_otlp.prepare_logs_for_export(batch)
+
+    assert first.msg == {:string, "link to node-a lost"}
+    assert second.msg == {:string, "peer node-b gone"}
+    assert {:string, body} = third.msg
+    assert body =~ ~s(<<"permission denied on example.subject">>)
+  end
+
   test "prepare drops extra events so a backed-up handler cannot encode tens of thousands" do
     events =
       for i <- 1..1_000 do
