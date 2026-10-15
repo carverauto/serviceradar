@@ -158,36 +158,45 @@ defmodule ServiceRadar.Admission.Lane do
   @impl true
   def init(opts) do
     config = Keyword.fetch!(opts, :config)
+    ordering = Keyword.get(opts, :ordering, :per_agent)
 
-    case validate_config(config, Keyword.fetch!(opts, :gateway_max_ms)) do
-      :ok ->
-        state = %{
-          lane: Keyword.fetch!(opts, :lane),
-          concurrency: Keyword.fetch!(opts, :concurrency),
-          task_supervisor: Keyword.fetch!(opts, :task_supervisor),
-          lease_supervisor:
-            Keyword.get(opts, :lease_supervisor, Keyword.fetch!(opts, :task_supervisor)),
-          processor: Keyword.fetch!(opts, :processor),
-          on_accepted_result: Keyword.get(opts, :on_accepted_result),
-          preserve_result: Keyword.get(opts, :preserve_result, false),
-          execution_gate: Keyword.get(opts, :execution_gate),
-          source_max_bytes: Keyword.fetch!(opts, :source_max_bytes),
-          config: config,
-          queue: :queue.new(),
-          jobs: %{},
-          monitors: %{},
-          running: %{},
-          admitted_bytes: 0,
-          admitted_per_agent: %{}
-        }
+    with :ok <- validate_ordering(ordering),
+         :ok <- validate_config(config, Keyword.fetch!(opts, :gateway_max_ms)) do
+      state = %{
+        lane: Keyword.fetch!(opts, :lane),
+        concurrency: Keyword.fetch!(opts, :concurrency),
+        ordering: ordering,
+        task_supervisor: Keyword.fetch!(opts, :task_supervisor),
+        lease_supervisor:
+          Keyword.get(opts, :lease_supervisor, Keyword.fetch!(opts, :task_supervisor)),
+        processor: Keyword.fetch!(opts, :processor),
+        on_accepted_result: Keyword.get(opts, :on_accepted_result),
+        preserve_result: Keyword.get(opts, :preserve_result, false),
+        execution_gate: Keyword.get(opts, :execution_gate),
+        source_max_bytes: Keyword.fetch!(opts, :source_max_bytes),
+        config: config,
+        queue: :queue.new(),
+        jobs: %{},
+        monitors: %{},
+        running: %{},
+        admitted_bytes: 0,
+        admitted_per_agent: %{}
+      }
 
-        emit_state(state)
-        {:ok, state}
-
+      emit_state(state)
+      {:ok, state}
+    else
       {:error, reason} ->
         {:stop, {:invalid_admission_lane_config, reason}}
     end
   end
+
+  # :per_agent runs one job per agent (or sweep group) at a time, for result
+  # classes whose arrival order matters. :unordered keys each job by its own id,
+  # so two items from one agent run on separate workers; use it only where the
+  # processor is safe under concurrent same-agent work.
+  defp validate_ordering(ordering) when ordering in [:per_agent, :unordered], do: :ok
+  defp validate_ordering(ordering), do: {:error, {:invalid_ordering, ordering}}
 
   @impl true
   def handle_call({:reserve, descriptor, owner, timeout, call_ref}, _from, state) do
@@ -547,7 +556,7 @@ defmodule ServiceRadar.Admission.Lane do
         lease_ref: nil,
         caller_ref: caller_ref,
         agent_id: agent_id(headers),
-        ordering_key: ordering_key(headers),
+        ordering_key: job_ordering_key(state.ordering, headers, id),
         payload_bytes: bytes,
         retained_bytes: retained,
         admitted_at: admitted_at,
@@ -977,6 +986,9 @@ defmodule ServiceRadar.Admission.Lane do
   defp payload_bytes(_status), do: 0
 
   defp agent_id(status), do: status[:agent_id] || status["agent_id"] || "unknown"
+
+  defp job_ordering_key(:unordered, _headers, id), do: id
+  defp job_ordering_key(:per_agent, headers, _id), do: ordering_key(headers)
 
   defp ordering_key(%{source: source, service_type: type, sweep_group_id: group} = status)
        when source in ["results", :results] and type in ["sweep", :sweep],
