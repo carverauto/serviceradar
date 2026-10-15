@@ -30,6 +30,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -354,6 +355,31 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     # another agent, the changed secret and the disabled rule; the unknown
     # binding is audited under its own id
     assert binding_denials(binding["binding_id"]) == 3
+  end
+
+  # An interactive console session completes a virtualization row that predates
+  # the v3 identity contract from its credential rule's source scope. Config
+  # delivery must complete it from the assignment's own rule the same way;
+  # without that scope the item fails to resolve and the whole console
+  # assignment is withheld from the agent.
+  test "a console assignment completes a legacy PVE host row from its credential-rule scope",
+       %{admin: admin, system: system, agent_uid: agent_uid} do
+    {:ok, _agent} =
+      create_connected_agent(admin, agent_uid, ["credential_broker_resolve_by_binding"])
+
+    secret = create_proxmox_secret!(admin, System.unique_integer([:positive]))
+    rule = create_proxmox_console_rule!(system, secret, agent_uid)
+    device_uid = insert_legacy_pve_host!(system, "192.0.2.20")
+    insert_proxmox_console_assignment!(rule, secret, agent_uid, device_uid)
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+    assert [%{plugin_id: "proxmox-console"} = plugin] = config.plugins
+    assert [binding] = plugin.host_params["bindings"]
+    assert binding["origin"] == "https://192.0.2.20:8006"
+    assert binding["target_ids"]["device_uid"] == device_uid
+    assert binding["target_ids"]["integration_id"] == rule.integration_id
+    assert binding["target_ids"]["controller_id"] == rule.controller_id
   end
 
   test "fresh policy broker grant is reused and still resolves with an audit row",
@@ -877,6 +903,169 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
                   "target_kind" => "pve_host"
                 }
               ]
+            }
+          ],
+          "template" => %{"credential_broker" => scope, "api_token_secret_ref" => secret_ref}
+        },
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    assignment_id
+  end
+
+  defp create_proxmox_console_rule!(system, secret, agent_uid) do
+    {:ok, rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "pve-console-rule-#{System.unique_integer([:positive])}",
+          provider: "proxmox",
+          auth_method: :proxmox_api_token,
+          purpose: :console_access,
+          target_query: "in:devices",
+          scope_type: :agent,
+          scope_value: agent_uid,
+          secret_id: secret.id,
+          tls_policy: :verify
+        }
+      )
+      |> Ash.create(actor: system)
+
+    rule
+  end
+
+  # A PVE host whose virtualization row carries native identity but no v3
+  # source scope, as rows written before the v3 insert guard do. The guard is
+  # disabled only for this insert.
+  defp insert_legacy_pve_host!(system, ip) do
+    now = DateTime.utc_now()
+    node = "pve-node-#{System.unique_integer([:positive])}"
+    device_uid = "sr:device:#{node}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: device_uid,
+        type_id: 0,
+        hostname: node,
+        ip: ip,
+        vendor_name: "Proxmox",
+        is_available: true,
+        metadata: %{},
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    Repo.query!(
+      "ALTER TABLE platform.virtualization_hosts DISABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+    )
+
+    try do
+      VirtualizationHost
+      |> Ash.Changeset.for_create(:create, %{
+        provider: "proxmox",
+        provider_ref: "proxmox:node:#{node}",
+        device_uid: device_uid,
+        name: node,
+        identity_state: :legacy,
+        native_cluster_id: "cluster-a",
+        object_kind: "node",
+        native_object_id: node,
+        metadata: %{}
+      })
+      |> Ash.create!(actor: system)
+    after
+      Repo.query!(
+        "ALTER TABLE platform.virtualization_hosts ENABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+      )
+    end
+
+    device_uid
+  end
+
+  # The console form PluginAssignmentMaterializer writes: a ":console_access"
+  # policy id and a template holding the grant's scope and no grant.
+  defp insert_proxmox_console_assignment!(rule, secret, agent_uid, device_uid) do
+    now = DateTime.utc_now()
+    package_id = Ecto.UUID.generate()
+    assignment_id = Ecto.UUID.generate()
+    policy_id = "network-credential-rule:#{rule.id}:console_access"
+    secret_ref = SecretRefs.network_credential_ref(to_string(secret.id))
+
+    scope =
+      CredentialBrokerGrant.scope_payload(%{
+        secret_id: secret.id,
+        secret_ref: secret_ref,
+        credential_rule_id: rule.id,
+        grant_type: "proxmox_api_token",
+        consumer_kind: :plugin,
+        consumer_id: "proxmox-console",
+        purpose: "console_access",
+        agent_id: agent_uid,
+        resolution_location: :agent,
+        inject: %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
+        allowed_methods: ["GET", "POST"],
+        allowed_paths: [],
+        ttl_seconds: 300
+      })
+
+    Repo.insert_all("plugins", [
+      %{
+        plugin_id: "proxmox-console",
+        name: "proxmox-console",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_packages", [
+      %{
+        id: Ecto.UUID.dump!(package_id),
+        plugin_id: "proxmox-console",
+        name: "proxmox-console",
+        version: "0.1.0",
+        entrypoint: "run_console",
+        wasm_object_key: "plugins/proxmox-console/#{assignment_id}/plugin.wasm",
+        status: "approved",
+        outputs: "console",
+        manifest: %{},
+        config_schema: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_assignments", [
+      %{
+        id: Ecto.UUID.dump!(assignment_id),
+        agent_uid: agent_uid,
+        partition_id: @default_partition,
+        plugin_id: "proxmox-console",
+        plugin_package_id: Ecto.UUID.dump!(package_id),
+        source: "policy",
+        policy_id: policy_id,
+        enabled: true,
+        interval_seconds: 300,
+        timeout_seconds: 30,
+        params: %{
+          "schema" => "serviceradar.plugin_inputs.v1",
+          "policy_id" => policy_id,
+          "policy_version" => 1,
+          "credential_rule_id" => to_string(rule.id),
+          "agent_id" => agent_uid,
+          "generated_at" => DateTime.to_iso8601(now),
+          "inputs" => [
+            %{
+              "name" => "targets",
+              "entity" => "devices",
+              "query" => "in:devices",
+              "chunk_index" => 0,
+              "chunk_total" => 1,
+              "chunk_hash" => String.duplicate("b", 64),
+              "items" => [%{"device_uid" => device_uid, "target_kind" => "pve_host"}]
             }
           ],
           "template" => %{"credential_broker" => scope, "api_token_secret_ref" => secret_ref}
