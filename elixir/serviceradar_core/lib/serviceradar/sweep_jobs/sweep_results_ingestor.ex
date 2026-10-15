@@ -1786,9 +1786,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         to_jsonb($2::timestamptz)
       )
     FROM (
+      -- Lock every row before writing any, in uid order (see query_status_update/2)
       SELECT uid, is_available AS was_available, hostname, ip
       FROM ocsf_devices
       WHERE uid = ANY($1)
+      ORDER BY uid
+      FOR NO KEY UPDATE
     ) old
     WHERE d.uid = old.uid
       AND d.deleted_at IS NULL
@@ -1806,7 +1809,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
-    case Repo.query(sql, [
+    case query_status_update(sql, [
            device_uids,
            timestamp,
            availability_policy.authenticated_agent_id,
@@ -1869,9 +1872,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       END,
       modified_time = $3
     FROM (
+      -- Lock every row before writing any, in uid order (see query_status_update/2)
       SELECT uid, is_available AS was_available, hostname, ip
       FROM ocsf_devices
       WHERE uid = ANY($1)
+      ORDER BY uid
+      FOR NO KEY UPDATE
     ) old
     WHERE d.uid = old.uid
       AND d.deleted_at IS NULL
@@ -1914,7 +1920,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
-    case Repo.query(sql, [
+    case query_status_update(sql, [
            device_uids,
            @unavailable_threshold,
            timestamp,
@@ -1987,18 +1993,57 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # DB connection's search_path determines the schema
     # Use unqualified table name since search_path is set by CNPG credentials
     sql = """
-    UPDATE ocsf_devices
+    UPDATE ocsf_devices AS d
     SET discovery_sources = array_append(
-      COALESCE(discovery_sources, ARRAY[]::text[]),
+      COALESCE(d.discovery_sources, ARRAY[]::text[]),
       'sweep'
     )
-    WHERE uid = ANY($1)
-    AND deleted_at IS NULL
-    AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
+    FROM (
+      -- Lock every row before writing any, in uid order (see query_status_update/2)
+      SELECT uid
+      FROM ocsf_devices
+      WHERE uid = ANY($1)
+        AND deleted_at IS NULL
+        AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
+      ORDER BY uid
+      FOR NO KEY UPDATE
+    ) locked
+    WHERE d.uid = locked.uid
+      AND d.deleted_at IS NULL
+      AND NOT ('sweep' = ANY(COALESCE(d.discovery_sources, ARRAY[]::text[])))
     """
 
-    _ = Repo.query(sql, [device_uids])
+    _ = query_status_update(sql, [device_uids])
     :ok
+  end
+
+  # Concurrent sweep batches (one per sweep group and reporting agent) and the sync
+  # ingestor write overlapping `ocsf_devices` rows at the same time. A multi-row UPDATE
+  # locks rows in whatever order its plan visits them, so two writers that each hold a
+  # row the other needs deadlock. Each statement here therefore locks its rows in uid
+  # order, the order the identity fence and DeviceWrites lock in, before writing any.
+  #
+  # Ordering cannot close every cycle: a writer that locks a second set of rows after
+  # its first (DeviceWrites' address release inside the fenced sync write) can still meet
+  # one of these statements in the middle. Each is a single autocommit statement, so a
+  # deadlock rolls all of it back and running it again is safe; retry a bounded number
+  # of times before reporting the error.
+  @status_update_attempts 3
+
+  defp query_status_update(sql, params, attempt \\ 1) do
+    case Repo.query(sql, params) do
+      {:error, %Postgrex.Error{postgres: %{code: :deadlock_detected}} = error}
+      when attempt < @status_update_attempts ->
+        Logger.info(
+          "SweepResultsIngestor: device status update deadlocked; retrying " <>
+            "(attempt #{attempt + 1} of #{@status_update_attempts}): #{inspect(error)}"
+        )
+
+        query_status_update(sql, params, attempt + 1)
+
+      result ->
+        result
+    end
   end
 
   defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, actor, opts) do
