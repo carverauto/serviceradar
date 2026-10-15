@@ -353,24 +353,14 @@ proper_list(Value) ->
 %% `[Mod, $\s, $(, Pid, ") disconnected: " | Banner]`. A `length/1` precheck
 %% rejected that shape and sent the message to inspect_term/2, which exported
 %% a depth-limited dump of the list instead of the error text.
-%% unicode:characters_to_binary/1 accepts every chardata shape and raises
-%% badarg on anything else, so it is the whole test.
+%% unicode:characters_to_binary/1 accepts every chardata shape. Only a binary
+%% result is text; an error tuple, an incomplete tuple, or badarg is not.
 chardata_to_binary(Value) ->
     try unicode:characters_to_binary(Value) of
         Binary when is_binary(Binary) ->
             {ok, Binary};
         _InvalidOrIncomplete ->
-            latin1_iodata_to_binary(Value)
-    catch
-        _:_ ->
             error
-    end.
-
-%% Iodata carrying bytes that are not valid UTF-8 (a Latin-1 binary, a raw
-%% socket payload). Read the bytes as Latin-1 so the text stays legible.
-latin1_iodata_to_binary(Value) ->
-    try
-        {ok, unicode:characters_to_binary(iolist_to_binary(Value), latin1)}
     catch
         _:_ ->
             error

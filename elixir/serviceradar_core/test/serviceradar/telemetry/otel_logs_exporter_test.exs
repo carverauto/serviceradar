@@ -157,6 +157,19 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
              "Example.Protocol (#PID<0.1.0>) disconnected: ** (Example.Error) connection closed"
   end
 
+  test "prepare inspects a UTF-8 body that contains an invalid byte" do
+    # é is valid UTF-8; the trailing 0xFF is not. Conversion must not decode
+    # those bytes as Latin-1 or keep only the valid prefix.
+    chardata = ["status " | <<0xC3, 0xA9, 0xFF>>]
+
+    batch = %{undefined: [%{level: :error, msg: {:string, chardata}, meta: %{time: 1}}]}
+
+    assert %{undefined: [%{msg: {:string, body}}]} =
+             :otel_exporter_logs_otlp.prepare_logs_for_export(batch)
+
+    assert body == ~s([<<"status ">>|<<"Ã©ÿ">>])
+  end
+
   test "prepare renders reports through their report_cb, else as an unelided term" do
     report_cb = fn %{peer: peer}, _config -> ["link to ", peer, " lost"] end
     denied = %{label: {:example, :report}, reason: "permission denied on example.subject"}
