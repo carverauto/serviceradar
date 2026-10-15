@@ -108,7 +108,7 @@ only through the enum metadata of the same response.
 
 #### Scenario: Device stops reporting
 - **WHEN** a terminal or router listed on the account sends no telemetry on several consecutive runs
-- **THEN** each fully drained run reports a zero sample count for it, and the proposed offline rule can fire on that device
+- **THEN** each fully drained run reports exactly one zero sample count for it, even when the listing repeats the device, and the proposed offline rule, once enabled, fires on that device
 
 #### Scenario: Proposed alert rules start disabled
 - **WHEN** the `starlink-cloud` package is approved

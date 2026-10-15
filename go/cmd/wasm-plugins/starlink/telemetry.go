@@ -373,9 +373,13 @@ func buildReportingRecords(known []string, counts map[string]int, instance strin
 		records = append(records, deviceMetricRecord(
 			"starlink-reporting-"+ref+"-"+strconv.FormatUint(at, 10),
 			ref, instance, cloudPluginID, []sdk.Metric{{
-				Name:   "starlink_telemetry_samples",
-				Kind:   sdk.MetricKindGauge,
-				Unit:   "count",
+				Name: "starlink_telemetry_samples",
+				Kind: sdk.MetricKindGauge,
+				Unit: "count",
+				// Core rewrites device_id to the canonical uid once the
+				// device is resolved; the offline rule groups by this tag so
+				// a device resolved mid-window keeps one count.
+				Tags:   []sdk.MetricStringMapEntry{{Key: "starlink_device_ref", Value: ref}},
 				Points: []sdk.MetricPoint{{Value: float64(counts[ref]), ObservedAtUnixNano: at}},
 			}}))
 	}

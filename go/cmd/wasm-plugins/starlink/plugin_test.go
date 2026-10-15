@@ -61,9 +61,16 @@ func terminalRow(atNs int64) string {
 // account whose stream returns rows, as of now.
 func runTelemetryFixture(t *testing.T, rows string, now time.Time) (*sdk.Result, []sdk.TelemetryRecord) {
 	t.Helper()
+	return runTelemetryFixtureListing(t, terminalRowA, rows, now)
+}
+
+// runTelemetryFixtureListing is runTelemetryFixture with the terminal listing
+// page given as its rows.
+func runTelemetryFixtureListing(t *testing.T, listing, rows string, now time.Time) (*sdk.Result, []sdk.TelemetryRecord) {
+	t.Helper()
 	fake := &cacheHTTP{fakeHTTP: newFakeHTTP(t), wantBody: cacheQueryPage0, status: 200}
 	fake.on(http.MethodGet, "/account", 200, accountFixture())
-	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
+	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, listing))
 	// collectFlightStatus fetches service-lines to find aviation (tail number) terminals;
 	// the fixture has none so it short-circuits after this page.
 	fake.on(http.MethodGet, "/service-lines?page=0", 200, envelope(serviceLinesPage))
@@ -143,32 +150,39 @@ func TestSharedPublicAddressNeverMergesTerminals(t *testing.T) {
 	if len(result.DeviceDiscovery) != 1 || len(result.DeviceDiscovery[0].Devices) != 2 {
 		t.Fatalf("want one enrichment with both terminals, got %+v", result.DeviceDiscovery)
 	}
-	for i, want := range []string{terminalDeviceID(testTerminalA), terminalDeviceID(testTerminalB)} {
-		device := result.DeviceDiscovery[0].Devices[i]
-		if device.DeviceID != want || device.Metadata["integration_id"] != want {
-			t.Fatalf("device %d identity %q / %v, want %q", i, device.DeviceID, device.Metadata["integration_id"], want)
+	byID := map[string]sdk.DiscoveredDevice{}
+	for _, device := range result.DeviceDiscovery[0].Devices {
+		byID[device.DeviceID] = device
+	}
+	for _, want := range []string{terminalDeviceID(testTerminalA), terminalDeviceID(testTerminalB)} {
+		device, ok := byID[want]
+		if !ok || device.Metadata["integration_id"] != want {
+			t.Fatalf("device %q missing or integration_id %v; got %+v", want, device.Metadata["integration_id"], byID)
 		}
 		if device.IP != "" || device.Metadata["public_ipv4"] != "192.0.2.10" {
-			t.Fatalf("device %d ip %q public_ipv4 %v: a shared address must be metadata only", i, device.IP, device.Metadata["public_ipv4"])
+			t.Fatalf("device %q ip %q public_ipv4 %v: a shared address must be metadata only", want, device.IP, device.Metadata["public_ipv4"])
 		}
 	}
 }
 
 // A device that sends nothing produces no metric of its own, so silence is only
-// visible if every listed device is reported each run, zero included.
+// visible if every listed device is reported each run, zero included. The
+// listing repeats terminal A, as upstream paging can: each device is still
+// reported once, or one run would count its silence twice.
 func TestTelemetryReportsEveryListedDeviceIncludingSilentOnes(t *testing.T) {
-	_, emitted := runTelemetryFixture(t, terminalRow(sampleAtNs), time.Unix(0, sampleAtNs).Add(time.Minute))
+	_, emitted := runTelemetryFixtureListing(t, terminalRowA+","+terminalRowA,
+		terminalRow(sampleAtNs), time.Unix(0, sampleAtNs).Add(time.Minute))
 
-	reported := map[string]bool{}
+	reported := map[string]int{}
 	for _, r := range emitted {
 		for _, ref := range []string{terminalDeviceID(testTerminalA), routerDeviceID(testRouterA)} {
 			if strings.HasPrefix(r.EventID, "starlink-reporting-"+ref+"-") {
-				reported[ref] = true
+				reported[ref]++
 			}
 		}
 	}
-	if !reported[terminalDeviceID(testTerminalA)] || !reported[routerDeviceID(testRouterA)] {
-		t.Fatalf("reporting records for %v; want the sampled terminal and the silent router", reported)
+	if reported[terminalDeviceID(testTerminalA)] != 1 || reported[routerDeviceID(testRouterA)] != 1 {
+		t.Fatalf("reporting records %v; want exactly one for the sampled terminal and one for the silent router", reported)
 	}
 }
 

@@ -128,20 +128,32 @@ type alertSnapshot struct {
 func collectAlerts(c *apiClient) alertSnapshot {
 	snap := alertSnapshot{Complete: true}
 	var queryErr error
+	// Upstream page ordering can repeat a device (see inventory.go). Each
+	// device is queried and reported once, or one run would count its
+	// silence twice.
+	seen := map[string]bool{}
+	firstSeen := func(ref string) bool {
+		if seen[ref] {
+			return false
+		}
+		seen[ref] = true
+		snap.Known = append(snap.Known, ref)
+		return true
+	}
 
 	_, err := c.listPagesBatched("/user-terminals", func(rows []gjson.Result) {
 		var terminals, routers []string
 		// The cache is queried with IDs exactly as the listing returned
 		// them; normalization is only for ServiceRadar's own references.
 		for _, row := range rows {
-			if raw := trimmed(row, "userTerminalId"); normalizeTerminalID(raw) != "" && jsonSafeID(raw) {
+			if raw := trimmed(row, "userTerminalId"); normalizeTerminalID(raw) != "" && jsonSafeID(raw) &&
+				firstSeen(terminalDeviceID(raw)) {
 				terminals = append(terminals, raw)
-				snap.Known = append(snap.Known, terminalDeviceID(raw))
 			}
 			for _, r := range row.Get("routers").Array() {
-				if raw := trimmed(r, "routerId"); normalizeRouterID(raw) != "" && jsonSafeID(raw) {
+				if raw := trimmed(r, "routerId"); normalizeRouterID(raw) != "" && jsonSafeID(raw) &&
+					firstSeen(routerDeviceID(raw)) {
 					routers = append(routers, raw)
-					snap.Known = append(snap.Known, routerDeviceID(raw))
 				}
 			}
 		}

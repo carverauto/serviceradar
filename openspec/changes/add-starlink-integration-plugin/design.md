@@ -153,9 +153,20 @@ unreliably.
 The vendor has no offline alert and the plugin keeps no state between runs (D11), so
 offline is derived: every telemetry run that drained the stream and walked the full
 listing reports `starlink_telemetry_samples` for each listed terminal and router, zero
-included. The `starlink_device_offline` metric rule fires when a device reports zero on
-five runs within ten minutes; the stateful alert engine, not the plugin, holds that
-history.
+included, once per device even when upstream paging repeats a row. The
+`starlink_device_offline` metric rule fires when a device reports zero on five runs within
+ten minutes; the stateful alert engine, not the plugin, holds that history.
+
+The rule is the first `signal: metric` rule shipped, and core did not admit ingested metrics
+to the engine before it: `EventWriter.Processors.Metrics` now admits stored points that
+match an enabled metric rule (`MetricAlertAdmission`). Matching runs in process against
+active metric rules cached per EventWriter process for a few seconds, so with no metric rule
+enabled the high-rate metrics path does no extra database work. An admitted point's id is
+derived from its stored identity (timestamp, gateway, series key), so a redelivered batch is
+not counted twice, and a refused admission fails the batch for redelivery, which rewrites
+the same stored points. The rule groups by a `starlink_device_ref` tag rather than
+`device_id`, because core rewrites `device_id` to the canonical uid once the device is
+resolved, and a device resolved mid-window would otherwise split its count.
 
 ### D6. Management actions
 Actions are northbound actions on the existing path (UI or dashboard ->

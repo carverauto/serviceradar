@@ -381,7 +381,7 @@ alert_rules:
         comparison: lte
         threshold: 0
     group_by:
-      - device_id
+      - starlink_device_ref
     threshold: 5
     window_seconds: 600
     bucket_seconds: 60
@@ -389,7 +389,7 @@ alert_rules:
     renotify_seconds: 21600
     event:
       log_name: alert.starlink.offline
-      message: "Starlink device {device_id} has sent no telemetry for several collection runs"
+      message: "Starlink device {starlink_device_ref} has sent no telemetry for several collection runs"
     alert:
       title: Starlink device offline
       severity: warning
