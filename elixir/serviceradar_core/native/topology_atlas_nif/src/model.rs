@@ -289,6 +289,9 @@ impl Builder {
         let pipeline_stats = publication_stats(raw_links, &relations);
         let digest = source_digest(&devices, &relations);
         let geometry = layout_forest(&relations);
+        // Reject an obsolete drawing before allocating an incremental world.
+        // The worker stages fresh ELK coordinates under a new version instead.
+        validate_parent_tree(&old_positions, &geometry)?;
         let prior: Vec<_> = old_positions.values().map(PositionRow::position).collect();
         let next = reconcile(devices.into_values().collect(), &geometry, &prior)
             .map_err(|_| "cannot reconcile persisted world")?;
@@ -630,10 +633,38 @@ fn normalize(rows: impl IntoIterator<Item = RelationRow>) -> Vec<RelationRow> {
     kept
 }
 
-// The overview projection selects a trusted spanning forest before ELK
-// (topology_overview_projection.js, prepareTopologyOverviewInput). Apply that
-// same ordering at publication scale. Cross-links stay in WorldState; only the
-// parent forest is reduced, so tile zoom never authors new network bindings.
+// A persisted drawing only describes the tree that authored it. Deleted
+// endpoints remain part of that comparison, so removal also rebuilds the tree.
+fn validate_parent_tree(
+    positions: &BTreeMap<String, PositionRow>,
+    forest: &[Relation],
+) -> Result<()> {
+    if positions.is_empty() {
+        return Ok(());
+    }
+    let persisted: HashSet<_> = positions
+        .values()
+        .filter(|row| row.active)
+        .filter_map(|row| {
+            row.parent_id
+                .as_deref()
+                .map(|parent| device_pair(&row.device_id, parent))
+        })
+        .collect();
+    if forest.len() != persisted.len()
+        || forest
+            .iter()
+            .any(|edge| !persisted.contains(&device_pair(&edge.source, &edge.target)))
+    {
+        return Err("layout_tree_changed".into());
+    }
+    Ok(())
+}
+
+// Select a trusted spanning forest before ELK, using stable identities to
+// break equal-trust ties. Observation refreshes must not change the tree.
+// Cross-links stay in WorldState; only the parent forest is reduced, so tile
+// zoom never authors new network bindings.
 fn layout_forest(rows: &[RelationRow]) -> Vec<Relation> {
     let index: HashMap<_, _> = rows
         .iter()
@@ -648,14 +679,12 @@ fn layout_forest(rows: &[RelationRow]) -> Vec<Relation> {
         (
             u8::from(left.stale),
             trust_rank(left),
-            std::cmp::Reverse(left.last_seen.as_deref().unwrap_or("")),
             device_pair(&left.source_id, &left.target_id),
             &left.relation_id,
         )
             .cmp(&(
                 u8::from(right.stale),
                 trust_rank(right),
-                std::cmp::Reverse(right.last_seen.as_deref().unwrap_or("")),
                 device_pair(&right.source_id, &right.target_id),
                 &right.relation_id,
             ))

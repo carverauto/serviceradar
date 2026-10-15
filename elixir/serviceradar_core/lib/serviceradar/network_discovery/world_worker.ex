@@ -117,7 +117,15 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
         publish(state, candidate, info)
       end
 
-    job_result(with_result)
+    case with_result do
+      {:error, "layout_tree_changed"} when mode == "reconcile" ->
+        # Reuse the job's new version with the staged publication fence. A
+        # losing or failed rebuild must leave the accepted world available.
+        perform(%{job | args: Map.put(job.args, "mode", "relayout")})
+
+      result ->
+        job_result(result)
+    end
   end
 
   def perform(_job), do: {:cancel, :invalid_world_job}

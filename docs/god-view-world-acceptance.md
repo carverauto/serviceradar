@@ -5,6 +5,9 @@ captured deployment data. The generator creates 1,000 invented components with
 1,000 devices each and two relations per device; identities are generated under
 `example.test`. It is deterministic and uses no external input or random seed.
 
+For the current Arrow, WASM and GPU ownership path and remaining scale evidence,
+see the [binary path audit](topology-binary-path-audit.md).
+
 ## Workload and ownership
 
 `rust/topology-atlas/fixtures/hierarchy.rs` owns the shared 1,000,000-device /

@@ -24,9 +24,15 @@ Runtime behavior:
 
 The overview is a quadtree of world tiles over a persisted, versioned radial
 ELK layout. The background worker composes bounded ELK batches before publishing
-coordinates; individual tiles never run their own layout. Ordinary additions
-preserve existing positions, while a staged layout upgrade or explicit relayout
-can replace the coordinate space.
+coordinates; individual tiles never run their own layout. Additions that leave
+the trusted parent tree unchanged preserve existing positions. A change to that
+tree, including deletion of a connected endpoint, stages a fresh layout under a
+new layout version and keeps the accepted world until that replacement
+activates. Timestamp-only observation refreshes do not swap an equally trusted
+forest or move unchanged geometry. An operator relayout or a staged layout
+upgrade can also replace the coordinate space. Arrow tiles stay bounded; the
+[binary path audit](../topology-binary-path-audit.md) records the remaining
+producer and browser copies and the scale evidence still missing.
 The client fetches only the tiles in the viewport, keyed by
 `layout_version`/`z`/`x`/`y`, and renders schema-3 Arrow batches; telemetry
 (health and interface rates) rides a separate per-tile overlay so geometry

@@ -62,6 +62,111 @@ fn imported(candidate: &crate::model::Candidate) -> Builder {
 }
 
 #[test]
+fn parent_tree_changes_require_a_new_layout_but_observation_updates_do_not() {
+    let ids = [
+        "sr:root.example.test",
+        "sr:access.example.test",
+        "sr:leaf.example.test",
+    ];
+    let first = Builder::new("synthetic-layout".into(), 16)
+        .unwrap()
+        .reconcile(graph(&ids, 3, 100))
+        .unwrap();
+    let mut observed = graph(&ids, 3, 0);
+    observed
+        .relations
+        .values_mut()
+        .for_each(|row| row.last_seen = Some("2031-01-01T00:00:00Z".into()));
+    assert!(imported(&first).reconcile(observed).is_ok());
+
+    for survivor in &ids[..2] {
+        assert_eq!(
+            imported(&first)
+                .reconcile(graph(&[survivor], 3, 0))
+                .err()
+                .as_deref(),
+            Some("layout_tree_changed"),
+            "removing either endpoint changes the accepted parent tree"
+        );
+    }
+
+    assert_eq!(
+        imported(&first)
+            .reconcile(graph(&[ids[0], ids[2], ids[1]], 3, 0))
+            .err()
+            .as_deref(),
+        Some("layout_tree_changed"),
+        "a new forest cannot reuse the old drawing"
+    );
+    let rebuilt = Builder::new("synthetic-replacement".into(), 16)
+        .unwrap()
+        .reconcile(graph(&[ids[0], ids[2], ids[1]], 3, 0))
+        .unwrap();
+    let leaf = rebuilt
+        .positions
+        .iter()
+        .find(|p| p.device_id == ids[2])
+        .unwrap();
+    let root = rebuilt
+        .positions
+        .iter()
+        .find(|p| p.device_id == ids[0])
+        .unwrap();
+    assert!(leaf.parent_id.as_deref() == Some(ids[0]) || root.parent_id.as_deref() == Some(ids[2]));
+    assert!(imported(&rebuilt)
+        .reconcile(graph(&[ids[0], ids[2], ids[1]], 3, 0))
+        .is_ok());
+}
+
+#[test]
+fn observation_times_do_not_shuffle_equally_trusted_tree_edges() {
+    let ids = [
+        "sr:a.example.test",
+        "sr:b.example.test",
+        "sr:c.example.test",
+    ];
+    let triangle = |seen: &str| {
+        let mut source = graph(&ids, 3, 0);
+        source.raw_links = 3;
+        for (left, right) in [(0, 2), (1, 2)] {
+            let mut row = RelationRow::canonical(edge(ids[left], ids[right], 3, 0));
+            row.relation_id = format!("synthetic-{left}-{right}");
+            row.last_seen = Some("2031-01-01T00:00:00Z".into());
+            source.relations.insert(row.relation_id.clone(), row);
+        }
+        source
+            .relations
+            .values_mut()
+            .find(|row| row.source_id == ids[0] && row.target_id == ids[1])
+            .unwrap()
+            .last_seen = Some(seen.into());
+        source
+    };
+    let first = Builder::new("synthetic-layout".into(), 16)
+        .unwrap()
+        .reconcile(triangle("2030-01-01T00:00:00Z"))
+        .unwrap();
+    let refreshed = imported(&first)
+        .reconcile(triangle("2032-01-01T00:00:00Z"))
+        .unwrap();
+    assert!(refreshed.deltas.update_positions.is_empty());
+    assert_eq!(
+        first
+            .world
+            .geometry
+            .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+            .unwrap()
+            .revision,
+        refreshed
+            .world
+            .geometry
+            .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+            .unwrap()
+            .revision
+    );
+}
+
+#[test]
 fn publication_preserves_reservations_and_exports_only_real_deltas() {
     let ids = [
         "sr:host0001.example.com",
@@ -191,13 +296,6 @@ fn interface_binding_changes_publish_without_invalidating_geometry() {
             .tile(root, Budget::default())
             .unwrap()
             .revision
-    );
-    let removed = imported(&changed)
-        .reconcile(graph(&ids[..1], 3, 0))
-        .unwrap();
-    assert_eq!(
-        removed.deltas.deactivate_relation_ids,
-        vec!["synthetic-link"]
     );
 }
 

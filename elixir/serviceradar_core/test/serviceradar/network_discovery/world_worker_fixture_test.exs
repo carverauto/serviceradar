@@ -174,11 +174,40 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert {:ok, updated_tile} = TopologyAtlas.tile(updated_world, 0, 0, 0)
       assert updated_tile.revision == tile.revision
       verify_hosted_owner_lifecycle(guest, ids)
+      verify_parent_relayout(ids)
     after
       cleanup(version, ids, job.id)
     end
 
     verify_million_device_persistence()
+  end
+
+  defp verify_parent_relayout(ids) do
+    assert {:ok, previous} = World.active_manifest(scope())
+    source = hd(ids)
+    target = List.last(ids)
+    assert :ok = Dgraph.rebuild_canonical([edge(source, target)])
+    job = reconcile_job!()
+    replacement = job.args["layout_version"]
+
+    try do
+      assert_drain_success()
+      assert {:ok, current} = World.active_manifest(scope())
+      assert current.layout_version == replacement
+      refute current.layout_version == previous.layout_version
+      assert current.generation == previous.generation + 1
+      positions = placements()
+
+      assert positions[source].parent_id == target or positions[target].parent_id == source
+
+      assert %{rows: [["retired"]]} =
+               Repo.query!(
+                 "SELECT status FROM platform.topology_world_layouts WHERE layout_version = $1::uuid",
+                 [Ecto.UUID.dump!(previous.layout_version)]
+               )
+    after
+      cleanup(replacement, ids, job.id)
+    end
   end
 
   # The native hierarchy is a declared Bazel input, shared with the browser

@@ -69,7 +69,7 @@ The system SHALL distinguish local presentation filters, viewport tile selection
 
 #### Scenario: Geometry publication invalidates affected tiles
 - **WHEN** canonical membership, static geometry content, or relation bindings change
-- **THEN** the backend SHALL publish a complete new generation within the current layout version unless explicit relayout is required
+- **THEN** the backend SHALL publish a complete new generation within the current layout version unless a trusted parent-tree change or another required full relayout stages a new layout version
 - **AND** only changed tiles and changed bounded detail identities SHALL be invalidated
 - **AND** unchanged tiles SHALL retain their content revisions
 
@@ -108,11 +108,18 @@ The system MUST provide a WebAssembly execution layer for Arrow-backed God-View 
 ## ADDED Requirements
 
 ### Requirement: Persistent world layout is deterministic and incrementally stable
-God-View SHALL support an invented topology of 1,000,000 devices and at least 2,000,000 relations using server-authored hierarchical world coordinates persisted through platform migrations. A `layout_version` SHALL identify an explicit coordinate space and placement configuration. An ordinary incremental update SHALL preserve existing coordinates; only an explicit full relayout SHALL publish a different coordinate space.
+God-View SHALL support an invented topology of 1,000,000 devices and at least 2,000,000 relations using server-authored hierarchical world coordinates persisted through platform migrations. A `layout_version` SHALL identify an explicit coordinate space and placement configuration. Incremental updates SHALL preserve existing coordinates while the trusted parent tree is unchanged. A change to that tree SHALL automatically stage a fresh ELK layout under a new layout version before publishing its routes.
 
 Fresh world placement SHALL reuse the existing pinned ELK radial engine through bounded hierarchy batches of at most 512 nodes, with validated subtree envelopes composed into persisted coordinates before tile generation. Tiles SHALL NOT run independent layout passes. The layout worker SHALL retain the prior accepted publication when ELK execution or geometry validation fails. An incompatible placement algorithm SHALL trigger a staged new layout version on reconciliation and SHALL NOT relabel old Morton coordinates as ELK output.
 
-Initial placement SHALL use authoritative sites when available, otherwise stable transport components, then infrastructure and attachment groups. Stable identifiers SHALL break ties independently of input row order. Existing placement slots and parent assignments SHALL survive incremental insertion, deletion, component merge/split, and changes to preferred roots unless a new layout version is explicitly published. Deleted slots SHALL NOT cause surviving positions to be renumbered.
+Initial placement SHALL use authoritative sites when available, otherwise stable transport components, then infrastructure and attachment groups. Stable identifiers SHALL break ties independently of input row order and observation timestamps. Label, telemetry and interface-metadata changes SHALL NOT alone trigger a relayout. Deleted slots SHALL NOT cause surviving positions to be renumbered within an unchanged parent tree.
+
+#### Scenario: Parent changes rebuild the drawing atomically
+- **GIVEN** an accepted layout whose persisted parent bindings differ from the current trusted forest
+- **WHEN** background reconciliation processes that forest
+- **THEN** it SHALL stage and publish fresh ELK coordinates with a new layout version
+- **AND** requests SHALL retain the accepted world until replacement activation succeeds
+- **AND** source, layout or publication failure SHALL leave the accepted world available
 
 #### Scenario: Radial layout remains visible through the tile engine
 - **GIVEN** an invented root with endpoint attachments whose count fits a standard tile
@@ -127,7 +134,7 @@ Initial placement SHALL use authoritative sites when available, otherwise stable
 
 #### Scenario: Incremental additions preserve existing positions
 - **GIVEN** a persisted 1,000,000-device layout
-- **WHEN** an invented 1% addition is applied within the same layout version
+- **WHEN** an invented 1% addition that leaves its parent tree unchanged is applied within the same layout version
 - **THEN** existing persisted integer device coordinates SHALL remain exactly unchanged
 - **AND** the same prior placement and change batch SHALL produce the same new placements
 - **AND** session reloads SHALL recover those persisted coordinates

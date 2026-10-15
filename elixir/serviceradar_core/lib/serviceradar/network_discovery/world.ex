@@ -2,10 +2,12 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   @moduledoc """
   Persists topology coordinate systems and publishes complete geometry revisions.
 
-  A layout version changes only on explicit relayout. Incremental publications
-  keep existing placements, including inactive positions, and update the shared
-  generation after all relation and membership changes commit. Geometry tile
-  revisions belong to the tile engine and must not include this generation.
+  A layout version changes when a relayout is staged, including the automatic
+  rebuild after the trusted parent tree changes. Incremental publications keep
+  the active layout version and existing placements, including inactive
+  positions, while that tree is unchanged, and update the shared generation
+  after all relation and membership changes commit. Geometry tile revisions
+  belong to the tile engine and must not include this generation.
 
   Bootstrap streams batches of at most 500 rows under a shared head lock. Every publisher
   locks that same row before changing visible data. Callbacks should only feed

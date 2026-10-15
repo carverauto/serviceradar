@@ -187,6 +187,59 @@ for (const deviceScaleFactor of [1, 2]) {
   test.describe(`world tiles at DPR ${deviceScaleFactor}`, () => {
     test.use({viewport: {width: 1280, height: 720}, deviceScaleFactor})
 
+    test("retains label buffers until queued GPU work is submitted", async ({page}) => {
+      const errors = []
+      page.on("pageerror", error => errors.push(error.message))
+      await page.route("http://localhost:4774/", route => route.fulfill({path: html, contentType: "text/html"}))
+      await page.goto("http://localhost:4774/")
+      await expect(page.locator("#status")).toContainText("decoded tiles=4")
+      await page.waitForFunction(() => window.__SR_WORLD_GPU_SMOKE__.deck.layerManager.getLayers()
+        .some(layer => layer.id.endsWith("-labels")))
+      await page.evaluate(() => {
+        const {deck} = window.__SR_WORLD_GPU_SMOKE__
+        const labels = deck.layerManager.getLayers().find(layer => layer.id.endsWith("-labels"))
+        deck.setProps({layers: [labels.clone({id: "rapid-labels",
+          characterSet: Array.from({length: 95}, (_, i) => String.fromCharCode(32 + i)),
+          data: [{position: [128, 128, 0], text: "host-0.example.test", textAnchor: "start", alignmentBaseline: "center"}],
+        })]})
+      })
+      await page.waitForFunction(() => window.__SR_WORLD_GPU_SMOKE__.deck.layerManager.getLayers()
+        .some(layer => layer.id === "rapid-labels-characters" && layer.isLoaded))
+      const validationError = await page.evaluate(async () => {
+        const {deck} = window.__SR_WORLD_GPU_SMOKE__
+        deck.device.handle.pushErrorScope("validation")
+        const copy = deck.device.createBuffer({byteLength: 4, usage: GPUBufferUsage.COPY_DST})
+        const labels = deck.layerManager.getLayers().find(layer => layer.id === "rapid-labels")
+        const queueLabelRead = () => {
+          const characters = deck.layerManager.getLayers().find(layer => layer.id === "rapid-labels-characters")
+          const sourceBuffer = characters.getAttributeManager().getAttributes().rowIndexes.getBuffer()
+          // A real GPU command keeps this text attribute live until submission,
+          // independently of whether this adapter interleaves its draw attributes.
+          deck.device.commandEncoder.copyBufferToBuffer({sourceBuffer, destinationBuffer: copy, size: 4})
+        }
+        for (const count of [1, 128, 2, 256, 1]) {
+          queueLabelRead()
+          deck.setProps({layers: [labels.clone({id: "rapid-labels", data: Array.from({length: count}, (_, i) => ({
+            position: [128 + i, 128, 0], text: `host-${i}.example.test`,
+            textAnchor: "start", alignmentBaseline: "center",
+          }))})]})
+          deck.layerManager.updateLayers()
+          deck.redraw("rapid label refinement")
+        }
+        queueLabelRead()
+        deck.setProps({layers: []})
+        deck.layerManager.updateLayers()
+        deck.device.submit()
+        copy.destroy()
+        return (await deck.device.handle.popErrorScope())?.message ?? null
+      })
+      expect(validationError).toBeNull()
+      // WebGPU validation errors arrive asynchronously after queue submission.
+      await page.waitForTimeout(250)
+      await expect(page.locator("#status")).not.toContainText("FAIL")
+      expect(errors).toEqual([])
+    })
+
     test("picks visible geometry and retains it across revisit and telemetry", async ({page}) => {
       const errors = []
       page.on("pageerror", error => errors.push(error.message))
