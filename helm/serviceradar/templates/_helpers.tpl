@@ -831,7 +831,9 @@ as YAML for `fromYaml`:
   secretName      the operator-owned TURN REST shared-secret Secret
   secretKey       its key
   browserTurnUrls turn:/turns: URLs web-ng mints for browsers (external)
-  peerTurnUrls    turn: URLs core-elx mints for its own ExWebRTC peer (in-cluster)
+  peerTurnUrls    turn: URLs core-elx mints for its own ExWebRTC peer (in-cluster).
+                  Transport omitted or transport=udp. turns: and transport=tcp
+                  are rejected: ex_ice allocates only on TURN over UDP.
   turnServer      whether the chart-managed eturnal server renders
 
 The shared secret is ServiceRadar-to-itself material (it authenticates
@@ -853,7 +855,9 @@ values, an environment value, or the unified credential store.
 {{- if or (lt $ttl 60) (gt $ttl 3600) -}}
   {{- fail "webrtc.iceCredentials.ttlSeconds must be between 60 and 3600" -}}
 {{- end -}}
-{{- $turnUrlPattern := `^turns?:([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?(\?transport=(udp|tcp))?$` -}}
+{{- $turnHost := `([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?` -}}
+{{- $turnUrlPattern := printf `^turns?:%s(\?transport=(udp|tcp))?$` $turnHost -}}
+{{- $peerTurnUrlPattern := printf `^turn:%s(\?transport=udp)?$` $turnHost -}}
 {{- $browserUrls := list -}}
 {{- $peerUrls := list -}}
 {{- if $turnEnabled -}}
@@ -883,6 +887,9 @@ values, an environment value, or the unified credential store.
   {{- range $url := $urls -}}
     {{- if not (and (kindIs "string" $url) (regexMatch $turnUrlPattern $url)) -}}
       {{- fail (printf "webrtc.iceCredentials.%s entries must be turn:/turns: URLs with a host, optional port and optional transport=udp|tcp; credentials are forbidden" $key) -}}
+    {{- end -}}
+    {{- if and (eq $key "peerTurnUrls") (not (regexMatch $peerTurnUrlPattern $url)) -}}
+      {{- fail "webrtc.iceCredentials.peerTurnUrls entries must be turn: URLs with transport omitted or transport=udp; turns: and transport=tcp are not allocated by core-elx" -}}
     {{- end -}}
     {{- if eq $key "turnUrls" -}}
       {{- $browserUrls = append $browserUrls $url -}}

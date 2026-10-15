@@ -331,6 +331,21 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
                      )
           end)
 
+        case status do
+          "not_configured" ->
+            refute log =~ "WebRTC ICE credential mint failed"
+
+          "rate_limited" ->
+            assert log =~ "WebRTC ICE credential mint failed"
+            assert log =~ "backend=:static_secret"
+            assert log =~ "reason=:rate_limited"
+
+          "unavailable" ->
+            assert log =~ "WebRTC ICE credential mint failed"
+            assert log =~ "backend=:static_secret"
+            assert log =~ "reason=:enoent"
+        end
+
         refute log =~ @secret
       end
     end

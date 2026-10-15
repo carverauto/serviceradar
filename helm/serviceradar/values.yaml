@@ -2838,8 +2838,9 @@ webrtc:
     # Extra TURN servers outside this chart (e.g. an existing coturn) that
     # verify the same shared secret. URLs only, no credentials.
     #   turnUrls:     what browsers dial (externally reachable)
-    #   peerTurnUrls: what core-elx dials (must be reachable from the pod and
-    #                 use transport=udp)
+    #   peerTurnUrls: what core-elx dials (must be reachable from the pod).
+    #                 turn: only, with transport omitted or transport=udp.
+    #                 turns: and transport=tcp are rejected at render.
     # The chart-managed turnServer below adds its own URLs to both lists.
     turnUrls: []
     peerTurnUrls: []

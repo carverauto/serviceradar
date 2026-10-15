@@ -414,6 +414,44 @@ tests:
           errorMessage: "webrtc.iceCredentials.turnUrls entries must be turn:/turns: URLs with a host, optional port and optional transport=udp|tcp; credentials are forbidden"
         template: templates/web.yaml
 
+  - it: renders peer TURN URLs that omit transport or set transport=udp
+    set:
+      webrtc.iceCredentials.backend: static_secret
+      webrtc.iceCredentials.staticSecret.existingSecretName: turn-shared-secret
+      webrtc.iceCredentials.turnUrls:
+        - turn:turn.example.com:3478
+      webrtc.iceCredentials.peerTurnUrls:
+        - turn:turn.example.com:3478
+        - turn:turn-udp.example.com:3478?transport=udp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WEBRTC_TURN_URLS_JSON
+            value: '["turn:turn.example.com:3478","turn:turn-udp.example.com:3478?transport=udp"]'
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects peer TURN URLs that use turns
+    set:
+      webrtc.iceCredentials.peerTurnUrls:
+        - turns:turn.example.com:5349?transport=tcp
+    asserts:
+      - failedTemplate:
+          errorMessage: "webrtc.iceCredentials.peerTurnUrls entries must be turn: URLs with transport omitted or transport=udp; turns: and transport=tcp are not allocated by core-elx"
+        template: templates/web.yaml
+
+  - it: rejects peer TURN URLs that use TCP
+    set:
+      webrtc.iceCredentials.peerTurnUrls:
+        - turn:turn.example.com:3478?transport=tcp
+    asserts:
+      - failedTemplate:
+          errorMessage: "webrtc.iceCredentials.peerTurnUrls entries must be turn: URLs with transport omitted or transport=udp; turns: and transport=tcp are not allocated by core-elx"
+        template: templates/web.yaml
+
   - it: fails rendering the TURN server without an external hostname
     set:
       webrtc.iceCredentials.backend: static_secret

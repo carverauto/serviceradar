@@ -232,6 +232,55 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
     assert turn.credential == StaticSecret.turn_credential(secret, turn.username)
   end
 
+  test "mints a peer credential for every viewer of one relay when the shared actor would otherwise share a bucket" do
+    secret = String.duplicate("p", 32)
+    previous_ice_config = Application.get_env(:serviceradar_core, IceCredentials)
+
+    Application.put_env(:serviceradar_core, IceCredentials,
+      backend: :static_secret,
+      turn_urls: ["turn:serviceradar-turn.example.svc:3478?transport=udp"],
+      rate_limit: %{max_mints: 1, window_seconds: 60},
+      static_secret: [secret: secret]
+    )
+
+    on_exit(fn -> restore_core_env(IceCredentials, previous_ice_config) end)
+    if is_nil(Process.whereis(MintLimiter)), do: start_supervised!(MintLimiter)
+
+    relay_session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+    stun = %{urls: ["stun:stun.example.com:3478"]}
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name,
+       session_tracker: SessionTrackerStub,
+       pipeline_manager: PipelineManagerStub,
+       session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: first_viewer}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name, ice_servers: [stun])
+
+    assert {:ok, %{viewer_session_id: second_viewer}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name, ice_servers: [stun])
+
+    assert_receive {:webrtc_sink_ice_servers, ^first_viewer, [^stun, first_turn]}
+    assert_receive {:webrtc_sink_ice_servers, ^second_viewer, [^stun, second_turn]}
+    assert first_turn.urls == ["turn:serviceradar-turn.example.svc:3478?transport=udp"]
+    assert second_turn.urls == ["turn:serviceradar-turn.example.svc:3478?transport=udp"]
+
+    assert [_expiry, first_digest] = String.split(first_turn.username, ":")
+    assert [_expiry, second_digest] = String.split(second_turn.username, ":")
+
+    assert first_digest ==
+             IceCredentials.subject_digest({"camera_relay_peer", relay_session_id, first_viewer})
+
+    assert second_digest ==
+             IceCredentials.subject_digest({"camera_relay_peer", relay_session_id, second_viewer})
+
+    refute first_digest == second_digest
+  end
+
   test "expires idle viewer signaling sessions" do
     relay_session_id = Ecto.UUID.generate()
     server_name = unique_server_name()

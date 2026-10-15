@@ -101,9 +101,10 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
 
     * `"minted"` — TURN servers with per-viewer credentials were added;
     * `"not_configured"` — the backend is `none`;
-    * `"rate_limited"` — the actor/session mint limit was reached;
-    * `"unavailable"` — the backend failed (logged with its reason class,
-      never the secret).
+    * `"rate_limited"` — the actor/viewer-session mint limit was reached
+      (logged at warning with backend and reason, never the secret);
+    * `"unavailable"` — the backend failed (logged at warning with backend
+      and reason, never the secret).
 
   `opts` are passed to `mint/2` (`:actor_id` and `:session_id` are
   required for the rate limit).
@@ -120,16 +121,15 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
       {:error, :no_backend} ->
         %{ice_servers: static_servers, ice_credentials: "not_configured"}
 
-      {:error, :rate_limited} ->
-        %{ice_servers: static_servers, ice_credentials: "rate_limited"}
-
       {:error, reason} ->
+        status = peer_credential_status(reason)
+
         Logger.warning(
           "WebRTC ICE credential mint failed: backend=#{inspect(configured_backend())} " <>
             "feature=#{inspect(subject_feature(subject))} reason=#{inspect(reason)}"
         )
 
-        %{ice_servers: static_servers, ice_credentials: "unavailable"}
+        %{ice_servers: static_servers, ice_credentials: status}
     end
   end
 
@@ -165,6 +165,9 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   defp configured_backend do
     :serviceradar_core |> Application.get_env(__MODULE__, []) |> Keyword.get(:backend, :none)
   end
+
+  defp peer_credential_status(:rate_limited), do: "rate_limited"
+  defp peer_credential_status(_reason), do: "unavailable"
 
   defp subject_feature({feature, _session_id, _viewer_id}), do: feature
   defp subject_feature(_subject), do: nil

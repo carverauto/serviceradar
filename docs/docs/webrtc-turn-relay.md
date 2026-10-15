@@ -101,7 +101,7 @@ start.
 | `webrtc.iceCredentials.staticSecret.existingSecretName` | `""` | The Secret holding the shared secret. Required for `static_secret`. |
 | `webrtc.iceCredentials.staticSecret.secretKey` | `shared-secret` | Key inside that Secret. |
 | `webrtc.iceCredentials.turnUrls` | `[]` | Extra `turn:`/`turns:` URLs browsers dial (a TURN server you run outside this chart). URLs only, no credentials. |
-| `webrtc.iceCredentials.peerTurnUrls` | `[]` | Extra TURN URLs core-elx dials. Must be reachable from the pod and use `?transport=udp`. |
+| `webrtc.iceCredentials.peerTurnUrls` | `[]` | Extra `turn:` URLs core-elx dials. Must be reachable from the pod, with transport omitted or `transport=udp`. `turns:` and `transport=tcp` fail chart render. |
 | `webrtc.turnServer.enabled` | `false` | Deploy the chart-managed TURN server (eturnal). Requires `backend: static_secret`. |
 | `webrtc.turnServer.image.repository` / `.tag` | `ghcr.io/processone/eturnal` / `1.12.3` | TURN server image. |
 | `webrtc.turnServer.externalHostname` | `""` | Required. The DNS name browsers dial. |
@@ -297,8 +297,8 @@ relies on the network to rule out direct pairs.
 | Symptom | Likely cause and fix |
 | --- | --- |
 | `ice_credentials` is `not_configured` | `webrtc.iceCredentials.backend` is `none`. |
-| `ice_credentials` is `unavailable`, and web-ng or core-elx logs `WebRTC ICE credential mint failed: backend=... feature=... reason=...` | The provider could not mint (for example the secret file vanished). The viewer gets STUN only and falls back to the websocket. |
-| `ice_credentials` is `rate_limited` | More than 30 credentials per minute for one user and relay session. Usually a reconnect loop in the page. |
+| `ice_credentials` is `unavailable`, and web-ng or core-elx logs `WebRTC ICE credential mint failed: backend=... feature=... reason=...` | The provider could not mint (for example the secret file vanished). The viewer gets STUN only and falls back to the websocket. The log names the backend and reason and never includes the shared secret. |
+| `ice_credentials` is `rate_limited`, and the same warning names `reason=:rate_limited` | More than 30 browser mints per minute for one user and relay session, usually a reconnect loop. core-elx peer mints are limited per viewer session, so viewers of one camera do not share that bucket. |
 | web-ng or core-elx will not start, naming the WebRTC configuration | The secret file is missing or not 32 to 512 printable bytes, a TURN URL is malformed, or the TTL is out of range. |
 | eturnal logs authentication failures (401) | The TURN server and ServiceRadar disagree on the secret: they mount different Secrets, or the Secret was rotated and the TURN pod was not restarted. |
 | Authentication fails only after some minutes, or intermittently | Clock skew. The username carries an expiry checked against the TURN server's clock. Keep node clocks NTP-synced. |

@@ -335,7 +335,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         {"camera_relay_peer", relay_session_id, viewer_session_id},
         Keyword.get(opts, :ice_servers, []),
         actor_id: "core-elx",
-        session_id: relay_session_id
+        session_id: viewer_session_id
       )
 
     ice_servers
