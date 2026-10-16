@@ -657,9 +657,15 @@ the required index asset does not trigger fallback. Missing catalogs (including
 a 404 from the fallback feed) and missing index assets do not trigger Oban retries:
 unless another repository has a retryable failure, the job completes and automatic
 sync tries again on its normal schedule (hourly by default). Other discovery
-failures, including HTTP 401, HTTP 5xx and
-invalid settings, still fail the job for retry. GitHub's private-repository 404
-also follows the missing-catalog policy; check repository access when it occurs.
+failures, including a GitHub API rate limit, HTTP 401, HTTP 5xx, and
+invalid settings, still fail the job for retry. A rate limit is HTTP 429, or
+HTTP 403 with `x-ratelimit-remaining: 0` or `retry-after`. The recorded error
+names a numeric `retry-after` wait when GitHub sends one, and otherwise the
+hourly reset when `x-ratelimit-reset` is present. It mentions attaching a
+token only when none is configured, and only as a way to raise the limit.
+HTTP 401, and HTTP 403 without those headers, still ask for credentials.
+GitHub's private-repository 404 also follows the missing-catalog policy; check
+repository access when it occurs.
 
 A completed job therefore does not prove that packages were imported. Inspect the
 Wasm repository's recorded sync error; permanent native add-on discovery failures
