@@ -74,7 +74,7 @@ export function decodeBitmapFrame(input) {
   for (let index = 0; index < sourceCount; index += 1) {
     const length = reader.number(2)
     valid(length > 0 && length <= 128, "string length")
-    const sourceBytes = reader.take(length).slice()
+    const sourceBytes = reader.take(length)
     valid(compareBytes(sourceBytes, previousSource) > 0, "prefix source order")
     previousSource = sourceBytes
     const source = decoder.decode(sourceBytes)

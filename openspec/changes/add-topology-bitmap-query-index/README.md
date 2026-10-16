@@ -7,14 +7,16 @@ Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
 
 ## Next agent prompt
 
-Finish hosted database acceptance and concurrent transport measurements. Current-address
+Finish hosted database acceptance. Current-address
 CIDRs, named Prefix Tags and the visible map builder are integrated, alongside
 binary delivery, scalar set algebra, literal prefixes, rollout configuration
 and the public-GPU dependency repair. The existing Prefix Tags trie supplies
 bounded native label discovery and merged ranges through the topology adapter;
 the publisher owns background catalog preparation and release. Focused source,
-parser, catalog-to-address and browser checks passed. Actual database
-lifecycle/channel tests and concurrent HTTP/WebSocket scale remain open. The
+parser, catalog-to-address and browser checks passed. The real WebSocket
+compression matrix is recorded; compression stays disabled. Combined database
+compact and sparse scale acceptance is unrun, and task 4.2 stays open.
+Actual database lifecycle and channel tests remain open. The
 integrated full remote unit gate passed 414 targets with two platform skips
 in invocation `c3499e7a-246b-4498-9611-9e084119a583`; the Helm migration guard
 now requires the latest shipped identity migration. Final delivery checks use
@@ -61,16 +63,14 @@ and tests were removed. It is not a foundation to restore. HTML architecture
 artifacts now reflect binary row overlays; keep new UI/prefix scope synchronized
 before delivery. Do not deploy or archive this change.
 
-Task 3.7 also supplies genuine production-map captures over synthetic inventory
-for the website branch `blog/set-algebra-over-device-groups` in
-`carverauto/serviceradar-web`: one unchanged viewport, the expression
+Website capture delivery is complete in the separate repository
+`carverauto/serviceradar-web`, branch `blog/set-algebra-over-device-groups`,
+at `6ec38c9180f8035b3893cb91577a49850b072147`. That run reported 72 tests and
+opened no pull request. The captures use synthetic inventory and transport for
+one unchanged viewport and the expression
 `(VLAN 20 OR VLAN 30) AND unavailable EXCEPT tag maintenance=true`, before and
-after PNGs at 1600x1000, dark scheme and DPR 2 downsampled. Add the images under
-`priv/static/images/blog/atlas-filter-{before,after}.png`, figures after the
-bit-row diagram, the post hero image and show-test assertions. Run
-`mix precommit`, then publish through no-mistakes with an explicit refspec and
-without opening a PR. Never composite or mock the UI.
-Document synthetic transport honestly; captures do not prove backend acceptance.
+after, at 1600x1000, dark scheme, DPR 2 downsampled. They do not prove backend
+acceptance. Do not modify that repository from this product change.
 
 The Prefix Tags catalog passed nine Rust tests and the core unit shard (1,285
 tests, zero failures, one skipped, 521 excluded), plus core formatting/Credo,
@@ -85,5 +85,6 @@ the native README for admission retries and the synthetic address distribution.
 Current public limitations: Share map preserves camera state but not the filter
 expression. Zero-match glyphs are masked; partial aggregate links are hidden when
 exact matching endpoints cannot be established. Named Prefix Tag labels are
-paged, without full-catalog download or label search. Compression remains off
-pending concurrent transport measurement.
+paged, without full-catalog download or label search. The real WebSocket
+matrix is complete and compression remains off. Combined database compact and
+sparse scale acceptance remains unrun. Hosted database evidence is not done.

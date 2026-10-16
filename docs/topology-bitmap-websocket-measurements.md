@@ -34,8 +34,10 @@ comparison; this socket run does not claim to measure that variant.
 
 RBE invocation
 [4351adc8-3276-4019-9f4f-3010c400b3d4](https://carverauto.buildbuddy.io/invocation/4351adc8-3276-4019-9f4f-3010c400b3d4):
-the transport test passed in 25.0 seconds after the prefix-freshness count
-byte. Runtime versions were OTP 28, Phoenix 1.8.15, Bandit 1.12.5 and Gun
+the transport target passed in 25.0 seconds after the prefix-freshness count
+byte. The same invocation failed its native index and app-domain targets, so
+it is not a full pass. The transport rows below are the valid result from that
+run. Runtime versions were OTP 28, Phoenix 1.8.15, Bandit 1.12.5 and Gun
 2.6.0. Each fresh server VM used four schedulers; debug logging was disabled
 in that VM. An earlier run,
 [55358647-2884-44ac-8b58-e35c14d39148](https://carverauto.buildbuddy.io/invocation/55358647-2884-44ac-8b58-e35c14d39148),
