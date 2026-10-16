@@ -89,6 +89,10 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:plug, "~> 1.18"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:bundlex, github: "membraneframework/bundlex", tag: "v1.5.4", override: true},
+      # ex_turn 0.2.3 drops TURN ChannelData that a server pads to four bytes, which
+      # loses the tail of a browser's DTLS ClientHello on a relayed WebRTC pair. Pinned
+      # to the fix (elixir-webrtc/ex_turn#12) until a release includes it.
+      {:ex_turn, github: "carverauto/ex_turn", ref: "46f873f6ab420dd3c2c5115dbee601f84f35d82b", override: true},
       {:elixir_uuid, "~> 1.2", override: true},
       {:protobuf, "~> 0.16.0", override: true},
       # credo must NOT carry an :only restriction here: membrane_opus_format

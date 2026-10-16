@@ -3,7 +3,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.TurnPaddedChannelDataTest do
   # eturnal pads every ChannelData message to four bytes. A payload whose
   # length is not a multiple of four (the tail of a fragmented DTLS
   # ClientHello) must still reach ICE, or the DTLS handshake never starts.
-  # //third_party/patches/ex_turn:padded_channel_data.patch provides this.
+  # ex_turn is pinned to carverauto/ex_turn for this (elixir-webrtc/ex_turn#12);
+  # the test guards against a bump back to an unfixed release.
   use ExUnit.Case, async: true
 
   alias ExSTUN.Message

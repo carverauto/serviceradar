@@ -27,15 +27,6 @@ load(":hex_packages.bzl", "HEX_PACKAGES")
 def _stub(app):
     return Label("//third_party/hex:" + app + ".BUILD")
 
-# Source patches for Hex packages, keyed by app name. Each patch is written against the
-# package's own tree (`a/lib/...`), so it is applied with -p1. Its header names the upstream
-# defect and when to drop it.
-_HEX_PATCHES = {
-    # The TURN client dropped ChannelData that a server padded to four bytes, which loses
-    # the second fragment of a browser's DTLS ClientHello on a TURN relay pair.
-    "ex_turn": [Label("//third_party/patches/ex_turn:padded_channel_data.patch")],
-}
-
 def _hex_package(app, hex_name, version, sha256):
     return hex_pkg(
         name = app,
@@ -43,8 +34,6 @@ def _hex_package(app, hex_name, version, sha256):
         version = version,
         sha256 = sha256,
         build_file = _stub(app),
-        patches = _HEX_PATCHES.get(app),
-        patch_args = ["-p1"] if app in _HEX_PATCHES else None,
     )
 
 hex = hex_packages_extension(
@@ -82,6 +71,17 @@ hex = hex_packages_extension(
                 Label("//third_party/patches/bundlex:target_triple.patch"),
             ],
             patch_args = ["-p1"],
+        ),
+        # Pinned from git for the same reason as bundlex: serviceradar_core_elx overrides
+        # it in mix.exs. ex_turn 0.2.3 drops TURN ChannelData that a server pads to four
+        # bytes, which loses the tail of a browser's DTLS ClientHello on a relayed WebRTC
+        # pair; carverauto/ex_turn carries the fix proposed upstream as
+        # elixir-webrtc/ex_turn#12. Drop this once a Hex release includes it.
+        git_pkg(
+            name = "ex_turn",
+            remote = "https://github.com/carverauto/ex_turn.git",
+            commit = "46f873f6ab420dd3c2c5115dbee601f84f35d82b",
+            build_file = _stub("ex_turn"),
         ),
     ],
 )
