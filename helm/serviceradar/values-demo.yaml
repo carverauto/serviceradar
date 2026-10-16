@@ -538,7 +538,8 @@ webNg:
   # Camera relay viewers negotiate WebRTC (membrane_webrtc) in demo so dashboard
   # multiview tiles can play several streams; a viewer that cannot negotiate
   # falls back to the websocket transports. The STUN entry is the same public,
-  # credential-free endpoint remote desktop uses below.
+  # credential-free endpoint remote desktop uses below. Relay candidates come
+  # from the chart TURN server in the webrtc block.
   cameraRelay:
     webRTC:
       enabled: true
@@ -811,6 +812,50 @@ automationCallbacks:
   responsePolicy:
     existingSecretName: serviceradar-automation-callback-policy
     secretKey: response-policy.json
+
+# WebRTC TURN relay for camera viewing. Browsers cannot
+# reach the core-elx WebRTC peer directly, so without a relay every camera view
+# waits out the WebRTC deadline before falling back to the websocket stream.
+# The shared secret is the operator-created Secret serviceradar-webrtc-turn
+# (key shared-secret); TURN is exposed through the shared gateway's turn-udp,
+# turn-tcp and turn-tls listeners (gitops serviceradar-shared-edge).
+webrtc:
+  iceCredentials:
+    backend: static_secret
+    staticSecret:
+      existingSecretName: serviceradar-webrtc-turn
+  turnServer:
+    enabled: true
+    externalHostname: turn-demo.serviceradar.cloud
+    exposure: gateway
+    tls:
+      enabled: true
+      certManager:
+        issuerRef:
+          kind: ClusterIssuer
+          name: carverauto-issuer
+    gateway:
+      udp:
+        parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: serviceradar-shared-gateway
+            namespace: serviceradar-system
+            sectionName: turn-udp
+      tcp:
+        parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: serviceradar-shared-gateway
+            namespace: serviceradar-system
+            sectionName: turn-tcp
+      tls:
+        parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: serviceradar-shared-gateway
+            namespace: serviceradar-system
+            sectionName: turn-tls
 
 # Exercise the registered SSH and Windows desktop paths in demo. SSH private
 # signing material and account/principal policy remain in operator-created
