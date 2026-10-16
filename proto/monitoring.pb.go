@@ -1680,11 +1680,16 @@ func (x *GatewayStatusRequest) GetEndpointInventoryStandingQuestionCounts() []*E
 
 // GatewayStatusResponse is the response from the gateway after receiving status.
 type GatewayStatusResponse struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Received      bool                      `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
-	Directives    []*GatewayStatusDirective `protobuf:"bytes,2,rep,name=directives,proto3" json:"directives,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState    `protogen:"open.v1"`
+	Received   bool                      `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
+	Directives []*GatewayStatusDirective `protobuf:"bytes,2,rep,name=directives,proto3" json:"directives,omitempty"`
+	// For an agent-retained StreamStatus answered with received=false: the
+	// chunk_index of every chunk the gateway durably committed anyway, so the
+	// sender can retry only the rest. Empty when nothing committed, and from a
+	// gateway that predates the field; received=true covers every chunk.
+	CommittedChunkIndexes []int32 `protobuf:"varint,3,rep,packed,name=committed_chunk_indexes,json=committedChunkIndexes,proto3" json:"committed_chunk_indexes,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GatewayStatusResponse) Reset() {
@@ -1727,6 +1732,13 @@ func (x *GatewayStatusResponse) GetReceived() bool {
 func (x *GatewayStatusResponse) GetDirectives() []*GatewayStatusDirective {
 	if x != nil {
 		return x.Directives
+	}
+	return nil
+}
+
+func (x *GatewayStatusResponse) GetCommittedChunkIndexes() []int32 {
+	if x != nil {
+		return x.CommittedChunkIndexes
 	}
 	return nil
 }
@@ -8023,12 +8035,13 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x02os\x18\r \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x0e \x01(\tR\x04arch\x12\x96\x01\n" +
 	"+endpoint_inventory_standing_question_counts\x18\x0f \x03(\v28.monitoring.EndpointInventoryStandingQuestionResultCountR'endpointInventoryStandingQuestionCountsJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"\"w\n" +
+	"\"\xaf\x01\n" +
 	"\x15GatewayStatusResponse\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\bR\breceived\x12B\n" +
 	"\n" +
 	"directives\x18\x02 \x03(\v2\".monitoring.GatewayStatusDirectiveR\n" +
-	"directives\"\xa8\x01\n" +
+	"directives\x126\n" +
+	"\x17committed_chunk_indexes\x18\x03 \x03(\x05R\x15committedChunkIndexes\"\xa8\x01\n" +
 	"\x16GatewayStatusDirective\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12!\n" +
 	"\fservice_type\x18\x02 \x01(\tR\vserviceType\x12%\n" +

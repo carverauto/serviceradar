@@ -308,6 +308,9 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	// Build status chunks - one per result to isolate failures and handle
 	// potentially large payloads (e.g., error messages with stack traces).
 	chunks := make([]*proto.GatewayStatusChunk, 0, len(results))
+	// chunkResults maps each chunk index back to its pending result, so a
+	// partial acknowledgement releases exactly the results the gateway committed.
+	chunkResults := make([]int, 0, len(results))
 	timestamp := time.Now().UnixNano()
 	sourceIP := p.getSourceIP()
 
@@ -316,6 +319,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 		if status == nil {
 			continue
 		}
+		chunkResults = append(chunkResults, i)
 
 		chunk := &proto.GatewayStatusChunk{
 			Services:     []*proto.GatewayServiceStatus{status},
@@ -373,8 +377,48 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 		return true
 	}
 
-	p.logger.Warn().Msg("Gateway did not acknowledge plugin result stream")
+	remaining := releaseCommittedPluginResults(results, chunkResults, resp.GetCommittedChunkIndexes())
+	p.pendingPluginResults = remaining
+	p.logger.Warn().
+		Int("plugin_results", len(chunks)).
+		Int("committed", len(results)-len(remaining)).
+		Int("retained", len(remaining)).
+		Msg("Gateway did not acknowledge plugin result stream")
 	return false
+}
+
+// releaseCommittedPluginResults drops the results whose chunks the gateway
+// committed despite a negative acknowledgement and keeps the rest, in their
+// original order, for retry. Retrying a committed chunk would re-run its core
+// handlers. Indexes outside the stream are ignored. A gateway that predates
+// committed_chunk_indexes sends none, so the whole set is retried as before.
+func releaseCommittedPluginResults(
+	results []PluginResult,
+	chunkResults []int,
+	committedChunkIndexes []int32,
+) []PluginResult {
+	if len(committedChunkIndexes) == 0 {
+		return results
+	}
+
+	committed := make(map[int]struct{}, len(committedChunkIndexes))
+	for _, chunkIndex := range committedChunkIndexes {
+		if chunkIndex >= 0 && int(chunkIndex) < len(chunkResults) {
+			committed[chunkResults[chunkIndex]] = struct{}{}
+		}
+	}
+	if len(committed) == 0 {
+		return results
+	}
+
+	remaining := make([]PluginResult, 0, len(results)-len(committed))
+	for i, result := range results {
+		if _, ok := committed[i]; !ok {
+			remaining = append(remaining, result)
+		}
+	}
+
+	return remaining
 }
 
 // pluginResultTransportCapabilities returns capabilities implemented by the

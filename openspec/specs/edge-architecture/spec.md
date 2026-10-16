@@ -1145,7 +1145,7 @@ A `PushStatus` request containing an agent-retained status SHALL contain exactly
 - **AND** if any status remains uncommitted, it SHALL return no directives
 
 ### Requirement: Retriable agent-retained delivery failures use negative acknowledgements
-For a valid agent-retained RPC, a downstream unavailability, processing timeout, bounded-queue saturation or unavailability, worker failure, or durable-persistence failure SHALL produce `received: false` in an otherwise successful gRPC response. Such a delivery failure SHALL NOT be represented as a gRPC transport error and SHALL NOT invalidate or tear down the shared agent-to-gateway connection. The sender SHALL retain the complete unacknowledged agent-retained set for retry, and agent-retained processing SHALL tolerate replay when a prior attempt may have committed only a prefix before returning `received: false`.
+For a valid agent-retained RPC, a downstream unavailability, processing timeout, bounded-queue saturation or unavailability, worker failure, or durable-persistence failure SHALL produce `received: false` in an otherwise successful gRPC response. Such a delivery failure SHALL NOT be represented as a gRPC transport error and SHALL NOT invalidate or tear down the shared agent-to-gateway connection. The sender SHALL retain for retry every agent-retained status in the RPC that the response does not name in `committed_chunk_indexes`, in its original order, and SHALL release the statuses it does name. When the response names none, the sender SHALL retain the complete set. Agent-retained processing SHALL tolerate replay when a prior attempt may have committed more than the response reported before returning `received: false`.
 
 #### Scenario: Core is unavailable for a valid agent-retained status
 - **GIVEN** an agent sends a valid isolated agent-retained status
@@ -1160,10 +1160,18 @@ For a valid agent-retained RPC, a downstream unavailability, processing timeout,
 - **THEN** the agent-gateway SHALL complete the RPC with `received: false`
 - **AND** queue admission alone SHALL NOT be reported as durable receipt
 
-#### Scenario: A retried stream includes a previously committed prefix
-- **GIVEN** an agent-retained stream returned `received: false` after a prefix may have committed
-- **WHEN** the agent retries the complete retained stream
-- **THEN** the agent-retained pipeline SHALL converge on the same durable result without creating duplicate logical records
+#### Scenario: A negative acknowledgement names committed retained plugin chunks
+- **GIVEN** a retained plugin-result stream returned `received: false` with `committed_chunk_indexes` naming some of its chunks
+- **WHEN** the agent retries
+- **THEN** it SHALL resend only the results behind the chunks the response did not name, in their original order
+- **AND** it SHALL NOT resend a result whose chunk was named
+- **AND** it SHALL NOT add newly produced results to the retried remainder
+
+#### Scenario: A negative acknowledgement names no committed chunk
+- **GIVEN** an agent-retained stream returned `received: false` with no `committed_chunk_indexes`, either because nothing committed or because the gateway predates the field
+- **WHEN** the agent retries
+- **THEN** it SHALL resend the complete retained stream
+- **AND** the agent-retained pipeline SHALL converge on the same durable result without creating duplicate logical records
 - **AND** the agent SHALL release the retained set only after a later `received: true`
 
 ### Requirement: Retained Plugin Result Admission Is Bounded Isolated And Commit-Confirmed
@@ -1240,7 +1248,7 @@ The agent-gateway SHALL distinguish delivery failure from protocol invalidity. M
 - **GIVEN** an agent-retained payload fits every wire and source-contract size limit
 - **WHEN** the configured core lane cannot admit its item or byte size
 - **THEN** the gateway SHALL complete the RPC with `received: false`
-- **AND** the sender SHALL retain the complete set for retry rather than applying the poison disposition
+- **AND** the sender SHALL retain for retry every status the response does not name in `committed_chunk_indexes`, rather than applying the poison disposition
 
 #### Scenario: Stream metadata is inconsistent
 - **WHEN** a `StreamStatus` RPC contains invalid chunk ordering, contradictory final-chunk metadata, or an agent identity that changes between chunks

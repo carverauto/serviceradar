@@ -178,38 +178,60 @@ func TestPushPluginResultsRetainsBatchOnNegativeAcknowledgement(t *testing.T) {
 	}
 }
 
-func TestPushPluginResultsRetriesExactNegativeAcknowledgedSetThenClearsOnce(t *testing.T) {
-	manager := &PluginManager{results: make(chan PluginResult, 3)}
-	manager.results <- testPendingPluginResult("assignment-1", "first")
-	manager.results <- testPendingPluginResult("assignment-2", "second")
-
-	var attempts [][]string
-	loop := &PushLoop{
-		server: &Server{
-			config:        &ServerConfig{AgentID: "agent-1", HostIP: "192.0.2.10"},
-			pluginManager: manager,
-		},
-		logger: logger.NewTestLogger(),
-		pluginResultStreamStatus: func(
-			_ context.Context,
-			chunks []*proto.GatewayStatusChunk,
-		) (*proto.GatewayStatusResponse, error) {
-			attempts = append(attempts, pluginResultAssignments(t, chunks))
-			return &proto.GatewayStatusResponse{Received: len(attempts) > 1}, nil
-		},
+func TestPushPluginResultsRetriesOnlyChunksTheNegativeAcknowledgementLeftUncommitted(t *testing.T) {
+	all := []string{"assignment-1", "assignment-2", "assignment-3"}
+	tests := []struct {
+		name      string
+		committed []int32
+		wantRetry []string
+	}{
+		// A gateway that predates committed_chunk_indexes only says received=false.
+		{name: "whole-stream negative acknowledgement", committed: nil, wantRetry: all},
+		{name: "partial commit", committed: []int32{0, 2}, wantRetry: []string{"assignment-2"}},
+		{name: "indexes outside the stream", committed: []int32{-1, 3}, wantRetry: all},
 	}
 
-	if loop.pushPluginResults(t.Context()) {
-		t.Fatal("negative acknowledgement must retain the plugin result set")
-	}
-	if !loop.pushPluginResults(t.Context()) {
-		t.Fatal("later positive acknowledgement must clear the retained set")
-	}
-	if got, want := attempts, [][]string{{"assignment-1", "assignment-2"}, {"assignment-1", "assignment-2"}}; !equalStringMatrix(got, want) {
-		t.Fatalf("delivery attempts = %#v, want %#v", got, want)
-	}
-	if got := len(loop.pendingPluginResults); got != 0 {
-		t.Fatalf("pending plugin results = %d, want 0", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &PluginManager{results: make(chan PluginResult, len(all)+1)}
+			for _, assignment := range all {
+				manager.results <- testPendingPluginResult(assignment, assignment)
+			}
+
+			var attempts [][]string
+			loop := &PushLoop{
+				server: &Server{
+					config:        &ServerConfig{AgentID: "agent-1", HostIP: "192.0.2.10"},
+					pluginManager: manager,
+				},
+				logger: logger.NewTestLogger(),
+				pluginResultStreamStatus: func(
+					_ context.Context,
+					chunks []*proto.GatewayStatusChunk,
+				) (*proto.GatewayStatusResponse, error) {
+					attempts = append(attempts, pluginResultAssignments(t, chunks))
+					if len(attempts) == 1 {
+						return &proto.GatewayStatusResponse{CommittedChunkIndexes: tt.committed}, nil
+					}
+					return &proto.GatewayStatusResponse{Received: true}, nil
+				},
+			}
+
+			if loop.pushPluginResults(t.Context()) {
+				t.Fatal("negative acknowledgement must not report a successful plugin result push")
+			}
+			// A result produced during the retry must not join the retained remainder.
+			manager.results <- testPendingPluginResult("assignment-later", "later")
+			if !loop.pushPluginResults(t.Context()) {
+				t.Fatal("later positive acknowledgement must clear the retained set")
+			}
+			if got, want := attempts, [][]string{all, tt.wantRetry}; !equalStringMatrix(got, want) {
+				t.Fatalf("delivery attempts = %#v, want %#v", got, want)
+			}
+			if got := len(loop.pendingPluginResults); got != 0 {
+				t.Fatalf("pending plugin results = %d, want 0", got)
+			}
+		})
 	}
 }
 

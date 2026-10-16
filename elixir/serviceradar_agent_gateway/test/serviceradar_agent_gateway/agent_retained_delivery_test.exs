@@ -175,14 +175,31 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
            ] = directives
   end
 
-  test "one uncommitted retained plugin result makes the whole stream a negative acknowledgement" do
-    _handler = start_status_handler([committed_result("first"), {:error, :lane_full}])
+  test "one uncommitted retained plugin result negatively acknowledges the stream and names the committed chunks" do
+    parent = self()
+    handler = start_controlled_status_handler(parent)
 
-    assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
-             AgentGatewayServer.process_status_stream([
-               {[plugin_service("first")], retained_metadata(0, 2)},
-               {[plugin_service("second")], retained_metadata(1, 2)}
-             ])
+    task =
+      Task.async(fn ->
+        AgentGatewayServer.process_status_stream([
+          {[plugin_service("first")], retained_metadata(0, 3)},
+          {[plugin_service("second")], retained_metadata(1, 3)},
+          {[plugin_service("third")], retained_metadata(2, 3)}
+        ])
+      end)
+
+    assert_receive {:forward_started, _first_pair_member}
+    assert_receive {:forward_started, _second_pair_member}
+    send(handler, {:complete, "second", {:error, :admission_timeout}})
+    assert_receive {:forward_started, "third"}
+    send(handler, {:complete, "third", :ok})
+    send(handler, {:complete, "first", :ok})
+
+    assert %Monitoring.GatewayStatusResponse{
+             received: false,
+             directives: [],
+             committed_chunk_indexes: [0, 2]
+           } = Task.await(task)
   end
 
   test "an undecodable retained payload is rejected before any item is forwarded" do
