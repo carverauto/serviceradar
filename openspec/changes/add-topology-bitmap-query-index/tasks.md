@@ -44,7 +44,7 @@
 - [ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.
 - [ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.
 - [ ] 4.6 Capture the production Atlas map/filter UI before and after the requested expression using only synthetic inventory; add images, figures, hero metadata and show-test coverage to the website blog branch, run `mix precommit` and push with an explicit refspec without opening a website PR.
-- [ ] 4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it.
+- [ ] 4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it. Real negotiated 1/10/100-client probe passed; keep compression disabled. See `docs/topology-bitmap-websocket-measurements.md` for scope and results. Status awaits final integration.
 
 Deferred: interface identities/queries, durable dirty replication, owner-routed
 frozen pages, result caching and browser Roaring. Add them only for a demonstrated

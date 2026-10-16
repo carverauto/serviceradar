@@ -405,6 +405,7 @@ ex_unit_tests(
         exclude = [
             "test/integration/**",
             "test/property/**",
+            "test/transport/**",
         ],
     ) + [
         "test/property/api_query_controller_property_test.exs",
@@ -940,6 +941,19 @@ ex_unit_test(
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],
+)
+
+# Real loopback HTTP upgrades and concurrent WebSockets; isolated peer VM owns
+# server CPU/RSS accounting. No database, browser, or production feature toggle.
+ex_unit_test(
+    name = "bitmap_websocket_transport_test",
+    size = "medium",
+    srcs = ["test/transport/bitmap_websocket_transport_test.exs"],
+    data = glob(["test/transport/*.exs"], exclude = ["test/transport/*_test.exs"]),
+    elixir_opts = ["-r", "test/transport/bitmap_transport_helper.exs"],
+    tags = ["acceptance_test", "manual", "no-remote-cache"],
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = [":erlang_app"],
 )
 
 # Last, so existing_rules() sees every ex_unit_test above. manual: bazel test

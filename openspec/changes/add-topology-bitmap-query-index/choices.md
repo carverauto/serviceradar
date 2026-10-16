@@ -232,3 +232,37 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   lifecycle test own the two boundaries without introducing a second owner.
 - Confidence: medium; the full remote unit gate passed, while the hosted
   database lifecycle acceptance remains pending.
+
+### Measure transport with prepared frames and a separate server process
+
+- When: task 4.7 negotiated compression acceptance.
+- Choice: prepare the same 35 synthetic membership frames before opening the
+  measurement window. A real Phoenix socket sends them through Bandit to Gun
+  clients in a separate VM. When 100 clients ask for their next frame, Linux
+  process CPU counts the server's serializer, zlib and kernel work without
+  including client decompression. Preparation and query work stay outside that
+  measurement; the test does not replace hosted production-channel acceptance.
+- Gap: the task required concurrent transport cost but did not choose an
+  isolation boundary or a portable source of native CPU/memory accounting.
+- Reach: this manual Linux target can repeat the compression comparison without
+  database fixtures. It cannot establish whole-application capacity or the
+  production acknowledgement policy. RSS includes the prepared-frame fixture.
+- Verdict: sound; real upgrades and byte parity exercise the missing transport
+  boundary, while independent OS counters include native work.
+- Confidence: high.
+
+### Keep compression disabled after the measured CPU tradeoff
+
+- When: task 4.7 final remote run.
+- Choice: at 100 simultaneous viewers, compressing mixed synthetic frames saves
+  about 56% of payload bytes but spends 22.49 CPU seconds instead of 0.39 for
+  3,000 deliveries. Keep the existing disabled production setting. The manual
+  probe uses 30 deliveries after five warmups, four server schedulers and the
+  client's naturally negotiated context takeover; it does not guess a safe
+  production update rate from a short loopback saturation test.
+- Gap: no operational bandwidth/CPU budget or required update cadence was
+  specified, and shared RBE timing varies between runs.
+- Reach: enabling compression later needs an explicit deployment tradeoff;
+  these results provide evidence without silently changing every socket.
+- Verdict: sound; retain the current setting and the measured limits.
+- Confidence: medium; a bandwidth-constrained deployment may choose differently.
