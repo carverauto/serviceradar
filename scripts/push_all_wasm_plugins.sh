@@ -102,6 +102,9 @@ if [[ "${build_only}" == true ]]; then
   printf '\n'
   if [[ "${dry_run}" == false ]]; then
     "${build_cmd[@]}"
+    if [[ ${#BAZEL_BUILD_FLAGS[@]} -gt 0 ]]; then
+      "${BAZEL_BIN}" build //build/wasm_plugins:upload_signature_tool >/dev/null
+    fi
   fi
   exit 0
 fi
