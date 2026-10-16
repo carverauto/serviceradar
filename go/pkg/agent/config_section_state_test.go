@@ -1626,6 +1626,193 @@ func TestBlockedNetprobeKeepsEscalatedAddonFailure(t *testing.T) {
 	}
 }
 
+// A netprobe download that has failed once stays on that record while a new
+// visibility payload fails. Once visibility escalates, the unchanged add-on
+// record no longer defers the commit and is not counted as another attempt.
+func TestMatchingTransientAddonCommitsWhenVisibilityEscalates(t *testing.T) {
+	srv, hits := statusServer(t, http.StatusServiceUnavailable)
+	dir := t.TempDir()
+	lifecycle := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: filepath.Join(dir, "netprobe.json"),
+		}},
+	}
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{AgentID: "agent-test"},
+		addonManager: agentaddon.NewManager(agentaddon.Config{
+			RuntimeDir: filepath.Join(dir, "addons"),
+		}),
+		netprobeSidecar: agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()}),
+		sidecarManager:  lifecycle,
+		sidecarStatus:   lifecycle,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+	pl.setConfigVersion(testOldConfigVersion)
+
+	assignment := sidecar404Assignment(agentnetprobe.DefaultSidecarName, srv.URL)
+	assignment.Supervision = addonSupervisionSystemdService
+	assignment.ArtifactSignature = "test-signature"
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-v1",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons:           []*proto.AddonAssignmentConfig{assignment},
+	}
+	if pl.applyConfigResponse(t.Context(), cloneConfig(v1), "poll") {
+		t.Fatal("the first netprobe download must defer the version")
+	}
+	recorded := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if recorded.disposition != addonDeliveryTransientFailure || recorded.escalated || recorded.attempts != 1 {
+		t.Fatalf("addons failure = %+v, want one transient download", recorded)
+	}
+	hitsAfterDownload := atomic.LoadInt64(hits)
+
+	lifecycle.statuses[0].ConfigPath = dir
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		VisibilityConfig: &proto.VisibilityConfig{
+			Enabled:           true,
+			CaptureInterfaces: []string{"eth0"},
+		},
+		Addons: []*proto.AddonAssignmentConfig{assignment},
+	}
+	for range transientSectionEscalationAttempts {
+		if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+			t.Fatal("visibility must defer cfg-v2 before its escalation bound")
+		}
+	}
+	if got := pl.configSectionFailureSnapshot()[configSectionAddons]; got.attempts != recorded.attempts || got.payloadHash != recorded.payloadHash ||
+		got.disposition != recorded.disposition || !got.since.Equal(recorded.since) || got.reason != recorded.reason {
+		t.Fatalf("addons failure = %+v, want the one-download record unchanged (%+v)", got, recorded)
+	}
+	if got := atomic.LoadInt64(hits); got != hitsAfterDownload {
+		t.Fatalf("artifact downloads = %d, want %d while activation is blocked", got, hitsAfterDownload)
+	}
+
+	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
+	if !pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+		t.Fatal("cfg-v2 must commit once visibility has escalated")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v2" {
+		t.Fatalf("committed version = %q, want cfg-v2", got)
+	}
+	got := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if got.attempts != recorded.attempts || got.payloadHash != recorded.payloadHash || got.disposition != recorded.disposition ||
+		got.escalated != recorded.escalated || !got.since.Equal(recorded.since) || got.reason != recorded.reason {
+		t.Fatalf("addons failure = %+v, want the one-download record unchanged (%+v)", got, recorded)
+	}
+	if hitsNow := atomic.LoadInt64(hits); hitsNow != hitsAfterDownload {
+		t.Fatalf("artifact downloads = %d, want %d: the blocked pass must not download", hitsNow, hitsAfterDownload)
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionTransient || !strings.Contains(helloAddons.GetError(), agentnetprobe.DefaultSidecarName) ||
+		helloAddons.GetSince() != recorded.since.Unix() {
+		t.Fatalf("hello addons status = %+v, want the original transient netprobe failure", helloAddons)
+	}
+	visibility := pl.configSectionFailureSnapshot()[configSectionVisibility]
+	if !visibility.escalated || visibility.disposition != addonDeliveryPermanentFailure {
+		t.Fatalf("visibility failure = %+v, want escalated", visibility)
+	}
+}
+
+// A later netprobe assignment must not commit on the previous delivery's
+// escalated result while visibility blocks activation. The new assignment is
+// downloaded only after visibility applies.
+func TestChangedAddonPayloadStaysUncommittedUntilApplied(t *testing.T) {
+	srv, hits := statusServer(t, http.StatusServiceUnavailable)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "netprobe.json")
+	lifecycle := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: configPath,
+		}},
+	}
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{AgentID: "agent-test"},
+		addonManager: agentaddon.NewManager(agentaddon.Config{
+			RuntimeDir: filepath.Join(dir, "addons"),
+		}),
+		netprobeSidecar: agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()}),
+		sidecarManager:  lifecycle,
+		sidecarStatus:   lifecycle,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+	pl.setConfigVersion(testOldConfigVersion)
+
+	assignment := sidecar404Assignment(agentnetprobe.DefaultSidecarName, srv.URL)
+	assignment.Supervision = addonSupervisionSystemdService
+	assignment.ArtifactSignature = "test-signature"
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-v1",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons:           []*proto.AddonAssignmentConfig{assignment},
+	}
+	for range transientSectionEscalationAttempts {
+		pl.applyConfigResponse(t.Context(), cloneConfig(v1), "poll")
+	}
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	if !pl.applyConfigResponse(t.Context(), cloneConfig(v1), "poll") {
+		t.Fatal("escalated netprobe delivery must commit cfg-v1")
+	}
+	escalated := pl.configSectionFailureSnapshot()[configSectionAddons]
+	hitsAtEscalation := atomic.LoadInt64(hits)
+
+	changed := sidecar404Assignment(agentnetprobe.DefaultSidecarName, srv.URL)
+	changed.Supervision = addonSupervisionSystemdService
+	changed.ArtifactSignature = "test-signature"
+	changed.Version = "2.0.0"
+	lifecycle.statuses[0].ConfigPath = dir
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-v2",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons:           []*proto.AddonAssignmentConfig{changed},
+	}
+	for range transientSectionEscalationAttempts {
+		if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+			t.Fatal("cfg-v2 must stay uncommitted while its netprobe assignment is activation-blocked")
+		}
+	}
+	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
+	if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+		t.Fatal("escalated visibility must not commit a netprobe assignment that was not applied")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	if got := atomic.LoadInt64(hits); got != hitsAtEscalation {
+		t.Fatalf("artifact downloads = %d, want %d while activation is blocked", got, hitsAtEscalation)
+	}
+	got := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if got.payloadHash != escalated.payloadHash || got.attempts != escalated.attempts || !got.escalated ||
+		got.disposition != escalated.disposition || !got.since.Equal(escalated.since) || got.reason != escalated.reason {
+		t.Fatalf("addons failure = %+v, want the cfg-v1 record unchanged (%+v)", got, escalated)
+	}
+	visibility := pl.configSectionFailureSnapshot()[configSectionVisibility]
+	if !visibility.escalated || visibility.disposition != addonDeliveryPermanentFailure {
+		t.Fatalf("visibility failure = %+v, want escalated", visibility)
+	}
+
+	lifecycle.statuses[0].ConfigPath = configPath
+	if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+		t.Fatal("the new netprobe assignment still fails to download, so cfg-v2 stays uncommitted")
+	}
+	if version := pl.getConfigVersion(); version != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", version)
+	}
+	if downloaded := atomic.LoadInt64(hits); downloaded != hitsAtEscalation+1 {
+		t.Fatalf("artifact downloads = %d, want %d: visibility recovery must download the new assignment", downloaded, hitsAtEscalation+1)
+	}
+	applied := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if applied.payloadHash == escalated.payloadHash || applied.attempts != 1 || applied.escalated ||
+		applied.disposition != addonDeliveryTransientFailure || applied.version != "cfg-v2" {
+		t.Fatalf("addons failure = %+v, want a new transient attempt of cfg-v2", applied)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionVisibility]; ok {
+		t.Fatal("visibility failure record was not cleared once the bootstrap write succeeded")
+	}
+}
+
 // openPostCommitAddonTransient escalates visibility, then recovers it on a
 // NotModified poll whose add-on supervisor fails. The add-on section is left
 // transient on the committed version.

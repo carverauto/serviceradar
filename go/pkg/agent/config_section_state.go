@@ -199,7 +199,7 @@ func (p *PushLoop) applyConfigSection(
 		p.recordConfigSectionFailure(section, payloadHash, version, err, disposition)
 	case addonDeliveryTransientFailure:
 		if errors.Is(err, errAddonActivationHeld) {
-			if recorded, ok := p.recordedConfigSectionDisposition(section); ok {
+			if recorded, ok := p.activationHeldDisposition(section, payloadHash); ok {
 				return recorded
 			}
 		}
@@ -293,15 +293,22 @@ func (p *PushLoop) configSectionFailureNamesAddon(section, addonID string) bool 
 	return false
 }
 
-// recordedConfigSectionDisposition returns the disposition of the current section
-// failure without changing it.
-func (p *PushLoop) recordedConfigSectionDisposition(section string) (addonDeliveryDisposition, bool) {
+func (p *PushLoop) activationHeldDisposition(section, payloadHash string) (addonDeliveryDisposition, bool) {
 	p.configSectionMu.Lock()
 	defer p.configSectionMu.Unlock()
 
 	failure, ok := p.configSectionFailures[section]
 	if !ok {
 		return 0, false
+	}
+	if failure.payloadHash != payloadHash {
+		return addonDeliveryTransientFailure, true
+	}
+	if failure.disposition == addonDeliveryTransientFailure {
+		if visibility, recorded := p.configSectionFailures[configSectionVisibility]; recorded &&
+			visibility.disposition == addonDeliveryPermanentFailure {
+			return addonDeliveryPermanentFailure, true
+		}
 	}
 
 	return failure.disposition, true
