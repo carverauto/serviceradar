@@ -87,3 +87,17 @@ genrule(
     cmd = "$(location :bitmap_interop_generator) $@",
     tools = [":bitmap_interop_generator"],
 )
+
+rust_test(
+    name = "bitmap_scale_benchmark",
+    srcs = [
+        "fixtures/bitmap_benchmark.rs",
+        "src/bitmap_index.rs",
+    ],
+    crate_root = "fixtures/bitmap_benchmark.rs",
+    edition = "2021",
+    args = ["synthetic_scale", "--nocapture"],
+    tags = ["manual", "benchmark"],
+    timeout = "long",
+    deps = ["@crates//:roaring"],
+)
