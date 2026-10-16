@@ -14,6 +14,26 @@ function session() {
 }
 
 describe("binary admitted-row membership", () => {
+  it("refreshes filter capabilities while the channel is joined and geometry stays unchanged", async () => {
+    const manifest = {layout_version: "00000000-0000-4000-8000-000000000478", generation: 1,
+      zmax: 1, extent: 2 ** 24, node_count: 2, relation_count: 0, bitmap_membership_protocol: 1}
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.channel = {state: "joined"}
+    renderer.membershipEnabled = true
+    renderer.cache.observe({...manifest, bitmap: {ready: true}})
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({...manifest, bitmap: {ready: false, reason: "source_unavailable"}}))
+      .mockResolvedValueOnce(Response.json({...manifest, bitmap: {ready: true}}))
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      await renderer.poll()
+      expect(renderer.cache.manifest.bitmap).toEqual({ready: false, reason: "source_unavailable"})
+      await renderer.poll()
+      expect(renderer.cache.manifest.bitmap).toEqual({ready: true})
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(fetcher.mock.calls.every(([url]) => url === "/topology/tiles/manifest")).toBe(true)
+    } finally {renderer.destroyed = true; clearTimeout(renderer.watchTimer); renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals()}
+  })
+
   it("keeps uint64 sequence precision, replaces the complete view and accepts fresh index revisions", () => {
     const state = session()
     const bytes = bitmapFrame({sequence: 9007199254740993n, total: 0xffffffff, binding: {index_epoch: "synthetic-process"}, tiles: [tile]})
@@ -87,7 +107,7 @@ describe("binary admitted-row membership", () => {
     expect(renderer.queryParams({id: "synthetic-device"})).toEqual({id: "synthetic-device"})
   })
 
-  it("backs off transient watch errors and stops retrying unsupported queries", async () => {
+  it.each(["index_not_ready", "index_unavailable", "prefix_source_unavailable"])("backs off %s and stops retrying unsupported queries", async reason => {
     vi.useFakeTimers()
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     const replies = []
@@ -106,7 +126,7 @@ describe("binary admitted-row membership", () => {
     })}
     try {
       renderer.syncWatch()
-      replies[0].error({reason: "index_not_ready"})
+      replies[0].error({reason})
       renderer.syncWatch()
       expect(renderer.channel.push).toHaveBeenCalledTimes(1)
       expect(renderer.membership.pending).toBe(true)

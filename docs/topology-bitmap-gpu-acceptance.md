@@ -117,3 +117,46 @@ controls and transport boundary for grouping, exclusion, unavailable operators,
 current/pending totals and stale catalog responses. A deliberate restoration of
 the old same-generation manifest behavior failed the new cache readiness test;
 the fix refreshes capabilities without refetching retained geometry.
+
+## Atlas before/after capture
+
+The `capture=1` harness mode mounts the same production renderer and filter
+panel with 1024 invented devices: 16 clusters, each with four individual glyphs
+and one 60-device aggregate. It omits harness diagnostic controls. The screenshot
+is a real component capture, not the surrounding Phoenix page or a backend
+integration test. The fixture supplies HTTP and WebSocket data; the production
+Arrow, Phoenix client, binary decoders, layers and filter controls execute.
+
+Actual UI clicks composed `(VLAN 20 OR VLAN 30) AND unavailable EXCEPT tag
+maintenance=true`. An independent fixture test computes the expected membership
+from the invented inventory, including each aggregate population. The accepted
+SRMO total was 160: four individual glyphs, four aggregates containing 23 matches
+each, and eight containing 8 each. Four zero-match aggregates and excluded
+individuals are masked by the production policy; they do not display zero badges.
+Filtered relations with partial aggregate membership are hidden, as the panel
+explains. No exact filtered relation projection is implied by this capture.
+
+Before and after have identical decoded geometry and camera target `[128,256,0]`
+at zoom `0.75`. Chrome used a dark 1600 x 1000 CSS-pixel viewport at DPR 2. The
+3200 x 2000 PNG captures were downsampled with `sips -z 1000 1600`; no compositing
+or image edits were applied. The captures were handed to the website workstream:
+
+| Image | Final dimensions | SHA-256 |
+| --- | --- | --- |
+| `atlas-filter-before.png` | 1600 x 1000 | `3267333588408cd87d0831a64219ffae18ce8491fcec00fa2b001a91714b015c` |
+| `atlas-filter-after.png` | 1600 x 1000 | `a6529a08ea818820f1347845143b08c9b1721771ab2da11b09d504b15dfd5c24` |
+
+This physical GPU capture reported no renderer errors. It exposed a subtle
+visibility defect: a zero-radius stroked node could leave a subpixel dot.
+Excluded, pending and stale nodes now use transparent fill, stroke and glow.
+The existing layer regression failed before the repair in
+[BuildBuddy 85bda303](https://carverauto.buildbuddy.io/invocation/85bda303-020c-47fd-917d-b8c6ee053f52).
+The final 635-test scene suite and seven WebGPU tests passed in
+[BuildBuddy 56545d47](https://carverauto.buildbuddy.io/invocation/56545d47-fc2d-4d3a-939f-a8143c12fe0a).
+
+The same pass checks capability changes through the actual polling entry point
+while the channel remains joined. The existing five-second poll refreshes the
+small manifest even when geometry is unchanged, and retries temporarily absent
+Prefix Tag sources with bounded backoff. Named label discovery retains one
+50-label page; its 128 KiB response cap includes worst-case JSON escaping of
+valid bounded labels. This is control metadata, not bulk membership JSON.

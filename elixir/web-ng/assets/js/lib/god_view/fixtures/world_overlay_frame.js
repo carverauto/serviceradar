@@ -5,7 +5,7 @@ export const telemetryGeometry = {
 }
 export const telemetryTime = 1893456000123456n
 
-export function telemetryFrame(geometry = telemetryGeometry, {complete = false} = {}) {
+export function telemetryFrame(geometry = telemetryGeometry, {complete = false, health = null} = {}) {
   const parts = []
   const integer = (size, value) => {
     const bytes = new Uint8Array(size), view = new DataView(bytes.buffer)
@@ -32,7 +32,7 @@ export function telemetryFrame(geometry = telemetryGeometry, {complete = false} 
   integer(2, geometry.nodes.length); integer(2, geometry.edges.length)
   for (let row = 0; row < geometry.nodes.length; row += 1) {
     const total = geometry.nodes[row].count ?? 2, healthy = Math.min(row % 2, total)
-    for (const count of [healthy, 0, total - healthy, healthy, total]) integer(8, count)
+    for (const count of health?.[row] || [healthy, 0, total - healthy, healthy, total]) integer(8, count)
   }
   for (const edge of geometry.edges) {
     for (const count of [edge.count, complete ? edge.count : 2, complete ? edge.count : 1, 0, 0, 0, 0,
