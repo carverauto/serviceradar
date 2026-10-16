@@ -1,9 +1,47 @@
 defmodule ServiceRadar.TopologyAtlasNativeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.TopologyAtlas
 
   @moduletag :db_free
+
+  test "canonical mapping lifetime admission survives publication and releases after owner exit" do
+    world = cold_world([position("sr:bounded-mapping.example.com", 1, true)])
+    owner = self()
+
+    holders =
+      for epoch <- 1..2 do
+        pid =
+          start_supervised!(
+            {Task,
+             fn ->
+               assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<epoch::128>>)
+               assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, mapping)
+               send(owner, {:mapping_ready, self()})
+
+               receive do
+                 :release ->
+                   assert {:ok, %{ready: true}} = TopologyAtlas.ordinal_info(world, mapping)
+               end
+             end},
+            id: {:mapping_holder, epoch}
+          )
+
+        assert_receive {:mapping_ready, ^pid}
+        {pid, Process.monitor(pid)}
+      end
+
+    assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
+    [{retiring, monitor}, {_retained, _monitor}] = holders
+    send(retiring, :release)
+    assert_receive {:DOWN, ^monitor, :process, ^retiring, :normal}
+
+    assert {:ok, replacement} =
+             await_mapping_reclamation(world, System.monotonic_time(:millisecond) + 1_000)
+
+    assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, replacement)
+    assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<4::128>>)
+  end
 
   test "canonical mapping ABI preserves unsigned ordinals and seals partial world coverage" do
     nodes =
@@ -499,6 +537,24 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     assert tile.selection_bytes < 4096
     assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)
+  end
+
+  defp await_mapping_reclamation(world, deadline) do
+    case TopologyAtlas.new_ordinals(world, <<3::128>>) do
+      {:error, :busy} = error ->
+        if System.monotonic_time(:millisecond) < deadline do
+          # Native destruction may finish after the owning BEAM process exits.
+          receive do
+          after
+            1 -> await_mapping_reclamation(world, deadline)
+          end
+        else
+          error
+        end
+
+      result ->
+        result
+    end
   end
 
   defp cold_world(positions) do

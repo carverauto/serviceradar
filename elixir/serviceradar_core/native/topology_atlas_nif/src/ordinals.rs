@@ -13,7 +13,15 @@ mod atoms {
     rustler::atoms! {busy, invalid_request, invalid_epoch, stale_revision, not_ready, sealed, bitmap_budget, deadline_exceeded, unavailable}
 }
 
-struct OrdinalResource(RwLock<CanonicalOrdinals>);
+// Admission follows allocated resource lifetime, including old query receipts
+// and asynchronous destruction, rather than ending when the builder NIF returns.
+static ORDINAL_RESOURCES: crate::admission::Gate = crate::admission::Gate::new(2);
+
+struct OrdinalResource {
+    mapping: RwLock<CanonicalOrdinals>,
+    // Fields drop in order: the mapping allocation is freed before its permit.
+    _lifetime: crate::admission::Permit<'static>,
+}
 #[rustler::resource_impl]
 impl Resource for OrdinalResource {
     fn destructor(self, _env: Env<'_>) {
@@ -97,8 +105,12 @@ fn new_ordinals<'a>(
                 .as_slice()
                 .try_into()
                 .map_err(|_| atoms::invalid_epoch())?;
+            let lifetime = ORDINAL_RESOURCES.try_acquire().ok_or_else(atoms::busy)?;
             let mapping = CanonicalOrdinals::new(&world.0.geometry, epoch).map_err(engine_error)?;
-            Ok(ResourceArc::new(OrdinalResource(RwLock::new(mapping))))
+            Ok(ResourceArc::new(OrdinalResource {
+                mapping: RwLock::new(mapping),
+                _lifetime: lifetime,
+            }))
         })
     })
 }
@@ -118,7 +130,7 @@ fn apply_ordinals<'a>(
                 Ok((uid(id)?, ordinal))
             })?;
             let result = mapping
-                .0
+                .mapping
                 .try_write()
                 .map_err(|_| atoms::busy())?
                 .apply(&world.0.geometry, &rows)
@@ -136,7 +148,7 @@ fn seal_ordinals(
 ) -> Term<'_> {
     read_reply(env, || {
         let result = mapping
-            .0
+            .mapping
             .try_write()
             .map_err(|_| atoms::busy())?
             .seal(&world.0.geometry)
@@ -153,7 +165,7 @@ fn ordinal_info(
 ) -> Term<'_> {
     read_reply(env, || {
         let result = mapping
-            .0
+            .mapping
             .try_read()
             .map_err(|_| atoms::busy())?
             .info(&world.0.geometry)
@@ -173,7 +185,7 @@ fn device_ordinals<'a>(
         read_reply(env, || {
             let ids = bounded_list(ids, 8192, uid)?;
             mapping
-                .0
+                .mapping
                 .try_read()
                 .map_err(|_| atoms::busy())?
                 .device_ordinals(&world.0.geometry, &ids)
@@ -194,7 +206,7 @@ fn aggregate_ordinals(
     crate::admission::call(env, &crate::admission::ORDINAL_READ, || {
         read_reply(env, || {
             let bytes = mapping
-                .0
+                .mapping
                 .try_read()
                 .map_err(|_| atoms::busy())?
                 .aggregate(&world.0.geometry, &aggregate.0, max_bytes, timeout_ms)
