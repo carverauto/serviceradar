@@ -266,3 +266,69 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   these results provide evidence without silently changing every socket.
 - Verdict: sound; retain the current setting and the measured limits.
 - Confidence: medium; a bandwidth-constrained deployment may choose differently.
+
+### Keep the combined scale measurement inside the existing scratch lifecycle
+
+- When: task 4.2 acceptance harness.
+- Choice: an operator selects compact or sparse IDs in the existing BazelCI
+  environment. The ordinary tests run first, then two server VMs share one
+  already-created scratch database. Existing lease renewal, connection
+  observation and cleanup own the run. Selecting both repeats this sequentially
+  on the other clone; it does not create another database provisioner.
+- Gap: the plan required a combined measurement without choosing an execution
+  owner. A separate runner would have duplicated credentials and cleanup.
+- Reach: each variant has a 55-minute test deadline. The hosted outer deadline
+  must also be verified; an incomplete run stays a failure.
+- Verdict: sound; one lifecycle owns every scratch resource.
+- Confidence: high.
+
+### Use real server paths while declaring the synthetic geometry boundary
+
+- When: task 4.2 acceptance harness.
+- Choice: two isolated BEAM VMs run the production bounded source, index,
+  authentication, endpoint and channel. Gun opens 100 actual sockets. An
+  invented native world is installed at WorldCache, then its mapping is built
+  from real dictionary pages. For example, a database availability change must
+  reach an independently decoded socket frame before that viewer progresses.
+- Gap: the plan did not choose whether this slice should also run discovery,
+  layout persistence and a physical browser. Those have separate existing
+  owners and evidence; combining all of them would obscure the server costs.
+- Reach: the result covers database-to-network behavior and whole-server RSS,
+  but cannot be advertised as full browser, layout or ingestion acceptance.
+- Verdict: sound; the narrower boundary is explicit and exercises real
+  production behavior without new production hooks or dependencies.
+- Confidence: high.
+
+### Bootstrap sparse synthetic identities without remapping existing rows
+
+- When: task 4.2 acceptance harness.
+- Choice: the fixture allocates invented dictionary IDs before creating its
+  devices or starting an index. Compact IDs use consecutive ordinals; sparse
+  IDs begin above 2^31 and advance by seven. Existing dictionary rows and
+  tombstones keep their values. Real device triggers still execute.
+- Gap: production allocation is intentionally dense, so a fresh scratch
+  database cannot naturally produce sparse high IDs at this population.
+- Reach: this tests separated high IDs, not every possible u32 distribution.
+  Native full-u32 boundary tests remain the owner of extreme values.
+- Verdict: sound; explicit fixture bootstrap avoids claiming that identity
+  reassignment is a supported production operation.
+- Confidence: medium.
+
+### Reject hidden starvation and report sampled memory honestly
+
+- When: task 4.2 acceptance harness.
+- Choice: normal clients emulate the renderer's bounded retry delay and must
+  each accept a fresh revision within 30 seconds during ready churn. Cold
+  owner restart is measured separately. Every deliberately slow client must
+  observe its own reset; the limit allows the server's five-second polling
+  interval after its 15-second ACK threshold. One-second server samples are
+  accompanied by native reservation peaks and Linux process high-water RSS.
+- Gap: aggregate throughput can look healthy while a few viewers never
+  progress, and current native bytes omit earlier peaks and unrelated heaps.
+- Reach: a busy or starved client can fail acceptance even when other viewers
+  are fast. RSS includes the full server; component reservation caps are
+  reported separately and are not presented as a total process-memory bound.
+- Verdict: sound; individual progress and explicit measurement limits make
+  the result falsifiable. The 30-second readiness bound is an acceptance
+  workload choice, not a new product response-time promise.
+- Confidence: medium.

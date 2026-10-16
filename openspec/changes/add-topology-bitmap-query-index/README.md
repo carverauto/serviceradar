@@ -47,6 +47,11 @@ Coordinate shared APIs before editing.
 
 ## Evidence and remaining risk
 
+The separate manual [server scale acceptance workload](../../../docs/topology-bitmap-scale-acceptance.md)
+now has declared compact/sparse targets in the existing hosted scratch lifecycle.
+Its database-free harness checks passed; actual database execution is pending.
+Task 4.2 remains open until the combined measurements are collected and reviewed.
+
 Native scale and browser codec comparison are in `review-response.md`; integrated
 scale and complete database tests remain pending. The physical-GPU synthetic
 transport stress test passed; its exact scope is in
