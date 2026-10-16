@@ -26,6 +26,29 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
 
   def supported_facets(_kind), do: {:error, :unsupported_entity}
 
+  @doc "Bounded filter-builder metadata; contains configured fields, never fleet values."
+  def query_descriptor do
+    with {:ok, facets} <- supported_facets(:device), {:ok, keys} <- tag_keys() do
+      labels = %{
+        "vendor" => "Vendor",
+        "region" => "Region",
+        "vlan" => "Inventory VLAN",
+        "device_class" => "Device class",
+        "os_name" => "Operating system",
+        "os_version" => "OS version",
+        "availability" => "Availability"
+      }
+
+      {:ok,
+       %{
+         entity_kind: "device",
+         facets: Enum.map(facets, &%{key: &1, label: Map.get(labels, &1, &1), operators: ["eq"]}),
+         tag_keys: keys,
+         operators: %{tag_key_prefix: false, ip_cidr: false}
+       }}
+    end
+  end
+
   def initialize do
     with {:ok, facets} <- supported_facets(:device),
          epoch when is_binary(epoch) <- FleetIdentity.epoch(),
@@ -193,9 +216,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
   defp availability(%{is_available: false}), do: "unavailable"
   defp availability(_device), do: "unknown"
 
-  defp tag_keys do
-    keys = Application.get_env(:serviceradar_web_ng, :bitmap_tag_keys, [])
+  defp tag_keys, do: tag_keys(Application.get_env(:serviceradar_web_ng, :bitmap_tag_keys, []))
 
+  @doc "Validates the deployment's explicit device-tag allowlist."
+  def tag_keys(keys) do
     if is_list(keys) and length(keys) <= 25 and
          Enum.all?(keys, &(is_binary(&1) and byte_size(&1) in 1..60 and String.valid?(&1))) and
          length(Enum.uniq(keys)) == length(keys) do

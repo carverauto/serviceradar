@@ -244,6 +244,8 @@ config :serviceradar_web_ng, :auth,
   force_local_login: false,
   disable_sso: false
 
+config :serviceradar_web_ng, :bitmap_tag_keys, []
+
 config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []
@@ -371,6 +373,7 @@ config :serviceradar_web_ng, :session,
 config :serviceradar_web_ng, :srql_catalog, {ServiceRadarWebNGWeb.SRQL.Catalog, :for_scope}
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 config :serviceradar_web_ng, :srql_query_timeout_ms, 15_000
+config :serviceradar_web_ng, :topology_bitmap_enabled, false
 
 # Ash Framework Configuration
 config :serviceradar_web_ng,

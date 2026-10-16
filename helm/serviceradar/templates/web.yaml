@@ -399,7 +399,11 @@ spec:
           value: {{ if kindIs "invalid" $webNg.checkOrigin }}"true"{{ else }}{{ default "true" (toString $webNg.checkOrigin) | quote }}{{ end }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
           value: {{ include "serviceradar.boolDefaultTrue" (list $webNg "godViewEnabled") | quote }}
-        {{/* First-class flags. extraEnv cannot shadow SERVICERADAR_MCP_*. */}}
+        - name: SERVICERADAR_TOPOLOGY_BITMAP_ENABLED
+          value: {{ default false $webNg.topologyBitmapEnabled | quote }}
+        - name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
+          value: {{ default (list) $webNg.topologyBitmapTagKeys | toJson | quote }}
+        {{/* First-class flags cannot be shadowed through extraEnv. */}}
         - name: SERVICERADAR_MCP_ENABLED
           value: {{ default "false" $webNg.mcpEnabled | quote }}
         - name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
@@ -762,7 +766,7 @@ spec:
         {{- include "serviceradar.graph.env" $ | nindent 8 }}
         {{- with .Values.webNg.extraEnv }}
         {{- range $name, $value := . }}
-        {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
+        {{- if not (has $name (list "SERVICERADAR_MCP_ENABLED" "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED" "SERVICERADAR_MCP_REFRESH_TTL_SECONDS" "SERVICERADAR_TOPOLOGY_BITMAP_ENABLED" "SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS")) }}
         - name: {{ $name | quote }}
           value: {{ $value | quote }}
         {{- end }}
@@ -770,7 +774,7 @@ spec:
         {{- end }}
         {{- with .Values.webNg.extraEnvValueFrom }}
         {{- range $name, $valueFrom := . }}
-        {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
+        {{- if not (has $name (list "SERVICERADAR_MCP_ENABLED" "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED" "SERVICERADAR_MCP_REFRESH_TTL_SECONDS" "SERVICERADAR_TOPOLOGY_BITMAP_ENABLED" "SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS")) }}
         - name: {{ $name | quote }}
           valueFrom:
 {{- toYaml $valueFrom | nindent 12 }}
