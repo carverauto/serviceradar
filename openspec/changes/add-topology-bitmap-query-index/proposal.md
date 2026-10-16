@@ -23,9 +23,10 @@ buffer lifetime fix. Filtering never changes layout.
 - Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets,
   live ordinal pages and aggregate match counts on the server. Revalidate current
   authority before delivering counts, details, search or overlays.
-- Replace JSON membership overlays with typed binary masks and counts aligned to
-  admitted Arrow tile rows. The browser needs neither whole-fleet sets nor a
-  Roaring WASM runtime. Arrow remains the geometry/attribute transport.
+- Replace the active per-tile JSON overlay with typed binary membership, health
+  and flow fields, preserving coverage and unknown-state semantics. Membership
+  masks/counts align to admitted Arrow rows. The browser needs neither fleet
+  sets nor a Roaring WASM runtime; Arrow remains the geometry transport.
 - Use existing bounded invalidation hints and rolling keyset reconciliation.
   Inventory writes do not acquire shared bitmap bucket locks or wait for an
   index replica. Missing hints delay freshness; reconciliation repairs them.

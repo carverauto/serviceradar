@@ -27,7 +27,7 @@
 - [ ] 3.1 Implement the versioned binary full-replacement envelope and typed state/count columns with fixed allocation limits.
 - [ ] 3.2 Prove native-to-browser column interoperability, high canonical IDs, malformed lengths, receipt and state-domain handling.
 - [ ] 3.3 Atomically replace matching admitted-row masks; reject stale work and bound slow-viewer coalescing without XOR history.
-- [ ] 3.4 Keep Arrow attributes typed and remove JSON bulk membership from the active tiled path.
+- [ ] 3.4 Replace the active per-tile health/flow JSON overlay and JSON size checks with bounded binary fields, preserving coverage, unknown values and timestamps; keep Arrow attributes typed.
 - [ ] 3.5 Add the default-off rollout gate and explicit unsupported-filter fallback; release masks on eviction/disconnect/disable.
 - [ ] 3.6 Run actual-browser zoom/reconnect/GPU-lifetime checks and measure retained bytes and upload copies.
 

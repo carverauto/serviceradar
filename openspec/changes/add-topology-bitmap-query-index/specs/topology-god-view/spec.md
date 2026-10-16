@@ -92,6 +92,14 @@ The system SHALL apply membership to the persistent tiled world without changing
 ### Requirement: Typed Binary Tile Overlay
 The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.
 
+#### Scenario: Existing health and flow overlay transport
+- **WHEN** the binary overlay path is enabled
+- **THEN** existing per-tile bulk health and flow JSON SHALL be replaced with typed binary fields
+- **AND** directional rates, coverage, eligibility, unknown values and observation timestamps SHALL preserve their current semantics
+- **AND** size checks SHALL measure the binary representation without a JSON round trip
+- **AND** each tile response SHALL remain within 256 KiB under the existing bounded fetch scheduler
+- **AND** bulk JSON SHALL NOT be embedded inside a binary envelope
+
 #### Scenario: Bounded typed columns
 - **WHEN** an overlay is produced for at most 64 admitted tiles of 128 glyphs each
 - **THEN** it SHALL bind exact tile receipts and row counts, dictionary, query and authority

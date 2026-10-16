@@ -10,7 +10,7 @@ implementation. Architecture HTML artifacts remain explicitly pending refresh.
 | Review | Resolution |
 | --- | --- |
 | A1, B1 | Keep server-side Roaring for authorized filtering, facets and aggregate intersections. Native measurements support this use. |
-| A2, B8 | Replace the active per-tile JSON overlay with typed binary row masks and counts. Remove browser Roaring/WASM, worker, XOR history and chunked baselines from phase 3. |
+| A2, B8 | Replace the active per-tile JSON overlay with typed binary row masks/counts and existing health/flow fields, including coverage and timestamps. Remove JSON-only size encoding, browser Roaring/WASM, worker, XOR history and chunked baselines from phase 3. |
 | A3, B9 | State plainly that there is no approved fleet-scale causal producer; legacy scene sets are not a fleet source. Other unsupported source mappings remain explicit errors. |
 | A4 | Separate 500-row publication batches from pending capacity. Use byte-bounded native Roaring for coalesced ordinal dirty work, not a small integer-array capacity. Bound UID notification ingress separately and report overflow/reconciliation. |
 | B2 | Preserve and repair the existing device dictionary: full u32, no sequence burn on repeat allocation, tombstones and retention-safe cleanup. |
