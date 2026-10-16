@@ -148,15 +148,42 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
       assert {:ok, []} = address_members(current, cidr)
     end
 
+    page_addresses = Enum.map(1..0x1F5, &"2001:db8::#{Integer.to_string(&1, 16)}")
+
+    Repo.query!(
+      "INSERT INTO platform.discovered_interfaces (device_id, interface_uid, timestamp, ip_addresses) VALUES ($1, 'example-page', now(), $2::text[])",
+      [first.uid, page_addresses]
+    )
+
+    assert {:ok, _} = publish_addresses(current, [first_ordinal], 3)
+
+    for address <- page_addresses do
+      assert {:ok, [^first_ordinal]} = address_members(current, address <> "/128")
+    end
+
+    Repo.query!(
+      "DELETE FROM platform.discovered_interfaces WHERE device_id = $1 AND interface_uid = 'example-page'",
+      [first.uid]
+    )
+
+    assert {:ok, _} = publish_addresses(current, [first_ordinal], 4)
+
+    for address <- page_addresses do
+      assert {:ok, []} = address_members(current, address <> "/128")
+    end
+
+    assert {:ok, primary} = address_members(current, "192.0.2.7")
+    assert primary == Enum.sort(ordinals)
+
     Repo.query!(
       "INSERT INTO platform.discovered_interfaces (device_id, interface_uid, timestamp, ip_addresses) VALUES ($1, 'example-cap', now(), $2::text[])",
       [first.uid, List.duplicate("192.0.2.99", 4_097)]
     )
 
-    assert {:ok, _} = publish_addresses(current, [first_ordinal], 3)
+    assert {:ok, _} = publish_addresses(current, [first_ordinal], 5)
     assert {:error, "ip_unavailable"} = address_members(current, "192.0.2.7")
     Repo.update_all(from(d in Device, where: d.uid == ^second.uid), set: [vendor_name: "example-updated"])
-    assert {:ok, _} = publish_addresses(current, [second_ordinal], 4)
+    assert {:ok, _} = publish_addresses(current, [second_ordinal], 6)
     assert {:error, "ip_unavailable"} = address_members(current, "192.0.2.7")
     assert {:ok, [^second_ordinal]} = selected_members(current, %{"facet" => "vendor", "value" => "example-updated"})
     assert {:ok, %{ready: true, ip_available: false}} = Native.bitmap_index_status(index)
