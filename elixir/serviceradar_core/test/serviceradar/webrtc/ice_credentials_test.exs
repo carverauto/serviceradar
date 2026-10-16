@@ -3,8 +3,9 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
   Unit coverage for the shared ICE credential provider (slice 1 of the
   add-webrtc-turn-relay change): dispatch and TTL bounds, digest-vs-legacy
   subject binding, the static_secret TURN REST backend's byte-compat with
-  the minting web-ng shipped for remote desktop, secret-file bounds, and
-  the per-actor/per-session mint rate limit.
+  the minting web-ng shipped for remote desktop, secret-file bounds, the
+  per-actor/per-session mint rate limit, the fail-soft peer ICE list the
+  camera relay uses, and the boot-time runtime configuration contract.
 
   Byte-compat for remote desktop's end-to-end path (username layout and
   credential value for the same inputs) is additionally pinned by
@@ -262,6 +263,163 @@ defmodule ServiceRadar.WebRTC.IceCredentialsTest do
 
       assert server.credential ==
                StaticSecret.turn_credential("turn-rest-secret", server.username)
+    end
+  end
+
+  describe "peer_ice_servers/3" do
+    @static [%{urls: ["stun:stun.example.com:3478"]}]
+
+    test "appends TURN servers minted for the configured URLs to the static list" do
+      Application.put_env(:serviceradar_core, IceCredentials,
+        backend: :static_secret,
+        turn_urls: ["turn:turn.example.com:3478?transport=udp"],
+        static_secret: [secret: @secret]
+      )
+
+      assert %{ice_servers: [stun, turn], ice_credentials: "minted"} =
+               IceCredentials.peer_ice_servers({"camera_relay", "relay-1", "viewer-1"}, @static,
+                 actor_id: "actor-1",
+                 session_id: "relay-1"
+               )
+
+      assert stun == hd(@static)
+      assert turn.urls == ["turn:turn.example.com:3478?transport=udp"]
+      assert [_expiry, digest] = String.split(turn.username, ":")
+      assert digest == IceCredentials.subject_digest({"camera_relay", "relay-1", "viewer-1"})
+      assert turn.credential == StaticSecret.turn_credential(@secret, turn.username)
+    end
+
+    test "falls back to the static list and reports why when nothing is minted" do
+      missing =
+        Path.join(System.tmp_dir!(), "ice-cred-absent-#{System.unique_integer([:positive])}")
+
+      cases = [
+        {[backend: :none], "not_configured"},
+        {[
+           backend: :static_secret,
+           turn_urls: ["turn:t:3478"],
+           static_secret: [secret_file: missing]
+         ], "unavailable"},
+        {[
+           backend: :static_secret,
+           turn_urls: ["turn:t:3478"],
+           rate_limit: %{max_mints: 1, window_seconds: 60},
+           static_secret: [secret: @secret]
+         ], "rate_limited"}
+      ]
+
+      for {config, status} <- cases do
+        Application.put_env(:serviceradar_core, IceCredentials, config)
+        opts = [actor_id: "actor-#{status}", session_id: "relay-1"]
+
+        if status == "rate_limited" do
+          assert %{ice_credentials: "minted"} =
+                   IceCredentials.peer_ice_servers(
+                     {"camera_relay", "relay-1", "v"},
+                     @static,
+                     opts
+                   )
+        end
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            assert %{ice_servers: @static, ice_credentials: ^status} =
+                     IceCredentials.peer_ice_servers(
+                       {"camera_relay", "relay-1", "v"},
+                       @static,
+                       opts
+                     )
+          end)
+
+        case status do
+          "not_configured" ->
+            refute log =~ "WebRTC ICE credential mint failed"
+
+          "rate_limited" ->
+            assert log =~ "WebRTC ICE credential mint failed"
+            assert log =~ "backend=:static_secret"
+            assert log =~ "reason=:rate_limited"
+
+          "unavailable" ->
+            assert log =~ "WebRTC ICE credential mint failed"
+            assert log =~ "backend=:static_secret"
+            assert log =~ "reason=:enoent"
+        end
+
+        refute log =~ @secret
+      end
+    end
+  end
+
+  describe "RuntimeConfig.load!/1" do
+    alias ServiceRadar.WebRTC.IceCredentials.RuntimeConfig
+
+    setup do
+      path =
+        Path.join(System.tmp_dir!(), "ice-cred-runtime-#{System.unique_integer([:positive])}")
+
+      File.write!(path, @secret <> "\n")
+      on_exit(fn -> File.rm(path) end)
+      %{secret_file: path}
+    end
+
+    test "defaults to backend none and builds the static_secret configuration", %{
+      secret_file: path
+    } do
+      assert [backend: :none, default_ttl_seconds: 600, turn_urls: []] = RuntimeConfig.load!([])
+
+      urls =
+        ~s(["turn:turn.example.com:3478?transport=udp","turns:turn.example.com:5349?transport=tcp"])
+
+      assert RuntimeConfig.load!(
+               backend: "static_secret",
+               ttl_seconds: "900",
+               secret_file: path,
+               turn_urls_json: urls
+             ) == [
+               backend: :static_secret,
+               default_ttl_seconds: 900,
+               turn_urls: [
+                 "turn:turn.example.com:3478?transport=udp",
+                 "turns:turn.example.com:5349?transport=tcp"
+               ],
+               static_secret: [secret_file: path]
+             ]
+    end
+
+    test "fails at boot on static configuration errors", %{secret_file: path} do
+      valid = [
+        backend: "static_secret",
+        secret_file: path,
+        turn_urls_json: ~s(["turn:t.example.com"])
+      ]
+
+      short =
+        Path.join(
+          System.tmp_dir!(),
+          "ice-cred-runtime-short-#{System.unique_integer([:positive])}"
+        )
+
+      File.write!(short, "short")
+      on_exit(fn -> File.rm(short) end)
+
+      for {override, message} <- [
+            {[backend: "cloudflare"], ~r/backend must be none or static_secret/},
+            {[ttl_seconds: "59"], ~r/TTL must be between 60 and 3600/},
+            {[ttl_seconds: "3601"], ~r/TTL must be between 60 and 3600/},
+            {[turn_urls_json: ~s(["turn:user@t.example.com"])], ~r/credentials are forbidden/},
+            {[turn_urls_json: ~s(["turn:t.example.com?username=u"])],
+             ~r/credentials are forbidden/},
+            {[turn_urls_json: ~s(["stun:t.example.com"])], ~r/turn: or turns:/},
+            {[turn_urls_json: ~s({"urls":[]})], ~r/JSON list/},
+            {[turn_urls_json: "[]"], ~r/requires at least one TURN URL/},
+            {[secret_file: nil], ~r/requires a mounted TURN shared-secret file/},
+            {[secret_file: short], ~r/shared-secret file is unusable/}
+          ] do
+        assert_raise ArgumentError, message, fn ->
+          RuntimeConfig.load!(Keyword.merge(valid, override))
+        end
+      end
     end
   end
 

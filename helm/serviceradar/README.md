@@ -127,6 +127,19 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs` | Explicit ICE destination IPv4/IPv6 CIDRs; DNS names and catch-all CIDRs are rejected | `[]` |
 | `remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts` | Explicit ICE UDP destination ports in `1..65535` | `[]` |
 | `remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedTCPPorts` | Explicit ICE TCP destination ports in `1..65535` | `[]` |
+| `remoteAccess.desktop.rdp.webRTC.networkPolicy.*` | Alias of `webrtc.networkPolicy.*`; set only one of the two | |
+| `webrtc.networkPolicy.enabled` | Render an additive core-only ICE egress policy (`serviceradar-webrtc-egress`); requires chart-wide NetworkPolicy | `false` |
+| `webrtc.networkPolicy.allowedCIDRs` | Explicit ICE destination IPv4/IPv6 CIDRs; DNS names and catch-all CIDRs are rejected | `[]` |
+| `webrtc.networkPolicy.allowedUDPPorts` | Explicit ICE UDP destination ports in `1..65535` | `[]` |
+| `webrtc.networkPolicy.allowedTCPPorts` | Explicit ICE TCP destination ports in `1..65535` | `[]` |
+| `webrtc.iceCredentials.backend` | WebRTC ICE credential backend: `none` (STUN only) or `static_secret` (per-viewer TURN REST credentials). See [WebRTC TURN Relay](../../docs/docs/webrtc-turn-relay.md) | `none` |
+| `webrtc.iceCredentials.ttlSeconds` | Minted TURN credential lifetime, `60..3600` | `600` |
+| `webrtc.iceCredentials.staticSecret.existingSecretName` / `.secretKey` | Operator-created Secret (and key) holding the TURN REST shared secret, mounted into web-ng, core-elx and the TURN server | `""` / `shared-secret` |
+| `webrtc.iceCredentials.turnUrls` / `.peerTurnUrls` | Extra TURN URLs for browsers / for core-elx (servers outside this chart). URLs only. Peer URLs must be `turn:` with transport omitted or `transport=udp` | `[]` |
+| `webrtc.turnServer.enabled` | Deploy the chart-managed TURN relay (eturnal); requires `backend: static_secret` and `externalHostname` | `false` |
+| `webrtc.turnServer.exposure` | `gateway` (routes on `externalPorts`) or `service` (LoadBalancer only; other service types fail rendering). See [WebRTC TURN Relay](../../docs/docs/webrtc-turn-relay.md) | `gateway` |
+| `webrtc.turnServer.tls.enabled` | Serve TURNS on 5349 with a certificate for `externalHostname` | `false` |
+| `webrtc.turnServer.relayPortRange.min` / `.max` | In-cluster relay ports (never published), at most 1000 | `49160` / `49359` |
 | `cnpg.localDevAccess.enabled` | Render a CNPG primary ingress NetworkPolicy for local developer workstation access | `false` |
 | `cnpg.localDevAccess.policyName` | Name for the local developer CNPG ingress NetworkPolicy | `cnpg-allow-local-dev-postgres` |
 | `cnpg.localDevAccess.allowedCIDRs` | CIDRs allowed to connect directly to the CNPG primary on TCP/5432 | `[]` |

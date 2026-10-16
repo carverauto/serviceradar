@@ -38,6 +38,7 @@ const sidebars: SidebarsConfig = {
         },
         {type: 'doc', id: 'service-ports', label: 'Kubernetes Ingress'},
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
+        {type: 'doc', id: 'webrtc-turn-relay', label: 'WebRTC TURN Relay'},
         {
           type: 'doc',
           id: 'tls-security',

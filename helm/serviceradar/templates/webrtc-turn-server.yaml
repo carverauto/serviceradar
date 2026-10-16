@@ -1,0 +1,517 @@
+{{- /*
+Chart-managed TURN relay (eturnal) for WebRTC viewers (add-webrtc-turn-relay).
+
+Traffic model:
+  browser  --UDP/TCP 3478, TLS 5349--> gateway or Service --> eturnal (client side)
+  core-elx --UDP 3478 (in-cluster Service)--------------> eturnal (client side)
+  browser relay allocation <--> core-elx relay allocation, both on this pod
+
+Relay addresses are the pod address, so the relay port range is reachable only
+in-cluster and is never published. eturnal refuses to relay to its
+"recommended" deny list (RFC 1918, loopback, link-local, CGNAT, ULA, ...) plus
+webrtc.turnServer.deniedPeerCIDRs; the one allowed private peer is the pod's own
+relay address, which is what lets the browser's and core-elx's allocations
+reach each other. A core-elx host candidate is a pod address and is refused, so
+the working pair is always relay-to-relay. That is also why the Deployment
+runs one replica: two allocations on different replicas would need each
+other's pod address allowed.
+
+The shared secret and the pod address are known only at runtime, so an init
+container renders the final eturnal.yml into a memory-backed emptyDir.
+*/ -}}
+{{- $webrtc := default (dict) .Values.webrtc -}}
+{{- $turn := default (dict) $webrtc.turnServer -}}
+{{- if $turn.enabled }}
+{{- $ice := include "serviceradar.webrtcIce" . | fromYaml -}}
+{{- $name := include "serviceradar.webrtcTurnServerName" . -}}
+{{- $image := default (dict) $turn.image -}}
+{{- $imageRef := printf "%s:%s" (default "ghcr.io/processone/eturnal" $image.repository) (default "1.12.3" $image.tag) -}}
+{{- $exposure := default "gateway" $turn.exposure -}}
+{{- if not (has $exposure (list "gateway" "service")) -}}
+  {{- fail (printf "webrtc.turnServer.exposure must be gateway or service, got %q" $exposure) -}}
+{{- end -}}
+{{- $tls := default (dict) $turn.tls -}}
+{{- $tlsEnabled := default false $tls.enabled -}}
+{{- $tlsSecretName := default "serviceradar-turn-tls" $tls.secretName -}}
+{{- $issuerRef := default (dict) (default (dict) $tls.certManager).issuerRef -}}
+{{- $relay := default (dict) $turn.relayPortRange -}}
+{{- $relayMin := int (default 49160 $relay.min) -}}
+{{- $relayMax := int (default 49359 $relay.max) -}}
+{{- if or (lt $relayMin 1025) (gt $relayMax 65535) (gt $relayMin $relayMax) -}}
+  {{- fail "webrtc.turnServer.relayPortRange must satisfy 1025 <= min <= max <= 65535" -}}
+{{- end -}}
+{{- if gt (sub $relayMax $relayMin) 999 -}}
+  {{- fail "webrtc.turnServer.relayPortRange may span at most 1000 ports" -}}
+{{- end -}}
+{{- $deniedPeerCIDRs := default (list) $turn.deniedPeerCIDRs -}}
+{{- range $cidr := $deniedPeerCIDRs -}}
+  {{- if not (and (kindIs "string" $cidr) (regexMatch `^[0-9A-Fa-f:.]+/[0-9]{1,3}$` $cidr)) -}}
+    {{- fail (printf "webrtc.turnServer.deniedPeerCIDRs entries must be CIDRs, got %v" $cidr) -}}
+  {{- end -}}
+{{- end -}}
+{{- $gateway := default (dict) $turn.gateway -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $managedGateway := and (default false $gatewayApi.enabled) (eq (default "managed" $gatewayApi.mode) "managed") -}}
+{{- $service := default (dict) $turn.service -}}
+{{- $externalPorts := default (dict) $turn.externalPorts -}}
+{{- $serviceType := "ClusterIP" -}}
+{{- if eq $exposure "service" -}}
+  {{- $serviceType = default "LoadBalancer" $service.type -}}
+  {{- if ne $serviceType "LoadBalancer" -}}
+    {{- fail "webrtc.turnServer.exposure=service supports only service.type LoadBalancer; use webrtc.turnServer.exposure=gateway instead" -}}
+  {{- end -}}
+{{- end -}}
+{{- $clientPorts := list (dict "name" "turn-udp" "protocol" "UDP" "port" 3478) (dict "name" "turn-tcp" "protocol" "TCP" "port" 3478) -}}
+{{- if $tlsEnabled -}}
+  {{- $clientPorts = append $clientPorts (dict "name" "turn-tls" "protocol" "TCP" "port" 5349) -}}
+{{- end -}}
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- $calico := default (dict) $np.calicoLogDenied -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+data:
+  # __POD_IP__ is replaced and the secret appended by the render-config init
+  # container. Keep the last key a top-level scalar under `eturnal:`.
+  eturnal.yml.tmpl: |
+    eturnal:
+      listen:
+        - ip: "0.0.0.0"
+          port: 3478
+          transport: udp
+        - ip: "0.0.0.0"
+          port: 3478
+          transport: tcp
+        {{- if $tlsEnabled }}
+        - ip: "0.0.0.0"
+          port: 5349
+          transport: tls
+      tls_crt_file: /etc/eturnal-tls/tls.crt
+      tls_key_file: /etc/eturnal-tls/tls.key
+        {{- end }}
+      relay_ipv4_addr: "__POD_IP__"
+      relay_ipv6_addr: none
+      relay_min_port: {{ $relayMin }}
+      relay_max_port: {{ $relayMax }}
+      blacklist_peers:
+        - recommended
+        {{- range $cidr := $deniedPeerCIDRs }}
+        - {{ $cidr | quote }}
+        {{- end }}
+      whitelist_peers:
+        - "__POD_IP__"
+      max_permissions: {{ int (default 10 $turn.maxPermissions) }}
+      realm: {{ $turn.externalHostname | quote }}
+      software_name: none
+      run_dir: /opt/eturnal/run
+      log_dir: stdout
+      log_level: {{ default "info" $turn.logLevel }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  # One replica by design; see the note at the top of this template.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: turn-server
+      annotations:
+        checksum/config: {{ printf "%s%s" (toJson $turn) (toJson $ice) | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 9000
+        runAsGroup: 9000
+        fsGroup: 9000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: render-config
+        image: {{ $imageRef }}
+        imagePullPolicy: {{ default "IfNotPresent" $image.pullPolicy }}
+        command:
+          - /bin/sh
+          - -c
+          - |
+            set -eu
+            # The secret file is validated by web-ng and core-elx at boot
+            # (32..512 printable, non-whitespace bytes); drop the trailing
+            # newline a Secret created from a file usually carries, and quote
+            # it as a single-quoted YAML scalar.
+            [ -n "${POD_IP:-}" ] || { echo "render-config: pod IP is unknown" >&2; exit 1; }
+            secret="$(tr -d '\r\n' < /etc/eturnal-secret/shared-secret | sed "s/'/''/g")"
+            [ -n "$secret" ] || { echo "render-config: TURN shared secret is empty or unreadable" >&2; exit 1; }
+            sed "s/__POD_IP__/${POD_IP}/g" /etc/eturnal-template/eturnal.yml.tmpl > /etc/eturnal/eturnal.yml
+            printf "  secret: '%s'\n" "$secret" >> /etc/eturnal/eturnal.yml
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: config-template
+          mountPath: /etc/eturnal-template
+          readOnly: true
+        - name: shared-secret
+          mountPath: /etc/eturnal-secret
+          readOnly: true
+        - name: config
+          mountPath: /etc/eturnal
+      containers:
+      - name: eturnal
+        image: {{ $imageRef }}
+        imagePullPolicy: {{ default "IfNotPresent" $image.pullPolicy }}
+        env:
+        - name: ETURNAL_ETC_DIR
+          value: /etc/eturnal
+        # No public-address autodetection: the relay address is the pod IP.
+        - name: STUN_SERVICE
+          value: "false"
+        ports:
+        - name: turn-udp
+          containerPort: 3478
+          protocol: UDP
+        - name: turn-tcp
+          containerPort: 3478
+          protocol: TCP
+        {{- if $tlsEnabled }}
+        - name: turn-tls
+          containerPort: 5349
+          protocol: TCP
+        {{- end }}
+        readinessProbe:
+          tcpSocket:
+            port: turn-tcp
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: turn-tcp
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        resources:
+          {{- toYaml (default (dict) $turn.resources) | nindent 10 }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/eturnal
+          readOnly: true
+        - name: run
+          mountPath: /opt/eturnal/run
+        - name: tmp
+          mountPath: /tmp
+        {{- if $tlsEnabled }}
+        - name: tls
+          mountPath: /etc/eturnal-tls
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: config-template
+        configMap:
+          name: {{ $name }}-config
+      - name: shared-secret
+        secret:
+          secretName: {{ $ice.secretName | quote }}
+          defaultMode: 0440
+          items:
+            - key: {{ $ice.secretKey | quote }}
+              path: shared-secret
+      - name: config
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Mi
+      - name: run
+        emptyDir:
+          sizeLimit: 16Mi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 16Mi
+      {{- if $tlsEnabled }}
+      - name: tls
+        secret:
+          secretName: {{ $tlsSecretName | quote }}
+          defaultMode: 0440
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+  {{- if and (eq $exposure "service") $service.annotations }}
+  annotations:
+    {{- toYaml $service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $serviceType }}
+  {{- if eq $exposure "service" }}
+  externalTrafficPolicy: {{ default "Local" $service.externalTrafficPolicy }}
+  {{- if $service.loadBalancerIP }}
+  loadBalancerIP: {{ $service.loadBalancerIP }}
+  {{- end }}
+  {{- end }}
+  selector:
+    app: {{ $name }}
+  ports:
+  {{- if eq $exposure "service" }}
+  - name: turn-udp
+    port: {{ int (default 3478 $externalPorts.udp) }}
+    targetPort: turn-udp
+    protocol: UDP
+  - name: turn-tcp
+    port: {{ int (default 3478 $externalPorts.tcp) }}
+    targetPort: turn-tcp
+    protocol: TCP
+  {{- if $tlsEnabled }}
+  - name: turn-tls
+    port: {{ int (default 5349 $externalPorts.tls) }}
+    targetPort: turn-tls
+    protocol: TCP
+  {{- end }}
+  {{- else }}
+  {{- range $port := $clientPorts }}
+  - name: {{ $port.name }}
+    port: {{ $port.port }}
+    targetPort: {{ $port.name }}
+    protocol: {{ $port.protocol }}
+  {{- end }}
+  {{- end }}
+{{- if and $tlsEnabled $issuerRef.name }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $name }}-tls
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  secretName: {{ $tlsSecretName | quote }}
+  issuerRef:
+    kind: {{ default "ClusterIssuer" $issuerRef.kind | quote }}
+    name: {{ $issuerRef.name | quote }}
+  commonName: {{ $turn.externalHostname | quote }}
+  dnsNames:
+    - {{ $turn.externalHostname | quote }}
+{{- end }}
+{{- if eq $exposure "gateway" }}
+{{- range $route := list (dict "key" "udp" "kind" "UDPRoute" "apiVersion" "gateway.networking.k8s.io/v1alpha2" "section" "turn-udp" "port" 3478 "enabled" true) (dict "key" "tcp" "kind" "TCPRoute" "apiVersion" "gateway.networking.k8s.io/v1alpha2" "section" "turn-tcp" "port" 3478 "enabled" true) (dict "key" "tls" "kind" "TLSRoute" "apiVersion" "gateway.networking.k8s.io/v1alpha3" "section" "turn-tls" "port" 5349 "enabled" $tlsEnabled) }}
+{{- if $route.enabled }}
+{{- $parentRefs := default (list) (default (dict) (get $gateway $route.key)).parentRefs -}}
+{{- if and (eq (len $parentRefs) 0) (not $managedGateway) -}}
+  {{- fail (printf "webrtc.turnServer.gateway.%s.parentRefs is required unless gatewayApi is enabled in managed mode" $route.key) -}}
+{{- end }}
+---
+apiVersion: {{ $route.apiVersion }}
+kind: {{ $route.kind }}
+metadata:
+  name: {{ $name }}-{{ $route.key }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  parentRefs:
+    {{- if gt (len $parentRefs) 0 }}
+    {{- toYaml $parentRefs | nindent 4 }}
+    {{- else }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" $ }}
+      namespace: {{ $.Release.Namespace }}
+      sectionName: {{ $route.section }}
+    {{- end }}
+  {{- if eq $route.kind "TLSRoute" }}
+  hostnames:
+    - {{ $turn.externalHostname | quote }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $name }}
+          port: {{ $route.port }}
+          weight: 1
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if default false $np.enabled }}
+---
+# The TURN pod admits clients only on the client ports (from the gateway's
+# data-plane namespace, or from allowedCIDRs when the Service is exposed
+# directly) and admits relay ports only from core-elx and from itself.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-ingress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ $name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if eq $exposure "gateway" }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ default "envoy-gateway-system" $gateway.envoyGatewayNamespace | quote }}
+        {{- else }}
+        {{- range $cidr := default (list "0.0.0.0/0") $service.allowedCIDRs }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+        {{- end }}
+        {{- end }}
+      ports:
+        {{- range $port := $clientPorts }}
+        - protocol: {{ $port.protocol }}
+          port: {{ $port.port }}
+        {{- end }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-core
+      ports:
+        - protocol: UDP
+          port: 3478
+        - protocol: UDP
+          port: {{ $relayMin }}
+          endPort: {{ $relayMax }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app: {{ $name }}
+      ports:
+        - protocol: UDP
+          port: {{ $relayMin }}
+          endPort: {{ $relayMax }}
+---
+# core-elx allocates its relay on the TURN Service and sends to relay
+# addresses on the TURN pod. Explicit, so it holds when same-namespace egress
+# is not allowed chart-wide.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-core-egress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: core
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-core
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: {{ $name }}
+      ports:
+        - protocol: UDP
+          port: 3478
+        - protocol: UDP
+          port: {{ $relayMin }}
+          endPort: {{ $relayMax }}
+---
+# Relay-to-relay is a UDP send from this pod to its own relay address.
+# Explicit, so it holds when same-namespace egress is not allowed chart-wide.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-relay-egress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ $name }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: {{ $name }}
+      ports:
+        - protocol: UDP
+          port: {{ $relayMin }}
+          endPort: {{ $relayMax }}
+{{- if default false $calico.enabled }}
+---
+# Calico's ordered final Deny outranks additive Kubernetes allows; insert the
+# same core-elx -> TURN exception just before it.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-core-egress-calico
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: core
+spec:
+  order: {{ subf (default 1000 $calico.order) 1 }}
+  selector: "app == 'serviceradar-core'"
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: {{ printf "app == '%s'" $name | quote }}
+        ports:
+          - 3478
+          - {{ printf "%d:%d" $relayMin $relayMax | quote }}
+---
+# Same relay-to-relay exception, ordered just before Calico's final Deny.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-relay-egress-calico
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: turn-server
+spec:
+  order: {{ subf (default 1000 $calico.order) 1 }}
+  selector: {{ printf "app == '%s'" $name | quote }}
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: {{ printf "app == '%s'" $name | quote }}
+        ports:
+          - {{ printf "%d:%d" $relayMin $relayMax | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

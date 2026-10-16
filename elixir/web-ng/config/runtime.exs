@@ -809,6 +809,17 @@ config :serviceradar_core, ServiceRadar.NATS.Connection,
   creds_file: nats_creds_file,
   tls: nats_tls_config
 
+# Shared WebRTC ICE credential provider. web-ng mints browser credentials, so
+# its TURN URLs are the externally reachable ones.
+config :serviceradar_core,
+       ServiceRadar.WebRTC.IceCredentials,
+       ServiceRadar.WebRTC.IceCredentials.RuntimeConfig.load!(
+         backend: System.get_env("SERVICERADAR_WEBRTC_ICE_BACKEND"),
+         ttl_seconds: System.get_env("SERVICERADAR_WEBRTC_ICE_CREDENTIAL_TTL_SECONDS"),
+         secret_file: System.get_env("SERVICERADAR_WEBRTC_TURN_SHARED_SECRET_FILE"),
+         turn_urls_json: System.get_env("SERVICERADAR_WEBRTC_TURN_URLS_JSON")
+       )
+
 config :serviceradar_core,
        :internal_log_live_nats,
        to_bool.(System.get_env("SERVICERADAR_INTERNAL_LOG_LIVE_NATS", "false")) == true

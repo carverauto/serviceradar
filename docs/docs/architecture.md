@@ -32,6 +32,8 @@ flowchart TB
 
     DB["CNPG (Postgres + Timescale + AGE)"]
     DgraphDB["Dgraph (topology graph)"]
+
+    TURN["TURN relay (eturnal, optional)<br/>WebRTC live media"]
   end
 
   subgraph Edge["Edge Site / Monitored Network"]
@@ -39,6 +41,8 @@ flowchart TB
   end
 
   User -->|HTTPS| Ingress --> Web
+  User <-->|WebRTC media via TURN<br/>UDP/TCP 3478, TLS 5349| TURN
+  TURN <-->|relayed media, in-cluster| CoreSvc
 
   Agent <-->|mTLS gRPC<br/>streaming, chunking, control stream| GW
   GW <-->|mTLS ERTS/RPC/PubSub| CoreSvc
@@ -82,6 +86,39 @@ These components communicate internally over mTLS-secured Erlang distribution (E
 - participates in a bidirectional control stream for control-plane signaling
 
 See [Edge Model](./edge-model.md).
+
+## Live Media (WebRTC) And The TURN Relay
+
+Camera live view can play over WebRTC. The sending peer is an ExWebRTC peer in
+`core` (the `serviceradar_core_elx` release); `web-ng` only relays signaling.
+A browser outside the cluster cannot reach that peer directly, so the chart can
+deploy an optional TURN relay (eturnal). Both sides allocate a relay address on
+it and media flows from the browser through TURN to core:
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant W as web-ng
+  participant C as core (ExWebRTC peer)
+  participant T as TURN relay
+  B->>W: POST camera relay webrtc/session
+  W->>C: create viewer session (ERTS RPC, STUN-only ICE list)
+  C->>C: mint peer TURN credential (shared provider)
+  C->>T: allocate relay (in-cluster TURN Service)
+  C-->>W: SDP offer, viewer session id
+  W->>W: mint browser TURN credential for this viewer
+  W-->>B: offer + ice_servers (STUN + TURN credential)
+  B->>T: allocate relay (gateway or load balancer)
+  B->>W: answer + ICE candidates
+  W->>C: forward answer and candidates
+  B-->>C: media over the two relay allocations on T
+```
+
+Credentials are short-lived TURN REST HMAC credentials minted per viewer by the
+shared ICE credential provider from a shared secret that only web-ng, core and
+the TURN server mount. If no relay is configured or minting fails, the viewer
+falls back to the websocket transports. See
+[WebRTC TURN Relay](./webrtc-turn-relay.md).
 
 ## Notification Availability And The Failure Domain
 

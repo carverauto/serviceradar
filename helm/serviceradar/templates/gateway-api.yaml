@@ -120,6 +120,11 @@
 {{- $natsLeafRouteName := default (printf "%s-nats-leaf" (include "serviceradar.fullname" .)) $natsLeaf.routeName -}}
 {{- $natsLeafParentRefs := default (list) $natsLeaf.parentRefs -}}
 {{- $leafnodesPort := int (default 7422 (default (dict) (default (dict) .Values.nats).leafnodes).port) -}}
+{{- $turnServer := default (dict) (default (dict) .Values.webrtc).turnServer -}}
+{{- $turnGateway := default (dict) $turnServer.gateway -}}
+{{- $turnExternalPorts := default (dict) $turnServer.externalPorts -}}
+{{- $turnOnGateway := and (default false $turnServer.enabled) (eq (default "gateway" $turnServer.exposure) "gateway") -}}
+{{- $turnTlsEnabled := default false (default (dict) $turnServer.tls).enabled -}}
 {{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
 {{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
@@ -352,6 +357,34 @@ spec:
     - name: {{ $natsLeafListenerName }}
       port: {{ $natsLeafPort }}
       protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- /* TURN listeners for webrtc.turnServer routes that name no parentRefs of their own. */}}
+    {{- if and $turnOnGateway (eq (len (default (list) (default (dict) $turnGateway.udp).parentRefs)) 0) }}
+    - name: turn-udp
+      port: {{ default 3478 $turnExternalPorts.udp }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $turnOnGateway (eq (len (default (list) (default (dict) $turnGateway.tcp).parentRefs)) 0) }}
+    - name: turn-tcp
+      port: {{ default 3478 $turnExternalPorts.tcp }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $turnOnGateway $turnTlsEnabled (eq (len (default (list) (default (dict) $turnGateway.tls).parentRefs)) 0) }}
+    - name: turn-tls
+      hostname: {{ $turnServer.externalHostname | quote }}
+      port: {{ default 5349 $turnExternalPorts.tls }}
+      protocol: TLS
+      tls:
+        mode: Passthrough
       allowedRoutes:
         namespaces:
           from: Same

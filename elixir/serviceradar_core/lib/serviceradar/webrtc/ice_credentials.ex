@@ -15,6 +15,11 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
       reserved and returns `{:error, :invalid_backend}` until that backend
       exists. Any other atom returns the same error.
     * `:default_ttl_seconds` — default 600, bounded to `60..3600`.
+    * `:turn_urls` — the `turn:`/`turns:` URLs minted for when a caller
+      passes no `:urls`. web-ng carries the browser-facing (external)
+      URLs, core-elx the in-cluster TURN Service URL.
+      `ServiceRadar.WebRTC.IceCredentials.RuntimeConfig` builds this
+      configuration from the release environment.
     * `:rate_limit` — per-actor/per-session sliding-window mint limit over
       the last `window_seconds`,
       `%{max_mints: pos_integer(), window_seconds: pos_integer()}`,
@@ -39,6 +44,8 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   @behaviour __MODULE__
 
   alias ServiceRadar.WebRTC.IceCredentials.MintLimiter
+
+  require Logger
 
   @min_ttl_seconds 60
   @max_ttl_seconds 3_600
@@ -69,25 +76,60 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
   def mint(subject, opts \\ []) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
-    with :ok <- MintLimiter.check(config, opts),
+    # Backend `none` answers before the rate limiter, so a deployment without
+    # TURN neither spends mint budget nor depends on the limiter process.
+    with {:ok, module} <- backend_module(Keyword.get(config, :backend, :none)),
+         :ok <- MintLimiter.check(config, opts),
          {:ok, ttl} <- ttl_seconds(config, opts) do
-      case Keyword.get(config, :backend, :none) do
-        :none ->
-          {:error, :no_backend}
+      opts =
+        opts
+        |> Keyword.put(:ttl_seconds, ttl)
+        |> Keyword.put_new(:urls, Keyword.get(config, :turn_urls, []))
+        |> put_subject(subject, config)
 
-        backend when is_atom(backend) ->
-          case backend_module(backend) do
-            {:ok, module} ->
-              opts = opts |> Keyword.put(:ttl_seconds, ttl) |> put_subject(subject, config)
-              module.mint(normalized_subject(subject), opts)
+      module.mint(normalized_subject(subject), opts)
+    end
+  end
 
-            {:error, reason} ->
-              {:error, reason}
-          end
+  @doc """
+  The ICE server list for one WebRTC peer: the deployment's static
+  (credential-free) servers plus the TURN servers minted for `subject`.
 
-        _other ->
-          {:error, :invalid_backend}
-      end
+  Never fails. When the provider cannot mint, the peer gets the static
+  list alone, so it still negotiates and its websocket fallback stays
+  available. `:ice_credentials` reports the outcome:
+
+    * `"minted"` — TURN servers with per-viewer credentials were added;
+    * `"not_configured"` — the backend is `none`;
+    * `"rate_limited"` — the actor/viewer-session mint limit was reached
+      (logged at warning with backend and reason, never the secret);
+    * `"unavailable"` — the backend failed (logged at warning with backend
+      and reason, never the secret).
+
+  `opts` are passed to `mint/2` (`:actor_id` and `:session_id` are
+  required for the rate limit).
+  """
+  @spec peer_ice_servers(term(), [map()], keyword()) :: %{
+          ice_servers: [map()],
+          ice_credentials: String.t()
+        }
+  def peer_ice_servers(subject, static_servers, opts) when is_list(static_servers) do
+    case mint(subject, opts) do
+      {:ok, %{ice_servers: minted}} ->
+        %{ice_servers: static_servers ++ minted, ice_credentials: "minted"}
+
+      {:error, :no_backend} ->
+        %{ice_servers: static_servers, ice_credentials: "not_configured"}
+
+      {:error, reason} ->
+        status = peer_credential_status(reason)
+
+        Logger.warning(
+          "WebRTC ICE credential mint failed: backend=#{inspect(configured_backend())} " <>
+            "feature=#{inspect(subject_feature(subject))} reason=#{inspect(reason)}"
+        )
+
+        %{ice_servers: static_servers, ice_credentials: status}
     end
   end
 
@@ -119,6 +161,16 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
 
   @doc false
   def default_ttl_seconds, do: @default_ttl_seconds
+
+  defp configured_backend do
+    :serviceradar_core |> Application.get_env(__MODULE__, []) |> Keyword.get(:backend, :none)
+  end
+
+  defp peer_credential_status(:rate_limited), do: "rate_limited"
+  defp peer_credential_status(_reason), do: "unavailable"
+
+  defp subject_feature({feature, _session_id, _viewer_id}), do: feature
+  defp subject_feature(_subject), do: nil
 
   defp normalized_subject({feature, session_id, viewer_id} = subject)
        when is_binary(feature) and is_binary(session_id) and is_binary(viewer_id), do: subject
@@ -153,6 +205,7 @@ defmodule ServiceRadar.WebRTC.IceCredentials do
     end
   end
 
+  defp backend_module(:none), do: {:error, :no_backend}
   defp backend_module(:static_secret), do: {:ok, ServiceRadar.WebRTC.IceCredentials.StaticSecret}
   # Task 1.3 adds the Cloudflare backend; this slice only reserves the atom.
   defp backend_module(:cloudflare), do: {:error, :invalid_backend}

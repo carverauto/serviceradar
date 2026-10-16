@@ -777,6 +777,12 @@ RDP screen and input traffic uses WebRTC after the route-bound remote-access
 control channel reports the session ready. Configure ICE endpoints as
 deployment policy; do not put them in desktop target records or browser input.
 
+For the TURN server itself, the chart can deploy one
+(`webrtc.turnServer`); see [WebRTC TURN Relay](./webrtc-turn-relay.md). Remote
+desktop still mints from its own `remoteAccess.desktop.rdp.webRTC.turn` Secret,
+so to point RDP at the chart TURN server, reference the same Secret there as in
+`webrtc.iceCredentials.staticSecret`.
+
 STUN-only example for a deployment whose public server-reflexive candidates
 are reachable:
 
@@ -815,14 +821,17 @@ remoteAccess:
           allowedTCPPorts: []
 ```
 
-This renders an additive `Egress` policy selecting only
-`app: serviceradar-core`; it does not grant ICE egress to web-ng or other
-ServiceRadar pods. When the chart's ordered Calico log-and-deny policy is also
+This renders an additive `Egress` policy (`serviceradar-webrtc-egress`)
+selecting only `app: serviceradar-core`; it does not grant ICE egress to web-ng
+or other ServiceRadar pods. The same policy is also available as
+`webrtc.networkPolicy`, which does not require RDP and also covers camera relay
+viewers; the RDP key is an alias for it, and setting both fails rendering. When the chart's ordered Calico log-and-deny policy is also
 enabled, the same template renders a matching core-only Calico `Allow`
 immediately before that final deny; the existing deny policy remains unchanged.
-Rendering fails when the chart-wide policy or RDP is disabled, the CIDR list is
-empty or contains a DNS name/catch-all destination, or the UDP/TCP port lists
-contain values outside `1..65535`. Re-resolve and review address changes instead
+Rendering fails when the chart-wide policy is disabled, when RDP is disabled
+(for the RDP key), when the CIDR list is empty or contains a DNS
+name/catch-all destination, or when the UDP/TCP port lists contain values
+outside `1..65535`. Re-resolve and review address changes instead
 of widening the destination to `0.0.0.0/0` or `::/0`.
 
 Use TURN for restrictive NAT or firewall environments. ServiceRadar supports

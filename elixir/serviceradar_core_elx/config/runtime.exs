@@ -648,6 +648,17 @@ if config_env() == :prod do
     sync_ingestor_worker_timeout_ms: sync_ingestor_worker_timeout_ms
 end
 
+# Shared WebRTC ICE credential provider. core-elx mints for its own ExWebRTC
+# peers, so its TURN URLs point at the in-cluster TURN Service.
+config :serviceradar_core,
+       ServiceRadar.WebRTC.IceCredentials,
+       ServiceRadar.WebRTC.IceCredentials.RuntimeConfig.load!(
+         backend: System.get_env("SERVICERADAR_WEBRTC_ICE_BACKEND"),
+         ttl_seconds: System.get_env("SERVICERADAR_WEBRTC_ICE_CREDENTIAL_TTL_SECONDS"),
+         secret_file: System.get_env("SERVICERADAR_WEBRTC_TURN_SHARED_SECRET_FILE"),
+         turn_urls_json: System.get_env("SERVICERADAR_WEBRTC_TURN_URLS_JSON")
+       )
+
 # Keep authenticated desktop viewers and ingress actors bounded. These are
 # deliberately runtime-tunable so operators can size the media plane without
 # weakening owner-bound authorization.

@@ -100,6 +100,7 @@
 {{- $cameraRelayWebRTCEnabled := false -}}
 {{- if hasKey $cameraRelayWebRTC "enabled" -}}{{- $cameraRelayWebRTCEnabled = get $cameraRelayWebRTC "enabled" -}}{{- end -}}
 {{- $cameraRelayIceServersJSON := toJson (default (list) $cameraRelayWebRTC.iceServers) -}}
+{{- $webrtcIce := include "serviceradar.webrtcIce" . | fromYaml -}}
 {{- $remoteAccessSshEnabled := false -}}
 {{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
 {{- $remoteAccessSshBrowserKeyRemember := default (dict) $remoteAccessSsh.browserKeyRemember -}}
@@ -719,6 +720,7 @@ spec:
         - name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON
           value: {{ $cameraRelayIceServersJSON | quote }}
         {{- end }}
+        {{- include "serviceradar.webrtcIceEnv" (dict "ice" $webrtcIce "audience" "browser") | nindent 8 }}
         - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
           value: {{ $remoteAccessDesktopRdpEnabled | quote }}
         {{- if $remoteAccessDesktopRdpEnabled }}
@@ -870,6 +872,7 @@ spec:
           mountPath: /etc/serviceradar/remote-access-rdp-turn
           readOnly: true
         {{- end }}
+        {{- include "serviceradar.webrtcIceVolumeMount" $webrtcIce | nindent 8 }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
@@ -971,6 +974,7 @@ spec:
           - key: {{ $remoteAccessDesktopTurn.secretKey | quote }}
             path: shared-secret
       {{- end }}
+      {{- include "serviceradar.webrtcIceVolume" $webrtcIce | nindent 6 }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:

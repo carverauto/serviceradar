@@ -10,6 +10,7 @@
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) -}}
 {{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
+{{- $webrtcIce := include "serviceradar.webrtcIce" . | fromYaml -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
@@ -195,6 +196,7 @@ spec:
           value: "C.UTF-8"
         - name: LC_ALL
           value: "C.UTF-8"
+        {{- include "serviceradar.webrtcIceEnv" (dict "ice" $webrtcIce "audience" "peer") | nindent 8 }}
         {{- with (default (dict) $coreVals.netprobeAddon) }}
         {{- if .artifacts }}
         # Per-arch signed artifact refs for the netprobe native add-on, from the published
@@ -913,6 +915,7 @@ spec:
         - name: tmp
           mountPath: /tmp
         {{- include "serviceradar.dgraph.caVolumeMount" $ | nindent 8 }}
+        {{- include "serviceradar.webrtcIceVolumeMount" $webrtcIce | nindent 8 }}
         - name: ansible-catalog
           mountPath: {{ default "/var/lib/serviceradar/ansible_catalog" $ansibleVals.catalogBaseDir | quote }}
         - name: cert-data
@@ -995,6 +998,7 @@ spec:
       - name: tmp
         emptyDir: {}
       {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}
+      {{- include "serviceradar.webrtcIceVolume" $webrtcIce | nindent 6 }}
       - name: ansible-catalog
         emptyDir: {}
       - name: cert-data

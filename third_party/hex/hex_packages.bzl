@@ -24,7 +24,6 @@ HEX_PACKAGES = [
     ("bandit", "bandit", "1.12.5", "c5684ca062fa407cac115aec3256383f3e2ec9fdced7904d59cf5a7bb7ed6181"),
     ("bcrypt_elixir", "bcrypt_elixir", "3.3.2", "471be5151874ae7931911057d1467d908955f93554f7a6cd1b7d804cac8cef53"),
     ("bimap", "bimap", "1.3.0", "bf5a2b078528465aa705f405a5c638becd63e41d280ada41e0f77e6d255a10b4"),
-    ("boombox", "boombox", "0.2.10", "53aa18c2548fd29c00aca89f88a48e22502350c6cccdc92c3a7b84a9d3d4388b"),
     ("boundary", "boundary", "0.10.4", "8baf6f23987afdb1483033ed0bde75c9c703613c22ed58d5f23bf948f203247c"),
     ("broadway", "broadway", "1.3.0", "bef3b4c5512d0072917b70239cbecf8f76a2587465a5b7c3e2b9ae18b4bc405b"),
     ("broadway_dashboard", "broadway_dashboard", "0.5.0", "62d469abfdaa471e564b8095ab23409f397a9a6eb40753c859d5ac28769ee310"),
