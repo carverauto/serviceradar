@@ -101,6 +101,11 @@ allocations and retires only provably unshared old allocations. All allocations
 remain charged against the transient limit until they are actually dropped. Full current
 rows reuse unchanged facet/live sets instead of duplicating them under readers.
 An allocation rejection leaves the published revision and membership unchanged.
+The address capacity calculation includes the retained dirty bitmap. Publication
+rechecks that charge under the queue lock through admission and revision swap.
+If the next revision plus that queue intrinsically exceeds the steady cap, IP
+predicates become explicitly unavailable (`native_cap`) while scalar membership
+keeps publishing. Pressure from old query pins or scratch remains retryable.
 Completed bitmap calculations transfer their scratch reservation into the
 result allocation, releasing only the unused allowance. Failed transfers
 release their reservation without retiring other readers' allocations.
