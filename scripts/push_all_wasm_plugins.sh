@@ -8,6 +8,7 @@ read -r -a BAZEL_BUILD_FLAGS <<<"${BAZEL_BUILD_FLAGS:-}"
 
 extra_tag=""
 dry_run=false
+build_only=false
 
 resolve_bazel_info_path() {
   local key="$1"
@@ -25,7 +26,11 @@ resolve_bazel_info_path() {
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/push_all_wasm_plugins.sh [--tag <tag>] [--dry-run]
+Usage: ./scripts/push_all_wasm_plugins.sh [--tag <tag>] [--dry-run] [--build-only]
+
+  --build-only  Build every bundle in one Bazel invocation and publish nothing.
+                Release CI runs this before it authenticates to OpenBao, so the
+                short-lived signing token is not spent waiting on compilation.
 
 Environment:
   BAZEL_BIN          Bazel executable to use (default: bazel)
@@ -42,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dry-run)
       dry_run=true
+      shift
+      ;;
+    --build-only)
+      build_only=true
       shift
       ;;
     --help|-h)
@@ -72,6 +81,32 @@ done < <(
 if [[ ${#push_targets[@]} -eq 0 ]]; then
   echo "error: no Bazel Wasm plugin push targets found" >&2
   exit 1
+fi
+
+if [[ "${build_only}" == true ]]; then
+  if [[ ${#BAZEL_BUILD_FLAGS[@]} -gt 0 ]]; then
+    build_targets=()
+    for target in "${push_targets[@]}"; do
+      target_name="${target##*:}"
+      build_targets+=("//build/wasm_plugins:${target_name%_push}")
+    done
+    build_cmd=("${BAZEL_BIN}" build "${BAZEL_BUILD_FLAGS[@]}" "${build_targets[@]}")
+  else
+    # The same targets the publish loop later runs, so each `bazel run` there is
+    # a cache hit.
+    build_cmd=("${BAZEL_BIN}" build "${push_targets[@]}")
+  fi
+
+  printf '    '
+  printf '%q ' "${build_cmd[@]}"
+  printf '\n'
+  if [[ "${dry_run}" == false ]]; then
+    "${build_cmd[@]}"
+    if [[ ${#BAZEL_BUILD_FLAGS[@]} -gt 0 ]]; then
+      "${BAZEL_BIN}" build //build/wasm_plugins:upload_signature_tool >/dev/null
+    fi
+  fi
+  exit 0
 fi
 
 remote_bazel_bin_dir=""
