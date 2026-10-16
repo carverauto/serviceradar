@@ -30,6 +30,30 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("keeps admitted geometry while hiding pending, excluded and expired membership", () => {
+    const geometry = tile()
+    const telemetry = overlay(geometry)
+    const entry = {revision: geometry.revision, mask: new Uint8Array([1, 1]), counts: new Uint32Array([7, 1]), availability: new Uint8Array([1, 2])}
+    const layer = new WorldTileLayer({id: "filtered-world", membershipEnabled: true,
+      membership: new Map([["1/1/0", entry]]), overlays: new Map([["1/1/0", telemetry]])})
+    const draw = candidate => candidate.renderSubLayers({id: "filtered-tile", data: geometry}).filter(Boolean)
+    const selected = draw(layer)
+    const pending = draw(layer.clone({membershipPending: true}))
+    const nodes = items => items.find(item => item.id.endsWith("-nodes"))
+    const edges = items => items.find(item => item.id.endsWith("-edges"))
+    expect(nodes(selected).props.getRadius(null, {index: 0})).toBe(9)
+    expect(nodes(selected).props.getFillColor(null, {index: 0})).toEqual([245, 117, 88, 240])
+    expect(nodes(pending).props.getRadius(null, {index: 0})).toBe(0)
+    expect(edges(pending).props.getWidth(null, {index: 0})).toBe(0)
+    expect(pending.some(item => item.id.endsWith("-packets"))).toBe(false)
+    expect(nodes(pending).props.data).toBe(nodes(selected).props.data)
+    const excluded = draw(layer.clone({membership: new Map([["1/1/0", {...entry, mask: new Uint8Array([1, 0])}]])}))
+    expect(edges(excluded).props.getWidth(null, {index: 0})).toBe(0)
+    expect(excluded.some(item => item.id.endsWith("-packets"))).toBe(false)
+    const stale = draw(layer.clone({membership: new Map([["1/1/0", {...entry, revision: "old-tile"}]])}))
+    expect(nodes(stale).props.getRadius(null, {index: 0})).toBe(0)
+  })
+
   it("submits queued GPU work before replacing the visible tile layers", () => {
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     const pending = {destroyed: false}
