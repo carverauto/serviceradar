@@ -57,6 +57,12 @@ The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported 
 - **AND** empty results SHALL succeed with zero counts
 - **AND** predicates without an approved canonical source SHALL return explicit unsupported errors
 
+#### Scenario: Expression limits agree across the builder and query engine
+- **WHEN** an operator groups predicates or adds EXCEPT wrappers
+- **THEN** admission SHALL enforce at most 32 predicates, 65 expression nodes and eight levels with the root at level one
+- **AND** every EXCEPT wrapper SHALL consume a node and a level
+- **AND** over-budget expressions SHALL fail explicitly without increasing native limits
+
 #### Scenario: Revocation during work
 - **GIVEN** authority changes while a query, detail, search or overlay is in flight
 - **WHEN** the response is ready
@@ -88,6 +94,12 @@ The system SHALL apply membership to the persistent tiled world without changing
 - **THEN** the client SHALL require a matching full overlay before rendering filtered success
 - **AND** valid geometry SHALL survive membership resets
 - **AND** health or membership updates SHALL NOT trigger ELK relayout
+
+#### Scenario: Offscreen prefetch leaves the displayed result stable
+- **GIVEN** an accepted overlay matches all displayed receipts
+- **WHEN** an offscreen tile enters or leaves the retained geometry cache
+- **THEN** the membership watch SHALL keep the unchanged displayed receipt set
+- **AND** the accepted result SHALL remain visible until that set, query or authority changes
 
 #### Scenario: Partial aggregate telemetry
 - **GIVEN** a filter selects only part of an aggregate's represented population
@@ -146,6 +158,11 @@ The system SHALL replace the active tiled path's per-tile JSON membership overla
 - **AND** each tile response SHALL remain within 256 KiB under the existing bounded fetch scheduler
 - **AND** bulk JSON SHALL NOT be embedded inside a binary envelope
 
+#### Scenario: Dense telemetry remains within retention limits
+- **WHEN** the complete displayed telemetry would exceed the 5 MiB retention cap
+- **THEN** the client SHALL admit a deterministic subset before fetching, including maximum row bytes and CPU/GPU metadata allowances
+- **AND** omitted telemetry SHALL remain explicitly unknown without repeated fetch/eviction churn for an unchanged admitted view
+
 #### Scenario: Bounded typed columns
 - **WHEN** an overlay is produced for at most 64 admitted tiles of 128 glyphs each
 - **THEN** it SHALL bind exact tile receipts and row counts, dictionary, query and authority
@@ -161,6 +178,14 @@ The system SHALL replace the active tiled path's per-tile JSON membership overla
 - **AND** a skipped intermediate replacement SHALL NOT corrupt the next frame
 - **AND** obsolete sequences, mismatched receipts or authority, invalid enums and malformed lengths SHALL be rejected before excessive allocation or partial mutation
 - **AND** no XOR history or chunked baseline assembly SHALL be required
+- **AND** each matched count SHALL be bounded by its geometry row population, with unsupported boundary counts zero
+- **AND** decoding SHALL preserve leading U+FEFF identifier content in both membership and telemetry receipts
+
+#### Scenario: Repeated invalid frames cannot bypass retry backoff
+- **WHEN** watch binding succeeds but replacement frames remain invalid or reset
+- **THEN** retries SHALL back off through 1, 2, 4, 8 and at most 10 seconds
+- **AND** a successful binding alone SHALL NOT reset the attempt counter
+- **AND** an accepted complete frame or a genuinely changed query/view SHALL begin a fresh retry epoch
 
 #### Scenario: Slow viewer and resource lifetime
 - **WHEN** a viewer falls behind, reconnects, evicts tiles or disables the feature

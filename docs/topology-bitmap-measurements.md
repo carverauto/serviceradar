@@ -87,3 +87,6 @@ sockets. The later negotiated transport measurement is in
 [Atlas negotiated WebSocket compression measurement](topology-bitmap-websocket-measurements.md).
 That matrix keeps compression disabled. Full replacement frames
 remain the protocol; unchanged-tile omission is a separate measured follow-up.
+Its 60,374-byte messages use different bounded metadata from this 60,405-byte
+codec fixture. Both include Phoenix serialization; neither size is a protocol
+constant or a measurement of the other's input.

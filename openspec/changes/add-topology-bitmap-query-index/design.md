@@ -181,7 +181,8 @@ An update between pages can therefore change membership as already approved.
 
 Accept normalized `all`, `any`, `except`, exact/prefix facet-value predicates,
 configured tag-key prefixes, typed IP/CIDR and named Prefix Tag predicates, with
-32 predicates, depth 8, at most 50 requested facet values, a 16 KiB control
+32 predicates, 65 expression nodes and depth 8 (root at depth 1, including every
+EXCEPT wrapper), at most 50 requested facet values, a 16 KiB control
 request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON;
 bulk membership and row state may not. Never fall back to a fleet scan in an
 HTTP handler.
@@ -262,12 +263,20 @@ and row count before replacing accepted masks. Discard obsolete sequences and
 late responses. A missed intermediate full replacement does not corrupt the
 next frame. Changes to query, authority, layout or admitted receipts require a
 matching replacement; pending filters never display unfiltered success.
+Membership receipts describe displayed geometry only; unrelated offscreen
+prefetch stays in the geometry watch without clearing accepted membership.
+Validate counts against each row's represented population, including zero for
+unsupported boundary rows. Do not sum overlapping tiles to validate a total.
 
 Allow only one unacknowledged full frame per connection. Coalesce updates by
 reading current membership after acknowledgement; retain no queued frame history.
 An acknowledgement stalled for fifteen seconds causes one reset. Reconnect
 requires a fresh replacement. Eviction, disconnect and
 feature disable release masks; valid geometry survives membership resets.
+Malformed frames and resets retry after 1, 2, 4, 8 and at most 10 seconds.
+Only an accepted complete frame resets the attempt counter; a successful watch
+binding is not recovery. Changed queries or displayed receipts start a new
+retry epoch.
 No roaring-wasm, browser worker or per-view UID dictionary is added.
 
 Phase 3 also replaces the existing per-tile health/flow JSON response, rather
@@ -283,6 +292,10 @@ Keep native health epochs in their existing opaque hexadecimal domain and
 preserve integer revisions losslessly. Small query/control metadata may remain JSON, but no bulk
 health or flow arrays are wrapped in JSON or embedded as JSON inside a binary
 envelope. The rollout-disabled compatibility path is identified separately.
+Admit telemetry before fetching in stable numeric tile order, reserving maximum
+row bytes and CPU/GPU metadata allowances within the 5 MiB retention cap.
+Unadmitted telemetry stays explicitly unknown until the viewport admission
+changes, avoiding repeated fetch/eviction cycles on a stationary dense view.
 
 An aggregate's existing traffic rate describes its whole represented bundle.
 Hide the relation, traffic animation and rates if either endpoint has only

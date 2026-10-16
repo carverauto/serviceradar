@@ -9,6 +9,10 @@ existing topology channel. `membership:watch` carries the bounded query and
 exact admitted tile receipts. Its reply binds dictionary epoch, query digest,
 authority fingerprint and admitted-view digest. `membership:frame` carries raw
 binary. `membership:ack` carries the view digest and a decimal string sequence.
+Membership receipts include only displayed geometry. Retained offscreen prefetch
+can remain in the separate geometry watch without invalidating an unchanged
+accepted membership view. A newly displayed receipt requires a matching complete
+replacement before its filtered rows become visible.
 Membership watches start only for an explicitly selected query; even `{all:[]}`
 is explicit. A null query keeps the authorized base map and its boundary clips
 without waiting for index readiness. Clearing a query sends `membership:unwatch`
@@ -21,7 +25,10 @@ invalid state or changed authority clears membership and requests a baseline;
 new tiles stay hidden until their entire admitted view validates. A sequence
 jump is safe because every frame is a complete replacement.
 Transient warmup/source/query failures retry with a one-second exponential
-backoff capped at ten seconds. Unsupported predicates remain explicit errors;
+backoff capped at ten seconds. Malformed frames and resets follow the same
+backoff; a successful watch reply alone does not reset the retry count. An
+accepted complete replacement resets it. A new query or displayed view starts
+a new retry epoch. Unsupported predicates remain explicit errors;
 they do not retry until the query changes. Disable and teardown cancel retries.
 
 ## Binary format
@@ -71,7 +78,8 @@ each tile:
 | Matching count | One uint32 per row |
 
 Rows have the exact order of the receipt's geometry. Device counts are 0 or 1;
-aggregate counts are the exact authorized query intersection. A flag is 1 if
+aggregate counts are the exact authorized query intersection and cannot exceed
+the geometry row's represented population; boundary counts are zero. A flag is 1 if
 and only if the count is positive. Aggregate availability is unknown unless all
 matching members share one state. Missing causal evidence stays unknown.
 
@@ -143,7 +151,8 @@ zero remains zero. Other nonfinite or negative rates are invalid. Timestamps
 are signed int64 Unix microseconds; `INT64_MIN` means absent. An interval is
 either wholly absent or has all three timestamps. The browser retains exact
 timestamps as BigInt, health epochs as their native 16-character lowercase hex
-strings, and revisions/sequences as decimal strings. Counts
+strings, and revisions/sequences as decimal strings. String decoding preserves
+a leading U+FEFF as identifier content, as it does for SRMO. Counts
 must remain exactly representable in JavaScript.
 
 Native health selections and flow summaries preserve the Arrow node/edge row
@@ -157,7 +166,10 @@ strings is below 128 KiB. Four requests may be active. The enabled client caps
 retained telemetry at 5 MiB, accounting for actual backing buffers, 8 KiB per
 tile for metadata, and 128 bytes per edge for existing CPU/GPU packet attributes.
 Another 3 MiB is reserved for bounded HTTP assembly, membership and temporary
-decoding/packing. Older telemetry is evicted to unknown at the cap. Geometry
+decoding/packing. Before fetching, the client admits displayed tiles in stable
+numeric z/x/y order using their maximum encoded row size plus those allowances.
+Tiles outside the budget remain unknown until admission changes; a stationary
+dense view does not repeatedly fetch and evict the same omitted telemetry. Geometry
 has its own cache budget. Disabling, eviction and failed samples release
 telemetry, while generation changes discard late replies.
 

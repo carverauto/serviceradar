@@ -159,8 +159,11 @@ the fixed deadline regression and web quality passed in
 native admission permits through actual reclamation, and health snapshots no
 longer retain those separate mappings. The full remote `make test` gate passed
 414 targets with two Swift platform skips in
-`2acf322c-fbc1-4bba-8257-2a137605223e`. Database-backed acceptance remains a
-separate hosted gate.
+`c3499e7a-246b-4498-9611-9e084119a583`, a later integrated run than
+`2acf322c-fbc1-4bba-8257-2a137605223e`. Both predate the latest review fixes and
+do not prove the final head. Database-backed acceptance remains a separate
+hosted gate. Historical commit identifiers elsewhere in this report name the
+tested pre-rebase checkpoints, not the current branch head.
 
 ## Pass 3 response
 
@@ -179,3 +182,67 @@ separate hosted gate.
   request, on `carverauto/serviceradar-web` branch
   `blog/set-algebra-over-device-groups`. The captures use synthetic inventory
   and transport and do not prove server or database acceptance.
+
+## Final implementation review corrections
+
+The implementation review is tracked separately from the original proposal
+review. The following corrections preserve the approved scope and budgets:
+
+- Browser membership uses displayed geometry receipts; offscreen prefetch does
+  not restart a live filter. Telemetry tiles are admitted in deterministic
+  numeric tile order before fetching, within the existing five-MiB budget.
+  Omitted telemetry remains unknown instead of creating an eviction/refetch loop.
+- Malformed frames and resets retain exponential retry history until a complete
+  frame is accepted. New watches use fresh view epochs. SRTO text decoding
+  preserves a leading BOM in identifiers, and SRMO counts cannot exceed row
+  population or assign membership to boundary rows.
+- Parser and builder limits count EXCEPT instructions and the root level:
+  32 predicates, 65 compiled instructions and eight levels. Native-backed tests
+  accept the exact boundary and reject the next instruction or level.
+- Transient index warmup leaves the geometry manifest and its canonical mapping
+  intact for normal polling. Disabled indexing remains a distinct state. Named
+  Prefix Tag delivery rechecks feature enablement within the original deadline
+  after current authority and source validation.
+- The proposed multipart-upload crash did not reproduce with pinned Jason:
+  nested Plug.Upload values already produce HTTP 400 invalid_query through the
+  actual controller boundary. A public regression retains that contract; no
+  speculative rescue was added.
+- Retention preserves old UID, ordinal and deletion lineage. Fresh seed
+  successors remain bounded and policy-aware; source-retired identities remain
+  suppressed. Scrubbing restores structural defaults and valid fresh timestamps
+  without retaining historical payload. Service components are excluded from
+  new allocation and projection while old reserved assignments remain intact.
+- Dictionary widening precedes inventory lifecycle DDL in a separate migration;
+  both use finite lock and statement timeouts. The heavy dictionary rewrite does
+  not retain the inventory lifecycle lock.
+- Duplicate native facet keys are rejected atomically. Publication validates
+  outside the short revision guard, and immutable Prefix Tags catalog readers
+  share a read lock while preparation and release use nonblocking writes.
+- Scale fixtures use unique synthetic IPv6 primary addresses and a shared IPv4
+  interface address. New inactive devices precede their invented dictionary
+  assignments, then normal activation triggers run in the same transaction;
+  this respects the immediate foreign key without remapping existing identity.
+  Final predicates verify replaced addresses. Revocation must increase every
+  client's denial counter after deactivation. The network client's retry
+  schedule matches the browser and resets only after a complete frame.
+
+Focused browser regression cases first failed against the earlier implementation
+in `fd272658-c0d4-48f5-8314-1a8cb174e5f8`, then 644 scene tests passed in
+`284ed484-a2fa-418d-89d0-87bdf2f94401`. Parser depth and instruction bounds
+failed in `bf70fe99-983e-4ad9-8aeb-64c80a822398`; the corrected parser/native
+boundary, controller upload contract, application-domain shard and web quality
+passed in `f90ed680-bfc5-4c9e-89a9-416fe3b36a84`.
+
+Identity-focused invocation `7f0f29c3-6ec7-45c5-b024-0f105da73792` passed core
+quality, the core shard (1,290 tests, zero failures, one skipped), sweep tests
+(72 tests, zero failures) and the Phoenix sibling target. Its web-quality failure
+was an existing overlong frame-test line, corrected in the later passing server
+run. Native duplicate-facet rejection first failed in
+`83b12f11-466a-46e7-916d-6acfed9a503f`; the corrected 36 native tests, nine
+Prefix Tags Rust tests and Phoenix NIF coverage passed in
+`733e7ce1-fce3-4abe-b7b9-f641b597a538`.
+
+These are focused revision checkpoints, not final integrated acceptance. Hosted
+migration, database lifecycle, real channel and compact/sparse combined scale
+execution remain required. In particular, database-free parser and controller
+checks do not prove disable-during-authority or persisted-world polling races.
