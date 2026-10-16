@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Source this script immediately before a cosign / Transit signing command in
-# GitHub Actions. It intentionally exports the OpenBao token only into the
-# current shell step instead of writing it to GITHUB_ENV.
+# Source this script immediately before each OpenBao Transit use in the current
+# shell step. Timing and scope: docs/sigstore/README.md. The token is exported
+# only into this shell, never written to GITHUB_ENV.
 
 set -euo pipefail
 

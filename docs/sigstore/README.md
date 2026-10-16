@@ -62,17 +62,20 @@ can mint an OIDC token for Cosign.
 
 ## OpenBao signing boundary
 
-GitHub Actions runners only need OpenBao access for the OCI signing step. They
-must not receive general OpenBao access or reusable signing key material.
+GitHub Actions runners only need OpenBao access for Transit operations in a
+release publish: Wasm upload signatures, OCI signing, and signature
+verification. They must not receive general OpenBao access or reusable signing
+key material.
 
 Current hardening requirements:
 
 - Release jobs use the OpenBao Transit-backed `hashivault://cosign-release` key
   for signing. The matching public key is the one used by Kyverno admission in
   the `demo` namespace.
-- CI workflows must authenticate to OpenBao immediately before signing. The
-  token must stay in the current shell step and must not be written to
-  `GITHUB_ENV`.
+- CI workflows must authenticate to OpenBao immediately before each Transit
+  use (Wasm upload signatures, signing, and verification), after compilation
+  has finished. The token TTL covers that Transit phase only. The token must
+  stay in the current shell step and must not be written to `GITHUB_ENV`.
 - GitHub Actions workflows must not expose `COSIGN_PRIVATE_KEY` or
   `COSIGN_PASSWORD` as job-wide environment variables. CI signing uses the
   centrally managed OpenBao key.
@@ -81,7 +84,7 @@ Current hardening requirements:
   shared runner service account that executes arbitrary jobs.
 - The OpenBao policy should be sign-only for the release key. It should not
   allow key read/export/update/delete, arbitrary Transit paths, or KV access.
-- The token TTL should be as short as practical for the signing step, and the
+- The token TTL should be as short as practical for one Transit phase, and the
   role should bind service account name, namespace, and audience where OpenBao
   supports it.
 
