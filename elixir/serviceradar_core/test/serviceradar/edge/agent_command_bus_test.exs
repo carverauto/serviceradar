@@ -583,14 +583,21 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           slow_agent_id,
           self(),
           %{partition_id: "default", capabilities: ["endpoint-inventory"]},
-          reply_delay_ms: 3_000
+          # Longer than the task bound below, so this reply is still withheld
+          # when that bound kills the dispatch.
+          reply_delay_ms: 6_000
         )
 
       assert {:ok, cohort} =
                AgentCommandBus.dispatch_endpoint_inventory_cohort_cache_query(
                  %{predicate: %{name: "nginx"}},
                  agent_ids: [agent_id, slow_agent_id],
-                 dispatch_timeout_ms: 1_000,
+                 # Ceiling for the fast target's command write and session call.
+                 # 1_000 killed that target on a loaded serial shard while the write
+                 # was still running, so it reported the same dispatch_exit as the
+                 # withheld target. Stays under the 5s control-session call so the
+                 # withheld target is the task kill, not the call returning.
+                 dispatch_timeout_ms: 4_000,
                  timeout_ms: 0,
                  cohort_concurrency: 2
                )
