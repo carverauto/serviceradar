@@ -7,15 +7,20 @@ Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
 
 ## Next agent prompt
 
-Complete device-only identity integration and the bounded index lifecycle using
-existing invalidation hints plus rolling keyset reconciliation. Then wire the
-authorized request-local query API and typed binary replacement for the active
-per-tile JSON overlay. Preserve the already merged ELK and GPU lifetime repairs.
-Use `tasks.md`; unchecked work is not shipped or verified.
+Finish integrated canonical world mapping, authorized channel delivery and the
+binary health/flow HTTP path. Source/index/query implementation and both binary
+codecs are implemented in the independent lanes; combine them, then run actual
+database lifecycle and channel tests, concurrency measurements and hardware
+browser acceptance. Preserve the already merged ELK and GPU lifetime repairs.
+Use `tasks.md`; unchecked work is not shipped or verified. The user additionally
+requires an actual map filter builder, text tag prefixes and CIDR matching across
+any known device/interface IP. Complete the current binary integration checkpoint,
+then settle and implement those source/operator/UI contracts before delivery.
 
-Independent lanes own device identity/query API, native index/Atlas projection,
-and browser binary overlay. The integration lane owns source reads, publisher,
-world mapping and channel wiring. Coordinate shared APIs before editing.
+Independent lanes own device identity/source/publisher/query API, native
+index/Atlas projection, and browser binary overlay. The integration lane owns
+world mapping, channel wiring and binary HTTP delivery. Coordinate shared APIs
+before editing.
 
 ## Settled contracts
 
@@ -26,6 +31,9 @@ world mapping and channel wiring. Coordinate shared APIs before editing.
   replication, shared bucket locks, owner routing, result cache or interfaces.
 - Binary matching/state/count columns aligned to admitted Arrow receipts; full
   atomic replacements, no browser Roaring, worker, XOR or chunk assembly.
+- The existing health and flow JSON response is also replaced, encoded once and
+  cached as bounded binary data. Partial aggregates hide relations whose matching endpoints cannot be proven.
+  No selected query preserves the base map including boundary links.
 - No approved fleet causal/alert/impact/search source means explicit unsupported
   predicates. Availability is separate and does not imply causal health.
 

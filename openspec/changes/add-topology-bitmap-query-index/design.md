@@ -81,6 +81,7 @@ provide its advertised semantics, return an explicit unavailable/stale status.
 | Vendor, region, VLAN, device class | Canonical Device vendor_name, region, vlan_uid and normalized type_id/type. |
 | OS name/version | Allowlisted canonical Device.os fields. |
 | Tags | Explicitly configured canonical Device.tags keys; no arbitrary JSON-path indexes. |
+| IP/CIDR | Any current canonical device or interface IP; typed IPv4/IPv6 containment returns device membership. |
 | Availability | Current canonical availability using the existing world-health semantics: healthy, unavailable or unknown. |
 
 Missing values use the documented unknown bucket. Cap facet count, key length,
@@ -93,11 +94,44 @@ causality. Site/role, alerts, incidents, impact and complete search-set adapters
 also remain unsupported until canonical source and completeness contracts are
 approved. This feature adds no replacement causal engine.
 
+### Map filter experience and prefix semantics
+
+The map exposes a visible filter builder, not only a JavaScript setter. Operators
+can combine inventory VLANs, supported canonical fields and configured tags using
+AND, OR and EXCEPT; clear restores the base view without waiting for the index.
+The server advertises supported fields, configured tag keys, operators and
+readiness in bounded manifest metadata. Unconfigured or incomplete sources are
+explicitly unavailable; they never silently broaden a query. Numeric device
+class values and canonical VLAN identifiers are labeled honestly. Inventory VLAN
+means the recorded device assignment, not proof that a switch carries a VLAN on
+any port. A separate carried-VLAN predicate needs a complete canonical source.
+
+Text starts-with matching applies to indexed scalar values and configured tag
+keys. Tag-key prefix matching selects devices with a nonempty matching configured
+tag, optionally constrained by an exact value or value prefix. Prefixes are
+literal, case-sensitive strings after the existing canonical whitespace
+normalization; they are not regular expressions or glob programs. A bounded
+value-dictionary range and Roaring union is sufficient unless measurements
+justify a trie. A cap must reject the predicate rather than return a partial
+union. Prefix evaluation shares the query deadline and allocation accounting.
+
+IP/CIDR is a different operator: parse IPv4/IPv6 numerically and match any known
+current device or interface address. Several matching addresses on one device
+count once. Never combine per-device address-bit postings from different
+addresses: that can synthesize an address the device does not have. Keep address
+associations native, account their memory, and construct the result bitmap from
+exact address containment. Invalid input and incomplete address projection fail
+explicitly; no HTTP-handler fleet scan, per-IP high-cardinality scalar facet or
+interface ordinal dictionary is introduced. Canonical address source details,
+publication bounds and native structure must be settled and measured before
+these requirements can be marked complete.
+
 ## 4. Authorized queries and live pages
 
-Accept normalized `all`, `any`, `except` and exact facet-value predicates, with
+Accept normalized `all`, `any`, `except`, exact/prefix facet-value predicates,
+configured tag-key prefixes and typed IP/CIDR predicates, with
 32 predicates, depth 8, at most 50 requested facet values, a 16 KiB control
-request and a 1 second end-to-end deadline. Control parameters may be JSON;
+request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON;
 bulk membership and row state may not. Never fall back to a fleet scan in an
 HTTP handler.
 
@@ -126,12 +160,26 @@ the existing world generation and candidate/page limits.
 ## 5. Tile projection and binary overlay
 
 Filtering changes visibility and counts, never ELK positions or parent links.
+With no selected query, the base view remains available and preserves boundary
+portals without starting a membership stream. An explicit all-devices query is
+still a query and obeys all membership and unsupported-boundary guards.
 Intersect R with admitted glyph membership in native code. Leaves use persistent
 ordinals; aggregates use world-bound canonical membership and return exact
 authorized match counts. Do not enumerate whole aggregates in BEAM or the
 browser just to count them. Relations require both authorized endpoints or an
 explicit authorized aggregate/bundle population; unsupported boundary selectors
 remain hidden rather than exposing unrelated members.
+
+Build the world's canonical ordinal projection in the existing supervised world
+loader after geometry installation and index seeding. Stream dictionary pages
+of at most 500 identities, retaining a native u32 vector rather than another UID
+map. Seal and install it only against the exact accepted native world. Missing
+canonical identities remain excluded and are reported as incomplete mapping;
+bounded rescans repair later allocations without using sequence order as commit
+order. A complete mapping can be reused for that immutable world and dictionary.
+Limit generated portable aggregate selectors to 8 MiB for an entire admitted
+view, independently of the much smaller outgoing row frame. Include export
+scratch and temporary BEAM binaries in peak-memory reporting.
 
 Keep existing limits: 128 glyphs, 512 edges and 256 KiB per tile, 64 admitted
 tiles, four concurrent fetches and 32 MiB geometry cache. The membership budget
@@ -162,9 +210,10 @@ late responses. A missed intermediate full replacement does not corrupt the
 next frame. Changes to query, authority, layout or admitted receipts require a
 matching replacement; pending filters never display unfiltered success.
 
-Bound each connection to two pending frames and one coalesced replacement.
-Slow viewers drop obsolete work or receive one reset, rather than accumulating
-history. Reconnect requires a fresh replacement. Eviction, disconnect and
+Allow only one unacknowledged full frame per connection. Coalesce updates by
+reading current membership after acknowledgement; retain no queued frame history.
+An acknowledgement stalled for fifteen seconds causes one reset. Reconnect
+requires a fresh replacement. Eviction, disconnect and
 feature disable release masks; valid geometry survives membership resets.
 No roaring-wasm, browser worker or per-view UID dictionary is added.
 
@@ -174,10 +223,20 @@ coverage, eligibility, explicit unknown values and observation timestamps as
 bounded typed binary fields. Keep telemetry revisions separate from membership
 revisions and preserve the current four-request scheduler. Each tile's binary
 response stays within 256 KiB; edge telemetry is not accumulated into a single
-64-tile frame. Replace JSON encoding used only for size checks with the actual
-binary frame budget. Small query/control metadata may remain JSON, but no bulk
+64-tile frame. Encode once after telemetry reads and cache the binary payload;
+the HTTP route serves it directly under a negotiated binary MIME type. Replace
+JSON encoding used only for size checks with the actual binary frame budget.
+Keep native health epochs in their existing opaque hexadecimal domain and
+preserve integer revisions losslessly. Small query/control metadata may remain JSON, but no bulk
 health or flow arrays are wrapped in JSON or embedded as JSON inside a binary
 envelope. The rollout-disabled compatibility path is identified separately.
+
+An aggregate's existing traffic rate describes its whole represented bundle.
+Hide the relation, traffic animation and rates if either endpoint has only
+partial query membership, until an exact filtered-relation calculation is
+implemented. Two partially matched endpoints do not prove that any underlying
+link joins their matching members. A
+whole-bundle rate must never be presented as the filtered population's rate.
 
 Arrow attributes stay typed. Measure IPC decode, native projection, transport,
 mask staging and GPU upload copies separately. WebGPU uploads do not establish

@@ -23,6 +23,10 @@ buffer lifetime fix. Filtering never changes layout.
 - Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets,
   live ordinal pages and aggregate match counts on the server. Revalidate current
   authority before delivering counts, details, search or overlays.
+- Provide a visible map filter builder for inventory VLAN, supported attributes and
+  configured tags, with AND/OR/EXCEPT, text-prefix matching and IPv4/IPv6 CIDR
+  membership. CIDR matches any known canonical device or interface address and
+  returns devices; it does not introduce interface entity queries.
 - Replace the active per-tile JSON overlay with typed binary membership, health
   and flow fields, preserving coverage and unknown-state semantics. Membership
   masks/counts align to admitted Arrow rows. The browser needs neither fleet
@@ -39,7 +43,9 @@ The proposal was approved; implementation is in progress. The independent review
 in `review.md` led to a smaller scope. The user explicitly chose current
 membership on each result page. Every response pins one local revision; a later
 page can use a newer revision on any healthy pod. Counts and pages are not a
-frozen export.
+frozen export. The user also explicitly required usable map filters, text tag
+prefixes and IP/CIDR membership across any known device/interface IP. These are
+release-one requirements, not an internal API or an optional follow-up.
 
 No cross-pod query ownership, result cache, interface dictionary, durable hint
 replication, browser Roaring, XOR history or chunked baseline assembly is added.
