@@ -1,3 +1,103 @@
+# ServiceRadar v1.4.95
+
+This release adds an optional in-cluster TURN relay so camera WebRTC
+viewing connects in Kubernetes deployments, stops a StarRocks Stream
+Load redelivery loop, and fixes alerting, ingestion, sweep and agent
+configuration defects.
+
+## Upgrade Notes
+
+- Audit history is now pruned on a schedule. PaperTrail version rows
+  older than 90 or 180 days (by table tier), aged API events and
+  security events (default 90 days) are deleted nightly. Set a window
+  to `0` under Helm `core.auditHistoryRetention` to keep that history
+  indefinitely (PR #5621).
+- The ingestion database pool now needs at least 8 connections, up
+  from 7, because the plugin-result lane holds two permits. Core
+  refuses to start below the minimum and names it in the error
+  (PR #5674).
+- NATS server debug and trace logging are off by default. Set
+  `nats.debug` or `nats.trace` in Helm to turn them back on (PR #5652).
+- Agents no longer receive ICMP or MTR sweep modes when they report
+  that they cannot open raw sockets. Agents from earlier releases do
+  not report this and keep every mode (PR #5657).
+- TLS verification opt-ins in Go components now always lose to a
+  configured CA or pinned fingerprint. When both `NATS_CACERTFILE` and
+  `NATS_SKIP_TLS_VERIFY`, or `VAULT_CACERT` and `VAULT_SKIP_VERIFY`,
+  are set, the certificate is now verified. Every verification skip
+  is logged (PR #5685).
+- A new migration lets device purge proceed when an approved Ansible
+  AWX host membership references the device; the membership is
+  quarantined instead (PR #5653).
+
+## Features
+
+- Helm can deploy an in-cluster TURN relay (`webrtc.turnServer`, off
+  by default) exposed through Gateway API routes or a LoadBalancer,
+  with network policies for the relay path. Camera viewers receive
+  per-viewer TURN credentials and the core-elx peer mints its own, so
+  camera WebRTC connects instead of falling back to the websocket
+  stream after the WebRTC deadline. Configure credentials under
+  `webrtc.iceCredentials` (PR #5625, PR #5682).
+- Audit history and API event retention run on a schedule with
+  per-table windows (PR #5621).
+- Starlink: the plugin honours `Retry-After` and stops the run at the
+  first rate limit, warns on telemetry gaps, matches flight-enrichment
+  devices to their terminal, and reports per-device sample counts so
+  offline terminals can alert. Metric points that match an enabled
+  metric rule are admitted to the stateful alert engine (PR #5622,
+  PR #5671).
+- SRQL `in:sweep_coverage` accepts ranges up to 400 days, and both
+  sweep entities support `stats:count()` with optional grouping
+  (PR #5620).
+- Authored dashboards show a breadcrumb back to Dashboards and, when
+  opened by slug, the canonical numeric ID with a copy button
+  (PR #5676).
+- The admin OpenAPI document now describes the shipped Ansible review
+  and operation routes (PR #5624).
+
+## Fixes
+
+- StarRocks Stream Load closes each connection after a load, so an
+  early rejection can no longer leave an unread body that poisons the
+  next load with a non-retryable 400 and an endless redelivery loop
+  (PR #5618).
+- Alert inbox transactions are bounded by PostgreSQL lock and
+  statement timeouts, so an expired budget no longer disconnects the
+  caller's database connection (PR #5678).
+- Prepared alert evaluation mode no longer runs the anomaly alert
+  liveness probe, which only applies when evaluation is active
+  (PR #5654).
+- Stale stateful-rule snapshots whose alert was already removed are
+  deleted (PR #5651).
+- Sweep device-status updates lock rows in a fixed order, removing a
+  deadlock with device fences (PR #5680).
+- Retained plugin results no longer time out waiting on a per-agent
+  queue, and the agent stops resending chunks the gateway already
+  committed after a partial NACK (PR #5647, PR #5674, PR #5679).
+- The config no-ack window stays anchored to the oldest unacked push,
+  so a wedged agent no longer flaps between wedged and recovered
+  (PR #5673).
+- Sync run notifications are sent after the run commits (PR #5644).
+- NetFlow application classification rules are loaded at ingest
+  (PR #5645).
+- Proxmox console assignments keep their skip reasons and resolve
+  targets by assignment scope (PR #5650).
+- Elixir log messages exported over OTEL keep their text when logged
+  as chardata or reports (PR #5658).
+- Advisory feed downloads name the refused host when the egress proxy
+  returns 407 (PR #5655).
+- Plugin and add-on sync reports a GitHub API rate limit, with its
+  reset time, instead of claiming the repository needs credentials
+  (PR #5684).
+- Transient JetStream conditions log at a lower level (PR #5652).
+- The topology map stages a fresh layout when the parent tree
+  changes, and a retried publish job rotates its layout version
+  (PR #5662, PR #5670).
+- The agent's SYN scan gate, delivery counters and SSH known-hosts
+  store live on the agent server instead of process globals
+  (PR #5668, PR #5683).
+
 # ServiceRadar v1.4.94
 
 This release fixes reply loss and misleading packet-drop statistics in the
