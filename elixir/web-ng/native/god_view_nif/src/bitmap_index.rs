@@ -312,13 +312,7 @@ fn valid_facet(name: &str) -> bool {
     matches!(
         name,
         "vendor" | "region" | "vlan" | "device_class" | "os_name" | "os_version" | "availability"
-    ) || name.strip_prefix("tag:").is_some_and(|key| {
-        !key.is_empty()
-            && key.len() <= 60
-            && key
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
-    })
+    ) || name.strip_prefix("tag:").is_some_and(|key| (1..=60).contains(&key.len()))
 }
 
 impl Index {
@@ -1232,9 +1226,14 @@ mod tests {
             .page(b"allow", 0, 128, 1000)
             .unwrap()
             .is_empty());
+        let punctuation = index
+            .query(b"allow", &[request(5, "role/", "")], 1000)
+            .unwrap()
+            .0;
+        assert!(punctuation.page(b"allow", 0, 128, 1000).unwrap().is_empty());
         for malformed in [
             request(4, "vendor", ""),
-            request(5, "role/", ""),
+            request(5, "", ""),
             (4, "vendor".into(), vec![255], 0),
         ] {
             assert!(matches!(
@@ -1485,6 +1484,26 @@ mod tests {
             index.check_identity(&[1; 16], &[2; 16], Kind::Interface),
             Err("identity_mismatch")
         );
+        assert!(Index::new(
+            [1; 16],
+            [2; 16],
+            Kind::Device,
+            vec!["vendor".into(), "tag:zone,group".into(), "tag:角色".into()],
+        )
+        .is_ok());
+        assert!(matches!(
+            Index::new([1; 16], [2; 16], Kind::Device, vec!["tag:".into()]),
+            Err("unsupported_facet")
+        ));
+        assert!(matches!(
+            Index::new(
+                [1; 16],
+                [2; 16],
+                Kind::Device,
+                vec![format!("tag:{}", "x".repeat(61))],
+            ),
+            Err("unsupported_facet")
+        ));
         let query = all(&index);
         assert_eq!(
             query.page(b"revoked", 0, 1, 1000),
