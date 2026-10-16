@@ -1388,6 +1388,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     manifest = Manifest.open(manifest_path, %{test: "committed_failure"})
     faulting_manifest = %{manifest | writer: FailCommittedWriter}
 
+    # -- seeding helpers -------------------------------------------------------
     on_exit(fn ->
       Manifest.close(manifest)
       File.rm(manifest_path)
@@ -1406,8 +1407,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert Enum.any?(manifest_lines, &(&1 =~ ~s("phase":"prepared")))
     refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
   end
-
-  # -- seeding helpers -------------------------------------------------------
 
   defp seed_connected_agent!(agent_uid) do
     Repo.query!(
@@ -1812,7 +1811,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       [device_uids]
     )
 
-    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [device_uids])
+    TestSupport.purge_devices!(device_uids)
 
     Repo.query!(
       "DELETE FROM platform.integration_sources WHERE id::text = ANY($1::text[])",
@@ -1837,6 +1836,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         end
 
       {:error, _reason} ->
+        # -- assertion helpers ------------------------------------------------------
         Process.sleep(25)
         wait_for_manifest_entry(path, marker, attempts - 1)
     end
@@ -1881,8 +1881,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       [value, days]
     )
   end
-
-  # -- assertion helpers ------------------------------------------------------
 
   defp owner_of_mac(mac) do
     Repo.one(

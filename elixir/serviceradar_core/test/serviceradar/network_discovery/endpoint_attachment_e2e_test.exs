@@ -198,7 +198,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
       [normalized_endpoint_mac()]
     )
 
-    SQL.query!(Repo, "DELETE FROM ocsf_devices WHERE uid = $1", [endpoint_uid])
+    TestSupport.purge_devices!([endpoint_uid])
 
     :ok
   end

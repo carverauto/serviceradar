@@ -158,7 +158,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorActiveIpCrossHandoffTest do
     |> Enum.uniq()
     |> Enum.each(fn uid ->
       Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [uid])
-      Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [uid])
+      TestSupport.purge_devices!([uid])
     end)
   end
 

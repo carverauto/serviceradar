@@ -1109,7 +1109,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       ids
     ])
 
-    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [ids])
+    ServiceRadar.TestSupport.purge_devices!(ids)
 
     assert %{rows: [[0]]} =
              Repo.query!(
@@ -1121,7 +1121,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     assert %{rows: [[0]]} =
              Repo.query!(
-               "SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[])",
+               "SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[]) AND identity_purged_at IS NULL",
                [ids]
              )
 

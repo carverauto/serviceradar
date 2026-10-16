@@ -376,21 +376,24 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
       [[@switch_a_uid, @switch_b_uid, @switch_c_uid]]
     )
 
-    SQL.query!(
-      Repo,
-      "DELETE FROM ocsf_devices WHERE uid = ANY($1) OR ip = ANY($2)",
-      [
+    %{rows: rows} =
+      SQL.query!(
+        Repo,
+        "SELECT uid FROM ocsf_devices WHERE uid = ANY($1) OR ip = ANY($2)",
         [
-          @owner_uid,
-          @ip_only_uid,
-          @conflict_uid,
-          deterministic_uid(@secondary_mac),
-          deterministic_uid(@ip_bind_mac),
-          deterministic_uid(@conflict_sighting_mac)
-        ],
-        [@owner_ip, @ip_only_primary_ip, @ip_only_ip, @conflict_primary_ip, @conflict_ip]
-      ]
-    )
+          [
+            @owner_uid,
+            @ip_only_uid,
+            @conflict_uid,
+            deterministic_uid(@secondary_mac),
+            deterministic_uid(@ip_bind_mac),
+            deterministic_uid(@conflict_sighting_mac)
+          ],
+          [@owner_ip, @ip_only_primary_ip, @ip_only_ip, @conflict_primary_ip, @conflict_ip]
+        ]
+      )
+
+    TestSupport.purge_devices!(Enum.map(rows, &hd/1))
 
     :ok
   end

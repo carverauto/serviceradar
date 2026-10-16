@@ -2204,7 +2204,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                    ])
                  end)
 
-                 Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [device_uid])
+                 ServiceRadar.TestSupport.purge_devices!([device_uid])
                  :ok
                end)
     end)

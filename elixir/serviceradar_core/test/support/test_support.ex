@@ -10,6 +10,35 @@ defmodule ServiceRadar.TestSupport do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.ProcessRegistry
 
+  @doc "Purges synthetic inventory payloads through retention while preserving permanent identities."
+  def purge_devices!(uids) when is_list(uids) do
+    uids
+    |> Enum.uniq()
+    |> Enum.chunk_every(100)
+    |> Enum.each(fn batch ->
+      %{rows: rows} =
+        ServiceRadar.Repo.query!(
+          "UPDATE platform.ocsf_devices SET deleted_at = COALESCE(deleted_at, now()), " <>
+            "deleted_reason = COALESCE(deleted_reason, 'test_cleanup'), " <>
+            "identity_revision = identity_revision + 1 " <>
+            "WHERE uid = ANY($1::text[]) AND identity_purged_at IS NULL RETURNING uid",
+          [batch]
+        )
+
+      records = Enum.map(rows, fn [uid] -> %{uid: uid} end)
+
+      case ServiceRadar.Inventory.DeviceCleanupWorker.hard_delete_records(
+             %{deleted: 0, errors: 0},
+             records
+           ) do
+        {%{errors: 0}, count} when count == length(records) -> :ok
+        result -> raise "synthetic device payload cleanup failed: #{inspect(result)}"
+      end
+    end)
+
+    :ok
+  end
+
   @sandbox_teardown_margin_ms 60_000
   @sandbox_owner_attempts 3
   @sandbox_owner_retry_ms 100
