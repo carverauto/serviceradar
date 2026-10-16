@@ -107,7 +107,7 @@ afterEach(() => {
 })
 
 
-async function mountWebRtcViewer() {
+async function mountWebRtcViewer({fetchImpl} = {}) {
   vi.useFakeTimers()
   const element = buildHookElement()
   element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
@@ -124,8 +124,10 @@ async function mountWebRtcViewer() {
       this.connectionState = "new"
       this.iceConnectionState = "new"
       this.closed = false
+      this.addedCandidates = []
     }
     async setRemoteDescription() {}
+    async addIceCandidate(candidate) { this.addedCandidates.push(candidate) }
     async createAnswer() { return {type: "answer", sdp: "v=0\r\nm=video"} }
     async setLocalDescription() {}
     close() { this.closed = true }
@@ -140,12 +142,12 @@ async function mountWebRtcViewer() {
     VideoDecoder: function VideoDecoder() {},
   }
   globalThis.document = {querySelector: () => null}
-  globalThis.fetch = vi.fn(async (_url, options) => ({
+  globalThis.fetch = vi.fn(fetchImpl || (async (_url, options) => ({
     ok: true,
     json: async () => options.method === "POST" && !options.body
       ? {data: {viewer_session_id: "viewer-ice-test", offer_sdp: "v=0\r\nm=video"}}
       : {data: {signaling_state: "answer_applied"}},
-  }))
+  })))
   const hook = {...CameraRelayStatusStream, el: element}
   mountHook(hook)
   await vi.advanceTimersByTimeAsync(0)
@@ -261,6 +263,41 @@ describe("CameraRelayStatusStream", () => {
     expect(element.roles.get("compatibility-status").textContent).toContain("Unsupported browser transport")
     expect(element.roles.get("relay-detail").textContent).toContain("either WebCodecs or an MSE-capable H264 browser")
     expect(hook.viewer.socket).toBeNull()
+  })
+
+  // A relay-only server peer is unreachable until the browser installs a TURN
+  // permission for its relay candidate, and it only does that for candidates
+  // it was given. core-elx trickles them after the offer.
+  it("adds every server ICE candidate from the answer and from polling until connected", async () => {
+    const host = {candidate: "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", sdpMid: "0"}
+    const relay = {candidate: "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay", sdpMid: "0"}
+    const pollUrl = "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test"
+    const {peer} = await mountWebRtcViewer({
+      fetchImpl: async (url, options) => {
+        let data = {signaling_state: "answer_applied"}
+        if (options.method === "POST" && !options.body) {
+          data = {viewer_session_id: "viewer-ice-test", offer_sdp: "v=0\r\nm=video", remote_ice_candidates: []}
+        } else if (url.endsWith("/answer")) {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: [host]}
+        } else if (url === pollUrl && options.method === "GET") {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: [host, relay]}
+        }
+        return {ok: true, json: async () => ({data})}
+      },
+    })
+    const polls = () => globalThis.fetch.mock.calls.filter(([url, options]) => url === pollUrl && options.method === "GET")
+
+    expect(peer.addedCandidates).toEqual([host])
+
+    await vi.advanceTimersByTimeAsync(250)
+    expect(polls()).toHaveLength(1)
+    expect(peer.addedCandidates).toEqual([host, relay])
+
+    peer.connectionState = "connected"
+    peer.dispatchEvent(new Event("connectionstatechange"))
+    const pollsWhenConnected = polls().length
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(polls()).toHaveLength(pollsWhenConnected)
   })
 
   it("prefers the WebRTC relay path when advertised and supported", async () => {

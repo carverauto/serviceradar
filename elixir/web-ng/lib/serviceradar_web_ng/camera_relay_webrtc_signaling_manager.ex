@@ -19,6 +19,11 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
     rpc(:add_ice_candidate, [relay_session_id, viewer_session_id, candidate, opts], opts)
   end
 
+  def get_session(relay_session_id, viewer_session_id, opts)
+      when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    rpc(:get_session, [relay_session_id, viewer_session_id, opts], opts)
+  end
+
   def close_session(relay_session_id, viewer_session_id, opts)
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
     rpc(:close_session, [relay_session_id, viewer_session_id, opts], opts)

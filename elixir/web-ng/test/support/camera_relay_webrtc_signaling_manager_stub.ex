@@ -47,6 +47,21 @@ defmodule ServiceRadarWebNG.TestSupport.CameraRelayWebRTCSignalingManagerStub do
     )
   end
 
+  def get_session(relay_session_id, viewer_session_id, opts) do
+    notify({:webrtc_get_session, relay_session_id, viewer_session_id, opts})
+
+    resolve_result(
+      Application.get_env(
+        :serviceradar_web_ng,
+        :camera_relay_webrtc_get_result,
+        {:error, :not_configured}
+      ),
+      relay_session_id,
+      viewer_session_id,
+      opts
+    )
+  end
+
   def close_session(relay_session_id, viewer_session_id, opts) do
     notify({:webrtc_close_session, relay_session_id, viewer_session_id, opts})
 

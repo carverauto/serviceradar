@@ -28,6 +28,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
     previous_close_result =
       Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_close_result)
 
+    previous_get_result =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_get_result)
+
     previous_fetcher = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetcher)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :camera_relay_webrtc_test_pid)
 
@@ -55,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
       restore_env(:camera_relay_webrtc_answer_result, previous_answer_result)
       restore_env(:camera_relay_webrtc_candidate_result, previous_candidate_result)
       restore_env(:camera_relay_webrtc_close_result, previous_close_result)
+      restore_env(:camera_relay_webrtc_get_result, previous_get_result)
       restore_env(:camera_relay_session_fetcher, previous_fetcher)
       restore_env(:camera_relay_webrtc_test_pid, previous_test_pid)
     end)
@@ -202,6 +206,46 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
 
     assert body["error"] == "relay_session_activating"
     assert body["message"] == "relay session is still activating"
+  end
+
+  test "returns the viewer session with every ICE candidate core-elx has gathered", %{
+    conn: conn,
+    relay_session_id: relay_session_id
+  } do
+    viewer_session_id = Ecto.UUID.generate()
+    host = %{"candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", "sdpMid" => "0"}
+    relay = %{"candidate" => "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay", "sdpMid" => "0"}
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_webrtc_get_result,
+      {:ok,
+       %{viewer_session_id: viewer_session_id, signaling_state: "answer_applied", remote_ice_candidates: [host, relay]}}
+    )
+
+    conn = get(conn, ~p"/api/camera-relay-sessions/#{relay_session_id}/webrtc/session/#{viewer_session_id}")
+
+    body = json_response(conn, 200)
+
+    assert body["data"]["relay_session_id"] == relay_session_id
+    assert body["data"]["remote_ice_candidates"] == [host, relay]
+    assert_receive {:webrtc_get_session, ^relay_session_id, ^viewer_session_id, opts}
+    assert opts[:scope]
+  end
+
+  test "returns 404 when polling a viewer session core-elx no longer holds", %{
+    conn: conn,
+    relay_session_id: relay_session_id
+  } do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_webrtc_get_result,
+      {:error, :viewer_session_not_found}
+    )
+
+    conn = get(conn, ~p"/api/camera-relay-sessions/#{relay_session_id}/webrtc/session/#{Ecto.UUID.generate()}")
+
+    assert json_response(conn, 404)["error"] == "viewer_session_not_found"
   end
 
   test "closes a relay-scoped webrtc signaling session", %{conn: conn, relay_session_id: relay_session_id} do

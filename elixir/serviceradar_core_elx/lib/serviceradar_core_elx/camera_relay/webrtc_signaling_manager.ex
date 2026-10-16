@@ -8,6 +8,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   Browser ICE candidates can arrive before the SDP answer. The WebRTC sink
   cannot apply a candidate without a remote description, so candidates are
   held per viewer and forwarded, in order, right after the answer.
+
+  The sink trickles its own candidates after the offer has been returned.
+  Every one is kept and returned as `remote_ice_candidates` in each signaling
+  response, and `get_session/3` lets the browser poll for late ones. The
+  browser must add them: a relay candidate behind TURN is unreachable until
+  the browser has installed a TURN permission for it, and it can only do that
+  for a candidate it knows.
   """
 
   use GenServer
@@ -23,6 +30,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   @default_session_ttl_ms 60_000
   @default_offer_timeout_ms 5_000
   @max_pending_candidates 64
+  @max_remote_candidates 64
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -40,6 +48,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   def add_ice_candidate(relay_session_id, viewer_session_id, candidate, opts \\ [])
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
     GenServer.call(server_name(opts), {:add_ice_candidate, relay_session_id, viewer_session_id, candidate, opts})
+  end
+
+  def get_session(relay_session_id, viewer_session_id, opts \\ [])
+      when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    GenServer.call(server_name(opts), {:get_session, relay_session_id, viewer_session_id})
   end
 
   def close_session(relay_session_id, viewer_session_id, opts \\ [])
@@ -112,7 +125,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         signaling_state: "viewer_authorized",
         answer_sdp: nil,
         last_candidate: nil,
-        last_remote_candidate: nil,
+        remote_candidates: [],
         offer_sdp: nil,
         signaling: signaling,
         signaling_pid: signaling.pid,
@@ -191,6 +204,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
 
       {:error, :viewer_session_not_found} = error ->
         {:reply, error, state}
+    end
+  end
+
+  def handle_call({:get_session, relay_session_id, viewer_session_id}, _from, state) do
+    case fetch_session(state, relay_session_id, viewer_session_id) do
+      {:ok, session} -> {:reply, {:ok, session_response(session)}, state}
+      {:error, :viewer_session_not_found} = error -> {:reply, error, state}
     end
   end
 
@@ -313,7 +333,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         updated =
           session
           |> refresh_session(state.session_ttl_ms)
-          |> Map.put(:last_remote_candidate, candidate)
+          |> keep_remote_candidate(candidate)
 
         {:noreply, put_in(state, [:sessions, session.viewer_session_id], updated)}
 
@@ -397,7 +417,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
       viewer_session_id: session.viewer_session_id,
       signaling_state: session.signaling_state,
       offer_sdp: session.offer_sdp,
-      remote_ice_candidate: session.last_remote_candidate,
+      remote_ice_candidates: session.remote_candidates,
       expires_at: DateTime.to_iso8601(session.expires_at)
     }
   end
@@ -442,6 +462,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
       session
       |> Map.put(:signaling_state, "candidate_buffered")
       |> Map.put(:pending_candidates, pending ++ [candidate])
+    else
+      session
+    end
+  end
+
+  # Bounded like the browser's pending list: the sink gathers a handful per
+  # viewer (host, server-reflexive, relay).
+  defp keep_remote_candidate(session, candidate) do
+    remote = Map.get(session, :remote_candidates, [])
+
+    if length(remote) < @max_remote_candidates do
+      Map.put(session, :remote_candidates, remote ++ [candidate])
     else
       session
     end
