@@ -12,6 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -223,12 +224,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
         }
       ])
 
+    :ok = Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_a, %{})
 
     devices_after_first = wait_for_devices_by_ip(actor, ip)
 
     assert length(devices_after_first) == 1
     first_uid = hd(devices_after_first).uid
+    assert_receive {:devices_invalidated, [^first_uid]}
     assert hd(devices_after_first).metadata["identity_state"] == "provisional"
     assert hd(devices_after_first).metadata["identity_source"] == "mapper_primary_mac_seed"
 
