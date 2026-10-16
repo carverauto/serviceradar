@@ -47,7 +47,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     assign(socket, :bitmap_stream, %{state | metadata: nil, awaiting: nil})
   end
 
-  def reset(socket) do
+  def reset(socket, params \\ %{})
+
+  def reset(socket, params) when is_map(params) do
+    if reset_applies?(socket.assigns.bitmap_stream.metadata, params) do
+      apply_reset(socket)
+    else
+      socket
+    end
+  end
+
+  defp reset_applies?(metadata, %{"view_digest" => digest}) when is_binary(digest) do
+    match?(%{view_digest: ^digest}, metadata)
+  end
+
+  defp reset_applies?(_metadata, _params), do: true
+
+  defp apply_reset(socket) do
     state = cancel(socket.assigns.bitmap_stream)
 
     if state.metadata do
@@ -96,10 +112,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     if state.metadata && stable_binding(state.metadata) != stable_binding(result.metadata) do
       reset(assign(socket, :bitmap_stream, state))
     else
-      if state.reply, do: reply(state.reply, {:ok, result.binding})
-      push(socket, "membership:frame", {:binary, result.frame})
+      reply_to = state.reply
       state = %{state | reply: nil, metadata: result.metadata, awaiting: now()}
-      assign(socket, :bitmap_stream, state)
+      socket = assign(socket, :bitmap_stream, state)
+      if reply_to, do: reply(reply_to, {:ok, result.binding})
+      push(socket, "membership:frame", {:binary, result.frame})
+      socket
     end
   end
 
@@ -177,7 +195,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   defp stable_binding(metadata),
     do: Map.take(metadata, [:dictionary_epoch, :query_digest, :authority_fingerprint, :view_digest])
 
-  defp error(reason) when is_atom(reason) or is_binary(reason), do: %{reason: to_string(reason)}
-  defp error(_reason), do: %{reason: "query_unavailable"}
+  defp error(reason), do: %{reason: BitmapQueries.public_reason(reason)}
   defp now, do: System.monotonic_time(:millisecond)
 end

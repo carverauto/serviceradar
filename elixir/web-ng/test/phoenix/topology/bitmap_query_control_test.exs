@@ -6,8 +6,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapStream
+  alias ServiceRadarWebNG.Topology.BitmapView
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNGWeb.TopologyQueryController
+  alias ServiceRadarWebNGWeb.TopologyTileChannel
   alias ServiceRadarWebNGWeb.TopologyTileController
 
   @moduletag :db_free
@@ -118,7 +121,79 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
       assert {:error, :invalid_cidr} = BitmapExpression.parse(%{"expression" => %{"ip_cidr" => value}}, @facets)
     end
 
+    for value <- [" 192.0.2.0/24 ", "192.0.2.0/24 "] do
+      assert {:error, :invalid_predicate} = BitmapExpression.parse(%{"expression" => %{"ip_cidr" => value}}, @facets)
+      assert {:error, :invalid_cidr} = BitmapAddress.cidr(value)
+    end
+
     assert {:error, :invalid_address} = BitmapAddress.source("router.example.com")
+  end
+
+  test "channel membership budgets the query and tile receipts separately" do
+    version = "00000000-0000-4000-8000-000000000478"
+    revision = String.duplicate("ab", 32)
+    query = %{"expression" => %{"all" => []}, "padding" => String.duplicate("q", 12_000)}
+
+    tiles =
+      for x <- 0..7, y <- 0..7 do
+        %{"z" => 6, "x" => x, "y" => y, "revision" => revision}
+      end
+
+    params = %{"protocol" => 1, "layout_version" => version, "tiles" => tiles, "query" => query}
+    assert {:ok, %{layout_version: ^version}} = BitmapView.validate(params)
+
+    assert {:error, :query_budget} =
+             BitmapView.validate(%{params | "query" => Map.put(query, "padding", String.duplicate("q", 20_000))})
+
+    assert {:error, :query_budget} =
+             BitmapView.validate(Map.put(params, "padding", String.duplicate("r", 80_000)))
+  end
+
+  test "channel errors use the HTTP reason allowlist and keep transient membership reasons" do
+    assert BitmapQueries.public_reason(:forbidden) == "forbidden"
+    assert BitmapQueries.public_reason(:query_busy) == "query_busy"
+    assert BitmapQueries.public_reason(:source_changed) == "source_changed"
+    assert BitmapQueries.public_reason(:membership_replaced) == "membership_replaced"
+    assert BitmapQueries.public_reason(:membership_not_ready) == "membership_not_ready"
+    assert BitmapQueries.public_reason("text_budget") == "query_unavailable"
+    assert BitmapQueries.public_reason(:allocation_failed) == "query_unavailable"
+  end
+
+  test "stale channel reset preserves the current watch while its own reset clears and emits a binary frame" do
+    metadata = %{
+      dictionary_epoch: "synthetic-dictionary",
+      index_epoch: "synthetic-index",
+      query_digest: "synthetic-query",
+      authority_fingerprint: "synthetic-authority",
+      view_digest: "current-view",
+      source_revision: "synthetic-source",
+      index_revision: "1",
+      sequence: 1,
+      total: 0
+    }
+
+    socket =
+      BitmapStream.init(%Phoenix.Socket{
+        topic: "topology:tiles",
+        join_ref: "1",
+        joined: true,
+        transport_pid: self(),
+        serializer: Phoenix.Socket.V2.JSONSerializer
+      })
+
+    state = %{socket.assigns.bitmap_stream | metadata: metadata, request: %{"query" => %{"all" => []}}, awaiting: 10}
+    socket = Phoenix.Socket.assign(socket, :bitmap_stream, state)
+
+    assert {:reply, :ok, ^socket} =
+             TopologyTileChannel.handle_in("membership:reset", %{"view_digest" => "previous-view"}, socket)
+
+    refute_receive {:socket_push, _, _}
+
+    assert {:reply, :ok, cleared} =
+             TopologyTileChannel.handle_in("membership:reset", %{"view_digest" => "current-view"}, socket)
+
+    assert %{request: nil, metadata: nil, awaiting: nil} = cleared.assigns.bitmap_stream
+    assert_receive {:socket_push, :binary, <<0, 1, 14, 16, "1topology:tilesmembership:frame", "SRMO", 1, 1, _::binary>>}
   end
 
   test "prefix controls reject surrounding whitespace and keep internal spaces literal" do

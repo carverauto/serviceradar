@@ -148,6 +148,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
     end
   end
 
+  @doc "Client-visible reason shared by HTTP responses and channel membership errors."
+  def public_reason(reason)
+      when reason in [:membership_replaced, :membership_not_ready, "membership_replaced", "membership_not_ready"] do
+    to_string(reason)
+  end
+
+  def public_reason(reason) when is_atom(reason) or is_binary(reason) do
+    case http_status(reason) do
+      {_status, name} -> name
+      nil -> "query_unavailable"
+    end
+  end
+
+  def public_reason(_reason), do: "query_unavailable"
+
   @doc "Shared retry and authorization errors for HTTP queries and streamed Atlas overlays."
   def normalize({:ok, _} = result), do: result
 

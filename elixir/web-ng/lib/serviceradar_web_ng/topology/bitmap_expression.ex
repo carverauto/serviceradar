@@ -163,8 +163,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
     end
   end
 
-  defp predicate(%{"ip_cidr" => value} = term, _supported) when map_size(term) == 1 do
-    with {:ok, address, mask} <- BitmapAddress.cidr(value), do: {:ok, {:ip_cidr, address, mask}}
+  defp predicate(%{"ip_cidr" => value} = term, _supported) when map_size(term) == 1 and is_binary(value) do
+    if value == String.trim(value) do
+      with {:ok, address, mask} <- BitmapAddress.cidr(value), do: {:ok, {:ip_cidr, address, mask}}
+    else
+      {:error, :invalid_predicate}
+    end
   end
 
   defp predicate(%{"prefix_tag" => %{"source" => source, "label" => label} = selector} = term, _supported)
