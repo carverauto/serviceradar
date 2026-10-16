@@ -32,12 +32,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
 
     cases = [
       {%{"facet" => "vendor", "prefix" => "unk"}, [1]},
-      {%{"facet" => "tag:team-primary", "prefix" => " alpha- "}, [1]},
+      {%{"facet" => "tag:team-primary", "prefix" => "alpha-"}, [1]},
       {%{"tag_key_prefix" => "team-"}, [1, 2, 4]},
       {%{"tag_key_prefix" => "team-", "value" => "alpha-one"}, [1]},
       {%{"tag_key_prefix" => "team-", "prefix" => "alpha-"}, [1, 4]},
       {%{"except" => %{"tag_key_prefix" => "team-", "prefix" => "alpha-"}}, [2, 3]}
     ]
+
+    assert {:error, :invalid_predicate} =
+             BitmapExpression.parse(
+               %{"expression" => %{"facet" => "tag:team-primary", "prefix" => " alpha- "}},
+               facets
+             )
 
     for {expression, expected} <- cases do
       assert {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, facets)

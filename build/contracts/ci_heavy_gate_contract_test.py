@@ -1414,7 +1414,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.assertIn(required, action)
 
         cleanup = action[action.index("cleanup() {") :]
-        cleanup_lines = normalized_shell_lines(cleanup)
+        cleanup_lines = [line.replace('"${CLEANUP_TIMEOUT[@]}" ', "") for line in normalized_shell_lines(cleanup)]
         self.assertEqual(
             1,
             cleanup_lines.count("bazel test $FLAGS //rust/integration-db:teardown_db"),
@@ -1582,6 +1582,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         selector = shell[shell.index("OBSERVER_MAX_SECONDS=1800"):shell.index('START_NS="$(date +%s%N)"')]
         execution = shell[shell.index('PROVISION_JSON="$(bazel run'):]
         validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
+        admission = shell[shell.index("admit_scale() {"):shell.index("validate_cleanup_json() {")]
         # Run the real selector, clone guards and consumers. Replace only external
         # Bazel work, while real JSON validation rejects another run's clone.
         recorder = r"""
@@ -1589,6 +1590,14 @@ RUN_ID=synthetic
 FLAGS='-c opt'
 GENERATION_DIGEST=synthetic-digest
 RUN_DATABASE=sr_core_test_synthetic
+ACTION_START_SECONDS=${SCALE_ACTION_START:-900}
+START_NS=$((${SCALE_OBSERVER_START:-950} * 1000000000))
+date() { echo 1000; }
+timeout() {
+  [[ "$1 $2 $3" == '--signal=TERM --kill-after=5s 2755s' ]] || return 1
+  shift 3
+  "$@"
+}
 bazel() {
   target="${@: -1}"
   case "$1" in
@@ -1609,7 +1618,7 @@ bazel() {
   esac
 }
 """
-        script = recorder + validators + selector + execution + '\necho "observer=$OBSERVER_MAX_SECONDS pool=$OBSERVER_POOL_SLOTS"\n'
+        script = recorder + validators + admission + selector + execution + '\necho "observer=$OBSERVER_MAX_SECONDS pool=$OBSERVER_POOL_SLOTS"\n'
         for selected in ("", "0", "compact", "sparse"):
             with self.subTest(selected=selected):
                 result = subprocess.run(
@@ -1640,6 +1649,103 @@ bazel() {
                 )
                 self.assertNotEqual(0, result.returncode)
                 self.assertNotIn("test //elixir/web-ng:topology_bitmap_scale_", result.stdout)
+
+        # Both independent deadlines include the command envelope, quiet period
+        # and cleanup. An otherwise passing workload must not start too late.
+        for action_start, observer_start, admitted in ((310, 610, True), (309, 610, False), (310, 609, False)):
+            with self.subTest(action_start=action_start, observer_start=observer_start):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
+                         "SCALE_ACTION_START": str(action_start), "SCALE_OBSERVER_START": str(observer_start)},
+                )
+                self.assertEqual(admitted, result.returncode == 0, result.stderr)
+                self.assertEqual(admitted, "test //elixir/web-ng:topology_bitmap_scale_compact_acceptance" in result.stdout)
+                if not admitted:
+                    self.assertIn("Scale admission refused", result.stderr)
+
+        for action_start, expected in ((900, "3300 3295s"), (400, "2990 2985s")):
+            result = subprocess.run(
+                ["bash", "-euc", recorder + admission + selector +
+                 '\nlimit_scale_observer\necho "$OBSERVER_MAX_SECONDS ${OBSERVER_TIMEOUT[3]}"'],
+                text=True, capture_output=True, timeout=5,
+                env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
+                     "SCALE_ACTION_START": str(action_start)},
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(expected, result.stdout.splitlines()[-1])
+
+    def test_scale_cleanup_preserves_each_failure_and_attempts_release_after_teardown_failure(self):
+        shell = database_lifecycle_shell(named_action("WebNgDbDiagnostic"))
+        cleanup = shell[shell.index("cleanup() {"):shell.index("trap cleanup EXIT")]
+        validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
+        for teardown, release, observer in ((0, 0, 0), (13, 0, 0), (0, 14, 0), (0, 0, 124), (137, 0, 0)):
+            with self.subTest(teardown=teardown, release=release, observer=observer), tempfile.TemporaryDirectory() as tmp:
+                script = r'''
+FLAGS='-c opt'
+RUN_ID=synthetic
+RUN_DATABASE=sr_core_test_synthetic
+GENERATION_DIGEST=synthetic-digest
+GENERATION_LEASED=1
+SUITE_STATUS=0
+OBSERVER_STATUS=0
+START_NS=0
+OBSERVER_DIR="$TEST_TMP/observer"
+mkdir "$OBSERVER_DIR"
+SERVICERADAR_FIXTURE_ENV_FILE="$TEST_TMP/env"
+touch "$SERVICERADAR_FIXTURE_ENV_FILE"
+SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
+QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
+STOP_FILE="$OBSERVER_DIR/stop"
+CLEANUP_TIMEOUT=(timeout --signal=TERM --kill-after=5s 55s)
+timeout() {
+  [[ "$1 $2 $3" == '--signal=TERM --kill-after=5s 55s' ]] || exit 99
+  shift 3
+  "$@"
+}
+bazel() {
+  echo "$1 ${@: -1}" >&2
+  if [[ "$1" == test ]]; then return "$TEARDOWN_FAILURE"; fi
+  printf '{"digest":"%s","lease_id":"%s","status":"released"}\n' "$GENERATION_DIGEST" "$RUN_DATABASE"
+  return "$RELEASE_FAILURE"
+}
+wait_for_marker() { test -e "$1"; }
+touch "$QUIESCENT_FILE"
+(exit "$OBSERVER_FAILURE") &
+OBSERVER_PID=$!
+'''
+                result = subprocess.run(
+                    ["bash", "-euc", script + validators + cleanup + "\ncleanup\n"],
+                    text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "TEST_TMP": tmp, "TEARDOWN_FAILURE": str(teardown),
+                         "RELEASE_FAILURE": str(release), "OBSERVER_FAILURE": str(observer)},
+                )
+                self.assertEqual(observer or teardown or release, result.returncode, result.stderr)
+                self.assertEqual(["test //rust/integration-db:teardown_db", "run //rust/integration-db:release_generation"],
+                                 result.stderr.splitlines())
+                self.assertFalse(Path(tmp, "observer").exists())
+                self.assertFalse(Path(tmp, "env").exists())
+
+    def test_scale_action_clock_includes_runner_work_before_the_first_step(self):
+        action = named_action("WebNgDbDiagnostic")
+        capture = action[action.index("          set -euo pipefail"):action.index("          bazel run")]
+        capture = "\n".join(line[10:] for line in capture.splitlines())
+        parent = r'''
+import os, subprocess, sys, time
+started = int(time.time())
+time.sleep(2)
+env = dict(os.environ, BUILDBUDDY_CI_RUNNER_ABSPATH=sys.executable)
+result = subprocess.run(["bash", "-euc", sys.argv[1]], env=env, text=True, capture_output=True)
+if result.returncode:
+    raise SystemExit(result.stderr)
+print(started)
+print(open("/tmp/serviceradar-web-ng-diagnostic-start").read().strip())
+'''
+        result = subprocess.run([sys.executable, "-c", parent, capture], text=True, capture_output=True, timeout=5)
+        self.assertEqual(0, result.returncode, result.stderr)
+        started, measured = map(int, result.stdout.splitlines())
+        self.assertLessEqual(measured, started)
+        self.assertLessEqual(started - measured, 2)
 
     def test_go_race_step_uses_a_private_output_base_and_shuts_it_down(self):
         """Race flags stay off the parked default Bazel server.

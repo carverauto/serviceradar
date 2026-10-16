@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadarWebNG.Topology.WorldOverlay
   alias ServiceRadarWebNG.Topology.WorldTile
   alias ServiceRadarWebNGWeb.Endpoint
+  alias ServiceRadarWebNGWeb.TopologyQueryController
   alias ServiceRadarWebNGWeb.TopologyTileChannel
   alias ServiceRadarWebNGWeb.TopologyTileController
   alias ServiceRadarWebNGWeb.UserSocket
@@ -345,6 +346,57 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       "query" => within_cohort(cohort, %{"facet" => "vlan", "value" => "20"}),
       "tiles" => [%{"z" => 16, "x" => 0, "y" => 0, "revision" => tile.revision}]
     }
+
+    too_deep = Enum.reduce(1..9, %{"facet" => "vlan", "value" => "20"}, fn _, child -> %{"all" => [child]} end)
+
+    for {expression, status, error} <- [
+          {%{"facet" => "undeclared", "value" => "example"}, 422, "unsupported_query"},
+          {%{"facet" => "vendor", "prefix" => "Example "}, 400, "invalid_query"},
+          {too_deep, 413, "query_budget"}
+        ] do
+      query = TopologyQueryController.create(binary_conn(scope), %{"expression" => expression})
+
+      selected =
+        TopologyTileController.search(binary_conn(scope), %{
+          "device_id" => included.uid,
+          "query" => Jason.encode!(expression)
+        })
+
+      for response <- [query, selected] do
+        assert response.status == status
+        assert Jason.decode!(response.resp_body) == %{"error" => error}
+        assert Plug.Conn.get_resp_header(response, "retry-after") == []
+      end
+    end
+
+    # Unwatch/reset must retain the occupied slot until the actual query exits,
+    # even when its native-index owner is temporarily unable to answer.
+    :ok = :sys.suspend(BitmapIndex)
+
+    try do
+      blocked_ref = push(socket, "membership:watch", params)
+      query_tasks = ServiceRadarWebNG.Topology.BitmapQueryTasks
+      await(fn -> Task.Supervisor.children(query_tasks) end, &(length(&1) == 1))
+
+      for event <- ["membership:unwatch", "membership:reset"] |> List.duplicate(4) |> List.flatten() do
+        ref = push(socket, event, %{})
+        assert_reply ref, :ok
+        ref = push(socket, "membership:watch", params)
+        assert_reply ref, :error, %{reason: "query_busy"}
+        assert [_] = Task.Supervisor.children(query_tasks)
+      end
+
+      assert_reply blocked_ref, :error, %{reason: "membership_replaced"}
+
+      other = Task.async(fn -> BitmapQueries.run(scope, %{"expression" => params["query"]}) end)
+      await(fn -> Task.Supervisor.children(query_tasks) end, &(length(&1) == 2))
+      :ok = :sys.resume(BitmapIndex)
+      assert {:ok, %{total: 1}} = Task.await(other)
+      await(fn -> Task.Supervisor.children(query_tasks) end, &(&1 == []))
+      refute_push "membership:frame", _cancelled_frame, 100
+    after
+      :sys.resume(BitmapIndex)
+    end
 
     ref = push(socket, "membership:watch", params)
     assert_reply ref, :ok, %{view_digest: digest, projection: %{mapped: 2, total: 2}}, 5_000
