@@ -57,7 +57,7 @@ defmodule ServiceRadar.Jobs.CronBacklogRepairDbTest do
         worker: @tick_worker,
         meta: @cron_meta,
         state: "scheduled",
-        scheduled_at: DateTime.add(DateTime.utc_now(), 60, :second)
+        scheduled_at: DateTime.shift(DateTime.utc_now(), minute: 1)
       )
 
     newest_tick = insert_job!(queue, worker: @tick_worker, meta: @cron_meta)

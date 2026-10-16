@@ -79,7 +79,7 @@ defmodule ServiceRadar.Jobs.CronBacklogRepair do
   # Only cron-stamped rows: an AshOban or self-scheduled worker may legitimately
   # hold several pending jobs with identical args.
   defp cancel_redundant_ticks(now, limit) do
-    horizon = DateTime.add(now, @stager_lead_seconds, :second)
+    horizon = DateTime.shift(now, second: @stager_lead_seconds)
 
     ranked =
       from(j in Job,
