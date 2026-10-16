@@ -1036,13 +1036,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "bazel run -c opt --config=ci --//build:enable_integration_tests "
         "--//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env"
     )
-    def observer_start(self, required_pool_slots: int) -> str:
+    def observer_start(self, required_pool_slots: int, max_seconds: str = "1800") -> str:
         return (
             "bazel run -c opt --config=ci --//build:enable_integration_tests "
             "--//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- "
             '--ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" '
             '--quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" '
-            f"--max-seconds 1800 --required-pool-slots {required_pool_slots} &"
+            f"--max-seconds {max_seconds} --required-pool-slots {required_pool_slots} &"
         )
     sweep = "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs"
 
@@ -1081,6 +1081,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         provision_command: str,
         suite_command: str,
         required_pool_slots: int,
+        max_seconds: str = "1800",
     ) -> None:
         measured = measured_database_lifecycle_shell(action)
         lines = normalized_shell_lines(measured)
@@ -1100,7 +1101,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.generation_prepare,
             self.measured_migrate_command,
             self.generation_ready,
-            self.observer_start(required_pool_slots),
+            self.observer_start(required_pool_slots, max_seconds),
             wait,
             provision_command,
             suite_command,
@@ -1278,6 +1279,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         provision_command: str,
         suite_command: str,
         required_pool_slots: int,
+        max_seconds: str = "1800",
     ) -> None:
         for required in (
             'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
@@ -1296,7 +1298,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             '--suite-complete-file "$SUITE_COMPLETE_FILE"',
             '--quiescent-file "$QUIESCENT_FILE"',
             '--stop-file "$STOP_FILE"',
-            "--max-seconds 1800",
+            f"--max-seconds {max_seconds}",
             f"--required-pool-slots {required_pool_slots}",
             provision_command,
             suite_command,
@@ -1375,7 +1377,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(ready, start_ns)
         self.assertLess(start_ns, observer)
 
-    def assert_only_generation_lifecycle_runs(self, action: str) -> None:
+    def assert_only_generation_lifecycle_runs(self, action: str, renewals: int = 0) -> None:
         """Only the keyed generation lifecycle runs anywhere in the action.
 
         The invariant, stated where it can fail. The retired shared-template targets are
@@ -1383,7 +1385,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         positive generation counts the measured lifecycle must show.
         """
         measured = measured_database_lifecycle_shell(action)
-        self.assertEqual(2, measured.count("//rust/integration-db:prepare_generation"))
+        self.assertEqual(2 + renewals, measured.count("//rust/integration-db:prepare_generation"))
         self.assertEqual(1, measured.count("//elixir/serviceradar_core:migrate_generation"))
         self.assertEqual(1, measured.count("//rust/integration-db:cleanup_generations"))
         self.assertEqual(1, measured.count("//rust/integration-db:release_generation"))
@@ -1499,12 +1501,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('echo "docs-only change: BazelCI database lifecycle skipped"', action)
         self.assertIn('echo "docs-only change: BazelCI Go race tests skipped"', action)
 
-        self.assert_only_generation_lifecycle_runs(action)
+        self.assert_only_generation_lifecycle_runs(action, renewals=1)
         self.assert_common_measured_lifecycle(
             action,
             self.ordinary_provision,
             self.ordinary_suite,
             114,
+            max_seconds='"$OBSERVER_MAX_SECONDS"',
         )
         self.assertEqual(1, action.count(self.ordinary_suite))
         self.assertNotIn(
@@ -1518,6 +1521,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_provision,
             self.ordinary_suite,
             114,
+            max_seconds='"$OBSERVER_MAX_SECONDS"',
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
@@ -1534,6 +1538,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.topology_db_suite,
                 self.dgraph_schema_suite,
                 self.world_worker_suite,
+                "bazel test $FLAGS //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance",
             ),
             commands,
         )
@@ -1550,8 +1555,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 if "$FLAGS" in command and "//..." in command
             ),
         )
-        # The integration compile is the only bazel build in this action. It
-        # runs after schema preflight and before the measured clock, so a
+        # Ordinary and opt-in acceptance compilation both precede the measured
+        # clock. They run after schema preflight, so a
         # compile break fails before provision_generation and does not consume
         # the observer budget. LargeIngestionGate keeps its own world build.
         shell_lines = normalized_shell_lines(database_lifecycle_shell(action))
@@ -1563,11 +1568,78 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(shell_lines.index(preflight), compile_at)
         self.assertLess(compile_at, shell_lines.index('START_NS="$(date +%s%N)"'))
         self.assertLess(compile_at, shell_lines.index(self.ordinary_provision))
+        scale_compile = (
+            "bazel build -c opt --config=ci --//build:enable_integration_tests "
+            "--//build:run_id=$RUN_ID //elixir/web-ng:topology_bitmap_scale_acceptance"
+        )
         self.assertEqual(
-            (self.integration_compile,),
+            (self.integration_compile, scale_compile),
             executable_bazel_commands(action, "build"),
         )
+        self.assertLess(shell_lines.index(scale_compile), shell_lines.index('START_NS="$(date +%s%N)"'))
+        # One opt-in selector keeps ordinary invocations unchanged. Its only
+        # lease refresh validates the already-ready generation before each run.
+        for required in (
+            'case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in',
+            '0|"") SCALE_VARIANTS="" ;;',
+            'compact|sparse) SCALE_VARIANTS="$SERVICERADAR_TOPOLOGY_BITMAP_SCALE" ;;',
+            'both) SCALE_VARIANTS="compact sparse" ;;',
+            'OBSERVER_MAX_SECONDS=1800',
+            'OBSERVER_MAX_SECONDS=10800',
+            'for SCALE_VARIANT in $SCALE_VARIANTS; do',
+            'validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$SCALE_READY_JSON"',
+        ):
+            self.assertIn(required, action)
+        self.assertLess(action.index(self.world_worker_suite), action.index('for SCALE_VARIANT in'))
         self.assertEqual(1, run_step_shell_lines(action).count(self.unit_suite))
+
+    def test_scale_opt_in_runs_only_selected_variants_after_successful_lease_renewal(self):
+        shell = database_lifecycle_shell(named_action("BazelCI"))
+        selector = shell[shell.index("OBSERVER_MAX_SECONDS=1800"):shell.index('START_NS="$(date +%s%N)"')]
+        execution = shell[shell.index("# Default off. Use the existing generation") :]
+        # Execute the workflow's real conditionals. Only external Bazel work is
+        # replaced by a recorder; no database or credentials are accessible.
+        recorder = r"""
+RUN_ID=synthetic
+FLAGS='-c opt'
+GENERATION_DIGEST=expected-digest
+GENERATION_DATABASE=expected-database
+bazel() {
+  case "$1" in
+    build) echo compiled ;;
+    run) echo ready ;;
+    test) echo "$*" ;;
+    *) return 1 ;;
+  esac
+}
+validate_ready_json() {
+  [[ "$1" == expected-digest && "$2" == expected-database ]]
+  [[ "$(cat)" == ready && "${SCALE_FAIL_RENEWAL:-0}" == 0 ]]
+  echo renewed
+}
+"""
+        script = recorder + selector + execution + '\necho "observer=$OBSERVER_MAX_SECONDS"\n'
+        for selected, variants in (("", []), ("0", []), ("compact", ["compact"]),
+                                   ("sparse", ["sparse"]), ("both", ["compact", "sparse"])):
+            with self.subTest(selected=selected):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected},
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                expected = ["compiled"] if variants else []
+                for variant in variants:
+                    expected.extend(["renewed", f"test -c opt //elixir/web-ng:topology_bitmap_scale_{variant}_acceptance"])
+                expected.append("observer=10800" if variants else "observer=1800")
+                self.assertEqual(expected, result.stdout.splitlines())
+        for selected, fail_renewal in (("invalid", "0"), ("compact", "1")):
+            result = subprocess.run(
+                ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected,
+                     "SCALE_FAIL_RENEWAL": fail_renewal},
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertNotIn("test -c opt", result.stdout)
 
     def test_go_race_step_uses_a_private_output_base_and_shuts_it_down(self):
         """Race flags stay off the parked default Bazel server.
