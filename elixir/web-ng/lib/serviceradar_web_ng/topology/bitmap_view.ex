@@ -11,9 +11,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   alias ServiceRadarWebNG.Topology.WorldCache
 
   @max_selector_bytes 8_388_608
+  @max_receipt_bytes 65_536
 
-  def validate(%{"protocol" => 1, "query" => _query} = params) do
-    with :ok <- BitmapExpression.request_budget(params),
+  def validate(%{"protocol" => 1, "query" => query} = params) do
+    with :ok <- BitmapExpression.request_budget(query),
+         :ok <- receipt_budget(params),
          {:ok, watch} <- TileKey.watch(params),
          true <- length(watch.keys) == map_size(watch.tiles) do
       {:ok, watch}
@@ -24,6 +26,20 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   end
 
   def validate(_params), do: {:error, :unsupported_membership_protocol}
+
+  defp receipt_budget(params) do
+    receipts = Map.delete(params, "query")
+
+    if :erlang.external_size(receipts) <= @max_receipt_bytes do
+      case Jason.encode(receipts) do
+        {:ok, bytes} when byte_size(bytes) <= @max_receipt_bytes -> :ok
+        {:ok, _bytes} -> {:error, :query_budget}
+        {:error, _reason} -> {:error, :invalid_query}
+      end
+    else
+      {:error, :query_budget}
+    end
+  end
 
   def build(scope, params, sequence) do
     deadline = System.monotonic_time(:millisecond) + 1_000

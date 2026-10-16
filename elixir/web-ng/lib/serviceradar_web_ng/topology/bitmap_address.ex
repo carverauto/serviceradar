@@ -19,8 +19,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapAddress do
 
   @doc "Canonical network bytes and mask length for a literal IPv4/IPv6 query."
   def cidr(value) when is_binary(value) and byte_size(value) in 1..256 do
-    if String.valid?(value) do
-      case String.split(String.trim(value), "/", parts: 2) do
+    if String.valid?(value) and value == String.trim(value) do
+      case String.split(value, "/", parts: 2) do
         [host] -> network(host, nil)
         [host, mask] -> network(host, mask)
       end

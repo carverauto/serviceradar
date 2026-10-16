@@ -68,6 +68,10 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
 
   def handle_in("membership:watch", params, socket), do: BitmapStream.watch(params, socket)
   def handle_in("membership:ack", params, socket), do: BitmapStream.ack(params, socket)
+
+  def handle_in("membership:reset", params, socket) when is_map(params),
+    do: {:reply, :ok, BitmapStream.reset(socket, params)}
+
   def handle_in("membership:reset", _params, socket), do: {:reply, :ok, BitmapStream.reset(socket)}
   def handle_in("membership:unwatch", _params, socket), do: {:reply, :ok, BitmapStream.unwatch(socket)}
   def handle_in(_event, _params, socket), do: {:reply, {:error, %{reason: "unsupported_event"}}, socket}
