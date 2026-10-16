@@ -169,7 +169,12 @@ defmodule ServiceRadar.TestSupport do
     end
   end
 
-  @doc "Checks out a rollback-only database owner for the current test."
+  @doc """
+  Checks out the current test's database owner.
+
+  Ordinary tests get a rollback-only sandbox owner. `sandbox: :unboxed`
+  commits. See the root AGENTS.md Logs & Tests rule.
+  """
   def checkout_repo!(context \\ %{}) do
     reject_async_unboxed!(context)
 

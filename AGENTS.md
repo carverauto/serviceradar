@@ -301,6 +301,22 @@ Start with generators wherever possible. They provide a starting point for your 
 
 After changes, compile and run applicable tests; read their output and report every check not run.
 
+**A test that commits data must delete it.** CI shares fixture databases across tests: the core
+serial lanes are partitioned deterministically from `SERIAL_INTEGRATION_MODULE_COUNTS`, and the
+web-ng `networks_live_db_test` reuses core's `serial_0` database. A row one test leaves behind
+breaks a count or pagination assertion in an unrelated test, and a PR that only adds a test file
+reshuffles the partition and turns that leak into a failure (#5681).
+- Prefer the boxed sandbox. Go unboxed (`sandbox: :unboxed`, `sandbox: false`, work in a process
+  outside the sandbox, `setup_all` inserts, Go/Rust tests against a shared DB) only when the test
+  needs it: DDL, `TRUNCATE`, refreshes, real concurrency or commit visibility.
+- An unboxed test deletes every row it creates in `on_exit`, including rows a fixture helper
+  created indirectly (a plugin behind a package, an assignment's package). Capture ids with
+  `RETURNING` and delete the parent row when the foreign keys cascade.
+- Never assume a table is empty. Scope assertions to the test's own unique ids, or measure the
+  baseline first and assert relative to it.
+- When a test fails because of rows it did not create, find and fix the leaking test. Do not
+  loosen the failing assertion.
+
 ## Tools
 
 Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.

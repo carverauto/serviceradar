@@ -2,8 +2,9 @@ defmodule ServiceRadar.DataCase do
   @moduledoc """
   ExUnit case template for tests that use the ServiceRadar database.
 
-  Each test runs under its own rollback-only sandbox owner. Serial tests may
-  share that owner with application processes. Async tests may contain only
+  Ordinary tests run under a rollback-only sandbox owner. Serial tests may
+  share that owner with application processes. `sandbox: :unboxed` commits;
+  see the root AGENTS.md Logs & Tests rule. Async tests may contain only
   transaction-isolated work: unboxed access, DDL, `TRUNCATE`, refreshes,
   application-global state, global processes, true multi-connection work, and
   fixed external resources remain serial. Async tests may call
