@@ -127,7 +127,8 @@ LatestMergeTarget(u) == IF LatestMergeRow(u) = 0 THEN NoDev ELSE audit[LatestMer
 
 \* Resolver.do_follow_canonical/3 follows u when Device.get_by_uid(u, true) returns a
 \* tombstone whose deleted_reason is "merged" and a merge row names a target. A purged
-\* uid has no row; it is followed when its newest merge row was not reversed by an unmerge
+\* uid has no mutable inventory (an identity tombstone may remain); it is followed when
+\* its newest merge row was not reversed by an unmerge
 \* (details.original_merge_event_id), which is what reason[u] = "merged" records here.
 FollowsFrom(u) ==
     /\ LatestMergeTarget(u) # NoDev
@@ -383,8 +384,8 @@ GatewaySync(u) ==
     /\ act' = MkAct("GatewaySync", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<owner, ipOf, audit, marked, arch>>
 
-\* DeviceCleanupWorker.hard_delete_records/2: the row and its device_identifiers go;
-\* merge_audit and device_identifier_archive rows stay. reason is kept: after a purge it
+\* DeviceCleanupWorker.hard_delete_records/2: mutable inventory and identifiers go;
+\* allocated identities keep a minimal tombstone. Merge audit/archive stay. After purge reason
 \* stands for what merge_audit still says, whether the uid's newest merge row is an
 \* unreversed merge.
 Purge(u) ==

@@ -5,8 +5,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
   alias ServiceRadar.Automation.Ansible.AutomationExecution
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
@@ -194,8 +196,60 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
     assert device_exists?(first)
   end
 
-  # A table with a RESTRICT foreign key to ocsf_devices whose rows refuse to be
-  # deleted, so the purge of any device it references fails.
+  test "purging an allocated identity removes mutable state once and keeps its number", %{
+    prefix: prefix
+  } do
+    require Ash.Query
+
+    uid = "#{prefix}-allocated"
+
+    Repo.query!(
+      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, metadata) VALUES ($1, 'host01.example.com', '192.0.2.12', $2)",
+      [uid, %{"custom" => "value"}]
+    )
+
+    ordinal = FleetIdentity.device_ordinal(uid)
+    assert ordinal > 0
+    insert_source_observation!(uid)
+    {_controller_id, membership_id} = insert_approved_membership!(uid)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = 'purge_test' WHERE uid = $1",
+      [uid]
+    )
+
+    assert {%{deleted: 1, errors: 0}, 1} = purge([uid])
+
+    assert %{rows: [[nil, nil, %{}, %NaiveDateTime{}, ^ordinal, true]]} =
+             Repo.query!(
+               """
+               SELECT d.hostname, d.ip, d.metadata, d.identity_purged_at, o.ordinal, o.tombstoned
+               FROM platform.ocsf_devices d JOIN platform.device_fleet_ordinals o USING(uid) WHERE d.uid = $1
+               """,
+               [uid]
+             )
+
+    assert row_count("device_source_observations", "device_id", uid) == 0
+
+    # A table with a RESTRICT foreign key to ocsf_devices whose rows refuse to be
+    # deleted, so the purge of any device it references fails.
+    assert %{disposition: "quarantined", device_uid: nil} = membership(membership_id)
+    assert {%{deleted: 0, errors: 0}, 0} = purge([uid])
+
+    assert %Ash.BulkResult{status: :success} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^uid)
+             |> Ash.bulk_update(:restore, %{}, actor: @actor, return_errors?: true)
+
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+
+    assert %{rows: [[nil]]} =
+             Repo.query!("SELECT identity_purged_at FROM platform.ocsf_devices WHERE uid = $1", [
+               uid
+             ])
+  end
+
   defp guarded_child_table! do
     table = "purge_test_guarded_#{System.unique_integer([:positive])}"
 

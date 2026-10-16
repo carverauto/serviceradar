@@ -101,9 +101,12 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     assert :ok = ingest(actor, [uid_update(source.uid, source.ip, "after-purge")])
 
     source_uid = source.uid
-    assert_receive {:fence, :stale, %{device_id: ^source_uid, current_revision: nil}}
 
-    refute match?({:ok, %Device{}}, Device.get_by_uid(source.uid, true, actor: actor))
+    assert {:ok, %Device{identity_purged_at: %DateTime{}, deleted_reason: "merged"} = tombstone} =
+             Device.get_by_uid(source.uid, true, actor: actor)
+
+    revision = tombstone.identity_revision
+    assert_receive {:fence, :stale, %{device_id: ^source_uid, current_revision: ^revision}}
     assert %Device{hostname: "after-purge"} = device!(survivor.uid, actor)
   end
 

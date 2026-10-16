@@ -44,6 +44,9 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.BumblebeeDevicePosture
     resource ServiceRadar.Inventory.BumblebeeFinding
     resource ServiceRadar.Inventory.Device
+    resource ServiceRadar.Inventory.DeviceFleetOrdinal
+    resource ServiceRadar.Inventory.InterfaceFleetOrdinal
+    resource ServiceRadar.Inventory.FleetDictionaryEpoch
     resource ServiceRadar.Inventory.DeviceAgentAvailability
     resource ServiceRadar.Inventory.Interface
     resource ServiceRadar.Inventory.InterfaceSettings
