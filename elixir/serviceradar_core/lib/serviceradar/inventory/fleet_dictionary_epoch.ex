@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.FleetDictionaryEpoch do
-  @moduledoc "Persistent dictionary identity, shared by device and interface namespaces."
+  @moduledoc "Persistent identity of the device ordinal dictionary."
   use Ash.Resource,
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,

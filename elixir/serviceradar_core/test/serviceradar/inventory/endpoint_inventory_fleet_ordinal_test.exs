@@ -97,43 +97,6 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
     assert FleetIdentity.device_ordinal(uid) == ordinal
   end
 
-  test "interface identities follow canonical pairs and retain deleted assignments", %{
-    actor: actor
-  } do
-    a = create_device!(actor, "sr:interface-a-#{System.unique_integer([:positive])}").uid
-    b = create_device!(actor, "sr:interface-b-#{System.unique_integer([:positive])}").uid
-    insert_interface!(a, "ifindex:7")
-    insert_interface!(b, "ifindex:7")
-    first = FleetIdentity.interface_ordinal(a, "ifindex:7")
-    second = FleetIdentity.interface_ordinal(b, "ifindex:7")
-    assert first != second
-    assert {:ok, ^first} = FleetIdentity.ensure_interface(a, "ifindex:7")
-
-    Repo.query!(
-      "DELETE FROM platform.discovered_interfaces WHERE device_id = $1 AND interface_uid = 'ifindex:7'",
-      [a]
-    )
-
-    assert FleetIdentity.interface_ordinal(a, "ifindex:7") == nil
-    insert_interface!(a, "ifindex:7")
-    assert FleetIdentity.interface_ordinal(a, "ifindex:7") == first
-
-    insert_interface!(a, "ifindex:8")
-    moved = FleetIdentity.interface_ordinal(a, "ifindex:8")
-
-    Repo.query!(
-      "UPDATE platform.discovered_interfaces SET device_id = $2 WHERE device_id = $1 AND interface_uid = 'ifindex:8'",
-      [a, b]
-    )
-
-    assert FleetIdentity.interface_ordinal(a, "ifindex:8") == nil
-    assert {:ok, moved_ordinal} = FleetIdentity.ensure_interface(b, "ifindex:8")
-    assert moved_ordinal > 0
-    assert moved_ordinal != moved
-    assert FleetIdentity.interface_ordinal(b, "ifindex:8") == moved_ordinal
-    assert FleetIdentity.interface_ordinal(b, "ifindex:7") == second
-  end
-
   test "unsigned high ordinals survive reads and bounded resumable reconciliation", %{
     actor: actor
   } do
@@ -166,13 +129,6 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
     assert_raise Postgrex.Error, ~r/Persistent fleet identities cannot be deleted/, fn ->
       Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [uid])
     end
-  end
-
-  defp insert_interface!(uid, interface) do
-    Repo.query!(
-      "INSERT INTO platform.discovered_interfaces(device_id, interface_uid, timestamp) VALUES ($1, $2, now())",
-      [uid, interface]
-    )
   end
 
   defp restore!(uid, actor, args \\ []) do

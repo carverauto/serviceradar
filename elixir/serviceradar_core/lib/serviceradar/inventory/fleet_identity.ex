@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Inventory.FleetIdentity do
   @moduledoc """
-  Persistent device and interface dictionaries for typed fleet membership.
+  Persistent device dictionary for fleet membership.
 
   Allocation locks the canonical parent device and does not advance a sequence
   for existing assignments. Lifecycle hooks cover Ash and raw SQL writers.
@@ -14,7 +14,6 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Inventory.DeviceFleetOrdinal
   alias ServiceRadar.Inventory.FleetDictionaryEpoch
-  alias ServiceRadar.Inventory.InterfaceFleetOrdinal
   alias ServiceRadar.Repo
 
   @max_page 500
@@ -26,32 +25,11 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
     query_scalar("SELECT platform.ensure_device_fleet_ordinal($1)", [uid], opts)
   end
 
-  def ensure_interface(device_uid, interface_uid, opts \\ [])
-      when is_binary(device_uid) and is_binary(interface_uid) do
-    query_scalar(
-      "SELECT platform.ensure_interface_fleet_ordinal($1, $2)",
-      [device_uid, interface_uid],
-      opts
-    )
-  end
-
   def device_ordinal(uid, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
     repo.one(
       from(o in DeviceFleetOrdinal, where: o.uid == ^uid and not o.tombstoned, select: o.ordinal)
-    )
-  end
-
-  def interface_ordinal(device_uid, interface_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.one(
-      from(o in InterfaceFleetOrdinal,
-        where:
-          o.device_uid == ^device_uid and o.interface_uid == ^interface_uid and not o.tombstoned,
-        select: o.ordinal
-      )
     )
   end
 
@@ -81,33 +59,6 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
     end
   end
 
-  def backfill_interfaces(cursor \\ nil, opts \\ []) do
-    with {:ok, limit} <- page_limit(opts) do
-      {device, interface} = cursor || {nil, nil}
-
-      sql = """
-      WITH page AS MATERIALIZED (
-        SELECT device_id, interface_uid FROM platform.discovered_interfaces
-        WHERE ($1::text IS NULL OR (device_id, interface_uid) > ($1, $2))
-        ORDER BY device_id, interface_uid LIMIT $3
-      )
-      SELECT device_id, interface_uid,
-             platform.ensure_interface_fleet_ordinal(device_id, interface_uid)
-      FROM page ORDER BY device_id, interface_uid
-      """
-
-      with {:ok, %{rows: rows}} <-
-             SQL.query(Keyword.get(opts, :repo, Repo), sql, [device, interface, limit]) do
-        {:ok,
-         %{
-           cursor: last_interface_cursor(rows, cursor),
-           count: length(rows),
-           done?: length(rows) < limit
-         }}
-      end
-    end
-  end
-
   defp page_limit(opts) do
     case Keyword.get(opts, :limit, @max_page) do
       n when is_integer(n) and n > 0 and n <= @max_page -> {:ok, n}
@@ -117,12 +68,6 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
 
   defp last_device_cursor([], cursor), do: cursor
   defp last_device_cursor(rows, _cursor), do: rows |> List.last() |> hd()
-  defp last_interface_cursor([], cursor), do: cursor
-
-  defp last_interface_cursor(rows, _cursor) do
-    [device, interface, _ordinal] = List.last(rows)
-    {device, interface}
-  end
 
   defp query_scalar(sql, params, opts) do
     case SQL.query(Keyword.get(opts, :repo, Repo), sql, params) do
