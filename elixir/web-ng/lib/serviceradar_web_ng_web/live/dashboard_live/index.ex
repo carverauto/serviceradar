@@ -394,7 +394,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp slice_failure_flags(_name), do: {[], []}
 
   defp maybe_start_camera_previews_async(socket) do
-    if RBAC.can?(socket.assigns.current_scope, "devices.view") do
+    if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
       scope = socket.assigns.current_scope
 
       start_async(socket, :camera_previews_open, fn ->

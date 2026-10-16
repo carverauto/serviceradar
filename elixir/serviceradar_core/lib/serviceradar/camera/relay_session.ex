@@ -14,7 +14,7 @@ defmodule ServiceRadar.Camera.RelaySession do
   alias ServiceRadar.Camera.RelayTermination
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @devices_view_check {ActorHasPermission, permission: "devices.view"}
+  @cameras_view_check {ActorHasPermission, permission: "devices.cameras.view"}
 
   @create_fields [
     :camera_source_id,
@@ -165,7 +165,7 @@ defmodule ServiceRadar.Camera.RelaySession do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@devices_view_check)
+    read_with_permission(@cameras_view_check)
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)

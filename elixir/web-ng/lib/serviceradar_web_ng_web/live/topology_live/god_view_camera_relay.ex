@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
     insecure_skip_verify = parse_bool_param(params["insecure_skip_verify"]) == true
 
     cond do
-      not can_view_device?(scope) ->
+      not can_view_camera?(scope) ->
         context = selected_camera_context(params)
 
         socket
@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
     active_session = socket.assigns.active_camera_relay_session
 
     cond do
-      not can_view_device?(scope) ->
+      not can_view_camera?(scope) ->
         socket
         |> assign(:camera_relay_viewer_state, viewer_state_from_error(:forbidden))
         |> put_flash(:error, "You are not authorized to stop a camera relay")
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   def close_tile_set(socket) do
     scope = socket.assigns.current_scope
 
-    if can_view_device?(scope) do
+    if can_view_camera?(scope) do
       maybe_close_camera_relay_tiles(socket.assigns.camera_relay_tiles, scope, "viewer closed topology tile set")
 
       socket
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
     end
   end
 
-  defp can_view_device?(scope), do: RBAC.can?(scope, "devices.view")
+  defp can_view_camera?(scope), do: RBAC.can?(scope, "devices.cameras.view")
 
   defp relay_session_terminal?(%{status: status}), do: status in [:closed, :failed, "closed", "failed"]
   defp relay_session_terminal?(_session), do: false
@@ -467,7 +467,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   end
 
   defp open_camera_relay_cluster(socket, scope, camera_tiles, params) do
-    if can_view_device?(scope) do
+    if can_view_camera?(scope) do
       open_authorized_camera_relay_cluster(socket, scope, camera_tiles, params)
     else
       socket
@@ -526,7 +526,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   end
 
   defp close_camera_relay_tile(socket, scope, relay_session_id) do
-    if can_view_device?(scope) do
+    if can_view_camera?(scope) do
       close_authorized_camera_relay_tile(socket, scope, relay_session_id)
     else
       socket

@@ -3,6 +3,39 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
 
   alias ServiceRadar.Camera.RelaySessionManager
 
+  # Opening a relay starts an agent pulling the camera, so a user needs live-video
+  # access, not just inventory access. The granted case is the control: the same
+  # user reaches the source lookup once the permission is added.
+  for {label, permissions, expected} <- [
+        {"refuses a user with only devices.view", ["devices.view"], :forbidden},
+        {"lets a user with devices.cameras.view through",
+         ["devices.view", "devices.cameras.view"], :reached_source}
+      ] do
+    test "request_open #{label}" do
+      parent = self()
+      camera_source_id = Ecto.UUID.generate()
+
+      result =
+        RelaySessionManager.request_open(camera_source_id, Ecto.UUID.generate(),
+          scope: %{user: %{id: Ecto.UUID.generate(), permissions: unquote(permissions)}},
+          source_fetcher: fn id ->
+            send(parent, {:source_fetch, id})
+            {:error, :not_found}
+          end
+        )
+
+      case unquote(expected) do
+        :forbidden ->
+          assert result == {:error, :forbidden}
+          refute_received {:source_fetch, _}
+
+        :reached_source ->
+          assert result == {:error, :not_found}
+          assert_received {:source_fetch, ^camera_source_id}
+      end
+    end
+  end
+
   test "opens a relay session from inventory-backed camera assignment" do
     parent = self()
     camera_source_id = Ecto.UUID.generate()
