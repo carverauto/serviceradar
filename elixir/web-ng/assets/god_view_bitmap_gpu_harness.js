@@ -81,7 +81,15 @@ export function mountBitmapGpuHarness() {
     if (!url.pathname.startsWith("/topology/")) return originalFetch(input, options)
     if (url.pathname.endsWith("/manifest")) return Response.json({layout_version: version, generation: 1, zmax: 8,
       extent: 2 ** 24, node_count: 4096, relation_count: 4095, bounds: [[0, 0], [2 ** 24, 2 ** 24]],
-      bitmap_membership_protocol: enabled ? 1 : 0, world_overlay_protocol: enabled ? 1 : 0})
+      bitmap_membership_protocol: enabled ? 1 : 0, world_overlay_protocol: enabled ? 1 : 0,
+      bitmap: {ready: enabled, query: {entity_kind: "device", facets: [
+        {key: "vlan", label: "Inventory VLAN", operators: ["eq", "prefix"]},
+        {key: "tag:owner", label: "Device tag: owner", operators: ["eq", "prefix"]},
+        {key: "vendor", label: "Vendor", operators: ["eq", "prefix"]},
+      ], tag_keys: ["owner"], operators: {tag_key_prefix: true, ip_cidr: true},
+      ip_sources: "current_device_and_interface_addresses",
+      prefix_tags: {available: true, discovery_url: "/topology/query/prefix-tags", sources: [{source: "synthetic-prefixes", version: 1, available: true}]}}}})
+    if (url.pathname === "/topology/query/prefix-tags") return Response.json({source: "synthetic-prefixes", version: 1, labels: ["Synthetic Transit", "Synthetic Access"], cursor: null})
     const parts = url.pathname.split("/").slice(-3).map(Number)
     if (parts.some(Number.isNaN)) return new Response(null, {status: 404})
     const {bytes, geometry} = tile(...parts)
@@ -147,7 +155,7 @@ export function mountBitmapGpuHarness() {
   }
   observeErrors()
   const controls = document.createElement("aside")
-  controls.style.cssText = "position:fixed;left:12px;top:84px;z-index:10000;background:#14232b;padding:10px;max-width:420px"
+  controls.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:10000;background:#14232b;padding:10px;max-width:320px"
   const output = document.createElement("pre")
   output.style.cssText = "font-size:11px;max-height:220px;overflow:auto"
   const button = (label, action) => {const element = document.createElement("button"); element.textContent = label; element.onclick = action; controls.append(element); return element}

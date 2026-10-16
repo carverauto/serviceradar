@@ -1,4 +1,4 @@
-# Synthetic binary-overlay GPU acceptance
+# ServiceRadar Atlas synthetic binary-overlay GPU acceptance
 
 This pass exercises the production WorldMapRenderer, Phoenix client, Arrow
 reader, SRMO/SRTO decoders, Deck layers and WebGPU. The harness supplies invented
@@ -94,3 +94,26 @@ browser tests. Those include the compute binding regression, binary overlay
 refinement/reconnect/disable/teardown, and existing picking/detail/label-lifetime
 contracts at both tested device pixel ratios. Full repository checks and actual
 server-route acceptance remain the integrated workstream's responsibility.
+
+## Filter builder component acceptance
+
+The production map toolbar opens a device filter panel from the manifest's
+supported fields and operators. It supports inventory VLAN, configured tag
+values and names, IP/CIDR and separately discovered named Prefix Tags, composed
+with AND, OR and unary EXCEPT. Prefix Tag discovery holds one request and one
+50-label page, plus the selected label. Queries remain bounded control metadata;
+membership and telemetry stay binary. The panel displays the exact accepted
+SRMO total and clears it while membership is pending or unavailable.
+
+On the same physical Chrome/WebGPU setup, actual UI clicks applied an inventory
+VLAN and a named Prefix Tag, kept the query through zoom, and cleared it after
+feature disable. No renderer errors occurred. That initial fixture returns
+synthetic membership and does not validate backend predicate execution.
+
+[BuildBuddy b715117c](https://carverauto.buildbuddy.io/invocation/b715117c-d797-41a5-9f66-cf9e8a0821c0)
+passed the browser scene suite, seven WebGPU tests and the Phoenix miscellaneous
+unit shard including the timestamp inventory. UI tests drive the real DOM
+controls and transport boundary for grouping, exclusion, unavailable operators,
+current/pending totals and stale catalog responses. A deliberate restoration of
+the old same-generation manifest behavior failed the new cache readiness test;
+the fix refreshes capabilities without refetching retained geometry.

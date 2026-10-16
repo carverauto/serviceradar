@@ -59,6 +59,20 @@ describe("world geometry cache", () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
+  it("refreshes query readiness without refetching unchanged geometry", async () => {
+    const fetcher = automaticFetch()
+    const store = cache()
+    const first = await store.get(root)
+    expect(store.observe({...manifest, bitmap: {ready: false, reason: "index_not_ready"}})).toBe(false)
+    expect(store.manifest.bitmap.ready).toBe(false)
+    expect(store.observe({...manifest, bitmap: {ready: true}})).toBe(false)
+    expect(store.manifest.bitmap.ready).toBe(true)
+    expect(store.observe({...manifest, bitmap: {ready: false, reason: "source_unavailable"}})).toBe(false)
+    expect(store.manifest.bitmap).toEqual({ready: false, reason: "source_unavailable"})
+    expect(await store.get(root)).toBe(first)
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
   it("reports a transient server failure and permits a later successful read", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new globalThis.Response(null, {status: 503}))))
     const store = cache()

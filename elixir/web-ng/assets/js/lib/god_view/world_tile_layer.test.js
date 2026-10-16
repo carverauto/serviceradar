@@ -146,8 +146,8 @@ describe("world tile rendering contract", () => {
 
   it.each(["world", "detail"])("submits %s draws before camera updates retire attribute buffers", async mode => {
     vi.useFakeTimers()
-    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
-    vi.stubGlobal("document", {createElement: domNode})
+    const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
+    vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
     vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
@@ -218,8 +218,8 @@ describe("world tile rendering contract", () => {
   it("resets the displayed map camera repeatedly after interactive pan and zoom", async () => {
     vi.useFakeTimers()
     const handlers = new Map()
-    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
-    vi.stubGlobal("document", {createElement: domNode})
+    const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
+    vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
     // Keep Deck's real camera lifecycle; only GPU startup and drawing are absent.
@@ -507,8 +507,8 @@ describe("world tile rendering contract", () => {
 
   it("forwards publication time, camera tier, and source counts", async () => {
     vi.useFakeTimers()
-    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
-    vi.stubGlobal("document", {createElement: domNode})
+    const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
+    vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
     vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
