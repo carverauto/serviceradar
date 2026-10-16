@@ -746,7 +746,7 @@ excluded or skipped test has none of them.
 | Tag | Lane | Also required |
 | --- | --- | --- |
 | `:db_free` | `//elixir/web-ng:unit_tests` | nothing else; the unit target globs `test/**/*_test.exs` except `test/integration` and `test/property` |
-| `:web_ng_shared_fixture_db` | `//elixir/web-ng:networks_live_db_test` or the dedicated `//elixir/web-ng:plugin_config_cli_db_test` lane | add the file to that lane target's `srcs` (for the networks lane, also to `SHARED_FIXTURE_SOURCES` in `build/contracts/web_ng_db_runner_contract_test.py` with `expected_selected_tests` in `test/db/networks_live_db_test_helper.exs`); routing is enforced by the evaluated `srcs` in `build/contracts/web_ng_test_lane_routing_contract_test.py` |
+| `:web_ng_shared_fixture_db` | `//elixir/web-ng:networks_live_db_test` or the dedicated `//elixir/web-ng:plugin_config_cli_db_test` lane | add the file to that lane target's `srcs` (for the networks lane, also to `SHARED_FIXTURE_SOURCES` in `build/contracts/web_ng_db_runner_contract_test.py`; the lane checks only that it selects at least one test, so there is no count to update); routing is enforced by the evaluated `srcs` in `build/contracts/web_ng_test_lane_routing_contract_test.py` |
 | `:topology_atlas_db` | `//elixir/web-ng:topology_atlas_db_test` | add the file to that target's `srcs` |
 
 `test/integration` and `test/property` are outside the unit glob. A file there

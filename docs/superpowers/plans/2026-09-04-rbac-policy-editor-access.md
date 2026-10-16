@@ -496,7 +496,7 @@ assert count_group_grants(target.id, group.id) == 1
 
 - [ ] **Step 2: Register the DB tests and capture RED evidence**
 
-Add the file to `//elixir/web-ng:networks_live_db_test`, tag only selected cases `:web_ng_shared_fixture_db`, and increment `expected_selected_tests` by the exact number added. Run through the guarded shared-fixture lifecycle with `--nocache_test_results`; expected failures name the missing strict actions/service.
+Add the file to `//elixir/web-ng:networks_live_db_test` and tag only selected cases `:web_ng_shared_fixture_db`. The lane does not pin a selected-test count (`elixir/web-ng/AGENTS.md`). Run through the guarded shared-fixture lifecycle with `--nocache_test_results`; expected failures name the missing strict actions/service.
 
 - [ ] **Step 3: Add strict target listing/reread actions**
 
@@ -573,7 +573,7 @@ Mark pure `PolicyData`/component tests `@moduletag :db_free`. In `rbac_live_test
 bazel test -c opt --config=remote //elixir/web-ng:unit_tests_serviceradar_web_ng_web --test_output=errors
 ```
 
-Expected: the DB-free tests fail because `PolicyData`, components, and generation helpers are missing. Add `rbac_live_test.exs` to `//elixir/web-ng:networks_live_db_test`, increment `expected_selected_tests` by exactly the new tagged cases, and run that target through the guarded BuildBuddy shared-fixture lifecycle for the connected/mutation RED evidence. The DB-free unit target is not evidence for those LiveView cases.
+Expected: the DB-free tests fail because `PolicyData`, components, and generation helpers are missing. Add `rbac_live_test.exs` to `//elixir/web-ng:networks_live_db_test` (no selected-test count to bump; see `elixir/web-ng/AGENTS.md`) and run that target through the guarded BuildBuddy shared-fixture lifecycle for the connected/mutation RED evidence. The DB-free unit target is not evidence for those LiveView cases.
 
 - [ ] **Step 3: Implement connected-only async data loading**
 
@@ -694,7 +694,7 @@ Render public authored rows as "Public to users with analytics access" and packa
 
 - [ ] **Step 7: Add connected LiveView coverage**
 
-Use the pure state module for deterministic late-result testing. In the DB-backed LiveView cases, cover connected load, independent next-page controls/errors, bounded rendered rows, public/edit labels, forged/cross-group tokens, stale fingerprint, and authority revoked after open. Add only tagged cases to `networks_live_db_test` and update its exact selected count.
+Use the pure state module for deterministic late-result testing. In the DB-backed LiveView cases, cover connected load, independent next-page controls/errors, bounded rendered rows, public/edit labels, forged/cross-group tokens, stale fingerprint, and authority revoked after open. Add only tagged cases to `networks_live_db_test`. There is no exact selected count to update (`elixir/web-ng/AGENTS.md`).
 
 - [ ] **Step 8: Run GREEN verification and commit**
 
