@@ -243,8 +243,8 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
       {:ok, %{status: 404}} ->
         {:error, not_found_reason(parsed, opts, "Release tag #{tag} was not found")}
 
-      {:ok, %{status: status}} when status in [401, 403] ->
-        {:error, credential_reason(parsed, opts, status)}
+      {:ok, %{status: status} = response} when status in [401, 403, 429] ->
+        {:error, access_denied_reason(parsed, opts, response)}
 
       {:ok, %{status: status}} ->
         {:error, "Release import failed with HTTP #{status}"}
@@ -275,8 +275,8 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
       {:ok, %{status: 404}} ->
         {:error, not_found_reason(parsed, opts, "Repository or releases not found")}
 
-      {:ok, %{status: status}} when status in [401, 403] ->
-        {:error, credential_reason(parsed, opts, status)}
+      {:ok, %{status: status} = response} when status in [401, 403, 429] ->
+        {:error, access_denied_reason(parsed, opts, response)}
 
       {:ok, %{status: status}} ->
         {:error, "Recent plugin releases could not be loaded (HTTP #{status})"}
@@ -473,6 +473,75 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
       "Plugin repository requires authentication (HTTP #{status}); attach a GitHub access token."
     end
   end
+
+  # GitHub reports its rate limits as 403 or 429: the primary (hourly) limit
+  # carries `x-ratelimit-remaining: 0`, the secondary limit `retry-after`. An
+  # anonymous request cannot get a 403 for a public repository on access
+  # grounds -- a repository it cannot see answers 404 -- so a 403 carrying those
+  # headers is the shared request budget running out, which resets on its own
+  # and must not send the operator to fix a credential. A 401, or a 403 without
+  # those headers, is a credential problem.
+  defp access_denied_reason(repo, opts, %{status: status} = response) do
+    if rate_limited?(response) do
+      rate_limit_reason(opts, response)
+    else
+      credential_reason(repo, opts, status)
+    end
+  end
+
+  defp rate_limited?(%{status: 429}), do: true
+
+  defp rate_limited?(%{status: 403} = response) do
+    response_header(response, "x-ratelimit-remaining") == "0" or
+      not is_nil(response_header(response, "retry-after"))
+  end
+
+  defp rate_limited?(_response), do: false
+
+  defp rate_limit_reason(opts, %{status: status} = response) do
+    token = opts[:github_token] || configured_github_token()
+    token_hint = if token, do: "", else: " Attaching a GitHub access token raises the limit."
+
+    "GitHub API rate limit exceeded (HTTP #{status})#{rate_limit_window(response)}.#{token_hint}"
+  end
+
+  defp rate_limit_window(response) do
+    retry_after = parse_seconds(response_header(response, "retry-after"))
+    reset = reset_time(response_header(response, "x-ratelimit-reset"))
+
+    cond do
+      is_integer(retry_after) -> "; retry after #{retry_after} seconds"
+      reset -> "; resets at #{DateTime.to_iso8601(reset)}"
+      true -> ""
+    end
+  end
+
+  defp reset_time(value) do
+    with seconds when is_integer(seconds) <- parse_seconds(value),
+         {:ok, reset} <- DateTime.from_unix(seconds) do
+      reset
+    else
+      _ -> nil
+    end
+  end
+
+  defp parse_seconds(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {seconds, ""} when seconds >= 0 -> seconds
+      _ -> nil
+    end
+  end
+
+  defp parse_seconds(_value), do: nil
+
+  defp response_header(%Req.Response{} = response, name) do
+    case Req.Response.get_header(response, name) do
+      [value | _] -> String.trim(value)
+      [] -> nil
+    end
+  end
+
+  defp response_header(_response, _name), do: nil
 
   defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 50)
   defp normalize_limit(_), do: 10

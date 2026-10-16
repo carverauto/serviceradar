@@ -138,9 +138,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   @doc """
   Folds per-repository sync outcomes into the Oban job result.
 
-  Any failure a retry could still resolve (expired token, HTTP 5xx, invalid
-  settings -- including atom reasons such as `:invalid_attributes`) fails the
-  job as `:partial_plugin_sync_failure` so Oban retries, but only after every
+  Any failure a retry could still resolve (expired token, GitHub API rate
+  limit, HTTP 5xx, invalid settings -- including atom reasons such as
+  `:invalid_attributes`) fails the job as `:partial_plugin_sync_failure` so Oban retries, but only after every
   repository has had its turn. A failure that describes the published release
   itself -- an unpublished tag, or a release carrying no plugin index asset --
   reports identically on all three attempts, so the per-repository
