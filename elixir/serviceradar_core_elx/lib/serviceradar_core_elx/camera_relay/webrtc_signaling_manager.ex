@@ -237,14 +237,27 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   end
 
   @impl true
+  # A connected browser makes no further signaling calls, so idle signaling is
+  # not a reason to end a viewer whose media is still flowing. The session
+  # follows its sink instead: kept while the pipeline still holds it, closed
+  # once it is gone. A browser that vanishes stops answering ICE, the sink's
+  # connection fails, and the sink is dropped (ex_ice times a silent pair out
+  # after 8 s), so an abandoned viewer still ends. Before the answer no ICE
+  # runs and nothing would fail, so an unanswered session still expires idle.
   def handle_info({:expire_session, viewer_session_id}, state) do
     case Map.pop(state.sessions, viewer_session_id) do
       {nil, _sessions} ->
         {:noreply, state}
 
       {session, sessions} ->
-        close_runtime_session(state, session, "webrtc signaling session expired")
-        {:noreply, %{state | sessions: sessions}}
+        if media_session?(session) and
+             pipeline_manager(state).webrtc_viewer_alive?(session.relay_session_id, viewer_session_id) do
+          kept = refresh_session(session, state.session_ttl_ms)
+          {:noreply, put_in(state, [:sessions, viewer_session_id], kept)}
+        else
+          close_runtime_session(state, session, "webrtc signaling session expired")
+          {:noreply, %{state | sessions: sessions}}
+        end
     end
   end
 
@@ -383,6 +396,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   defp available_relay_session(relay_session) when is_map(relay_session), do: {:ok, relay_session}
   defp available_relay_session(nil), do: {:error, :not_found}
   defp available_relay_session(other), do: other
+
+  defp media_session?(session), do: is_binary(Map.get(session, :answer_sdp))
 
   defp refresh_session(session, session_ttl_ms) do
     _ = Process.cancel_timer(session.timer_ref)
