@@ -654,6 +654,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     # it.
     @tag timeout: 300_000
     test "counting, the dry run and a pass read rows in proportion to the instance", ctx do
+      own_transaction!(ctx)
       n = 400
       records = bulk_armis_records(ctx, n)
       {present, absent} = Enum.split(records, div(n, 2))
@@ -1031,28 +1032,49 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   end
 
   # The most rows a step may read per record of the instance, from the tables below. The steps
-  # read 10 to 25 here, and a statement that reads a table once per row of another reads in
-  # proportion to n: about 200 or more per record at the test's n of 400.
+  # read 5 to 10 here, and a statement that reads a table once per row of another reads in
+  # proportion to n: about 100 or more per record at the test's n of 400, even where it stops at
+  # the first match.
   @reads_per_record 75
 
-  # Rows and index entries this transaction has read so far from the tables the retirement
-  # statements join.
+  # Rows this transaction has read so far from the tables the retirement statements join: each
+  # row a sequential scan of one returned, and each row an index or bitmap scan fetched from one,
+  # whether a condition then kept it or not. Index entries are not counted. An index scan also
+  # returns the entries of rows that a rolled-back transaction inserted, until a vacuum removes
+  # them, so their number depends on which tests ran before and when the table was last
+  # vacuumed. A fetch counts only a row the transaction can see. The test's rows are its own
+  # transaction's, so no index scan of them skips the table.
   @rows_read_sql """
   WITH tables AS (
     SELECT unnest(ARRAY[
       'platform.ocsf_devices', 'platform.device_identifiers',
       'platform.device_source_observations', 'platform.source_identifier_absences'
     ]::regclass[])::oid AS oid
-  ),
-  relations AS (
-    SELECT oid FROM tables
-    UNION ALL
-    SELECT indexrelid FROM pg_index WHERE indrelid = ANY (ARRAY(SELECT oid FROM tables))
   )
-  SELECT CAST(COALESCE(sum(pg_stat_get_xact_tuples_returned(oid) +
-                           pg_stat_get_xact_tuples_fetched(oid)), 0) AS bigint)
-  FROM relations
+  SELECT CAST(COALESCE(sum(read), 0) AS bigint)
+  FROM (
+    SELECT pg_stat_get_xact_tuples_returned(oid) + pg_stat_get_xact_tuples_fetched(oid)
+    FROM tables
+    UNION ALL
+    SELECT pg_stat_get_xact_tuples_fetched(indexrelid)
+    FROM pg_index WHERE indrelid = ANY (ARRAY(SELECT oid FROM tables))
+  ) AS reads (read)
   """
+
+  # The counters above are the transaction's, and a serial test shares its transaction with
+  # every application process (`ServiceRadar.DataCase`). A query one of them ran while a step was
+  # measured would count as the step's, planned under nested_loops_only/0. The test therefore
+  # reads on a sandboxed connection of its own, which no other process uses, held as long as
+  # the test's tag allows.
+  defp own_transaction!(ctx) do
+    opts =
+      case TestSupport.sandbox_ownership_timeout(ctx) do
+        nil -> []
+        timeout -> [ownership_timeout: timeout]
+      end
+
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo, opts)
+  end
 
   # For the rest of the test's transaction, every join is a nested loop and no inner side is
   # materialized. A lookup an index can serve also goes through it: the test's tables are a few
