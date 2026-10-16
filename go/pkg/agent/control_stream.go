@@ -458,8 +458,15 @@ func (p *PushLoop) handleControlStream(
 // sections without a status change does not ack again.
 func (p *PushLoop) applyControlConfig(ctx context.Context, cfg *proto.AgentConfigResponse, sender *controlStreamSender) {
 	sequence := p.nextConfigSequence()
-	if !p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence) {
-		if cfg.GetConfigVersion() != "" && cfg.GetConfigVersion() == p.getConfigVersion() {
+	applied := p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence)
+	ackVersion := cfg.GetConfigVersion()
+	if cfg.GetNotModified() {
+		if committed := p.getConfigVersion(); committed != "" {
+			ackVersion = committed
+		}
+	}
+	if !applied {
+		if ackVersion != "" && ackVersion == p.getConfigVersion() {
 			return
 		}
 		p.logger.Warn().
@@ -467,7 +474,7 @@ func (p *PushLoop) applyControlConfig(ctx context.Context, cfg *proto.AgentConfi
 			Msg("Skipped control stream config ack because config apply failed")
 		return
 	}
-	p.sendConfigAck(sender, cfg.ConfigVersion)
+	p.sendConfigAck(sender, ackVersion)
 }
 
 func (p *PushLoop) setControlStreamSender(sender *controlStreamSender) {

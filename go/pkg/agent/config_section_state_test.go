@@ -19,17 +19,24 @@ package agent
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
+	goproto "google.golang.org/protobuf/proto"
 )
 
 var errTestSectionBoom = errors.New("section boom")
@@ -651,8 +658,9 @@ type gateAddonManager struct {
 	fail bool
 }
 
-func (m *gateAddonManager) Apply(context.Context, []agentaddon.Spec) error {
+func (m *gateAddonManager) Apply(_ context.Context, specs []agentaddon.Spec) error {
 	m.applyCalls++
+	m.applied = append([]agentaddon.Spec(nil), specs...)
 	if m.fail {
 		return errTransientSupervisorFailure
 	}
@@ -721,9 +729,11 @@ func TestSameVersionShortCircuitSkipsSectionsWhenNoneEscalated(t *testing.T) {
 	}
 }
 
-// After escalation, a same-version delivery re-runs only that section. A later
+// A full same-version control delivery re-runs only that section. A later
 // delivery whose failure has cleared succeeds, drops the record, and acks the
 // committed version with a success status. An unchanged failure is not acked again.
+// The post-ack poll is NotModified; TestEscalatedSectionRetriesOnNotModifiedPoll
+// covers that path.
 func TestEscalatedSectionRetriesOnSameVersionDelivery(t *testing.T) {
 	manager := &gateAddonManager{fail: true}
 	pl := newAddonManagerPushLoop(t, manager)
@@ -838,5 +848,293 @@ func TestSupervisorApplyFailureUnionsDeferredAddonIDs(t *testing.T) {
 	}
 	if len(deferred.addonIDs) != 2 || deferred.addonIDs[0] != testPowerDNSAddonID || deferred.addonIDs[1] != "netprobe" {
 		t.Fatalf("deferred addon IDs = %v, want [%s netprobe]", deferred.addonIDs, testPowerDNSAddonID)
+	}
+}
+
+// pollConfigServer answers the unary GetConfig the agent poll loop calls.
+type pollConfigServer struct {
+	proto.UnimplementedAgentGatewayServiceServer
+	mu      sync.Mutex
+	respond func(*proto.AgentConfigRequest) *proto.AgentConfigResponse
+}
+
+func (s *pollConfigServer) GetConfig(_ context.Context, req *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {
+	s.mu.Lock()
+	respond := s.respond
+	s.mu.Unlock()
+	if respond == nil {
+		return &proto.AgentConfigResponse{NotModified: true}, nil
+	}
+
+	return respond(req), nil
+}
+
+// attachPollGateway connects pl.gateway to a local server that serves respond.
+func attachPollGateway(t *testing.T, pl *PushLoop, respond func(*proto.AgentConfigRequest) *proto.AgentConfigResponse) {
+	t.Helper()
+	t.Setenv("SR_ALLOW_INSECURE", "true")
+
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	proto.RegisterAgentGatewayServiceServer(server, &pollConfigServer{respond: respond})
+	go func() { _ = server.Serve(lis) }()
+	t.Cleanup(server.Stop)
+
+	client := agentgateway.NewGatewayClient(lis.Addr().String(), nil, logger.NewTestLogger())
+	t.Cleanup(func() { _ = client.Disconnect() })
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("connect gateway: %v", err)
+	}
+	pl.gateway = client
+}
+
+// notModifiedDecoy is a poll body whose section fields must never be applied.
+func notModifiedDecoy() *proto.AgentConfigResponse {
+	return &proto.AgentConfigResponse{
+		NotModified: true,
+		Addons: []*proto.AddonAssignmentConfig{
+			osPackageSidecarAssignment("decoy-addon", "/no/such/decoy"),
+		},
+	}
+}
+
+func cloneConfig(cfg *proto.AgentConfigResponse) *proto.AgentConfigResponse {
+	cloned, _ := goproto.Clone(cfg).(*proto.AgentConfigResponse)
+	return cloned
+}
+
+// After the escalation ack, polls are NotModified and carry no section payload.
+// The poll still retries the escalated section from the retained full response,
+// and a status change acks the committed version. An unchanged failure does not.
+func TestEscalatedSectionRetriesOnNotModifiedPoll(t *testing.T) {
+	manager := &gateAddonManager{fail: true}
+	pl := newAddonManagerPushLoop(t, manager)
+	full := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-escalated",
+		Addons: []*proto.AddonAssignmentConfig{
+			osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon"),
+		},
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		if phase.Load() == 0 {
+			return cloneConfig(full)
+		}
+		return notModifiedDecoy()
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	if got := pl.getConfigVersion(); got != "" {
+		t.Fatalf("committed version = %q, want empty before the escalation age", got)
+	}
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-escalated" {
+		t.Fatalf("committed version = %q, want cfg-escalated", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated {
+		t.Fatalf("addons failure = %+v, want escalated", failure)
+	}
+	callsAtEscalation := manager.applyCalls
+
+	pl.recordConfigSectionFailure(
+		configSectionBumblebee, "unrelated-payload", "v0", errTestSectionBoom, addonDeliveryPermanentFailure)
+	stream := &fakeControlStreamClient{}
+	pl.applyControlConfig(t.Context(), notModifiedDecoy(), newControlStreamSender(stream))
+	if manager.applyCalls != callsAtEscalation+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: control NotModified must retry the retained section", manager.applyCalls, callsAtEscalation+1)
+	}
+	if len(manager.applied) != 1 || manager.applied[0].ID != testPowerDNSAddonID {
+		t.Fatalf("applied specs = %#v, want the retained %s assignment", manager.applied, testPowerDNSAddonID)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 0 {
+		t.Fatalf("sent %d config acks while the escalated failure was unchanged, want 0", len(acks))
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]; !ok {
+		t.Fatal("NotModified retry re-ran a section that was not escalated")
+	}
+
+	manager.fail = false
+	phase.Store(1)
+	pl.setControlStreamSender(newControlStreamSender(stream))
+	pl.fetchAndApplyConfig(t.Context())
+
+	if manager.applyCalls != callsAtEscalation+2 {
+		t.Fatalf("supervisor Apply calls = %d, want %d", manager.applyCalls, callsAtEscalation+2)
+	}
+	if len(manager.applied) != 1 || manager.applied[0].ID != testPowerDNSAddonID {
+		t.Fatalf("applied specs = %#v, want the retained %s assignment", manager.applied, testPowerDNSAddonID)
+	}
+	acks := sentConfigAcks(stream)
+	if len(acks) != 1 {
+		t.Fatalf("sent %d config acks after the NotModified poll recovered, want 1", len(acks))
+	}
+	if got := acks[0].GetConfigVersion(); got != "cfg-escalated" {
+		t.Fatalf("recovery ack version = %q, want cfg-escalated", got)
+	}
+	recovered := sectionStatus(acks[0].GetSectionStatuses(), configSectionAddons)
+	if recovered.GetDisposition() != configSectionDispositionSuccess || recovered.GetError() != "" {
+		t.Fatalf("recovery ack addons status = %+v, want success with an empty error", recovered)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionAddons]; ok {
+		t.Fatal("recovered add-on section failure record was not cleared")
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]; !ok {
+		t.Fatal("recovery re-ran a section that was not escalated")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-escalated" {
+		t.Fatalf("committed version = %q, want cfg-escalated", got)
+	}
+	if statuses := pl.configApplyFailureStatuses(nil); len(statuses) != 0 {
+		t.Fatalf("add-on statuses after recovery = %v, want none unhealthy", statuses)
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionSuccess {
+		t.Fatalf("hello addons disposition = %q, want success", helloAddons.GetDisposition())
+	}
+
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAtEscalation+2 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: a cleared section must not be retried on the next poll", manager.applyCalls, callsAtEscalation+2)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 1 {
+		t.Fatalf("sent %d config acks when the poll changed nothing, want 1", len(acks))
+	}
+}
+
+func systemdNetprobeAssignment() *proto.AddonAssignmentConfig {
+	return &proto.AddonAssignmentConfig{
+		AddonId:     agentnetprobe.DefaultSidecarName,
+		Enabled:     true,
+		Version:     "1.0.0",
+		Delivery:    "os_package",
+		Supervision: addonSupervisionSystemdService,
+	}
+}
+
+// A visibility failure that escalates blocks systemd netprobe activation. The
+// next NotModified poll retries visibility from the retained response and, once
+// that succeeds, runs the add-on section in the same cycle so the unit activation
+// is attempted. The unsigned assignment is rejected, which is the activation.
+func TestVisibilityEscalationRecoveryActivatesBlockedNetprobe(t *testing.T) {
+	dir := t.TempDir()
+	lifecycle := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: filepath.Join(dir, "netprobe.json"),
+		}},
+		startAttachErr: errStartAttachTest,
+	}
+	addons := &recordingAddonManager{}
+	pl := NewPushLoop(&Server{
+		config:          &ServerConfig{AgentID: "agent-test"},
+		addonManager:    addons,
+		netprobeSidecar: agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()}),
+		sidecarManager:  lifecycle,
+		sidecarStatus:   lifecycle,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	full := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-visibility",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons: []*proto.AddonAssignmentConfig{
+			systemdNetprobeAssignment(),
+			osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon"),
+		},
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		if phase.Load() == 0 {
+			return cloneConfig(full)
+		}
+		return notModifiedDecoy()
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+
+	if got := pl.getConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("committed version = %q, want cfg-visibility", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionVisibility]; !failure.escalated {
+		t.Fatalf("visibility failure = %+v, want escalated", failure)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionAddons]; ok {
+		t.Fatal("add-on section was escalated; the netprobe should have been activation-blocked")
+	}
+	if _, ok := pl.addonDeliveryFailureSnapshot()[agentnetprobe.DefaultSidecarName]; ok {
+		t.Fatal("netprobe was activated while visibility was still failed")
+	}
+	attachCallsAtEscalation := lifecycle.startAttachCalls
+	applyCallsAtEscalation := addons.applyCalls
+	if attachCallsAtEscalation == 0 || applyCallsAtEscalation == 0 {
+		t.Fatalf("StartAttach calls = %d, supervisor Apply calls = %d, want both to have run", attachCallsAtEscalation, applyCallsAtEscalation)
+	}
+
+	pl.recordConfigSectionFailure(
+		configSectionBumblebee, "unrelated-payload", "v0", errTestSectionBoom, addonDeliveryPermanentFailure)
+	lifecycle.startAttachErr = nil
+	phase.Store(1)
+	stream := &fakeControlStreamClient{}
+	pl.setControlStreamSender(newControlStreamSender(stream))
+	pl.fetchAndApplyConfig(t.Context())
+
+	if lifecycle.startAttachCalls != attachCallsAtEscalation+1 {
+		t.Fatalf("StartAttach calls = %d, want %d", lifecycle.startAttachCalls, attachCallsAtEscalation+1)
+	}
+	if addons.applyCalls != applyCallsAtEscalation+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: visibility recovery must re-run add-ons", addons.applyCalls, applyCallsAtEscalation+1)
+	}
+	if len(addons.applied) != 1 || addons.applied[0].ID != testPowerDNSAddonID {
+		t.Fatalf("applied specs = %#v, want the retained %s assignment", addons.applied, testPowerDNSAddonID)
+	}
+	netprobeFailure, ok := pl.addonDeliveryFailureSnapshot()[agentnetprobe.DefaultSidecarName]
+	if !ok || !strings.Contains(netprobeFailure.reason, "signature") {
+		t.Fatalf("netprobe delivery failure = %+v, want the activation to reach signature verification", netprobeFailure)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionVisibility]; ok {
+		t.Fatal("visibility failure record was not cleared")
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]; !ok {
+		t.Fatal("visibility recovery re-ran a section that was not escalated")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("committed version = %q, want cfg-visibility", got)
+	}
+	acks := sentConfigAcks(stream)
+	if len(acks) != 1 {
+		t.Fatalf("sent %d config acks after visibility recovered, want 1", len(acks))
+	}
+	if got := acks[0].GetConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("recovery ack version = %q, want cfg-visibility", got)
+	}
+	if got := sectionStatus(acks[0].GetSectionStatuses(), configSectionVisibility).GetDisposition(); got != configSectionDispositionSuccess {
+		t.Fatalf("ack visibility disposition = %q, want success", got)
+	}
+	helloVisibility := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionVisibility)
+	if helloVisibility.GetDisposition() != configSectionDispositionSuccess {
+		t.Fatalf("hello visibility disposition = %q, want success", helloVisibility.GetDisposition())
+	}
+
+	pl.fetchAndApplyConfig(t.Context())
+	if lifecycle.startAttachCalls != attachCallsAtEscalation+1 {
+		t.Fatalf("StartAttach calls = %d, want %d: visibility must not be retried once it has recovered", lifecycle.startAttachCalls, attachCallsAtEscalation+1)
+	}
+	if addons.applyCalls != applyCallsAtEscalation+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: a later NotModified poll must not re-run add-ons", addons.applyCalls, applyCallsAtEscalation+1)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 1 {
+		t.Fatalf("sent %d config acks when the poll changed nothing, want 1", len(acks))
 	}
 }

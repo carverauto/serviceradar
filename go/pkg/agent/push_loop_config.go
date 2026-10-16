@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 type icmpCheckConfig struct {
@@ -117,12 +118,21 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	p.applyConfigResponseWithSequence(ctx, configResp, "poll", sequence)
 	// A poll has no control-stream caller to ack for it. When this delivery retried
 	// an escalated section and the status changed, ack the already-committed version
-	// on the live stream. Any other poll result stays unacked, as before.
-	if configResp != nil &&
-		configResp.GetConfigVersion() != "" &&
-		configResp.GetConfigVersion() == committed &&
-		!configSectionStatusesEqual(before, p.configSectionStatuses()) {
-		p.sendLiveConfigAck(configResp.GetConfigVersion())
+	// on the live stream. A NotModified body may omit the version; the ack still
+	// names the committed one. A new version, deferred or just committed, stays
+	// unacked here.
+	if configResp == nil || configSectionStatusesEqual(before, p.configSectionStatuses()) {
+		return
+	}
+	var ackVersion string
+	switch {
+	case configResp.NotModified:
+		ackVersion = p.getConfigVersion()
+	case configResp.GetConfigVersion() != "" && configResp.GetConfigVersion() == committed:
+		ackVersion = committed
+	}
+	if ackVersion != "" {
+		p.sendLiveConfigAck(ackVersion)
 	}
 }
 
@@ -178,10 +188,11 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 		p.latestConfigSequence = sequence
 	}
 
-	// If config hasn't changed, nothing to do
-	if configResp.NotModified {
-		p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
-		return true
+	// Keep the payload that was actually applied. A later NotModified poll has empty
+	// section fields, and the gateway also marks a same-version body NotModified
+	// without clearing those fields. Neither message may replace this copy or be applied.
+	if !configResp.NotModified {
+		p.rememberFullConfig(configResp)
 	}
 
 	// The control stream pushes a fresh (not_modified:false) config on every dependency
@@ -193,20 +204,27 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// fully-successful apply, so a deferred/partial apply (which leaves the old version)
 	// will not be short-circuited and is still retried.
 	//
-	// An escalated section is the exception: its payload is unchanged, but the failure
-	// may still clear. Re-run only those sections. Ack the committed version when their
-	// status changes; an unchanged permanent failure is not acked again.
-	if v := configResp.ConfigVersion; v != "" && v == p.getConfigVersion() {
+	// An escalated section is the exception, including a NotModified poll after the
+	// version has been acked. Re-run only those sections from the retained full
+	// response. Ack the committed version when their status changes; an unchanged
+	// permanent failure is not acked again.
+	v := configResp.GetConfigVersion()
+	sameVersion := v != "" && v == p.getConfigVersion()
+	if configResp.NotModified || sameVersion {
 		if p.hasEscalatedConfigSectionFailure() {
-			if p.retryEscalatedConfigSections(ctx, configResp) {
+			if p.retryEscalatedFromRetained(ctx) {
 				return true
 			}
 			p.logger.Debug().
-				Str("version", v).
+				Str("version", p.getConfigVersion()).
 				Str("source", source).
 				Msg("Escalated config sections unchanged; skipping config ack")
 
 			return false
+		}
+		if configResp.NotModified {
+			p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
+			return true
 		}
 
 		p.logger.Debug().
@@ -435,8 +453,38 @@ func (p *PushLoop) applyAddonConfigSection(
 	})
 }
 
+// rememberFullConfig retains a full config response for later escalated-section
+// retries. Caller holds configApplyMu.
+func (p *PushLoop) rememberFullConfig(configResp *proto.AgentConfigResponse) {
+	if configResp == nil || configResp.NotModified {
+		return
+	}
+	cloned, ok := gproto.Clone(configResp).(*proto.AgentConfigResponse)
+	if !ok || cloned == nil {
+		return
+	}
+	cloned.NotModified = false
+	p.lastFullConfig = cloned
+}
+
+// retryEscalatedFromRetained re-applies escalated sections from the retained full
+// response. A missing retain leaves the recorded status unchanged.
+func (p *PushLoop) retryEscalatedFromRetained(ctx context.Context) bool {
+	if !p.hasEscalatedConfigSectionFailure() || p.lastFullConfig == nil {
+		return false
+	}
+	cloned, ok := gproto.Clone(p.lastFullConfig).(*proto.AgentConfigResponse)
+	if !ok || cloned == nil {
+		return false
+	}
+
+	return p.retryEscalatedConfigSections(ctx, cloned)
+}
+
 // retryEscalatedConfigSections re-applies only the sections whose recorded failure was
-// escalated, using this delivery's payload. It reports whether any section status changed.
+// escalated, using the retained full response. When a visibility retry newly succeeds,
+// the add-on section runs in the same cycle so a systemd netprobe that was blocked on
+// that failure can activate. It reports whether any section status changed.
 func (p *PushLoop) retryEscalatedConfigSections(ctx context.Context, configResp *proto.AgentConfigResponse) bool {
 	before := p.configSectionStatuses()
 	version := configResp.ConfigVersion
@@ -453,13 +501,15 @@ func (p *PushLoop) retryEscalatedConfigSections(ctx context.Context, configResp 
 	if retryVisibility || retryAddons {
 		effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
 		visibilityDisposition := addonDeliverySucceeded
+		visibilityRecovered := false
 		switch {
 		case retryVisibility:
 			visibilityDisposition = p.applyVisibilityConfigSection(ctx, configResp, version, effectiveAddons)
+			visibilityRecovered = visibilityDisposition == addonDeliverySucceeded
 		case p.recordedVisibilityApplyFailed():
 			visibilityDisposition = addonDeliveryPermanentFailure
 		}
-		if retryAddons {
+		if retryAddons || visibilityRecovered {
 			p.applyAddonConfigSection(ctx, version, effectiveAddons, visibilityDisposition)
 		}
 	}
