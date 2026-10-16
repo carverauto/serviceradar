@@ -16,9 +16,12 @@ the publisher owns background catalog preparation and release. Focused source,
 parser, catalog-to-address and browser checks passed. Actual database
 lifecycle/channel tests and concurrent HTTP/WebSocket scale remain open. The
 integrated full remote unit gate passed 414 targets with two platform skips
-in invocation `2acf322c-fbc1-4bba-8257-2a137605223e`; the Helm migration guard
+in invocation `c3499e7a-246b-4498-9611-9e084119a583`; the Helm migration guard
 now requires the latest shipped identity migration. Final delivery checks use
 the original request deadline and compare the exact canonical mapping.
+Graceful publisher shutdown traps exits and drains busy native resources within
+four seconds; the existing hosted replica lifecycle test still owns database
+acceptance of cleanup with externally retained references.
 Use `tasks.md`; unchecked work is not shipped or verified. Preserve automatic
 ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
 

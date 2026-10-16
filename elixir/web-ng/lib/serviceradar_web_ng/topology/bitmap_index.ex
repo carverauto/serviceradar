@@ -18,12 +18,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.Native
 
+  require Logger
+
   @batch_size 500
   @hint_limit 5_000
   @hint_bytes 524_288
   @task_timeout 10_000
   @step_interval 25
   @scan_interval 30_000
+  @shutdown_cleanup_timeout 4_000
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
 
@@ -35,6 +38,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     pubsub = Keyword.fetch!(opts, :pubsub)
     Phoenix.PubSub.subscribe(pubsub, DevicePubSub.invalidation_topic())
     Phoenix.PubSub.subscribe(pubsub, Loader.pubsub_topic())
@@ -140,7 +144,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, state), do: disable(state)
+  def terminate(_reason, state), do: drain(state, now() + @shutdown_cleanup_timeout)
 
   defp step(state) do
     cond do
@@ -379,6 +383,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   defp disable(state) do
+    state = close_resources(state)
+
+    if state.current || state.catalog_sources != [],
+      do: schedule(%{state | mode: :closing}, @step_interval),
+      else: state
+  end
+
+  defp close_resources(state) do
     if state.active do
       Process.exit(state.active.pid, :kill)
       Process.cancel_timer(state.active.timeout)
@@ -408,11 +420,26 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         _ -> nil
       end
 
-    state = %{state | current: current, catalog_sources: catalogs, catalog_due: 0}
+    %{state | current: current, catalog_sources: catalogs, catalog_due: 0}
+  end
 
-    if current || catalogs != [],
-      do: schedule(%{state | mode: :closing}, @step_interval),
-      else: state
+  defp drain(state, deadline) do
+    case close_resources(state) do
+      %{current: nil, catalog_sources: []} ->
+        :ok
+
+      state ->
+        # Dirty NIFs finish after their caller is killed. Retry their bounded
+        # work here; a timer addressed to this terminating owner cannot run.
+        remaining = deadline - now()
+
+        if remaining > 0 do
+          Process.sleep(min(@step_interval, remaining))
+          drain(state, deadline)
+        else
+          Logger.warning("Topology bitmap cleanup exceeded its shutdown budget")
+        end
+    end
   end
 
   defp wake(%{active: nil} = state), do: schedule(state, 0)

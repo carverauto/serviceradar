@@ -215,3 +215,20 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   second source of truth. Catalog preparation and release remain the topology
   publisher's responsibility when the feature is enabled or disabled.
 - Confidence: medium.
+
+### Drain native ownership during graceful publisher shutdown
+
+- When: final replica lifecycle review.
+- Choice: trap supervisor exits so the publisher's termination callback runs,
+  and retry busy native closes synchronously for up to four seconds. Reuse the
+  normal disable cleanup; timers addressed to a terminating owner cannot finish
+  that work. The budget fits inside the supervisor's default five-second limit.
+- Gap: the shutdown contract did not account for dirty NIF work continuing after
+  its caller dies or an external reference keeping the native resource alive.
+- Reach: graceful shutdown fences new work and releases the retained index once
+  active operations finish. An exhausted budget emits a warning. Untrappable
+  process kills remain outside this graceful-shutdown guarantee.
+- Verdict: sound; the existing native busy-close test and hosted replica
+  lifecycle test own the two boundaries without introducing a second owner.
+- Confidence: medium; the full remote unit gate passed, while the hosted
+  database lifecycle acceptance remains pending.
