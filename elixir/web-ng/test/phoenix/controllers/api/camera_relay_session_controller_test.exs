@@ -365,12 +365,13 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
           {"opening a relay", :post, "/api/camera-relay-sessions"},
           {"reading a relay", :get, "/api/camera-relay-sessions/:id"},
           {"closing a relay", :post, "/api/camera-relay-sessions/:id/close"},
-          {"starting WebRTC signaling", :post, "/api/camera-relay-sessions/:id/webrtc/session"}
+          {"starting WebRTC signaling", :post, "/api/camera-relay-sessions/:id/webrtc/session"},
+          {"polling WebRTC candidates", :get, "/api/camera-relay-sessions/:id/webrtc/session/:viewer_session_id"}
         ] do
       test "refuses #{label} without devices.cameras.view" do
         user = grant_permissions(AshTestHelpers.user_fixture(), ["devices.view"])
         {:ok, token, _claims} = Guardian.create_access_token(user)
-        path = String.replace(unquote(path), ":id", Ecto.UUID.generate())
+        path = Regex.replace(~r/:[a-z_]+/, unquote(path), fn _ -> Ecto.UUID.generate() end)
 
         conn =
           build_conn()
