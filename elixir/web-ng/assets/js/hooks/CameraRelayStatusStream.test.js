@@ -135,12 +135,12 @@ async function mountWebRtcViewer({fetchImpl} = {}) {
 
   const MockWebSocket = createMockWebSocketClass()
   globalThis.WebSocket = MockWebSocket
-  globalThis.window = {
+  globalThis.window = Object.assign(new EventTarget(), {
     location: new URL("https://example.com/devices/test"),
     RTCPeerConnection: PeerConnection,
     WebSocket: MockWebSocket,
     VideoDecoder: function VideoDecoder() {},
-  }
+  })
   globalThis.document = {querySelector: () => null}
   globalThis.fetch = vi.fn(fetchImpl || (async (_url, options) => ({
     ok: true,
@@ -229,6 +229,18 @@ describe("CameraRelayStatusStream", () => {
     await vi.advanceTimersByTimeAsync(8000)
     expect(sockets).toHaveLength(1)
     expect(peer.closed).toBe(true)
+  })
+
+  // A reload or tab close never runs the hook's destroyed(); without this the
+  // relay keeps the viewer's sink until ICE times out and logs it as a crash.
+  it("releases its WebRTC viewer session when the page is hidden", async () => {
+    const {peer} = await mountWebRtcViewer()
+    globalThis.window.dispatchEvent(new Event("pagehide"))
+    expect(peer.closed).toBe(true)
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test",
+      expect.objectContaining({method: "DELETE", keepalive: true})
+    )
   })
 
   it("never opens a fallback socket after the viewer is destroyed during stalled ICE", async () => {
