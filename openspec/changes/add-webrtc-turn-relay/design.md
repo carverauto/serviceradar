@@ -249,10 +249,11 @@ SRQL-queryable. No new table.
     time.
   - Client-facing exposure (`turnServer.exposure`):
     - `gateway` (default when Gateway API is enabled): listeners and routes on
-      the shared Envoy Gateway -- UDPRoute and TCPRoute for 3478 and a
-      passthrough TLSRoute for 5349. eturnal terminates TLS itself with a
-      cert-manager `Certificate` (or an existing TLS Secret) for the TURN
-      hostname.
+      the shared Envoy Gateway -- UDPRoute and TCPRoute, plus a passthrough
+      TLSRoute, on `externalPorts` (default 3478, 3478 and 5349). eturnal
+      terminates TLS itself with a cert-manager `Certificate` (or an existing
+      TLS Secret) for the TURN hostname. The pod still listens on 3478 and
+      5349.
     - `service`: a LoadBalancer Service publishing `externalPorts`, for
       installations without Gateway API. Any other `service.type` fails
       rendering. NodePort is not used.
@@ -263,8 +264,10 @@ SRQL-queryable. No new table.
     core-elx's WebRTC peer, so eturnal advertises its pod address as the relay
     address and the range is never published.
   - A ConfigMap.
-  - A NetworkPolicy: client ports from the gateway (or the Service), relay
-    ports only from core-elx pods.
+  - A NetworkPolicy: client ports from the gateway (or the Service); from
+    core-elx, UDP 3478 and the relay range; from the TURN pod, the relay
+    range, including egress to its own relay address. Core's allocate stays
+    on the pod listen port, UDP 3478, not the LoadBalancer port.
 - **Peer policy:** the server denies relaying to eturnal's `recommended`
   list (RFC 1918, loopback, link-local, CGNAT 100.64.0.0/10, ULA, ...) plus
   the operator's `deniedPeerCIDRs` (cluster CIDRs outside that list), with one
@@ -299,8 +302,10 @@ SRQL-queryable. No new table.
   list per release: web-ng gets the externally reachable `turn:`/`turns:`
   URLs, core-elx the in-cluster Service URL. Callers pass no URLs.
 - **core-elx peer uses TURN over UDP only.** ex_ice's TURN client supports
-  only `turn:` with `transport=udp`, so the core-elx URL is
-  `turn:<release>-turn.<namespace>.svc.cluster.local:3478?transport=udp`.
+  only `turn:` with transport omitted or `transport=udp`. The chart-managed
+  peer URL is the in-cluster Service: port 3478 when `exposure` is `gateway`,
+  and `externalPorts.udp` when `exposure` is `service`. The pod still listens
+  on 3478. Operator detail is in `docs/docs/webrtc-turn-relay.md`.
 - **Signaling response.** `POST .../webrtc/session` returns the static
   (credential-free) ICE list plus the TURN servers minted for that viewer
   session (subject `{"camera_relay", relay_session_id, viewer_session_id}`),
@@ -408,7 +413,8 @@ Decided by the maintainer on 2026-10-03:
 - The relay port range is NOT exposed publicly. Every relayed connection's
   far end is core's in-cluster ex_webrtc peer, so eturnal advertises its pod
   address as the relay address and only in-cluster traffic reaches the relay
-  ports. A NetworkPolicy limits relay-port ingress to core pods.
+  ports. A NetworkPolicy admits relay-port ingress from core pods and from
+  the TURN pod, and lets the TURN pod send to its own relay ports.
 - Behind the gateway, eturnal sees Envoy's address as the client transport
   address. That is acceptable for TURN allocations (keyed per 5-tuple); STUN
   server-reflexive candidates keep coming from the public STUN entry, not from

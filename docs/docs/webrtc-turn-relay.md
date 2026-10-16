@@ -34,7 +34,7 @@ flowchart LR
   Browser -->|HTTPS signaling| Web
   Web <-->|ERTS RPC| Core
   Browser <-->|TURN client| GW --> TURN
-  Core <-->|TURN client, in-cluster Service UDP 3478| TURN
+  Core <-->|TURN client, in-cluster Service| TURN
   Secret -.->|mounted file| Web
   Secret -.->|mounted file| Core
   Secret -.->|mounted file| TURN
@@ -133,8 +133,14 @@ The values reach the releases as environment variables:
 `SERVICERADAR_WEBRTC_ICE_BACKEND`, `SERVICERADAR_WEBRTC_ICE_CREDENTIAL_TTL_SECONDS`,
 `SERVICERADAR_WEBRTC_TURN_SHARED_SECRET_FILE`
 (`/etc/serviceradar/webrtc-turn/shared-secret`) and
-`SERVICERADAR_WEBRTC_TURN_URLS_JSON`. web-ng gets the external URLs; core-elx
-gets `turn:serviceradar-turn.<namespace>.svc.cluster.local:3478?transport=udp`.
+`SERVICERADAR_WEBRTC_TURN_URLS_JSON`. web-ng gets the external URLs, on
+`externalPorts`. core-elx gets
+`turn:<release>-turn.<namespace>.svc.cluster.local:<port>?transport=udp`.
+With `exposure: gateway` that port is 3478, the pod listen port, because the
+Service is ClusterIP on 3478. With `exposure: service` that port is
+`externalPorts.udp`, the LoadBalancer Service port. kube-proxy forwards it to
+the pod, which still listens on 3478, and the core egress NetworkPolicy stays
+on UDP 3478.
 
 ### Example: chart-managed gateway
 
@@ -223,11 +229,13 @@ it.
 
 ## Exposing the TURN server
 
-- **Ports.** Open UDP 3478, TCP 3478 and, with TLS, TCP 5349 at the edge
-  (cloud firewall, security group, or on-premises firewall in front of the
-  gateway or load balancer). Nothing else. The relay port range is never
-  exposed: relay addresses are the TURN pod's own address, and the far end of
-  every relayed connection is core-elx inside the cluster.
+- **Ports.** Open the browser-facing ports at the edge (cloud firewall,
+  security group, or on-premises firewall in front of the gateway or load
+  balancer): `externalPorts.udp` and `externalPorts.tcp` (both 3478 by
+  default) and, with TLS, `externalPorts.tls` (5349 by default). Nothing
+  else. The relay port range is never exposed: relay addresses are the TURN
+  pod's own address, and the far end of every relayed connection is core-elx
+  inside the cluster.
 - **DNS.** Point `externalHostname` (for example `turn.example.com`) at the
   gateway or load balancer address that carries the TURN listeners. The chart
   does not publish this record.
@@ -240,9 +248,10 @@ it.
   with an HTTPS listener on the same port, and only if your gateway supports
   mixing them. If you do this, set `externalPorts.tls: 443` so browsers are
   given the right URL, and test it before relying on it.
-- **Load balancers.** With `exposure: service`, the Service carries UDP and TCP
-  on the same port. Mixed-protocol LoadBalancer Services need Kubernetes 1.26
-  or later and a load-balancer implementation that supports them. Keep
+- **Load balancers.** With `exposure: service`, the Service publishes
+  `externalPorts`. UDP and TCP both default to 3478, so the Service is
+  mixed-protocol on one port. That needs Kubernetes 1.26 or later and a
+  load-balancer implementation that supports it. Keep
   `externalTrafficPolicy: Local` so `service.allowedCIDRs` sees real client
   addresses.
 - **One replica.** The TURN Deployment runs one replica on purpose. The

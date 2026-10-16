@@ -137,7 +137,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `webrtc.iceCredentials.staticSecret.existingSecretName` / `.secretKey` | Operator-created Secret (and key) holding the TURN REST shared secret, mounted into web-ng, core-elx and the TURN server | `""` / `shared-secret` |
 | `webrtc.iceCredentials.turnUrls` / `.peerTurnUrls` | Extra TURN URLs for browsers / for core-elx (servers outside this chart). URLs only. Peer URLs must be `turn:` with transport omitted or `transport=udp` | `[]` |
 | `webrtc.turnServer.enabled` | Deploy the chart-managed TURN relay (eturnal); requires `backend: static_secret` and `externalHostname` | `false` |
-| `webrtc.turnServer.exposure` | `gateway` (UDP/TCP 3478 and TLS-passthrough 5349 routes) or `service` (LoadBalancer only; other service types fail rendering) | `gateway` |
+| `webrtc.turnServer.exposure` | `gateway` (routes on `externalPorts`) or `service` (LoadBalancer only; other service types fail rendering). See [WebRTC TURN Relay](../../docs/docs/webrtc-turn-relay.md) | `gateway` |
 | `webrtc.turnServer.tls.enabled` | Serve TURNS on 5349 with a certificate for `externalHostname` | `false` |
 | `webrtc.turnServer.relayPortRange.min` / `.max` | In-cluster relay ports (never published), at most 1000 | `49160` / `49359` |
 | `cnpg.localDevAccess.enabled` | Render a CNPG primary ingress NetworkPolicy for local developer workstation access | `false` |

@@ -35,8 +35,9 @@ backend exists for a managed TURN service.
   `design.md`):
   - UDP and TCP 3478, optional TLS 5349, and a bounded relay port range.
   - Exposed through the shared Envoy Gateway (UDP/TCP 3478 routes, TLS 5349
-    passthrough) or, without Gateway API, a LoadBalancer or NodePort Service.
-    The relay port range stays in-cluster.
+    passthrough) or, without Gateway API, a LoadBalancer Service on
+    `externalPorts`. Any other Service type fails rendering. The relay port
+    range stays in-cluster.
   - Wired to the same operator-owned shared-secret Secret.
   - Denies relaying to cluster and private CIDRs, except its own relay
     addresses and core-elx pods.

@@ -104,11 +104,11 @@ sequenceDiagram
   B->>W: POST camera relay webrtc/session
   W->>C: create viewer session (ERTS RPC, STUN-only ICE list)
   C->>C: mint peer TURN credential (shared provider)
-  C->>T: allocate relay (in-cluster Service, UDP 3478)
+  C->>T: allocate relay (in-cluster TURN Service)
   C-->>W: SDP offer, viewer session id
   W->>W: mint browser TURN credential for this viewer
   W-->>B: offer + ice_servers (STUN + TURN credential)
-  B->>T: allocate relay (gateway, UDP/TCP 3478 or TLS 5349)
+  B->>T: allocate relay (gateway or load balancer)
   B->>W: answer + ICE candidates
   W->>C: forward answer and candidates
   B-->>C: media over the two relay allocations on T

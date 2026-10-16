@@ -27,7 +27,7 @@
 
 ## 3. Helm
 - [x] 3.1 Add `webrtc.iceCredentials` values for infrastructure only (the `static_secret` Secret reference and its TTL bounds) with render-time validation that fails on missing Secrets, keys or out-of-range TTLs. No Cloudflare token value exists.
-- [x] 3.2 Add an optional eturnal `turnServer` component: Deployment; exposure via shared Envoy Gateway routes (UDPRoute/TCPRoute 3478, passthrough TLSRoute 5349 with a cert-manager Certificate) or a LoadBalancer/NodePort Service; required `externalHostname`; in-cluster-only bounded relay range; a peer deny list covering private, loopback, link-local, CGNAT, ULA and the cluster CIDRs with allows for the server's own relay addresses and core-elx pods; a NetworkPolicy (client ports from the gateway, relay ports from core-elx only).
+- [x] 3.2 Add an optional eturnal `turnServer` component: Deployment; exposure via shared Envoy Gateway routes (listeners on `externalPorts`, default UDP/TCP 3478 and passthrough TLS 5349, with a cert-manager Certificate) or a LoadBalancer Service publishing `externalPorts` (any other `service.type` fails rendering); required `externalHostname`; in-cluster-only bounded relay range; a peer deny list covering private, loopback, link-local, CGNAT, ULA and the cluster CIDRs with an allow for the server's own relay address; a NetworkPolicy (client ports from the gateway, relay ports from core-elx, and TURN-pod egress to its own relay ports).
 - [x] 3.3 Generalize RDP's core-only WebRTC egress NetworkPolicy to `webrtc.networkPolicy` and alias the RDP keys to it.
 - [x] 3.4 Add Helm unittest coverage: backend validation, Secret mounts reaching only web-ng and core, TURN server rendering, the deny list, and the alias compatibility.
 
