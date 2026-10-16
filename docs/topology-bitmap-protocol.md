@@ -40,13 +40,24 @@ nonempty, at most 128 bytes, and contain no NUL. The whole frame is at most
 | Sequence | uint64 |
 | Exact authorized query total | uint32; meaningful only for full replacements |
 | Metadata | Seven strings in order below |
+| Prefix freshness | uint8 count, at most 32, then each source string and uint64 version |
 
 Metadata order is dictionary epoch, index epoch, query digest, authority
 fingerprint, view digest, source revision, index revision. The fixed header is
-24 bytes. Reset has no payload. Query totals come from the same captured index
-revision as the complete replacement, never from summing tile counts. Pending,
-stale, rejected and cleared views do not expose an old total.
-A replacement contains a uint8 tile count, at most 64, followed by each tile:
+24 bytes. Query totals come from the same captured index revision as the
+complete replacement, never from summing tile counts. Pending, stale, rejected
+and cleared views do not expose an old total.
+
+The next field is named Prefix Tag freshness for this replacement: a uint8
+source count, at most 32, then each source as a string and a uint64 catalog
+version. Sources are strictly ascending raw UTF-8 bytes, with no duplicates.
+An empty count means the query captured no named Prefix Tag. The same section
+is present on a reset, which then ends. A later replacement may carry newer
+versions while the watch binding stays unchanged. Versions are the captured
+catalog versions for that sequence, not a cursor and not a second owner.
+
+A full replacement then contains a uint8 tile count, at most 64, followed by
+each tile:
 
 | Tile field | Encoding |
 | --- | --- |

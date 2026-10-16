@@ -188,7 +188,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
       authority_fingerprint: Base.encode16(context.authority, case: :lower),
       view_digest: digest(:erlang.term_to_binary(view, [:deterministic])),
       source_revision: digest(context.source_revision),
-      index_revision: Integer.to_string(context.revision)
+      index_revision: Integer.to_string(context.revision),
+      prefix_sources: context.prefix_sources
     }
   end
 
