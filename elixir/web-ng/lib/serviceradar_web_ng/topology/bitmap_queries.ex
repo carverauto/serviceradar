@@ -40,7 +40,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
         fn ->
           with {:ok, authority} <- BitmapAuthority.current(scope),
                {:ok, result} <- BitmapPrefixTags.page(params, authority, deadline),
-               :ok <- authorize_delivery(scope, authority, %{result.source => result.version}) do
+               :ok <- authorize_delivery(scope, authority, %{result.source => result.version}),
+               :ok <- enabled() do
             {:ok, result}
           end
         end,

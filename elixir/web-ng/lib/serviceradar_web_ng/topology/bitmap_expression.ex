@@ -6,19 +6,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   @max_bytes 16_384
   @max_predicates 32
   @max_depth 8
+  @max_nodes 65
 
   def parse(params, supported) when is_map(params) and is_list(supported) do
     with :ok <- request_budget(params),
          :ok <- request_keys(params),
          {:ok, kind} <- kind(Map.get(params, "kind", "device")),
-         {:ok, tree, _count} <- expression(Map.get(params, "expression", %{"all" => []}), supported, 0, 0),
+         {:ok, tree, _count} <- expression(Map.get(params, "expression", %{"all" => []}), supported, 1, 0),
+         {:ok, program} <- bounded_program(tree),
          {:ok, facets} <- facets(Map.get(params, "facets", []), supported),
          {:ok, limit} <- page_limit(Map.get(params, "limit", 128)) do
       {:ok,
        %{
          kind: kind,
          tree: tree,
-         program: compile(tree),
+         program: program,
          digest: :crypto.hash(:sha256, :erlang.term_to_binary({kind, tree})),
          facets: facets,
          limit: limit
@@ -111,7 +113,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
     |> case do
       {:ok, children, count} ->
         tree = {if(operator == "all", do: :all, else: :any), children |> Enum.uniq() |> Enum.sort()}
-        if length(compile(tree)) <= 65, do: {:ok, tree, count}, else: {:error, :expression_budget}
+        {:ok, tree, count}
 
       error ->
         error
@@ -180,6 +182,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   end
 
   defp text_prefix(_value, _maximum), do: {:error, :invalid_predicate}
+
+  defp bounded_program(tree) do
+    program = compile(tree)
+    if length(program) <= @max_nodes, do: {:ok, program}, else: {:error, :expression_budget}
+  end
 
   defp compile({:predicate, key, value}), do: [{0, key, value, 0}]
   defp compile({:value_prefix, key, value}), do: [{4, key, value, 0}]
