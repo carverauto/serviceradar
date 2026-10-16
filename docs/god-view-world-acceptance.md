@@ -162,8 +162,8 @@ shares a mutable binding dictionary between compute pipelines while keeping
 their bind-group cache keys separate. After zoom refinement replaces a label
 buffer, another pipeline can reuse a cached binding to that destroyed buffer.
 Submitting pending commands before label finalization does not prevent this
-later reuse. The pinned dependency patch gives each pipeline its own dictionary
-in the source, ESM and CommonJS distributions; Bun, pnpm and Bazel declare it.
+later reuse. The pinned patch gives each pipeline its own dictionary; patch
+coverage and removal are recorded in `elixir/web-ng/assets/patches/README.md`.
 
 The executable regression dispatches two real compute pipelines, destroys the
 first input, then rebinds the first pipeline to the surviving input. It checks
