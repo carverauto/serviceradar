@@ -2,10 +2,54 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.TopologyAtlas
+  alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.Native
 
   @moduletag :db_free
+
+  test "operator expressions preserve tag pairing and distinguish absent values across the native boundary" do
+    dictionary = <<21::128>>
+    epoch = <<22::128>>
+    authority = <<23::256>>
+    facets = ["vendor", "tag:team-primary", "tag:team-secondary", "tag:location"]
+    assert {:ok, index} = Native.bitmap_index_new(dictionary, epoch, :device, facets)
+    on_exit(fn -> Native.bitmap_index_close(index) end)
+
+    assert {:ok, _} =
+             Native.bitmap_index_publish(
+               index,
+               0,
+               "prefix-seed",
+               [
+                 {1, true, [{"tag:team-primary", "alpha-one"}, {"vendor", "unknown"}]},
+                 {2, true, [{"tag:team-secondary", "beta"}, {"tag:location", "alpha-one"}]},
+                 {3, true, []},
+                 {4, true, [{"tag:team-secondary", "alpha-two"}]}
+               ],
+               true
+             )
+
+    cases = [
+      {%{"facet" => "vendor", "prefix" => "unk"}, [1]},
+      {%{"facet" => "tag:team-primary", "prefix" => " alpha- "}, [1]},
+      {%{"tag_key_prefix" => "team-"}, [1, 2, 4]},
+      {%{"tag_key_prefix" => "team-", "value" => "alpha-one"}, [1]},
+      {%{"tag_key_prefix" => "team-", "prefix" => "alpha-"}, [1, 4]},
+      {%{"except" => %{"tag_key_prefix" => "team-", "prefix" => "alpha-"}}, [2, 3]}
+    ]
+
+    for {expression, expected} <- cases do
+      assert {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, facets)
+
+      assert {:ok, {query, 1, "prefix-seed", count}} =
+               Native.bitmap_index_query(index, dictionary, epoch, :device, authority, parsed.program, 1000)
+
+      assert count == length(expected)
+      assert {:ok, ^expected} = Native.bitmap_query_page(query, authority, 0, 128, 1000)
+      assert {:ok, _} = Native.bitmap_query_close(query)
+    end
+  end
 
   test "oversized canonical values disable only their facet and preserve pinned revisions" do
     dictionary = <<5::128>>

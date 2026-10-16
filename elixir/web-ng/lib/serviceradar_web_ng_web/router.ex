@@ -1127,6 +1127,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:topology_api])
 
     get("/details", TopologyTileController, :details)
+    get("/query/prefix-tags", TopologyQueryController, :prefix_tags)
     get("/overlays/:layout_version/:z/:x/:y", TopologyTileController, :overlay)
   end
 

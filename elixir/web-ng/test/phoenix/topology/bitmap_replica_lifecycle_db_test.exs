@@ -5,12 +5,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.VirtualizationHost
+  alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapPublisher
+  alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.Native
 
   @moduletag :topology_atlas_db
@@ -65,6 +71,95 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     start_supervised!(Supervisor.child_spec({Phoenix.PubSub, name: __MODULE__.IsolatedPubSub}, id: :isolated_pubsub))
 
     %{ids: ids, vendor: vendor}
+  end
+
+  test "one accepted revision combines current address sources, removes replacements, and fails explicitly on incomplete input",
+       %{
+         ids: [first_id, second_id | _],
+         vendor: vendor
+       } do
+    first = create(first_id, vendor, true)
+    second = create(second_id, vendor, true)
+    Repo.update_all(from(d in Device, where: d.uid in ^[first.uid, second.uid]), set: [ip: "192.0.2.7"])
+    first_ordinal = FleetIdentity.device_ordinal(first.uid)
+    second_ordinal = FleetIdentity.device_ordinal(second.uid)
+
+    active_alias =
+      DeviceAliasState
+      |> Ash.Changeset.for_create(:detect, %{device_id: first.uid, alias_type: :ip, alias_value: "198.51.100.7"},
+        actor: @actor
+      )
+      |> Ash.create!()
+
+    interface =
+      create_resource(Interface, %{
+        device_id: first.uid,
+        interface_uid: "example-port",
+        timestamp: DateTime.utc_now(),
+        ip_addresses: ["2001:db8::7", "192.0.2.9"]
+      })
+
+    host = create_resource(VirtualizationHost, %{provider: "example", provider_ref: first.uid, name: "Synthetic host"})
+
+    nic =
+      create_resource(VirtualizationNetworkInterface, %{
+        provider: "example",
+        provider_ref: first.uid,
+        name: "example-nic",
+        host_id: host.id,
+        device_uid: first.uid,
+        exists: true,
+        active: false,
+        address: "203.0.113.7/24",
+        ip_addresses: []
+      })
+
+    on_exit(fn ->
+      Repo.delete_all(from(n in VirtualizationNetworkInterface, where: n.host_id == ^host.id))
+      Repo.delete_all(from(h in VirtualizationHost, where: h.id == ^host.id))
+    end)
+
+    {:ok, info} = BitmapSource.initialize()
+    epoch = <<42::128>>
+    {:ok, index} = Native.bitmap_index_new(info.dictionary_epoch, epoch, :device, info.supported_facets)
+    current = Map.merge(info, %{device: index, index_epoch: epoch})
+    on_exit(fn -> Native.bitmap_index_close(index) end)
+    ordinals = [first_ordinal, second_ordinal]
+
+    assert {:ok, _} = publish_addresses(current, ordinals, 1)
+
+    for {cidr, expected} <- [
+          {"192.0.2.7", Enum.sort(ordinals)},
+          {"192.0.2.9", [first_ordinal]},
+          {"198.51.100.7", [first_ordinal]},
+          {"2001:db8::/64", [first_ordinal]},
+          {"203.0.113.7", [first_ordinal]},
+          {"203.0.113.0", []}
+        ] do
+      assert {:ok, ^expected} = address_members(current, cidr)
+    end
+
+    active_alias |> Ash.Changeset.for_update(:mark_stale, %{}, actor: @actor) |> Ash.update!()
+    Ash.destroy!(interface, actor: @actor)
+    nic |> Ash.Changeset.for_update(:update, %{exists: false}, actor: @actor) |> Ash.update!()
+    assert {:ok, _} = publish_addresses(current, [first_ordinal], 2)
+
+    for cidr <- ["192.0.2.9", "198.51.100.7", "2001:db8::7", "203.0.113.7"] do
+      assert {:ok, []} = address_members(current, cidr)
+    end
+
+    Repo.query!(
+      "INSERT INTO platform.discovered_interfaces (device_id, interface_uid, timestamp, ip_addresses) VALUES ($1, 'example-cap', now(), $2::text[])",
+      [first.uid, List.duplicate("192.0.2.99", 4_097)]
+    )
+
+    assert {:ok, _} = publish_addresses(current, [first_ordinal], 3)
+    assert {:error, "ip_unavailable"} = address_members(current, "192.0.2.7")
+    Repo.update_all(from(d in Device, where: d.uid == ^second.uid), set: [vendor_name: "example-updated"])
+    assert {:ok, _} = publish_addresses(current, [second_ordinal], 4)
+    assert {:error, "ip_unavailable"} = address_members(current, "192.0.2.7")
+    assert {:ok, [^second_ordinal]} = selected_members(current, %{"facet" => "vendor", "value" => "example-updated"})
+    assert {:ok, %{ready: true, ip_available: false}} = Native.bitmap_index_status(index)
   end
 
   test "independent publishers recover missed notifications, late commits behind the cursor, and a cold restart", %{
@@ -170,6 +265,45 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     Device
     |> Ash.Changeset.for_create(:create, %{uid: uid, vendor_name: vendor, is_available: available}, actor: @actor)
     |> Ash.create!()
+  end
+
+  defp create_resource(resource, attrs),
+    do: resource |> Ash.Changeset.for_create(:create, attrs, actor: @actor) |> Ash.create!()
+
+  defp publish_addresses(current, ordinals, sequence) do
+    BitmapPublisher.publish(
+      current,
+      fn ->
+        with {:ok, rows} <- BitmapSource.fetch(ordinals, current.supported_facets), do: {:ok, %{rows: rows}}
+      end,
+      fn _ -> true end,
+      sequence
+    )
+  end
+
+  defp address_members(current, cidr) do
+    selected_members(current, %{"ip_cidr" => cidr})
+  end
+
+  defp selected_members(current, expression) do
+    {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, current.supported_facets)
+
+    with {:ok, {query, _, _, _}} <-
+           Native.bitmap_index_query(
+             current.device,
+             current.dictionary_epoch,
+             current.index_epoch,
+             :device,
+             @authority,
+             parsed.program,
+             1_000
+           ) do
+      try do
+        Native.bitmap_query_page(query, @authority, 0, 128, 1_000)
+      after
+        Native.bitmap_query_close(query)
+      end
+    end
   end
 
   defp set_available(device, value) do
