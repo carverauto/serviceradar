@@ -333,10 +333,15 @@ export default class WorldMapRenderer {
     clearTimeout(this.locationTimer)
     if (this.destroyed || !this.cache.manifest) return
     this.locationTimer = setTimeout(() => {
-      if (this.destroyed) return
+      if (this.destroyed || this.rendererFailed) return
+      if (!this.deck?.isInitialized) {
+        this.scheduleLocationUpdate()
+        return
+      }
       // Read the rendered camera: controller transition intents can contain
       // legacy zoom alongside independently interpolated zoomX/zoomY values.
       const viewport = this.deck.getViewports()[0]
+      if (!viewport) return
       const target = viewport.target.map(value => Math.max(0, Math.min(WORLD_TILE_SIZE, value)))
       const zoom = Math.max(-2, Math.min(this.cache.manifest.zmax, viewport.zoom))
       if (zoom !== viewport.zoom || target.some((value, axis) => value !== viewport.target[axis])) {
@@ -356,9 +361,11 @@ export default class WorldMapRenderer {
   }
 
   shareMap() {
-    if (!this.cache.manifest) return
+    if (!this.cache.manifest || !this.deck?.isInitialized) return
     // Share the retained map camera even while a bounded detail scene is open.
-    this.showLink(this.mapURL(this.deck.getViewports()[0]), "Map link")
+    const viewport = this.deck.getViewports()[0]
+    if (!viewport) return
+    this.showLink(this.mapURL(viewport), "Map link")
   }
 
   shareDevice(id) {
@@ -517,9 +524,11 @@ export default class WorldMapRenderer {
     if (signature !== this.membershipRetrySignature) this.clearMembershipRetry()
     if (signature === this.membershipSignature) return
     this.membershipSignature = signature
+    this.membershipPush = (this.membershipPush || 0) + 1
+    const pushId = this.membershipPush
     this.membership.clear(true)
     this.channel.push("membership:watch", request).receive("ok", binding => {
-      if (this.destroyed || signature !== this.membershipSignature) return
+      if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
       const geometries = tiles.map(tile => this.cache.entries.get(`${tile.z}/${tile.x}/${tile.y}`)?.geometry)
       if (geometries.some((geometry, index) => !geometry || geometry.revision !== tiles[index].revision)) {
         this.invalidateMembership()
@@ -529,12 +538,13 @@ export default class WorldMapRenderer {
       this.membershipProjectionIncomplete = binding.projection?.mapped < binding.projection?.total
       try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
-      if (signature !== this.membershipSignature) return
+      if (pushId !== this.membershipPush || signature !== this.membershipSignature) return
       this.membershipError = error.reason || "unsupported filter"
       this.updateFilterPanel()
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
       if (["membership_not_ready", "membership_replaced", "index_not_ready", "index_unavailable", "prefix_source_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
+      if (pushId !== this.membershipPush || signature !== this.membershipSignature) return
       this.retryMembership(signature)
     })
   }
@@ -620,7 +630,9 @@ export default class WorldMapRenderer {
     const object = info.object
     if (object.kind === "aggregate") {
       this.dismissPanel()
+      if (!this.deck?.isInitialized) return
       const viewport = this.deck.getViewports()[0]
+      if (!viewport) return
       const zoom = Math.min(this.cache.manifest.zmax, Math.max(viewport.zoom, geometry.key.z) + 2)
       if (zoom > viewport.zoom) {
         const target = [geometry.positions[object.index * 2], geometry.positions[object.index * 2 + 1], 0]

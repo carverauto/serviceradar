@@ -293,7 +293,7 @@ export default class WorldTileLayer extends TileLayer {
           ? [120, 132, 151, 30]
           : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)]),
         getWidth: (_, {index}) => shownEdge(index) ? 6 * edgeStyle(index).mantleWidthScale : 0,
-        widthUnits: "pixels", updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending], getColor: [this.props.inferred, membership, this.props.membershipPending]},
+        widthUnits: "pixels", updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled], getColor: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
@@ -302,7 +302,7 @@ export default class WorldTileLayer extends TileLayer {
           ? [120, 132, 151, 100]
           : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)]),
         getWidth: (_, {index}) => shownEdge(index) ? 1.5 * edgeStyle(index).crustWidthScale : 0, widthUnits: "pixels",
-        updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending], getColor: [this.props.inferred, membership, this.props.membershipPending]},
+        updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled], getColor: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
       flow && flow.length > 0 && new PacketFlowLayer(props, common, {
         id: `${props.id}-packets`, data: flow, animate: true, pickable: false,
@@ -315,7 +315,7 @@ export default class WorldTileLayer extends TileLayer {
         radiusUnits: "pixels",
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 13 : 9) : 0,
         getFillColor: (_, info) => shown(node(info)) ? [...healthColor(node(info)).slice(0, 3), 35] : [0, 0, 0, 0],
-        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending], getRadius: [overlay, filters, membership, this.props.membershipPending]},
+        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getRadius: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
@@ -333,7 +333,7 @@ export default class WorldTileLayer extends TileLayer {
           if (node(info).kind !== "device") return [210, 226, 240, 230]
           return healthColor(node(info))
         },
-        updateTriggers: {getLineWidth: [overlay, filters, membership, this.props.membershipPending], getFillColor: [overlay, filters, membership, this.props.membershipPending], getLineColor: [overlay, filters, membership, this.props.membershipPending], getRadius: [overlay, filters, membership, this.props.membershipPending]},
+        updateTriggers: {getLineWidth: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getFillColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getLineColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getRadius: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
     ]
   }

@@ -222,12 +222,14 @@ describe("world tile rendering contract", () => {
     }
   })
 
-  it("resets the displayed map camera repeatedly after interactive pan and zoom", async () => {
+  it("waits for the displayed camera before sharing its location and resets after pan and zoom", async () => {
     vi.useFakeTimers()
     const handlers = new Map()
     const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
     vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
-    vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
+    const replaceState = vi.fn()
+    vi.stubGlobal("window", {location: {pathname: "/topology", href: "https://atlas.example.com/topology"},
+      history: {state: null, replaceState}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
     // Keep Deck's real camera lifecycle; only GPU startup and drawing are absent.
     vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
@@ -238,6 +240,15 @@ describe("world tile rendering contract", () => {
     try {
       await renderer.mount()
       const deck = renderer.deck
+      renderer.cache.manifest = {layout_version: worldTileKey.layout_version, bounds: [[0, 0], [8388608, 8388608]], zmax: 16}
+      renderer.setView({target: [300, 200, 0], zoom: 4})
+      expect(deck.isInitialized).toBe(false)
+      // Real Deck asserts if getViewports is called while its device is pending.
+      await vi.advanceTimersByTimeAsync(500)
+      expect(replaceState).not.toHaveBeenCalled()
+      const showLink = vi.spyOn(renderer, "showLink").mockImplementation(() => {})
+      renderer.shareMap()
+      expect(showLink).not.toHaveBeenCalled()
       Object.assign(deck, {width: 800, height: 600})
       deck.viewManager = new ViewManager({
         views: deck._getViews(), width: 800, height: 600,
@@ -249,8 +260,15 @@ describe("world tile rendering contract", () => {
       deck.deckRenderer = {setProps() {}, finalize() {}}
       deck.deckPicker = {setProps() {}, finalize() {}}
       deck.widgetManager = {setProps() {}, finalize() {}}
+      await vi.advanceTimersByTimeAsync(250)
+      expect(replaceState).toHaveBeenCalledOnce()
+      const location = new URL(replaceState.mock.calls[0][2])
+      expect(location.searchParams.get("x")).toBe("9830400")
+      expect(location.searchParams.get("y")).toBe("6553600")
+      expect(location.searchParams.get("z")).toBe("4")
+      renderer.shareMap()
+      expect(showLink).toHaveBeenCalledWith(expect.objectContaining({href: location.href}), "Map link")
       // An invented occupied world fits to target [128, 128].
-      renderer.cache.manifest = {bounds: [[0, 0], [8388608, 8388608]], zmax: 16}
       handlers.get("god_view:reset_view")()
       for (const zoom of [4, 6]) {
         deck._onViewStateChange({viewId: "god-view-world", viewState: {target: [300, 200, 0], zoom}})
@@ -261,8 +279,12 @@ describe("world tile rendering contract", () => {
         expect(viewport.target).toEqual([128, 128, 0])
         expect(viewport.zoom).toBeCloseTo(Math.log2(460 / 256))
       }
-    } finally {
       renderer.destroy()
+      const writes = replaceState.mock.calls.length
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(replaceState).toHaveBeenCalledTimes(writes)
+    } finally {
+      if (!renderer.destroyed) renderer.destroy()
       vi.restoreAllMocks()
       vi.unstubAllGlobals()
       vi.useRealTimers()

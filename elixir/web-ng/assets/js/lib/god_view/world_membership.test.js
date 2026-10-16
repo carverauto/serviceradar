@@ -406,6 +406,40 @@ describe("binary admitted-row membership", () => {
     }
   })
 
+  it("ignores a delayed reply when the same query is replaced and then restored", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn()), replies = []
+    const payload = {layout_version: "synthetic-layout", tiles: [{z: 0, x: 0, y: 0, revision: geometry.revision}]}
+    renderer.membershipEnabled = true
+    renderer.bitmapQuery = {facet: "vlan", value: "20"}
+    renderer.cache.manifest = {node_count: 2}
+    renderer.cache.entries.set("0/0/0", {geometry})
+    renderer.cache.visible.set("0/0/0", geometry.key)
+    renderer.cache.watchPayload = () => payload
+    renderer.watchSignature = JSON.stringify(payload)
+    renderer.channel = {state: "joined", push: vi.fn(name => {
+      const callbacks = {}
+      if (name === "membership:watch") replies.push(callbacks)
+      const push = {receive: (kind, callback) => {callbacks[kind] = callback; return push}}
+      return push
+    })}
+    renderer.syncWatch()
+    renderer.bitmapQuery = {facet: "vlan", value: "30"}
+    renderer.syncWatch()
+    renderer.bitmapQuery = {facet: "vlan", value: "20"}
+    renderer.syncWatch()
+    expect(replies).toHaveLength(3)
+    replies[0].ok(bitmapBinding)
+    replies[0].error({reason: "query_busy"})
+    replies[0].timeout()
+    expect(renderer.membership.binding).toBeNull()
+    expect(renderer.membershipError).toBeUndefined()
+    expect(renderer.membershipRetryTimer).toBeFalsy()
+    replies[2].ok(bitmapBinding)
+    expect(renderer.membership.binding.view_digest).toBe(bitmapBinding.view_digest)
+    renderer.destroyed = true
+    renderer.clearMembershipRetry()
+  })
+
   it("keeps accepted VLAN membership when a Prefix Tags source version is the only manifest change", async () => {
     const layout = "00000000-0000-4000-8000-000000000478"
     const query = {entity_kind: "device", facets: [{key: "vlan", operators: ["eq"]}],

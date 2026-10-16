@@ -128,6 +128,89 @@ test("hidden membership and availability glyphs cannot pick or obscure a visible
   expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
 })
 
+test("clearing missing membership restores glyphs and links on retained GPU layers", async ({page}) => {
+  await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
+  await page.goto("http://localhost:4774/?bitmap=1&capture=1")
+  await page.waitForFunction(() => {
+    const renderer = window.__SR_BITMAP_GPU__?.renderer
+    return renderer?.cache.watch && renderer.deck.props.layers[0]?.isLoaded && renderer.cache.entries.size > 0 &&
+      renderer.overlays.entries.size > 0
+  })
+  const scene = () => page.evaluate(() => {
+    const {renderer} = window.__SR_BITMAP_GPU__
+    const layer = renderer.deck.props.layers[0]
+    const geometry = [...renderer.cache.entries.values()].map(entry => entry.geometry)
+      .find(tile => tile.nodes.some(node => node.id === "synthetic-aggregate-5"))
+    const node = geometry.nodes.findIndex(item => item.id === "synthetic-aggregate-5")
+    const edge = geometry.edges.find(item => item.source === node || item.target === node)
+    const point = index => [geometry.positions[index * 2], geometry.positions[index * 2 + 1], 0]
+    const [sx, sy] = point(edge.source), [tx, ty] = point(edge.target)
+    return {layerId: layer.id, revision: geometry.revision, overlays: renderer.overlays.entries.size,
+      glyph: point(node), link: [(sx + tx) / 2, (sy + ty) / 2, 0], linkId: edge.id}
+  })
+  const pick = world => page.evaluate(async world => {
+    const {deck} = window.__SR_BITMAP_GPU__.renderer
+    const [x, y] = deck.getViewports()[0].project(world)
+    const result = await deck.pickObjectAsync({x, y, radius: 4})
+    const source = result?.sourceLayer || result?.layer
+    const object = result?.object || (result?.picked && source?.props.data.resolve?.(result.index))
+    return object ? {id: object.id, source: source?.id ?? null} : null
+  }, world)
+  await completedBitmapFrame(page)
+  const before = await scene()
+  expect(await pick(before.glyph)).toMatchObject({id: "synthetic-aggregate-5"})
+  expect(await pick(before.link)).toMatchObject({id: before.linkId})
+  await page.evaluate(async () => {
+    const {renderer} = window.__SR_BITMAP_GPU__
+    clearInterval(renderer.timer)
+    await renderer.overlays.polling
+    // Public layer inputs cover a missing tile receipt after pending state.
+    // This component case does not claim a complete server/channel lifecycle.
+    renderer.deck.setProps({layers: [renderer.deck.props.layers[0].clone({membershipEnabled: true, membershipPending: true})]})
+  })
+  await completedBitmapFrame(page)
+  await page.evaluate(() => {
+    const {renderer} = window.__SR_BITMAP_GPU__
+    renderer.deck.setProps({layers: [renderer.deck.props.layers[0].clone({membershipPending: false})]})
+    window.__SR_BITMAP_GPU__.clearInputs = {
+      geometry: new Map([...renderer.cache.entries].map(([key, entry]) => [key, entry.geometry])),
+      overlays: new Map(renderer.overlays.entries),
+      filters: renderer.filters,
+    }
+  })
+  await completedBitmapFrame(page)
+  expect(await pick(before.glyph)).toBeNull()
+  expect(await pick(before.link)).toBeNull()
+  const hidden = await scene()
+  expect(hidden.layerId).toBe(before.layerId)
+  expect(hidden.revision).toBe(before.revision)
+  expect(await page.evaluate(() => {
+    const layer = window.__SR_BITMAP_GPU__.renderer.deck.props.layers[0]
+    return {enabled: layer.props.membershipEnabled, pending: layer.props.membershipPending, entries: layer.props.membership.size}
+  })).toEqual({enabled: true, pending: false, entries: 0})
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query: null}))
+  await page.waitForFunction(() => {
+    const renderer = window.__SR_BITMAP_GPU__.renderer
+    return renderer.bitmapQuery === null && renderer.membership.pending === false && renderer.membership.entries.size === 0
+  })
+  await completedBitmapFrame(page)
+  const cleared = await scene()
+  expect(cleared.layerId).toBe(before.layerId)
+  expect(cleared.revision).toBe(before.revision)
+  expect(cleared.overlays).toBe(hidden.overlays)
+  expect(await page.evaluate(() => {
+    const {renderer, clearInputs} = window.__SR_BITMAP_GPU__
+    return [...clearInputs.geometry].every(([key, geometry]) => renderer.cache.entries.get(key)?.geometry === geometry) &&
+      [...clearInputs.overlays].every(([key, overlay]) => renderer.overlays.entries.get(key) === overlay) &&
+      renderer.filters === clearInputs.filters
+  })).toBe(true)
+  expect(await pick(before.glyph)).toMatchObject({id: "synthetic-aggregate-5", source: expect.stringContaining(before.layerId)})
+  expect(await pick(before.link)).toMatchObject({id: before.linkId, source: expect.stringContaining(before.layerId)})
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+})
+
 test("compute pipelines retain their own bindings after another pipeline retires its input", async ({page}) => {
   await page.route("http://localhost:4774/", route => route.fulfill({path: html, contentType: "text/html"}))
   await page.goto("http://localhost:4774/")
