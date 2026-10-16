@@ -212,6 +212,44 @@ func configSectionReconcilesEveryApply(section string) bool {
 	return section == configSectionAddons
 }
 
+// hasEscalatedConfigSectionFailure reports whether any section is waiting on a
+// same-version retry after its transient failure was escalated.
+func (p *PushLoop) hasEscalatedConfigSectionFailure() bool {
+	p.configSectionMu.Lock()
+	defer p.configSectionMu.Unlock()
+
+	for _, failure := range p.configSectionFailures {
+		if failure.escalated {
+			return true
+		}
+	}
+
+	return false
+}
+
+// configSectionIsEscalated reports whether this section's recorded failure was
+// escalated and must be re-attempted on the next same-version delivery.
+func (p *PushLoop) configSectionIsEscalated(section string) bool {
+	p.configSectionMu.Lock()
+	defer p.configSectionMu.Unlock()
+
+	failure, ok := p.configSectionFailures[section]
+
+	return ok && failure.escalated
+}
+
+// recordedVisibilityApplyFailed reports whether the visibility section's last apply
+// is still a recorded failure. A same-version add-on retry uses it to keep systemd
+// netprobe activation blocked without re-running visibility.
+func (p *PushLoop) recordedVisibilityApplyFailed() bool {
+	p.configSectionMu.Lock()
+	defer p.configSectionMu.Unlock()
+
+	_, ok := p.configSectionFailures[configSectionVisibility]
+
+	return ok
+}
+
 // configSectionPermanentFailureMatches reports whether the identical (section, payload)
 // permanent failure is already recorded, so the apply can be skipped this cycle. An
 // escalated transient failure never matches: it is retried in case it clears.
@@ -407,6 +445,25 @@ func (p *PushLoop) configSectionStatuses() []*proto.ConfigSectionStatus {
 	}
 
 	return statuses
+}
+
+// configSectionStatusesEqual reports whether two status lists carry the same
+// section, disposition, error, and since. Attempt counts are not on the wire.
+func configSectionStatusesEqual(left, right []*proto.ConfigSectionStatus) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for i := range left {
+		if left[i].GetSection() != right[i].GetSection() ||
+			left[i].GetDisposition() != right[i].GetDisposition() ||
+			left[i].GetError() != right[i].GetError() ||
+			left[i].GetSince() != right[i].GetSince() {
+			return false
+		}
+	}
+
+	return true
 }
 
 // configSectionDispositionString maps a disposition to its ConfigSectionStatus wire value.

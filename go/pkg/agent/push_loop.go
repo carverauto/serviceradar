@@ -152,7 +152,11 @@ type PushLoop struct {
 	configSequence       atomic.Uint64 // allocated before a poll request or on control receipt
 	configApplyMu        sync.Mutex
 	latestConfigSequence uint64 // highest request/receipt sequence whose apply began; guarded by configApplyMu
-	addonReconcileMu     sync.Mutex
+	// controlSender is the live control stream, so a poll that clears an escalated
+	// section can ack that version without waiting for another control push.
+	controlSenderMu  sync.Mutex
+	controlSender    *controlStreamSender
+	addonReconcileMu sync.Mutex
 
 	systemdAddonsMu        sync.Mutex
 	systemdRehydrateOnce   sync.Once

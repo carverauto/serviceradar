@@ -450,12 +450,26 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 		// the version defers and the reconcile retries next cycle. It must not wedge the
 		// apply pipeline — the caller keeps evaluating the remaining config sections.
 		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
-		supervised := make([]string, 0, len(specs))
+		// Specs are the add-ons the supervisor was asked to launch. Delivery-deferred
+		// add-ons have no spec this pass (the artifact never staged), and they fail
+		// with this section too. Name both, once each.
+		seen := make(map[string]struct{}, len(specs)+len(deferredAddons))
+		addonIDs := make([]string, 0, len(specs)+len(deferredAddons))
+		appendAddonID := func(id string) {
+			if _, ok := seen[id]; ok {
+				return
+			}
+			seen[id] = struct{}{}
+			addonIDs = append(addonIDs, id)
+		}
 		for _, spec := range specs {
-			supervised = append(supervised, spec.ID)
+			appendAddonID(spec.ID)
+		}
+		for _, id := range deferredAddons {
+			appendAddonID(id)
 		}
 		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
-			addonIDs: supervised,
+			addonIDs: addonIDs,
 			err:      fmt.Errorf("apply add-on assignments via supervisor: %w", err),
 		}
 	}

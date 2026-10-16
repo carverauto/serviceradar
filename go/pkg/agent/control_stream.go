@@ -256,29 +256,29 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 			}
 		}
 
-		sender := newControlStreamSender(stream)
-		if err := p.sendControlHello(sender); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to send control stream hello")
-			sender.Close()
-			select {
-			case <-ctx.Done():
+		func() {
+			sender := newControlStreamSender(stream)
+			p.setControlStreamSender(sender)
+			defer func() {
+				sender.Close()
+				p.setControlStreamSender(nil)
+			}()
+
+			if err := p.sendControlHello(sender); err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to send control stream hello")
 				return
-			case <-time.After(controlStreamReconnectDelay):
-				continue
-			}
-		}
-
-		if err := p.handleControlStream(ctx, stream, sender); err != nil {
-			if !errors.Is(err, io.EOF) {
-				p.logger.Warn().Err(err).Msg("Control stream ended with error")
 			}
 
-			if err := p.gateway.Disconnect(); err != nil {
-				p.logger.Warn().Err(err).Msg("Failed to reset gateway connection after control stream ended")
-			}
-		}
+			if err := p.handleControlStream(ctx, stream, sender); err != nil {
+				if !errors.Is(err, io.EOF) {
+					p.logger.Warn().Err(err).Msg("Control stream ended with error")
+				}
 
-		sender.Close()
+				if err := p.gateway.Disconnect(); err != nil {
+					p.logger.Warn().Err(err).Msg("Failed to reset gateway connection after control stream ended")
+				}
+			}
+		}()
 
 		select {
 		case <-ctx.Done():
@@ -454,21 +454,45 @@ func (p *PushLoop) handleControlStream(
 }
 
 // applyControlConfig applies a config delivered on the control stream and acks
-// the version once it is running.
+// the version once it is running. A same-version delivery that retried escalated
+// sections without a status change does not ack again.
 func (p *PushLoop) applyControlConfig(ctx context.Context, cfg *proto.AgentConfigResponse, sender *controlStreamSender) {
 	sequence := p.nextConfigSequence()
 	if !p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence) {
+		if cfg.GetConfigVersion() != "" && cfg.GetConfigVersion() == p.getConfigVersion() {
+			return
+		}
 		p.logger.Warn().
 			Str("config_version", cfg.ConfigVersion).
 			Msg("Skipped control stream config ack because config apply failed")
 		return
 	}
+	p.sendConfigAck(sender, cfg.ConfigVersion)
+}
+
+func (p *PushLoop) setControlStreamSender(sender *controlStreamSender) {
+	p.controlSenderMu.Lock()
+	p.controlSender = sender
+	p.controlSenderMu.Unlock()
+}
+
+func (p *PushLoop) sendLiveConfigAck(version string) {
+	p.controlSenderMu.Lock()
+	sender := p.controlSender
+	p.controlSenderMu.Unlock()
+	p.sendConfigAck(sender, version)
+}
+
+func (p *PushLoop) sendConfigAck(sender *controlStreamSender, version string) {
+	if sender == nil {
+		return
+	}
 	if err := sender.Send(&proto.ControlStreamRequest{
-		Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(cfg.ConfigVersion)},
+		Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(version)},
 	}); err != nil {
 		p.logger.Warn().
 			Err(err).
-			Str("config_version", cfg.ConfigVersion).
+			Str("config_version", version).
 			Msg("Failed to send control stream config ack")
 	}
 }
