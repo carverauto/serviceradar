@@ -18,7 +18,6 @@ package mapper
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -30,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 var (
@@ -77,9 +78,12 @@ func (e *DiscoveryEngine) createProxmoxClient(apiConfig ProxmoxAPIConfig) *http.
 	return &http.Client{
 		Timeout: e.config.Timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: apiConfig.InsecureSkipVerify, //nolint:gosec // operator-controlled discovery setting
-			},
+			TLSClientConfig: tlsclient.Config(tlsclient.Policy{
+				InsecureSkipVerify: apiConfig.InsecureSkipVerify,
+				OptIn:              "mapper.proxmox_apis.insecure_skip_verify",
+				Target:             apiConfig.Name,
+				Logger:             e.logger,
+			}),
 		},
 	}
 }
@@ -186,9 +190,14 @@ func (e *DiscoveryEngine) probeProxmoxCandidates(
 	client := &http.Client{
 		Timeout: e.config.Timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, //nolint:gosec // unauthenticated fingerprinting of self-signed PVE UI
-			},
+			// The probe only fingerprints the PVE web UI of an unknown host,
+			// which serves a self-signed certificate; it sends no credentials.
+			TLSClientConfig: tlsclient.Config(tlsclient.Policy{
+				InsecureSkipVerify: true,
+				OptIn:              proxmoxCandidateProbeOption,
+				Target:             "proxmox candidate probe",
+				Logger:             e.logger,
+			}),
 		},
 	}
 

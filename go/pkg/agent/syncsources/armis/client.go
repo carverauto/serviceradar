@@ -18,7 +18,6 @@ package armis
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +29,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 const (
@@ -89,19 +89,29 @@ func newClient(source models.SourceConfig) *client {
 // transport, reused by every request of a run so connections are pooled
 // rather than leaked per page.
 func newClientWithTimeout(source models.SourceConfig, timeout time.Duration) *client {
+	endpoint := strings.TrimRight(source.Endpoint, "/")
+
 	return &client{
-		endpoint:           strings.TrimRight(source.Endpoint, "/"),
+		endpoint:           endpoint,
 		insecureSkipVerify: source.InsecureSkipVerify,
-		http:               newHTTPClient(source.InsecureSkipVerify, timeout),
+		http:               newHTTPClient(endpoint, source.InsecureSkipVerify, timeout),
 	}
 }
 
-func newHTTPClient(insecureSkipVerify bool, timeout time.Duration) *http.Client {
+func newHTTPClient(endpoint string, insecureSkipVerify bool, timeout time.Duration) *http.Client {
 	transport := cloneDefaultTransport()
 	transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
 	transport.IdleConnTimeout = idleConnTimeout
 	if insecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		target := ""
+		if parsed, err := url.Parse(endpoint); err == nil {
+			target = parsed.Host
+		}
+		transport.TLSClientConfig = tlsclient.Config(tlsclient.Policy{
+			InsecureSkipVerify: true,
+			OptIn:              "armis.insecure_skip_verify",
+			Target:             target,
+		})
 	}
 
 	return &http.Client{Transport: transport, Timeout: timeout}
@@ -254,7 +264,7 @@ func (c *client) resolveURL(path string) (string, error) {
 
 func (c *client) httpClient() *http.Client {
 	if c.http == nil {
-		c.http = newHTTPClient(c.insecureSkipVerify, requestTimeout)
+		c.http = newHTTPClient(c.endpoint, c.insecureSkipVerify, requestTimeout)
 	}
 
 	return c.http

@@ -37,6 +37,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 // The grpc_unary host function performs one unary gRPC call on behalf of the
@@ -427,12 +429,14 @@ func (e *pluginExecution) grpcTransportCredentials(call grpcUnaryCall) (credenti
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		RootCAs:            roots,
+	tlsConfig := tlsclient.Config(tlsclient.Policy{
+		Base:               &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots},
 		ServerName:         call.tlsServerName,
-		InsecureSkipVerify: call.tlsSkipVerify, //nolint:gosec // explicit per-call guest opt-in, as for http_request
-	}
+		InsecureSkipVerify: call.tlsSkipVerify,
+		OptIn:              "grpc_unary.tls.insecure_skip_verify",
+		Target:             net.JoinHostPort(call.host, strconv.Itoa(call.port)),
+		Logger:             e.tlsSkipLogger(),
+	})
 
 	return credentials.NewTLS(tlsConfig), nil
 }

@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tlsclient",
+    srcs = ["tlsclient.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/tlsclient",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_rs_zerolog//:zerolog",
+        "@com_github_rs_zerolog//log",
+    ],
+)
+
+go_test(
+    name = "tlsclient_test",
+    srcs = ["tlsclient_test.go"],
+    embed = [":tlsclient"],
+    deps = ["@com_github_rs_zerolog//:zerolog"],
+)

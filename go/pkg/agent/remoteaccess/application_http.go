@@ -30,6 +30,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 const (
@@ -78,12 +80,13 @@ func NewApplicationHTTPAdapter(open ApplicationOpenPayload, opts ApplicationHTTP
 
 	transport := &http.Transport{
 		DialContext: opts.DialContext,
-		TLSClientConfig: &tls.Config{
-			RootCAs:            opts.RootCAs,
+		TLSClientConfig: tlsclient.Config(tlsclient.Policy{
+			Base:               &tls.Config{RootCAs: opts.RootCAs, MinVersion: tls.VersionTLS12},
 			ServerName:         strings.TrimSpace(open.SNI),
-			InsecureSkipVerify: tlsInsecureSkipVerify(open.TLSPolicy), //nolint:gosec // target policy controls this audited exception
-			MinVersion:         tls.VersionTLS12,
-		},
+			InsecureSkipVerify: tlsInsecureSkipVerify(open.TLSPolicy),
+			OptIn:              "remote_access.tls_policy.mode",
+			Target:             net.JoinHostPort(open.UpstreamHost, strconv.Itoa(open.UpstreamPort)),
+		}),
 		Proxy: nil,
 	}
 

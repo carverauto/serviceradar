@@ -18,7 +18,6 @@ package mapper
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +28,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 var (
@@ -57,9 +58,12 @@ func (e *DiscoveryEngine) createMikroTikClient(apiConfig MikroTikAPIConfig) *htt
 	return &http.Client{
 		Timeout: e.config.Timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: apiConfig.InsecureSkipVerify, //nolint:gosec // operator-controlled discovery setting
-			},
+			TLSClientConfig: tlsclient.Config(tlsclient.Policy{
+				InsecureSkipVerify: apiConfig.InsecureSkipVerify,
+				OptIn:              "mapper.mikrotik_apis.insecure_skip_verify",
+				Target:             apiConfig.Name,
+				Logger:             e.logger,
+			}),
 		},
 	}
 }

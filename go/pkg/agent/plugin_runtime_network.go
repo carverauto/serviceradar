@@ -18,7 +18,6 @@ package agent
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +31,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 const (
@@ -464,7 +465,16 @@ func (e *pluginExecution) dialPluginWebSocket(
 
 	dialer := websocket.Dialer{HandshakeTimeout: timeout}
 	if insecureSkipVerify {
-		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		target := ""
+		if parsed, err := url.Parse(wsURL); err == nil {
+			target = parsed.Host
+		}
+		dialer.TLSClientConfig = tlsclient.Config(tlsclient.Policy{
+			InsecureSkipVerify: true,
+			OptIn:              "websocket_connect.insecure_skip_verify",
+			Target:             target,
+			Logger:             e.tlsSkipLogger(),
+		})
 	}
 	return dialer.DialContext(ctx, wsURL, headers)
 }

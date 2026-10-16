@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,6 +20,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 const (
@@ -594,21 +595,25 @@ func vaultToken() string {
 }
 
 func vaultHTTPClient() (*http.Client, error) {
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
-	if skip := strings.ToLower(firstNonEmptyEnv("VAULT_SKIP_VERIFY", "BAO_SKIP_VERIFY")); skip == "1" || skip == "true" || skip == "yes" {
-		tlsConfig.InsecureSkipVerify = true
-	}
+	skip := strings.ToLower(firstNonEmptyEnv("VAULT_SKIP_VERIFY", "BAO_SKIP_VERIFY"))
+	var pinnedRoots *x509.CertPool
 	if caFile := firstNonEmptyEnv("VAULT_CACERT", "BAO_CACERT", "OPENBAO_CACERT"); caFile != "" {
 		pemBytes, err := os.ReadFile(caFile)
 		if err != nil {
 			return nil, err
 		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemBytes) {
+		pinnedRoots = x509.NewCertPool()
+		if !pinnedRoots.AppendCertsFromPEM(pemBytes) {
 			return nil, fmt.Errorf("unable to parse CA file %s", caFile)
 		}
-		tlsConfig.RootCAs = pool
 	}
+	// A configured CA wins over VAULT_SKIP_VERIFY.
+	tlsConfig := tlsclient.Config(tlsclient.Policy{
+		PinnedRoots:        pinnedRoots,
+		InsecureSkipVerify: skip == "1" || skip == "true" || skip == "yes",
+		OptIn:              "VAULT_SKIP_VERIFY",
+		Target:             "OpenBao transit",
+	})
 	return &http.Client{
 		Transport: &http.Transport{TLSClientConfig: tlsConfig},
 	}, nil

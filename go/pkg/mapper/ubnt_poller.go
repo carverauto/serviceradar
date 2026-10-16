@@ -18,11 +18,12 @@ package mapper
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 // createUniFiClient initializes an HTTP client for UniFi API calls with configured timeout and TLS settings.
@@ -30,9 +31,12 @@ func (e *DiscoveryEngine) createUniFiClient(apiConfig UniFiAPIConfig) *http.Clie
 	return &http.Client{
 		Timeout: e.config.Timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: apiConfig.InsecureSkipVerify, //nolint:gosec // G402: Allow insecure connections to Ubiquti devices
-			},
+			TLSClientConfig: tlsclient.Config(tlsclient.Policy{
+				InsecureSkipVerify: apiConfig.InsecureSkipVerify,
+				OptIn:              "mapper.unifi_apis.insecure_skip_verify",
+				Target:             apiConfig.Name,
+				Logger:             e.logger,
+			}),
 		},
 	}
 }

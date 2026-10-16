@@ -19,14 +19,11 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -36,6 +33,8 @@ import (
 	"time"
 
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 type httpRequestPayload struct {
@@ -82,11 +81,6 @@ const (
 )
 
 var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
-
-var (
-	errPluginHostAuthorityNoPeerCertificate   = errors.New("server presented no certificate")
-	errPluginHostAuthorityFingerprintMismatch = errors.New("server certificate fingerprint does not match pinned fingerprint")
-)
 
 // pluginHTTPTransportCache memoizes the TLS variants derived from a base
 // transport: the explicit plugin-level insecure opt-in, and each binding's pinned
@@ -720,9 +714,32 @@ func (c *pluginHTTPTransportCache) client(base *http.Client, insecureSkipVerify 
 }
 
 func (c *pluginHTTPTransportCache) insecureTransport(transport http.RoundTripper) http.RoundTripper {
-	return c.derivedTransport(transport, pluginHTTPTransportKey{insecure: true}, func(tlsConfig *tls.Config) {
-		tlsConfig.InsecureSkipVerify = true //nolint:gosec
+	return c.derivedTransport(transport, pluginHTTPTransportKey{insecure: true}, func(base *tls.Config) *tls.Config {
+		// The variant is cached per base transport, so this logs once per
+		// pool rather than once per request.
+		return tlsclient.Config(tlsclient.Policy{
+			Base:               base,
+			InsecureSkipVerify: true,
+			OptIn:              "http_request.insecure_skip_verify",
+			Target:             "plugin http_request",
+		})
 	})
+}
+
+// tlsSkipLogger returns the plugin manager's logger scoped to this
+// assignment, for the warning tlsclient writes when a guest opts out of
+// certificate verification.
+func (e *pluginExecution) tlsSkipLogger() tlsclient.Warner {
+	if e == nil || e.manager == nil || e.manager.logger == nil {
+		return nil
+	}
+
+	scoped := e.manager.logger.With().
+		Str("assignment_id", e.assignment.AssignmentID).
+		Str("plugin_id", e.assignment.PluginID).
+		Logger()
+
+	return &scoped
 }
 
 func flattenHeaders(headers http.Header) map[string]string {
@@ -785,29 +802,12 @@ func (c *pluginHTTPTransportCache) pinnedFingerprintTransport(transport http.Rou
 	return c.derivedTransport(
 		transport,
 		pluginHTTPTransportKey{fingerprint: fingerprint},
-		func(tlsConfig *tls.Config) {
-			// Chain building and hostname matching cannot succeed without an
-			// anchor; VerifyPeerCertificate is the whole verification here and
-			// accepts exactly one leaf.
-			tlsConfig.InsecureSkipVerify = true
-			tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-				return matchPluginHostAuthorityFingerprint(rawCerts, fingerprint)
-			}
+		func(base *tls.Config) *tls.Config {
+			// The fingerprint match is the whole verification and accepts
+			// exactly one leaf.
+			return tlsclient.Config(tlsclient.Policy{Base: base, PinnedFingerprint: fingerprint})
 		},
 	)
-}
-
-func matchPluginHostAuthorityFingerprint(rawCerts [][]byte, expected string) error {
-	if len(rawCerts) == 0 {
-		return errPluginHostAuthorityNoPeerCertificate
-	}
-
-	sum := sha256.Sum256(rawCerts[0])
-	got := "sha256:" + hex.EncodeToString(sum[:])
-	if got != expected {
-		return fmt.Errorf("%w: got %s want %s", errPluginHostAuthorityFingerprintMismatch, got, expected)
-	}
-	return nil
 }
 
 // clientWithPinnedRoots returns a client that verifies against the
@@ -841,7 +841,9 @@ func (c *pluginHTTPTransportCache) pinnedRootsTransport(
 	return c.derivedTransport(
 		transport,
 		pluginHTTPTransportKey{bundle: bundle},
-		func(tlsConfig *tls.Config) { tlsConfig.RootCAs = pool },
+		func(base *tls.Config) *tls.Config {
+			return tlsclient.Config(tlsclient.Policy{Base: base, PinnedRoots: pool})
+		},
 	)
 }
 
@@ -855,7 +857,7 @@ func (c *pluginHTTPTransportCache) pinnedRootsTransport(
 func (c *pluginHTTPTransportCache) derivedTransport(
 	transport http.RoundTripper,
 	key pluginHTTPTransportKey,
-	configure func(*tls.Config),
+	configure func(*tls.Config) *tls.Config,
 ) http.RoundTripper {
 	baseTransport, ok := transport.(*http.Transport)
 	if transport != nil && (!ok || baseTransport == nil) {
@@ -881,12 +883,9 @@ func (c *pluginHTTPTransportCache) derivedTransport(
 	}
 
 	httpTransport := baseTransport.Clone()
-	if httpTransport.TLSClientConfig != nil {
-		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
-	} else {
-		httpTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	}
-	configure(httpTransport.TLSClientConfig)
+	// configure builds the variant from the base config through tlsclient,
+	// which clones it; a nil base starts from tlsclient's TLS 1.2 default.
+	httpTransport.TLSClientConfig = configure(httpTransport.TLSClientConfig)
 	if c.transports == nil {
 		c.transports = make(map[pluginHTTPTransportKey]*http.Transport)
 	}
