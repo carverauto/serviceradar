@@ -59,6 +59,15 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
     end
   end
 
+  defmodule StatusClient do
+    @moduledoc false
+
+    def fetch_body(_url, _opts) do
+      {status, headers} = Process.get(:github_api_reply)
+      {:ok, Req.Response.new(status: status, headers: headers, body: ~s({"message":"synthetic"}))}
+    end
+  end
+
   setup do
     repo = %{owner: "acme", repo: "demo"}
     opts = [http_client: RecordingClient]
@@ -115,6 +124,50 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
         ] do
       Process.put(:release_list_body, body)
       assert RepoClient.fetch_recent_releases(repo, 5, opts) == expected
+    end
+  end
+
+  describe "release endpoints answering 401, 403 or 429" do
+    # An anonymous 403 or 429 carrying GitHub's rate-limit headers is the shared
+    # hourly budget running out, not a credential problem; only a 401, or a 403
+    # without those headers, is reported as one. CI exports GITHUB_TOKEN, so the
+    # tokenless cases clear it for the duration of the test.
+    setup do
+      saved = System.get_env("GITHUB_TOKEN")
+      System.delete_env("GITHUB_TOKEN")
+      on_exit(fn -> if saved, do: System.put_env("GITHUB_TOKEN", saved) end)
+    end
+
+    test "rate-limit headers are reported as the rate limit; anything else stays a credential failure",
+         %{repo: repo} do
+      exhausted = [{"x-ratelimit-remaining", "0"}, {"x-ratelimit-reset", "1767225600"}]
+      resets = "resets at 2026-01-01T00:00:00Z."
+      raise_hint = " Attaching a GitHub access token raises the limit."
+
+      cases = [
+        {403, exhausted, nil, "GitHub API rate limit exceeded (HTTP 403); #{resets}#{raise_hint}"},
+        {429, exhausted, nil, "GitHub API rate limit exceeded (HTTP 429); #{resets}#{raise_hint}"},
+        {403, [{"retry-after", "60"}], nil,
+         "GitHub API rate limit exceeded (HTTP 403); retry after 60 seconds.#{raise_hint}"},
+        {429, [], nil, "GitHub API rate limit exceeded (HTTP 429).#{raise_hint}"},
+        {403, exhausted, "synthetic-token", "GitHub API rate limit exceeded (HTTP 403); #{resets}"},
+        {403, [{"x-ratelimit-remaining", "42"}], nil,
+         "Plugin repository requires authentication (HTTP 403); attach a GitHub access token."},
+        {401, exhausted, "synthetic-token",
+         "Plugin repository rejected the configured access token (HTTP 401); " <>
+           "the token may be expired or missing repository read access."}
+      ]
+
+      for {status, headers, token, expected} <- cases do
+        Process.put(:github_api_reply, {status, headers})
+        opts = [http_client: StatusClient, github_token: token]
+
+        assert RepoClient.fetch_release(repo, "v1.0.0", opts) == {:error, expected},
+               "fetch_release: HTTP #{status} #{inspect(headers)}"
+
+        assert RepoClient.fetch_recent_releases(repo, 5, opts) == {:error, expected},
+               "fetch_recent_releases: HTTP #{status} #{inspect(headers)}"
+      end
     end
   end
 end
