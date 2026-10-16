@@ -128,12 +128,30 @@ defmodule ServiceRadar.Observability.PluginResultIngestorIdentityTest do
     agent_ids = statuses |> Enum.map(& &1.agent_id) |> Enum.uniq()
     gateway_ids = statuses |> Enum.map(& &1.gateway_id) |> Enum.uniq()
 
-    Enum.each(agent_ids, fn agent_id ->
-      Repo.query!("DELETE FROM platform.service_state WHERE agent_id = $1", [agent_id])
-      Repo.query!("DELETE FROM platform.service_status WHERE agent_id = $1", [agent_id])
-      Repo.query!("DELETE FROM platform.plugin_assignments WHERE agent_uid = $1", [agent_id])
-      Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
-    end)
+    package_ids =
+      Enum.flat_map(agent_ids, fn agent_id ->
+        Repo.query!("DELETE FROM platform.service_state WHERE agent_id = $1", [agent_id])
+        Repo.query!("DELETE FROM platform.service_status WHERE agent_id = $1", [agent_id])
+
+        %{rows: rows} =
+          Repo.query!(
+            "DELETE FROM platform.plugin_assignments WHERE agent_uid = $1 RETURNING plugin_package_id",
+            [agent_id]
+          )
+
+        Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
+        List.flatten(rows)
+      end)
+
+    # The fixture's plugin and package rows are committed too, and later suites
+    # on this database count packages. Deleting the plugin cascades to its packages.
+    Repo.query!(
+      """
+      DELETE FROM platform.plugins
+      WHERE plugin_id IN (SELECT plugin_id FROM platform.plugin_packages WHERE id = ANY($1::uuid[]))
+      """,
+      [package_ids]
+    )
 
     Enum.each(gateway_ids, fn gateway_id ->
       Repo.query!("DELETE FROM platform.gateways WHERE gateway_id = $1", [gateway_id])

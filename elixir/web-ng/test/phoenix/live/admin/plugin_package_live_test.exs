@@ -513,33 +513,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   test "catalog and imported package panels paginate independently", %{conn: conn, actor: actor} do
     unique = System.unique_integer([:positive])
+    plugin_id = fn index -> "installed-plugin-#{unique}-#{String.pad_leading("#{index}", 2, "0")}" end
+
+    # The imported panel lists every package in the instance, and the shared
+    # fixture database can hold packages committed before this test began.
+    # Count them the way the panel does. It sorts newest first, so this test's
+    # twelve packages always fill the first twelve rows and the page
+    # boundaries below stay exact.
+    imported_total = length(Packages.list(%{}, actor: actor)) + 12
 
     for index <- 1..12 do
-      suffix = index |> Integer.to_string() |> String.pad_leading(2, "0")
-
-      create_catalog_package!(
-        actor,
-        "v9.0.0",
-        "installed-plugin-#{unique}-#{suffix}",
-        "1.0.#{index}"
-      )
+      create_catalog_package!(actor, "v9.0.0", plugin_id.(index), "1.0.#{index}")
     end
 
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
     imported_html = lv |> element("#imported-plugin-packages") |> render()
 
-    assert imported_html =~ "Showing 1-10 of 12"
-    assert imported_html =~ "Live installed-plugin-#{unique}-12"
-    refute imported_html =~ "Live installed-plugin-#{unique}-01"
+    assert imported_html =~ "Showing 1-10 of #{imported_total}"
+    for index <- 3..12, do: assert(imported_html =~ "Live #{plugin_id.(index)}")
+    for index <- 1..2, do: refute(imported_html =~ "Live #{plugin_id.(index)}")
 
     html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Showing 1-10 of 12"
-    assert html =~ "Live installed-plugin-#{unique}-01"
-    assert html =~ "Live installed-plugin-#{unique}-10"
-    refute html =~ "Live installed-plugin-#{unique}-11"
-    refute html =~ "Live installed-plugin-#{unique}-12"
+    assert html =~ "Live #{plugin_id.(1)}"
+    assert html =~ "Live #{plugin_id.(10)}"
+    refute html =~ "Live #{plugin_id.(11)}"
+    refute html =~ "Live #{plugin_id.(12)}"
 
     lv
     |> element("#first-party-catalog-next-page")
@@ -548,9 +549,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Showing 11-12 of 12"
-    assert html =~ "Live installed-plugin-#{unique}-11"
-    assert html =~ "Live installed-plugin-#{unique}-12"
-    refute html =~ "Live installed-plugin-#{unique}-01"
+    assert html =~ "Live #{plugin_id.(11)}"
+    assert html =~ "Live #{plugin_id.(12)}"
+    refute html =~ "Live #{plugin_id.(1)}"
 
     lv
     |> element("#plugin-packages-next-page")
@@ -558,9 +559,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     imported_html = lv |> element("#imported-plugin-packages") |> render()
 
-    assert imported_html =~ "Showing 11-12 of 12"
-    assert imported_html =~ "Live installed-plugin-#{unique}-01"
-    refute imported_html =~ "Live installed-plugin-#{unique}-12"
+    assert imported_html =~ "Showing 11-#{min(imported_total, 20)} of #{imported_total}"
+    for index <- 1..2, do: assert(imported_html =~ "Live #{plugin_id.(index)}")
+    for index <- 3..12, do: refute(imported_html =~ "Live #{plugin_id.(index)}")
   end
 
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do

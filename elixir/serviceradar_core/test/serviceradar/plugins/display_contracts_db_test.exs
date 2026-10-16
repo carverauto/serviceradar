@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins.DisplayContractsDBTest do
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
 
   @moduletag :integration
   @moduletag sandbox: :unboxed
@@ -23,9 +24,21 @@ defmodule ServiceRadar.Plugins.DisplayContractsDBTest do
   end
 
   setup do
+    uid = :erlang.unique_integer([:positive])
+
+    # Unboxed rows are committed, and later suites on the same database count
+    # packages. Deleting the plugin cascades to its packages; a refused package
+    # still leaves the plugin row that was created ahead of it.
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.plugins WHERE plugin_id = $1", ["thirdparty-#{uid}"])
+
+      Repo.query!("DELETE FROM platform.addon_packages WHERE addon_id = $1", [
+        "thirdparty-addon-#{uid}"
+      ])
+    end)
+
     {:ok,
-     actor: %{id: Ash.UUID.generate(), email: "test@serviceradar.local", role: :admin},
-     uid: :erlang.unique_integer([:positive])}
+     actor: %{id: Ash.UUID.generate(), email: "test@serviceradar.local", role: :admin}, uid: uid}
   end
 
   defp contract(id) do
