@@ -156,7 +156,7 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
     with :ok <- continue_ordinals(owner, token),
          {:ok, snapshot} <- BitmapIndex.snapshot(),
          {:ok, current} <- WorldCache.world(cache),
-         {:ok, progress} <- BitmapSource.dictionary_progress(),
+         {:ok, progress} <- dictionary_progress(current, snapshot.dictionary_epoch),
          :ok <- continue_ordinals(owner, token) do
       if ordinals_due?(current, snapshot.dictionary_epoch, progress) do
         with {:ok, mapping} <- TopologyAtlas.new_ordinals(current.world, snapshot.dictionary_epoch),
@@ -185,6 +185,12 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
         error
     end
   end
+
+  # Permanent assignments cannot change a complete projection for this world/epoch.
+  defp dictionary_progress(%{ordinals: %{info: info}, dictionary_ordinal: progress}, epoch)
+       when info.dictionary_epoch == epoch and info.mapped == info.total, do: {:ok, progress}
+
+  defp dictionary_progress(_current, _epoch), do: BitmapSource.dictionary_progress()
 
   defp ordinals_due?(%{ordinals: %{info: info}, dictionary_ordinal: recorded}, epoch, progress),
     do: info.dictionary_epoch != epoch or recorded != progress
