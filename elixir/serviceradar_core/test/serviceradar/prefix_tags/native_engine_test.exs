@@ -51,6 +51,7 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
       },
       %{prefix: "192.0.2.0/24", vrf: "isolated", tags: ["variant"]},
       %{prefix: "192.0.2.7/32", tags: ["host"]},
+      %{prefix: "::ffff:198.51.100.7/120", tags: ["mapped-network"]},
       %{prefix: "2001:db8::/32", tags: ["v6"]},
       %{prefix: "2001:db8:1::/48", tags: ["nested"]},
       %{prefix: "2001:db8:1::1/128", tags: ["host6"]},
@@ -62,6 +63,9 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
     elixir = Trie.build(rows)
     assert is_reference(native)
     assert NativeEngine.stats(native) == Trie.stats(elixir)
+
+    assert [%{prefix: "198.51.100.0/24", tags: ["mapped-network"]}, %{tags: ["default"]}] =
+             NativeEngine.lookup(native, "198.51.100.7")
 
     for ip <- [
           "192.0.2.7",

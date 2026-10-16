@@ -42,6 +42,23 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound; preserve correctness while measuring cost.
 - Confidence: medium.
 
+### Preserve existing source-prefix spellings while accepting mapped IPv6 masks
+
+- When: named Prefix Tags normalization review.
+- Choice: a configured network `::ffff:192.0.2.7/120` becomes the IPv4 network
+  `192.0.2.0/24`, so it matches a device whose stored address was already
+  normalized to IPv4. Existing prefix sources also accept the shorter mapped
+  spelling `/24`; that established source behavior stays valid. Masks between
+  33 and 95 are rejected. The new map query syntax uses standard mapped IPv6
+  lengths of 96 through 128.
+- Gap: source prefix parsing previously skipped valid standard mapped masks;
+  the query design did not account for its established short-mask spelling.
+- Reach: both existing prefix engines and the native catalog share the same
+  network membership. Existing configured prefixes do not change meaning.
+- Verdict: sound; accept the missing standard form without breaking existing
+  source data, while keeping the new query syntax unambiguous.
+- Confidence: high.
+
 ### Retain minimal canonical tombstones during physical cleanup
 
 - When: device identity pass.

@@ -18,9 +18,15 @@ impl Prefix {
             Some((address, length)) => (address, Some(length.trim().parse::<u8>().ok()?)),
             None => (text, None),
         };
+        let mapped = address.contains(':');
         let (address, ipv4) = parse_address(address)?;
         let width = if ipv4 { 32 } else { 128 };
-        let length = length.unwrap_or(width);
+        let mut length = length.unwrap_or(width);
+        // Keep the existing IPv4-length spelling while accepting standard
+        // mapped IPv6 masks over the 96-bit address-family prefix.
+        if ipv4 && mapped && (96..=128).contains(&length) {
+            length -= 96;
+        }
         if length > width {
             return None;
         }
