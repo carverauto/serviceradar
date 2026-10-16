@@ -89,6 +89,42 @@ The system SHALL apply membership to the persistent tiled world without changing
 - **AND** valid geometry SHALL survive membership resets
 - **AND** health or membership updates SHALL NOT trigger ELK relayout
 
+#### Scenario: Partial aggregate telemetry
+- **GIVEN** a filter selects only part of an aggregate's represented population
+- **WHEN** an incident edge's telemetry still summarizes its complete bundle
+- **THEN** the client SHALL hide that relation and suppress its traffic rates and animation
+- **AND** the whole-bundle rate SHALL NOT be shown as a filtered-population rate
+
+### Requirement: Operator Map Set Filters
+The system SHALL expose a usable map filter builder for supported canonical attributes, inventory VLAN assignments and configured tags, with AND, OR, EXCEPT, literal text prefixes and typed IP/CIDR predicates.
+
+#### Scenario: VLAN set algebra on the map
+- **WHEN** an operator selects `(VLAN 20 OR VLAN 30) AND unavailable EXCEPT maintenance=true` using configured inventory fields
+- **THEN** the map SHALL apply that expression to device membership and exact aggregate match counts
+- **AND** positions SHALL remain fixed
+- **AND** the controls SHALL expose supported fields and their readiness without downloading fleet values
+- **AND** unsupported predicates SHALL be reported explicitly
+
+#### Scenario: Configured tag prefixes
+- **WHEN** an operator selects a literal prefix over tag names or an indexed scalar value
+- **THEN** the result SHALL union the complete matching supported postings under the query limits
+- **AND** tag-name matching SHALL cover configured keys and SHALL NOT imply arbitrary JSON-path indexing
+- **AND** exceeding the expansion or memory budget SHALL fail explicitly instead of returning partial matches
+
+#### Scenario: Any known address falls within a network
+- **GIVEN** a device has primary and interface addresses, including IPv4 and IPv6
+- **WHEN** an operator selects a valid CIDR
+- **THEN** the device SHALL match if any current canonical device/interface address belongs to that network
+- **AND** multiple matching addresses SHALL count the device only once
+- **AND** bits from different addresses SHALL NOT create a false match
+- **AND** invalid CIDRs or incomplete address sources SHALL fail explicitly
+
+#### Scenario: Clearing the query
+- **WHEN** the operator clears all active filtering
+- **THEN** the client SHALL cancel membership work and restore the unfiltered base view including boundary links
+- **AND** an unfiltered view SHALL NOT wait for query-index readiness
+- **AND** a deliberately selected all-devices expression SHALL still follow query membership guards
+
 ### Requirement: Typed Binary Tile Overlay
 The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.
 

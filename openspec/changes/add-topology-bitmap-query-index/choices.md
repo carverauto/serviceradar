@@ -65,3 +65,74 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Reach: no frozen export guarantee, retained query owner, routing or result cache.
 - Verdict: sound; cursor binds query, dictionary and current authority.
 - Confidence: high.
+
+### Hide relations whose filtered endpoints cannot be established
+
+- When: binary view integration.
+- Choice: a cluster can contain ten devices but only two matches. A line to
+  another partially matched cluster does not prove that any matching devices
+  connect. Hide that line and its whole-bundle traffic rather than attribute
+  unrelated members' traffic to the filter. With no selected query, preserve
+  the base map's links, including tile-boundary portals.
+- Gap: the plan required authorized relation membership without specifying
+  behavior while exact filtered bundle membership is unavailable.
+- Reach: filtered views may have fewer links until that projection is built;
+  counts stay exact and clearing the filter restores the complete base view.
+- Verdict: sound; an omitted unsupported relation is safer than a false link.
+- Confidence: medium.
+
+### Build the canonical world mapping after geometry becomes available
+
+- When: binary view integration.
+- Choice: the normal world loader first installs geometry, then streams pages
+  of canonical identities into a compact native vector. A new world rejects
+  the old world's pending map. Missing assignments remain excluded and a later
+  bounded scan retries them; the UI reports incomplete mapping.
+- Gap: the plan did not choose which existing owner joins world membership to
+  persistent device identity.
+- Reach: filters may wait for initial mapping, while unfiltered navigation
+  stays available. Historical geometry can require repeated repair scans.
+- Verdict: sound; one existing loader owns the work and avoids a fleet UID map.
+- Confidence: medium.
+
+### Encode telemetry once, preserving its separate update schedule
+
+- When: binary telemetry integration.
+- Choice: a tile's health and directional traffic become one bounded binary
+  payload after the telemetry query. The cache retains those bytes, and HTTP
+  serves them directly. Matching masks use a separate whole-view frame, so
+  changing a filter does not require re-querying telemetry for every tile.
+- Gap: the reduced proposal required binary replacement but did not specify
+  how existing telemetry caching and membership cadence share transport.
+- Reach: two small, explicit row protocols share exact geometry receipts;
+  telemetry fields retain coverage, unknowns and observation timestamps.
+- Verdict: sound; replaces bulk JSON while preserving bounded source reads.
+- Confidence: high.
+
+### Use one outstanding membership frame and current-policy delivery
+
+- When: channel integration.
+- Choice: after sending a complete membership frame, the server waits for its
+  acknowledgement before computing another. A fifteen-second stall resets the
+  stream. Every completed response rechecks the current user policy, dictionary
+  and world before sending; no history queue or old query owner survives.
+- Gap: the plan required bounded slow-viewer behavior without choosing the
+  acknowledgement and cancellation lifecycle.
+- Reach: slow viewers see current replacements instead of accumulating deltas;
+  eight query workers and a one-second request deadline bound expensive work.
+- Verdict: sound; full replacement makes dropped intermediate states harmless.
+- Confidence: high.
+
+### Interpret current IP membership through current address owners
+
+- When: user-expanded filter scope.
+- Choice: the user requested any known device/interface IP. Current primary
+  addresses, active aliases, interface addresses and existing virtual interfaces
+  contribute. An old IP identity record alone does not: those records may remain
+  for months after reassignment. A down interface still has its assigned IP.
+- Gap: the user specified breadth but not which historical/current inventory
+  records establish present membership.
+- Reach: IP filtering requires complete bounded association publication;
+  historical address searches remain a separate product behavior.
+- Verdict: sound; the filter describes current assignment, not identity history.
+- Confidence: high.

@@ -73,11 +73,13 @@ implementation. Architecture HTML artifacts remain explicitly pending refresh.
 - Core inventory unit shard passed with 1,043 discovered tests, 872 excluded,
   zero failures: BuildBuddy invocation
   `55eb5a47-81a7-4d3d-ba5e-2bb090062e43`. Database cases were excluded.
-- Native 1.1-million-device compact/sparse benchmark: four-term p95
-  0.234/1.159 ms; query plus 50 facets 2.480/3.439 ms; charged memory after
-  sustained churn 64.0/90.2 MB. Invocation
-  `02c8f8ee-e0e7-44c2-b7e9-2fe3193f7136`. This compares with a Rust tuple scan,
-  not the old JavaScript renderer, and does not prove complete replica memory.
+- The earlier native 1.1-million-device experiment retained 100 query pins
+  and reached 64.0/90.2 MB after compact/sparse churn (invocation
+  `02c8f8ee-e0e7-44c2-b7e9-2fe3193f7136`). That lifecycle was rejected; it is
+  not current admission or memory acceptance. The eight-pin implementation
+  passed native tests and sustained churn under unchanged 64 MB retained /
+  160 MB transient index caps. Its tuple baseline is independent Rust, not
+  the old JavaScript renderer.
 - Synthetic 8,192-row codec experiment: eight baseline portable sets used
   24,664 bytes for dense IDs and 245,824 for sparse IDs; seven-byte typed row
   columns use 57,344 bytes regardless of ID distribution. Source-built codec
@@ -89,6 +91,30 @@ implementation. Architecture HTML artifacts remain explicitly pending refresh.
   bytes; Node decode and validation measured 1.24 ms p95 over 100 iterations.
   Actual-browser and GPU measurement remains pending.
 
-Pending proofs include full database lifecycle tests, two-replica reconciliation,
-100-view fanout, integrated authorization and actual-hardware browser retention.
-The revised task list keeps these gates unchecked.
+The actual native Atlas-to-index 100-view workload passed three independent
+runs with automatic flaky retries disabled: invocation
+`6137b80f-5c80-4380-a498-8304fdc68ed1`. Each run completed 100 compact and
+100 sparse views through eight admitted workers. Sparse request p95 was
+393.8-415.8 ms and p99 456.0-507.8 ms; peak native charged allocation stayed
+below 160 MB with explicit temporary-budget retries. Earlier runs failed and
+exposed a fixed-size decoder reservation and a retained/transient accounting
+race; both were repaired without raising those caps. This is native scheduling
+evidence with a harness export gate, not 100 HTTP clients, authorization latency
+or whole-process memory. Details and reproducible targets live in the
+[native README](../../../elixir/web-ng/native/god_view_nif/README.md).
+
+Integrated web application-domain checks passed (478 discovered, 413 excluded,
+zero failures) in `48a6bc64-5365-41b0-b39d-2d1a90bbb3a4`. Web quality passed
+in `d6a0a56f-6b17-4fe8-953e-94230cfc11ab`; its Phoenix shard failed the
+timestamp formatter inventory after renderer edits. That drift is being repaired;
+it is not reported as a green integration run. The real channel/binary HTTP and
+two-replica database cases compile but remain unexecuted pending the hosted
+fixture lane. Hardware lifetime acceptance is still in progress.
+
+The user subsequently required visible AND/OR/EXCEPT map groups, literal tag
+prefixes and IPv4/IPv6 containment over any current device/interface address.
+Those additions are now explicit proposal/design/requirement tasks. They do not
+restore the rejected browser Roaring, frozen-page routing, interface identities
+or durable hint replication. Address-index memory and prefix/CIDR performance
+need their own declared proof before acceptance.
+
