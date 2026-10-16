@@ -58,9 +58,12 @@ fn rows(term: Term<'_>) -> Result<Vec<Row>, &'static str> {
 }
 fn program(term: Term<'_>) -> Result<Vec<Instruction>, &'static str> {
     list(term, 65, |value| {
-        let (op, key, value, arity): (u8, Term, Term, u16) =
+        let (op, key, value, arity): (u8, Term, Binary, u16) =
             value.decode().map_err(|_| "invalid_expression")?;
-        Ok((op, text(key, 64)?, text(value, 256)?, arity))
+        if value.len() > 256 {
+            return Err("text_budget");
+        }
+        Ok((op, text(key, 64)?, value.as_slice().to_vec(), arity))
     })
 }
 fn ids(term: Term<'_>) -> Result<Vec<u32>, &'static str> {

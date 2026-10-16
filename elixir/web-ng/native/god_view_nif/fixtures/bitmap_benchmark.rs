@@ -205,7 +205,7 @@ fn synthetic_scale() {
         let (current, _, _, _) = index
             .query(
                 b"synthetic-current-authority",
-                &[(1, String::new(), String::new(), 0)],
+                &[(1, String::new(), Vec::new(), 0)],
                 1000,
             )
             .unwrap();

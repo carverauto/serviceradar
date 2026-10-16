@@ -45,16 +45,16 @@ pub fn row(n: u32, sparse: bool) -> Row {
     )
 }
 fn pred(facet: &str, value: impl Into<String>) -> Instruction {
-    (0, facet.into(), value.into(), 0)
+    (0, facet.into(), value.into().into_bytes(), 0)
 }
 pub fn program(sample: usize) -> Vec<Instruction> {
     vec![
         pred("vendor", format!("vendor-{}", sample % 8)),
         pred("region", format!("region-{}", sample % 10)),
         pred("device_class", "0"),
-        (3, String::new(), String::new(), 1),
+        (3, String::new(), Vec::new(), 1),
         pred("availability", "healthy"),
-        (1, String::new(), String::new(), 4),
+        (1, String::new(), Vec::new(), 4),
     ]
 }
 pub fn percentiles(mut samples: Vec<u128>) -> [u128; 3] {
