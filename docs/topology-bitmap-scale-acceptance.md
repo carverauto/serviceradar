@@ -16,12 +16,12 @@ geometry partition and isolated VM measurements.
 ## Run through the existing hosted lifecycle
 
 After the branch has passed review and is pushed, dispatch the existing
-`BazelCI` action against its exact branch and commit. Set the ExecuteWorkflow
-environment override `SERVICERADAR_TOPOLOGY_BITMAP_SCALE` to `compact` or
-`sparse`; use separate dispatches for the first measurements. `both` runs the
-variants sequentially. Empty or `0` disables them. Other values fail.
-Ordinary correctness tests still run, and no additional provisioning action
-or script is involved.
+`WebNgDbDiagnostic` action against its exact branch and commit. Set the
+ExecuteWorkflow environment override `SERVICERADAR_TOPOLOGY_BITMAP_SCALE` to `compact` or
+`sparse`, one distribution per dispatch. Empty or `0` disables the workload.
+Other values, including `both`, fail. The diagnostic keeps its existing network
+and plugin database cases. Full `BazelCI` correctness gates the PR separately;
+no additional provisioning action or script is involved.
 
 The targets are:
 
@@ -32,19 +32,23 @@ The targets are:
 | `topology_bitmap_scale_sparse_acceptance` | Full workload on the existing `serial_1` scratch clone. |
 | `topology_bitmap_scale_acceptance` | Manual suite naming both variants. |
 
-The opt-in runs after the last ordinary serial database consumer. Both peer
-servers in one variant use the same clone. The existing observer and cleanup
-trap remain responsible for connection measurement, teardown and lease
-release. Each server uses eight database connections, and the driver uses
-eight, within the existing 114-slot observer budget.
+The opt-in runs after the existing diagnostic database cases. Both peer
+servers in one variant use the same clone: compact uses the existing `serial_0`;
+sparse provisions `serial_1` through the existing generation target and checks
+its generation digest and run identity. The same observer and cleanup trap
+own connection measurement, teardown and lease release. Each server uses
+eight database connections, and the driver uses eight. The observer admits
+24 slots for scale and retains its ordinary 15-slot setting otherwise.
 
-The observer limit increases from 1,800 to 10,800 seconds only for this opt-in.
-Before each variant, `prepare_generation` renews the same ready generation's
-7,200-second lease; its digest and database must remain unchanged. Each test
-has a 3,300-second deadline, below Bazel's eternal-test limit. The outer hosted
-workflow may impose a tighter deadline: confirm the effective runner timeout
-before dispatch. ExecuteWorkflow has no per-dispatch timeout override. A
-timeout is a failed, incomplete measurement, never evidence of acceptance.
+The observer limit increases from 1,800 to 3,300 seconds only for this opt-in.
+The existing 7,200-second generation lease already covers one run; there is
+no extra renewal. The selected Bazel test has a 2,700-second (45-minute) limit.
+The ExUnit scenario has 2,640 seconds, reserving a minute for peer teardown.
+The hosted runner was observed enforcing a one-hour `free_tier_limit`; this
+is why scale runs in the smaller diagnostic action, not after the full
+BazelCI workload. Schema preparation, compilation and diagnostic cases still
+consume outer time. ExecuteWorkflow cannot override that timeout. A timeout
+is a failed, incomplete measurement, never evidence of acceptance.
 
 Local compile and database-free verification use RBE:
 
