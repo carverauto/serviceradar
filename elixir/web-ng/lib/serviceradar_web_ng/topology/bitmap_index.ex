@@ -11,6 +11,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   use GenServer
 
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadarWebNG.Topology.BitmapPrefixTags
+  alias ServiceRadarWebNG.Topology.BitmapPublisher
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.Native
@@ -34,6 +37,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   def init(opts) do
     pubsub = Keyword.fetch!(opts, :pubsub)
     Phoenix.PubSub.subscribe(pubsub, DevicePubSub.invalidation_topic())
+    Phoenix.PubSub.subscribe(pubsub, Loader.pubsub_topic())
     send(self(), :step)
     Process.send_after(self(), :feature_check, 1_000)
 
@@ -50,6 +54,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
        hint_bytes: 0,
        rescan: true,
        scan_due: 0,
+       catalog_due: 0,
+       catalog_sources: [],
+       catalog_turn: 0,
        scan_generation: 0,
        scan_started_at: nil,
        seeded_at: nil,
@@ -78,7 +85,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
                 last_reconciled_at: state.last_reconciled_at,
                 pending_dirty: status.pending.pending_count + MapSet.size(state.hints),
                 source_error: state.source_error,
-                reconciling: not is_nil(state.cursor) or state.rescan or status.pending.rescan_needed
+                reconciling: not is_nil(state.cursor) or state.rescan or status.pending.rescan_needed,
+                ip_available: status.ip_available,
+                ip_unavailable_reason: status.ip_unavailable_reason
               }
 
               {:ok, Map.put(state.current, :progress, progress)}
@@ -105,6 +114,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   def handle_info(:devices_rescan, state), do: {:noreply, wake(%{state | rescan: true})}
 
+  def handle_info({:prefix_tags_snapshot_changed, _metadata}, state), do: {:noreply, wake(%{state | catalog_due: 0})}
+
   def handle_info({:bitmap_finished, token, result}, %{active: %{token: token, timed_out: false}} = state) do
     work = state.active.work
     state = release(state)
@@ -118,7 +129,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   def handle_info({:bitmap_timeout, token}, %{active: %{token: token, timed_out: false}} = state) do
     Process.exit(state.active.pid, :kill)
-    {:noreply, %{state | active: %{state.active | timed_out: true}, source_error: true, rescan: true}}
+    {:noreply, %{state | active: %{state.active | timed_out: true}}}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{active: %{ref: ref}} = state) do
@@ -169,10 +180,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp start_scan(state, _status), do: state
 
-  defp choose_read(state, _status, 3), do: schedule(state, 1_000)
+  defp choose_read(state, _status, 4), do: schedule(state, 1_000)
 
   defp choose_read(state, status, checked) do
-    turn = rem(state.turn, 3)
+    turn = rem(state.turn, 4)
     next = %{state | turn: turn + 1}
 
     cond do
@@ -191,8 +202,34 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
       turn == 2 and not is_nil(state.cursor) ->
         launch(next, {:scan, state.cursor, state.mode, state.scan_generation})
 
+      turn == 3 and state.catalog_due <= now() ->
+        catalog_work(next)
+
       true ->
         choose_read(next, status, checked + 1)
+    end
+  end
+
+  defp catalog_work(state) do
+    case BitmapPrefixTags.sources() do
+      {:ok, sources} ->
+        remaining = BitmapPrefixTags.release(state.catalog_sources -- sources)
+
+        if remaining == [] do
+          # Record bounded names before starting native work so cancellation and
+          # feature disable can release a catalog prepared by the worker.
+          {before, after_turn} = Enum.split(sources, rem(state.catalog_turn, max(length(sources), 1)))
+
+          launch(
+            %{state | catalog_sources: sources, catalog_turn: state.catalog_turn + 1},
+            {:catalog, after_turn ++ before}
+          )
+        else
+          schedule(%{state | catalog_due: now() + 1_000}, @step_interval)
+        end
+
+      {:error, _} ->
+        schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
     end
   end
 
@@ -233,6 +270,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp perform({:backfill, cursor}, _current, _sequence), do: BitmapSource.backfill(cursor)
 
+  defp perform({:catalog, sources}, _current, _sequence), do: BitmapPrefixTags.prepare(sources, now() + 1_000)
+
   defp perform({:hints, ids}, current, _sequence) do
     with {:ok, ordinals} <- BitmapSource.resolve_ids(ids),
          {:ok, _} <- Native.bitmap_index_mark_dirty(current.device, ordinals, false),
@@ -241,8 +280,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp perform({:scan, cursor, mode, generation}, current, sequence) do
     with :ok <- source_identity(current, cursor),
-         {:ok, page} <- BitmapSource.page(cursor, current.supported_facets),
-         {:ok, _} <- publish(current, page.rows, mode == :ready or page.done?, sequence) do
+         {:ok, page} <-
+           BitmapPublisher.publish(
+             current,
+             fn -> BitmapSource.page(cursor, current.supported_facets) end,
+             fn page -> mode == :ready or page.done? end,
+             sequence
+           ) do
       if page.done?, do: Native.bitmap_index_acknowledge_reconcile(current.device, generation)
       {:ok, page}
     end
@@ -251,8 +295,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   defp perform({:dirty, ready}, current, sequence) do
     with {:ok, {ordinals, _status}} <- Native.bitmap_index_take_dirty(current.device, @batch_size) do
       result =
-        with {:ok, rows} <- BitmapSource.fetch(ordinals, current.supported_facets),
-             {:ok, _} <- publish(current, rows, ready, sequence),
+        with {:ok, _} <-
+               BitmapPublisher.publish(
+                 current,
+                 fn ->
+                   with {:ok, rows} <- BitmapSource.fetch(ordinals, current.supported_facets),
+                        do: {:ok, %{rows: rows}}
+                 end,
+                 fn _ -> ready end,
+                 sequence
+               ),
              do: {:ok, nil}
 
       if match?({:error, _}, result) do
@@ -275,12 +327,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   defp source_identity(_current, _cursor), do: :ok
-
-  defp publish(current, rows, ready, sequence) do
-    with {:ok, status} <- Native.bitmap_index_status(current.device) do
-      Native.bitmap_index_publish(current.device, status.revision, <<sequence::unsigned-64>>, rows, ready)
-    end
-  end
 
   defp accept(state, :initialize, current),
     do: %{state | current: current, mode: :backfill, cursor: nil, source_error: false}
@@ -309,8 +355,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   defp accept(state, {:scan, _, _, _}, %{cursor: cursor}), do: %{state | cursor: cursor, source_error: false}
+  defp accept(state, {:catalog, _}, _result), do: %{state | catalog_due: now() + @scan_interval}
+  defp accept(state, {:hints, _}, _result), do: state
   defp accept(state, _work, _result), do: %{state | source_error: false}
 
+  defp retry(state, {:catalog, _}), do: schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
   defp retry(state, {:hints, ids}), do: state |> remember(ids) |> retry(:read)
   defp retry(state, _work), do: schedule(%{state | source_error: true, rescan: true}, 1_000)
 
@@ -351,10 +400,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         last_reconciled_at: nil
     }
 
-    case state.current && Native.bitmap_index_close(state.current.device) do
-      {:error, _busy} -> schedule(%{state | mode: :closing}, @step_interval)
-      _ -> %{state | current: nil}
-    end
+    catalogs = BitmapPrefixTags.release(state.catalog_sources)
+
+    current =
+      case state.current && Native.bitmap_index_close(state.current.device) do
+        {:error, _busy} -> state.current
+        _ -> nil
+      end
+
+    state = %{state | current: current, catalog_sources: catalogs, catalog_due: 0}
+
+    if current || catalogs != [],
+      do: schedule(%{state | mode: :closing}, @step_interval),
+      else: state
   end
 
   defp wake(%{active: nil} = state), do: schedule(state, 0)

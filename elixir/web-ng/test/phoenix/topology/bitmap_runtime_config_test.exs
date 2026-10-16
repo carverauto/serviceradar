@@ -38,8 +38,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
     assert BitmapQueries.enabled?()
     assert {:ok, descriptor} = BitmapSource.query_descriptor()
     assert descriptor.tag_keys == ["role", "zone,group"]
-    assert %{key: "tag:zone,group", label: "tag:zone,group", operators: ["eq"]} in descriptor.facets
-    assert %{key: "vlan", label: "Inventory VLAN", operators: ["eq"]} in descriptor.facets
+    assert %{key: "tag:zone,group", label: "tag:zone,group", operators: ["eq", "prefix"]} in descriptor.facets
+    assert %{key: "vlan", label: "Inventory VLAN", operators: ["eq", "prefix"]} in descriptor.facets
+    assert %{available: false, sources: []} = descriptor.prefix_tags
 
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
     refute BitmapQueries.enabled?()

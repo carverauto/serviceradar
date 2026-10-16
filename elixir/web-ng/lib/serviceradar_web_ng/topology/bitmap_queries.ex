@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.Native
 
   @tasks ServiceRadarWebNG.Topology.BitmapQueryTasks
@@ -30,12 +31,31 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   def run(_scope, _params), do: {:error, :invalid_query}
 
+  @doc "Authorized lexical label discovery from an already prepared local prefix snapshot."
+  def prefix_tags(scope, params) when is_map(params) do
+    with :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
+      deadline = now() + @deadline_ms
+
+      bounded(
+        fn ->
+          with {:ok, authority} <- BitmapAuthority.current(scope),
+               {:ok, result} <- BitmapPrefixTags.page(params, authority, deadline),
+               :ok <- authorize_delivery(scope, authority, %{result.source => result.version}) do
+            {:ok, result}
+          end
+        end,
+        deadline
+      )
+    end
+  end
+
   @doc """
   Runs a bounded callback on one pinned snapshot, closing the native query afterwards.
 
-  Callers must build trusted geometry selectors before invoking this function and
-  pass their original monotonic `:deadline` to include that work in admission.
-  All tile rows and aggregate counts in one response must use this single context.
+  Callers pass their original monotonic `:deadline` to include all response work
+  in admission. Trusted geometry selectors may be built before admission or inside
+  the callback. All tile rows and aggregate counts must use this single context
+  and its remaining deadline.
   The callback returns `{:ok, result}`; the response is `{:ok, {fence, result}}`.
   """
   def with_query(scope, expression, fun, opts \\ []) when is_function(fun, 1) do
@@ -53,17 +73,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   end
 
   @doc "Bounds the final delivery authorization read by the response's original deadline."
-  def confirm_delivery(scope, expected_authority, deadline) do
+  def confirm_delivery(scope, expected_authority, deadline, prefix_sources \\ %{}) do
     with :ok <- enabled(),
          {:ok, :authorized} <-
            bounded(
              fn ->
-               with {:ok, authority} <- BitmapAuthority.current(scope),
-                    true <- authority == expected_authority do
+               with :ok <- authorize_delivery(scope, expected_authority, prefix_sources) do
                  {:ok, :authorized}
-               else
-                 false -> {:error, :forbidden}
-                 error -> error
                end
              end,
              deadline
@@ -83,6 +99,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
              "publisher_busy",
              "reader_busy",
              "busy",
+             "catalog_busy",
              :busy
            ], do: {:error, :query_busy}
 
@@ -95,6 +112,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
     do: {:error, :source_changed}
 
   def normalize({:error, reason}) when reason in ["authority_mismatch", "invalid_authority"], do: {:error, :forbidden}
+
+  def normalize({:error, reason})
+      when reason in [
+             "catalog_not_ready",
+             "catalog_budget",
+             "label_budget",
+             :prefix_registry_unavailable,
+             :prefix_source_unavailable
+           ], do: {:error, :prefix_source_unavailable}
+
   def normalize({:error, reason} = result) when is_atom(reason) or is_binary(reason), do: result
   def normalize(_), do: {:error, :query_unavailable}
 
@@ -108,14 +135,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   defp query(scope, params, fun, deadline) do
     with {:ok, authority} <- BitmapAuthority.current(scope),
          {:ok, snapshot} <- BitmapIndex.snapshot(),
-         {:ok, parsed} <- BitmapExpression.parse(params, snapshot.supported_facets) do
+         {:ok, parsed} <- BitmapExpression.parse(params, snapshot.supported_facets),
+         {:ok, program, prefix_sources} <- BitmapPrefixTags.resolve(parsed.program, deadline) do
       context = %{
         dictionary_epoch: snapshot.dictionary_epoch,
         index_epoch: snapshot.index_epoch,
         authority: authority,
         query_digest: parsed.digest,
         deadline: deadline,
-        progress: snapshot.progress
+        progress: snapshot.progress,
+        prefix_sources: prefix_sources
       }
 
       with {:ok, after_ordinal} <- BitmapCursor.after_ordinal(Map.get(params, "cursor"), context),
@@ -127,7 +156,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
                snapshot.index_epoch,
                :device,
                authority,
-               parsed.program,
+               program,
                budget
              ) do
         context =
@@ -167,11 +196,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   defp delivery(scope, context) do
     with :ok <- enabled(),
-         {:ok, authority} <- BitmapAuthority.current(scope),
-         true <- authority == context.authority,
+         :ok <- authorize_delivery(scope, context.authority, context.prefix_sources),
          {:ok, budget} <- remaining(context),
          {:ok, []} <- Native.bitmap_query_facets(context.ref, context.authority, [], budget) do
       :ok
+    end
+  end
+
+  defp authorize_delivery(scope, expected_authority, prefix_sources) do
+    with {:ok, authority} <- BitmapAuthority.current(scope),
+         true <- authority == expected_authority do
+      BitmapPrefixTags.current(prefix_sources)
     else
       false -> {:error, :forbidden}
       error -> error
@@ -207,7 +242,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   end
 
   defp fence(context),
-    do: Map.take(context, [:dictionary_epoch, :index_epoch, :revision, :source_revision, :total, :progress])
+    do:
+      Map.take(context, [:dictionary_epoch, :index_epoch, :revision, :source_revision, :prefix_sources, :total, :progress])
 
   defp json_fence(fence) do
     fence

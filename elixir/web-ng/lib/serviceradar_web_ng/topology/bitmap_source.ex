@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceFleetOrdinal
   alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadarWebNG.Topology.BitmapPrefixTags
 
   require Ash.Query
 
@@ -42,9 +43,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
       {:ok,
        %{
          entity_kind: "device",
-         facets: Enum.map(facets, &%{key: &1, label: Map.get(labels, &1, &1), operators: ["eq"]}),
+         facets: Enum.map(facets, &%{key: &1, label: Map.get(labels, &1, &1), operators: ["eq", "prefix"]}),
          tag_keys: keys,
-         operators: %{tag_key_prefix: false, ip_cidr: false}
+         operators: %{tag_key_prefix: true, ip_cidr: true},
+         prefix_tags: BitmapPrefixTags.descriptor()
        }}
     end
   end

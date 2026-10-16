@@ -80,3 +80,41 @@ inventory scan. Disabling bitmap filtering closes the local index and its work;
 the base topology remains available. Current query membership is re-evaluated
 on every page, so restart pagination to see newly matching identities below an
 existing cursor.
+
+## Address and Prefix Tag selection
+
+Numeric IP/CIDR filters select devices by any current assigned address: the
+canonical primary IP, active `ip` and `interface_ip` aliases, discovered interface
+addresses, and existing virtual NIC addresses. Operationally down interfaces
+remain eligible; retired/deleted/inactive devices do not. Historical identifiers
+without a current corroborating source are excluded. Assigned CIDR strings retain
+their host address, scoped IPv6 addresses discard the zone, and IPv4-mapped IPv6
+addresses use the IPv4 identity. Query CIDRs mask host bits and never resolve DNS.
+A shared address selects every owning device; it never merges identities.
+
+Scalar fields and complete address replacements publish in one native revision
+after a repeatable-read source transaction. Address cursors transfer at most 500
+typed associations per fetch and the transaction has an eight-second deadline.
+An interface array above 4096 entries or a native address-capacity failure makes
+IP selection explicitly unavailable instead of returning a partial match. A
+failed source transaction retains the prior accepted revision for retry. Array
+cardinality checks can still require PostgreSQL to decompress stored
+values; statement and transaction deadlines bound that database work. The
+unavailable state persists across later batches until the local index is rebuilt.
+
+Configured device tag prefixes are literal, case-sensitive text prefixes. A
+paired key/value predicate must match the same configured key. Missing values do
+not match prefixes merely because exact filtering represents them as `unknown`.
+
+Named Prefix Tags use existing local prefix snapshots and preserve their full
+matching-chain semantics: a label selects the union of prefixes carrying that
+label, including broader prefixes when a more specific prefix also matches.
+Discovery is limited to 32 local sources and 50 labels per page. Its cursor binds
+the source, current authority and last label, so each page sees current membership.
+Each query captures each source once and rechecks the captured versions before
+delivery. No query makes a core RPC or enumerates fleet addresses in Elixir.
+Compiled label selectors share a whole-query budget of 4096 ranges and 256 KiB;
+overflow fails explicitly. Feature catalogs are prepared by the existing background
+worker, have a global 4 MiB additional native-memory cap, and are released when
+bitmap filtering is disabled. Catalog unavailability does not disable scalar
+filters or the ordinary Prefix Tags lookup service.

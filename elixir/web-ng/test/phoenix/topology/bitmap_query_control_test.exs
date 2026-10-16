@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadarWebNG.Topology.BitmapAddress
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.Native
@@ -88,6 +89,71 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     end
 
     assert {:error, :invalid_cursor} = BitmapCursor.after_ordinal(cursor <> "tampered", context)
+  end
+
+  test "source hosts and canonical query networks share typed address identity without DNS" do
+    assert {:ok, <<192, 0, 2, 7>>} = BitmapAddress.source("192.0.2.7/24")
+    assert {:ok, <<192, 0, 2, 7>>} = BitmapAddress.source("::ffff:192.0.2.7")
+    assert {:ok, <<0xFE80::16, 0::96, 7::16>>} = BitmapAddress.source("fe80::7%example0/64")
+    assert {:ok, <<192, 0, 2, 0>>, 24} = BitmapAddress.cidr("192.0.2.7/24")
+    assert {:ok, <<192, 0, 2, 0>>, 24} = BitmapAddress.cidr("::ffff:192.0.2.7/120")
+    assert {:ok, <<0::128>>, 0} = BitmapAddress.cidr("2001:db8::7/0")
+
+    assert {:ok, first} = BitmapExpression.parse(%{"expression" => %{"ip_cidr" => "192.0.2.7/24"}}, @facets)
+    assert {:ok, mapped} = BitmapExpression.parse(%{"expression" => %{"ip_cidr" => "::ffff:192.0.2.9/120"}}, @facets)
+    assert first.digest == mapped.digest
+
+    for value <- [
+          "router.example.com",
+          "127.1",
+          "192.0.2.7/",
+          "192.0.2.7/33",
+          "fe80::7%example0/64",
+          "::ffff:192.0.2.7/95"
+        ] do
+      assert {:error, :invalid_cidr} = BitmapExpression.parse(%{"expression" => %{"ip_cidr" => value}}, @facets)
+    end
+
+    assert {:error, :invalid_address} = BitmapAddress.source("router.example.com")
+  end
+
+  test "prefix controls canonicalize literal whitespace while retaining same-key pairs and source identity" do
+    expression = %{"tag_key_prefix" => " role", "prefix" => " edge "}
+    canonical = %{"tag_key_prefix" => "role", "prefix" => "edge"}
+    assert {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, @facets)
+    assert {:ok, normalized} = BitmapExpression.parse(%{"expression" => canonical}, @facets)
+    assert parsed.digest == normalized.digest
+
+    assert {:ok, exact} =
+             BitmapExpression.parse(%{"expression" => %{"tag_key_prefix" => "role", "value" => "edge"}}, @facets)
+
+    refute exact.digest == parsed.digest
+
+    for expression <- [
+          %{"facet" => "vendor", "prefix" => " "},
+          %{"tag_key_prefix" => ""},
+          %{"tag_key_prefix" => "role", "prefix" => "edge", "value" => "edge"},
+          %{"prefix_tag" => %{"source" => "manual", "label" => "example", "extra" => true}}
+        ] do
+      assert {:error, :invalid_predicate} = BitmapExpression.parse(%{"expression" => expression}, @facets)
+    end
+
+    assert {:ok, label} =
+             BitmapExpression.parse(
+               %{"expression" => %{"prefix_tag" => %{"source" => "manual", "label" => "example"}}},
+               @facets
+             )
+
+    assert {:ok, other} =
+             BitmapExpression.parse(
+               %{"expression" => %{"prefix_tag" => %{"source" => "example-import", "label" => "example"}}},
+               @facets
+             )
+
+    refute label.digest == other.digest
+
+    assert {:error, :invalid_predicate} =
+             BitmapExpression.parse(%{"facets" => [%{"facet" => "vendor", "prefix" => "ex"}]}, @facets)
   end
 
   test "untrusted control cannot select undeclared fields or bypass expression and request bounds" do

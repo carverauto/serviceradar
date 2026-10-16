@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   @moduledoc "Bounded, canonical control expressions for typed bitmap queries."
 
+  alias ServiceRadarWebNG.Topology.BitmapAddress
+
   @max_bytes 16_384
   @max_predicates 32
   @max_depth 8
@@ -46,7 +48,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   def facets(values, supported) when is_list(values) and length(values) <= 50 do
     values
     |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-      case predicate(value, supported) do
+      case exact_predicate(value, supported) do
         {:ok, {:predicate, key, value}} -> {:cont, {:ok, [{key, value} | acc]}}
         error -> {:halt, error}
       end
@@ -70,7 +72,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
 
   defp expression(_value, _supported, depth, _count) when depth > @max_depth, do: {:error, :expression_budget}
 
-  defp expression(%{"facet" => _, "value" => _} = value, supported, _depth, count) do
+  defp expression(value, supported, _depth, count)
+       when is_map_key(value, "facet") or is_map_key(value, "tag_key_prefix") or is_map_key(value, "ip_cidr") or
+              is_map_key(value, "prefix_tag") do
     if count < @max_predicates do
       with {:ok, predicate} <- predicate(value, supported), do: {:ok, predicate, count + 1}
     else
@@ -114,7 +118,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
     end
   end
 
-  defp predicate(%{"facet" => key, "value" => value} = term, supported)
+  defp exact_predicate(%{"facet" => key, "value" => value} = term, supported)
        when map_size(term) == 2 and is_binary(key) and is_binary(value) and byte_size(key) <= 64 and
               byte_size(value) <= 256 do
     if key in supported and String.valid?(value),
@@ -122,9 +126,68 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
       else: {:error, :unsupported_facet}
   end
 
+  defp exact_predicate(_value, _supported), do: {:error, :invalid_predicate}
+
+  defp predicate(%{"facet" => _, "value" => _} = value, supported), do: exact_predicate(value, supported)
+
+  defp predicate(%{"facet" => key, "prefix" => value} = term, supported)
+       when map_size(term) == 2 and is_binary(key) and byte_size(key) <= 64 do
+    with true <- key in supported, {:ok, value} <- text_prefix(value, 256) do
+      {:ok, {:value_prefix, key, value}}
+    else
+      false -> {:error, :unsupported_facet}
+      error -> error
+    end
+  end
+
+  defp predicate(%{"tag_key_prefix" => key} = term, _supported) when map_size(term) == 1 do
+    with {:ok, key} <- text_prefix(key, 60), do: {:ok, {:tag_key_prefix, key}}
+  end
+
+  defp predicate(%{"tag_key_prefix" => key, "value" => value} = term, _supported)
+       when map_size(term) == 2 and is_binary(value) and byte_size(value) <= 256 do
+    with {:ok, key} <- text_prefix(key, 60), true <- String.valid?(value) do
+      {:ok, {:tag_pair, key, value}}
+    else
+      _ -> {:error, :invalid_predicate}
+    end
+  end
+
+  defp predicate(%{"tag_key_prefix" => key, "prefix" => value} = term, _supported) when map_size(term) == 2 do
+    with {:ok, key} <- text_prefix(key, 60), {:ok, value} <- text_prefix(value, 256) do
+      {:ok, {:tag_pair_prefix, key, value}}
+    end
+  end
+
+  defp predicate(%{"ip_cidr" => value} = term, _supported) when map_size(term) == 1 do
+    with {:ok, address, mask} <- BitmapAddress.cidr(value), do: {:ok, {:ip_cidr, address, mask}}
+  end
+
+  defp predicate(%{"prefix_tag" => %{"source" => source, "label" => label} = selector} = term, _supported)
+       when map_size(term) == 1 and map_size(selector) == 2 and is_binary(source) and byte_size(source) in 1..128 and
+              is_binary(label) and byte_size(label) in 1..256 do
+    if String.valid?(source) and String.valid?(label),
+      do: {:ok, {:prefix_tag, source, label}},
+      else: {:error, :invalid_predicate}
+  end
+
   defp predicate(_value, _supported), do: {:error, :invalid_predicate}
 
+  defp text_prefix(value, maximum) when is_binary(value) and byte_size(value) <= maximum do
+    if String.valid?(value) and String.trim(value) != "",
+      do: {:ok, String.trim(value)},
+      else: {:error, :invalid_predicate}
+  end
+
+  defp text_prefix(_value, _maximum), do: {:error, :invalid_predicate}
+
   defp compile({:predicate, key, value}), do: [{0, key, value, 0}]
+  defp compile({:value_prefix, key, value}), do: [{4, key, value, 0}]
+  defp compile({:tag_key_prefix, key}), do: [{5, key, "", 0}]
+  defp compile({:tag_pair, key, value}), do: [{6, key, value, 0}]
+  defp compile({:tag_pair_prefix, key, value}), do: [{7, key, value, 0}]
+  defp compile({:ip_cidr, address, mask}), do: [{8, "", address, mask}]
+  defp compile({:prefix_tag, source, label}), do: [{:prefix_tag, source, label}]
   defp compile({:except, child}), do: compile(child) ++ [{3, "", "", 1}]
 
   defp compile({operator, children}),
