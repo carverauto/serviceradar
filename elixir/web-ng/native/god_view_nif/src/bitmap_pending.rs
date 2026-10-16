@@ -1,5 +1,5 @@
 //! Loss-tolerant change hints. The source's full keyset pass remains authoritative.
-use super::{check_time, deadline, Bitmap, Budget, Error, Index, BATCH_LIMIT, MAX_BYTES};
+use super::{check_time, deadline, Bitmap, Budget, Error, Index, BATCH_LIMIT};
 use roaring::RoaringBitmap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -23,8 +23,10 @@ pub struct PendingStatus {
 
 impl Pending {
     pub(super) fn new(budget: &Arc<Budget>) -> Result<Self, Error> {
+        let bitmap = Bitmap::new(RoaringBitmap::new(), budget)?;
+        budget.admit(std::iter::once(&bitmap.charge), std::iter::empty())?;
         Ok(Self {
-            bitmap: Bitmap::new(RoaringBitmap::new(), budget)?,
+            bitmap,
             rescan_needed: false,
             rescan_generation: 0,
         })
@@ -42,16 +44,16 @@ impl Pending {
     }
 
     pub(super) fn clear(&mut self, budget: &Arc<Budget>) -> Result<(), Error> {
-        self.bitmap = Bitmap::new(RoaringBitmap::new(), budget)?;
+        self.replace(Bitmap::new(RoaringBitmap::new(), budget)?)?;
         self.rescan_needed = false;
         Ok(())
     }
 
     fn replace(&mut self, next: Arc<Bitmap>) -> Result<(), Error> {
-        let retained = next.charge.budget.used.load(Ordering::Acquire) - self.bitmap.charge.bytes;
-        if retained > MAX_BYTES {
-            return Err("native_memory_budget");
-        }
+        next.charge.budget.admit(
+            std::iter::once(&next.charge),
+            std::iter::once(&self.bitmap.charge),
+        )?;
         self.bitmap = next;
         Ok(())
     }
