@@ -449,6 +449,11 @@ message ControlStreamHello {
   string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
   repeated PluginAssignmentPolicyAck applied_plugin_assignments = 12; // Host-parsed Proxmox assignment bindings in config_version
   repeated string host_macs = 13;   // MAC of the local interface owning host_ip; never neighbour observations
+  // Current per-section config apply state, including a transient_failure that is
+  // deferring the config commit (no ConfigAck is sent while a section defers). Absent
+  // on agents that predate it and before the agent's first config apply; core then
+  // leaves the stored section statuses unchanged.
+  repeated ConfigSectionStatus config_section_statuses = 14;
 }
 
 // CommandRequest represents a command sent to the agent.

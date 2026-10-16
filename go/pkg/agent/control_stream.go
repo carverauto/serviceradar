@@ -256,29 +256,29 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 			}
 		}
 
-		sender := newControlStreamSender(stream)
-		if err := p.sendControlHello(sender); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to send control stream hello")
-			sender.Close()
-			select {
-			case <-ctx.Done():
+		func() {
+			sender := newControlStreamSender(stream)
+			p.setControlStreamSender(sender)
+			defer func() {
+				sender.Close()
+				p.setControlStreamSender(nil)
+			}()
+
+			if err := p.sendControlHello(sender); err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to send control stream hello")
 				return
-			case <-time.After(controlStreamReconnectDelay):
-				continue
-			}
-		}
-
-		if err := p.handleControlStream(ctx, stream, sender); err != nil {
-			if !errors.Is(err, io.EOF) {
-				p.logger.Warn().Err(err).Msg("Control stream ended with error")
 			}
 
-			if err := p.gateway.Disconnect(); err != nil {
-				p.logger.Warn().Err(err).Msg("Failed to reset gateway connection after control stream ended")
-			}
-		}
+			if err := p.handleControlStream(ctx, stream, sender); err != nil {
+				if !errors.Is(err, io.EOF) {
+					p.logger.Warn().Err(err).Msg("Control stream ended with error")
+				}
 
-		sender.Close()
+				if err := p.gateway.Disconnect(); err != nil {
+					p.logger.Warn().Err(err).Msg("Failed to reset gateway connection after control stream ended")
+				}
+			}
+		}()
 
 		select {
 		case <-ctx.Done():
@@ -368,11 +368,25 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 				// Report the agent's own host IP so the gateway links it to the
 				// correct device even when the TCP peer IP is NAT'd (external agents).
 				// Mirrors getSourceIP() used for PushStatus so the two agree.
-				HostIp:   hostIP,
-				HostMacs: hostMACs,
+				HostIp:                hostIP,
+				HostMacs:              hostMACs,
+				ConfigSectionStatuses: p.helloConfigSectionStatuses(),
 			},
 		},
 	}
+}
+
+// helloConfigSectionStatuses reports the current per-section config apply state on the
+// hello, including a transient_failure that is deferring the commit (and so has no ack
+// to ride on). It is omitted until this process has attempted a config apply: before
+// that the agent has no section state, and reporting every section as succeeded would
+// overwrite the failure core recorded from the previous run.
+func (p *PushLoop) helloConfigSectionStatuses() []*proto.ConfigSectionStatus {
+	if p.getLastAttemptedConfigVersion() == "" {
+		return nil
+	}
+
+	return p.configSectionStatuses()
 }
 
 func normalizeConfigSourceLabel(cfg *ServerConfig) string {
@@ -440,21 +454,52 @@ func (p *PushLoop) handleControlStream(
 }
 
 // applyControlConfig applies a config delivered on the control stream and acks
-// the version once it is running.
+// the version once it is running. A same-version delivery that retried escalated
+// sections without a status change does not ack again.
 func (p *PushLoop) applyControlConfig(ctx context.Context, cfg *proto.AgentConfigResponse, sender *controlStreamSender) {
 	sequence := p.nextConfigSequence()
-	if !p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence) {
+	applied := p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence)
+	ackVersion := cfg.GetConfigVersion()
+	if cfg.GetNotModified() {
+		if committed := p.getConfigVersion(); committed != "" {
+			ackVersion = committed
+		}
+	}
+	if !applied {
+		if ackVersion != "" && ackVersion == p.getConfigVersion() {
+			return
+		}
 		p.logger.Warn().
 			Str("config_version", cfg.ConfigVersion).
 			Msg("Skipped control stream config ack because config apply failed")
 		return
 	}
+	p.sendConfigAck(sender, ackVersion)
+}
+
+func (p *PushLoop) setControlStreamSender(sender *controlStreamSender) {
+	p.controlSenderMu.Lock()
+	p.controlSender = sender
+	p.controlSenderMu.Unlock()
+}
+
+func (p *PushLoop) sendLiveConfigAck(version string) {
+	p.controlSenderMu.Lock()
+	sender := p.controlSender
+	p.controlSenderMu.Unlock()
+	p.sendConfigAck(sender, version)
+}
+
+func (p *PushLoop) sendConfigAck(sender *controlStreamSender, version string) {
+	if sender == nil {
+		return
+	}
 	if err := sender.Send(&proto.ControlStreamRequest{
-		Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(cfg.ConfigVersion)},
+		Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(version)},
 	}); err != nil {
 		p.logger.Warn().
 			Err(err).
-			Str("config_version", cfg.ConfigVersion).
+			Str("config_version", version).
 			Msg("Failed to send control stream config ack")
 	}
 }
@@ -498,7 +543,7 @@ func (p *PushLoop) buildConfigAck(configVersion string) *proto.ConfigAck {
 		Timestamp:     time.Now().Unix(),
 		// Per-section apply status: sections that failed permanently still
 		// commit + ack, and this is where core learns about them.
-		SectionStatuses:          p.configSectionAckStatuses(),
+		SectionStatuses:          p.configSectionStatuses(),
 		AppliedPluginAssignments: p.appliedPluginAssignmentPolicyAcks(),
 	}
 }

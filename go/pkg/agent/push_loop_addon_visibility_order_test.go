@@ -405,7 +405,8 @@ func TestApplyConfigResponseBlocksNetprobeWhenVisibilityConfigIsMissing(t *testi
 		t.Fatalf("applied add-ons = %#v, want only powerdns", addOns.applied)
 	}
 	failure, exists := pl.configSectionFailureSnapshot()[configSectionVisibility]
-	if !exists || failure.addonID != testNetprobeAddonID || failure.disposition != addonDeliveryPermanentFailure {
+	if !exists || len(failure.addonIDs) != 1 || failure.addonIDs[0] != testNetprobeAddonID ||
+		failure.disposition != addonDeliveryPermanentFailure {
 		t.Fatalf("visibility failure = %#v, want permanent netprobe failure", failure)
 	}
 	if _, exists := pl.configSectionFailureSnapshot()[configSectionAddons]; exists {

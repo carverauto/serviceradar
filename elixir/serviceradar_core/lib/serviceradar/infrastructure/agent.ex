@@ -566,6 +566,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :record_config_section_statuses do
+      description "Record the per-section config apply statuses an agent reported on its hello"
+      accept [:config_section_statuses]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :record_config_push do
       description "Record the config version most recently pushed to the agent"
       accept @agent_config_push_fields
@@ -824,8 +830,8 @@ defmodule ServiceRadar.Infrastructure.Agent do
       default []
       public? true
 
-      description "Per-section config apply statuses from the last sectioned ack " <>
-                    "(empty for legacy whole-version acks)"
+      description "Per-section config apply statuses from the last sectioned ack or " <>
+                    "agent hello (empty for legacy whole-version acks)"
     end
 
     attribute :pushed_config_version, :string do

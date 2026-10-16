@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 type icmpCheckConfig struct {
@@ -112,7 +113,27 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		return
 	}
 
+	committed := p.getConfigVersion()
+	before := p.configSectionStatuses()
 	p.applyConfigResponseWithSequence(ctx, configResp, "poll", sequence)
+	// A poll has no control-stream caller to ack for it. When this delivery retried
+	// an escalated section and the status changed, ack the already-committed version
+	// on the live stream. A NotModified body may omit the version; the ack still
+	// names the committed one. A new version, deferred or just committed, stays
+	// unacked here.
+	if configResp == nil || configSectionStatusesEqual(before, p.configSectionStatuses()) {
+		return
+	}
+	var ackVersion string
+	switch {
+	case configResp.NotModified:
+		ackVersion = p.getConfigVersion()
+	case configResp.GetConfigVersion() != "" && configResp.GetConfigVersion() == committed:
+		ackVersion = committed
+	}
+	if ackVersion != "" {
+		p.sendLiveConfigAck(ackVersion)
+	}
 }
 
 func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.AgentConfigResponse, source string) bool {
@@ -167,12 +188,6 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 		p.latestConfigSequence = sequence
 	}
 
-	// If config hasn't changed, nothing to do
-	if configResp.NotModified {
-		p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
-		return true
-	}
-
 	// The control stream pushes a fresh (not_modified:false) config on every dependency
 	// write on the gateway side, even when the agent's compiled config is unchanged. The
 	// config version hash is deterministic, so a version equal to the one we already
@@ -181,7 +196,30 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// storm. The caller still ACKs on a true return. getConfigVersion() is only set after a
 	// fully-successful apply, so a deferred/partial apply (which leaves the old version)
 	// will not be short-circuited and is still retried.
-	if v := configResp.ConfigVersion; v != "" && v == p.getConfigVersion() {
+	//
+	// A transient or escalated failure is the exception once a version is committed,
+	// including a NotModified poll after a later hash of the same payload. Re-apply
+	// each such section from the retained full response, in apply order. Ack when
+	// their status changes; an unchanged failure is not acked again.
+	v := configResp.GetConfigVersion()
+	sameVersion := v != "" && v == p.getConfigVersion()
+	if configResp.NotModified || sameVersion {
+		if p.hasRetryableConfigSectionFailure() {
+			if p.retryFailedFromRetained(ctx) {
+				return true
+			}
+			p.logger.Debug().
+				Str("version", p.getConfigVersion()).
+				Str("source", source).
+				Msg("Retryable config sections unchanged; skipping config ack")
+
+			return false
+		}
+		if configResp.NotModified {
+			p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
+			return true
+		}
+
 		p.logger.Debug().
 			Str("version", v).
 			Str("source", source).
@@ -218,17 +256,14 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// version commit on it would freeze the whole config apply and make the gateway re-stream
 	// the same version on every poll forever (fj #4301). Only a TRANSIENT failure (one that
 	// may clear on its own) defers — and it defers WITHOUT skipping the remaining sections,
-	// so one flaky section can never starve the others in the same cycle.
+	// so one flaky section can never starve the others in the same cycle. A transient
+	// failure that persists past the escalation bound for the same payload is reported as
+	// permanent by applyConfigSection, so it stops deferring (see
+	// transientSectionEscalationAttempts).
 	deferred := false
 	version := configResp.ConfigVersion
 
-	bumblebeeHash := hashConfigSectionPayload(
-		marshalConfigSectionMessage(configResp.BumblebeeConfig),
-		configResp.ConfigJson,
-	)
-	if p.applyConfigSection(configSectionBumblebee, version, bumblebeeHash, func() (addonDeliveryDisposition, error) {
-		return p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson)
-	}) == addonDeliveryTransientFailure {
+	if p.applyBumblebeeConfigSection(ctx, configResp, version) == addonDeliveryTransientFailure {
 		p.logger.Warn().
 			Str("version", version).
 			Str("source", source).
@@ -236,13 +271,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 		deferred = true
 	}
 
-	endpointInventoryHash := hashConfigSectionPayload(
-		marshalConfigSectionMessage(configResp.EndpointInventoryConfig),
-		configResp.ConfigJson,
-	)
-	if p.applyConfigSection(configSectionEndpointInventory, version, endpointInventoryHash, func() (addonDeliveryDisposition, error) {
-		return p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson)
-	}) == addonDeliveryTransientFailure {
+	if p.applyEndpointInventoryConfigSection(ctx, configResp, version) == addonDeliveryTransientFailure {
 		p.logger.Warn().
 			Str("version", version).
 			Str("source", source).
@@ -263,13 +292,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// a type-invalid capture_interfaces wedged the whole apply pre-#4301). Apply visibility
 	// before native add-ons so a systemd-managed netprobe always starts or restarts against
 	// the bootstrap config from this response, rather than the previous response.
-	visibilityHashParts := append(
-		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
-		marshalAddonAssignmentsForHash(effectiveAddons)...,
-	)
-	visibilityDisposition := p.applyConfigSection(configSectionVisibility, version, hashConfigSectionPayload(visibilityHashParts...), func() (addonDeliveryDisposition, error) {
-		return p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, effectiveAddons)
-	})
+	visibilityDisposition := p.applyVisibilityConfigSection(ctx, configResp, version, effectiveAddons)
 	if visibilityDisposition == addonDeliveryTransientFailure {
 		p.logger.Warn().
 			Str("version", version).
@@ -283,18 +306,11 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// deferred because section failures do not short-circuit the rest of this apply cycle.
 	// A transient assignment failure defers the version like every other section — it no
 	// longer early-returns, so the sysmon/SNMP/plugin/check sections below still
-	// apply in the same cycle. The payload hash is empty on purpose: assignments carry
-	// their own per-add-on failure state + backoff and must always reconcile
-	// systemd/ephemeral desired state.
-	activationBlocks := make(map[string]bool)
-	if visibilityDisposition != addonDeliverySucceeded {
-		if netprobe := netprobeSystemdAssignment(effectiveAddons); netprobe != nil {
-			activationBlocks[netprobe.GetAddonId()] = true
-		}
-	}
-	if p.applyConfigSection(configSectionAddons, version, "", func() (addonDeliveryDisposition, error) {
-		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(ctx, effectiveAddons, activationBlocks)
-	}) == addonDeliveryTransientFailure {
+	// apply in the same cycle. The section is never skipped for an identical payload
+	// (assignments carry their own per-add-on failure state + backoff and must always
+	// reconcile systemd/ephemeral desired state); the payload hash only keys the bounded
+	// escalation of a transient failure, so a changed assignment set re-arms it.
+	if p.applyAddonConfigSection(ctx, version, effectiveAddons, visibilityDisposition) == addonDeliveryTransientFailure {
 		p.logger.Warn().
 			Str("version", version).
 			Str("source", source).
@@ -349,12 +365,171 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
+	p.rememberFullConfig(configResp)
 	p.logger.Info().
 		Str("version", p.getConfigVersion()).
 		Str("source", source).
 		Msg("Applied new config from gateway")
 
 	return true
+}
+
+// applyBumblebeeConfigSection applies the Bumblebee section for this response payload.
+func (p *PushLoop) applyBumblebeeConfigSection(
+	ctx context.Context,
+	configResp *proto.AgentConfigResponse,
+	version string,
+) addonDeliveryDisposition {
+	return p.applyConfigSection(configSectionBumblebee, version, bumblebeeSectionPayloadHash(configResp), func() (addonDeliveryDisposition, error) {
+		return p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson)
+	})
+}
+
+// applyEndpointInventoryConfigSection applies the endpoint-inventory section for this
+// response payload.
+func (p *PushLoop) applyEndpointInventoryConfigSection(
+	ctx context.Context,
+	configResp *proto.AgentConfigResponse,
+	version string,
+) addonDeliveryDisposition {
+	return p.applyConfigSection(configSectionEndpointInventory, version, endpointInventorySectionPayloadHash(configResp), func() (addonDeliveryDisposition, error) {
+		return p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson)
+	})
+}
+
+// applyVisibilityConfigSection applies the visibility section. effectiveAddons is the
+// assignment set already resolved for this response; the payload hash covers it because
+// the netprobe assignment's config is merged into the visibility config.
+func (p *PushLoop) applyVisibilityConfigSection(
+	ctx context.Context,
+	configResp *proto.AgentConfigResponse,
+	version string,
+	effectiveAddons []*proto.AddonAssignmentConfig,
+) addonDeliveryDisposition {
+	return p.applyConfigSection(configSectionVisibility, version, visibilitySectionPayloadHash(configResp, effectiveAddons), func() (addonDeliveryDisposition, error) {
+		return p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, effectiveAddons)
+	})
+}
+
+// applyAddonConfigSection reconciles native add-on assignments. A visibility section
+// that did not succeed blocks systemd netprobe activation for this pass.
+func (p *PushLoop) applyAddonConfigSection(
+	ctx context.Context,
+	version string,
+	effectiveAddons []*proto.AddonAssignmentConfig,
+	visibilityDisposition addonDeliveryDisposition,
+) addonDeliveryDisposition {
+	activationBlocks := make(map[string]bool)
+	if visibilityDisposition != addonDeliverySucceeded {
+		if netprobe := netprobeSystemdAssignment(effectiveAddons); netprobe != nil {
+			activationBlocks[netprobe.GetAddonId()] = true
+		}
+	}
+	payloadHash := addonSectionPayloadHash(effectiveAddons)
+	return p.applyConfigSection(configSectionAddons, version, payloadHash, func() (addonDeliveryDisposition, error) {
+		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(
+			ctx, effectiveAddons, activationBlocks, payloadHash, visibilityDisposition,
+		)
+	})
+}
+
+// rememberFullConfig retains the full response of a version that just committed.
+// Caller holds configApplyMu. A NotModified body is not a committed payload.
+func (p *PushLoop) rememberFullConfig(configResp *proto.AgentConfigResponse) {
+	if configResp == nil || configResp.NotModified {
+		return
+	}
+	cloned, ok := gproto.Clone(configResp).(*proto.AgentConfigResponse)
+	if !ok || cloned == nil {
+		return
+	}
+	cloned.NotModified = false
+	p.lastFullConfig = cloned
+}
+
+// retryFailedFromRetained re-applies committed-version failures from the retained
+// full response. A missing or different retain leaves the recorded status unchanged.
+func (p *PushLoop) retryFailedFromRetained(ctx context.Context) bool {
+	if !p.hasRetryableConfigSectionFailure() || p.lastFullConfig == nil ||
+		p.lastFullConfig.GetConfigVersion() != p.getConfigVersion() {
+		return false
+	}
+	cloned, ok := gproto.Clone(p.lastFullConfig).(*proto.AgentConfigResponse)
+	if !ok || cloned == nil {
+		return false
+	}
+
+	return p.retryFailedConfigSections(ctx, cloned)
+}
+
+func bumblebeeSectionPayloadHash(configResp *proto.AgentConfigResponse) string {
+	return hashConfigSectionPayload(
+		marshalConfigSectionMessage(configResp.BumblebeeConfig),
+		configResp.ConfigJson,
+	)
+}
+
+func endpointInventorySectionPayloadHash(configResp *proto.AgentConfigResponse) string {
+	return hashConfigSectionPayload(
+		marshalConfigSectionMessage(configResp.EndpointInventoryConfig),
+		configResp.ConfigJson,
+	)
+}
+
+func visibilitySectionPayloadHash(
+	configResp *proto.AgentConfigResponse,
+	effectiveAddons []*proto.AddonAssignmentConfig,
+) string {
+	parts := append(
+		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
+		marshalAddonAssignmentsForHash(effectiveAddons)...,
+	)
+
+	return hashConfigSectionPayload(parts...)
+}
+
+func addonSectionPayloadHash(effectiveAddons []*proto.AddonAssignmentConfig) string {
+	return hashConfigSectionPayload(marshalAddonAssignmentsForHash(effectiveAddons)...)
+}
+
+// retryFailedConfigSections re-applies every transient or escalated section whose
+// recorded payload is the retained body's payload. Visibility runs before add-ons.
+// When a visibility retry newly succeeds, the add-on section runs in the same cycle
+// unless that section's record is for a different payload. A recorded visibility
+// failure still blocks systemd netprobe when that section is not retried. It reports
+// whether any section status changed.
+func (p *PushLoop) retryFailedConfigSections(ctx context.Context, configResp *proto.AgentConfigResponse) bool {
+	before := p.configSectionStatuses()
+	version := configResp.ConfigVersion
+	effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
+	visibilityHash := visibilitySectionPayloadHash(configResp, effectiveAddons)
+	addonsHash := addonSectionPayloadHash(effectiveAddons)
+
+	if p.configSectionFailureNeedsRetry(configSectionBumblebee, bumblebeeSectionPayloadHash(configResp)) {
+		p.applyBumblebeeConfigSection(ctx, configResp, version)
+	}
+	if p.configSectionFailureNeedsRetry(configSectionEndpointInventory, endpointInventorySectionPayloadHash(configResp)) {
+		p.applyEndpointInventoryConfigSection(ctx, configResp, version)
+	}
+
+	retryVisibility := p.configSectionFailureNeedsRetry(configSectionVisibility, visibilityHash)
+	retryAddons := p.configSectionFailureNeedsRetry(configSectionAddons, addonsHash)
+	if retryVisibility || retryAddons {
+		visibilityDisposition := addonDeliverySucceeded
+		visibilityRecovered := false
+		switch {
+		case retryVisibility:
+			visibilityDisposition = p.applyVisibilityConfigSection(ctx, configResp, version, effectiveAddons)
+			visibilityRecovered = visibilityDisposition == addonDeliverySucceeded
+		case p.recordedVisibilityApplyFailed():
+			visibilityDisposition = addonDeliveryPermanentFailure
+		}
+		if retryAddons || (visibilityRecovered && !p.retainedPayloadMismatch(configSectionAddons, addonsHash)) {
+			p.applyAddonConfigSection(ctx, version, effectiveAddons, visibilityDisposition)
+		}
+	}
+
+	return !configSectionStatusesEqual(before, p.configSectionStatuses())
 }
 
 // applyConfigIntervals updates the push/heartbeat and config-poll intervals from the config

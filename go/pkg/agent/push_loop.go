@@ -152,7 +152,15 @@ type PushLoop struct {
 	configSequence       atomic.Uint64 // allocated before a poll request or on control receipt
 	configApplyMu        sync.Mutex
 	latestConfigSequence uint64 // highest request/receipt sequence whose apply began; guarded by configApplyMu
-	addonReconcileMu     sync.Mutex
+	// lastFullConfig is the last full config response applied in this process.
+	// NotModified deliveries retry escalated sections from it. Guarded by
+	// configApplyMu. Not persisted; a restart receives a fresh full config.
+	lastFullConfig *proto.AgentConfigResponse
+	// controlSender is the live control stream, so a poll that clears an escalated
+	// section can ack that version without waiting for another control push.
+	controlSenderMu  sync.Mutex
+	controlSender    *controlStreamSender
+	addonReconcileMu sync.Mutex
 
 	systemdAddonsMu        sync.Mutex
 	systemdRehydrateOnce   sync.Once

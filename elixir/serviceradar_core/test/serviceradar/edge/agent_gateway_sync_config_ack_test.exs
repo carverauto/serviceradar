@@ -6,6 +6,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
   - `record_config_ack/2` persists the acked version + per-section statuses;
     legacy acks (no section statuses) update the version without touching the
     previously recorded section detail.
+  - `record_config_section_statuses/2` stores hello-reported section statuses
+    without changing the acked version or timestamp.
   - `record_config_push/2` anchors `config_pushed_at` at the oldest outstanding
     push: a same-version re-push or a superseding version keeps it while that
     push is outstanding, and the next new version re-anchors once the pushed
@@ -105,6 +107,100 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
       assert [%{"section" => "addons"}] = agent.config_section_statuses
     end
 
+    test "repeating the committed version keeps the ack time while a newer push is outstanding",
+         %{uid: uid, actor: actor} do
+      acked_at = ~U[2026-07-04 08:00:00Z]
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v1",
+          acked_at: acked_at,
+          section_statuses: [
+            %{"section" => "addons", "disposition" => "success", "error" => ""}
+          ]
+        })
+
+      pushed_at = ~U[2026-07-04 09:00:00Z]
+
+      :ok =
+        AgentGatewaySync.record_config_push(uid, %{
+          config_version: "v2",
+          pushed_at: pushed_at
+        })
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v1",
+          acked_at: ~U[2026-07-04 10:00:00Z],
+          section_statuses: nil
+        })
+
+      agent = reload!(uid, actor)
+      assert agent.acked_config_version == "v1"
+      assert agent.config_acked_at == acked_at
+
+      assert [%{"section" => "addons", "disposition" => "success"}] =
+               agent.config_section_statuses
+
+      deferring = [
+        %{
+          "section" => "bumblebee",
+          "disposition" => "transient_failure",
+          "error" => "catalog download failed",
+          "since" => "2026-07-04T09:05:00Z"
+        }
+      ]
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v1",
+          acked_at: ~U[2026-07-04 10:05:00Z],
+          section_statuses: deferring
+        })
+
+      agent = reload!(uid, actor)
+      assert agent.acked_config_version == "v1"
+      assert agent.config_acked_at == acked_at
+      assert agent.pushed_config_version == "v2"
+      assert agent.config_pushed_at == pushed_at
+
+      assert [
+               %{
+                 "section" => "bumblebee",
+                 "disposition" => "transient_failure",
+                 "error" => "catalog download failed"
+               }
+             ] = agent.config_section_statuses
+
+      assert StateMonitor.push_still_outstanding?(agent)
+
+      threshold = DateTime.shift(DateTime.utc_now(), minute: -30)
+
+      assert {:config_ack_timeout, metadata} = StateMonitor.config_wedge_reason(agent, threshold)
+      assert metadata.section == "bumblebee"
+      assert metadata.error == "catalog download failed"
+      assert metadata.failing_since == "2026-07-04T09:05:00Z"
+      assert metadata.acked_config_version == "v1"
+      assert metadata.acked_at == acked_at
+
+      later = ~U[2026-07-04 11:00:00Z]
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v3",
+          acked_at: later,
+          section_statuses: [
+            %{"section" => "bumblebee", "disposition" => "success", "error" => ""}
+          ]
+        })
+
+      agent = reload!(uid, actor)
+      assert agent.acked_config_version == "v3"
+      assert agent.config_acked_at == later
+      refute StateMonitor.push_still_outstanding?(agent)
+      assert StateMonitor.config_wedge_reason(agent, threshold) == nil
+    end
+
     test "returns an error for unknown agents" do
       assert {:error, _reason} =
                AgentGatewaySync.record_config_ack("agent-does-not-exist", %{
@@ -112,6 +208,45 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
                  acked_at: DateTime.utc_now(),
                  section_statuses: nil
                })
+    end
+  end
+
+  describe "record_config_section_statuses/2" do
+    test "stores hello-reported statuses without acknowledging a version", %{
+      uid: uid,
+      actor: actor
+    } do
+      acked_at = ~U[2026-07-04 09:00:00Z]
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v1",
+          acked_at: acked_at,
+          section_statuses: nil
+        })
+
+      deferring = [
+        %{
+          "section" => "addons",
+          "disposition" => "transient_failure",
+          "error" => "one or more add-on assignments did not apply yet: addon-a",
+          "since" => "2026-07-04T09:30:00Z"
+        }
+      ]
+
+      assert :ok =
+               AgentGatewaySync.record_config_section_statuses(uid, %{section_statuses: deferring})
+
+      agent = reload!(uid, actor)
+      assert agent.acked_config_version == "v1"
+      assert agent.config_acked_at == acked_at
+
+      assert [%{"section" => "addons", "disposition" => "transient_failure"}] =
+               agent.config_section_statuses
+
+      # A hello without statuses (older agent) leaves the stored set alone.
+      assert :ok = AgentGatewaySync.record_config_section_statuses(uid, %{section_statuses: nil})
+      assert [%{"section" => "addons"}] = reload!(uid, actor).config_section_statuses
     end
   end
 

@@ -611,6 +611,11 @@ defmodule Monitoring.ControlStreamHello do
     json_name: "appliedPluginAssignments"
 
   field :host_macs, 13, repeated: true, type: :string, json_name: "hostMacs"
+
+  field :config_section_statuses, 14,
+    repeated: true,
+    type: Monitoring.ConfigSectionStatus,
+    json_name: "configSectionStatuses"
 end
 
 defmodule Monitoring.CommandRequest do
