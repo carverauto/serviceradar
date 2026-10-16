@@ -25,7 +25,8 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayFrame do
         &text/1
       ),
       u64(payload.generation),
-      Enum.map([health.epoch, health.revision, health.observation_sequence], &u64/1),
+      epoch(health.epoch),
+      Enum.map([health.revision, health.observation_sequence], &u64/1),
       timestamp(payload.sampled_at),
       timestamp(health.sampled_at),
       source(health.source),
@@ -88,6 +89,14 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayFrame do
   defp interval(interval), do: Enum.map(@times, &timestamp(Map.fetch!(interval, &1)))
   defp nullable_count(nil), do: <<0, 0::little-64>>
   defp nullable_count(value), do: [<<1>>, u64(value)]
+
+  defp epoch(value) when is_binary(value) and byte_size(value) == 16 do
+    case Base.decode16(value, case: :lower) do
+      {:ok, <<epoch::64>>} -> u64(epoch)
+      _ -> throw(:invalid_overlay_frame)
+    end
+  end
+
   defp rate(nil), do: <<0x7FF8_0000_0000_0000::little-64>>
   defp rate(value) when is_number(value) and value >= 0, do: <<value::little-float-64>>
   defp timestamp(nil), do: <<@nil_time::little-signed-64>>

@@ -7,7 +7,7 @@ describe("SRTO telemetry protocol", () => {
   it("preserves unknown versus zero, partial flow, coverage, and exact source timestamps", () => {
     const frame = telemetryFrame()
     const overlay = decodeWorldOverlay(frame, telemetryGeometry)
-    expect(overlay.health.epoch).toBe("9007199254740993")
+    expect(overlay.health.epoch).toBe("0020000000000001")
     expect(overlay.health.source).toEqual({source_status: "refreshing", reconciling: true, pending: 4,
       last_read_at: telemetryTime, reconciled_since: null, observed: 2, total: null})
     expect(overlay.healthAt(0)).toEqual({healthy: 0, unavailable: 0, unknown: 2, observed: 0, total: 2})

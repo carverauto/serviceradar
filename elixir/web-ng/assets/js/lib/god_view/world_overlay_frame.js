@@ -43,7 +43,8 @@ export function decodeWorldOverlay(input, geometry) {
   overlay.generation = count(u64())
   if (overlay.layout_version !== geometry.key.layout_version || overlay.tile_id !== tileId(geometry.key) ||
       overlay.revision !== geometry.revision || overlay.generation !== geometry.generation) invalid()
-  for (const name of ["epoch", "revision", "observation_sequence"]) health[name] = u64().toString()
+  health.epoch = u64().toString(16).padStart(16, "0")
+  for (const name of ["revision", "observation_sequence"]) health[name] = u64().toString()
   overlay.sampled_at = timestamp()
   health.sampled_at = timestamp()
   health.source = {source_status: enumeration(["stale", "seeding", "refreshing", "current"]), reconciling: boolean(), pending: u32(),

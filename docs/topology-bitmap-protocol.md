@@ -121,7 +121,8 @@ Unknown rates use exactly the quiet-NaN bits `0x7ff8000000000000`; a measured
 zero remains zero. Other nonfinite or negative rates are invalid. Timestamps
 are signed int64 Unix microseconds; `INT64_MIN` means absent. An interval is
 either wholly absent or has all three timestamps. The browser retains exact
-timestamps as BigInt and health epochs/sequences as decimal strings. Counts
+timestamps as BigInt, health epochs as their native 16-character lowercase hex
+strings, and revisions/sequences as decimal strings. Counts
 must remain exactly representable in JavaScript.
 
 Native health selections and flow summaries preserve the Arrow node/edge row
