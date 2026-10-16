@@ -445,9 +445,12 @@ export default class WorldMapRenderer {
   }
 
   invalidateMembership() {
+    if ((!this.membershipEnabled || this.bitmapQuery === null) && (this.membershipSignature || this.membership.binding) && this.channel?.state === "joined") {
+      this.channel.push("membership:unwatch", {})
+    }
     this.clearMembershipRetry()
     this.membershipSignature = null
-    this.membership?.clear(this.membershipEnabled || this.bitmapQuery !== null)
+    this.membership?.clear(this.bitmapQuery !== null)
   }
 
   clearMembershipRetry() {
@@ -471,9 +474,9 @@ export default class WorldMapRenderer {
   }
 
   syncMembership(payload) {
-    if (!this.membershipEnabled) return
+    if (!this.membershipEnabled || this.bitmapQuery === null) return
     const tiles = payload.tiles.filter(tile => typeof tile.revision === "string")
-    const request = {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery || {all: []}}
+    const request = {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery}
     const signature = JSON.stringify(request)
     if (signature === this.membershipRetrySignature && this.membershipRetryTimer) return
     if (signature !== this.membershipRetrySignature) this.clearMembershipRetry()
@@ -544,7 +547,7 @@ export default class WorldMapRenderer {
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
       membership: this.membership.entries, membershipRevision: this.membershipRevision,
-      membershipEnabled: this.membershipEnabled || this.bitmapQuery !== null, membershipPending: this.membership.pending,
+      membershipEnabled: this.bitmapQuery !== null, membershipPending: this.membership.pending,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
@@ -753,7 +756,7 @@ export default class WorldMapRenderer {
 
   mapSummary(tiles) {
     const summary = `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles`
-    return this.membershipEnabled && this.membershipProjectionIncomplete ? `${summary} · Some geometry has no canonical device identity` : summary
+    return this.bitmapQuery !== null && this.membershipProjectionIncomplete ? `${summary} · Some geometry has no canonical device identity` : summary
   }
 
   status(message) {if (this.summary) this.summary.textContent = message}

@@ -87,6 +87,7 @@ describe("binary admitted-row membership", () => {
     const replies = []
     const payload = {layout_version: "synthetic-layout", tiles: [{z: 0, x: 0, y: 0, revision: geometry.revision}]}
     renderer.membershipEnabled = true
+    renderer.bitmapQuery = {all: []}
     renderer.cache.manifest = {node_count: 2}
     renderer.cache.entries.set("0/0/0", {geometry})
     renderer.cache.watchPayload = () => payload

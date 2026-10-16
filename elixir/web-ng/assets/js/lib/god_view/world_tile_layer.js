@@ -40,6 +40,10 @@ function healthLookup(overlay) {
   return node => byId.get(node.id)
 }
 
+function completeMember(geometry, membership, row) {
+  return membership.mask[row] === 1 && membership.counts[row] === geometry.nodes[row].count
+}
+
 // Tile completion and viewport refinement also update text outside Deck's
 // draw callbacks. Submit references to the old character buffers before the
 // owning layer reallocates or finalizes them, including rowIndexes.
@@ -110,9 +114,8 @@ function flowFrame(geometry, overlay, membership) {
   const key = membership || overlay
   if (overlayFrames.has(key)) return overlayFrames.get(key)
   const byId = new Map((overlay.flow?.edges || []).map(edge => [edge.id, edge]))
-  const completeMember = row => membership.mask[row] === 1 && membership.counts[row] === geometry.nodes[row].count
   const edges = geometry.edges.flatMap(edge => {
-    if (edge.stale || (membership && (!completeMember(edge.source) || !completeMember(edge.target)))) return []
+    if (edge.stale || (membership && (!completeMember(geometry, membership, edge.source) || !completeMember(geometry, membership, edge.target)))) return []
     const flow = overlay.flowAt ? overlay.flowAt(edge.index) : byId.get(edge.id)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
@@ -153,6 +156,12 @@ export default class WorldTileLayer extends TileLayer {
     return !this.props.membershipEnabled || (!this.props.membershipPending && this.tileMembership(geometry)?.mask[index] === 1)
   }
 
+  relationShown(geometry, edge) {
+    if (!this.props.membershipEnabled) return true
+    const membership = this.tileMembership(geometry)
+    return !this.props.membershipPending && membership && completeMember(geometry, membership, edge.source) && completeMember(geometry, membership, edge.target)
+  }
+
   nodeShown(counts, membership, row) {
     const filters = this.props.filters || {}
     if (membership) return filters[["healthy", "unavailable", "unknown"][membership.availability[row]]] !== false
@@ -190,7 +199,7 @@ export default class WorldTileLayer extends TileLayer {
       }
       if (this.props.links === false) continue
       for (const edge of geometry.edges) {
-        if (!this.memberShown(geometry, edge.source) || !this.memberShown(geometry, edge.target) ||
+        if (!this.relationShown(geometry, edge) ||
             (edgeTopologyClassValue(edge) === "inferred" && this.props.inferred !== true)) continue
         routeCorridors.push({
           sourceId: geometry.nodes[edge.source].id, targetId: geometry.nodes[edge.target].id,
@@ -260,8 +269,7 @@ export default class WorldTileLayer extends TileLayer {
     const edgeClass = index => edgeTopologyClassValue(geometry.edges[index])
     const edgeStyle = index => edgeTopologyVisualStyleValue({topologyClass: edgeClass(index)})
     const membership = this.tileMembership(geometry)
-    const shownEdge = index => this.memberShown(geometry, geometry.edges[index].source) &&
-      this.memberShown(geometry, geometry.edges[index].target) && (edgeClass(index) !== "inferred" || this.props.inferred === true)
+    const shownEdge = index => this.relationShown(geometry, geometry.edges[index]) && (edgeClass(index) !== "inferred" || this.props.inferred === true)
     const health = healthLookup(overlay)
     const filters = this.props.filters || {}
     const shown = item => this.memberShown(geometry, item.index) && this.nodeShown(health(item), membership, item.index)

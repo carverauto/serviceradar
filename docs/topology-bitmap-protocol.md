@@ -9,6 +9,10 @@ existing topology channel. `membership:watch` carries the bounded query and
 exact admitted tile receipts. Its reply binds dictionary epoch, query digest,
 authority fingerprint and admitted-view digest. `membership:frame` carries raw
 binary. `membership:ack` carries the view digest and a decimal string sequence.
+Membership watches start only for an explicitly selected query; even `{all:[]}`
+is explicit. A null query keeps the authorized base map and its boundary clips
+without waiting for index readiness. Clearing a query sends `membership:unwatch`
+and releases its masks and pending work.
 
 Each complete replacement may advance the source/index revision and index epoch.
 Sequences are uint64, including values above JavaScript's safe integer range.
@@ -71,10 +75,11 @@ Each request evaluates current membership; page cursors bind query, authority
 and dictionary continuity. The browser discards responses from older local
 query generations and does not reuse filtered scene cache entries. Unsupported
 filtered scenes report an error instead of opening an unfiltered scene.
-Packet animation requires full represented membership at both endpoints. A
-partially matched aggregate has no filtered traffic estimate until the server
-can evaluate the exact relation intersection. Its full-bundle traffic is never
-presented as the query's traffic. Unmapped geometry remains excluded, and the
+Relations and packet animation require full represented membership at both
+endpoints while a query is active. A partially matched aggregate has no filtered
+relation or traffic estimate until the server can evaluate the exact relation
+intersection. Its full bundle is never presented as the query's relation.
+Unsupported boundary rows and unmapped geometry remain excluded, and the
 watch projection receipt reports incomplete canonical identity coverage.
 
 ## Binary health and traffic
