@@ -4,7 +4,10 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
 
@@ -355,6 +358,33 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
     end
   end
 
+  # Inventory access (devices.view) no longer implies live video. The viewer test
+  # above is the control: a built-in viewer holds devices.cameras.view and opens.
+  describe "live camera permission" do
+    for {label, method, path} <- [
+          {"opening a relay", :post, "/api/camera-relay-sessions"},
+          {"reading a relay", :get, "/api/camera-relay-sessions/:id"},
+          {"closing a relay", :post, "/api/camera-relay-sessions/:id/close"},
+          {"starting WebRTC signaling", :post, "/api/camera-relay-sessions/:id/webrtc/session"}
+        ] do
+      test "refuses #{label} without devices.cameras.view" do
+        user = grant_permissions(AshTestHelpers.user_fixture(), ["devices.view"])
+        {:ok, token, _claims} = Guardian.create_access_token(user)
+        path = String.replace(unquote(path), ":id", Ecto.UUID.generate())
+
+        conn =
+          build_conn()
+          |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+          |> dispatch(@endpoint, unquote(method), path, %{
+            "camera_source_id" => Ecto.UUID.generate(),
+            "stream_profile_id" => Ecto.UUID.generate()
+          })
+
+        assert conn.status == 403
+      end
+    end
+  end
+
   describe "authentication" do
     test "requires authentication for create" do
       conn =
@@ -370,6 +400,34 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       conn = get(build_conn(), ~p"/api/camera-relay-sessions/#{Ecto.UUID.generate()}")
       assert conn.status == 401
     end
+  end
+
+  defp grant_permissions(user, permissions) do
+    actor = AshTestHelpers.system_actor()
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Camera relay permission #{System.unique_integer([:positive])}",
+          description: "Test profile with inventory access but no live video",
+          permissions: permissions
+        },
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: actor)
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

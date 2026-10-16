@@ -224,6 +224,17 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @all_roles
         },
         %{
+          key: "devices.cameras.view",
+          section: "devices",
+          resource: "devices.cameras",
+          action: "view",
+          label: "View live camera video",
+          description:
+            "Open camera relay sessions and watch live camera video. Viewing the camera " <>
+              "inventory needs only devices.view.",
+          default_roles: @all_roles
+        },
+        %{
           key: "devices.console.open",
           section: "devices",
           resource: "devices.console",

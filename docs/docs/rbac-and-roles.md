@@ -43,7 +43,7 @@ The catalog covers these areas:
 | Area | Examples of what it controls |
 | --- | --- |
 | **Analytics** | Viewing analytics dashboards; managing saved queries. |
-| **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
+| **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; watching live camera video; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
 | **Services** | Viewing, creating, updating, deleting, and running service checks. |
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
 | **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
@@ -75,6 +75,18 @@ require a different permission from the main record.
 Gateway details require `devices.view` for both live registry information and
 stored records. Users without it are redirected to the dashboard with a
 permission error.
+
+### Live camera video
+
+Watching a camera needs `devices.cameras.view` in addition to the inventory
+access `devices.view` gives. It covers opening a camera relay, the WebRTC and
+websocket video streams, and the camera previews on the Cameras page, the
+dashboard, device pages, and the topology map. Opening a relay makes an agent
+pull the camera's stream, so the check runs in core as well as in the web UI
+and API. Every built-in role has it. To let a role see the camera inventory
+without live video, use a custom role profile that omits it. When this
+permission was introduced, custom profiles that already granted `devices.view`
+were given it, so upgrading did not change who can watch cameras.
 
 The entity-to-permission mapping and scope authorization contract are owned by
 `ServiceRadarWebNG.SRQL.EntityAccess` in

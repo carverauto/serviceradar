@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
 
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, request} <- normalize_create_request(params),
          {:ok, session} <-
            relay_session_manager().request_open(
@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
 
   def close(conn, %{"id" => relay_session_id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_id} <- normalize_uuid_param(relay_session_id, "id"),
          {:ok, session} <-
            relay_session_manager().request_close(
@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
 
   def show(conn, %{"id" => relay_session_id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_id} <- normalize_uuid_param(relay_session_id, "id"),
          {:ok, session} <- fetch_relay_session_for_scope(normalized_id, get_scope(conn)) do
       json(conn, %{data: relay_session_json(session, conn)})

@@ -105,6 +105,14 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
+  # Live camera video moved off devices.view onto its own key. Every built-in role
+  # keeps it, so the split changes who can watch only through custom profiles.
+  test "every built-in role can watch live camera video" do
+    for role <- [:viewer, :helpdesk, :operator, :admin] do
+      assert MapSet.member?(Catalog.permissions_for_role(role), "devices.cameras.view")
+    end
+  end
+
   test "remote-access file-transfer permissions are admin-only catalog keys" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)
