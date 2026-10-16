@@ -149,3 +149,24 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   no fleet-value download or extra request is needed to discover basic fields.
 - Verdict: sound; current authorization is checked after metadata preparation.
 - Confidence: high.
+
+### Resolve named Prefix Tags through the existing immutable prefix snapshots
+
+- When: named Prefix Tags implementation.
+- Choice: selecting a label such as `office` reads the networks already attached
+  to that label, merges their overlapping ranges, and passes those ranges to the
+  device address index. A small reverse index points into the existing trie;
+  it does not copy the labels or build another database of prefix ownership.
+  Background work prepares it, and all retained reverse indexes together have
+  a four-MiB cap. An unavailable catalog makes that filter unavailable while
+  normal prefix enrichment and other topology filters continue to work.
+- Gap: the user requested existing named groups but did not choose how to join
+  their networks to device membership or bound discovery work.
+- Reach: labels are paged, old captured snapshots remain coherent during reload,
+  and full-chain tag membership preserves overlapping network labels. A label
+  exceeding the range budget fails explicitly instead of returning partial
+  membership. The existing trie remains the sole owner of prefix definitions.
+- Verdict: sound; shared immutable data avoids per-device prefix lookups and a
+  second source of truth. Catalog preparation and release remain the topology
+  publisher's responsibility when the feature is enabled or disabled.
+- Confidence: medium.

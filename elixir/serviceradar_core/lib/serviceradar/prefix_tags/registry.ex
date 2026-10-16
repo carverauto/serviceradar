@@ -125,6 +125,25 @@ defmodule ServiceRadar.PrefixTags.Registry do
     {:ok, %{}}
   end
 
+  @doc "Enumerate at most the caller's source budget without copying the full registry."
+  def sources(limit) when is_integer(limit) and limit in 1..32 do
+    case :ets.lookup(@table, @ready_marker) do
+      [{@ready_marker}] ->
+        case :ets.select(@table, [{{:"$1"}, [{:is_binary, :"$1"}], [:"$1"]}], limit + 1) do
+          :"$end_of_table" -> {:ok, []}
+          {sources, _continuation} when length(sources) <= limit -> {:ok, sources}
+          _ -> {:error, :source_budget}
+        end
+
+      [] ->
+        {:error, :prefix_registry_unavailable}
+    end
+  rescue
+    ArgumentError -> {:error, :prefix_registry_unavailable}
+  end
+
+  def sources(_limit), do: {:error, :source_budget}
+
   defp rehydrate_sources do
     # Recheck every discovered source while holding the same lock as Store
     # mutations. This closes both init/install and init/clear races.

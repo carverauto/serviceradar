@@ -13,4 +13,13 @@ defmodule ServiceRadar.PrefixTags.Native do
   def finish(_builder), do: :erlang.nif_error(:nif_not_loaded)
   def lookup(_snapshot, _address), do: :erlang.nif_error(:nif_not_loaded)
   def stats(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+  def prepare_catalog(_snapshot, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
+  def release_catalog(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+  def catalog_status(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+
+  def label_page(_snapshot, _after_label, _limit, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def label_ranges(_snapshot, _label, _max_ranges, _max_bytes, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
 end
