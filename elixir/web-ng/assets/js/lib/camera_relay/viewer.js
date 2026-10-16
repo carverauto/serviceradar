@@ -114,6 +114,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// The relay's offer declares its track without a media stream (`a=msid:- <track>`),
+// so the browser reports `streams` empty; wrap the track itself in that case.
+function webRtcTrackStream(event) {
+  if (event.streams?.[0]) return event.streams[0]
+  if (event.track && window.MediaStream) return new window.MediaStream([event.track])
+  return null
+}
+
 function terminationLabel(kind) {
   switch (kind) {
     case "failure":
@@ -530,8 +538,9 @@ export class CameraRelayViewer {
     const isCurrentViewer = () => !this.destroyedFlag && this.peerConnection === peerConnection
     if (!isCurrentViewer()) return
     const video = this.getVideo()
+    const stream = webRtcTrackStream(event)
 
-    if (video && event.streams?.[0]) {
+    if (video && stream) {
       if (this.webrtcVideo && this.webrtcPlayingHandler) {
         this.webrtcVideo.removeEventListener("playing", this.webrtcPlayingHandler)
       }
@@ -544,7 +553,7 @@ export class CameraRelayViewer {
         this.setState(CAMERA_VIEWER_STATES.PLAYING, {transport: CAMERA_RELAY_WEBRTC_TRANSPORT})
       }
       video.addEventListener("playing", this.webrtcPlayingHandler, {once: true})
-      video.srcObject = event.streams[0]
+      video.srcObject = stream
       video.play?.().catch(() => {})
     }
 
