@@ -77,6 +77,16 @@ defmodule ServiceRadar.TopologyAtlas do
   defdelegate world_info(world), to: Native
   defdelegate candidate_info(candidate), to: Native
 
+  @doc "Build a generation-bound canonical mapping using bounded dictionary pages, then seal it."
+  defdelegate new_ordinals(world, dictionary_epoch), to: Native
+  defdelegate apply_ordinals(world, mapping, rows), to: Native
+  defdelegate seal_ordinals(world, mapping), to: Native
+  defdelegate ordinal_info(world, mapping), to: Native
+  defdelegate device_ordinals(world, mapping, ids), to: Native
+
+  @doc "Return portable canonical aggregate membership without enumerating it on the BEAM."
+  defdelegate aggregate_ordinals(world, mapping, aggregate, timeout_ms), to: Native
+
   @doc """
   Read the topology view directly into a native resource from one paged Dgraph snapshot.
 

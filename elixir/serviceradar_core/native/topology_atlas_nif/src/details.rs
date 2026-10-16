@@ -17,7 +17,7 @@ mod atoms {
 }
 
 pub(crate) struct SelectionResource(pub TileSelection);
-struct AggregateResource(AggregateSelection);
+pub(crate) struct AggregateResource(pub AggregateSelection);
 #[rustler::resource_impl]
 impl Resource for SelectionResource {}
 #[rustler::resource_impl]
