@@ -5,6 +5,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+#[path = "bitmap_pending.rs"]
+mod pending;
+use pending::Pending;
+pub use pending::PendingStatus;
+
 pub type Error = &'static str;
 pub type Facet = (String, String);
 pub type Row = (u32, bool, Vec<(String, Value)>);
@@ -35,7 +40,6 @@ impl From<&str> for Value {
 /// Postfix instructions: predicate=0, all=1, any=2, except=3 (one operand).
 pub type Instruction = (u8, String, String, u16);
 pub const BATCH_LIMIT: usize = 500;
-pub const VIEW_LIMIT: usize = 8192;
 pub const PIN_TTL: Duration = Duration::from_secs(30);
 pub enum ViewRow<'a> {
     Leaf(u32),
@@ -172,6 +176,7 @@ pub struct Index {
     publisher: Mutex<()>,
     closed: AtomicBool,
     pins: Mutex<Vec<Weak<PinSlot>>>,
+    pending: Mutex<Pending>,
     budget: Arc<Budget>,
     _charge: Charge,
 }
@@ -185,6 +190,7 @@ pub struct Status {
     pub peak_bytes: usize,
     pub pins: usize,
     pub unavailable: Vec<String>,
+    pub pending: PendingStatus,
 }
 
 fn deadline(timeout_ms: u64) -> Result<Instant, Error> {
@@ -247,6 +253,7 @@ impl Index {
             revision: Mutex::new(revision),
             publisher: Mutex::new(()),
             pins: Mutex::new(Vec::new()),
+            pending: Mutex::new(Pending::new(&budget)?),
             budget,
             _charge: charge,
         })
@@ -276,6 +283,7 @@ impl Index {
     }
     pub fn status(&self) -> Result<Status, Error> {
         let pins = self.reap()?;
+        let pending = self.pending.try_lock().map_err(|_| "busy")?.status();
         let revision = self.revision.try_lock().map_err(|_| "busy")?.clone();
         Ok(Status {
             revision: revision.number,
@@ -286,10 +294,11 @@ impl Index {
             peak_bytes: self.budget.peak.load(Ordering::Relaxed),
             pins,
             unavailable: revision.unavailable.iter().cloned().collect(),
+            pending,
         })
     }
     /// Full current rows replace each dirty ordinal; replay is harmless. The caller
-    /// serializes source reads and acks durable hints only after this publication.
+    /// serializes source reads and requeues taken hints after any failed publication.
     pub fn publish(
         &self,
         expected: u64,
@@ -300,6 +309,7 @@ impl Index {
         let end = deadline(1000)?;
         let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
         let pins = self.reap()?;
+        let pending = self.pending.try_lock().map_err(|_| "busy")?.status();
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
@@ -427,10 +437,13 @@ impl Index {
             peak_bytes: self.budget.peak.load(Ordering::Relaxed),
             pins,
             unavailable: revision.unavailable.iter().cloned().collect(),
+            pending,
         })
     }
     pub fn close(&self) -> Result<(), Error> {
         let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
+        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
+        pending.clear(&self.budget)?;
         self.closed.store(true, Ordering::Release);
         self.active.store(false, Ordering::Release);
         self.fence.fetch_add(1, Ordering::AcqRel);
@@ -674,67 +687,6 @@ impl Query {
                         .map_or(0, |facet| pin.result.set.intersection_len(&facet.set)))
                 })
                 .collect()
-        })
-    }
-    pub fn view(
-        &self,
-        authority: &[u8],
-        ids: &[u32],
-        timeout_ms: u64,
-    ) -> Result<RoaringBitmap, Error> {
-        if ids.len() > VIEW_LIMIT || ids.contains(&0) {
-            return Err("view_budget");
-        }
-        self.with_pin(authority, timeout_ms, |pin, _| {
-            Ok(ids
-                .iter()
-                .copied()
-                .filter(|id| pin.result.set.contains(*id))
-                .collect())
-        })
-    }
-    pub fn view_sets(
-        &self,
-        authority: &[u8],
-        ids: &[u32],
-        facets: &[Facet],
-        timeout_ms: u64,
-    ) -> Result<Vec<RoaringBitmap>, Error> {
-        if ids.len() > VIEW_LIMIT || ids.contains(&0) {
-            return Err("view_budget");
-        }
-        if facets.len() > 16 {
-            return Err("facet_budget");
-        }
-        self.with_pin(authority, timeout_ms, |pin, end| {
-            let members: RoaringBitmap = ids
-                .iter()
-                .copied()
-                .filter(|id| pin.result.set.contains(*id))
-                .collect();
-            let mut sections = Vec::with_capacity(facets.len() + 1);
-            let mut bytes = members.serialized_size();
-            for key in facets {
-                check_time(end)?;
-                if !self.supported.contains(&key.0) {
-                    return Err("unsupported_facet");
-                }
-                if pin.revision.unavailable.contains(&key.0) {
-                    return Err("facet_unavailable");
-                }
-                let set = pin
-                    .revision
-                    .facets
-                    .get(key)
-                    .map_or_else(RoaringBitmap::new, |facet| &members & &facet.set);
-                bytes += set.serialized_size();
-                if bytes > 256 * 1024 {
-                    return Err("view_budget");
-                }
-                sections.push(set);
-            }
-            sections.insert(0, members);
-            Ok(sections)
         })
     }
     pub fn count_serialized(
@@ -1194,7 +1146,7 @@ mod tests {
     }
 
     #[test]
-    fn bounded_views_checked_portable_intersection_and_query_lifetimes() {
+    fn checked_portable_intersection_and_query_lifetimes() {
         let index = index();
         index
             .publish(
@@ -1208,35 +1160,6 @@ mod tests {
             )
             .unwrap();
         let query = all(&index);
-        assert_eq!(
-            query
-                .view(b"allow", &[1, 2, u32::MAX], 1000)
-                .unwrap()
-                .iter()
-                .collect::<Vec<_>>(),
-            vec![1, u32::MAX]
-        );
-        assert_eq!(
-            query.view(b"allow", &vec![1; 8193], 1000),
-            Err("view_budget")
-        );
-        let sets = query
-            .view_sets(
-                b"allow",
-                &[1, 2, u32::MAX],
-                &[
-                    ("availability".into(), "healthy".into()),
-                    ("availability".into(), "unknown".into()),
-                ],
-                1000,
-            )
-            .unwrap();
-        assert_eq!(
-            sets.iter()
-                .map(|set| set.iter().collect::<Vec<_>>())
-                .collect::<Vec<_>>(),
-            vec![vec![1, u32::MAX], vec![1], vec![u32::MAX]]
-        );
         let members: RoaringBitmap = [2, u32::MAX].into_iter().collect();
         let mut bytes = Vec::new();
         members.serialize_into(&mut bytes).unwrap();

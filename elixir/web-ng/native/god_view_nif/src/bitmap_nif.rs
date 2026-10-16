@@ -1,5 +1,5 @@
 //! Typed BEAM boundary for the persistent membership index; no JSON intermediates.
-use crate::bitmap_index::{Index, Instruction, Kind, Query, Row, Value, ViewRow};
+use crate::bitmap_index::{Index, Instruction, Kind, PendingStatus, Query, Row, Value, ViewRow};
 use crate::core::arrow_serde::vec_into_binary;
 use rustler::types::list::ListIterator;
 use rustler::{
@@ -64,7 +64,7 @@ fn program(term: Term<'_>) -> Result<Vec<Instruction>, &'static str> {
     })
 }
 fn ids(term: Term<'_>) -> Result<Vec<u32>, &'static str> {
-    list(term, 8192, |value| {
+    list(term, 500, |value| {
         u32::decode(value).map_err(|_| "invalid_ordinal")
     })
 }
@@ -132,6 +132,25 @@ fn bitmap_query_row_overlay<'a>(
     ))
 }
 #[derive(NifMap)]
+pub struct BitmapPendingStatus {
+    pending_count: u64,
+    serialized_bytes: usize,
+    native_bytes: usize,
+    rescan_needed: bool,
+    rescan_generation: u64,
+}
+impl From<PendingStatus> for BitmapPendingStatus {
+    fn from(s: PendingStatus) -> Self {
+        Self {
+            pending_count: s.pending_count,
+            serialized_bytes: s.serialized_bytes,
+            native_bytes: s.native_bytes,
+            rescan_needed: s.rescan_needed,
+            rescan_generation: s.rescan_generation,
+        }
+    }
+}
+#[derive(NifMap)]
 pub struct BitmapIndexStatus<'a> {
     revision: u64,
     source_revision: Binary<'a>,
@@ -141,6 +160,7 @@ pub struct BitmapIndexStatus<'a> {
     peak_bytes: usize,
     pins: usize,
     unavailable_facets: Vec<String>,
+    pending: BitmapPendingStatus,
 }
 fn status(
     env: Env<'_>,
@@ -155,6 +175,7 @@ fn status(
         peak_bytes: s.peak_bytes,
         pins: s.pins,
         unavailable_facets: s.unavailable,
+        pending: s.pending.into(),
     })
 }
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -206,6 +227,29 @@ fn bitmap_index_status(
     status(env, index.0.status()?)
 }
 #[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_index_mark_dirty(
+    index: ResourceArc<BitmapIndexResource>,
+    ordinals: Term<'_>,
+    request_rescan: bool,
+) -> Result<BitmapPendingStatus, &'static str> {
+    Ok(index.0.mark_dirty(&ids(ordinals)?, request_rescan)?.into())
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_index_take_dirty(
+    index: ResourceArc<BitmapIndexResource>,
+    limit: usize,
+) -> Result<(Vec<u32>, BitmapPendingStatus), &'static str> {
+    let (ids, status) = index.0.take_dirty(limit)?;
+    Ok((ids, status.into()))
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_index_acknowledge_reconcile(
+    index: ResourceArc<BitmapIndexResource>,
+    observed_generation: u64,
+) -> Result<BitmapPendingStatus, &'static str> {
+    Ok(index.0.acknowledge_reconcile(observed_generation)?.into())
+}
+#[rustler::nif(schedule = "DirtyCpu")]
 fn bitmap_index_query<'a>(
     env: Env<'a>,
     index: ResourceArc<BitmapIndexResource>,
@@ -254,23 +298,6 @@ fn bitmap_query_facets(
         .facets(authority.as_slice(), &facets(requested, 50)?, timeout_ms)
 }
 #[rustler::nif(schedule = "DirtyCpu")]
-fn bitmap_query_view<'a>(
-    env: Env<'a>,
-    query: ResourceArc<BitmapQueryResource>,
-    authority: Binary<'a>,
-    ordinals: Term<'a>,
-    timeout_ms: u64,
-) -> Result<Binary<'a>, &'static str> {
-    let bitmap = query
-        .0
-        .view(authority.as_slice(), &ids(ordinals)?, timeout_ms)?;
-    let mut bytes = Vec::with_capacity(bitmap.serialized_size());
-    bitmap
-        .serialize_into(&mut bytes)
-        .map_err(|_| "serialization_failed")?;
-    vec_into_binary(env, bytes).map_err(|_| "allocation_failed")
-}
-#[rustler::nif(schedule = "DirtyCpu")]
 fn bitmap_query_intersection_count(
     query: ResourceArc<BitmapQueryResource>,
     authority: Binary<'_>,
@@ -297,29 +324,4 @@ fn bitmap_query_close(query: ResourceArc<BitmapQueryResource>) -> Result<(), &'s
 #[rustler::nif(schedule = "DirtyCpu")]
 fn bitmap_index_close(index: ResourceArc<BitmapIndexResource>) -> Result<(), &'static str> {
     index.0.close()
-}
-
-#[rustler::nif(schedule = "DirtyCpu")]
-fn bitmap_query_view_sets<'a>(
-    env: Env<'a>,
-    query: ResourceArc<BitmapQueryResource>,
-    authority: Binary<'a>,
-    ordinals: Term<'a>,
-    requested: Term<'a>,
-    timeout_ms: u64,
-) -> Result<Vec<Binary<'a>>, &'static str> {
-    let sets = query.0.view_sets(
-        authority.as_slice(),
-        &ids(ordinals)?,
-        &facets(requested, 16)?,
-        timeout_ms,
-    )?;
-    sets.into_iter()
-        .map(|set| {
-            let mut bytes = Vec::with_capacity(set.serialized_size());
-            set.serialize_into(&mut bytes)
-                .map_err(|_| "serialization_failed")?;
-            vec_into_binary(env, bytes).map_err(|_| "allocation_failed")
-        })
-        .collect()
 }

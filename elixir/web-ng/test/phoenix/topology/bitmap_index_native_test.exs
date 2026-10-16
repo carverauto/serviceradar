@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.Native
 
   @moduletag :db_free
@@ -94,12 +95,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
                1000
              )
 
-    assert {:ok, portable} = Native.bitmap_query_view(query, authority, [7, 4_294_967_295], 1000)
-
-    assert {:ok, [^portable, unknown]} =
-             Native.bitmap_query_view_sets(query, authority, [7, 4_294_967_295], [{"availability", "unknown"}], 1000)
-
-    assert unknown == portable
+    portable = aggregate_membership(dictionary)
 
     assert {:ok, {<<0, 1, 0, 1>>, <<3, 3, 3, 3>>, <<2, 2, 2, 2>>, counts}} =
              Native.bitmap_query_row_overlay(
@@ -127,5 +123,65 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
     assert {:ok, _} = Native.bitmap_index_close(index)
     assert {:error, "not_ready"} = Native.bitmap_query_page(query, authority, 0, 128, 1000)
     assert {:ok, %{cardinality: 0, ready: false}} = Native.bitmap_index_status(index)
+  end
+
+  test "dirty hints use unsigned ordinals and fence full-pass acknowledgements" do
+    assert {:ok, index} = Native.bitmap_index_new(<<1::128>>, <<2::128>>, :device, ["vendor"])
+
+    assert {:ok, %{pending_count: 2, rescan_needed: true, rescan_generation: generation}} =
+             Native.bitmap_index_mark_dirty(index, [4_294_967_295, 7, 7], true)
+
+    assert {:ok, {[7], %{pending_count: 1}}} = Native.bitmap_index_take_dirty(index, 1)
+    assert {:ok, %{pending_count: 2}} = Native.bitmap_index_mark_dirty(index, [7], true)
+    assert {:error, "stale_reconcile"} = Native.bitmap_index_acknowledge_reconcile(index, generation)
+
+    assert {:ok, %{pending: %{rescan_needed: true, rescan_generation: current}}} =
+             Native.bitmap_index_status(index)
+
+    assert {:ok, %{pending_count: 2, rescan_needed: false}} =
+             Native.bitmap_index_acknowledge_reconcile(index, current)
+
+    assert {:ok, {[7, 4_294_967_295], %{pending_count: 0}}} = Native.bitmap_index_take_dirty(index, 500)
+    assert {:error, "list_budget"} = Native.bitmap_index_mark_dirty(index, List.duplicate(7, 501), false)
+    assert {:error, "invalid_dirty_batch"} = Native.bitmap_index_mark_dirty(index, [0], false)
+    assert {:ok, _} = Native.bitmap_index_close(index)
+  end
+
+  defp aggregate_membership(dictionary) do
+    positions =
+      for n <- 1..2 do
+        %{
+          device_id: "sr:overlay-#{n}.example.com",
+          label: "Synthetic overlay device",
+          x: n,
+          y: n,
+          min_zoom: 24,
+          parent_id: nil,
+          component_id: "synthetic-component",
+          component_z: 1,
+          component_x: 0,
+          component_y: 0,
+          placement_depth: 4,
+          active: true
+        }
+      end
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-overlay-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, positions)
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, dictionary)
+
+    assert {:ok, _} =
+             TopologyAtlas.apply_ordinals(world, mapping, [
+               {hd(positions).device_id, 7},
+               {List.last(positions).device_id, 4_294_967_295}
+             ])
+
+    assert {:ok, _} = TopologyAtlas.seal_ordinals(world, mapping)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
+    assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
+    assert {:ok, bytes} = TopologyAtlas.aggregate_ordinals(world, mapping, selection, 1000)
+    bytes
   end
 end
