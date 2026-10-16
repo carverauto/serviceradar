@@ -32,8 +32,16 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     }
 
     receipt = %{"z" => 0, "x" => 0, "y" => 0, "revision" => "geometry"}
+    bmp = "synthetic-" <> <<0xEE, 0x80, 0x80>>
+    nonbmp = "synthetic-" <> <<0xF0, 0x90, 0x80, 0x80>>
+    bom = <<0xEF, 0xBB, 0xBF>> <> "synthetic"
+    sources = %{bmp => 1, nonbmp => 2, bom => 3, <<0xEF, 0xBB, 0xBF>> => 4}
+    metadata = Map.put(metadata, :prefix_sources, sources)
     {:ok, frame} = BitmapFrame.encode(metadata, [tile])
     assert %{kind: :baseline, total: 3, sequence: 1} = Client.decode(envelope(frame), [receipt])
+    {:ok, reset} = BitmapFrame.encode(Map.put(metadata, :kind, :reset), [])
+    assert %{kind: :reset, sequence: 1} = Client.decode(envelope(reset), [])
+    assert_raise MatchError, fn -> Client.decode(envelope(reverse_sources(frame)), [receipt]) end
     assert_raise MatchError, fn -> Client.decode(envelope(frame), [%{receipt | "revision" => "stale"}]) end
     {:ok, inconsistent} = BitmapFrame.encode(%{metadata | total: 4}, [tile])
     assert_raise MatchError, fn -> Client.decode(envelope(inconsistent), [receipt]) end
@@ -73,4 +81,40 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
   end
 
   defp envelope(frame), do: <<0, 1, 14, 16, "1topology:tilesmembership:frame", frame::binary>>
+
+  defp reverse_sources(frame) do
+    <<"SRMO", 1, kind, 0::little-16, size::little-32, sequence::little-64, total::little-32, rest::binary>> = frame
+    {prefix, rest} = drop_texts(rest, 7)
+    <<count, rest::binary>> = rest
+
+    <<len1::little-16, first::binary-size(len1), ver1::binary-size(8), len2::little-16, second::binary-size(len2),
+      ver2::binary-size(8), rest::binary>> = rest
+
+    <<
+      "SRMO",
+      1,
+      kind,
+      0::little-16,
+      size::little-32,
+      sequence::little-64,
+      total::little-32,
+      prefix::binary,
+      count,
+      len2::little-16,
+      second::binary,
+      ver2::binary,
+      len1::little-16,
+      first::binary,
+      ver1::binary,
+      rest::binary
+    >>
+  end
+
+  defp drop_texts(rest, 0), do: {"", rest}
+
+  defp drop_texts(<<length::little-16, rest::binary>>, count) do
+    <<value::binary-size(length), rest::binary>> = rest
+    {tail, rest} = drop_texts(rest, count - 1)
+    {<<length::little-16, value::binary, tail::binary>>, rest}
+  end
 end

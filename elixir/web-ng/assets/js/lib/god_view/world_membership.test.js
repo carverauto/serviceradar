@@ -87,6 +87,17 @@ describe("binary admitted-row membership", () => {
     expect(() => decodeBitmapFrame(cut)).toThrow("truncated frame")
     expect(() => decodeBitmapFrame(bitmapFrame({tiles: [tile], prefixSources: Array.from({length: 33}, (_, index) => ({source: `synthetic-${index}`, version: 1n}))}))).toThrow("prefix source count")
     expect(() => decodeBitmapFrame(bitmapFrame({tiles: [tile], prefixSources: [{source: "bad\0name", version: 1n}]}))).toThrow("string encoding")
+    const bmp = "synthetic-\uE000"
+    const nonbmp = "synthetic-\u{10000}"
+    const bom = "\uFEFFsynthetic"
+    const byteOrder = [{source: bmp, version: 1n}, {source: nonbmp, version: 2n}, {source: bom, version: 3n}]
+    expect(decodeBitmapFrame(bitmapFrame({tiles: [tile], prefixSources: byteOrder})).prefix_sources).toEqual(byteOrder)
+    state.bind(bitmapBinding, [geometry])
+    state.receive(bitmapFrame({sequence: 5n, tiles: [tile], prefixSources: byteOrder}))
+    expect(state.prefixSources).toEqual(byteOrder)
+    expect(() => decodeBitmapFrame(bitmapFrame({tiles: [tile], prefixSources: [byteOrder[1], byteOrder[0]]}))).toThrow("prefix source order")
+    expect(() => decodeBitmapFrame(bitmapFrame({tiles: [tile], prefixSources: [byteOrder[0], byteOrder[0]]}))).toThrow("prefix source order")
+    expect(decodeBitmapFrame(bitmapFrame({tiles: [tile], prefixSources: [{source: "\uFEFF", version: 4n}]})).prefix_sources).toEqual([{source: "\uFEFF", version: 4n}])
     state.receive(bitmapFrame({tiles: [tile], prefixSources: [{source: "", version: 1n}]}))
     expect(state.onReset).toHaveBeenCalled()
     expect(state.prefixSources).toEqual([])

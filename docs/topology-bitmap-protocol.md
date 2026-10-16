@@ -51,6 +51,7 @@ and cleared views do not expose an old total.
 The next field is named Prefix Tag freshness for this replacement: a uint8
 source count, at most 32, then each source as a string and a uint64 catalog
 version. Sources are strictly ascending raw UTF-8 bytes, with no duplicates.
+A leading U+FEFF is part of the identifier.
 An empty count means the query captured no named Prefix Tag. The same section
 is present on a reset, which then ends. A later replacement may carry newer
 versions while the watch binding stays unchanged. Versions are the captured

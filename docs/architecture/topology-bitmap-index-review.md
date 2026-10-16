@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `c8b2fe884548f60876fc5f75ffdda9a8b724238d00a16b08ea75ce0530e62d74` | 864534 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `1d946ca2ae9bab44b5b98141925c4c4f843caa2fc8ba66fa4bb3481adb7060be` | 864727 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -32,6 +32,9 @@ the final deadline/mapping checks, the full remote unit result (414 targets,
 two Swift platform skips), and the remaining hosted database/transport gates.
 Its source SHA-256 is
 `450a19ae634c45e472abb09852d2b3f4ecfbf329c513485983d27ef951905691`.
+The embedded tasks checklist now includes the negotiated compression result.
+That source SHA-256 is
+`42888f8c19ec4a83bfec18ff5115d79a26fe51e05856c9421ee3d3d9cfce551b`.
 
 The portable summary states current public limitations from the same committed
 handoff: camera-only share links, paged labels without search, masked zero-match

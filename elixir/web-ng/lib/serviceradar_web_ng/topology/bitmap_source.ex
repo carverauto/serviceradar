@@ -172,7 +172,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
           :string,
           expr(
             fragment(
-              "CASE WHEN jsonb_typeof(? -> ?) = 'string' THEN left(btrim(? ->> ?), 257) END",
+              "CASE WHEN jsonb_typeof(? -> ?) IN ('string', 'boolean', 'number') THEN left(btrim(? ->> ?), 257) END",
               tags,
               ^key,
               tags,

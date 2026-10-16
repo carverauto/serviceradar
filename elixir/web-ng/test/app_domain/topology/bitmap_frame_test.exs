@@ -60,6 +60,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
     sources = %{"synthetic-site" => 1, "synthetic-flow" => 9_007_199_254_740_993}
 
     assert {:ok, frame} = BitmapFrame.encode(Map.put(metadata(), :prefix_sources, sources), [tile()])
+
     assert {:ok, reset} =
              BitmapFrame.encode(Map.merge(metadata(), %{kind: :reset, prefix_sources: sources}))
 
@@ -95,6 +96,42 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
 
     assert {:ok, wide_frame} = BitmapFrame.encode(Map.put(metadata(), :prefix_sources, wide), [tile()])
     assert byte_size(wide_frame) <= 262_144
+
+    bmp = "synthetic-" <> <<0xEE, 0x80, 0x80>>
+    nonbmp = "synthetic-" <> <<0xF0, 0x90, 0x80, 0x80>>
+    bom = <<0xEF, 0xBB, 0xBF>> <> "synthetic"
+    bmp_size = byte_size(bmp)
+    nonbmp_size = byte_size(nonbmp)
+    bom_size = byte_size(bom)
+
+    assert {:ok, ordered} =
+             BitmapFrame.encode(Map.put(metadata(), :prefix_sources, %{bmp => 1, nonbmp => 2, bom => 3}), [tile()])
+
+    <<"SRMO", 1, _kind, 0::little-16, _size::little-32, _sequence::little-64, _total::little-32, fields::binary>> =
+      ordered
+
+    ordered_rest =
+      Enum.reduce(1..7, fields, fn _, <<size::little-16, rest::binary>> ->
+        binary_part(rest, size, byte_size(rest) - size)
+      end)
+
+    assert <<3, ^bmp_size::little-16, ^bmp::binary, 1::little-64, ^nonbmp_size::little-16, ^nonbmp::binary, 2::little-64,
+             ^bom_size::little-16, ^bom::binary, 3::little-64, _tiles::binary>> = ordered_rest
+
+    bom_only = <<0xEF, 0xBB, 0xBF>>
+
+    assert {:ok, bom_frame} =
+             BitmapFrame.encode(Map.put(metadata(), :prefix_sources, %{bom_only => 7}), [tile()])
+
+    <<"SRMO", 1, _kind, 0::little-16, _size::little-32, _sequence::little-64, _total::little-32, bom_fields::binary>> =
+      bom_frame
+
+    bom_rest =
+      Enum.reduce(1..7, bom_fields, fn _, <<size::little-16, rest::binary>> ->
+        binary_part(rest, size, byte_size(rest) - size)
+      end)
+
+    assert <<1, 3::little-16, ^bom_only::binary, 7::little-64, _tiles::binary>> = bom_rest
   end
 
   test "rejects ambiguous receipt/state/count columns before publishing a view" do
