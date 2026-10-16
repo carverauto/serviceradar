@@ -639,6 +639,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       :add_candidate
     )
 
+    get(
+      "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id",
+      CameraRelayWebRTCController,
+      :show_session
+    )
+
     delete(
       "/camera-relay-sessions/:id/webrtc/session/:viewer_session_id",
       CameraRelayWebRTCController,
