@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
 
   use Supervisor
 
+  alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldHealth
   alias ServiceRadarWebNG.Topology.WorldLoader
@@ -24,6 +26,13 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
     detail_tasks = ServiceRadarWebNG.Topology.WorldDetailTasks
     detail_guards = ServiceRadarWebNG.Topology.WorldDetailGuards
     overlay_tasks = ServiceRadarWebNG.Topology.WorldOverlayTasks
+    bitmap_tasks = ServiceRadarWebNG.Topology.BitmapIndexTasks
+
+    bitmap_children = [
+      Supervisor.child_spec({Task.Supervisor, name: bitmap_tasks, max_children: 1}, id: bitmap_tasks),
+      {BitmapIndex, name: BitmapIndex, task_supervisor: bitmap_tasks, pubsub: ServiceRadar.PubSub},
+      {BitmapQueries, []}
+    ]
 
     # Each owner and its task supervisors share a restart boundary. Otherwise
     # an owner crash loses its timeout while an orphan still occupies the pool.
@@ -64,7 +73,8 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
            [
              group(:world_loader, loader_children),
              group(:world_health, health_children),
-             group(:world_overlay, overlay_children)
+             group(:world_overlay, overlay_children),
+             group(:bitmap_index, bitmap_children)
            ],
            [strategy: :one_for_one]
          ]},

@@ -1144,6 +1144,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/relayout", TopologyTileController, :relayout)
   end
 
+  scope "/topology", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api, :topology_mutation])
+
+    post("/query", TopologyQueryController, :create)
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser_raw_auth])
 
