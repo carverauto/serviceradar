@@ -168,6 +168,17 @@ history. Reconnect requires a fresh replacement. Eviction, disconnect and
 feature disable release masks; valid geometry survives membership resets.
 No roaring-wasm, browser worker or per-view UID dictionary is added.
 
+Phase 3 also replaces the existing per-tile health/flow JSON response, rather
+than leaving it beside a new membership stream. Encode directional rates,
+coverage, eligibility, explicit unknown values and observation timestamps as
+bounded typed binary fields. Keep telemetry revisions separate from membership
+revisions and preserve the current four-request scheduler. Each tile's binary
+response stays within 256 KiB; edge telemetry is not accumulated into a single
+64-tile frame. Replace JSON encoding used only for size checks with the actual
+binary frame budget. Small query/control metadata may remain JSON, but no bulk
+health or flow arrays are wrapped in JSON or embedded as JSON inside a binary
+envelope. The rollout-disabled compatibility path is identified separately.
+
 Arrow attributes stay typed. Measure IPC decode, native projection, transport,
 mask staging and GPU upload copies separately. WebGPU uploads do not establish
 end-to-end zero copy. Queued commands must finish before referenced buffers are
