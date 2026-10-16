@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Topology.BitmapSelection
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldDetails
@@ -63,10 +64,11 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
     end
   end
 
-  def search(conn, %{"device_id" => id}) when is_binary(id) and byte_size(id) > 0 do
+  def search(conn, %{"device_id" => id} = params) when is_binary(id) and byte_size(id) > 0 do
     with {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
          {:ok, position} <- TopologyAtlas.search(world, id),
          {:ok, %{} = _position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id),
+         :ok <- BitmapSelection.authorize(conn.assigns.current_scope, params, [id]),
          {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)
@@ -88,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
   def details(conn, params) do
     with {:ok, result} <- WorldDetails.fetch(conn.assigns.current_scope, params),
+         :ok <- BitmapSelection.details(conn.assigns.current_scope, params, result.content),
          {:ok, _scope} <- current_authority(conn) do
       json_payload(conn, result.content, result.payload, result.revision)
     else
@@ -96,7 +99,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   def scene(conn, params) do
-    with {:ok, scope} <- current_authority(conn),
+    with :ok <- BitmapSelection.unfiltered_only(params),
+         {:ok, scope} <- current_authority(conn),
          {:ok, level} <- WorldDetails.scene(scope, params),
          {:ok, encoded} <- WorldScene.encode(level),
          {:ok, _scope} <- current_authority(conn) do
@@ -231,6 +235,15 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
         :invalid_cursor ->
           {400, "invalid_cursor"}
+
+        :invalid_query ->
+          {400, "invalid_query"}
+
+        :filtered_detail_unavailable ->
+          {422, "filtered_detail_unavailable"}
+
+        :bitmap_disabled ->
+          {404, "bitmap_disabled"}
 
         :stale_revision ->
           {409, "stale_revision"}

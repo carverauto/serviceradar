@@ -1,0 +1,380 @@
+defmodule ServiceRadarWebNG.Topology.BitmapIndex do
+  @moduledoc """
+  Owns one local device index, repaired by bounded current-state scans.
+
+  PubSub identities are hints, never a commit watermark. A capped UID inbox
+  resolves hints into the native Roaring dirty queue. One supervised worker
+  alternates hint resolution, dirty reads and full ordinal keyset reconciliation.
+  Ordinary reconciliation retains the ready snapshot; failures report stale
+  progress while retrying. No database work runs in the owner process.
+  """
+  use GenServer
+
+  alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapSource
+  alias ServiceRadarWebNG.Topology.Native
+
+  @batch_size 500
+  @hint_limit 5_000
+  @hint_bytes 524_288
+  @task_timeout 10_000
+  @step_interval 25
+  @scan_interval 30_000
+
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
+
+  def snapshot(server \\ __MODULE__) do
+    GenServer.call(server, :snapshot, 1_000)
+  catch
+    :exit, _ -> {:error, :index_unavailable}
+  end
+
+  @impl true
+  def init(opts) do
+    pubsub = Keyword.fetch!(opts, :pubsub)
+    Phoenix.PubSub.subscribe(pubsub, DevicePubSub.invalidation_topic())
+    send(self(), :step)
+    Process.send_after(self(), :feature_check, 1_000)
+
+    {:ok,
+     %{
+       pubsub: pubsub,
+       tasks: Keyword.fetch!(opts, :task_supervisor),
+       current: nil,
+       mode: :initialize,
+       cursor: nil,
+       active: nil,
+       timer: nil,
+       hints: MapSet.new(),
+       hint_bytes: 0,
+       rescan: true,
+       scan_due: 0,
+       scan_generation: 0,
+       scan_started_at: nil,
+       seeded_at: nil,
+       last_reconciled_at: nil,
+       source_error: false,
+       sequence: 0,
+       turn: 0
+     }}
+  end
+
+  @impl true
+  def handle_call(:snapshot, _from, state) do
+    cond do
+      not BitmapQueries.enabled?() ->
+        {:reply, {:error, :bitmap_disabled}, disable(state)}
+
+      state.mode != :ready ->
+        {:reply, {:error, :index_not_ready}, state}
+
+      true ->
+        reply =
+          with {:ok, status} <- Native.bitmap_index_status(state.current.device) do
+            if status.ready do
+              progress = %{
+                seeded_at: state.seeded_at,
+                last_reconciled_at: state.last_reconciled_at,
+                pending_dirty: status.pending.pending_count + MapSet.size(state.hints),
+                source_error: state.source_error,
+                reconciling: not is_nil(state.cursor) or state.rescan or status.pending.rescan_needed
+              }
+
+              {:ok, Map.put(state.current, :progress, progress)}
+            else
+              {:error, :index_not_ready}
+            end
+          end
+
+        {:reply, reply, state}
+    end
+  end
+
+  @impl true
+  def handle_info(:step, state), do: {:noreply, step(%{state | timer: nil})}
+
+  def handle_info(:feature_check, state) do
+    Process.send_after(self(), :feature_check, 1_000)
+    {:noreply, if(BitmapQueries.enabled?(), do: wake(state), else: disable(state))}
+  end
+
+  def handle_info({:devices_invalidated, ids}, state) do
+    {:noreply, if(BitmapQueries.enabled?(), do: state |> remember(ids) |> wake(), else: state)}
+  end
+
+  def handle_info(:devices_rescan, state), do: {:noreply, wake(%{state | rescan: true})}
+
+  def handle_info({:bitmap_finished, token, result}, %{active: %{token: token, timed_out: false}} = state) do
+    work = state.active.work
+    state = release(state)
+
+    case result do
+      {:ok, result} -> {:noreply, state |> accept(work, result) |> schedule(@step_interval)}
+      {:error, :dictionary_changed} -> {:noreply, state |> disable() |> schedule(0)}
+      {:error, _reason} -> {:noreply, retry(state, work)}
+    end
+  end
+
+  def handle_info({:bitmap_timeout, token}, %{active: %{token: token, timed_out: false}} = state) do
+    Process.exit(state.active.pid, :kill)
+    {:noreply, %{state | active: %{state.active | timed_out: true}, source_error: true, rescan: true}}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{active: %{ref: ref}} = state) do
+    work = state.active.work
+    {:noreply, state |> release() |> retry(work)}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state), do: disable(state)
+
+  defp step(state) do
+    cond do
+      not BitmapQueries.enabled?() -> disable(state)
+      not is_nil(state.active) -> state
+      state.mode == :closing -> retry_close(state)
+      state.mode == :initialize -> launch(state, :initialize)
+      state.mode == :backfill -> launch(state, {:backfill, state.cursor})
+      true -> next_read(state)
+    end
+  end
+
+  defp next_read(state) do
+    case Native.bitmap_index_status(state.current.device) do
+      {:ok, status} ->
+        state = start_scan(state, status.pending)
+        choose_read(state, status.pending, 0)
+
+      {:error, _} ->
+        retry(state, :status)
+    end
+  end
+
+  defp start_scan(%{cursor: nil} = state, status) do
+    if state.mode == :seed or state.rescan or status.rescan_needed or state.scan_due <= now() do
+      %{
+        state
+        | cursor: 0,
+          scan_generation: status.rescan_generation,
+          scan_started_at: DateTime.utc_now(),
+          rescan: false
+      }
+    else
+      state
+    end
+  end
+
+  defp start_scan(state, _status), do: state
+
+  defp choose_read(state, _status, 3), do: schedule(state, 1_000)
+
+  defp choose_read(state, status, checked) do
+    turn = rem(state.turn, 3)
+    next = %{state | turn: turn + 1}
+
+    cond do
+      turn == 0 and MapSet.size(state.hints) > 0 ->
+        ids = Enum.take(state.hints, @batch_size)
+        hints = MapSet.difference(state.hints, MapSet.new(ids))
+
+        launch(
+          %{next | hints: hints, hint_bytes: state.hint_bytes - Enum.sum(Enum.map(ids, &byte_size/1))},
+          {:hints, ids}
+        )
+
+      turn == 1 and status.pending_count > 0 ->
+        launch(next, {:dirty, state.mode == :ready})
+
+      turn == 2 and not is_nil(state.cursor) ->
+        launch(next, {:scan, state.cursor, state.mode, state.scan_generation})
+
+      true ->
+        choose_read(next, status, checked + 1)
+    end
+  end
+
+  defp launch(state, work) do
+    token = make_ref()
+    owner = self()
+    sequence = state.sequence + 1
+    current = state.current
+
+    case Task.Supervisor.start_child(state.tasks, fn ->
+           result = perform(work, current, sequence)
+           send(owner, {:bitmap_finished, token, result})
+         end) do
+      {:ok, pid} ->
+        active = %{
+          pid: pid,
+          ref: Process.monitor(pid),
+          token: token,
+          work: work,
+          timed_out: false,
+          timeout: Process.send_after(self(), {:bitmap_timeout, token}, @task_timeout)
+        }
+
+        %{state | active: active, sequence: sequence}
+
+      {:error, _} ->
+        retry(state, work)
+    end
+  end
+
+  defp perform(:initialize, _current, _sequence) do
+    with {:ok, info} <- BitmapSource.initialize(),
+         epoch = :crypto.strong_rand_bytes(16),
+         {:ok, index} <- Native.bitmap_index_new(info.dictionary_epoch, epoch, :device, info.supported_facets) do
+      {:ok, Map.merge(info, %{device: index, index_epoch: epoch})}
+    end
+  end
+
+  defp perform({:backfill, cursor}, _current, _sequence), do: BitmapSource.backfill(cursor)
+
+  defp perform({:hints, ids}, current, _sequence) do
+    with {:ok, ordinals} <- BitmapSource.resolve_ids(ids),
+         {:ok, _} <- Native.bitmap_index_mark_dirty(current.device, ordinals, false),
+         do: {:ok, nil}
+  end
+
+  defp perform({:scan, cursor, mode, generation}, current, sequence) do
+    with :ok <- source_identity(current, cursor),
+         {:ok, page} <- BitmapSource.page(cursor, current.supported_facets),
+         {:ok, _} <- publish(current, page.rows, mode == :ready or page.done?, sequence) do
+      if page.done?, do: Native.bitmap_index_acknowledge_reconcile(current.device, generation)
+      {:ok, page}
+    end
+  end
+
+  defp perform({:dirty, ready}, current, sequence) do
+    with {:ok, {ordinals, _status}} <- Native.bitmap_index_take_dirty(current.device, @batch_size) do
+      result =
+        with {:ok, rows} <- BitmapSource.fetch(ordinals, current.supported_facets),
+             {:ok, _} <- publish(current, rows, ready, sequence),
+             do: {:ok, nil}
+
+      if match?({:error, _}, result) do
+        case Native.bitmap_index_mark_dirty(current.device, ordinals, false) do
+          {:ok, _} -> :ok
+          {:error, _} -> Native.bitmap_index_mark_dirty(current.device, [], true)
+        end
+      end
+
+      result
+    end
+  end
+
+  defp source_identity(current, 0) do
+    with {:ok, source} <- BitmapSource.initialize() do
+      if source.dictionary_epoch == current.dictionary_epoch and source.supported_facets == current.supported_facets,
+        do: :ok,
+        else: {:error, :dictionary_changed}
+    end
+  end
+
+  defp source_identity(_current, _cursor), do: :ok
+
+  defp publish(current, rows, ready, sequence) do
+    with {:ok, status} <- Native.bitmap_index_status(current.device) do
+      Native.bitmap_index_publish(current.device, status.revision, <<sequence::unsigned-64>>, rows, ready)
+    end
+  end
+
+  defp accept(state, :initialize, current),
+    do: %{state | current: current, mode: :backfill, cursor: nil, source_error: false}
+
+  defp accept(state, {:backfill, _}, %{done?: false, cursor: cursor}), do: %{state | cursor: cursor, source_error: false}
+  defp accept(state, {:backfill, _}, %{done?: true}), do: %{state | cursor: nil, mode: :seed, source_error: false}
+
+  defp accept(state, {:scan, _, mode, _}, %{done?: true}) do
+    if mode == :seed,
+      do:
+        Phoenix.PubSub.broadcast(
+          state.pubsub,
+          "topology:world",
+          {:bitmap_index_ready, Map.take(state.current, [:dictionary_epoch, :index_epoch])}
+        )
+
+    %{
+      state
+      | mode: :ready,
+        cursor: nil,
+        scan_due: now() + @scan_interval,
+        seeded_at: state.seeded_at || DateTime.utc_now(),
+        last_reconciled_at: state.scan_started_at,
+        source_error: false
+    }
+  end
+
+  defp accept(state, {:scan, _, _, _}, %{cursor: cursor}), do: %{state | cursor: cursor, source_error: false}
+  defp accept(state, _work, _result), do: %{state | source_error: false}
+
+  defp retry(state, {:hints, ids}), do: state |> remember(ids) |> retry(:read)
+  defp retry(state, _work), do: schedule(%{state | source_error: true, rescan: true}, 1_000)
+
+  defp remember(state, ids) do
+    Enum.reduce(ids, state, fn id, state ->
+      cond do
+        not is_binary(id) or id == "" or MapSet.member?(state.hints, id) ->
+          state
+
+        MapSet.size(state.hints) >= @hint_limit or state.hint_bytes + byte_size(id) > @hint_bytes ->
+          %{state | rescan: true}
+
+        true ->
+          %{state | hints: MapSet.put(state.hints, id), hint_bytes: state.hint_bytes + byte_size(id)}
+      end
+    end)
+  end
+
+  defp disable(state) do
+    if state.active do
+      Process.exit(state.active.pid, :kill)
+      Process.cancel_timer(state.active.timeout)
+      Process.demonitor(state.active.ref, [:flush])
+    end
+
+    if state.timer, do: Process.cancel_timer(state.timer)
+
+    state = %{
+      state
+      | active: nil,
+        timer: nil,
+        mode: :initialize,
+        cursor: nil,
+        hints: MapSet.new(),
+        hint_bytes: 0,
+        rescan: true,
+        seeded_at: nil,
+        last_reconciled_at: nil
+    }
+
+    case state.current && Native.bitmap_index_close(state.current.device) do
+      {:error, _busy} -> schedule(%{state | mode: :closing}, @step_interval)
+      _ -> %{state | current: nil}
+    end
+  end
+
+  defp wake(%{active: nil} = state), do: schedule(state, 0)
+  defp wake(state), do: state
+
+  defp retry_close(state) do
+    state = disable(state)
+    if state.mode == :initialize, do: schedule(state, 0), else: state
+  end
+
+  defp schedule(state, delay) do
+    if state.timer, do: Process.cancel_timer(state.timer)
+    %{state | timer: Process.send_after(self(), :step, delay)}
+  end
+
+  defp release(state) do
+    Process.cancel_timer(state.active.timeout)
+    Process.demonitor(state.active.ref, [:flush])
+    %{state | active: nil}
+  end
+
+  defp now, do: System.monotonic_time(:millisecond)
+end

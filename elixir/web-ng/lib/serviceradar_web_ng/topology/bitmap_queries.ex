@@ -1,0 +1,179 @@
+defmodule ServiceRadarWebNG.Topology.BitmapQueries do
+  @moduledoc "Current-membership queries with one local native snapshot per authorized response."
+  use Supervisor
+
+  alias ServiceRadarWebNG.Topology.BitmapAuthority
+  alias ServiceRadarWebNG.Topology.BitmapCursor
+  alias ServiceRadarWebNG.Topology.BitmapExpression
+  alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.Native
+
+  @tasks ServiceRadarWebNG.Topology.BitmapQueryTasks
+  @deadline_ms 1_000
+
+  def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+
+  @impl true
+  def init(_opts), do: Supervisor.init([{Task.Supervisor, name: @tasks, max_children: 8}], strategy: :one_for_one)
+
+  def enabled? do
+    Application.get_env(:serviceradar_web_ng, :god_view_enabled, false) == true and
+      Application.get_env(:serviceradar_web_ng, :topology_bitmap_enabled, false) == true
+  end
+
+  @doc "Each page evaluates current membership; the cursor carries only an authorized ordinal position."
+  def run(scope, params) when is_map(params) do
+    with {:ok, {fence, result}} <- dispatch(scope, params, &page/2, []) do
+      {:ok, Map.merge(json_fence(fence), result)}
+    end
+  end
+
+  def run(_scope, _params), do: {:error, :invalid_query}
+
+  @doc """
+  Runs a bounded callback on one pinned snapshot, closing the native query afterwards.
+
+  Callers must build trusted geometry selectors before invoking this function and
+  pass their original monotonic `:deadline` to include that work in admission.
+  All tile rows and aggregate counts in one response must use this single context.
+  The callback returns `{:ok, result}`; the response is `{:ok, {fence, result}}`.
+  """
+  def with_query(scope, expression, fun, opts \\ []) when is_function(fun, 1) do
+    dispatch(scope, %{"expression" => expression}, fn context, _parsed -> fun.(context) end, opts)
+  end
+
+  @doc "Remaining milliseconds for a native operation on an admitted response."
+  def remaining(%{deadline: deadline}), do: remaining(deadline)
+
+  def remaining(deadline) when is_integer(deadline) do
+    case deadline - now() do
+      budget when budget > 0 -> {:ok, min(budget, @deadline_ms)}
+      _ -> {:error, :query_timeout}
+    end
+  end
+
+  defp dispatch(scope, params, fun, opts) do
+    with :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
+      deadline = min(Keyword.get(opts, :deadline, now() + @deadline_ms), now() + @deadline_ms)
+      bounded(fn -> query(scope, params, fun, deadline) end, deadline)
+    end
+  end
+
+  defp query(scope, params, fun, deadline) do
+    with {:ok, authority} <- BitmapAuthority.current(scope),
+         {:ok, snapshot} <- BitmapIndex.snapshot(),
+         {:ok, parsed} <- BitmapExpression.parse(params, snapshot.supported_facets) do
+      context = %{
+        dictionary_epoch: snapshot.dictionary_epoch,
+        index_epoch: snapshot.index_epoch,
+        authority: authority,
+        query_digest: parsed.digest,
+        deadline: deadline,
+        progress: snapshot.progress
+      }
+
+      with {:ok, after_ordinal} <- BitmapCursor.after_ordinal(Map.get(params, "cursor"), context),
+           {:ok, budget} <- remaining(deadline),
+           {:ok, {ref, revision, source, total}} <-
+             Native.bitmap_index_query(
+               snapshot.device,
+               snapshot.dictionary_epoch,
+               snapshot.index_epoch,
+               :device,
+               authority,
+               parsed.program,
+               budget
+             ) do
+        context =
+          Map.merge(context, %{
+            ref: ref,
+            revision: revision,
+            source_revision: source,
+            total: total,
+            after_ordinal: after_ordinal
+          })
+
+        try do
+          with {:ok, result} <- fun.(context, parsed), :ok <- delivery(scope, context) do
+            {:ok, {fence(context), result}}
+          end
+        after
+          Native.bitmap_query_close(ref)
+        end
+      end
+    end
+  end
+
+  defp page(context, parsed) do
+    with {:ok, budget} <- remaining(context),
+         {:ok, ordinals} <-
+           Native.bitmap_query_page(context.ref, context.authority, context.after_ordinal, parsed.limit, budget),
+         {:ok, budget} <- remaining(context),
+         {:ok, counts} <- Native.bitmap_query_facets(context.ref, context.authority, parsed.facets, budget) do
+      cursor = if length(ordinals) == parsed.limit, do: BitmapCursor.sign(context, List.last(ordinals))
+
+      facets =
+        Enum.zip_with(parsed.facets, counts, fn {key, value}, count -> %{facet: key, value: value, count: count} end)
+
+      {:ok, %{ordinals: ordinals, cursor: cursor, facets: facets}}
+    end
+  end
+
+  defp delivery(scope, context) do
+    with :ok <- enabled(),
+         {:ok, authority} <- BitmapAuthority.current(scope),
+         true <- authority == context.authority,
+         {:ok, budget} <- remaining(context),
+         {:ok, []} <- Native.bitmap_query_facets(context.ref, context.authority, [], budget) do
+      :ok
+    else
+      false -> {:error, :forbidden}
+      error -> error
+    end
+  end
+
+  defp bounded(work, deadline) do
+    with {:ok, budget} <- remaining(deadline) do
+      task =
+        Task.Supervisor.async_nolink(@tasks, fn ->
+          # The timer also bounds a disconnected caller's database/authorization
+          # work. Resource destruction releases a pin if cancellation skips `after`.
+          {:ok, timer} = :timer.exit_after(budget, self(), :kill)
+
+          try do
+            work.()
+          after
+            :timer.cancel(timer)
+          end
+        end)
+
+      case Task.yield(task, max(deadline - now(), 0)) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} -> if now() < deadline, do: normalize(result), else: {:error, :query_timeout}
+        {:exit, :killed} -> {:error, :query_timeout}
+        {:exit, _reason} -> {:error, :query_unavailable}
+        nil -> {:error, :query_timeout}
+      end
+    end
+  rescue
+    _ -> {:error, :query_busy}
+  catch
+    :exit, _ -> {:error, :query_unavailable}
+  end
+
+  defp fence(context),
+    do: Map.take(context, [:dictionary_epoch, :index_epoch, :revision, :source_revision, :total, :progress])
+
+  defp json_fence(fence) do
+    fence
+    |> Map.put(:kind, "device")
+    |> Map.update!(:dictionary_epoch, &Ecto.UUID.load!/1)
+    |> Map.update!(:index_epoch, &Ecto.UUID.load!/1)
+    |> Map.update!(:source_revision, &Base.encode64/1)
+  end
+
+  defp enabled, do: if(enabled?(), do: :ok, else: {:error, :bitmap_disabled})
+  defp now, do: System.monotonic_time(:millisecond)
+  defp normalize({:ok, _} = result), do: result
+  defp normalize({:error, reason} = result) when is_atom(reason) or is_binary(reason), do: result
+  defp normalize(_), do: {:error, :query_unavailable}
+end
