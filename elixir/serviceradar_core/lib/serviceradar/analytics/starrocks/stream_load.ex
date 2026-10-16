@@ -30,6 +30,10 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   # long one pass can hold its caller.
   @default_http_timeout_ms 60_000
 
+  # How long a load waits for `100 Continue` (or an early final response)
+  # before sending its body anyway, as RFC 9110 15.2.1 allows a client to.
+  @continue_wait_ms 3_000
+
   def persist(table, rows, opts \\ []) when is_binary(table) and is_list(rows) do
     body = Keyword.get_lazy(opts, :body, fn -> encode_json_rows(rows) end)
 
@@ -464,6 +468,47 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     end
   end
 
+  # A load body is sent only after the server asks for it. The FE answers a
+  # Stream Load with a 307 from its headers alone and closes the connection,
+  # and a coordinator can reject a load from its headers ("Label already
+  # used"). Writing the body regardless races that close: a large body is
+  # still being written when the peer resets the socket, so the load fails
+  # with `:closed` and its real answer is lost. Req (Finch) cannot wait for
+  # `100 Continue`, so loads drive Mint directly; body-less requests (label
+  # state polls) stay on Req.
+  defp default_http(%{body: body} = request) when is_binary(body) and body != "" do
+    timeout = Map.get(request, :timeout) || @default_http_timeout_ms
+    uri = URI.parse(request.url)
+    scheme = if uri.scheme == "https", do: :https, else: :http
+    target = if uri.query, do: "#{uri.path}?#{uri.query}", else: uri.path || "/"
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    headers =
+      Enum.map(request.headers ++ request_auth(request), fn {name, value} ->
+        {to_string(name), value}
+      end) ++
+        [{"content-length", Integer.to_string(byte_size(body))}]
+
+    connected =
+      Mint.HTTP.connect(scheme, uri.host, uri.port,
+        mode: :passive,
+        protocols: [:http1],
+        transport_opts: [timeout: min(5_000, timeout)]
+      )
+
+    case connected do
+      {:ok, conn} ->
+        conn
+        |> Mint.HTTP.request(method_name(request.method), target, headers, :stream)
+        |> continue_load(body, deadline)
+        |> close_load_conn(conn)
+        |> load_result()
+
+      {:error, error} ->
+        load_result({:error, error})
+    end
+  end
+
   defp default_http(request) do
     timeout = Map.get(request, :timeout) || @default_http_timeout_ms
 
@@ -508,6 +553,105 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         {:error, reason}
     end
   end
+
+  defp continue_load({:error, _conn, _error} = error, _body, _deadline), do: error
+
+  defp continue_load({:ok, conn, ref}, body, deadline) do
+    wait_until = min(deadline, System.monotonic_time(:millisecond) + @continue_wait_ms)
+
+    case await_response(conn, ref, %{status: nil, headers: [], body: []}, wait_until, :continue) do
+      # The server answered before asking for the body: return that answer
+      # without ever writing the body.
+      {:ok, conn, %{status: status} = response} when status >= 200 ->
+        {:ok, conn, response}
+
+      {:continue, conn} ->
+        with {:ok, conn} <- Mint.HTTP.stream_request_body(conn, ref, body),
+             {:ok, conn} <- Mint.HTTP.stream_request_body(conn, ref, :eof) do
+          await_response(conn, ref, %{status: nil, headers: [], body: []}, deadline, :final)
+        end
+
+      other ->
+        other
+    end
+  end
+
+  # `:continue` returns as soon as a 1xx arrives or the wait elapses; `:final`
+  # reads through to the end of the final response.
+  defp await_response(conn, ref, acc, until, phase) do
+    case Mint.HTTP.recv(conn, 0, max(until - System.monotonic_time(:millisecond), 1)) do
+      {:ok, conn, responses} ->
+        case Enum.reduce(responses, {:more, acc}, &collect_response(&1, &2, ref)) do
+          {:continue, _acc} when phase == :continue ->
+            {:continue, conn}
+
+          {:continue, _acc} ->
+            await_response(conn, ref, %{acc | status: nil, headers: []}, until, phase)
+
+          {:done, acc} ->
+            {:ok, conn, acc}
+
+          {:more, acc} ->
+            await_response(conn, ref, acc, until, phase)
+        end
+
+      {:error, conn, %Mint.TransportError{reason: :timeout}, _responses}
+      when phase == :continue ->
+        {:continue, conn}
+
+      {:error, conn, error, _responses} ->
+        {:error, conn, error}
+    end
+  end
+
+  defp collect_response({:status, ref, status}, {_state, acc}, ref) when status in 100..199,
+    do: {:continue, %{acc | status: status}}
+
+  defp collect_response({:status, ref, status}, {state, acc}, ref),
+    do: {state_after(state), %{acc | status: status}}
+
+  defp collect_response({:headers, ref, headers}, {state, %{status: status} = acc}, ref)
+       when status >= 200,
+       do: {state_after(state), %{acc | headers: acc.headers ++ headers}}
+
+  defp collect_response({:data, ref, data}, {state, acc}, ref),
+    do: {state_after(state), %{acc | body: [acc.body, data]}}
+
+  defp collect_response({:done, ref}, {_state, acc}, ref), do: {:done, acc}
+  defp collect_response(_other, state, _ref), do: state
+
+  # A final response already in progress stays in progress after a 1xx was
+  # seen earlier in the same batch of responses.
+  defp state_after(:continue), do: :more
+  defp state_after(state), do: state
+
+  defp close_load_conn({:ok, conn, response}, _conn) do
+    _ = Mint.HTTP.close(conn)
+    {:ok, response}
+  end
+
+  defp close_load_conn({:error, conn, error}, _conn) do
+    _ = Mint.HTTP.close(conn)
+    {:error, error}
+  end
+
+  defp close_load_conn({:error, error}, conn) do
+    _ = Mint.HTTP.close(conn)
+    {:error, error}
+  end
+
+  defp load_result({:ok, %{status: status, headers: headers, body: body}}),
+    do: {:ok, %{status: status, headers: headers, body: IO.iodata_to_binary(body)}}
+
+  defp load_result({:error, %Mint.TransportError{reason: :timeout}}), do: {:error, :timeout}
+
+  defp load_result({:error, %Mint.TransportError{reason: reason}}),
+    do: {:error, {:connect_failed, reason}}
+
+  defp load_result({:error, %Mint.HTTPError{reason: reason}}), do: {:error, {:http_error, reason}}
+  defp load_result({:error, reason}), do: {:error, reason}
+
+  defp method_name(method), do: method |> to_string() |> String.upcase()
 
   defp request_auth(%{config: %{user: user, password: password}}) do
     [{"authorization", "Basic " <> Base.encode64("#{user}:#{password}")}]
