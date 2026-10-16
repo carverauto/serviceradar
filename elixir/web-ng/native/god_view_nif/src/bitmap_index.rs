@@ -510,6 +510,7 @@ impl Index {
                 unavailable.insert(facet);
             }
         }
+        keys.retain(|(facet, _)| !unavailable.contains(facet));
         if keys.len() > MAX_VALUES {
             // A cap invalidates complete facets, never just the excess values.
             unavailable.extend(additions.keys().map(|(facet, _)| facet.clone()));
@@ -1631,6 +1632,66 @@ mod tests {
             index.query(b"allow", &[predicate("vendor", "moved")], 1000),
             Err("facet_unavailable")
         ));
+
+        let simultaneous = ["vendor", "region", "vlan", "os_name"];
+        let index = Index::new(
+            [1; 16],
+            [2; 16],
+            Kind::Device,
+            simultaneous.iter().map(|name| (*name).to_string()).collect(),
+        )
+        .unwrap();
+        let distinct = |id: u32| -> Row {
+            (
+                id,
+                true,
+                vec![
+                    ("vendor".into(), format!("vendor-{id}").into()),
+                    ("region".into(), format!("region-{id}").into()),
+                    ("vlan".into(), format!("vlan-{id}").into()),
+                    ("os_name".into(), format!("os-{id}").into()),
+                ],
+            )
+        };
+        let revision = publish_all(&index, (1..=1024).map(distinct).collect());
+        assert!(index.status().unwrap().unavailable.is_empty());
+        index
+            .publish(
+                revision,
+                b"vendor-past-facet-cap",
+                vec![(
+                    1025,
+                    true,
+                    vec![
+                        ("vendor".into(), "vendor-1025".into()),
+                        ("region".into(), "region-1".into()),
+                        ("vlan".into(), "vlan-1".into()),
+                        ("os_name".into(), "os-1".into()),
+                    ],
+                )],
+                true,
+            )
+            .unwrap();
+        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        let (query, _, _, count) = index
+            .query(b"allow", &[predicate("region", "region-1")], 1000)
+            .unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(query.page(b"allow", 0, 8, 1000).unwrap(), vec![1, 1025]);
+        assert!(matches!(
+            index.query(b"allow", &[predicate("vendor", "vendor-1")], 1000),
+            Err("facet_unavailable")
+        ));
+        let revision = index.status().unwrap().revision;
+        index
+            .publish(revision, b"drop-vendor-over", vec![(1025, false, vec![])], true)
+            .unwrap();
+        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        let (query, _, _, count) = index
+            .query(b"allow", &[predicate("region", "region-1")], 1000)
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(query.page(b"allow", 0, 8, 1000).unwrap(), vec![1]);
 
         let names = ["vendor", "region", "vlan", "device_class", "os_name"];
         let index = Index::new(

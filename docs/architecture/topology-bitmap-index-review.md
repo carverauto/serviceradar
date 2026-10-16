@@ -40,7 +40,8 @@ The portable summary states current public limitations from the same committed
 handoff: camera-only share links, paged labels without search, masked zero-match
 glyphs, hidden unproven partial-aggregate links and disabled compression.
 The handoff source SHA-256 is
-`80e28e0bd5aca76ac0ee4428b0bf591c4299e6e6d4c8151a895ee29a10be835a`.
+`7ba52e569c8aa5bffc385c20da223e6e3c7c3701b0f34f75005ba104c4d56561`.
+The portable proposal was not rebuilt; its five embedded sources are unchanged.
 The choices ledger and measurement report were reviewed as supporting evidence;
 they are not presented as additional embedded source documents.
 
