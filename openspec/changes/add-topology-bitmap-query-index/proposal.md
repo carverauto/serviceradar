@@ -17,7 +17,9 @@ buffer lifetime fix. Filtering never changes layout.
 - Reuse the persisted device ordinal dictionary, preserving assignments and
   tombstones. Widen storage to the checked unsigned 32-bit range and allocate
   missing canonical device IDs in bounded work without burning sequence values
-  on repeat reads. Canonical endpoints share this dictionary.
+  on repeat reads. Purge allocates tombstoned ordinals for eligible older rows
+  that backfill has not reached, preserving identity and merge/seed lineage in
+  the same bounded transaction. Canonical endpoints share this dictionary.
 - Maintain incremental Rust Roaring indexes for canonical inventory attributes
   and current availability, with bounded publication and explicit freshness.
 - Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets,

@@ -8,7 +8,7 @@
 ## 1. Persistent identities and bounded server index
 
 - [ ] 1.1 Inventory canonical create/merge/delete/restore and retention writers; preserve the existing device dictionary.
-- [ ] 1.2 Widen storage and sequence to checked full-u32, prevent repeat-allocation sequence burn, preserve tombstones and rollback compatibility.
+- [ ] 1.2 Widen storage and sequence to checked full-u32, prevent repeat-allocation sequence burn, allocate missing tombstoned ordinals during bounded purge, and preserve lineage and rollback compatibility.
 - [ ] 1.3 Add resumable allocation/backfill; verify after-commit hint coverage at real transaction owners.
 - [ ] 1.4 Integrate one bounded native publisher with world/health lifecycle, byte-bounded Roaring dirty sets, coherent revisions and rolling keyset reconciliation.
 - [ ] 1.5 Implement canonical inventory/availability facets, value and memory caps, explicit readiness and freshness.
@@ -20,7 +20,7 @@
 - [ ] 2.1 Validate and normalize bounded expressions; exact AND/OR/ANDNOT and conjunctive facets on one request-local revision.
 - [ ] 2.2 Enforce current RBAC on admission and delivery across queries, counts, search, details and overlays.
 - [ ] 2.3 Implement authenticated live ordinal cursors usable on any healthy replica, binding query/dictionary/authority.
-- [ ] 2.4 Project authorized leaf, aggregate and supported relation/bundle membership to admitted tile rows without relayout or whole-fleet BEAM/browser enumeration.
+- [ ] 2.4 Project authorized leaf, aggregate and supported relation/bundle membership to admitted tile rows without relayout or whole-fleet BEAM/browser enumeration; prioritize geometry over bounded identity scans and preserve identical mappings.
 - [ ] 2.5 Report unsupported causal, site/role, alert/impact and complete-search predicates explicitly; keep availability separate.
 - [ ] 2.6 Prove reference parity, empty results, revocation races, bounded details, count isolation and layout independence.
 - [ ] 2.7 Add bounded literal value/tag-key prefix predicates and exact IPv4/IPv6 CIDR membership across current canonical device/interface addresses; prove deduplication, source completeness and memory/deadline bounds.

@@ -291,7 +291,9 @@ made both negative budget cases fail in `4296db48-171a-4ae2-b785-cb0a56f6a4e4`.
 Browser scene tests (652), eight SwiftShader GPU cases, declared lint and the
 existing TypeScript scope passed in `73840a94-e01d-4d55-8b25-2869be7a4a2e`.
 The combined remote `make test` then passed 419 targets with two platform skips
-in `c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03`, at runtime commit `2a3032e125`.
+in `c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03`, at pre-rebase local runtime checkpoint
+`2a3032e125`. The same subject is reachable on this branch after rebase as
+`fe8915c30c`; that recorded run was not executed on the rebased commit.
 Hosted database and compact/sparse scale acceptance remain pending. Fresh physical Apple WebGPU checks passed on
 the integrated browser sources, including empty-filter picking with a visible
 positive control, tile eviction, retry/rejoin, capability refresh and full device
@@ -310,3 +312,89 @@ GitHub rather than a file outside the Docusaurus tree. All five embedded source
 hashes match their canonical files and the embedded diagram bytes match the
 delivered diagram. A fresh visual containment check was not run because browser
 policy refused local file URLs; the earlier diagram receipts remain historical.
+
+
+## Current review recovery
+
+Run `01M52WPF0MN3F45GSFYS3PN67F` reached its correction-agent timeout before
+committing the remaining fixes. Custody returned at `59adc905f8`; all 74
+successful recorded edits and the artifact refresh were reconstructed from the
+durable tool journal. Recovery did not waive any finding or establish acceptance.
+
+| Finding | Correction and acceptance boundary |
+| --- | --- |
+| Purge lost partition and unallocated tombstone lineage | Preserve partition. Allocate missing permanent tombstoned ordinals inside the existing bounded purge transaction before scrubbing payloads. Keep merge and seed-successor lineage, recheck deletion under canonical row locks and retain internal-device exclusions. The user approved this behavior for legacy tombstones. |
+| Clear left retained Deck attributes hidden | Include membership-enabled state in all four layer update-trigger sets. The actual Deck regression retains geometry and style identities through pending, missing-receipt and Clear states, then checks public picking. Its missing-receipt setup is a component boundary, not a backend-route claim. |
+| Camera publication preceded Deck initialization | Wait for the actual initialized renderer before reading its viewports; destruction cancels retry. The existing real Deck/ViewManager owner covers delayed startup and camera sharing. |
+| Incomplete ordinal scans delayed geometry and churned mappings | Compare dictionary epoch/MAX/COUNT progress before restarting the optional scan, bound source reads to five seconds and yield to a newer geometry world after each page. Preserve the installed resource when sealed assignments are identical. MAX/COUNT still scans the dictionary; combined hosted scale must measure its cost. |
+| Late membership callbacks reused the same signature | Fence every watch callback with a request-instance identifier as well as its view signature. A reset for an old view cannot clear the current channel watch. |
+| Channel query budget included tile receipts | Apply the existing expression budget to the query; separately bound receipt metadata at 64 KiB before JSON encoding. Bulk membership stays binary. |
+| Channel reasons exposed native/internal failures | Use the HTTP reason allowlist for channel failures and preserve the two documented transient membership reasons. Unknown reasons become query_unavailable. |
+| CIDR literals silently trimmed whitespace | Reject surrounding whitespace at both parser and address boundaries. |
+| Native close/query and ordinal guards lacked decisive coverage | Recheck closed state while acquiring the pin guard; make ordinal error assertions fail when the expected error is absent. Keep deterministic reclamation in the test owner. |
+| Fixture teardown and assertions missed their intended state | Remove NOWAIT from guarded disposable-fixture teardown, clean exact synthetic dictionary-version rows, correct committing fixture cleanup and repair misplaced Armis comments. Production dictionary protection remains in force. |
+| Binary truncation test failed an earlier guard | Supply matching declared and actual shortened lengths so validation reaches the truncated column. |
+| Artifact citations implied current validation | Label pre-rebase local checkpoints and historical containment receipts explicitly. The current portable refresh has no new browser containment receipt. |
+
+Browser corrections passed 653 scene tests, all nine software-WebGPU cases,
+declared lint and the existing TypeScript scope in
+`f4da3820-b4a2-42da-967d-86814b5a4c34`. Removing only the new update triggers
+failed Clear restoration in `f4a69b39-9174-4ad7-a1e4-241daa3942ca`, while eight
+GPU siblings passed. Removing renderer-readiness and request-instance guards
+reproduced the Deck startup assertion and stale callback failure in
+`d5e741b1-d919-49bb-bea8-b7d625cc82a4`, with 651 other scene cases passing.
+These are focused source checkpoints. They do not replace full integrated review,
+hosted database execution, compact/sparse acceptance or fresh physical GPU proof.
+
+Identity formatting/Credo, inventory, discovery, sweep and test-routing targets
+passed in `c64d8c85-3c01-467b-98a5-bfd163ba35ae`. The executed unit counts were
+1,040 inventory, 285 discovery and 72 sweep cases, with zero failures. Their
+excluded database cases include the new unallocated-tombstone and concurrent
+restore regressions; those still require the ordinary hosted fixture lane.
+
+The stale-reset channel regression passed with the fix, then failed only its
+watch-preservation assertion when the digest guard was removed in
+`9a58f0ae-18cb-4e56-a33a-8d37209e0fb1` (795 tests, one failure on both attempts).
+The restored source and web quality passed in
+`0bc00e05-a3e2-4307-8d5f-3829bc08b92d`. The earlier invocation
+`1dcdc8f4-74bb-45d6-8ed8-e5f734129fbe` passed its Phoenix target but exited
+nonzero because a second requested target name did not exist; it is not reported
+as an overall pass. The regression drives the channel callback and checks the
+emitted binary transport frame, without a public test-only predicate.
+
+Native/loader corrections passed six remote targets in
+`30d6ab6b-e7da-4bd7-8a50-c71451a2c2b4`: web quality, application-domain and
+Phoenix shards, 37 native index cases, two ordinal keeper cases and two ordinal
+scale cases. Disabling identical-assignment retention failed only the stable
+mapping assertion in `170e7092-0971-4e4b-8b3f-96d62bd67e46` on both attempts.
+The restored source passed. The 1.1M-device native projection retained 4,400,176
+bytes; compact export p95 was 16.96 ms with 139,408 portable bytes, and sparse
+export p95 was 40.04 ms with 967,608 portable bytes. These native scenarios
+completed digest sealing but did not time it separately. They do not measure
+database COUNT cost, loader polling or concurrent HTTP viewers. The new actual
+loader/receipt database owner cases were loaded and excluded in the unit tier;
+only hosted execution can establish those results.
+
+The integrated remote `make test` passed 419 targets with two platform skips in
+`170c8616-569a-492c-8695-def84af6a4a5` at runtime checkpoint
+`ad967f6d6b9e85e871ab873b5267788bb412423e`. Browser, retention, channel and native
+corrections are integrated. All three child leases were returned after exact
+content checks and preserving their remaining recovered baseline patches.
+The main feature lease remains held for full no-mistakes review and publication.
+Ordinary hosted database and sequential compact/sparse acceptance still must run
+against the reviewed published commit; this unit gate does not execute them.
+
+A final review also retained the complete-world fast path: permanent assignments
+for a fully mapped immutable world do not change when unrelated identities are
+allocated. The loader skips both COUNT and identity pages until the world or
+dictionary epoch changes. The existing hosted owner scenario now proceeds from
+an incomplete mapping through the late commit to a complete mapping, allocates
+an unrelated identity, waits for a real loader task and rejects count/page reads.
+This database case remains unrun in the unit tier. The `ad967f6d6b` unit receipt
+above predates this final fast-path correction.
+
+The final integrated remote `make test` passed 419 targets with two platform
+skips in `afe6cf35-2ec3-4d95-bbed-bee09930704f` at runtime checkpoint
+`18ff6bd6d01a6c45c18624386558f161cae9d9d2`. The command exited zero. Hosted
+database and combined compact/sparse acceptance remain pending; no new physical
+GPU or portable-document containment result is implied by this unit gate.

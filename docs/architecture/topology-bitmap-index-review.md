@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `90790fb75e145b534d78e194908b0faa3dd7abe8069a0b9bbc5a22eec65d0ea2` | 886233 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `094004852ef9dd512f98690d6f775787b4c7c5c8bfd6c56425bf1f7dabf0d7fe` | 898454 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -31,22 +31,23 @@ Their exact source checksums are:
 
 | Source | SHA-256 |
 | --- | --- |
-| `proposal.md` | `14e99f7907617406b0c7e33e67cbb08ac1b324b90485b983c4250f475d9fda62` |
-| `design.md` | `b3d2fd913b525520a0754c528bf6ce807283502ae6a6faf8ea724016afcc2151` |
-| `specs/topology-god-view/spec.md` | `3cd490b7e7c0d4628925c3bc871835d9dd8f10cbd1b823283d9b780108e93a7f` |
-| `tasks.md` | `42888f8c19ec4a83bfec18ff5115d79a26fe51e05856c9421ee3d3d9cfce551b` |
-| `review-response.md` | `59b0673a7659ed616ecc77df9439697fabae08bc59a1a0c36695dfd728fe157e` |
+| `proposal.md` | `35408df2d8f7b72f926b87ced8c293ee8035ab8d8a5c220d18325c68f2c04ecc` |
+| `design.md` | `ae00b622e1bf4c70cde5684acd0cc256683e8c74272ef453873ec0ae863b9398` |
+| `specs/topology-god-view/spec.md` | `0397314d7879f3327b003657b9fbe52e6fcb534b9703905ddb4292244e88f253` |
+| `tasks.md` | `fd86e2bca9ef259849c2ed19b220b5c1358a5674b61d229a878465e666dc3482` |
+| `review-response.md` | `63bb6d972580d2b5edac7f07e433b03bee13bd4d0b829bcb8df3987542af3dfa` |
 
 The current snapshot includes the final review corrections for bounded retries,
 displayed membership receipts, deterministic telemetry admission, parser/native
 limits, identity retention, catalog readers and schema-valid scale fixtures.
-The combined remote unit gate passed 419 targets with two platform skips at
-runtime commit 2a3032e125. Hosted database and combined scale acceptance remain
-unchecked; the unit tier excludes those database cases.
+The current integrated remote unit gate passed 419 targets with two platform
+skips at runtime checkpoint `18ff6bd6d0`, invocation
+`afe6cf35-2ec3-4d95-bbed-bee09930704f`. Hosted database and combined scale
+acceptance remain unchecked; the unit tier excludes those database cases.
 The portable summary retains camera-only sharing, paged labels without search,
 masked zero-match glyphs, hidden unproven aggregate links and disabled compression.
 Its handoff source SHA-256 is
-`7edc904e1b094bca45ca25f2a0c09b89cac4c07a456f5e93b79a402440b53348`.
+`38f29e17f7837c6814ab537b764c28a55dfad18219ebe112424641a2cc62d635`.
 Architecture source and delivered diagram bytes are unchanged since the prior
 artifact refresh on this feature branch; both differ from the PR base.
 The choices ledger and measurement report were reviewed as supporting evidence;
@@ -74,10 +75,10 @@ node names, relationship labels and cards were readable without overlap or
 clipping. `visual_review: passed`. Automated checks retain their own separate
 visual-review field.
 
-The portable proposal also loaded in Chrome in both themes at 1470 x 780 and
+An earlier portable proposal loaded in Chrome in both themes at 1470 x 780 and
 at a narrow width of 500 pixels. Its five embedded source sections and diagram
-loaded. Document width matched viewport width; vertical scrolling is intentional.
-This is an artifact spot check, not product performance acceptance.
+loaded, and document width matched viewport width. That spot check is historical.
+It does not cover the current embedded bytes.
 
 The previous source refresh repeated containment and theme checks in Chrome at
 1470 x 780 and 500 x 780, in both light and dark themes. Each check required

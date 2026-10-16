@@ -47,12 +47,18 @@ acceptance has completed. Historical alternatives belong in the review response.
 
 - Choice: the normal world loader first installs geometry, then streams pages
   of canonical identities into a compact native vector. A new world rejects
-  the old world's pending map. Missing assignments remain excluded and a later
-  bounded scan retries them; the UI reports incomplete mapping.
+  the old world's pending map. Missing assignments remain excluded and the UI
+  reports incomplete mapping. Dictionary epoch, maximum ordinal and row count
+  determine whether another scan is needed; row count covers late lower-ordinal
+  commits. A newer geometry generation preempts optional scans after the current
+  bounded page. Progress and page queries share the five-second source bound.
+  Identical sealed assignments preserve the accepted mapping resource.
 - Gap: the plan did not choose which existing owner joins world membership to
   persistent device identity.
 - Reach: filters may wait for initial mapping, while unfiltered navigation
-  stays available. Historical geometry can require repeated repair scans.
+  stays available. An unchanged incomplete world does not cause repeated full
+  scans or client resets. The progress aggregate still performs work proportional
+  to dictionary size; its database cost must be measured at scale.
 - Verdict: sound; one existing loader owns the work and avoids a fleet UID map.
 - Confidence: medium.
 
@@ -143,12 +149,15 @@ acceptance has completed. Historical alternatives belong in the review response.
 
 ## Preserve retired identities while allowing policy-valid successor seeding
 
-- Choice: retention scrubs mutable payload but preserves UID, ordinal and
-  deletion reason. The user chose a durable successor pointer so repeated
+- Choice: retention scrubs mutable payload but preserves UID, partition, ordinal,
+  deletion reason and merge lineage. The user chose to allocate tombstoned
+  ordinals for previously unallocated purge candidates within the existing
+  locked batch transaction. Older deleted rows therefore retain identity even
+  if backfill never reached them. The user also chose a durable successor pointer so repeated
   address reuse can keep allocating fresh identities after payload purge,
   without increasing the eight-read attempt bound. Locked observed revisions
   fence concurrent writers; creation and pointer advancement commit together.
-  Source-retired devices remain blocked. Structural defaults and valid fresh timestamps keep a
+  Source-retired devices remain blocked. Preserved partition, structural defaults and valid fresh timestamps keep a
   legitimately restored retained row readable. Service components receive no
   new device ordinal; existing reserved assignments are retained but excluded.
 - Gap: permanent identity retention must not accidentally make normal address
@@ -198,7 +207,13 @@ acceptance has completed. Historical alternatives belong in the review response.
   replacement and delayed channel responses.
 - Reach: mapping retries can delay newly available filters, while accepted
   projections remain usable through transient index-owner failures. Final
-  delivery compares the exact mapping, not only its dictionary epoch.
+  delivery compares the exact mapping, not only its dictionary epoch; an
+  identical sealed assignment retains that resource rather than invalidating it.
+  A complete projection skips dictionary count/page reads entirely until the
+  world or dictionary epoch changes; unrelated allocations cannot change it.
+  Sealing computes its assignment digest within the existing one-second deadline
+  and publishes readiness only after successful completion. Test-only collection
+  makes cap-two reclamation checks deterministic without changing production GC.
 - Verdict: sound; memory and receipt coherence follow actual resource lifetime.
 - Confidence: high.
 

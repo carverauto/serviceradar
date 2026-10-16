@@ -18,6 +18,14 @@ The system SHALL reuse persisted device fleet ordinals for topology membership a
 - **AND** rollback SHALL retain the widened storage and existing assignments
 - **AND** exhaustion SHALL reject new allocations while preserving readable accepted state
 
+#### Scenario: Purge reaches a tombstone without an ordinal
+- **GIVEN** a canonical device was deleted before migration or before backfill reached it
+- **WHEN** retention processes the still-deleted row under its existing transaction lock
+- **THEN** missing permanent ordinals SHALL be allocated as tombstoned before payload scrub
+- **AND** UID, partition, deletion reason, merge lineage and seed-successor lineage SHALL remain intact
+- **AND** allocation SHALL NOT revive the row, reuse another identity or change internal-identity exclusions
+- **AND** a restore committed before the lock SHALL remove that device from the purge candidates
+
 #### Scenario: Repeated address seed retirement
 - **GIVEN** an address has accumulated more than eight eligible purged seed identities
 - **WHEN** a later sweep needs a new identity
@@ -63,6 +71,24 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** unavailable causal evidence SHALL NOT be synthesized from availability
 - **AND** intrinsic address capacity SHALL include actual pending bitmap memory under the final publication lock
 - **AND** address-capacity exhaustion SHALL preserve scalar progress and retained dirty hints
+
+#### Scenario: Complete identity projection remains reusable
+- **GIVEN** every device in an immutable world has its permanent dictionary assignment
+- **WHEN** unrelated identities enter the same dictionary epoch
+- **THEN** the loader SHALL retain that world's mapping without dictionary count or identity-page queries
+- **AND** a new world or dictionary epoch SHALL still require its own projection
+
+#### Scenario: Optional identity projection yields to geometry
+- **GIVEN** an accepted world has an incomplete canonical mapping
+- **WHEN** dictionary epoch, maximum ordinal and row count remain unchanged
+- **THEN** the loader SHALL NOT repeat full identity-page scans solely because the mapping is incomplete
+- **WHEN** a lower ordinal commits after a higher one
+- **THEN** changed row count SHALL cause the next projection refresh to include it
+- **WHEN** a newer world is published during an identity scan
+- **THEN** geometry loading SHALL take priority after the current source page completes
+- **AND** optional progress and page queries SHALL each have a five-second source-query bound
+- **AND** identical sealed assignments SHALL retain the accepted mapping and pending deliveries
+- **AND** changed assignments SHALL invalidate deliveries bound to the previous mapping
 
 ### Requirement: Authorized Bitmap Query and Exact Facets
 The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported sets, intersect current effective visibility and pin one coherent native revision per response.

@@ -31,8 +31,13 @@ rejected. A future u64 identity protocol needs a separate migration.
 Deletion removes live membership without freeing the ordinal. Merges retain
 the losing identity as a tombstone and transfer membership to the survivor;
 a stale event cannot revive the loser. A legitimate restore reuses its ID.
-Physical retention cleanup must preserve these invariants: scrub an allocated
-device to a minimal retained tombstone instead of deleting its dictionary entry.
+Physical retention cleanup must preserve these invariants for every eligible
+canonical tombstone, including rows deleted before migration or backfill.
+Within the existing bounded purge transaction, lock and recheck still-deleted
+candidates, allocate any missing ordinal as tombstoned, then scrub mutable
+payload. Preserve UID, partition, deletion reason, merge lineage and the durable
+seed-successor pointer. Allocation neither revives the row nor transfers another
+device's ordinal. Internal service identities retain their existing exclusions.
 Rollback keeps widened storage, epochs and assigned IDs. Ash resources describe
 the schema; explicit SQL owns sequence and trigger invariants.
 
@@ -257,9 +262,19 @@ Build the world's canonical ordinal projection in the existing supervised world
 loader after geometry installation and index seeding. Stream dictionary pages
 of at most 500 identities, retaining a native u32 vector rather than another UID
 map. Seal and install it only against the exact accepted native world. Missing
-canonical identities remain excluded and are reported as incomplete mapping;
-bounded rescans repair later allocations without using sequence order as commit
-order. A complete mapping can be reused for that immutable world and dictionary.
+canonical identities remain excluded and are reported as incomplete mapping.
+A complete projection is final for its immutable world and dictionary epoch;
+reuse it without dictionary count or identity-page queries. For incomplete
+projections, poll dictionary epoch, maximum ordinal and row count; unchanged progress must
+not repeatedly scan an incomplete historical world. Row count detects a lower
+ordinal committing after a higher one, so sequence order is not treated as
+commit order. The progress aggregate and each identity page have a five-second
+source-query bound. This aggregate returns bounded data but still scans the
+dictionary; measure its database cost at the configured poll cadence.
+A newer geometry publication takes priority over optional identity work after
+the current bounded page. Seal assignments with a digest; identical assignments
+for the same world and dictionary retain the accepted mapping resource and its
+pending deliveries. Actual assignment changes replace it and fence stale work.
 Limit generated portable aggregate selectors to 8 MiB for an entire admitted
 view, independently of the much smaller outgoing row frame. Include export
 scratch and temporary BEAM binaries in peak-memory reporting.
