@@ -121,19 +121,23 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   `attrs` carries `:config_version`, `:acked_at`, and optionally `:section_statuses`
   (a list of per-section maps from a sectioned ack). Acks without section statuses
   come from legacy agents (or heartbeat-hello reported versions) and are recorded as
-  whole-version acks: the version and timestamp update, the previously recorded
-  section detail is left untouched.
+  whole-version acks: the version updates, and the previously recorded section detail
+  is left untouched. Repeating the stored acked version while a different version is
+  still the pushed one keeps `config_acked_at`. A changed acked version records the
+  new timestamp.
   """
   @spec record_config_ack(String.t(), map()) :: :ok | {:error, term()}
   def record_config_ack(agent_id, attrs) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
+    version = Map.get(attrs, :config_version)
+    acked_at = Map.get(attrs, :acked_at) || DateTime.utc_now()
 
     ack_attrs =
       maybe_put_section_statuses(
         %{
-          acked_config_version: Map.get(attrs, :config_version),
-          config_acked_at: Map.get(attrs, :acked_at) || DateTime.utc_now()
+          acked_config_version: version,
+          config_acked_at: config_ack_timestamp(agent_id, version, acked_at, actor)
         },
         Map.get(attrs, :section_statuses)
       )
@@ -210,6 +214,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp push_anchor(%Agent{} = agent, pushed_at) do
     if StateMonitor.push_still_outstanding?(agent), do: agent.config_pushed_at, else: pushed_at
+  end
+
+  defp config_ack_timestamp(agent_id, version, acked_at, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok,
+       %Agent{
+         acked_config_version: ^version,
+         pushed_config_version: pushed,
+         config_acked_at: existing
+       }}
+      when is_binary(pushed) and pushed != "" and pushed != version ->
+        existing
+
+      _ ->
+        acked_at
+    end
   end
 
   defp maybe_put_section_statuses(attrs, statuses) when is_list(statuses),

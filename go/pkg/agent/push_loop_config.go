@@ -492,8 +492,9 @@ func addonSectionPayloadHash(effectiveAddons []*proto.AddonAssignmentConfig) str
 // retryFailedConfigSections re-applies every transient or escalated section whose
 // recorded payload is the retained body's payload. Visibility runs before add-ons.
 // When a visibility retry newly succeeds, the add-on section runs in the same cycle
-// unless that section's record is for a different payload. It reports whether any
-// section status changed.
+// unless that section's record is for a different payload. A recorded visibility
+// failure still blocks systemd netprobe when that section is not retried. It reports
+// whether any section status changed.
 func (p *PushLoop) retryFailedConfigSections(ctx context.Context, configResp *proto.AgentConfigResponse) bool {
 	before := p.configSectionStatuses()
 	version := configResp.ConfigVersion
@@ -517,7 +518,7 @@ func (p *PushLoop) retryFailedConfigSections(ctx context.Context, configResp *pr
 		case retryVisibility:
 			visibilityDisposition = p.applyVisibilityConfigSection(ctx, configResp, version, effectiveAddons)
 			visibilityRecovered = visibilityDisposition == addonDeliverySucceeded
-		case p.recordedVisibilityApplyFailed() && !p.retainedPayloadMismatch(configSectionVisibility, visibilityHash):
+		case p.recordedVisibilityApplyFailed():
 			visibilityDisposition = addonDeliveryPermanentFailure
 		}
 		if retryAddons || (visibilityRecovered && !p.retainedPayloadMismatch(configSectionAddons, addonsHash)) {

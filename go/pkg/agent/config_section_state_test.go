@@ -1425,6 +1425,113 @@ func TestVisibilityEscalationRecoveryActivatesBlockedNetprobe(t *testing.T) {
 	}
 }
 
+// A newer visibility payload that fails transiently replaces the visibility record
+// and defers the commit. A NotModified poll still retries the committed add-on, and
+// the open visibility failure keeps systemd netprobe from activating against the
+// bootstrap that write did not finish.
+func TestMismatchedVisibilityFailureBlocksNetprobeOnAddonRetry(t *testing.T) {
+	dir := t.TempDir()
+	lifecycle := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: filepath.Join(dir, "netprobe.json"),
+		}},
+		startAttachErr: errStartAttachTest,
+	}
+	manager := &gateAddonManager{fail: true}
+	pl := NewPushLoop(&Server{
+		config:          &ServerConfig{AgentID: "agent-test"},
+		addonManager:    manager,
+		netprobeSidecar: agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()}),
+		sidecarManager:  lifecycle,
+		sidecarStatus:   lifecycle,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	addons := []*proto.AddonAssignmentConfig{
+		systemdNetprobeAssignment(),
+		osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon"),
+	}
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-v1",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons:           addons,
+	}
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		VisibilityConfig: &proto.VisibilityConfig{
+			Enabled:           true,
+			CaptureInterfaces: []string{"eth0"},
+		},
+		Addons: addons,
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		switch phase.Load() {
+		case 0:
+			return cloneConfig(v1)
+		case 1:
+			return cloneConfig(v2)
+		default:
+			return notModifiedDecoy()
+		}
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionVisibility]; !failure.escalated {
+		t.Fatalf("visibility failure = %+v, want escalated", failure)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated {
+		t.Fatalf("addons failure = %+v, want escalated", failure)
+	}
+	if _, ok := pl.addonDeliveryFailureSnapshot()[agentnetprobe.DefaultSidecarName]; ok {
+		t.Fatal("netprobe was activated while visibility was still failed")
+	}
+
+	phase.Store(1)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1 while cfg-v2 visibility is deferred", got)
+	}
+	deferred := pl.configSectionFailureSnapshot()[configSectionVisibility]
+	if deferred.disposition != addonDeliveryTransientFailure || deferred.escalated || deferred.attempts != 1 || deferred.version != "cfg-v2" {
+		t.Fatalf("visibility failure = %+v, want one transient attempt for cfg-v2", deferred)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated {
+		t.Fatalf("addons failure = %+v, want the escalated record kept for the unchanged payload", failure)
+	}
+	attachCallsAfterDeferral := lifecycle.startAttachCalls
+	applyCallsAfterDeferral := manager.applyCalls
+
+	phase.Store(2)
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != applyCallsAfterDeferral+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: NotModified must retry the committed add-on", manager.applyCalls, applyCallsAfterDeferral+1)
+	}
+	if lifecycle.startAttachCalls != attachCallsAfterDeferral {
+		t.Fatalf("StartAttach calls = %d, want %d: the mismatched visibility record must not be applied", lifecycle.startAttachCalls, attachCallsAfterDeferral)
+	}
+	if netprobeFailure, ok := pl.addonDeliveryFailureSnapshot()[agentnetprobe.DefaultSidecarName]; ok {
+		t.Fatalf("netprobe delivery failure = %+v, want activation to stay blocked", netprobeFailure)
+	}
+	got := pl.configSectionFailureSnapshot()[configSectionVisibility]
+	if got.payloadHash != deferred.payloadHash || got.attempts != deferred.attempts || got.version != deferred.version ||
+		got.disposition != deferred.disposition || got.escalated != deferred.escalated || !got.since.Equal(deferred.since) || got.reason != deferred.reason {
+		t.Fatalf("visibility failure = %+v, want the cfg-v2 record unchanged (%+v)", got, deferred)
+	}
+	if version := pl.getConfigVersion(); version != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", version)
+	}
+}
+
 // openPostCommitAddonTransient escalates visibility, then recovers it on a
 // NotModified poll whose add-on supervisor fails. The add-on section is left
 // transient on the committed version.
