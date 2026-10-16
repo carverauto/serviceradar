@@ -14,6 +14,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.EphemeralDeviceExpiry
+  alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -941,9 +942,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              {:ok, second_survivor.uid}
   end
 
-  # A merge an unmerge reversed redirects nothing, so once the seed is deleted for another
-  # reason and purged, its own uid is free and the next sweep seeds it again.
-  test "a sweep re-seeds a purged seed whose merge was reversed under its own uid", %{
+  test "a sweep starts a fresh identity after payload retention of an unmerged seed", %{
     actor: actor,
     agent_id: agent_id
   } do
@@ -952,6 +951,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     group = seed_sweep_group!(actor, "Sweep Unmerged Seed #{unique_id}")
 
     seed = sweep_seed!(actor, group, agent_id, ip)
+    ordinal = FleetIdentity.device_ordinal(seed.uid)
     survivor = merge_survivor!(actor, "unmerged-seed-#{unique_id}")
 
     assert :ok =
@@ -974,8 +974,68 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     purge!(seed.uid)
 
-    assert sweep_seed!(actor, group, agent_id, ip).uid == seed.uid
+    assert sweep_seed!(actor, group, agent_id, ip).uid == Ids.reseeded_device_id(seed.uid)
     assert IdentityReconciler.resolve_canonical_device_id(seed.uid, actor) == {:ok, seed.uid}
+
+    assert %{rows: [[^ordinal, true, "test", %NaiveDateTime{}]]} =
+             Repo.query!(
+               "SELECT o.ordinal, o.tombstoned, d.deleted_reason, d.identity_purged_at " <>
+                 "FROM platform.device_fleet_ordinals o JOIN platform.ocsf_devices d USING(uid) WHERE uid = $1",
+               [seed.uid]
+             )
+  end
+
+  test "released seeds stay retired while a fresh address identity can start after payload retention",
+       %{
+         actor: actor,
+         agent_id: agent_id
+       } do
+    ip = "192.0.2.74"
+    group = seed_sweep_group!(actor, "Released seed #{Ash.UUID.generate()}")
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    ordinal = FleetIdentity.device_ordinal(seed.uid)
+
+    assert {:ok, _} =
+             Device.soft_delete(seed, "seed_released", "system:seed_release", actor: actor)
+
+    Repo.query!("UPDATE platform.ocsf_devices SET ip = NULL WHERE uid = $1", [seed.uid])
+
+    assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+    assert devices_at(actor, ip) == []
+    assert include_deleted_device!(actor, seed.uid).deleted_reason == "seed_released"
+
+    purge!(seed.uid)
+    retained = row_state(actor, seed.uid)
+    successor = sweep_seed!(actor, group, agent_id, ip)
+
+    assert successor.uid == Ids.reseeded_device_id(seed.uid)
+    assert FleetIdentity.device_ordinal(successor.uid) != ordinal
+    assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+    assert [current] = devices_at(actor, ip)
+    assert current.uid == successor.uid
+    assert row_state(actor, seed.uid) == retained
+    assert include_deleted_device!(actor, seed.uid).deleted_reason == "seed_released"
+
+    assert %{rows: [[^ordinal, true]]} =
+             Repo.query!(
+               "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+               [seed.uid]
+             )
+
+    assert revival_audit_rows(seed.uid) == []
+
+    # A source-retired successor keeps its separate guarded-return policy even after purge.
+    assert {:ok, _} =
+             Device.soft_delete(current, "source_retired", "system:source_retirement",
+               actor: actor
+             )
+
+    purge!(current.uid)
+    source_retired = row_state(actor, current.uid)
+    assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+    assert devices_at(actor, ip) == []
+    assert row_state(actor, current.uid) == source_retired
+    assert revival_audit_rows(current.uid) == []
   end
 
   # The chain is bounded (@max_seed_uid_attempts): a host whose every uid within the bound

@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
   alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries, as: Migration
+  alias ServiceRadar.Repo.Migrations.WidenFleetOrdinals
 
   @moduletag :integration
   @migration_version 20_261_016_040_000
@@ -14,6 +15,13 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
                   )
   @external_resource @migration_path
   Code.require_file(@migration_path)
+
+  @widen_migration_path Path.expand(
+                          "../../../priv/repo/migrations/20261016035900_widen_fleet_ordinals.exs",
+                          __DIR__
+                        )
+  @external_resource @widen_migration_path
+  Code.require_file(@widen_migration_path)
 
   @last_ordinal 4_294_967_295
   @sequence "platform.device_fleet_ordinals_ordinal_seq"
@@ -27,6 +35,33 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
   setup_all do
     ServiceRadar.TestSupport.start_core!()
     :ok
+  end
+
+  test "service components do not allocate ordinals and existing assignments remain reserved" do
+    uid = "serviceradar:component-#{Ecto.UUID.generate()}"
+    Repo.query!("INSERT INTO platform.ocsf_devices (uid) VALUES ($1)", [uid])
+    assert {:ok, nil} = FleetIdentity.ensure_device(uid)
+    assert FleetIdentity.device_ordinal(uid) == nil
+
+    assert %{rows: []} =
+             Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [
+               uid
+             ])
+
+    # An assignment from an earlier writer remains reserved even outside the device domain.
+    assert %{rows: [[reserved]]} =
+             Repo.query!(
+               "INSERT INTO platform.device_fleet_ordinals (uid) VALUES ($1) RETURNING ordinal",
+               [uid]
+             )
+
+    assert {:ok, nil} = FleetIdentity.ensure_device(uid)
+    assert FleetIdentity.device_ordinal(uid) == nil
+
+    assert %{rows: [[^reserved]]} =
+             Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [
+               uid
+             ])
   end
 
   test "the last unsigned ordinal, exhausted allocation, and rejected bounds roll back with migration down" do
@@ -52,13 +87,16 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
       is_nil(assignments_before.max_ordinal) or
         assignments_before.max_ordinal < @last_ordinal
     )
+
     assert trigger_names() == MapSet.new(@lifecycle_triggers ++ @protect_triggers)
 
     assert {:error, :boundary_checked} =
              Repo.transaction(fn ->
                Repo.query!("ALTER SEQUENCE #{@sequence} RESTART WITH #{@last_ordinal}")
 
-               Repo.query!("INSERT INTO platform.ocsf_devices (uid, type_id) VALUES ($1, 0)", [last_uid])
+               Repo.query!("INSERT INTO platform.ocsf_devices (uid, type_id) VALUES ($1, 0)", [
+                 last_uid
+               ])
 
                assert FleetIdentity.device_ordinal(last_uid) == @last_ordinal
 
@@ -68,9 +106,13 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
                           [last_uid]
                         )
 
-               exhausted = rejected("exhausted", fn ->
-                 Repo.query!("INSERT INTO platform.ocsf_devices (uid, type_id) VALUES ($1, 0)", [exhausted_uid])
-               end)
+               exhausted =
+                 rejected("exhausted", fn ->
+                   Repo.query!(
+                     "INSERT INTO platform.ocsf_devices (uid, type_id) VALUES ($1, 0)",
+                     [exhausted_uid]
+                   )
+                 end)
 
                assert exhausted.postgres.code == :sequence_generator_limit_exceeded
                assert FleetIdentity.device_ordinal(exhausted_uid) == nil
@@ -81,12 +123,13 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
                )
 
                for ordinal <- [0, @last_ordinal + 1] do
-                 rejected = rejected("bounds_#{ordinal}", fn ->
-                   Repo.query!(
-                     "INSERT INTO platform.device_fleet_ordinals (uid, ordinal) VALUES ($1, $2)",
-                     [bounds_uid, ordinal]
-                   )
-                 end)
+                 rejected =
+                   rejected("bounds_#{ordinal}", fn ->
+                     Repo.query!(
+                       "INSERT INTO platform.device_fleet_ordinals (uid, ordinal) VALUES ($1, $2)",
+                       [bounds_uid, ordinal]
+                     )
+                   end)
 
                  assert rejected.postgres.code == :check_violation
                  assert rejected.postgres.constraint == "device_fleet_ordinals_u32"
@@ -104,6 +147,18 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
                    Repo.config(),
                    @migration_version,
                    Migration,
+                   :forward,
+                   :down,
+                   :down,
+                   log: false
+                 )
+
+               :ok =
+                 Runner.run(
+                   Repo,
+                   Repo.config(),
+                   20_261_016_035_900,
+                   WidenFleetOrdinals,
                    :forward,
                    :down,
                    :down,

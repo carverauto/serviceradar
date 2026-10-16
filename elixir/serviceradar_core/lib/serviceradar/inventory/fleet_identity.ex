@@ -29,7 +29,10 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
     repo = Keyword.get(opts, :repo, Repo)
 
     repo.one(
-      from(o in DeviceFleetOrdinal, where: o.uid == ^uid and not o.tombstoned, select: o.ordinal)
+      from(o in DeviceFleetOrdinal,
+        where: o.uid == ^uid and not like(o.uid, "serviceradar:%") and not o.tombstoned,
+        select: o.ordinal
+      )
     )
   end
 
@@ -43,7 +46,8 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
       sql = """
       WITH page AS MATERIALIZED (
         SELECT uid FROM platform.ocsf_devices
-        WHERE ($1::text IS NULL OR uid > $1) ORDER BY uid LIMIT $2
+        WHERE ($1::text IS NULL OR uid > $1) AND uid NOT LIKE 'serviceradar:%'
+        ORDER BY uid LIMIT $2
       )
       SELECT uid, platform.ensure_device_fleet_ordinal(uid) FROM page ORDER BY uid
       """

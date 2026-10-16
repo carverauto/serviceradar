@@ -204,7 +204,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
     uid = "#{prefix}-allocated"
 
     Repo.query!(
-      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, metadata) VALUES ($1, 'host01.example.com', '192.0.2.12', $2)",
+      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, type_id, created_time, modified_time, tags, discovery_sources, metadata) " <>
+        "VALUES ($1, 'host01.example.com', '192.0.2.12', 42, '2020-01-01', '2020-01-02', " <>
+        ~s|'{"role":"edge"}', ARRAY['mapper'], $2)|,
       [uid, %{"custom" => "value"}]
     )
 
@@ -231,8 +233,16 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert row_count("device_source_observations", "device_id", uid) == 0
 
-    # A table with a RESTRICT foreign key to ocsf_devices whose rows refuse to be
-    # deleted, so the purge of any device it references fails.
+    assert %{rows: [[0, %NaiveDateTime{} = created, %NaiveDateTime{} = modified, %{}, [], []]]} =
+             Repo.query!(
+               "SELECT type_id, created_time, modified_time, tags, discovery_sources, network_interfaces " <>
+                 "FROM platform.ocsf_devices WHERE uid = $1",
+               [uid]
+             )
+
+    assert created == modified
+    assert NaiveDateTime.after?(created, ~N[2020-01-02 00:00:00])
+
     assert %{disposition: "quarantined", device_uid: nil} = membership(membership_id)
     assert {%{deleted: 0, errors: 0}, 0} = purge([uid])
 
@@ -243,6 +253,16 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
              |> Ash.bulk_update(:restore, %{}, actor: @actor, return_errors?: true)
 
     assert FleetIdentity.device_ordinal(uid) == ordinal
+
+    assert {:ok,
+            %Device{
+              type_id: 0,
+              created_time: %DateTime{},
+              modified_time: %DateTime{},
+              tags: %{},
+              discovery_sources: []
+            }} =
+             Device.get_by_uid(uid, false, actor: @actor)
 
     assert %{rows: [[nil]]} =
              Repo.query!("SELECT identity_purged_at FROM platform.ocsf_devices WHERE uid = $1", [

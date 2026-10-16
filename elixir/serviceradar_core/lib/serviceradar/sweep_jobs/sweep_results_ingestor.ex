@@ -869,29 +869,46 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # A seed is named by its address, so a sweep of the address of a seed that was merged away and
-  # then purged derives the merged-away uid again. Creating it would take the uid out of the
-  # redirect to its survivor (Resolver), and a source still carrying it would land on the new
-  # seed. A uid that a merge names is resolved first, and one that redirects gives way to the
-  # next uid of the chain Ids.reseeded_device_id/1 derives (add-source-id-succession task 9.7).
+  # Address seeds must not reuse a merged identity or revive a deleted seed after payload
+  # retention. Both keep their permanent UID; a fresh seed uses the bounded successor chain.
   defp seed_uids([], _partition, _actor), do: []
 
   defp seed_uids(results, partition, actor) do
     seeds = Enum.map(results, &{&1, address_seed_uid(&1, partition)})
 
-    case merged_away_uids(Enum.map(seeds, &elem(&1, 1)), actor) do
-      {:ok, merged_away} ->
-        Enum.flat_map(seeds, fn {result, uid} = seed ->
-          if MapSet.member?(merged_away, uid), do: free_seed_uid(result, uid, actor), else: [seed]
-        end)
+    uids = Enum.map(seeds, &elem(&1, 1))
 
+    with {:ok, merged_away} <- merged_away_uids(uids, actor),
+         {:ok, purged} <- purged_seed_uids(uids, actor) do
+      reserved = MapSet.union(merged_away, purged)
+
+      Enum.flat_map(seeds, fn {result, uid} = seed ->
+        if MapSet.member?(reserved, uid), do: free_seed_uid(result, uid, actor), else: [seed]
+      end)
+    else
       {:error, reason} ->
         Logger.warning(
-          "SweepResultsIngestor: Could not read the merge rows of #{length(seeds)} new sweep " <>
+          "SweepResultsIngestor: Could not read reserved identities for #{length(seeds)} new sweep " <>
             "seeds; seeding none: #{inspect(reason)}"
         )
 
         []
+    end
+  end
+
+  defp purged_seed_uids(uids, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(
+      uid in ^uids and not is_nil(identity_purged_at) and not is_nil(deleted_at) and
+        (is_nil(deleted_reason) or deleted_reason != "source_retired")
+    )
+    |> Ash.Query.select([:uid])
+    |> Ash.read(actor: actor, page: [limit: length(uids)])
+    |> Page.unwrap()
+    |> case do
+      {:ok, rows} -> {:ok, MapSet.new(rows, & &1.uid)}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -919,26 +936,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # The first uid of the seed's chain that resolves to itself: one an unmerge gave back, or one
-  # no merge names. A host whose chain has none within the bound, or whose uid cannot be
-  # resolved, is not seeded.
+  # A live or unallocated successor can be reused; a purged identity stays reserved.
+  # A failed lookup or exhausted chain leaves the address unseeded.
   defp free_seed_uid(result, uid, actor, attempts \\ @max_seed_uid_attempts) do
-    case IdentityReconciler.resolve_canonical_device_id(uid, actor) do
-      {:ok, ^uid} ->
-        [{result, uid}]
+    with {:ok, canonical} <- IdentityReconciler.resolve_canonical_device_id(uid, actor),
+         {:ok, purged} <- purged_seed_uids([uid], actor) do
+      cond do
+        canonical == uid and not MapSet.member?(purged, uid) ->
+          [{result, uid}]
 
-      {:ok, _survivor} when attempts > 1 ->
-        free_seed_uid(result, Ids.reseeded_device_id(uid), actor, attempts - 1)
+        attempts > 1 ->
+          free_seed_uid(result, Ids.reseeded_device_id(uid), actor, attempts - 1)
 
-      {:ok, survivor} ->
-        Logger.warning(
-          "SweepResultsIngestor: No free seed uid for #{extract_ip(result)} within " <>
-            "#{@max_seed_uid_attempts} uids, the last #{uid} redirecting to #{survivor}; " <>
-            "not seeding it"
-        )
+        true ->
+          Logger.warning(
+            "SweepResultsIngestor: No free seed uid for #{extract_ip(result)} within " <>
+              "#{@max_seed_uid_attempts} uids, the last #{uid} remains reserved; not seeding it"
+          )
 
-        []
-
+          []
+      end
+    else
       {:error, reason} ->
         Logger.warning(
           "SweepResultsIngestor: Could not resolve seed uid #{uid} for #{extract_ip(result)}; " <>
