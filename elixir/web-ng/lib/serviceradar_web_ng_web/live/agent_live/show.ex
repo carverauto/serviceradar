@@ -1059,7 +1059,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   @doc """
   Config-apply status card: last acked config version, per-section apply
-  statuses from the agent's sectioned config ack, and config-apply health.
+  statuses from the agent's sectioned config ack or control-stream hello, and
+  config-apply health.
   Public so it can be unit-tested with render_component/2.
   """
   attr :config_status, :map, default: nil

@@ -295,8 +295,9 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   #     When the agent reports a section that is deferring the commit
   #     (`transient_failure`, carried on its hello), the wedge metadata names that
   #     section and its error.
-  #   - rule 2 (permanent section): the agent's last sectioned ack reports a
-  #     permanently failing config section.
+  #   - rule 2 (permanent section): stored config_section_statuses include a
+  #     permanently failing section. Those statuses come from the last sectioned
+  #     ack or from a later control-stream hello.
   defp check_agent_config_health(state, actor) do
     require Ash.Query
 

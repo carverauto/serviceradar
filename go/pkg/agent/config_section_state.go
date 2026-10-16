@@ -108,9 +108,12 @@ func (e *addonAssignmentsDeferredError) Error() string {
 func (e *addonAssignmentsDeferredError) Unwrap() error { return e.err }
 
 // configSectionFailure is the persistent (in-memory, per process run) failure state for
-// one config section, keyed by the section's payload hash so an identical failing payload
-// is neither re-attempted nor re-logged every cycle (spec: permanent failures escalate
-// once instead of retry-spamming).
+// one config section, keyed by the section's payload hash. A classified permanent
+// failure of an identical payload is neither re-attempted nor re-logged every cycle.
+// A transient failure that reaches the escalation bound is reported as permanent so
+// the version can commit, and that escalated record is re-attempted on later applies
+// in case the condition clears. The attempt count restarts when the payload changes,
+// and the record is cleared on success.
 type configSectionFailure struct {
 	payloadHash string
 	version     string // config version at first observation
@@ -167,8 +170,9 @@ func marshalAddonAssignmentsForHash(addons []*proto.AddonAssignmentConfig) [][]b
 
 // applyConfigSection runs one deferrable config section through the failure state
 // machine:
-//   - if the identical payload already failed permanently, the apply is SKIPPED (no
-//     re-attempt, no re-log) and the recorded failure stands until the payload changes;
+//   - a classified permanent failure of the identical payload is SKIPPED (no
+//     re-attempt, no re-log) and the recorded failure stands until the payload changes.
+//     An escalated transient failure is not skipped: it is re-attempted;
 //   - on success any recorded failure for the section is cleared;
 //   - on a permanent failure the state is recorded and escalated ONCE at error level;
 //   - a transient failure is recorded with its first-seen time and consecutive attempt
