@@ -1,5 +1,7 @@
 //! Typed BEAM boundary for the persistent membership index; no JSON intermediates.
-use crate::bitmap_index::{Index, Instruction, Kind, PendingStatus, Query, Row, Value, ViewRow};
+use crate::bitmap_index::{
+    Index, Instruction, Kind, PendingStatus, Query, Row, Stage, Value, ViewRow,
+};
 use crate::core::arrow_serde::vec_into_binary;
 use rustler::types::list::ListIterator;
 use rustler::{
@@ -9,7 +11,7 @@ use rustler::{
 fn list<'a, T>(
     term: Term<'a>,
     cap: usize,
-    decode: impl Fn(Term<'a>) -> Result<T, &'static str>,
+    mut decode: impl FnMut(Term<'a>) -> Result<T, &'static str>,
 ) -> Result<Vec<T>, &'static str> {
     let values: ListIterator = term.decode().map_err(|_| "invalid_list")?;
     let mut result = Vec::new();
@@ -57,13 +59,24 @@ fn rows(term: Term<'_>) -> Result<Vec<Row>, &'static str> {
     })
 }
 fn program(term: Term<'_>) -> Result<Vec<Instruction>, &'static str> {
+    let mut selector_bytes = 0;
+    let mut text_bytes = 0;
     list(term, 65, |value| {
         let (op, key, value, arity): (u8, Term, Binary, u16) =
             value.decode().map_err(|_| "invalid_expression")?;
-        if value.len() > 256 {
-            return Err("text_budget");
+        let key = text(key, 64)?;
+        if matches!(op, 8 | 9) {
+            selector_bytes += value.len();
+            if selector_bytes > 256 * 1024 {
+                return Err("expression_budget");
+            }
+        } else {
+            text_bytes += key.len() + value.len() + 8;
+            if value.len() > 256 || text_bytes > 16384 {
+                return Err("text_budget");
+            }
         }
-        Ok((op, text(key, 64)?, value.as_slice().to_vec(), arity))
+        Ok((op, key, value.as_slice().to_vec(), arity))
     })
 }
 fn ids(term: Term<'_>) -> Result<Vec<u32>, &'static str> {
@@ -91,6 +104,9 @@ impl Resource for BitmapIndexResource {}
 pub struct BitmapQueryResource(Query);
 #[rustler::resource_impl]
 impl Resource for BitmapQueryResource {}
+pub struct BitmapStageResource(Stage);
+#[rustler::resource_impl]
+impl Resource for BitmapStageResource {}
 
 #[derive(NifTaggedEnum)]
 enum WireViewRow<'a> {
@@ -164,6 +180,8 @@ pub struct BitmapIndexStatus<'a> {
     pins: usize,
     unavailable_facets: Vec<String>,
     pending: BitmapPendingStatus,
+    ip_available: bool,
+    ip_unavailable_reason: Option<String>,
 }
 fn status(
     env: Env<'_>,
@@ -179,6 +197,8 @@ fn status(
         pins: s.pins,
         unavailable_facets: s.unavailable,
         pending: s.pending.into(),
+        ip_available: s.ip_available,
+        ip_unavailable_reason: s.ip_unavailable_reason.map(str::to_owned),
     })
 }
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -221,6 +241,62 @@ fn bitmap_index_publish<'a>(
             ready,
         )?,
     )
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_index_begin_publish(
+    index: ResourceArc<BitmapIndexResource>,
+    expected_revision: u64,
+    source_revision: Binary<'_>,
+    current_rows: Term<'_>,
+    ready: bool,
+) -> Result<ResourceArc<BitmapStageResource>, &'static str> {
+    Ok(ResourceArc::new(BitmapStageResource(
+        index.0.begin_publish(
+            expected_revision,
+            source_revision.as_slice(),
+            rows(current_rows)?,
+            ready,
+        )?,
+    )))
+}
+#[derive(NifMap)]
+struct StageStatus {
+    ip_available: bool,
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_publish_addresses(
+    stage: ResourceArc<BitmapStageResource>,
+    addresses: Term<'_>,
+    completed: Term<'_>,
+) -> Result<StageStatus, &'static str> {
+    let addresses = list(addresses, 500, |term| {
+        let (ordinal, bytes): (u32, Binary) = term.decode().map_err(|_| "invalid_address_row")?;
+        if !matches!(bytes.len(), 4 | 16) {
+            return Err("invalid_address_row");
+        }
+        Ok((ordinal, bytes.as_slice().to_vec()))
+    })?;
+    Ok(StageStatus {
+        ip_available: stage.0.add(&addresses, &ids(completed)?)?,
+    })
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_publish_ip_unavailable(
+    stage: ResourceArc<BitmapStageResource>,
+) -> Result<(), &'static str> {
+    stage.0.unavailable()
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_publish_abort(stage: ResourceArc<BitmapStageResource>) -> Result<(), &'static str> {
+    stage.0.abort()
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_index_finish_publish<'a>(
+    env: Env<'a>,
+    index: ResourceArc<BitmapIndexResource>,
+    stage: ResourceArc<BitmapStageResource>,
+) -> Result<BitmapIndexStatus<'a>, &'static str> {
+    status(env, index.0.finish_publish(&stage.0)?)
 }
 #[rustler::nif(schedule = "DirtyCpu")]
 fn bitmap_index_status(
