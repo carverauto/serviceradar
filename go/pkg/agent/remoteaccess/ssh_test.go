@@ -320,7 +320,7 @@ func TestSSHHostKeyPolicyUsesKnownHostsFile(t *testing.T) {
 		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	callback, err := sshHostKeyCallback("known_hosts", knownHostsPath)
+	callback, err := new(KnownHostsStore).HostKeyCallback("known_hosts", knownHostsPath)
 	if err != nil {
 		t.Fatalf("known_hosts callback: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestSSHHostKeyPolicyUsesKnownHostsFile(t *testing.T) {
 		t.Fatalf("known_hosts callback returned error: %v", err)
 	}
 
-	if callback, err = sshHostKeyCallback("skip_verify", ""); err != nil {
+	if callback, err = new(KnownHostsStore).HostKeyCallback("skip_verify", ""); err != nil {
 		t.Fatalf("skip_verify returned error: %v", err)
 	} else if callback == nil {
 		t.Fatal("skip_verify returned nil callback")
@@ -348,7 +348,7 @@ func TestSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing.T) {
 	}
 	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
 
-	callback, err := sshHostKeyCallback("trust_on_first_use", knownHostsPath)
+	callback, err := new(KnownHostsStore).HostKeyCallback("trust_on_first_use", knownHostsPath)
 	if err != nil {
 		t.Fatalf("trust_on_first_use callback: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing.T) {
 		t.Fatalf("known_hosts did not contain pinned key: %q", string(data))
 	}
 
-	callback, err = sshHostKeyCallback("known_hosts", knownHostsPath)
+	callback, err = new(KnownHostsStore).HostKeyCallback("known_hosts", knownHostsPath)
 	if err != nil {
 		t.Fatalf("known_hosts callback: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestSSHHostKeyPolicyRejectsChangedTrustOnFirstUseKey(t *testing.T) {
 		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	callback, err := sshHostKeyCallback("trust_on_first_use", knownHostsPath)
+	callback, err := new(KnownHostsStore).HostKeyCallback("trust_on_first_use", knownHostsPath)
 	if err != nil {
 		t.Fatalf("trust_on_first_use callback: %v", err)
 	}
@@ -404,10 +404,20 @@ func TestSSHHostKeyPolicyRejectsChangedTrustOnFirstUseKey(t *testing.T) {
 	}
 }
 
+func TestSSHHostKeyPolicyTrustOnFirstUseRequiresKnownHostsStore(t *testing.T) {
+	t.Parallel()
+
+	var store *KnownHostsStore
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	if _, err := store.HostKeyCallback("trust_on_first_use", knownHostsPath); !errors.Is(err, ErrSSHHostKeyStoreUnavailable) {
+		t.Fatalf("trust_on_first_use without a store error = %v, want %v", err, ErrSSHHostKeyStoreUnavailable)
+	}
+}
+
 func TestSSHHostKeyPolicyRejectsUnsupportedPolicy(t *testing.T) {
 	t.Parallel()
 
-	if _, err := sshHostKeyCallback("accept_anything", ""); !errors.Is(err, ErrUnsupportedSSHHostKeyPolicy) {
+	if _, err := new(KnownHostsStore).HostKeyCallback("accept_anything", ""); !errors.Is(err, ErrUnsupportedSSHHostKeyPolicy) {
 		t.Fatalf("unsupported policy error = %v, want %v", err, ErrUnsupportedSSHHostKeyPolicy)
 	}
 }

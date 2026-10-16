@@ -51,6 +51,9 @@ type NetworkSweeper struct {
 	sweepInProgress    bool
 	lastSweepCancelled bool
 	lastSummary        *models.SweepSummary
+	// synScanGate is shared with the SYN scanner this sweeper builds; see
+	// WithSYNScanGate.
+	synScanGate *scan.SYNScanGate
 	// activeRun is the in-flight run, so CancelRun can abort it. It is nil when
 	// idle and once the run has published its results.
 	activeRun *sweepRun

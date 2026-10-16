@@ -106,6 +106,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		credentialBroker:              cfg.CredentialBroker,
 		awxCallbackCredentialResolver: cfg.AWXCallbackCredentialResolver,
 		artifactUploader:              cfg.ArtifactUploader,
+		knownHosts:                    cfg.KnownHosts,
 		credentialCache:               make(map[string]credentialBrokerCacheEntry),
 		credentialNow:                 time.Now,
 		ctx:                           rootCtx,

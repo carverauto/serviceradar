@@ -65,8 +65,6 @@ var (
 	ErrSSHSessionOutputChannelOverflow = errors.New("ssh session output channel overflow")
 )
 
-var sshKnownHostsMu sync.Mutex //nolint:gochecknoglobals // serializes known_hosts file updates across concurrent SSH sessions.
-
 // SSHTarget identifies the target host opened by the selected agent.
 type SSHTarget struct {
 	Host string `json:"host,omitempty"`
@@ -94,6 +92,9 @@ type SSHConfig struct {
 	SSHHostKeyPolicy   string
 	SSHHostKeyApproval *SSHHostKeyApproval
 	KnownHostsPath     string
+	// KnownHosts serializes trust-on-first-use pins into KnownHostsPath. Nil
+	// refuses every policy that would pin a key.
+	KnownHosts *KnownHostsStore
 }
 
 // SSHSession is the subset of x/crypto/ssh.Session used by the PTY adapter.
@@ -451,22 +452,27 @@ func sshSigner(privateKey, passphrase, certificate string) (ssh.Signer, error) {
 	return ssh.NewCertSigner(cert, signer)
 }
 
-// SSHHostKeyCallback returns the configured host-key verification callback for
-// agent-routed SSH sessions.
-func SSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
-	return sshHostKeyCallback(policy, knownHostsPath)
+// KnownHostsStore serializes trust-on-first-use pins into known_hosts files.
+// A pin reads the file and then appends to it, so two sessions pinning at once
+// would each miss the other's line. Every SSH path in the agent that can pin a
+// host key (remote access sessions, file transfers and the Proxmox console)
+// shares one store. The zero value is ready to use.
+type KnownHostsStore struct {
+	mu sync.Mutex
 }
 
 const sshHostKeyPolicySkipVerify = "skip_verify"
 
-func sshHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
+// HostKeyCallback returns the configured host-key verification callback for
+// agent-routed SSH sessions. A nil store refuses trust_on_first_use.
+func (s *KnownHostsStore) HostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
 	switch strings.TrimSpace(policy) {
 	case sshHostKeyPolicySkipVerify:
 		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for scoped agent-side SSH testing
 	case "known_hosts", "":
 		return knownHostsCallback(knownHostsPath)
 	case "trust_on_first_use":
-		return trustOnFirstUseCallback(knownHostsPath)
+		return s.trustOnFirstUseCallback(knownHostsPath)
 	default:
 		return nil, fmt.Errorf("%w %q", ErrUnsupportedSSHHostKeyPolicy, policy)
 	}
@@ -486,15 +492,19 @@ func knownHostsCallback(path string) (ssh.HostKeyCallback, error) {
 	return verifiedSSHHostKeyCallback(callback), nil
 }
 
-func trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
+func (s *KnownHostsStore) trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
+	if s == nil {
+		return nil, ErrSSHHostKeyStoreUnavailable
+	}
+
 	path = normalizeKnownHostsPath(path)
 	if err := ensureKnownHostsFile(path); err != nil {
 		return nil, err
 	}
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		sshKnownHostsMu.Lock()
-		defer sshKnownHostsMu.Unlock()
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
 		callback, err := knownhosts.New(path)
 		if err != nil {

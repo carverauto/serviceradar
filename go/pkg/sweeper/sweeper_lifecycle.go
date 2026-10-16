@@ -189,7 +189,7 @@ func (s *NetworkSweeper) ensureScannersInitializedLocked() {
 	}
 
 	if s.tcpScanner == nil {
-		s.tcpScanner = initializeTCPScanner(s.config, s.logger)
+		s.tcpScanner = initializeTCPScanner(s.config, s.synScanGate, s.logger)
 	}
 
 	if s.tcpConnectScanner == nil {

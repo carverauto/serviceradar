@@ -115,7 +115,7 @@ func TestInitializeTCPScannerSkipsProfilesWithoutRawTCP(t *testing.T) {
 			}},
 		},
 	} {
-		assert.Nil(t, initializeTCPScanner(config, log))
+		assert.Nil(t, initializeTCPScanner(config, nil, log))
 	}
 }
 

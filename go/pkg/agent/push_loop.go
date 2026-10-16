@@ -219,7 +219,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
 	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
-	remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
+	remoteConsoleManager.sshOptions = remoteAccessSSHOptions(server)
 	remoteConsoleManager.desktopGateway = desktopMediaGatewayFromClient(gateway)
 	remoteConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (remoteConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
@@ -403,6 +403,20 @@ func (p *PushLoop) remoteAccessRDPAdapterPath() string {
 	}
 
 	return remoteAccessRDPAdapterPath(p.server)
+}
+
+// remoteAccessSSHOptions is how every remote console manager the push loop
+// builds opens SSH: against the configured known_hosts file, pinning through
+// the server's known-hosts store.
+func remoteAccessSSHOptions(server *Server) remoteaccess.SSHOpenOptions {
+	if server == nil {
+		return remoteaccess.SSHOpenOptions{}
+	}
+
+	return remoteaccess.SSHOpenOptions{
+		KnownHostsPath: remoteAccessKnownHostsFile(server),
+		KnownHosts:     &server.knownHosts,
+	}
 }
 
 func remoteAccessKnownHostsFile(server *Server) string {

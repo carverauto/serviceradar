@@ -326,13 +326,18 @@ func TestProxmoxConsoleManagerRoutesSSHOpenPayload(t *testing.T) {
 		stderr: strings.NewReader(""),
 	}
 	manager := newProxmoxConsoleManager(createTestLogger())
+	knownHosts := new(remoteaccess.KnownHostsStore)
 	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		KnownHosts: knownHosts,
 		Dial: func(_ context.Context, cfg remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
 			if cfg.Target.Host != "router.example" {
 				t.Fatalf("ssh target host = %q", cfg.Target.Host)
 			}
 			if cfg.Auth.Username != "admin" || cfg.Auth.Password != "secret" {
 				t.Fatalf("ssh auth = %#v", cfg.Auth)
+			}
+			if cfg.KnownHosts != knownHosts {
+				t.Fatal("ssh host-key pins must go through the agent's known-hosts store")
 			}
 
 			return session, nil

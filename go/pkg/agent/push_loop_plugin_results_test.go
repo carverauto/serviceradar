@@ -217,19 +217,16 @@ func TestPushPluginResultsPoisonDropsCompleteSetAndLaterWorkProgresses(t *testin
 	tests := []struct {
 		name       string
 		err        error
-		wantReason string
+		wantReason poisonReason
 	}{
-		{name: "local chunk excess", err: agentgateway.ErrStreamStatusChunkTooLarge, wantReason: "chunk_too_large"},
-		{name: "local stream excess", err: agentgateway.ErrStreamStatusBudgetExceeded, wantReason: "stream_budget_exceeded"},
-		{name: "remote invalid argument", err: fmt.Errorf("stream failed: %w", status.Error(codes.InvalidArgument, "invalid plugin-result payload")), wantReason: "invalid_argument"},
-		{name: "remote payload too large", err: fmt.Errorf("stream failed: %w", status.Error(codes.ResourceExhausted, "payload_too_large")), wantReason: "payload_too_large"},
+		{name: "local chunk excess", err: agentgateway.ErrStreamStatusChunkTooLarge, wantReason: poisonReasonChunkTooLarge},
+		{name: "local stream excess", err: agentgateway.ErrStreamStatusBudgetExceeded, wantReason: poisonReasonStreamBudgetExceeded},
+		{name: "remote invalid argument", err: fmt.Errorf("stream failed: %w", status.Error(codes.InvalidArgument, "invalid plugin-result payload")), wantReason: poisonReasonInvalidArgument},
+		{name: "remote payload too large", err: fmt.Errorf("stream failed: %w", status.Error(codes.ResourceExhausted, "payload_too_large")), wantReason: poisonReasonPayloadTooLarge},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAgentRetainedPoisonDropCounters()
-			t.Cleanup(resetAgentRetainedPoisonDropCounters)
-
 			manager := &PluginManager{results: make(chan PluginResult, 3)}
 			manager.results <- testPendingPluginResult("poison-1", "first")
 			manager.results <- testPendingPluginResult("poison-2", "second")
@@ -258,7 +255,7 @@ func TestPushPluginResultsPoisonDropsCompleteSetAndLaterWorkProgresses(t *testin
 			if got := len(loop.pendingPluginResults); got != 0 {
 				t.Fatalf("pending poison results = %d, want 0", got)
 			}
-			items, bytes := AgentRetainedPoisonDropTotals("plugin-result", tt.wantReason)
+			items, bytes := loop.server.deliveryTelemetry.poisonDropTotals(retainedSourcePlugin, tt.wantReason)
 			if items != 2 || bytes == 0 {
 				t.Fatalf("poison totals = (items=%d, bytes=%d), want (2, >0)", items, bytes)
 			}
@@ -284,7 +281,7 @@ func TestRetainedPoisonDropReasonPreservesRetryableFailures(t *testing.T) {
 
 	for _, err := range tests {
 		if reason, terminal := retainedPoisonDropReason(err); terminal {
-			t.Errorf("retainedPoisonDropReason(%v) = (%q, true), want retryable", err, reason)
+			t.Errorf("retainedPoisonDropReason(%v) = (%q, true), want retryable", err, reason.label())
 		}
 	}
 }

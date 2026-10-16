@@ -26,32 +26,42 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// retainedSource is the retained-delivery stream a poison drop came from.
+type retainedSource int
+
 const (
-	retainedSourceFlow = iota
+	retainedSourceFlow retainedSource = iota
 	retainedSourcePlugin
 	retainedSourceCount
 )
 
+// label is the source's Prometheus label value.
+func (s retainedSource) label() string {
+	return [retainedSourceCount]string{
+		retainedSourceFlow:   "flow-attribution",
+		retainedSourcePlugin: "plugin-result",
+	}[s]
+}
+
+// poisonReason is why a retained window was dropped as permanently invalid.
+type poisonReason int
+
 const (
-	poisonReasonInvalidArgument = iota
+	poisonReasonInvalidArgument poisonReason = iota
 	poisonReasonPayloadTooLarge
 	poisonReasonChunkTooLarge
 	poisonReasonStreamBudgetExceeded
 	poisonReasonCount
 )
 
-//nolint:gochecknoglobals // fixed bounded label dictionary
-var retainedPoisonReasonNames = [poisonReasonCount]string{
-	"invalid_argument",
-	"payload_too_large",
-	"chunk_too_large",
-	"stream_budget_exceeded",
-}
-
-//nolint:gochecknoglobals // fixed bounded label dictionary
-var retainedPoisonSourceNames = [retainedSourceCount]string{
-	"flow-attribution",
-	"plugin-result",
+// label is the reason's Prometheus label value.
+func (r poisonReason) label() string {
+	return [poisonReasonCount]string{
+		poisonReasonInvalidArgument:      "invalid_argument",
+		poisonReasonPayloadTooLarge:      "payload_too_large",
+		poisonReasonChunkTooLarge:        "chunk_too_large",
+		poisonReasonStreamBudgetExceeded: "stream_budget_exceeded",
+	}[r]
 }
 
 type retainedPoisonCounter struct {
@@ -59,21 +69,32 @@ type retainedPoisonCounter struct {
 	bytes atomic.Uint64
 }
 
-//nolint:gochecknoglobals // process-global bounded Prometheus counters
-var agentRetainedPoisonDrops [retainedSourceCount][poisonReasonCount]retainedPoisonCounter
+// retainedDeliveryTelemetry holds the agent's retained-delivery counters,
+// which the Prometheus exporter reads. The Server owns the one instance; its
+// zero value is ready to use.
+type retainedDeliveryTelemetry struct {
+	// flowAttributionForwarded counts FlowAttributionEvent records the gateway
+	// acknowledged (agent_flow_attribution_events_forwarded_total).
+	flowAttributionForwarded atomic.Uint64
+	// flowAttributionQuarantined counts single events that cannot fit in an
+	// otherwise empty delivery window. Quarantining the poison event lets
+	// later attribution records continue in order.
+	flowAttributionQuarantined atomic.Uint64
+	poisonDrops                [retainedSourceCount][poisonReasonCount]retainedPoisonCounter
+}
 
-func retainedPoisonDropReason(err error) (string, bool) {
+func retainedPoisonDropReason(err error) (poisonReason, bool) {
 	switch {
 	case errors.Is(err, agentgateway.ErrStreamStatusChunkTooLarge):
-		return retainedPoisonReasonNames[poisonReasonChunkTooLarge], true
+		return poisonReasonChunkTooLarge, true
 	case errors.Is(err, agentgateway.ErrStreamStatusBudgetExceeded):
-		return retainedPoisonReasonNames[poisonReasonStreamBudgetExceeded], true
+		return poisonReasonStreamBudgetExceeded, true
 	case status.Code(err) == codes.InvalidArgument:
-		return retainedPoisonReasonNames[poisonReasonInvalidArgument], true
+		return poisonReasonInvalidArgument, true
 	case status.Code(err) == codes.ResourceExhausted && payloadTooLargeStatusMessage(status.Convert(err).Message()):
-		return retainedPoisonReasonNames[poisonReasonPayloadTooLarge], true
+		return poisonReasonPayloadTooLarge, true
 	default:
-		return "", false
+		return 0, false
 	}
 }
 
@@ -83,53 +104,19 @@ func payloadTooLargeStatusMessage(message string) bool {
 		strings.Contains(message, "desc = payload_too_large")
 }
 
-func recordAgentRetainedPoisonDrop(source, reason string, items, bytes int) {
-	sourceIndex := retainedSourceIndex(source)
-	reasonIndex := retainedReasonIndex(reason)
-	if sourceIndex < 0 || reasonIndex < 0 || items < 0 || bytes < 0 {
+func (t *retainedDeliveryTelemetry) recordPoisonDrop(source retainedSource, reason poisonReason, items, bytes int) {
+	if items < 0 || bytes < 0 {
 		return
 	}
 
-	agentRetainedPoisonDrops[sourceIndex][reasonIndex].items.Add(uint64(items))
-	agentRetainedPoisonDrops[sourceIndex][reasonIndex].bytes.Add(uint64(bytes))
+	counter := &t.poisonDrops[source][reason]
+	counter.items.Add(uint64(items))
+	counter.bytes.Add(uint64(bytes))
 }
 
-// AgentRetainedPoisonDropTotals returns bounded poison-drop counters for the
-// Prometheus exporter and tests.
-func AgentRetainedPoisonDropTotals(source, reason string) (uint64, uint64) {
-	sourceIndex := retainedSourceIndex(source)
-	reasonIndex := retainedReasonIndex(reason)
-	if sourceIndex < 0 || reasonIndex < 0 {
-		return 0, 0
-	}
-
-	counter := &agentRetainedPoisonDrops[sourceIndex][reasonIndex]
+// poisonDropTotals returns the items and bytes dropped for one source and
+// reason.
+func (t *retainedDeliveryTelemetry) poisonDropTotals(source retainedSource, reason poisonReason) (uint64, uint64) {
+	counter := &t.poisonDrops[source][reason]
 	return counter.items.Load(), counter.bytes.Load()
-}
-
-func resetAgentRetainedPoisonDropCounters() {
-	for sourceIndex := 0; sourceIndex < retainedSourceCount; sourceIndex++ {
-		for reasonIndex := 0; reasonIndex < poisonReasonCount; reasonIndex++ {
-			agentRetainedPoisonDrops[sourceIndex][reasonIndex].items.Store(0)
-			agentRetainedPoisonDrops[sourceIndex][reasonIndex].bytes.Store(0)
-		}
-	}
-}
-
-func retainedSourceIndex(source string) int {
-	for index, candidate := range retainedPoisonSourceNames {
-		if source == candidate {
-			return index
-		}
-	}
-	return -1
-}
-
-func retainedReasonIndex(reason string) int {
-	for index, candidate := range retainedPoisonReasonNames {
-		if reason == candidate {
-			return index
-		}
-	}
-	return -1
 }

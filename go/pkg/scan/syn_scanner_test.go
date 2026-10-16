@@ -497,6 +497,7 @@ func TestSYNScannerScanResetsStatsAtStart(t *testing.T) {
 		sendBatchSize: defaultSendBatchSize,
 		portAlloc:     NewPortAllocator(40000, 40001),
 		rand:          rand.New(rand.NewPCG(1, 2)),
+		gate:          NewSYNScanGate(),
 	}
 	scanner.SetRateLimit(0, 0)
 

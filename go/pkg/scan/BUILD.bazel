@@ -15,6 +15,7 @@ go_library(
         "mock_scanner.go",
         "ports.go",
         "scanner_utils.go",
+        "syn_scan_gate.go",
         "syn_scanner.go",
         "syn_scanner_batch.go",
         "syn_scanner_batch_record.go",

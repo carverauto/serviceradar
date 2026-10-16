@@ -95,6 +95,7 @@ type SFTPAdapter struct {
 	ChownGID       int
 	ChownSet       bool
 	KnownHostsPath string
+	KnownHosts     *KnownHostsStore
 }
 
 // Execute runs one SFTP operation. File contents are streamed only through the
@@ -139,6 +140,7 @@ func (a SFTPAdapter) Execute(
 
 func (a SFTPAdapter) defaultDial(ctx context.Context, cfg SSHConfig) (SFTPClient, error) {
 	cfg.KnownHostsPath = a.KnownHostsPath
+	cfg.KnownHosts = a.KnownHosts
 
 	sshClient, err := DialSSHClient(ctx, cfg)
 	if err != nil {

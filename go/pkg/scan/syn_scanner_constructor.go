@@ -130,7 +130,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		iface:         iface,
 		fanoutGroup:   fanoutGroup,
 		replyFilter:   replyFilter,
-		gate:          rawSYNScanGate,
+		gate:          scannerGate(opts),
 		retireTovMs:   retireTov,
 		portAlloc:     NewPortAllocator(scanPortStart, scanPortEnd),
 		scanPortStart: scanPortStart,
@@ -716,4 +716,14 @@ func computeRingLayout(opts *SYNScannerOptions, ringCount int, page uint32) ring
 	layout.frameSize = frameSize
 
 	return layout
+}
+
+// scannerGate returns the gate the caller shares across its scanners, or a
+// gate of this scanner's own when the caller passed none.
+func scannerGate(opts *SYNScannerOptions) *SYNScanGate {
+	if opts != nil && opts.Gate != nil {
+		return opts.Gate
+	}
+
+	return NewSYNScanGate()
 }

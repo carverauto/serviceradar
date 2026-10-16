@@ -64,6 +64,9 @@ type proxmoxConsoleSSHConfig struct {
 	SSHHostKeyPolicy string                      `json:"ssh_host_key_policy"`
 	KnownHostsPath   string                      `json:"known_hosts_path,omitempty"`
 	revalidate       func(context.Context) error `json:"-"`
+	// knownHosts is the agent's known-hosts store; nil refuses
+	// trust_on_first_use.
+	knownHosts *remoteaccess.KnownHostsStore `json:"-"`
 }
 
 // proxmoxConsoleSSHHostRequest is the complete Wasm-to-host SSH ABI. The
@@ -280,7 +283,7 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 		return nil, err
 	}
 
-	hostKeyCallback, err := proxmoxConsoleSSHHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
+	hostKeyCallback, err := proxmoxConsoleSSHHostKeyCallback(cfg.knownHosts, cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -481,11 +484,14 @@ func proxmoxConsoleSSHSigner(privateKey, passphrase string) (ssh.Signer, error) 
 	return ssh.ParsePrivateKey(key)
 }
 
-func proxmoxConsoleSSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
+func proxmoxConsoleSSHHostKeyCallback(
+	knownHosts *remoteaccess.KnownHostsStore,
+	policy, knownHostsPath string,
+) (ssh.HostKeyCallback, error) {
 	if !proxmoxConsoleSSHHostKeyPolicyAllowed(policy) {
 		return nil, fmt.Errorf("%w %q", errUnsupportedProxmoxSSHHostKeyPolicy, policy)
 	}
-	callback, err := remoteaccess.SSHHostKeyCallback(policy, knownHostsPath)
+	callback, err := knownHosts.HostKeyCallback(policy, knownHostsPath)
 	if err == nil {
 		return callback, nil
 	}

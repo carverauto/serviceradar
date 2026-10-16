@@ -16,10 +16,6 @@ import (
 )
 
 func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
-	resetAgentRetainedPoisonDropCounters()
-	t.Cleanup(resetAgentRetainedPoisonDropCounters)
-	recordAgentRetainedPoisonDrop("plugin-result", "invalid_argument", 2, 512)
-
 	server := &Server{
 		services: []Service{
 			&bannerGrabMetricsService{stats: &models.BannerGrabStats{
@@ -41,6 +37,10 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		},
 	}
 
+	server.deliveryTelemetry.flowAttributionForwarded.Add(7)
+	server.deliveryTelemetry.flowAttributionQuarantined.Add(1)
+	server.deliveryTelemetry.recordPoisonDrop(retainedSourcePlugin, poisonReasonInvalidArgument, 2, 512)
+
 	var out bytes.Buffer
 	if err := server.WritePrometheusMetrics(&out); err != nil {
 		t.Fatalf("WritePrometheusMetrics() error = %v", err)
@@ -54,8 +54,8 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		"# TYPE sweep_banner_grab_bytes_received_total counter\nsweep_banner_grab_bytes_received_total 1024\n",
 		"# TYPE sweep_banner_grab_timeout_total counter\nsweep_banner_grab_timeout_total 12\n",
 		"# TYPE sweep_banner_grab_errors_total counter\nsweep_banner_grab_errors_total 13\n",
-		"# TYPE agent_flow_attribution_events_forwarded_total counter\n",
-		"# TYPE agent_flow_attribution_events_quarantined_total counter\n",
+		"# TYPE agent_flow_attribution_events_forwarded_total counter\nagent_flow_attribution_events_forwarded_total 7\n",
+		"# TYPE agent_flow_attribution_events_quarantined_total counter\nagent_flow_attribution_events_quarantined_total 1\n",
 		"# TYPE agent_retained_poison_dropped_items_total counter\n",
 		"# TYPE agent_retained_poison_dropped_bytes_total counter\n",
 		"agent_retained_poison_dropped_items_total{source=\"plugin-result\",reason=\"invalid_argument\"} 2\n",

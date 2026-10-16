@@ -46,9 +46,9 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		return nil, ErrScanAlreadyRunning
 	}
 
-	// Raw SYN scans run one at a time per process; the teardown below releases
-	// the gate once this scan has stopped listening.
-	gate := s.scanGate()
+	// Raw SYN scans sharing this scanner's gate run one at a time; the
+	// teardown below releases the gate once this scan has stopped listening.
+	gate := s.gate
 	if err := s.waitForScanGate(ctx, gate); err != nil {
 		return nil, err
 	}

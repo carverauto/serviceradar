@@ -354,10 +354,10 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	resp, err := p.streamPluginResultStatus(pushCtx, chunks)
 	if err != nil {
 		if reason, terminal := retainedPoisonDropReason(err); terminal {
-			recordAgentRetainedPoisonDrop("plugin-result", reason, len(chunks), encodedStatusChunkBytes(chunks))
+			p.server.deliveryTelemetry.recordPoisonDrop(retainedSourcePlugin, reason, len(chunks), encodedStatusChunkBytes(chunks))
 			p.pendingPluginResults = nil
 			p.logger.Error().Err(err).
-				Str("reason", reason).
+				Str("reason", reason.label()).
 				Int("plugin_results", len(results)).
 				Msg("Poison-dropped terminally invalid plugin result stream")
 			return false

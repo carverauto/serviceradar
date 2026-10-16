@@ -111,10 +111,10 @@ type SSHHostKeyApproval struct {
 
 func sshSessionHostKeyCallback(cfg SSHConfig) (ssh.HostKeyCallback, error) {
 	if cfg.SSHHostKeyApproval == nil {
-		return sshHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
+		return cfg.KnownHosts.HostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
 	}
 	approval := *cfg.SSHHostKeyApproval
-	callback, err := trustOnFirstUseCallback(cfg.KnownHostsPath)
+	callback, err := cfg.KnownHosts.trustOnFirstUseCallback(cfg.KnownHostsPath)
 	if err != nil {
 		return nil, err
 	}

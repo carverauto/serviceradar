@@ -24,6 +24,7 @@ import (
 	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/tetratelabs/wazero"
 )
@@ -99,6 +100,9 @@ type PluginManagerConfig struct {
 	CredentialBroker              CredentialBrokerResolver
 	AWXCallbackCredentialResolver AWXCallbackCredentialEnvelopeResolver
 	ArtifactUploader              PluginArtifactUploader
+	// KnownHosts is the agent's known-hosts store, shared with remote access so
+	// Proxmox console host-key pins serialize with theirs.
+	KnownHosts *remoteaccess.KnownHostsStore
 }
 
 // CredentialBrokerResolver resolves a validated broker grant for agent-owned
@@ -129,6 +133,7 @@ type PluginManager struct {
 	credentialMu                  sync.Mutex
 	awxCallbackCredentialMu       sync.Mutex
 	artifactMu                    sync.Mutex
+	knownHosts                    *remoteaccess.KnownHostsStore
 
 	ctx    context.Context
 	cancel context.CancelFunc

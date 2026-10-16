@@ -2100,6 +2100,7 @@ func (e *pluginExecution) trustedProxmoxConsoleSSHConfig(
 		SSH:              credential,
 		TimeoutMS:        timeoutMS,
 		SSHHostKeyPolicy: policy,
+		knownHosts:       e.manager.knownHosts,
 	}, nil
 }
 

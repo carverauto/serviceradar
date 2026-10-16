@@ -272,9 +272,6 @@ func TestFlowAttributionDeliveryQueueAcknowledgesOnlyDeliveredPrefix(t *testing.
 }
 
 func TestPushFlowAttributionRetriesExactNegativeAcknowledgedPrefixThenClearsOnce(t *testing.T) {
-	resetAgentFlowAttributionEventCounters()
-	t.Cleanup(resetAgentFlowAttributionEventCounters)
-
 	events := sampleFlowAttributionEvents(2)
 	pending := &flowAttributionPendingBatch{
 		events:     events,
@@ -304,13 +301,13 @@ func TestPushFlowAttributionRetriesExactNegativeAcknowledgedPrefixThenClearsOnce
 	if loop.pushFlowAttribution(t.Context()) {
 		t.Fatal("negative acknowledgement must retain the flow prefix")
 	}
-	if got := AgentFlowAttributionEventsForwardedTotal(); got != 0 {
+	if got := loop.server.deliveryTelemetry.flowAttributionForwarded.Load(); got != 0 {
 		t.Fatalf("forwarded total after negative acknowledgement = %d, want 0", got)
 	}
 	if !loop.pushFlowAttribution(t.Context()) {
 		t.Fatal("later positive acknowledgement must clear the retained flow prefix")
 	}
-	if got := AgentFlowAttributionEventsForwardedTotal(); got != 2 {
+	if got := loop.server.deliveryTelemetry.flowAttributionForwarded.Load(); got != 2 {
 		t.Fatalf("forwarded total after positive acknowledgement = %d, want 2", got)
 	}
 
@@ -327,19 +324,16 @@ func TestPushFlowAttributionPoisonDropsInvalidWindowAndLaterEventsProgress(t *te
 	tests := []struct {
 		name       string
 		err        error
-		wantReason string
+		wantReason poisonReason
 	}{
-		{name: "local chunk excess", err: agentgateway.ErrStreamStatusChunkTooLarge, wantReason: "chunk_too_large"},
-		{name: "local stream excess", err: agentgateway.ErrStreamStatusBudgetExceeded, wantReason: "stream_budget_exceeded"},
-		{name: "remote invalid argument", err: status.Error(codes.InvalidArgument, "invalid flow payload"), wantReason: "invalid_argument"},
-		{name: "remote payload too large", err: status.Error(codes.ResourceExhausted, "payload_too_large"), wantReason: "payload_too_large"},
+		{name: "local chunk excess", err: agentgateway.ErrStreamStatusChunkTooLarge, wantReason: poisonReasonChunkTooLarge},
+		{name: "local stream excess", err: agentgateway.ErrStreamStatusBudgetExceeded, wantReason: poisonReasonStreamBudgetExceeded},
+		{name: "remote invalid argument", err: status.Error(codes.InvalidArgument, "invalid flow payload"), wantReason: poisonReasonInvalidArgument},
+		{name: "remote payload too large", err: status.Error(codes.ResourceExhausted, "payload_too_large"), wantReason: poisonReasonPayloadTooLarge},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAgentRetainedPoisonDropCounters()
-			t.Cleanup(resetAgentRetainedPoisonDropCounters)
-
 			pending := &flowAttributionPendingBatch{
 				events:     sampleFlowAttributionEvents(2),
 				batchStart: time.Unix(0, 1).UTC(),
@@ -365,7 +359,7 @@ func TestPushFlowAttributionPoisonDropsInvalidWindowAndLaterEventsProgress(t *te
 			if loop.pushFlowAttribution(t.Context()) {
 				t.Fatal("poison drop must not count as receipt")
 			}
-			items, bytes := AgentRetainedPoisonDropTotals("flow-attribution", tt.wantReason)
+			items, bytes := loop.server.deliveryTelemetry.poisonDropTotals(retainedSourceFlow, tt.wantReason)
 			if items != 2 || bytes == 0 {
 				t.Fatalf("poison totals = (items=%d, bytes=%d), want (2, >0)", items, bytes)
 			}
@@ -537,9 +531,6 @@ func TestFlowAttributionDeliveryWindowOmitsPathologicalOptionalMetadata(t *testi
 }
 
 func TestFlowAttributionOversizedPoisonEventIsQuarantinedAndLaterEventsProgress(t *testing.T) {
-	resetAgentFlowAttributionEventCounters()
-	t.Cleanup(resetAgentFlowAttributionEventCounters)
-
 	poison := &netprobepb.FlowAttributionEvent{
 		Pid:             3001,
 		Comm:            "poison",
@@ -578,9 +569,6 @@ func TestFlowAttributionOversizedPoisonEventIsQuarantinedAndLaterEventsProgress(
 	if !ok || quarantined != poison || remaining != 1 {
 		t.Fatalf("quarantine = (event=%p, remaining=%d, ok=%t), want (%p, 1, true)", quarantined, remaining, ok, poison)
 	}
-	if got, want := AgentFlowAttributionEventsQuarantinedTotal(), uint64(1); got != want {
-		t.Errorf("quarantined total = %d, want %d", got, want)
-	}
 	if !pending.dropBaselinePending || pending.dropped != 5 {
 		t.Fatalf("quarantine consumed drop baseline: pending=%t dropped=%d", pending.dropBaselinePending, pending.dropped)
 	}
@@ -609,11 +597,6 @@ func TestFlowAttributionOversizedPoisonEventIsQuarantinedAndLaterEventsProgress(
 }
 
 func TestPushFlowAttributionLocallyOversizedEventRecordsBoundedPoisonTelemetry(t *testing.T) {
-	resetAgentFlowAttributionEventCounters()
-	resetAgentRetainedPoisonDropCounters()
-	t.Cleanup(resetAgentFlowAttributionEventCounters)
-	t.Cleanup(resetAgentRetainedPoisonDropCounters)
-
 	poison := &netprobepb.FlowAttributionEvent{
 		Pid:             4001,
 		Comm:            "poison",
@@ -650,9 +633,13 @@ func TestPushFlowAttributionLocallyOversizedEventRecordsBoundedPoisonTelemetry(t
 	if loop.pushFlowAttribution(t.Context()) {
 		t.Fatal("locally rejected poison event must not count as receipt")
 	}
-	items, bytes := AgentRetainedPoisonDropTotals("flow-attribution", "payload_too_large")
+	telemetry := &loop.server.deliveryTelemetry
+	items, bytes := telemetry.poisonDropTotals(retainedSourceFlow, poisonReasonPayloadTooLarge)
 	if items != 1 || bytes != uint64(expectedBytes) {
 		t.Fatalf("local poison totals = (items=%d, bytes=%d), want (1, %d)", items, bytes, expectedBytes)
+	}
+	if got, want := telemetry.flowAttributionQuarantined.Load(), uint64(1); got != want {
+		t.Errorf("quarantined total = %d, want %d", got, want)
 	}
 	if streamAttempts != 0 {
 		t.Fatalf("oversized event reached gateway %d times, want 0", streamAttempts)
@@ -671,24 +658,6 @@ func TestPushFlowAttributionLocallyOversizedEventRecordsBoundedPoisonTelemetry(t
 	}
 	if streamAttempts != 1 {
 		t.Fatalf("valid gateway attempts = %d, want 1", streamAttempts)
-	}
-}
-
-func TestAgentFlowAttributionEventCounters(t *testing.T) {
-	// Simulate the counter accumulation that pushFlowAttribution does
-	// after a successful StreamStatus ack. The counter is process-wide.
-	resetAgentFlowAttributionEventCounters()
-	t.Cleanup(resetAgentFlowAttributionEventCounters)
-
-	agentFlowAttributionEventsForwardedTotal.Add(uint64(len(sampleFlowAttributionEvents(5))))
-	agentFlowAttributionEventsForwardedTotal.Add(uint64(len(sampleFlowAttributionEvents(7))))
-	agentFlowAttributionEventsQuarantinedTotal.Add(2)
-
-	if got, want := AgentFlowAttributionEventsForwardedTotal(), uint64(12); got != want {
-		t.Errorf("AgentFlowAttributionEventsForwardedTotal() = %d, want %d", got, want)
-	}
-	if got, want := AgentFlowAttributionEventsQuarantinedTotal(), uint64(2); got != want {
-		t.Errorf("AgentFlowAttributionEventsQuarantinedTotal() = %d, want %d", got, want)
 	}
 }
 

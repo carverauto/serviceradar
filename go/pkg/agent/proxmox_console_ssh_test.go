@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -283,7 +284,7 @@ func TestProxmoxConsoleSSHHostKeyPolicyUsesSharedKnownHostsStore(t *testing.T) {
 		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	callback, err := proxmoxConsoleSSHHostKeyCallback("known_hosts", knownHostsPath)
+	callback, err := proxmoxConsoleSSHHostKeyCallback(new(remoteaccess.KnownHostsStore), "known_hosts", knownHostsPath)
 	if err != nil {
 		t.Fatalf("known_hosts callback: %v", err)
 	}
@@ -305,7 +306,7 @@ func TestProxmoxConsoleSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing
 	}
 
 	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
-	callback, err := proxmoxConsoleSSHHostKeyCallback("trust_on_first_use", knownHostsPath)
+	callback, err := proxmoxConsoleSSHHostKeyCallback(new(remoteaccess.KnownHostsStore), "trust_on_first_use", knownHostsPath)
 	if err != nil {
 		t.Fatalf("trust_on_first_use callback: %v", err)
 	}
@@ -326,7 +327,7 @@ func TestProxmoxConsoleSSHHostKeyCallbackRejectsSkipVerifyAtLeaf(t *testing.T) {
 	t.Parallel()
 
 	for _, policy := range []string{"", "skip_verify", "accept_any"} {
-		if callback, err := proxmoxConsoleSSHHostKeyCallback(policy, ""); !errors.Is(err, errUnsupportedProxmoxSSHHostKeyPolicy) || callback != nil {
+		if callback, err := proxmoxConsoleSSHHostKeyCallback(new(remoteaccess.KnownHostsStore), policy, ""); !errors.Is(err, errUnsupportedProxmoxSSHHostKeyPolicy) || callback != nil {
 			t.Fatalf("policy %q callback=%v err=%v, want leaf denial", policy, callback, err)
 		}
 	}
@@ -362,6 +363,7 @@ func TestDialProxmoxConsoleSSHRevocationCancelsStalledHandshake(t *testing.T) {
 			SSH:              proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
 			SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyTrustFirstUse,
 			KnownHostsPath:   filepath.Join(t.TempDir(), "known_hosts"),
+			knownHosts:       new(remoteaccess.KnownHostsStore),
 			TimeoutMS:        30_000,
 		})
 		done <- dialErr
@@ -628,6 +630,7 @@ func TestRunProxmoxConsoleSSHAddressPreferenceOpensTerminal(t *testing.T) {
 			SSH:              proxmoxConsoleSSHAuth{Username: "synthetic-user", Password: "synthetic-password"},
 			SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyTrustFirstUse,
 			KnownHostsPath:   filepath.Join(t.TempDir(), "known_hosts"),
+			knownHosts:       new(remoteaccess.KnownHostsStore),
 			TimeoutMS:        2000,
 		}, bridge, nil)
 	}()
