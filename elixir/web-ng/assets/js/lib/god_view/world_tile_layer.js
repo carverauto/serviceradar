@@ -90,16 +90,22 @@ function packetRate(direction) {
   return measured(direction, "observed_packets_per_second") || measured(direction, "packets_per_second")
 }
 
-function flowFrame(geometry, overlay) {
+function flowFrame(geometry, overlay, membership) {
   let frames = flowFrames.get(geometry.positions)
   if (!frames) {
     frames = new WeakMap()
     flowFrames.set(geometry.positions, frames)
   }
-  if (frames.has(overlay)) return frames.get(overlay)
+  let overlayFrames = frames.get(overlay)
+  if (!overlayFrames) {
+    overlayFrames = new WeakMap()
+    frames.set(overlay, overlayFrames)
+  }
+  const key = membership || overlay
+  if (overlayFrames.has(key)) return overlayFrames.get(key)
   const byId = new Map((overlay.flow?.edges || []).map(edge => [edge.id, edge]))
   const edges = geometry.edges.flatMap(edge => {
-    if (edge.stale) return []
+    if (edge.stale || (membership && (!membership.mask[edge.source] || !membership.mask[edge.target]))) return []
     const flow = byId.get(edge.id)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
@@ -119,7 +125,7 @@ function flowFrame(geometry, overlay) {
     }]
   })
   const frame = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges(edges)
-  frames.set(overlay, frame)
+  overlayFrames.set(key, frame)
   return frame
 }
 
@@ -131,8 +137,18 @@ export default class WorldTileLayer extends TileLayer {
       candidate?.generation === geometry.generation && candidate?.revision === geometry.revision ? candidate : null
   }
 
-  nodeShown(counts) {
+  tileMembership(geometry) {
+    const entry = this.props.membership?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
+    return entry?.revision === geometry.revision ? entry : null
+  }
+
+  memberShown(geometry, index) {
+    return !this.props.membershipEnabled || (!this.props.membershipPending && this.tileMembership(geometry)?.mask[index] === 1)
+  }
+
+  nodeShown(counts, membership, row) {
     const filters = this.props.filters || {}
+    if (membership) return filters[["healthy", "unavailable", "unknown"][membership.availability[row]]] !== false
     return counts
       ? ["healthy", "unavailable", "unknown"].some(state => counts[state] > 0 && filters[state] !== false)
       : filters.unknown !== false
@@ -151,12 +167,12 @@ export default class WorldTileLayer extends TileLayer {
       const geometry = tile.content
       const health = new Map((this.tileOverlay(geometry)?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
       for (const node of geometryFrame(geometry).nodes) {
-        if (!this.nodeShown(health.get(node.id)) || nodes.has(node.id)) continue
+        if (!this.memberShown(geometry, node.index) || !this.nodeShown(health.get(node.id), this.tileMembership(geometry), node.index) || nodes.has(node.id)) continue
         const point = viewport.project(node.position)
         const radius = node.kind === "aggregate" ? 9 : 4
         if (point[0] + radius < 0 || point[0] - radius > viewport.width ||
             point[1] + radius < 0 || point[1] - radius > viewport.height) continue
-        nodes.set(node.id, {...node, point})
+        nodes.set(node.id, {...node, point, count: this.tileMembership(geometry)?.counts[node.index] ?? node.count})
         glyphBoxes.push({nodeId: node.id, left: point[0] - radius, right: point[0] + radius,
           top: point[1] - radius, bottom: point[1] + radius})
       }
@@ -167,7 +183,8 @@ export default class WorldTileLayer extends TileLayer {
       }
       if (this.props.links === false) continue
       for (const edge of geometry.edges) {
-        if (edgeTopologyClassValue(edge) === "inferred" && this.props.inferred !== true) continue
+        if (!this.memberShown(geometry, edge.source) || !this.memberShown(geometry, edge.target) ||
+            (edgeTopologyClassValue(edge) === "inferred" && this.props.inferred !== true)) continue
         routeCorridors.push({
           sourceId: geometry.nodes[edge.source].id, targetId: geometry.nodes[edge.target].id,
           points: [edge.source, edge.target].map(index => viewport.project([
@@ -223,6 +240,8 @@ export default class WorldTileLayer extends TileLayer {
   getPickingInfo(params) {
     const info = super.getPickingInfo(params)
     if (info.picked && !info.object) info.object = info.sourceTileSubLayer?.props.data.resolve?.(info.index)
+    const membership = info.sourceTile?.content && this.tileMembership(info.sourceTile.content)
+    if (membership && info.object?.kind === "aggregate") info.object = {...info.object, count: membership.counts[info.object.index]}
     return info
   }
 
@@ -233,18 +252,21 @@ export default class WorldTileLayer extends TileLayer {
     const overlay = this.tileOverlay(geometry)
     const edgeClass = index => edgeTopologyClassValue(geometry.edges[index])
     const edgeStyle = index => edgeTopologyVisualStyleValue({topologyClass: edgeClass(index)})
-    const shownEdge = index => edgeClass(index) !== "inferred" || this.props.inferred === true
+    const membership = this.tileMembership(geometry)
+    const shownEdge = index => this.memberShown(geometry, geometry.edges[index].source) &&
+      this.memberShown(geometry, geometry.edges[index].target) && (edgeClass(index) !== "inferred" || this.props.inferred === true)
     const health = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
     const filters = this.props.filters || {}
-    const shown = item => this.nodeShown(health.get(item.id))
+    const shown = item => this.memberShown(geometry, item.index) && this.nodeShown(health.get(item.id), membership, item.index)
     const common = {coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND}
     const node = ({index}) => frame.nodes[index]
     const healthColor = item => {
+      if (membership) return [[65, 195, 156, 240], [245, 117, 88, 240], [120, 132, 151, 230]][membership.availability[item.index]]
       const counts = health.get(item.id)
       if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
       return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
     }
-    const flow = overlay && this.props.packetFlow !== false ? flowFrame(geometry, overlay) : null
+    const flow = overlay && this.props.packetFlow !== false && (!this.props.membershipEnabled || (membership && !this.props.membershipPending)) ? flowFrame(geometry, overlay, membership) : null
     const edgeColor = (index, color) => geometry.edges[index].stale
       ? [148, 163, 184, Math.max(1, Math.round(color[3] * 0.45))]
       : color
@@ -256,7 +278,7 @@ export default class WorldTileLayer extends TileLayer {
           ? [120, 132, 151, 30]
           : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)]),
         getWidth: (_, {index}) => shownEdge(index) ? 6 * edgeStyle(index).mantleWidthScale : 0,
-        widthUnits: "pixels", updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
+        widthUnits: "pixels", updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending], getColor: [this.props.inferred, membership, this.props.membershipPending]},
       }),
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
@@ -265,7 +287,7 @@ export default class WorldTileLayer extends TileLayer {
           ? [120, 132, 151, 100]
           : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)]),
         getWidth: (_, {index}) => shownEdge(index) ? 1.5 * edgeStyle(index).crustWidthScale : 0, widthUnits: "pixels",
-        updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
+        updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending], getColor: [this.props.inferred, membership, this.props.membershipPending]},
       }),
       flow && flow.length > 0 && new PacketFlowLayer(props, common, {
         id: `${props.id}-packets`, data: flow, animate: true, pickable: false,
@@ -278,7 +300,7 @@ export default class WorldTileLayer extends TileLayer {
         radiusUnits: "pixels",
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 13 : 9) : 0,
         getFillColor: (_, info) => [...healthColor(node(info)).slice(0, 3), 35],
-        updateTriggers: {getFillColor: overlay, getRadius: [overlay, filters]},
+        updateTriggers: {getFillColor: [overlay, membership], getRadius: [overlay, filters, membership, this.props.membershipPending]},
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
@@ -292,7 +314,7 @@ export default class WorldTileLayer extends TileLayer {
           if (node(info).kind !== "device") return [210, 226, 240, 230]
           return healthColor(node(info))
         },
-        updateTriggers: {getFillColor: overlay, getLineColor: overlay, getRadius: [overlay, filters]},
+        updateTriggers: {getFillColor: [overlay, membership], getLineColor: [overlay, membership], getRadius: [overlay, filters, membership, this.props.membershipPending]},
       }),
     ]
   }
@@ -316,4 +338,8 @@ WorldTileLayer.defaultProps = {
   links: true,
   inferred: false,
   filters: {type: "object", value: null, compare: false},
+  membership: {type: "object", value: null, compare: false},
+  membershipEnabled: false,
+  membershipPending: false,
+  membershipRevision: 0,
 }

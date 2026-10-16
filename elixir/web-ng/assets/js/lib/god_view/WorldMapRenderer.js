@@ -6,10 +6,13 @@ import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
 import {WorldTileCache} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
+import {WorldMembership} from "./world_membership"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
 import {readBoundedBody, worldJson} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
+
+const QUERY_GENERATION = Symbol("topology query generation")
 
 const MAP_BUTTON_CLASS = "inline-flex min-h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-sr-control border border-sr-line bg-sr-subtle px-3 text-sm font-semibold text-sr-brand shadow-sr-control outline-none hover:border-sr-line-hover hover:bg-sr-control focus-visible:ring-2 focus-visible:ring-sr-focus"
 
@@ -49,6 +52,9 @@ export default class WorldMapRenderer {
     Object.assign(this, {el, pushEvent, handleEvent, csrfToken})
     this.geometryRevision = 0
     this.overlayRevision = 0
+    this.membershipRevision = 0
+    this.bitmapQuery = null
+    this.membershipEnabled = false
     this.packetFlow = true
     this.links = true
     this.inferred = false
@@ -58,10 +64,27 @@ export default class WorldMapRenderer {
     this.sceneCache = new Map()
     this.sceneControls = new Map()
     this.cache = new WorldTileCache({
-      onChange: () => {this.geometryRevision += 1; this.render()},
-      onRetain: () => this.scheduleWatch(),
+      onChange: () => {this.geometryRevision += 1; this.invalidateMembership()},
+      onRetain: () => {this.invalidateMembership(); this.scheduleWatch()},
     })
     this.overlays = new WorldOverlays(() => {this.overlayRevision += 1; this.render()})
+    this.membership = new WorldMembership({
+      onChange: () => {
+        if (this.destroyed) return
+        this.membershipRevision += 1
+        this.render()
+        if (!this.membership.pending && this.cache.manifest) {
+          this.status(`${this.cache.manifest.node_count.toLocaleString()} devices · ${this.visibleTileCount ?? 0} visible tiles`)
+        }
+      },
+      onAck: payload => this.channel?.push("membership:ack", payload),
+      onReset: (reason, view_digest) => {
+        this.membershipSignature = null
+        this.channel?.push("membership:reset", {view_digest})
+        this.status(`Topology filter pending: ${reason}`)
+        this.scheduleWatch()
+      },
+    })
     this.getTileData = ({index, signal}) => this.cache.get(index, {signal})
     this.onViewportLoad = tiles => this.viewportLoaded(tiles)
     this.onTileError = error => {
@@ -160,6 +183,15 @@ export default class WorldMapRenderer {
       this.packetFlow = layers?.atmosphere !== false
       this.links = layers?.mantle !== false
       this.render()
+    })
+    this.handleEvent("god_view:set_bitmap_query", ({query}) => {
+      this.returnToMap()
+      this.sceneCache.clear()
+      this.queryGeneration = (this.queryGeneration || 0) + 1
+      this.bitmapQuery = query
+      this.invalidateMembership()
+      if (!this.membershipEnabled && query) this.status("Topology query filters are unavailable on this server.")
+      this.scheduleWatch()
     })
     this.handleEvent("god_view:set_filters", ({filters}) => {
       this.setSceneControl("god_view:set_filters", {filters})
@@ -336,8 +368,16 @@ export default class WorldMapRenderer {
     if (this.manifestRequest) return this.manifestRequest
     this.manifestRequest = worldJson("/topology/tiles/manifest", this.lifetime.signal, 16384).then(manifest => {
       const previous = this.cache.manifest
-      if (this.destroyed || !this.cache.observe(manifest)) return
+      if (this.destroyed) return
+      const changed = this.cache.observe(manifest)
+      const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
+      this.membershipEnabled = manifest.bitmap_membership_protocol === 1
+      if (!changed) {
+        if (membershipChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
+        return
+      }
       this.watchSignature = null
+      this.invalidateMembership()
       this.geometryRevision += 1
       this.sceneCache.clear()
       this.overlays.setVisible([])
@@ -371,7 +411,9 @@ export default class WorldMapRenderer {
     this.channel.on("topology_invalidated", message => {
       if (!this.cache.invalidate(message)) this.pendingInvalidation = message
     })
-    this.channel.onError(() => {this.watchSignature = null; this.status("Topology connection interrupted; reconnecting…")})
+    this.channel.on("membership:frame", bytes => this.membership.receive(bytes))
+    this.channel.onClose(() => {if (!this.destroyed) this.invalidateMembership()})
+    this.channel.onError(() => {this.watchSignature = null; this.invalidateMembership(); this.status("Topology connection interrupted; reconnecting…")})
     this.channel.join().receive("ok", fence => {
       this.watchSignature = null
       void generation(fence).catch(error => this.status(error.message))
@@ -387,17 +429,47 @@ export default class WorldMapRenderer {
     if (this.destroyed || !this.cache.manifest || this.channel?.state !== "joined") return
     const payload = this.cache.watchPayload()
     const signature = JSON.stringify(payload)
-    if (signature === this.watchSignature) return
+    if (signature === this.watchSignature) {this.syncMembership(payload); return}
     this.watchSignature = signature
     this.channel.push("tiles:watch", payload).receive("ok", reply => {
       if (this.destroyed || signature !== this.watchSignature) return
       this.cache.acknowledgeWatch(reply.watch_id, payload)
+      this.syncMembership(payload)
       if (this.pendingInvalidation) {
         this.cache.invalidate(this.pendingInvalidation)
         this.pendingInvalidation = null
       }
     }).receive("error", () => {this.watchSignature = null; void this.refreshManifest().catch(error => this.status(error.message))})
       .receive("timeout", () => {this.watchSignature = null; this.scheduleWatch()})
+  }
+
+  invalidateMembership() {
+    this.membershipSignature = null
+    this.membership?.clear(this.membershipEnabled || this.bitmapQuery !== null)
+  }
+
+  syncMembership(payload) {
+    if (!this.membershipEnabled) return
+    const tiles = payload.tiles.filter(tile => typeof tile.revision === "string")
+    const request = {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery || {all: []}}
+    const signature = JSON.stringify(request)
+    if (signature === this.membershipSignature) return
+    this.membershipSignature = signature
+    this.membership.clear(true)
+    this.channel.push("membership:watch", request).receive("ok", binding => {
+      if (this.destroyed || signature !== this.membershipSignature) return
+      const geometries = tiles.map(tile => this.cache.entries.get(`${tile.z}/${tile.x}/${tile.y}`)?.geometry)
+      if (geometries.some((geometry, index) => !geometry || geometry.revision !== tiles[index].revision)) {
+        this.invalidateMembership()
+        this.scheduleWatch()
+        return
+      }
+      try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
+    }).receive("error", error => {
+      if (signature === this.membershipSignature) this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
+    }).receive("timeout", () => {
+      if (signature === this.membershipSignature) {this.invalidateMembership(); this.scheduleWatch()}
+    })
   }
 
   viewportLoaded(tiles) {
@@ -415,7 +487,7 @@ export default class WorldMapRenderer {
       this.cache.prefetch()
     }
     const manifest = this.cache.manifest
-    this.status(`${manifest.node_count.toLocaleString()} devices · ${tiles.length} visible tiles`)
+    this.status(this.membership.pending ? "Topology filter pending…" : `${manifest.node_count.toLocaleString()} devices · ${tiles.length} visible tiles`)
     const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
@@ -443,6 +515,8 @@ export default class WorldMapRenderer {
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
+      membership: this.membership.entries, membershipRevision: this.membershipRevision,
+      membershipEnabled: this.membershipEnabled || this.bitmapQuery !== null, membershipPending: this.membership.pending,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
@@ -454,7 +528,9 @@ export default class WorldMapRenderer {
     const request = new globalThis.AbortController()
     this.searchRequest = request
     try {
-      const result = await worldJson(`/topology/tiles/search?device_id=${encodeURIComponent(id)}`, request.signal, 16384)
+      const params = this.queryParams({device_id: id})
+      const result = await worldJson(`/topology/tiles/search?${new URLSearchParams(params)}`, request.signal, 16384)
+      this.assertQuery(params)
       if (this.destroyed || request.signal.aborted) return
       await this.refreshManifest()
       if (this.destroyed || request.signal.aborted) return
@@ -488,7 +564,9 @@ export default class WorldMapRenderer {
       this.selection = selection
       const params = {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id}
       try {
-        const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
+        const bound = this.queryParams(params)
+        const result = await worldJson(`/topology/details?${new URLSearchParams(bound)}`, selection.signal)
+        this.assertQuery(bound)
         if (selection.signal.aborted || this.destroyed) return
         await this.openScene({layout_version: params.layout_version, generation: params.generation, ...result.details.scene})
       } catch (error) {if (!selection.signal.aborted && !this.destroyed) this.locationNotice(error.message)}
@@ -504,7 +582,9 @@ export default class WorldMapRenderer {
     const title = element("div", "font-semibold", selectionTitle(object))
     this.openPanel(title)
     try {
+      params = this.queryParams(params)
       const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
+      this.assertQuery(params)
       if (selection.signal.aborted || this.destroyed) return
       const details = result.details
       const seen = storedObservation(details)
@@ -519,7 +599,7 @@ export default class WorldMapRenderer {
       const open = element("button", "btn btn-sm mt-3", object.kind === "device" ? "Open neighborhood" : "Show members")
       // Scene identity comes from the server. A device neighborhood is the
       // same scene when picked from a parent tile, child tile, or search.
-      const scene = {layout_version: params.layout_version, generation: params.generation, ...details.scene}
+      const scene = {layout_version: params.layout_version, generation: params.generation, ...details.scene, query: params.query}
       open.addEventListener("click", () => void this.openScene(scene))
       this.panel.append(open)
       if (object.kind === "device") {
@@ -540,8 +620,9 @@ export default class WorldMapRenderer {
     this.sceneRequest = request
     let candidate
     try {
+      params = this.queryParams(params)
       const url = `/topology/snapshot/latest?${new URLSearchParams(params)}`
-      let scene = this.sceneCache.get(url)
+      let scene = params.query ? null : this.sceneCache.get(url)
       if (!scene) {
         const response = await fetch(url, {
           credentials: "same-origin", signal: globalThis.AbortSignal.any([request.signal, globalThis.AbortSignal.timeout(15000)]), headers: {Accept: "application/vnd.apache.arrow.file"},
@@ -549,6 +630,7 @@ export default class WorldMapRenderer {
         if (!response.ok) throw new Error(`Topology detail HTTP ${response.status}`)
         scene = {bytes: await readBoundedBody(response, MAX_TILE_BYTES), headers: response.headers}
       }
+      this.assertQuery(params)
       if (request.signal.aborted || this.destroyed) return
       const {bytes, headers} = scene
       if (headers.get("x-sr-topology-layout-version") !== this.cache.manifest.layout_version ||
@@ -569,10 +651,13 @@ export default class WorldMapRenderer {
       candidate = {el, handlers, renderer: new GodViewRenderer(el, events, handleSceneEvent, {csrfToken: this.csrfToken})}
       this.pendingDetail = candidate
       await candidate.renderer.mountScene(bytes, headers)
+      this.assertQuery(params)
       if (request.signal.aborted || this.destroyed) return
-      this.sceneCache.delete(url)
-      this.sceneCache.set(url, scene)
-      while (this.sceneCache.size > 4) this.sceneCache.delete(this.sceneCache.keys().next().value)
+      if (!params.query) {
+        this.sceneCache.delete(url)
+        this.sceneCache.set(url, scene)
+        while (this.sceneCache.size > 4) this.sceneCache.delete(this.sceneCache.keys().next().value)
+      }
       this.detailRenderer?.destroy()
       this.detailEl?.remove()
       this.detailEl = candidate.el
@@ -599,6 +684,25 @@ export default class WorldMapRenderer {
         candidate.el.remove()
         if (this.pendingDetail === candidate) this.pendingDetail = null
       }
+    }
+  }
+
+  queryParams(params) {
+    const query = this.bitmapQuery === null ? null : JSON.stringify(this.bitmapQuery)
+    if (query !== null && (!this.membershipEnabled || this.membership.pending)) {
+      throw new Error("Topology filter pending; try again when the map is ready")
+    }
+    if (params.query && params.query !== query) throw new Error("Topology query changed; select the item again")
+    if (query && new TextEncoder().encode(query).length > 16384) throw new Error("Topology filter is too large")
+    const {query: _unused, ...bound} = params
+    if (query) bound.query = query
+    Object.defineProperty(bound, QUERY_GENERATION, {value: this.queryGeneration || 0})
+    return bound
+  }
+
+  assertQuery(params) {
+    if (params[QUERY_GENERATION] !== (this.queryGeneration || 0)) {
+      throw new Error("Topology query changed; select the item again")
     }
   }
 
@@ -641,6 +745,7 @@ export default class WorldMapRenderer {
     clearTimeout(this.locationTimer)
     window.removeEventListener("popstate", this.onLocationHistory)
     this.channel?.leave()
+    this.membership.clear()
     this.overlays.destroy()
     this.cache.destroy()
     this.sceneCache.clear()
