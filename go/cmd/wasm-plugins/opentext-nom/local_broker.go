@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -319,11 +320,15 @@ func applyLocalTLS(client *http.Client) {
 			transport = &http.Transport{}
 		}
 	}
-	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // local host only
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if transport.TLSClientConfig != nil {
 		tlsCfg = transport.TLSClientConfig.Clone()
-		tlsCfg.InsecureSkipVerify = true
 	}
+	// SERVICERADAR_LOCAL_TLS_INSECURE is the local harness's explicit opt-in.
+	// This standalone module cannot import the agent's tlsclient package, so
+	// it reports the skip itself, as tlsclient does.
+	_, _ = fmt.Fprintln(os.Stderr, "opentext-nom local host: TLS certificate verification disabled by SERVICERADAR_LOCAL_TLS_INSECURE")
+	tlsCfg.InsecureSkipVerify = true
 	transport.TLSClientConfig = tlsCfg
 	client.Transport = transport
 }

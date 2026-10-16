@@ -41,7 +41,9 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//go/pkg/agent/ebpf/probes",
+        "//go/pkg/tlsclient",
         "@com_github_pkg_sftp//:sftp",
+        "@com_github_rs_zerolog//log",
         "@org_golang_x_crypto//ssh",
         "@org_golang_x_crypto//ssh/knownhosts",
     ] + select({

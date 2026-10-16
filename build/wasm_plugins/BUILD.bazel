@@ -74,6 +74,7 @@ go_test(
         "upload_signature_tool_test.go",
     ],
     deps = [
+        "//go/pkg/tlsclient",
         "@in_gopkg_yaml_v3//:go_default_library",
     ],
 )
@@ -100,7 +101,10 @@ go_library(
     name = "wasm_plugins_lib",
     srcs = ["upload_signature_tool.go"],
     importpath = "github.com/carverauto/serviceradar/build/wasm_plugins",
-    deps = ["@in_gopkg_yaml_v3//:yaml_v3"],
+    deps = [
+        "//go/pkg/tlsclient",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
 )
 
 go_test(

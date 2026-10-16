@@ -155,6 +155,7 @@ go_library(
         "//go/pkg/scan/banner_grab",
         "//go/pkg/sweeper",
         "//go/pkg/sysmon",
+        "//go/pkg/tlsclient",
         "//proto",
         "//proto/agent/addon/v1:addonpb",
         "//proto/agent/netprobe/v1:netprobepb",

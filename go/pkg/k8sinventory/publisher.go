@@ -15,6 +15,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 var (
@@ -356,28 +358,33 @@ func buildNATSTLSConfig(cfg Config) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: cfg.NATSSkipVerify, //nolint:gosec // optional lab mode
-		ServerName:         cfg.NATSServerName,
-	}
+	base := &tls.Config{MinVersion: tls.VersionTLS12}
+	var pinnedRoots *x509.CertPool
 	if cfg.NATSCACertFile != "" {
 		pemBytes, err := os.ReadFile(cfg.NATSCACertFile)
 		if err != nil {
 			return nil, fmt.Errorf("read NATS CA: %w", err)
 		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemBytes) {
+		pinnedRoots = x509.NewCertPool()
+		if !pinnedRoots.AppendCertsFromPEM(pemBytes) {
 			return nil, errNATSCAParsingFailed
 		}
-		tlsCfg.RootCAs = pool
 	}
 	if hasCert {
 		cert, err := tls.LoadX509KeyPair(cfg.NATSCertFile, cfg.NATSKeyFile)
 		if err != nil {
 			return nil, fmt.Errorf("load NATS client cert: %w", err)
 		}
-		tlsCfg.Certificates = []tls.Certificate{cert}
+		base.Certificates = []tls.Certificate{cert}
 	}
-	return tlsCfg, nil
+
+	// A configured CA wins over NATS_SKIP_TLS_VERIFY.
+	return tlsclient.Config(tlsclient.Policy{
+		Base:               base,
+		ServerName:         cfg.NATSServerName,
+		PinnedRoots:        pinnedRoots,
+		InsecureSkipVerify: cfg.NATSSkipVerify,
+		OptIn:              "NATS_SKIP_TLS_VERIFY",
+		Target:             "NATS", // NATS_HOSTPORT may be a URL carrying credentials
+	}), nil
 }

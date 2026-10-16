@@ -18,7 +18,6 @@ package mapper
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +28,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 var (
@@ -57,9 +58,12 @@ func (e *DiscoveryEngine) createMikroTikClient(apiConfig MikroTikAPIConfig) *htt
 	return &http.Client{
 		Timeout: e.config.Timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: apiConfig.InsecureSkipVerify, //nolint:gosec // operator-controlled discovery setting
-			},
+			TLSClientConfig: tlsclient.Config(tlsclient.Policy{
+				InsecureSkipVerify: apiConfig.InsecureSkipVerify,
+				OptIn:              "mapper.mikrotik_apis.insecure_skip_verify",
+				Target:             apiConfig.Name,
+				Logger:             e.logger,
+			}),
 		},
 	}
 }
@@ -269,11 +273,10 @@ func buildMikroTikInventory(
 	}
 
 	metadata := map[string]string{
-		"source":      "mikrotik-api",
-		"api_name":    apiConfig.Name,
-		"api_url":     apiConfig.BaseURL,
-		"vendor_name": "MikroTik",
-		//nolint:misspell // RouterOS is the vendor product name.
+		"source":            "mikrotik-api",
+		"api_name":          apiConfig.Name,
+		"api_url":           apiConfig.BaseURL,
+		"vendor_name":       "MikroTik",
 		"routeros_version":  resource.Version,
 		"architecture_name": resource.ArchitectureName,
 	}
@@ -305,9 +308,8 @@ func buildMikroTikInventory(
 		}
 
 		ifaceMetadata := map[string]string{
-			"source":   "mikrotik-api",
-			"api_name": apiConfig.Name,
-			//nolint:misspell // RouterOS is the vendor product name.
+			"source":        "mikrotik-api",
+			"api_name":      apiConfig.Name,
 			"routeros_type": stringValue(raw, "type"),
 			"running":       stringValue(raw, "running"),
 			"disabled":      stringValue(raw, "disabled"),
@@ -394,8 +396,7 @@ func buildMikroTikTopologyLinks(
 				"source":          "mikrotik-api-neighbor",
 				"evidence_class":  evidenceClassDirectPhysical,
 				"relation_family": "CONNECTS_TO",
-				//nolint:misspell // RouterOS is the vendor product name.
-				"evidence": "routeros-ip-neighbor",
+				"evidence":        "routeros-ip-neighbor",
 			},
 		}
 

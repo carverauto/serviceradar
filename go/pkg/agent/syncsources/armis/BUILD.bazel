@@ -15,6 +15,7 @@ go_library(
     deps = [
         "//go/pkg/agent/syncsources",
         "//go/pkg/models",
+        "//go/pkg/tlsclient",
     ],
 )
 

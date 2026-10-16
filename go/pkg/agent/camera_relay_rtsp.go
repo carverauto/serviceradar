@@ -18,7 +18,6 @@ package agent
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +31,8 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
 	codech264 "github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/pion/rtp"
+
+	"github.com/carverauto/serviceradar/go/pkg/tlsclient"
 )
 
 const defaultCameraRelayChunkBuffer = 64
@@ -192,7 +193,11 @@ func newCameraRelayRTSPClient(u *base.URL, transport gortsplib.Protocol, insecur
 		Protocol: &transport,
 	}
 	if strings.EqualFold(u.Scheme, "rtsps") && insecureSkipVerify {
-		client.TLSConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		client.TLSConfig = tlsclient.Config(tlsclient.Policy{
+			InsecureSkipVerify: true,
+			OptIn:              "camera_relay.insecure_skip_verify",
+			Target:             u.Host,
+		})
 	}
 	return client
 }

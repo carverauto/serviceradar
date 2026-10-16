@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -468,7 +469,7 @@ const sshHostKeyPolicySkipVerify = "skip_verify"
 func (s *KnownHostsStore) HostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
 	switch strings.TrimSpace(policy) {
 	case sshHostKeyPolicySkipVerify:
-		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for scoped agent-side SSH testing
+		return skipVerifyHostKeyCallback, nil
 	case "known_hosts", "":
 		return knownHostsCallback(knownHostsPath)
 	case "trust_on_first_use":
@@ -476,6 +477,19 @@ func (s *KnownHostsStore) HostKeyCallback(policy, knownHostsPath string) (ssh.Ho
 	default:
 		return nil, fmt.Errorf("%w %q", ErrUnsupportedSSHHostKeyPolicy, policy)
 	}
+}
+
+// skipVerifyHostKeyCallback accepts any host key, as the operator's explicit
+// skip_verify policy asks, and logs each key it accepted unverified so the
+// exception leaves a trace, the same rule tlsclient applies to TLS opt-ins.
+func skipVerifyHostKeyCallback(hostname string, remote net.Addr, key ssh.PublicKey) error {
+	event := log.Warn().Str("ssh_host", hostname).Str("ssh_host_key_fingerprint", ssh.FingerprintSHA256(key))
+	if remote != nil {
+		event = event.Str("ssh_remote_addr", remote.String())
+	}
+	event.Msg("SSH host key verification skipped by skip_verify policy")
+
+	return nil
 }
 
 func knownHostsCallback(path string) (ssh.HostKeyCallback, error) {
