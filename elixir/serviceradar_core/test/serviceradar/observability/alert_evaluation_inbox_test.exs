@@ -316,11 +316,11 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert_receive {:receipts_locked, ^locker}, 5_000
 
     try do
-      # The expired poll transaction disconnects the connection it ran on, so
-      # await from a child process and keep the test's owned connection usable
-      # for the owner-progress assertions below.
-      waiter = Task.async(fn -> Completion.await(keys, 25) end)
-      assert {:error, :evaluation_completion_timeout} = Task.await(waiter, 5_000)
+      # PostgreSQL, not the client, must enforce the expired budget: the
+      # caller keeps the same live connection rather than a replacement.
+      %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+      assert {:error, :evaluation_completion_timeout} = Completion.await(keys, 25)
+      assert %{rows: [[^backend]]} = Repo.query!("SELECT pg_backend_pid()")
     after
       send(locker, :release)
       assert_receive {:DOWN, ^monitor, :process, ^locker, :normal}, 5_000

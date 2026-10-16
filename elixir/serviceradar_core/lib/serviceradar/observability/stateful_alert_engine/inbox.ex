@@ -35,6 +35,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     rule_bytes: 8 * 1_024 * 1_024
   }
   @admission_key "alert-evaluation:admission:v1"
+  @client_backstop_ms 1_000
 
   @doc "Commits every eligible rule occurrence or rejects the entire batch."
   def admit(signal, records) when signal in [:log, :event, :metric] and is_list(records) do
@@ -204,8 +205,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
   def evaluation_key(rule_id), do: "alert-evaluation:owner:v1:#{rule_id}"
 
-  # Transaction timeout bounds checkout and DB round trips. PostgreSQL's lock
-  # and statement timeouts bound contention at the store itself as well.
+  # PostgreSQL's lock and statement timeouts enforce `timeout`: an expired
+  # statement is cancelled, the transaction rolls back and the connection stays
+  # usable. The client deadline only backstops a store PostgreSQL cannot reach.
+  # It starts at checkout, before the server budget does, and on expiry it
+  # disconnects the connection mid-query, so it must not equal that budget.
   def transact(timeout, work) do
     Repo.transaction(
       fn ->
@@ -221,7 +225,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         set_timeouts(lock_timeout, statement_timeout)
         result
       end,
-      timeout: timeout
+      timeout: timeout + @client_backstop_ms
     )
   rescue
     error -> {:error, {:store_unavailable, error}}
