@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayFrameTest do
       health: %{
         world_revision: "synthetic-world",
         tile_revision: "synthetic-selection",
-        epoch: 9_007_199_254_740_993,
+        epoch: "0020000000000001",
         revision: 9_007_199_254_740_995,
         observation_sequence: 9_007_199_254_740_997,
         sampled_at: now,
