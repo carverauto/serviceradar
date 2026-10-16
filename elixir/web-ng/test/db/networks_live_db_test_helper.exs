@@ -84,7 +84,13 @@ ExUnit.configure(
 # Dashboards and shows canonical ID when opened by slug"), tagged
 # :web_ng_shared_fixture_db with no skip/exclude. 2475 + 1 = 2476, with no
 # lowering, removal, bypass, or exclusion.
-expected_selected_tests = 2476
+# Camera WebRTC server ICE delivery adds +2 lane-selected tests in
+# camera_relay_webrtc_controller_test.exs ("returns the viewer session with
+# every ICE candidate core-elx has gathered" and "returns 404 when polling a
+# viewer session core-elx no longer holds"), covered by the file's existing
+# @moduletag :web_ng_shared_fixture_db with no skip/exclude. 2476 + 2 = 2478,
+# with no lowering, removal, bypass, or exclusion.
+expected_selected_tests = 2478
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
