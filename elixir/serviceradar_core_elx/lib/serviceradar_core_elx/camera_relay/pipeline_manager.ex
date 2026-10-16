@@ -23,6 +23,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
 
   @pipelines_table :camera_relay_pipelines
   @pipeline_call_timeout 5_000
+  # The signaling manager asks this from its own process, so a busy pipeline
+  # must not hold every other viewer's signaling for long.
+  @liveness_call_timeout 1_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -69,6 +72,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   def remove_webrtc_viewer(relay_session_id, viewer_session_id)
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
     pipeline_call(relay_session_id, {:remove_webrtc_viewer, viewer_session_id}, @pipeline_call_timeout)
+  end
+
+  @doc """
+  Whether the relay's pipeline still holds this viewer's WebRTC sink, which it
+  does until the viewer is removed or its connection fails. False when the relay
+  or its pipeline is gone or does not answer in time.
+  """
+  def webrtc_viewer_alive?(relay_session_id, viewer_session_id)
+      when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    pipeline_call(relay_session_id, {:webrtc_viewer_alive?, viewer_session_id}, @liveness_call_timeout) == true
+  catch
+    :exit, _reason -> false
   end
 
   def remove_analysis_branch(relay_session_id, branch_id) when is_binary(relay_session_id) and is_binary(branch_id) do

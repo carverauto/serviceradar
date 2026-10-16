@@ -108,6 +108,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
       :ok
     end
 
+    def webrtc_viewer_alive?(_relay_session_id, _viewer_session_id) do
+      Application.get_env(:serviceradar_core_elx, :camera_relay_webrtc_test_viewer_alive, false)
+    end
+
     defp forward_signals(test_pid, signaling) do
       receive do
         {:membrane_webrtc_signaling, _pid, message, _metadata} ->
@@ -162,6 +166,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
   setup do
     previous_fetch_result = Application.get_env(:serviceradar_core_elx, :camera_relay_webrtc_fetch_result)
     previous_test_pid = Application.get_env(:serviceradar_core_elx, :camera_relay_webrtc_test_pid)
+    previous_viewer_alive = Application.get_env(:serviceradar_core_elx, :camera_relay_webrtc_test_viewer_alive)
 
     Application.put_env(:serviceradar_core_elx, :camera_relay_webrtc_test_pid, self())
     :ok = RelayPubSub.subscribe_viewer_control()
@@ -169,6 +174,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
     on_exit(fn ->
       restore_env(:camera_relay_webrtc_fetch_result, previous_fetch_result)
       restore_env(:camera_relay_webrtc_test_pid, previous_test_pid)
+      restore_env(:camera_relay_webrtc_test_viewer_alive, previous_viewer_alive)
     end)
 
     :ok
@@ -291,31 +297,53 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
     refute first_digest == second_digest
   end
 
-  test "expires idle viewer signaling sessions" do
-    relay_session_id = Ecto.UUID.generate()
-    server_name = unique_server_name()
+  # A connected browser makes no more signaling calls, so a viewer session
+  # follows its sink once answered: kept while the sink lives, closed when it is
+  # gone. Before the answer no ICE runs, so idle signaling still expires it.
+  for {label, answered?, sink_alive?, outcome} <- [
+        {"expires an unanswered viewer session even while its sink lingers", false, true, :expired},
+        {"expires an answered viewer session once its sink is gone", true, false, :expired},
+        {"keeps an answered viewer session while its sink is alive", true, true, :kept}
+      ] do
+    test "#{label}" do
+      Application.put_env(:serviceradar_core_elx, :camera_relay_webrtc_test_viewer_alive, unquote(sink_alive?))
+      relay_session_id = Ecto.UUID.generate()
+      server_name = unique_server_name()
 
-    manager_opts = [
-      name: server_name,
-      session_tracker: SessionTrackerStub,
-      pipeline_manager: PipelineManagerStub,
-      session_ttl_ms: 10
-    ]
+      start_supervised!(
+        {WebRTCSignalingManager,
+         name: server_name,
+         session_tracker: SessionTrackerStub,
+         pipeline_manager: SinkPeerPipelineManagerStub,
+         session_ttl_ms: 100}
+      )
 
-    start_supervised!({WebRTCSignalingManager, manager_opts})
+      assert {:ok, %{viewer_session_id: viewer_session_id}} =
+               WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
 
-    assert {:ok, %{viewer_session_id: viewer_session_id}} =
-             WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
+      if unquote(answered?) do
+        assert {:ok, _session} =
+                 WebRTCSignalingManager.submit_answer(relay_session_id, viewer_session_id, "v=0\r\nanswer",
+                   server: server_name
+                 )
+      end
 
-    assert_receive {:camera_relay_viewer_join, %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_session_id}},
-                   100
+      case unquote(outcome) do
+        :expired ->
+          assert_receive {:camera_relay_viewer_leave,
+                          %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_session_id, reason: reason}},
+                         500
 
-    assert_receive {:camera_relay_viewer_leave,
-                    %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_session_id, reason: reason}},
-                   250
+          assert reason == "webrtc signaling session expired"
+          assert_receive {:remove_webrtc_viewer, ^relay_session_id, ^viewer_session_id}
 
-    assert_receive {:remove_webrtc_viewer, ^relay_session_id, ^viewer_session_id}
-    assert reason == "webrtc signaling session expired"
+        :kept ->
+          refute_receive {:camera_relay_viewer_leave, %{viewer_id: ^viewer_session_id}}, 600
+
+          assert {:ok, _session} =
+                   WebRTCSignalingManager.get_session(relay_session_id, viewer_session_id, server: server_name)
+      end
+    end
   end
 
   test "rejects signaling sessions for missing relay sessions" do

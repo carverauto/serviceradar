@@ -100,6 +100,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
+  # A viewer's sink stays in `viewers` until it is removed or crashes, and the
+  # sink crashes when its WebRTC connection fails, so this is a liveness check.
+  def handle_call({:webrtc_viewer_alive?, viewer_session_id}, _ctx, state) do
+    {[reply: Map.has_key?(state.viewers, viewer_session_id)], state}
+  end
+
   def handle_call({:remove_webrtc_viewer, viewer_session_id}, ctx, state) do
     case Map.pop(state.viewers, viewer_session_id) do
       {nil, _viewers} ->
