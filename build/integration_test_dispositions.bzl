@@ -296,6 +296,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/sync_ingestor_queue_db_test.exs": 1,
     "test/serviceradar/inventory/sync_ingestor_vendor_type_test.exs": 1,
     "test/serviceradar/inventory/virtualization_v3_identity_db_test.exs": 1,
+    "test/serviceradar/jobs/cron_backlog_repair_db_test.exs": 1,
     "test/serviceradar/jobs/refresh_trace_summaries_worker_db_test.exs": 1,
     "test/serviceradar/jobs/schedule_health_worker_test.exs": 1,
     "test/serviceradar/monitoring/alert_send_notification_db_test.exs": 1,

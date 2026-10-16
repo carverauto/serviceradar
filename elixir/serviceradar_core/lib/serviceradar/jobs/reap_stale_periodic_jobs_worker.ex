@@ -24,6 +24,10 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   age-based sweep still runs afterwards, for every worker, as the fallback for what
   that proof cannot cover. Jobs rescued either way are reported together as
   `rescued_jobs`.
+
+  Each pass then runs `ServiceRadar.Jobs.CronBacklogRepair`, which handles the
+  pending side: redundant cron ticks that never complete and periodic jobs starved
+  behind higher-priority work.
   """
 
   use Oban.Worker,
@@ -34,6 +38,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   import Ecto.Query, warn: false
 
   alias Oban.Job
+  alias ServiceRadar.Jobs.CronBacklogRepair
   alias ServiceRadar.Repo
 
   require Logger
@@ -128,6 +133,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
       {:ok, %{rescued_jobs: rescued_jobs, discarded_jobs: discarded_jobs}} ->
         maybe_log_cleanup(rescued_jobs, discarded_jobs)
         emit_cleanup_telemetry(:completed, rescued_jobs, discarded_jobs)
+        repair_cron_backlog()
         :ok
 
       {:error, reason} ->
@@ -297,6 +303,24 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
       from(j in Job, where: j.id in ^job_ids),
       set: [state: "discarded", discarded_at: now]
     )
+  end
+
+  # Pending periodic jobs that will never run are this sweep's other half: see
+  # CronBacklogRepair. Runs after the reap so a failure here cannot stop it.
+  defp repair_cron_backlog do
+    case CronBacklogRepair.run(periodic_worker_names()) do
+      %{cancelled_ticks: 0, promoted_jobs: []} ->
+        :ok
+
+      %{cancelled_ticks: cancelled, promoted_jobs: promoted} ->
+        Logger.warning(
+          "Repaired wedged periodic Oban jobs cancelled_redundant_ticks=#{cancelled} " <>
+            "promoted_starved=[#{format_job_refs(promoted)}]",
+          cancelled_redundant_ticks: cancelled,
+          promoted_starved_jobs: promoted,
+          starvation_threshold_minutes: CronBacklogRepair.starvation_threshold_minutes()
+        )
+    end
   end
 
   defp maybe_log_cleanup([], []), do: :ok
