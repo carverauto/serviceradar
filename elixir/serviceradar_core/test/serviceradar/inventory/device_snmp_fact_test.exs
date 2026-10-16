@@ -66,14 +66,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactTest do
     assert values == ["radius", "tacacs"]
   end
 
-  # A fact is a statement about a device. When the device is gone the statement
-  # is meaningless, and an orphan keyed to a uid nothing resolves is worse than
-  # no row at all.
-  #
-  # Exercised with a raw DELETE rather than Ash.destroy: Device has no primary
-  # destroy action - inventory soft-deletes - so the only thing that removes the
-  # row is a hard delete from a cleanup path, and the guarantee under test is
-  # the database's ON DELETE CASCADE, not an Ash callback.
+  # Retention removes facts with mutable inventory while preserving the device
+  # ordinal and its minimal canonical tombstone.
   test "facts do not outlive their device", %{actor: actor, device: device} do
     {:ok, _} =
       create_fact(device.uid, actor, %{
@@ -85,7 +79,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactTest do
 
     assert [_fact] = facts_for(device.uid, actor)
 
-    ServiceRadar.Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [device.uid])
+    ServiceRadar.TestSupport.purge_devices!([device.uid])
 
     assert facts_for(device.uid, actor) == []
   end

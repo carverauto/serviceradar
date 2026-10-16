@@ -63,7 +63,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
         [expected_id]
       )
 
-      ServiceRadar.Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [expected_id])
+      TestSupport.purge_devices!([expected_id])
     end)
 
     tasks =

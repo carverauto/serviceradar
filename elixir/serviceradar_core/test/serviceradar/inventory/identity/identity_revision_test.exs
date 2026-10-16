@@ -159,14 +159,5 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
     |> Ash.create(actor: actor)
   end
 
-  defp destroy(uid) do
-    actor = SystemActor.system(:identity_revision_test)
-
-    case Device.get_by_uid(uid, true, actor: actor) do
-      {:ok, device} -> Ash.destroy!(device, actor: actor, authorize?: false)
-      _ -> :ok
-    end
-  rescue
-    _ -> :ok
-  end
+  defp destroy(uid), do: TestSupport.purge_devices!([uid])
 end
