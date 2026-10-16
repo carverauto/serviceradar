@@ -11,12 +11,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
+  alias ServiceRadar.NetworkDiscovery.World
   alias ServiceRadar.Repo
+  alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapPublisher
   alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNG.Topology.WorldCache
+  alias ServiceRadarWebNG.Topology.WorldLoader
 
   @moduletag :topology_atlas_db
   @moduletag timeout: 180_000
@@ -61,6 +65,107 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     start_supervised!(Supervisor.child_spec({Phoenix.PubSub, name: __MODULE__.IsolatedPubSub}, id: :isolated_pubsub))
 
     %{ids: ids, vendor: vendor}
+  end
+
+  @tag sandbox: :unboxed
+  test "world loader leaves stable incomplete identities alone, yields pages to geometry, and detects late commits", %{
+    ids: [first_id, trigger_id, late_id, higher_id | _],
+    vendor: vendor
+  } do
+    assert {:error, :not_ready} = World.active_manifest(:system)
+    versions = [Ecto.UUID.generate(), Ecto.UUID.generate()]
+    [first_version, next_version] = versions
+    padding = Enum.map(1..501, &"sr:loader-padding-#{vendor}-#{&1}")
+
+    on_exit(fn ->
+      # These are exact test-owned stages, in the disposable serial fixture.
+      # ExUnit has stopped the supervised loader/publisher before teardown.
+      Enum.each(versions, &delete_world/1)
+      Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
+      ServiceRadar.TestSupport.delete_device_fixtures!(padding)
+    end)
+
+    first = create(first_id, vendor, true)
+    seed_padding(padding)
+    first_ordinal = FleetIdentity.device_ordinal(first.uid)
+    ids = [first_id, late_id, "serviceradar:#{vendor}"]
+    stage_world(first_version, ids)
+    stage_world(next_version, ids)
+    assert {:ok, %{generation: generation}} = World.activate_relayout(0, first_version)
+
+    publisher_tasks = start_supervised!(Supervisor.child_spec({Task.Supervisor, max_children: 1}, id: :publisher_tasks))
+    cache_tasks = start_supervised!(Supervisor.child_spec({Task.Supervisor, max_children: 4}, id: :cache_tasks))
+    loader_tasks = start_supervised!(Supervisor.child_spec({Task.Supervisor, max_children: 1}, id: :loader_tasks))
+
+    owner =
+      start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: publisher_tasks, pubsub: ServiceRadar.PubSub})
+
+    await_members(owner, vendor, [first_ordinal])
+    cache = start_supervised!({WorldCache, task_supervisor: cache_tasks, pubsub: ServiceRadar.PubSub})
+    observer = observe_loader_queries(loader_tasks)
+    loader = start_supervised!({WorldLoader, cache: cache, task_supervisor: loader_tasks, pubsub: ServiceRadar.PubSub})
+    expected = [first_ordinal, 0, 0]
+    {assignment, progress} = await_projection(cache, first_version, ids, expected)
+    await_loader_idle(loader)
+    drain_loader_queries(observer)
+
+    # Cross the former 60s incomplete-map retry using the real owner timer. No
+    # timestamp injection or configurable test-only polling interval is needed.
+    stable = make_ref()
+    Process.send_after(self(), {:stable_interval, stable}, 61_000)
+    assert_receive {:stable_interval, ^stable}, 62_000
+    send(loader, :refresh)
+    assert_receive {:loader_query, ^observer, stable_task, :progress, _}, 10_000
+    await_task(stable_task)
+    await_loader_idle(loader)
+    assert {^assignment, ^progress} = await_projection(cache, first_version, ids, expected)
+    refute_receive {:loader_query, ^observer, _, :page, _}
+    drain_loader_queries(observer)
+
+    # Hold a real completed 500-row source page while the normal publication
+    # message reaches the owner. A second connection publishes the next world.
+    barrier = observe_loader_queries(loader_tasks, true)
+    create(trigger_id, vendor, false)
+    send(loader, :refresh)
+    assert_receive {:loader_query, ^barrier, paging_task, :page, 500}, 10_000
+
+    try do
+      assert {:ok, %{generation: next_generation}} = World.activate_relayout(generation, next_version)
+
+      await_value(
+        fn -> WorldCache.manifest(cache) end,
+        &match?({:ok, %{observed_generation: ^next_generation, catching_up: true}}, &1)
+      )
+    after
+      :telemetry.detach(barrier)
+      send(paging_task, {:continue_loader, barrier})
+    end
+
+    await_task(paging_task)
+    assert_receive {:loader_query, ^observer, ^paging_task, :page, 500}
+    refute_receive {:loader_query, ^observer, ^paging_task, :page, _}
+    await_projection(cache, next_version, ids, expected)
+
+    # Sequence allocation precedes commit: MAX alone misses this lower identity.
+    {writer, token, _backend, late_ordinal} = hold_device_commit(late_id, vendor)
+
+    try do
+      higher = create(higher_id, vendor, true)
+      higher_ordinal = FleetIdentity.device_ordinal(higher.uid)
+      assert late_ordinal < higher_ordinal
+      assert {:ok, {high_water, before_count} = before_progress} = BitmapSource.dictionary_progress()
+      assert high_water == higher_ordinal
+      send(loader, :refresh)
+      await_projection(cache, next_version, ids, expected, before_progress)
+      send(writer.pid, {:commit, token})
+      assert {:ok, :ok} = Task.await(writer, 10_000)
+      after_progress = {high_water, before_count + 1}
+      assert {:ok, ^after_progress} = BitmapSource.dictionary_progress()
+      send(loader, :refresh)
+      await_projection(cache, next_version, ids, [first_ordinal, late_ordinal, 0], after_progress)
+    after
+      if Process.alive?(writer.pid), do: Task.shutdown(writer, :brutal_kill)
+    end
   end
 
   test "one accepted revision combines current address sources, removes replacements, and fails explicitly on incomplete input",
@@ -204,45 +309,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     # through its production periodic keyset scan without an injected rescan event.
     await_members(two, vendor, [second_ordinal])
 
-    parent = self()
-    token = make_ref()
     [[reader_backend]] = Repo.query!("SELECT pg_backend_pid()").rows
-
-    writer =
-      Task.async(fn ->
-        :ok = Sandbox.checkout(Repo, sandbox: false, ownership_timeout: 120_000)
-
-        try do
-          Repo.transaction(
-            fn ->
-              # Bulk ingestion bypasses the singleton count-row lock. Keep the
-              # identity triggers active to exercise that commit-ordering path;
-              # cleanup refreshes the rollups before purging the synthetic rows.
-              Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
-
-              Repo.query!(
-                "INSERT INTO platform.ocsf_devices (uid, vendor_name, is_available) VALUES ($1, $2, true)",
-                [late_id, vendor]
-              )
-
-              [[writer_backend]] = Repo.query!("SELECT pg_backend_pid()").rows
-              send(parent, {:allocated_uncommitted, token, writer_backend, FleetIdentity.device_ordinal(late_id)})
-
-              receive do
-                {:commit, ^token} -> :ok
-              after
-                90_000 -> raise "late-commit fixture was not released"
-              end
-            end,
-            timeout: 100_000
-          )
-        after
-          Sandbox.checkin(Repo)
-        end
-      end)
+    {writer, token, writer_backend, late_ordinal} = hold_device_commit(late_id, vendor)
 
     try do
-      assert_receive {:allocated_uncommitted, ^token, writer_backend, late_ordinal}, 10_000
       refute reader_backend == writer_backend
       assert is_integer(late_ordinal) and late_ordinal > 0
       higher = create(higher_id, vendor, true)
@@ -270,6 +340,195 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
       refute current.index_epoch == previous.index_epoch
     after
       if Process.alive?(writer.pid), do: Task.shutdown(writer, :brutal_kill)
+    end
+  end
+
+  defp hold_device_commit(uid, vendor) do
+    parent = self()
+    token = make_ref()
+
+    writer =
+      Task.async(fn ->
+        :ok = Sandbox.checkout(Repo, sandbox: false, ownership_timeout: 120_000)
+
+        try do
+          Repo.transaction(
+            fn ->
+              # Keep identity triggers active, but avoid the singleton rollup
+              # lock so a second transaction can commit its higher ordinal.
+              Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+
+              Repo.query!(
+                "INSERT INTO platform.ocsf_devices (uid, vendor_name, is_available) VALUES ($1, $2, true)",
+                [uid, vendor]
+              )
+
+              [[backend]] = Repo.query!("SELECT pg_backend_pid()").rows
+              send(parent, {:allocated_uncommitted, token, backend, FleetIdentity.device_ordinal(uid)})
+
+              receive do
+                {:commit, ^token} -> :ok
+              after
+                90_000 -> raise "late-commit fixture was not released"
+              end
+            end,
+            timeout: 100_000
+          )
+        after
+          Sandbox.checkin(Repo)
+        end
+      end)
+
+    assert_receive {:allocated_uncommitted, ^token, backend, ordinal}, 10_000
+    {writer, token, backend, ordinal}
+  end
+
+  defp seed_padding(ids) do
+    Repo.transaction(fn ->
+      Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+
+      Enum.each(Enum.chunk_every(ids, 500), fn page ->
+        Repo.query!(
+          "INSERT INTO platform.ocsf_devices (uid, vendor_name) SELECT uid, 'invented-padding' FROM unnest($1::text[]) AS uid",
+          [page]
+        )
+      end)
+    end)
+
+    Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
+  end
+
+  defp stage_world(version, ids) do
+    positions =
+      ids
+      |> Enum.with_index(1)
+      |> Enum.map(fn {id, n} ->
+        %{
+          device_id: id,
+          label: "Synthetic loader node",
+          x: n * 100,
+          y: n * 100,
+          min_zoom: 0,
+          parent_id: nil,
+          component_id: "invented-loader-component",
+          component_z: 0,
+          component_x: 0,
+          component_y: 0,
+          placement_depth: 4,
+          active: true
+        }
+      end)
+
+    assert :ok =
+             World.stage_candidate(
+               version,
+               %{source_digest: "invented-loader", node_count: length(ids), relation_count: 0},
+               positions,
+               []
+             )
+  end
+
+  defp delete_world(version) do
+    uuid = Ecto.UUID.dump!(version)
+    Repo.query!("DELETE FROM platform.topology_world_head WHERE active_layout_version = $1", [uuid])
+
+    for table <- ~w(topology_world_relations topology_world_positions topology_world_layouts) do
+      Repo.query!("DELETE FROM platform.#{table} WHERE layout_version = $1", [uuid])
+    end
+  end
+
+  defp observe_loader_queries(tasks, hold_page? \\ false) do
+    handler = {__MODULE__, make_ref()}
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _timings, metadata, owner ->
+          query = String.upcase(to_string(metadata.query))
+
+          if String.contains?(query, "DEVICE_FLEET_ORDINALS") and self() in Task.Supervisor.children(tasks) do
+            kind = if String.contains?(query, "COUNT(*)"), do: :progress, else: :page
+
+            rows =
+              case metadata.result do
+                {:ok, %{num_rows: count}} -> count
+                _ -> :failed
+              end
+
+            send(owner, {:loader_query, handler, self(), kind, rows})
+
+            if hold_page? and kind == :page do
+              receive do
+                {:continue_loader, ^handler} -> :ok
+              after
+                30_000 -> raise "loader page fixture was not released"
+              end
+            end
+          end
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    handler
+  end
+
+  defp drain_loader_queries(handler) do
+    receive do
+      {:loader_query, ^handler, _, _, _} -> drain_loader_queries(handler)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp await_task(pid) do
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 10_000
+    assert reason in [:normal, :noproc]
+  end
+
+  defp await_loader_idle(loader), do: await_value(fn -> :sys.get_state(loader).active end, &is_nil/1)
+
+  defp await_projection(cache, version, ids, expected, progress \\ nil) do
+    # Return only scalar evidence; keep test observations from pinning obsolete
+    # native resources after the cache replaces a world or mapping.
+    fn ->
+      {:ok, snapshot} =
+        await_value(fn -> WorldCache.world(cache) end, fn
+          {:ok, %{manifest: %{layout_version: ^version}, ordinals: %{mapping: mapping}} = current} ->
+            (is_nil(progress) or current.dictionary_ordinal == progress) and
+              TopologyAtlas.device_ordinals(current.world, mapping, ids) == {:ok, expected}
+
+          _ ->
+            false
+        end)
+
+      assert snapshot.ordinals.info.mapped == Enum.count(expected, &(&1 != 0))
+      assert snapshot.ordinals.info.total == length(ids)
+      {snapshot.ordinals.info.assignment, snapshot.dictionary_ordinal}
+    end
+    |> Task.async()
+    |> Task.await(20_000)
+  end
+
+  defp await_value(read, ready?, deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 15_000
+    result = read.()
+
+    cond do
+      ready?.(result) ->
+        result
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("loader did not converge: #{inspect(result)}")
+
+      true ->
+        receive do
+        after
+          10 -> await_value(read, ready?, deadline)
+        end
     end
   end
 

@@ -4,7 +4,8 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
 
   Geometry polling reads only the small publication head. Full geometry reads
   occur at boot or after a publication. An optional canonical ordinal projection
-  follows installation; incomplete identity mappings retry a bounded keyset scan.
+  follows installation when the dictionary epoch or its ordinal high-water and
+  row count change. A pending geometry publication preempts that scan.
   Batches leave the database transaction before
   native indexing and low-zoom tile generation begin. A coherent snapshot can
   be installed behind the newest observed head, followed by one coalesced
@@ -26,7 +27,6 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
   @poll_ms 15_000
   @load_timeout to_timeout(minute: 6)
   @max_backoff 60_000
-  @ordinal_retry_seconds 60
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
 
@@ -72,8 +72,11 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
         WorldCache.observe_head(manifest, state.cache)
         {:noreply, schedule_next(%{state | backoff: 1_000})}
 
-      {:ok, {:ordinals, world, mapping}} ->
-        case WorldCache.install_ordinals(world, mapping, state.cache) do
+      {:ok, :deferred} ->
+        {:noreply, schedule_next(state)}
+
+      {:ok, {:ordinals, world, mapping, progress}} ->
+        case WorldCache.install_ordinals(world, mapping, state.cache, progress) do
           :ok -> {:noreply, schedule_next(%{state | backoff: 1_000})}
           {:error, _reason} -> {:noreply, retry(state)}
         end
@@ -108,6 +111,13 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
 
   def handle_info(_stale_task_message, state), do: {:noreply, state}
 
+  @impl true
+  def handle_call({:loader_position, token}, _from, %{active: %{token: token}} = state) do
+    {:reply, {:ok, state.desired_generation, state.installed_generation}, state}
+  end
+
+  def handle_call({:loader_position, _token}, _from, state), do: {:reply, :stale, state}
+
   defp refresh(%{active: active} = state) when not is_nil(active), do: state
 
   defp refresh(state) do
@@ -135,21 +145,27 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
       send(owner, {:world_head_observed, token, manifest})
 
       if manifest.generation <= installed do
-        load_ordinals(cache, manifest)
+        load_ordinals(cache, manifest, owner, token)
       else
         load_snapshot(owner, token)
       end
     end
   end
 
-  defp load_ordinals(cache, manifest) do
-    with {:ok, snapshot} <- BitmapIndex.snapshot(),
-         {:ok, current} <- WorldCache.world(cache) do
-      if ordinals_due?(current.ordinals, snapshot.dictionary_epoch) do
+  defp load_ordinals(cache, manifest, owner, token) do
+    with :ok <- continue_ordinals(owner, token),
+         {:ok, snapshot} <- BitmapIndex.snapshot(),
+         {:ok, current} <- WorldCache.world(cache),
+         {:ok, progress} <- BitmapSource.dictionary_progress(),
+         :ok <- continue_ordinals(owner, token) do
+      if ordinals_due?(current, snapshot.dictionary_epoch, progress) do
         with {:ok, mapping} <- TopologyAtlas.new_ordinals(current.world, snapshot.dictionary_epoch),
-             :ok <- load_identity_pages(current.world, mapping, 0),
+             :ok <- load_identity_pages(current.world, mapping, 0, owner, token),
              {:ok, _info} <- TopologyAtlas.seal_ordinals(current.world, mapping) do
-          {:ok, {:ordinals, current.world, mapping}}
+          {:ok, {:ordinals, current.world, mapping, progress}}
+        else
+          :deferred -> {:ok, :deferred}
+          error -> error
         end
       else
         {:ok, {:unchanged, manifest}}
@@ -162,21 +178,37 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
         WorldCache.clear_ordinals(cache)
         {:ok, {:unchanged, manifest}}
 
+      :deferred ->
+        {:ok, :deferred}
+
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp ordinals_due?(nil, _epoch), do: true
+  defp ordinals_due?(%{ordinals: %{info: info}, dictionary_ordinal: recorded}, epoch, progress),
+    do: info.dictionary_epoch != epoch or recorded != progress
 
-  defp ordinals_due?(%{info: info, completed_at: completed_at}, epoch) do
-    info.dictionary_epoch != epoch or
-      (info.mapped < info.total and DateTime.diff(DateTime.utc_now(), completed_at) >= @ordinal_retry_seconds)
+  defp ordinals_due?(_current, _epoch, _progress), do: true
+
+  defp continue_ordinals(owner, token) do
+    case loader_position(owner, token) do
+      {:ok, desired, installed} when desired <= installed -> :ok
+      _ -> :deferred
+    end
   end
 
-  defp load_identity_pages(world, mapping, cursor) do
-    with {:ok, page} <- BitmapSource.identity_page(cursor),
-         {:ok, _info} <- TopologyAtlas.apply_ordinals(world, mapping, page.entries) do
+  defp loader_position(owner, token) do
+    GenServer.call(owner, {:loader_position, token}, 5_000)
+  catch
+    :exit, _reason -> :stale
+  end
+
+  defp load_identity_pages(world, mapping, cursor, owner, token) do
+    with :ok <- continue_ordinals(owner, token),
+         {:ok, page} <- BitmapSource.identity_page(cursor),
+         {:ok, _info} <- TopologyAtlas.apply_ordinals(world, mapping, page.entries),
+         :ok <- continue_ordinals(owner, token) do
       case page.next_cursor do
         nil ->
           :ok
@@ -185,7 +217,7 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
           # This optional scan shares the database with the canonical publisher.
           # At most forty 500-row pages per second, in one supervised task.
           Process.sleep(25)
-          load_identity_pages(world, mapping, next)
+          load_identity_pages(world, mapping, next, owner, token)
 
         _ ->
           {:error, :invalid_identity_cursor}

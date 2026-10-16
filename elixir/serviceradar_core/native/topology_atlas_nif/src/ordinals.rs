@@ -54,6 +54,7 @@ struct WireInfo<'a> {
     mapped: usize,
     total: usize,
     retained_bytes: usize,
+    assignment: Binary<'a>,
 }
 
 fn info(env: Env<'_>, row: OrdinalInfo) -> Result<WireInfo<'_>, Atom> {
@@ -64,6 +65,7 @@ fn info(env: Env<'_>, row: OrdinalInfo) -> Result<WireInfo<'_>, Atom> {
         mapped: row.mapped,
         total: row.total,
         retained_bytes: row.retained_bytes,
+        assignment: binary(env, &row.assignment)?,
     })
 }
 

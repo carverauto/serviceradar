@@ -427,17 +427,34 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_reply ref, :error, %{reason: "source_changed"}, 5_000
     refute_push "membership:frame", _frame, 100
 
-    # A completed response can wait in the channel mailbox while the optional
-    # canonical mapping changes without a new geometry or dictionary epoch.
+    # Replaying the same assignments preserves a response waiting in the channel
+    # mailbox. A genuinely changed projection invalidates that same receipt.
     {:ok, pending} = BitmapView.build(scope, params, sequence + 1)
     assert :ok = BitmapView.confirm_delivery(scope, pending)
-    {:ok, replacement} = TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch)
+
+    fn ->
+      {:ok, identical} = TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch)
+
+      {:ok, _} =
+        TopologyAtlas.apply_ordinals(world, identical, [
+          {included.uid, FleetIdentity.device_ordinal(included.uid)},
+          {excluded.uid, FleetIdentity.device_ordinal(excluded.uid)}
+        ])
+
+      {:ok, _} = TopologyAtlas.seal_ordinals(world, identical)
+      assert :ok = WorldCache.install_ordinals(world, identical)
+      assert :ok = BitmapView.confirm_delivery(scope, pending)
+    end
+    |> Task.async()
+    |> Task.await(5_000)
+
+    :erlang.garbage_collect(Process.whereis(WorldCache))
+
+    {:ok, replacement} =
+      await(fn -> TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch) end, &match?({:ok, _}, &1))
 
     {:ok, _} =
-      TopologyAtlas.apply_ordinals(world, replacement, [
-        {included.uid, FleetIdentity.device_ordinal(included.uid)},
-        {excluded.uid, FleetIdentity.device_ordinal(excluded.uid)}
-      ])
+      TopologyAtlas.apply_ordinals(world, replacement, [{included.uid, FleetIdentity.device_ordinal(included.uid)}])
 
     {:ok, _} = TopologyAtlas.seal_ordinals(world, replacement)
     :ok = WorldCache.install_ordinals(world, replacement)

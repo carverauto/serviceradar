@@ -6,6 +6,7 @@ use std::mem::size_of;
 use std::time::{Duration, Instant};
 
 use roaring::RoaringBitmap;
+use sha2::{Digest, Sha256};
 
 use crate::{AggregateSelection, Error, World};
 
@@ -20,6 +21,7 @@ pub struct OrdinalInfo {
     pub mapped: usize,
     pub total: usize,
     pub retained_bytes: usize,
+    pub assignment: [u8; 32],
 }
 
 pub struct CanonicalOrdinals {
@@ -28,6 +30,7 @@ pub struct CanonicalOrdinals {
     ordinals: Vec<u32>,
     mapped: usize,
     ready: bool,
+    assignment: [u8; 32],
 }
 
 impl CanonicalOrdinals {
@@ -51,6 +54,7 @@ impl CanonicalOrdinals {
             ordinals,
             mapped: 0,
             ready: false,
+            assignment: [0; 32],
         })
     }
 
@@ -73,6 +77,7 @@ impl CanonicalOrdinals {
             retained_bytes: size_of::<Self>()
                 + self.world_revision.capacity()
                 + self.ordinals.capacity() * size_of::<u32>(),
+            assignment: self.assignment,
         })
     }
 
@@ -114,7 +119,10 @@ impl CanonicalOrdinals {
     /// Unmapped geometry can be provisional or noncanonical, so zero does not block sealing.
     pub fn seal(&mut self, world: &World) -> Result<OrdinalInfo, Error> {
         self.check_world(world)?;
-        self.ready = true;
+        if !self.ready {
+            self.assignment = assignment_digest(&self.ordinals)?;
+            self.ready = true;
+        }
         self.info(world)
     }
 
@@ -183,6 +191,19 @@ impl CanonicalOrdinals {
         check_time(deadline)?;
         Ok(bytes)
     }
+}
+
+fn assignment_digest(ordinals: &[u32]) -> Result<[u8; 32], Error> {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut hasher = Sha256::new();
+    for page in ordinals.chunks(1024) {
+        check_time(deadline)?;
+        for value in page {
+            hasher.update(value.to_le_bytes());
+        }
+    }
+    check_time(deadline)?;
+    Ok(hasher.finalize().into())
 }
 
 fn check_time(deadline: Instant) -> Result<(), Error> {
