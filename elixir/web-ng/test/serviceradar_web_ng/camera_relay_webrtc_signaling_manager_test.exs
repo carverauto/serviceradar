@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Camera.RelayHosts
   alias ServiceRadarWebNG.CameraRelayWebRTCSignalingManager
 
   @moduletag :db_free
@@ -13,11 +14,18 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
       GenServer.start_link(__MODULE__, test_pid, name: __MODULE__)
     end
 
-    def init(test_pid), do: {:ok, test_pid}
+    def init(test_pid), do: {:ok, %{test_pid: test_pid, create_results: []}}
+
+    # Each queued result answers one node's create_session call, in node order.
+    def queue_create_results(results), do: GenServer.call(__MODULE__, {:queue_create_results, results})
 
     def create_session(relay_session_id, opts) do
       send(Process.whereis(__MODULE__), {:create_session, relay_session_id, opts})
-      {:ok, %{viewer_session_id: Ecto.UUID.generate(), signaling_state: "viewer_authorized"}}
+
+      case GenServer.call(__MODULE__, :next_create_result) do
+        nil -> {:ok, %{viewer_session_id: Ecto.UUID.generate(), signaling_state: "viewer_authorized"}}
+        result -> result
+      end
     end
 
     def submit_answer(relay_session_id, viewer_session_id, answer_sdp, opts) do
@@ -35,9 +43,19 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
       {:ok, %{viewer_session_id: viewer_session_id, signaling_state: "closed"}}
     end
 
-    def handle_info(message, test_pid) do
-      send(test_pid, message)
-      {:noreply, test_pid}
+    def handle_call({:queue_create_results, results}, _from, state) do
+      {:reply, :ok, %{state | create_results: results}}
+    end
+
+    def handle_call(:next_create_result, _from, %{create_results: [next | rest]} = state) do
+      {:reply, next, %{state | create_results: rest}}
+    end
+
+    def handle_call(:next_create_result, _from, state), do: {:reply, nil, state}
+
+    def handle_info(message, state) do
+      send(state.test_pid, message)
+      {:noreply, state}
     end
   end
 
@@ -77,6 +95,51 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
 
     assert_receive {:close_session, ^relay_session_id, ^viewer_session_id, opts}
     assert opts[:scope] == :test
+  end
+
+  # The hosting node advertises the relay, so the call goes straight there; with
+  # no nodes configured to scan, only that route can reach the manager.
+  test "sends a call straight to the node advertising the relay" do
+    if is_nil(Process.whereis(:serviceradar_camera_relay_hosts)), do: start_supervised!(RelayHosts)
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_rpc_nodes, [])
+
+    relay_session_id = Ecto.UUID.generate()
+    host = spawn(fn -> receive do: (:stop -> :ok) end)
+    on_exit(fn -> send(host, :stop) end)
+    :ok = RelayHosts.advertise(relay_session_id, host)
+
+    assert {:ok, %{signaling_state: "viewer_authorized"}} =
+             CameraRelayWebRTCSignalingManager.create_session(relay_session_id, scope: :test)
+
+    assert_receive {:create_session, ^relay_session_id, _opts}
+  end
+
+  # A relay lives on the one core-elx node that ingests it; the others answer
+  # :not_found. The local node listed twice stands in for two core-elx nodes.
+  for {label, results, expected} <- [
+        {"skips a node that does not host the relay", [{:error, :not_found}, :hosted], :created},
+        {"reports not found when no node hosts the relay", [{:error, :not_found}, {:error, :not_found}], :not_found}
+      ] do
+    test "create_session #{label}" do
+      Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_rpc_nodes, [Node.self(), Node.self()])
+
+      unquote(Macro.escape(results))
+      |> Enum.map(fn
+        :hosted -> nil
+        result -> result
+      end)
+      |> RemoteManagerStub.queue_create_results()
+
+      result = CameraRelayWebRTCSignalingManager.create_session(Ecto.UUID.generate(), scope: :test)
+
+      case unquote(expected) do
+        :created -> assert {:ok, %{signaling_state: "viewer_authorized"}} = result
+        :not_found -> assert result == {:error, :not_found}
+      end
+
+      assert_receive {:create_session, _relay_session_id, _opts}
+      assert_receive {:create_session, _relay_session_id, _opts}
+    end
   end
 
   test "returns unavailable when no core-elx signaling manager is reachable" do

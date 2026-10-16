@@ -87,6 +87,9 @@ defmodule ServiceRadar.Application do
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
+        # Which core-elx node hosts each camera relay (:pg scope on every node)
+        ServiceRadar.Camera.RelayHosts,
+
         # WebRTC ICE credential mint rate limiter (bounded ETS sliding window)
         ServiceRadar.WebRTC.IceCredentials.MintLimiter,
 
