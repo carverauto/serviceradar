@@ -136,7 +136,7 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^device.uid)
-      |> Ash.bulk_update(:restore, %{},
+      |> Ash.bulk_update(:restore, %{allow_retained: true},
         actor: actor,
         return_records?: true,
         return_errors?: true,

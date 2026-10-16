@@ -118,6 +118,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
   defp dictionary do
     DeviceFleetOrdinal
     |> Ash.Query.for_read(:read, %{}, actor: @actor)
+    |> Ash.Query.filter(fragment("? NOT LIKE 'serviceradar:%'", uid))
     |> Ash.Query.select([:uid, :ordinal, :tombstoned])
     |> Ash.Query.timeout(5_000)
   end

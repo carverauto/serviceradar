@@ -14,10 +14,12 @@ capacity, new allocation fails while existing IDs remain readable. Operational
 capacity checks read each sequence's `last_value` and compare it with its declared
 maximum; callers must not invoke `nextval` to measure capacity.
 
-The endpoint inventory API delegates to this owner and retains its historical
-service-component exclusion. The shared dictionary itself covers every canonical
-inventory device. Its live membership follows `deleted_at`, `deleted_reason`
-and `is_active`; availability is a separate facet.
+The endpoint inventory API delegates to this owner. Allocation, backfill and
+topology projection exclude `serviceradar:` service-component IDs. Any existing
+assignment for such an ID remains reserved and cannot become device membership.
+The shared dictionary covers canonical inventory devices. Its live membership
+follows `deleted_at`, `deleted_reason` and `is_active`; availability is a separate
+facet.
 
 ## Write coverage
 
@@ -44,12 +46,34 @@ reconciliation remain responsible for changes behind an earlier cursor.
 After the configured deletion retention period, an allocated device keeps only
 its canonical identity tombstone, deletion lineage and legacy merge pointers.
 Mutable inventory fields and ordinary dependent records are removed. The
-`identity_purged_at` marker and partial keyset index prevent those tombstones from
+structural type, empty collection and boolean defaults are reset explicitly;
+other nullable fields are cleared, including source observations and addresses.
+Required creation/modification timestamps record the scrub time instead of
+retaining historical inventory timestamps. Defaults on unrelated future columns
+are not applied automatically. The `identity_purged_at` marker and partial keyset
+index prevent those tombstones from
 repeatedly consuming cleanup batches. A legitimate restore clears the marker.
 Existing automation audit/quarantine references retain their prior full-record
 skip policy. Approved AWX membership links are quarantined and detached when
 mutable canonical inventory is purged, so a subsequent restore inherits no old
 approval.
+
+A released address seed remains deleted before and after payload retention.
+After retention, a sweep may create a fresh provisional device through the
+existing bounded successor-UID chain; it never revives the old seed or transfers
+its ordinal. The same rule applies to a payload-purged seed whose merge was
+explicitly reversed. Source-retired records retain their guarded source-return
+and operator-restore policy. Repeated sweeps reuse the new live seed.
+
+The ordinal widening runs in its own migration transaction before the inventory
+marker and lifecycle hooks. Integer-to-bigint conversion still rewrites the
+dictionary and indexes: schedule a maintenance window with enough temporary
+disk space, and expect dictionary users to wait. The inventory table's exclusive
+DDL lock is not held across that rewrite. The widening has a five-second lock
+wait and five-minute statement limit; the later inventory DDL has a five-second
+lock wait and thirty-second statement limit. A timeout rolls back that migration
+so an operator can retry after removing contention; it does not renumber IDs.
+These limits bound the operation rather than promise an online conversion.
 
 Schema rollback retains dictionary assignments, epoch, widened storage and purge
 markers. It disables lifecycle triggers while permanent DELETE/TRUNCATE guards remain,

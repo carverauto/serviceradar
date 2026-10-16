@@ -507,23 +507,32 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   end
 
   defp identity_scrub_sql do
-    # Preserve deletion/merge lineage and the ordinal FK target, but no mutable
-    # inventory payload. Nullable columns added later join the purge automatically.
+    # Reset only structural defaults; an arbitrary future default must not
+    # repopulate redacted identity or source data. Timestamps describe this scrub,
+    # not the removed inventory's history, and stay readable by typed consumers.
     %{rows: rows} =
       Repo.query!("""
-      SELECT quote_ident(attname) FROM pg_attribute
+      SELECT quote_ident(attname), attname IN (
+        'type_id', 'os', 'hw_info', 'network_interfaces', 'owner', 'org',
+        'groups', 'agent_list', 'discovery_sources', 'tags', 'is_managed', 'is_trusted'
+      ) FROM pg_attribute
       WHERE attrelid = 'platform.ocsf_devices'::regclass
         AND attnum > 0 AND NOT attisdropped AND NOT attnotnull
-        AND attname NOT IN ('deleted_at', 'deleted_by', 'deleted_reason', 'metadata', 'identity_purged_at')
+        AND attname NOT IN ('deleted_at', 'deleted_by', 'deleted_reason', 'metadata',
+          'identity_purged_at', 'created_time', 'modified_time')
       ORDER BY attnum
       """)
 
-    cleared = Enum.map_join(rows, ", ", fn [column] -> "#{column} = NULL" end)
+    cleared =
+      Enum.map_join(rows, ", ", fn [column, reset_default?] ->
+        "#{column} = #{if reset_default?, do: "DEFAULT", else: "NULL"}"
+      end)
 
     "UPDATE platform.ocsf_devices SET " <>
       cleared <>
       ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at']::text[])), " <>
-      "partition = 'default', identity_purged_at = now(), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
+      "partition = 'default', created_time = timezone('utc', now()), modified_time = timezone('utc', now()), " <>
+      "identity_purged_at = now(), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end
 
   # Post-order walk from `parent`: a child's own blockers are deleted before it.

@@ -10,12 +10,9 @@ defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
   # serviceradar:allow-startup-maintenance - updates are inside lifecycle functions;
   # existing inventory is backfilled by bounded FleetIdentity pages, not startup DML.
   def up do
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '30s'")
     execute("ALTER TABLE platform.ocsf_devices ADD COLUMN IF NOT EXISTS identity_purged_at timestamp without time zone")
-
-    execute("ALTER SEQUENCE platform.device_fleet_ordinals_ordinal_seq AS bigint MAXVALUE 4294967295 NO CYCLE")
-    execute("ALTER TABLE platform.device_fleet_ordinals ALTER COLUMN ordinal TYPE bigint")
-    execute("ALTER TABLE platform.device_fleet_ordinals DROP CONSTRAINT IF EXISTS device_fleet_ordinals_u32")
-    execute("ALTER TABLE platform.device_fleet_ordinals ADD CONSTRAINT device_fleet_ordinals_u32 CHECK (ordinal BETWEEN 1 AND 4294967295)")
 
     execute("""
     CREATE TABLE IF NOT EXISTS platform.fleet_dictionary_epochs (
@@ -55,6 +52,7 @@ defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
       live boolean;
       assigned bigint;
     BEGIN
+      IF p_uid LIKE 'serviceradar:%' THEN RETURN NULL; END IF;
       -- Serialize allocation with all canonical writes, including raw bulk upserts.
       SELECT deleted_at IS NULL AND COALESCE(is_active, true)
         AND COALESCE(deleted_reason, '') <> 'merged'
@@ -141,6 +139,8 @@ defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
   end
 
   def down do
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '30s'")
     execute("DROP TRIGGER IF EXISTS trg_clear_restored_identity_purge ON platform.ocsf_devices")
     execute("DROP TRIGGER IF EXISTS trg_device_fleet_identity_insert ON platform.ocsf_devices")
     execute("DROP TRIGGER IF EXISTS trg_device_fleet_identity_update ON platform.ocsf_devices")
