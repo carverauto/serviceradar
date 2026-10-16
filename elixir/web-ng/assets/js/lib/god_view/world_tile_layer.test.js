@@ -107,6 +107,33 @@ describe("world tile rendering contract", () => {
     renderer.membership.clear()
   })
 
+  it("preserves base-view boundary links until a query explicitly requests membership", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.membershipEnabled = true
+    renderer.cache.manifest = {layout_version: worldTileKey.layout_version, zmax: 16, node_count: 70000}
+    renderer.deck = {device: {submit() {}}, setProps: vi.fn()}
+    renderer.channel = {state: "joined", push: vi.fn(() => ({receive() {return this}}))}
+    renderer.invalidateMembership()
+    renderer.syncMembership({layout_version: worldTileKey.layout_version, tiles: []})
+    expect(renderer.membership.pending).toBe(false)
+    expect(renderer.channel.push).not.toHaveBeenCalled()
+    renderer.render()
+    const layer = renderer.deck.setProps.mock.calls.at(-1)[0].layers[0]
+    const edge = layer.renderSubLayers({id: "base-tile", data: tile()}).find(item => item?.id.endsWith("-edges"))
+    expect(edge.props.getWidth(null, {index: 0})).toBeGreaterThan(0)
+    renderer.bitmapQuery = {all: []}
+    renderer.invalidateMembership()
+    renderer.syncMembership({layout_version: worldTileKey.layout_version, tiles: []})
+    expect(renderer.membership.pending).toBe(true)
+    expect(renderer.channel.push).toHaveBeenCalledWith("membership:watch", expect.any(Object))
+    renderer.bitmapQuery = null
+    renderer.invalidateMembership()
+    expect(renderer.channel.push).toHaveBeenLastCalledWith("membership:unwatch", {})
+    expect(renderer.membership.pending).toBe(false)
+    renderer.destroyed = true
+    renderer.membership.clear()
+  })
+
   it("submits queued GPU work before replacing the visible tile layers", () => {
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     const pending = {destroyed: false}
