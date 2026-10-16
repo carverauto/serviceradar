@@ -15,6 +15,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
@@ -2007,6 +2008,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     case DeviceWrites.bulk_upsert_devices(device_records, strong_uids, resolved_updates) do
       {:ok, remap} ->
+        device_records
+        |> Stream.map(&Map.get(remap, &1.uid, &1.uid))
+        |> DevicePubSub.broadcast_invalidated()
+
         StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
         StateEvents.invalidate_identity_cache_for_device_records(device_records)
         _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
