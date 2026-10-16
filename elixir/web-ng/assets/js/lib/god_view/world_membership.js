@@ -10,6 +10,7 @@ export class WorldMembership {
     this.pending = false
     this.sequence = null
     this.total = null
+    this.prefixSources = []
   }
 
   bind(binding, geometries) {
@@ -49,6 +50,7 @@ export class WorldMembership {
       this.entries = frame.tiles
       this.sequence = frame.sequence
       this.total = frame.total
+      this.prefixSources = frame.prefix_sources
       this.pending = false
       this.retainedBufferBytes = frame.byteLength + [...frame.tiles.values()].reduce((sum, tile) => sum + tile.counts.byteLength, 0)
       this.onAck({sequence: frame.sequence.toString(), view_digest: this.binding.view_digest})
@@ -66,6 +68,7 @@ export class WorldMembership {
     this.binding = null
     this.sequence = null
     this.total = null
+    this.prefixSources = []
     this.entries.clear()
     this.receipts.clear()
     this.retainedBufferBytes = 0

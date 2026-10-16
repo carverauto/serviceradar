@@ -45,15 +45,56 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
     assert byte_size(frame) == length
 
     assert Base.encode16(:crypto.hash(:sha256, frame), case: :lower) ==
-             "595bcf21e73507ffc8363e460d45fbec93b405f599ee00301e471756796301c7"
+             "e845f7ac68b02c88465d989ff118201ef86a179395e8875a01b56684f9b50107"
 
     payload =
       Enum.reduce(1..7, fields, fn _, <<size::little-16, rest::binary>> ->
         binary_part(rest, size, byte_size(rest) - size)
       end)
 
-    assert <<1, 0, 0::little-32, 0::little-32, 14::little-16, "synthetic-tile", 2::little-16, 1, 1, 3, 3, 0, 2,
+    assert <<0, 1, 0, 0::little-32, 0::little-32, 14::little-16, "synthetic-tile", 2::little-16, 1, 1, 3, 3, 0, 2,
              1::little-32, 9001::little-32>> = payload
+  end
+
+  test "attaches sorted prefix versions to the replacement and its reset" do
+    sources = %{"synthetic-site" => 1, "synthetic-flow" => 9_007_199_254_740_993}
+
+    assert {:ok, frame} = BitmapFrame.encode(Map.put(metadata(), :prefix_sources, sources), [tile()])
+    assert {:ok, reset} =
+             BitmapFrame.encode(Map.merge(metadata(), %{kind: :reset, prefix_sources: sources}))
+
+    for binary <- [frame, reset] do
+      <<"SRMO", 1, _kind, 0::little-16, _size::little-32, _sequence::little-64, _total::little-32, fields::binary>> =
+        binary
+
+      rest =
+        Enum.reduce(1..7, fields, fn _, <<size::little-16, rest::binary>> ->
+          binary_part(rest, size, byte_size(rest) - size)
+        end)
+
+      assert <<2, 14::little-16, "synthetic-flow", 9_007_199_254_740_993::little-64, 14::little-16, "synthetic-site",
+               1::little-64, _rest::binary>> = rest
+    end
+
+    assert {:error, _} =
+             BitmapFrame.encode(Map.put(metadata(), :prefix_sources, Map.new(1..33, &{"s#{&1}", 1})), [tile()])
+
+    assert {:error, _} = BitmapFrame.encode(Map.put(metadata(), :prefix_sources, %{"" => 1}), [tile()])
+    assert {:error, _} = BitmapFrame.encode(Map.put(metadata(), :prefix_sources, %{"bad" => -1}), [tile()])
+
+    assert {:error, _} =
+             BitmapFrame.encode(
+               Map.put(metadata(), :prefix_sources, %{"bad" => 18_446_744_073_709_551_616}),
+               [tile()]
+             )
+
+    wide =
+      Map.new(1..32, fn index ->
+        {String.pad_leading(Integer.to_string(index), 128, "0"), 18_446_744_073_709_551_615}
+      end)
+
+    assert {:ok, wide_frame} = BitmapFrame.encode(Map.put(metadata(), :prefix_sources, wide), [tile()])
+    assert byte_size(wide_frame) <= 262_144
   end
 
   test "rejects ambiguous receipt/state/count columns before publishing a view" do

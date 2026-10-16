@@ -7,7 +7,7 @@ export const bitmapBinding = {
 const encoder = new TextEncoder()
 
 /** Independent synthetic wire writer; production encoding belongs to Elixir. */
-export function bitmapFrame({kind = "baseline", sequence = 1n, total = 9002, binding = {}, tiles = []} = {}) {
+export function bitmapFrame({kind = "baseline", sequence = 1n, total = 9002, binding = {}, tiles = [], prefixSources = []} = {}) {
   const parts = []
   const number = (size, value) => {
     const bytes = new Uint8Array(size)
@@ -23,6 +23,11 @@ export function bitmapFrame({kind = "baseline", sequence = 1n, total = 9002, bin
   number(1, 1); number(1, kind === "reset" ? 1 : 0); number(2, 0); number(4, 0); number(8, sequence); number(4, total)
   const fields = {...bitmapBinding, source_revision: "9007199254740993", index_revision: "9007199254740995", ...binding}
   for (const field of FRAME_FIELDS) text(fields[field])
+  number(1, prefixSources.length)
+  for (const source of prefixSources) {
+    text(source.source)
+    number(8, typeof source.version === "bigint" ? source.version : BigInt(source.version))
+  }
   if (kind !== "reset") {
     number(1, tiles.length)
     for (const tile of tiles) {

@@ -5,9 +5,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
   Rows retain geometry order. The native query returns four bounded binary
   columns: matching flag, causal state, availability state, and little-endian
   uint32 matched count. No device IDs or portable bitmap sets cross this wire.
+  Every replacement also carries the captured named Prefix Tag source versions
+  for that sequence. Those versions are freshness, not watch identity.
   """
 
   @max_frame 262_144
+  @max_sources 32
+  @max_u64 18_446_744_073_709_551_615
   @fields ~w(dictionary_epoch index_epoch query_digest authority_fingerprint view_digest source_revision index_revision)a
 
   @doc "Encodes a complete view or reset, preserving native column binaries."
@@ -20,9 +24,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
     with true <- kind in [:baseline, :reset],
          true <- Enum.all?(fields, &valid_text?/1),
          true <- is_integer(total) and total in 0..4_294_967_295,
-         true <- is_integer(sequence) and sequence in 0..18_446_744_073_709_551_615,
+         true <- is_integer(sequence) and sequence in 0..@max_u64,
+         {:ok, sources} <- prefix_sources(metadata),
          {:ok, payload} <- payload(kind, tiles) do
-      tail = [Enum.map(fields, &text/1), payload]
+      tail = [Enum.map(fields, &text/1), sources, payload]
       size = 24 + IO.iodata_length(tail)
 
       header =
@@ -32,6 +37,27 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
       if size <= @max_frame, do: {:ok, IO.iodata_to_binary([header, tail])}, else: {:error, :frame_budget}
     else
       _ -> {:error, :invalid_membership_frame}
+    end
+  end
+
+  defp prefix_sources(metadata) do
+    case Map.get(metadata, :prefix_sources, %{}) do
+      sources when is_map(sources) and map_size(sources) <= @max_sources ->
+        encoded =
+          sources
+          |> Enum.sort()
+          |> Enum.map(fn
+            {source, version} when is_integer(version) and version in 0..@max_u64 ->
+              if valid_text?(source), do: [text(source), <<version::little-64>>], else: :error
+
+            _ ->
+              :error
+          end)
+
+        if :error in encoded, do: :error, else: {:ok, [<<map_size(sources)>>, encoded]}
+
+      _ ->
+        :error
     end
   end
 

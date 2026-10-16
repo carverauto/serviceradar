@@ -348,11 +348,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         {value, tail}
       end)
 
+    <<count, rest::binary>> = rest
+    rest = skip_prefix_sources(rest, count)
+
     <<1, 16, 0::little-32, 0::little-32, length::little-16, rest::binary>> = rest
     <<revision::binary-size(length), rows::little-16, rest::binary>> = rest
     <<mask::binary-size(rows), causal::binary-size(rows), availability::binary-size(rows), counts::binary>> = rest
     assert byte_size(counts) == rows * 4
     {sequence, total, Enum.at(fields, 4), revision, mask, causal, availability, counts}
+  end
+
+  defp skip_prefix_sources(rest, 0), do: rest
+
+  defp skip_prefix_sources(<<length::little-16, tail::binary>>, count) when count in 1..32 do
+    <<_source::binary-size(length), _version::little-64, tail::binary>> = tail
+    skip_prefix_sources(tail, count - 1)
   end
 
   defp create(uid, attrs) do

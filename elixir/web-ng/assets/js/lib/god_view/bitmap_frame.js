@@ -59,6 +59,16 @@ export function decodeBitmapFrame(input) {
   valid(reader.number(4) === bytes.length, "frame length")
   const frame = {kind, sequence: reader.sequence(), total: reader.number(4), byteLength: bytes.length}
   for (const field of FRAME_FIELDS) frame[field] = reader.text()
+  const sourceCount = reader.number(1)
+  valid(sourceCount <= 32, "prefix source count")
+  frame.prefix_sources = []
+  let previousSource = ""
+  for (let index = 0; index < sourceCount; index += 1) {
+    const source = reader.text()
+    valid(source > previousSource, "prefix source order")
+    previousSource = source
+    frame.prefix_sources.push({source, version: reader.sequence()})
+  }
   frame.tiles = new Map()
   if (kind === "baseline") {
     const count = reader.number(1)
