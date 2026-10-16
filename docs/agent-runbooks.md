@@ -11,7 +11,8 @@ Related runbooks in this directory:
 
 - [Atlas server scale acceptance](topology-bitmap-scale-acceptance.md): the
   opt-in hosted scratch-database workload for two publishers and 100 real
-  WebSocket views, with database, memory and recovery measurements.
+  WebSocket views, with database, memory and recovery measurement procedures.
+  The combined compact/sparse acceptance runs have not yet executed.
 - [NATS JetStream sizing profiles](nats-jetstream-profile-runbook.md): the
   chart's render-time JetStream budget, moving a live install to a larger
   `nats.jetstream.profile` (PVC expansion), and reclaiming a collector-owned

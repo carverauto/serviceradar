@@ -36,6 +36,23 @@ device to a minimal retained tombstone instead of deleting its dictionary entry.
 Rollback keeps widened storage, epochs and assigned IDs. Ash resources describe
 the schema; explicit SQL owns sequence and trigger invariants.
 
+Repeated sweep seeding at one address allocates new identities after eligible
+predecessors are purged. The deterministic address-root tombstone retains one
+current-successor pointer as minimal lineage. Each attempt reads at most eight
+successors, persists verified progress when that budget is exhausted, and defers
+remaining work. Existing UID-sorted identity fences bind the observed head;
+creation and head movement commit atomically. Merged roots do not redirect the
+new seed to a merge survivor, and a source-retired head still suppresses seeding.
+No old ordinal is reused. Physical scrub preserves the successor pointer.
+
+Rollback retains dictionary deletion/truncate protection. It requires a cleanup
+binary with retained-identity support (or that support backported), or cleanup
+must be paused; an arbitrary older cleanup worker is unsupported. Lifecycle DDL
+acquires both inventory and dictionary table locks with NOWAIT up front, so a
+busy deployment fails atomically for maintenance retry instead of deadlocking
+against writers. Canonical device liveness remains authoritative when historical
+dictionary tombstone flags lag inventory.
+
 ## 2. Native index and freshness
 
 One supervised publisher per web replica applies complete typed rows in batches
@@ -45,6 +62,11 @@ make each query's membership, counts and source metadata coherent. Native work
 runs on bounded dirty CPU workers with explicit deadlines, not normal BEAM
 schedulers. Charge postings, temporary sets, retained revisions, ordinal
 projections and simultaneous replacements to per-replica memory limits.
+Intrinsic address capacity includes the actual retained dirty bitmap charge.
+Final admission holds the existing pending lock through publication, preventing
+new hints from invalidating that capacity decision. Intrinsic exhaustion disables
+the address facet explicitly while scalar publication and queued hints survive;
+temporary reader or scratch pressure remains retryable.
 
 Current inventory is truth. Reuse `DevicePubSub` invalidation hints, auditing
 raw writers at their actual transaction owners. A hint emitted before commit
@@ -112,8 +134,11 @@ any port. A separate carried-VLAN predicate needs a complete canonical source.
 Text starts-with matching applies to indexed scalar values and configured tag
 keys. Tag-key prefix matching selects devices with a nonempty matching configured
 tag, optionally constrained by an exact value or value prefix. Prefixes are
-literal, case-sensitive strings after the existing canonical whitespace
-normalization; they are not regular expressions or glob programs. A bounded
+literal, case-sensitive strings over canonically normalized source values.
+The builder and server reject empty input or surrounding whitespace rather than
+silently trimming and broadening it; internal spaces remain literal. This applies
+to exact values, scalar prefixes and configured tag-key/value predicates.
+They are not regular expressions or glob programs. A bounded
 value-dictionary range and Roaring union is sufficient unless measurements
 justify a trie. A cap must reject the predicate rather than return a partial
 union. Prefix evaluation shares the query deadline and allocation accounting.
@@ -186,6 +211,12 @@ EXCEPT wrapper), at most 50 requested facet values, a 16 KiB control
 request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON;
 bulk membership and row state may not. Never fall back to a fleet scan in an
 HTTP handler.
+Each tile channel retains one occupied task slot until the actual bounded worker
+finishes, even after replacement, unwatch or reset. Cancelled results are discarded.
+Repeated watches receive `query_busy` without spawning more inner work; no global
+per-owner registry or extra queue is introduced. Missing users are rejected before
+query-pool admission. Query and tile-selection HTTP endpoints share bitmap error
+statuses, with no retry header on invalid or unsupported predicates.
 
 For current authorized live universe U, compute R = U AND expression.
 Negation is relative to U. Facets are conjunctive: count(R AND facet_value),
@@ -277,6 +308,10 @@ Malformed frames and resets retry after 1, 2, 4, 8 and at most 10 seconds.
 Only an accepted complete frame resets the attempt counter; a successful watch
 binding is not recovery. Changed queries or displayed receipts start a new
 retry epoch.
+Reconnect and empty dirty-tile reconciliation preserve the retry signature and
+attempt count. A Prefix Tags source-version refresh updates freshness metadata
+without resetting the builder or unchanged membership; actual source identity,
+support, discovery or readiness changes still invalidate capability identity.
 No roaring-wasm, browser worker or per-view UID dictionary is added.
 
 Phase 3 also replaces the existing per-tile health/flow JSON response, rather

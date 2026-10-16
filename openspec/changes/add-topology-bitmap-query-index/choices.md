@@ -4,15 +4,17 @@ Current decisions in the integrated implementation, ordered with the remaining
 acceptance uncertainty first. A sound decision is not a claim that its hosted
 acceptance has completed. Historical alternatives belong in the review response.
 
-## Keep complete rolling reconciliation until commit coverage is proven
+## Reconcile missed hints without shared inventory-writer locks
 
-- Choice: if an update commits after a scan passed that device and its hint is
-  lost, a later bounded scan repairs it. A timestamp overlap can miss a longer
-  transaction, and the existing per-device revision is not a global commit log.
-- Gap: the simpler review direction proposed an incremental cursor without a
-  proven commit-order source.
-- Reach: database read budget and honest convergence age remain rollout gates.
-- Verdict: sound; preserve correctness while measuring cost.
+- Choice: existing best-effort hints coalesce native Roaring dirty work, while
+  complete bounded keyset scans repair missed updates. A later scan repairs a
+  transaction that committed after the preceding scan passed its device.
+- Gap: neither a timestamp overlap nor per-device revisions form a proven
+  global commit log; durable shared dirty buckets coupled unrelated writers.
+- Reach: convergence depends on measured database read throughput. Inventory
+  writers do not wait on shared dirty locks or an additional durable relay.
+- Verdict: sound; preserves current-membership correctness while avoiding
+  database write contention. Reconciliation cost remains an acceptance gate.
 - Confidence: medium.
 
 ## Keep map sharing limited to its existing camera contract
@@ -142,17 +144,32 @@ acceptance has completed. Historical alternatives belong in the review response.
 ## Preserve retired identities while allowing policy-valid successor seeding
 
 - Choice: retention scrubs mutable payload but preserves UID, ordinal and
-  deletion reason. A subsequent fresh seed may allocate a bounded successor
-  only after payload purge and only when policy permits; source-retired devices
-  remain blocked. Structural defaults and valid fresh timestamps keep a
+  deletion reason. The user chose a durable successor pointer so repeated
+  address reuse can keep allocating fresh identities after payload purge,
+  without increasing the eight-read attempt bound. Locked observed revisions
+  fence concurrent writers; creation and pointer advancement commit together.
+  Source-retired devices remain blocked. Structural defaults and valid fresh timestamps keep a
   legitimately restored retained row readable. Service components receive no
   new device ordinal; existing reserved assignments are retained but excluded.
 - Gap: permanent identity retention must not accidentally make normal address
   reuse impossible or broaden automatic restoration policy.
-- Reach: dictionary and inventory migration locks have finite deadlines, with
+- Reach: purge queries and fixture cleanup distinguish retained identities from
+  live or unpurged devices. Dictionary and inventory locks have finite deadlines, with
   dictionary widening separate from inventory lifecycle DDL. Hosted database
   lifecycle assertions still have to run against the final integrated code.
 - Verdict: sound; preserves identity and existing lifecycle policy together.
+- Confidence: medium pending hosted migration and lifecycle acceptance.
+
+## Keep permanent dictionary protection during rollback
+
+- Choice: the user chose to retain delete/truncate protection on migration
+  rollback. Rollback must keep a compatible retention-cleanup binary or backport,
+  or pause cleanup before using an older incompatible binary.
+- Gap: reversing the allocation/lifecycle triggers alone cannot safely restore
+  an older cleanup implementation that deletes reserved ordinals.
+- Reach: rollback is a coordinated operation; migration documentation names the
+  requirement. Both table locks are acquired without waiting before lifecycle DDL.
+- Verdict: sound; a migration reversal cannot make permanent identity reusable.
 - Confidence: medium pending hosted migration and lifecycle acceptance.
 
 ## Preserve synthetic fixture constraints and measure causal progress
@@ -174,12 +191,55 @@ acceptance has completed. Historical alternatives belong in the review response.
   pinned by in-flight responses or waiting for native reclamation. New builders
   receive backpressure until an older allocation drops. Health retains only
   its world and manifest; it does not retain the separate canonical mapping.
+  Native index admission also includes the actual pending dirty-bitmap charge.
+  Intrinsic IP capacity exhaustion latches IP unavailable while scalar and hint
+  publication continue under unchanged limits.
 - Gap: per-mapping caps alone did not bound overlap between builders, cache
   replacement and delayed channel responses.
 - Reach: mapping retries can delay newly available filters, while accepted
   projections remain usable through transient index-owner failures. Final
   delivery compares the exact mapping, not only its dictionary epoch.
 - Verdict: sound; memory and receipt coherence follow actual resource lifetime.
+- Confidence: high.
+
+## Keep capacity until cancelled channel work actually finishes
+
+- Choice: unwatch/reset clears the requested result but retains the channel's
+  occupied task slot until its existing worker exits. A new watch receives busy
+  during that interval, under the unchanged one-second query deadline.
+- Gap: killing an outer task does not stop its separately supervised inner
+  query; repeated watches could consume the whole eight-worker pool.
+- Reach: other viewers retain capacity, cancelled frames are discarded, and
+  there is no additional global owner registry to leak after killed workers.
+- Verdict: sound; task lifetime stays with the channel that already owns it.
+- Confidence: high.
+
+## Run scale acceptance within the existing guarded lifecycle and time limits
+
+- Choice: compact and sparse each use one existing dispatch-only WebNgDbDiagnostic
+  action and guarded disposable clone. Network/plugin checks remain, and ordinary
+  BazelCI correctness stays required separately. Refuse scale admission unless
+  both observer and action can fit the test, quiet period and bounded cleanup.
+- Gap: the user retained all limits; the action clock includes checkout and
+  preparation, while unbounded cleanup could outlive an otherwise passing test.
+- Reach: the 44-minute scenario stays inside its 45-minute test limit. The
+  observer's 55-minute ceiling shrinks to fit the remaining runner budget;
+  test/observer/cleanup envelopes include forced-exit grace. Each cleanup command
+  gets sixty seconds, and lease release is attempted even after teardown fails.
+  The existing two-hour lease needs no extra renewal or new provisioner.
+- Verdict: sound; slow preparation refuses before workload admission, and slow
+  cleanup remains an explicit failed run rather than a false acceptance claim.
+- Confidence: medium until hosted distributions exercise cleanup and timing.
+
+## Reject surrounding whitespace in filter text
+
+- Choice: reject empty or surrounding-whitespace values in both builder and
+  parser, while preserving internal spaces literally.
+- Gap: a starts-with value ending in a space was silently shortened, selecting
+  a broader group than the operator entered.
+- Reach: scalar and configured tag-key/value predicates share one policy;
+  source normalization is unchanged and invalid input stays visible for correction.
+- Verdict: sound; explicit rejection preserves the approved literal semantics.
 - Confidence: high.
 
 ## Preserve existing source-prefix spellings while accepting mapped IPv6 masks
@@ -196,18 +256,6 @@ acceptance has completed. Historical alternatives belong in the review response.
   network membership. Existing configured prefixes do not change meaning.
 - Verdict: sound; accept the missing standard form without breaking existing
   source data, while keeping the new query syntax unambiguous.
-- Confidence: high.
-
-## Retain minimal canonical tombstones during physical cleanup
-
-- Choice: a deleted device with a persistent ordinal keeps its UID and deletion
-  lineage while mutable payload is scrubbed. Deleting its dictionary would let
-  future membership reuse or lose a previously assigned identity.
-- Gap: the previous cleanup owner deleted child dictionaries before deleting
-  the device; the proposal did not detail physical retention behavior.
-- Reach: purge queries and fixture cleanup must distinguish retained identity
-  from a live or unpurged device.
-- Verdict: sound; immutable identity survives cleanup and legitimate restoration.
 - Confidence: high.
 
 ## Live result pages use current local membership
@@ -228,6 +276,8 @@ acceptance has completed. Historical alternatives belong in the review response.
   changing a filter does not require re-querying telemetry for every tile.
 - Gap: the reduced proposal required binary replacement but did not specify
   how existing telemetry caching and membership cadence share transport.
+  Keep the current fixed SRTO codec; native Arrow encoding is an explicit
+  follow-up requiring parity and allocation/wire measurements before replacement.
 - Reach: two small, explicit row protocols share exact geometry receipts;
   telemetry fields retain coverage, unknowns and observation timestamps.
 - Verdict: sound; replaces bulk JSON while preserving bounded source reads.
@@ -236,8 +286,8 @@ acceptance has completed. Historical alternatives belong in the review response.
 ## Use one outstanding membership frame and current-policy delivery
 
 - Choice: after sending a complete membership frame, the server waits for its
-  acknowledgement before computing another. A fifteen-second stall resets the
-  stream. Every completed response rechecks the current user policy, dictionary
+  acknowledgement before computing another. The five-second tick resets a
+  stream whose acknowledgement has stalled for fifteen seconds. Every completed response rechecks the current user policy, dictionary
   and world before sending; no history queue or old query owner survives.
 - Gap: the plan required bounded slow-viewer behavior without choosing the
   acknowledgement and cancellation lifecycle.
@@ -288,24 +338,6 @@ acceptance has completed. Historical alternatives belong in the review response.
   boundary, while independent OS counters include native work.
 - Confidence: high.
 
-## Keep the combined scale measurement inside the existing scratch lifecycle
-
-- Choice: select compact or sparse IDs in the existing dispatch-only
-  WebNgDbDiagnostic action. Its network and plugin checks still run. Two server
-  VMs share one guarded clone; sparse requests the existing serial_1 generation
-  target, while compact uses serial_0. Existing observation and cleanup own the
-  run. Full BazelCI correctness remains a separate required PR gate.
-- Gap: the plan did not select an execution owner. The hosted runner enforces a one-hour free-tier cap, and an ordinary
-  correctness run can consume most of it. Scale therefore needs its own existing
-  diagnostic dispatch with reliable time for measurement and cleanup.
-- Reach: one variant per dispatch, a 44-minute scenario inside a 45-minute test
-  limit, and a 55-minute observer budget. The existing two-hour lease needs no
-  extra renewal. Preparation can still exhaust the outer cap; an incomplete
-  run remains a failure.
-- Verdict: sound; reusing the smaller existing lifecycle avoids another
-  provisioner and preserves the ordinary CI action unchanged.
-- Confidence: high.
-
 ## Use real server paths while declaring the synthetic geometry boundary
 
 - Choice: two isolated BEAM VMs run the production bounded source, index,
@@ -320,18 +352,6 @@ acceptance has completed. Historical alternatives belong in the review response.
   but cannot be advertised as full browser, layout or ingestion acceptance.
 - Verdict: sound; the narrower boundary is explicit and exercises real
   production behavior without new production hooks or dependencies.
-- Confidence: high.
-
-## Use per-device hints and rolling reconciliation without shared writer locks
-
-- Choice: existing best-effort hints coalesce pending device ordinals, while
-  bounded rolling reconciliation repairs missed updates. Inventory writers do
-  not lock shared dirty buckets or depend on a new durable relay.
-- Gap: durable coalescing was not required to answer current-membership queries.
-- Reach: convergence depends on reconciliation throughput, which remains a
-  hosted acceptance gate; unrelated inventory writes avoid index lock coupling.
-- Verdict: sound; the independent transaction experiment established the cost
-  of shared writer locks, and the current design avoids that coupling.
 - Confidence: high.
 
 ## Send bounded typed rows after server-side Roaring evaluation
@@ -362,10 +382,36 @@ acceptance has completed. Historical alternatives belong in the review response.
 
 - Choice: malformed frames and stream resets retry after one, two, four, eight,
   then ten seconds. A newly acknowledged watch does not erase this history;
-  only an accepted complete frame does. Each replacement uses a fresh view
-  epoch. The synthetic network harness uses the same schedule.
+  reconnecting and cancelling a binding preserve it too. An accepted complete
+  frame, a new query, changed receipts or actual support changes reset it.
+  Each replacement uses a fresh view epoch. The synthetic network harness uses
+  the same schedule.
 - Gap: a successful watch can still produce no usable membership frame.
 - Reach: repeated failures cannot create a fast resubscription loop; transient
   failures may take up to the existing capped retry delay to recover.
 - Verdict: sound; public browser regression cases establish the lifecycle.
+- Confidence: high.
+
+## Refresh source versions without rebuilding the filter form
+
+- Choice: one shared capability-identity function omits only Prefix Tags source
+  versions. Full source descriptors and membership freshness checks remain.
+- Gap: catalog publication changes version frequently without changing which
+  operators a user can select.
+- Reach: version updates retain draft focus, label discovery and active queries;
+  actual field/operator/source changes still invalidate unsupported state.
+- Verdict: sound; source freshness and supported controls have different owners.
+- Confidence: high.
+
+## Remove hidden glyph picking without copying geometry
+
+- Choice: hidden nodes use zero stroke width as well as zero radius and minimum
+  pixel size. Existing row order and packed glyph-position buffers are reused;
+  filtering adds no geometry repack. Initial decoding/packing still copies data.
+- Gap: transparent styling does not remove geometry from the GPU picking pass.
+- Reach: the per-row stroke attribute adds bounded style storage under the
+  existing allowance; no filtered geometry arrays or increased caps are needed.
+  Admission counters remain distinct from a complete JavaScript heap census.
+- Verdict: sound; real GPU picking with a visible underlay verifies the narrower
+  fix and avoids an unnecessary compaction path.
 - Confidence: high.

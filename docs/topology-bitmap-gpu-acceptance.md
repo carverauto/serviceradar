@@ -160,3 +160,49 @@ small manifest even when geometry is unchanged, and retries temporarily absent
 Prefix Tag sources with bounded backoff. Named label discovery retains one
 50-label page; its 128 KiB response cap includes worst-case JSON escaping of
 valid bounded labels. This is control metadata, not bulk membership JSON.
+
+## Follow-up picking and reconnect acceptance
+
+Fresh physical Chrome acceptance used browser commit
+`d64834abcba18a610847a1bf6bcc098a743cf881` and the declared RBE-built page with
+SHA-256 `f3558550546c50bb19ad8b60c024dfef788980662eb8bc209349efd9940757e4`.
+The adapter reported Apple Metal 3 WebGPU with `fallback: false`. This remains
+production browser components over entirely synthetic HTTP/WebSocket transport,
+not hosted Phoenix/database acceptance or a deployment verification.
+
+Transparent styling had removed the visible dot but left a picking hit through
+the nonzero stroke. The layer now zeros stroke width and minimum pixel size as
+well as radius, retaining the original position buffers. The real filter panel's
+VLAN 99 expression accepted total zero and the public GPU picker returned no hit.
+Clearing the query returned the independently expected aggregate population 60.
+Hidden zero-match, pending, stale and unavailable foreground glyphs also allowed
+the independently visible underlay to be picked.
+
+Four overview/pan cycles and ten further pans reached 64 retained tiles from 65
+requests, exercising eviction. Each transition checked the current camera,
+geometry/membership receipts, a new accepted sequence and acknowledgement, render
+completion and GPU queue completion. Renderer and GPU error lists stayed empty.
+Peak tracked GPU buffers were 3,491,908 bytes. Disable cleared membership and
+telemetry retention; teardown and the subsequent enabled remount/teardown each
+reached zero tracked devices, buffers and buffer bytes. The disabled synthetic
+overlay endpoint returns 503, so its remount did not satisfy the active-layer
+loaded check; enabled remount passed that check separately.
+
+Busy replies across an actual Phoenix-client rejoin preserved measured retry
+intervals of 1.056, 2.061, 4.069 and 8.060 seconds. Membership replacement retried
+and recovered; an accepted frame reset the attempt count. A source-version
+change through the five-second manifest poll retained draft focus, pending label
+discovery and accepted membership. Scalar and tag input with surrounding
+whitespace remained visible and invalid until corrected.
+
+The 652 scene tests, eight SwiftShader GPU cases, declared lint and existing
+TypeScript scope passed in
+[BuildBuddy 73840a94](https://carverauto.buildbuddy.io/invocation/73840a94-e01d-4d55-8b25-2869be7a4a2e).
+A deliberate mutation that ignored camera updates failed the current-camera
+wait in
+[BuildBuddy 414d013b](https://carverauto.buildbuddy.io/invocation/414d013b-e0b0-4b1e-8d4a-cd5a44985294);
+restored camera and picking checks passed in
+[BuildBuddy 5df12d28](https://carverauto.buildbuddy.io/invocation/5df12d28-3588-4a06-9d7c-a0b7b5e983a7).
+Buffer counters exclude textures and the JavaScript heap, including Deck's
+shared typed-array pool. This interaction run did not measure steady frame-time
+percentiles or whole-system capacity.

@@ -27,6 +27,16 @@ uploads rather than claiming an end-to-end zero-copy guarantee. See the
 Label shaping and metadata inspection also have CPU work distinct from numeric
 geometry upload.
 
+Filtered glyphs now also set stroke width to zero, alongside radius and minimum
+pixel width, because transparent color alone does not remove WebGPU picking
+geometry. This reuses the admitted Arrow rows and their original positions;
+there is no filtered position-array copy. The per-row Float32 stroke attribute
+adds bounded CPU/GPU style storage covered by the existing per-tile allowance.
+Retention counters are admission charges, not a JavaScript heap census: Deck's
+shared typed-array pool can retain released CPU allocations, and textures are
+outside the buffer counters. Actual device/buffer destruction and public picking
+are separate executable checks.
+
 ## Scale evidence and gaps
 
 The production tile contract limits each response to 128 glyphs, 512 edges and

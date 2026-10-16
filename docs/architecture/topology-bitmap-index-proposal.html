@@ -14799,161 +14799,58 @@
   &lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
-"></iframe></section><section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before rollout.</h2><div class="grid"><article class="card"><h3>Identity and publication</h3><p>Verify ordinal persistence, current canonical sources, bounded publication and missed-hint reconciliation.</p></article><article class="card"><h3>Query and map controls</h3><p>Prove authorization, exact counts, live cursor pages and visible filter semantics. Readiness and incomplete sources remain visible.</p></article><article class="card"><h3>Browser and GPU</h3><p>Verify real binary decoding, tile eviction, reconnects, disable cleanup and GPU submission lifetime. Hardware component evidence is distinct from production-route acceptance.</p></article></div><div class="approval"><h3>Approved implementation scope; deployment remains pending.</h3><p>The complete current design and task checklist follow, including work that is still unfinished. These artifacts do not claim that rollout or carrier-scale acceptance is complete.</p></div><h3>Verified integration; remaining acceptance</h3><p>An earlier integrated remote unit run passed 414 targets with two Swift platform skips. That run predates the latest review fixes and is not final-head acceptance. Final delivery checks share the original request deadline and compare the exact canonical mapping. Native scale and synthetic production-component GPU checks have separate evidence. The negotiated WebSocket matrix is recorded in docs/topology-bitmap-websocket-measurements.md. Hosted database acceptance and combined compact/sparse scale remain unrun.</p><h3>Current product limits</h3><p>Share map preserves the camera, not the filter expression. Named Prefix Tag labels are paged without label search. Zero-match glyphs are masked, and links involving partial aggregates remain hidden when exact matching endpoints cannot be established. Compression stays disabled after the negotiated transport measurement. Combined database scale acceptance is unrun.</p></section><section id="proposal" class="source"><div class="section-label">Complete source document · proposal.md</div><h1>Change: Add a topology bitmap query index</h1>
+"></iframe></section><section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before rollout.</h2><div class="grid"><article class="card"><h3>Identity and publication</h3><p>Verify ordinal persistence, current canonical sources, bounded publication and missed-hint reconciliation.</p></article><article class="card"><h3>Query and map controls</h3><p>Prove authorization, exact counts, live cursor pages and visible filter semantics. Readiness and incomplete sources remain visible.</p></article><article class="card"><h3>Browser and GPU</h3><p>Verify real binary decoding, tile eviction, reconnects, disable cleanup and GPU submission lifetime. Hardware component evidence is distinct from production-route acceptance.</p></article></div><div class="approval"><h3>Approved implementation scope; deployment remains pending.</h3><p>The complete current design and task checklist follow, including work that is still unfinished. These artifacts do not claim that rollout or carrier-scale acceptance is complete.</p></div><h3>Verified integration; remaining acceptance</h3><p>The combined remote unit gate passed 419 targets with two platform skips at runtime commit 2a3032e125. This is unit-tier acceptance; hosted database cases are excluded. Final delivery checks share the original request deadline and compare the exact canonical mapping. Native scale and synthetic production-component GPU checks have separate evidence. The negotiated WebSocket matrix is recorded in docs/topology-bitmap-websocket-measurements.md. Hosted database acceptance and combined compact/sparse scale remain unrun.</p><h3>Current product limits</h3><p>Share map preserves the camera, not the filter expression. Named Prefix Tag labels are paged without label search. Zero-match glyphs are masked, and links involving partial aggregates remain hidden when exact matching endpoints cannot be established. Compression stays disabled after the negotiated transport measurement. Combined database scale acceptance is unrun.</p></section><section id="proposal" class="source"><div class="section-label">Complete source document · proposal.md</div><h1>Change: Add a topology bitmap query index</h1>
 <h2>Why</h2>
-<p>The topology renderer builds Roaring sets over temporary scene positions but
-sends only their sizes and counts. The persistent tiled world needs server-side
-filtering, exact facets and aggregate match counts without scanning inventory
-per interaction or downloading whole-fleet state. <a href="https://github.com/carverauto/serviceradar/issues/5656">Issue #5656</a>
-tracks that requirement.</p>
-<p>The renderer/layout repairs and Arrow-path audit are prerequisites. This change
-preserves automatic ELK rebuilding on trusted parent-tree changes and the GPU
-buffer lifetime fix. Filtering never changes layout.</p>
+<p>The topology renderer builds Roaring sets over temporary scene positions but sends only their sizes and counts. The persistent tiled world needs server-side filtering, exact facets and aggregate match counts without scanning inventory per interaction or downloading whole-fleet state. <a href="https://github.com/carverauto/serviceradar/issues/5656">Issue #5656</a> tracks that requirement.</p>
+<p>The renderer/layout repairs and Arrow-path audit are prerequisites. This change preserves automatic ELK rebuilding on trusted parent-tree changes and the GPU buffer lifetime fix. Filtering never changes layout.</p>
 <h2>What Changes</h2>
 <ul>
-<li>Reuse the persisted device ordinal dictionary, preserving assignments and
-tombstones. Widen storage to the checked unsigned 32-bit range and allocate
-missing canonical device IDs in bounded work without burning sequence values
-on repeat reads. Canonical endpoints share this dictionary.</li>
-<li>Maintain incremental Rust Roaring indexes for canonical inventory attributes
-and current availability, with bounded publication and explicit freshness.</li>
-<li>Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets,
-live ordinal pages and aggregate match counts on the server. Revalidate current
-authority before delivering counts, details, search or overlays.</li>
-<li>Provide a visible map filter builder for inventory VLAN, supported attributes and
-configured tags, with AND/OR/EXCEPT, text-prefix matching and IPv4/IPv6 CIDR
-membership. CIDR matches any known canonical device or interface address and
-returns devices; it does not introduce interface entity queries.</li>
-<li>Include existing named Prefix Tags as device groups, matching current device
-addresses against their configured networks. Reuse local immutable prefix
-snapshots and their matching-chain semantics, with bounded label discovery.</li>
-<li>Replace the active per-tile JSON overlay with typed binary membership, health
-and flow fields, preserving coverage and unknown-state semantics. Membership
-masks/counts align to admitted Arrow rows. The browser needs neither fleet
-sets nor a Roaring WASM runtime; Arrow remains the geometry transport.</li>
-<li>Use existing bounded invalidation hints and rolling keyset reconciliation.
-Inventory writes do not acquire shared bitmap bucket locks or wait for an
-index replica. Missing hints delay freshness; reconciliation repairs them.</li>
-<li>Benchmark independently synthetic 100,000 infrastructure and 1,000,000 endpoint
-devices, including sparse IDs, sustained churn, authorized fanout and copies.</li>
+<li>Reuse the persisted device ordinal dictionary, preserving assignments and tombstones. Widen storage to the checked unsigned 32-bit range and allocate missing canonical device IDs in bounded work without burning sequence values on repeat reads. Canonical endpoints share this dictionary.</li>
+<li>Maintain incremental Rust Roaring indexes for canonical inventory attributes and current availability, with bounded publication and explicit freshness.</li>
+<li>Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets, live ordinal pages and aggregate match counts on the server. Revalidate current authority before delivering counts, details, search or overlays.</li>
+<li>Provide a visible map filter builder for inventory VLAN, supported attributes and configured tags, with AND/OR/EXCEPT, text-prefix matching and IPv4/IPv6 CIDR membership. CIDR matches any known canonical device or interface address and returns devices; it does not introduce interface entity queries.</li>
+<li>Include existing named Prefix Tags as device groups, matching current device addresses against their configured networks. Reuse local immutable prefix snapshots and their matching-chain semantics, with bounded label discovery.</li>
+<li>Replace the active per-tile JSON overlay with typed binary membership, health and flow fields, preserving coverage and unknown-state semantics. Membership masks/counts align to admitted Arrow rows. The browser needs neither fleet sets nor a Roaring WASM runtime; Arrow remains the geometry transport.</li>
+<li>Use existing bounded invalidation hints and rolling keyset reconciliation. Inventory writes do not acquire shared bitmap bucket locks or wait for an index replica. Missing hints delay freshness; reconciliation repairs them.</li>
+<li>Benchmark independently synthetic 100,000 infrastructure and 1,000,000 endpoint devices, including sparse IDs, sustained churn, authorized fanout and copies.</li>
 </ul>
 <h2>Scope and Decisions</h2>
-<p>The proposal was approved; implementation is in progress. The independent review
-in <code>review.md</code> led to a smaller scope. The user explicitly chose current
-membership on each result page. Every response pins one local revision; a later
-page can use a newer revision on any healthy pod. Counts and pages are not a
-frozen export. The user also explicitly required usable map filters, text tag
-prefixes, IP/CIDR membership across any known device/interface IP, and selection
-of existing named Prefix Tags. These are
-release-one requirements, not an internal API or an optional follow-up.</p>
-<p>The product name for the topology engine and its map is ServiceRadar Atlas,
-decided by the user on 2026-10-16. Website, documentation, UI copy and other
-public text say "Atlas" or "ServiceRadar Atlas". The <code>topology-god-view</code>
-capability id, <code>god_view_*</code> module and asset names, and the
-<code>SERVICERADAR_GOD_VIEW_ENABLED</code> flag are unchanged by this change; renaming them
-is a separate change.</p>
-<p>No cross-pod query ownership, result cache, interface dictionary, durable hint
-replication, browser Roaring, XOR history or chunked baseline assembly is added.
-These need a demonstrated product requirement before introduction. Causal,
-alert/impact, site/role and complete-search facets have no approved fleet source
-contract today and remain explicitly unsupported.</p>
-<p>The deployment stays single-deployment. Existing RBAC defines visibility from
-release one; this work adds no tenancy, routing or authorization bypasses.
-Server sets use persistent u32 identities and portable Roaring where sets cross
-native boundaries. Exhaustion rejects new allocations; a future 64-bit identity
-space requires a separate migration and protocol decision.</p>
+<p>The proposal was approved; implementation is in progress. The independent review in <code>review.md</code> led to a smaller scope. The user explicitly chose current membership on each result page. Every response pins one local revision; a later page can use a newer revision on any healthy pod. Counts and pages are not a frozen export. The user also explicitly required usable map filters, text tag prefixes, IP/CIDR membership across any known device/interface IP, and selection of existing named Prefix Tags. These are release-one requirements, not an internal API or an optional follow-up.</p>
+<p>The product name for the topology engine and its map is ServiceRadar Atlas, decided by the user on 2026-10-16. Website, documentation, UI copy and other public text say "Atlas" or "ServiceRadar Atlas". The <code>topology-god-view</code> capability id, <code>god_view_*</code> module and asset names, and the <code>SERVICERADAR_GOD_VIEW_ENABLED</code> flag are unchanged by this change; renaming them is a separate change.</p>
+<p>No cross-pod query ownership, result cache, interface dictionary, durable hint replication, browser Roaring, XOR history or chunked baseline assembly is added. These need a demonstrated product requirement before introduction. Causal, alert/impact, site/role and complete-search facets have no approved fleet source contract today and remain explicitly unsupported.</p>
+<p>The deployment stays single-deployment. Existing RBAC defines visibility from release one; this work adds no tenancy, routing or authorization bypasses. Server sets use persistent u32 identities and portable Roaring where sets cross native boundaries. Exhaustion rejects new allocations; a future 64-bit identity space requires a separate migration and protocol decision.</p>
 <h2>Impact</h2>
 <ul>
 <li>Capability: additive requirements under <code>topology-god-view</code>.</li>
-<li>Persistence: existing <code>platform.device_fleet_ordinals</code>, a durable dictionary
-epoch and retention-safe tombstones. Ash describes the resources; explicit
-SQL owns sequence, trigger and retention invariants that generation cannot
-express. No telemetry storage or durable replication tables are added.</li>
-<li>Server: canonical identity writers, topology lifecycle, Rust NIF, authenticated
-query/detail controllers and bounded tile overlays.</li>
-<li>Browser: binary overlay transport, typed row masks, receipt fencing and GPU
-lifetime handling. No new browser membership runtime dependency.</li>
-<li>Validation: identity transitions, convergence, authorization, binary decoding,
-native scale benchmarks and actual-hardware browser lifecycle checks.</li>
-<li>Related changes: <code>add-endpoint-sbom-inventory</code>,
-<code>refactor-topology-read-model-for-carrier-scale</code>,
-<code>adopt-god-view-columnar-webgpu</code> and <code>verify-topology-feature-parity</code>.</li>
+<li>Persistence: existing <code>platform.device_fleet_ordinals</code>, a durable dictionary epoch and retention-safe tombstones. Ash describes the resources; explicit SQL owns sequence, trigger and retention invariants that generation cannot express. No telemetry storage or durable replication tables are added.</li>
+<li>Server: canonical identity writers, topology lifecycle, Rust NIF, authenticated query/detail controllers and bounded tile overlays.</li>
+<li>Browser: binary overlay transport, typed row masks, receipt fencing and GPU lifetime handling. No new browser membership runtime dependency.</li>
+<li>Validation: identity transitions, convergence, authorization, binary decoding, native scale benchmarks and actual-hardware browser lifecycle checks.</li>
+<li>Related changes: <code>add-endpoint-sbom-inventory</code>, <code>refactor-topology-read-model-for-carrier-scale</code>, <code>adopt-god-view-columnar-webgpu</code> and <code>verify-topology-feature-parity</code>.</li>
 </ul>
 <h2>Review Artifacts</h2>
 <ul>
-<li><a href="#design">Design</a>, <a href="#requirements">requirements</a>,
-<a href="#implementation-tasks">tasks</a>, <a href="../../openspec/changes/add-topology-bitmap-query-index/choices.md">decisions</a> and <a href="#review-response">review response</a>.</li>
-<li><a href="../topology-binary-path-audit.md">Arrow path audit</a>.</li>
-<li>The <a href="topology-bitmap-index.html">architecture</a>
-and <a href="topology-bitmap-index-proposal.html">portable proposal</a>
-reflect the reduced binary-overlay design. Keep the new filter-builder and
-named-prefix scope synchronized before delivery.</li>
+<li><a href="design.md">Design</a>, <a href="specs/topology-god-view/spec.md">requirements</a>, <a href="tasks.md">tasks</a>, <a href="choices.md">decisions</a> and <a href="review-response.md">review response</a>.</li>
+<li><a href="../../../docs/topology-binary-path-audit.md">Arrow path audit</a>.</li>
+<li>The <a href="../../../docs/architecture/topology-bitmap-index.html">architecture</a> and <a href="../../../docs/architecture/topology-bitmap-index-proposal.html">portable proposal</a> reflect the reduced binary-overlay design. Keep the new filter-builder and named-prefix scope synchronized before delivery.</li>
 </ul>
 <div class="checksum">Source SHA-256: 14e99f7907617406b0c7e33e67cbb08ac1b324b90485b983c4250f475d9fda62</div></section>
 <section id="design" class="source"><div class="section-label">Complete source document · design.md</div><h1>ServiceRadar Atlas bitmap query design</h1>
 <h2>Context</h2>
-<p>ServiceRadar Atlas's persistent ELK world owns geometry, aggregate membership and bounded
-Arrow tiles. Roaring belongs beside that world as a server-side query index.
-The browser admits at most 64 tiles of 128 glyphs each, so it needs at most
-8,192 rows of membership and state, not a second set-algebra engine.</p>
-<p>The independent review and measured codec comparison are recorded in
-<code>review-response.md</code>. This design incorporates that review and the user's
-explicit choice of live pagination. Existing layout and GPU lifetime repairs
-remain unchanged.</p>
+<p>ServiceRadar Atlas's persistent ELK world owns geometry, aggregate membership and bounded Arrow tiles. Roaring belongs beside that world as a server-side query index. The browser admits at most 64 tiles of 128 glyphs each, so it needs at most 8,192 rows of membership and state, not a second set-algebra engine.</p>
+<p>The independent review and measured codec comparison are recorded in <code>review-response.md</code>. This design incorporates that review and the user's explicit choice of live pagination. Existing layout and GPU lifetime repairs remain unchanged.</p>
 <h2>1. Persistent device identity</h2>
-<p>Reuse <code>platform.device_fleet_ordinals</code>. Store checked values in
-<code>1..4294967295</code>, retain every assignment and tombstone, and never renumber gaps.
-An existing assignment must not advance the allocator. Reject capacity
-exhaustion explicitly while preserving reads. Allocate canonical devices from
-all writers and backfill through resumable pages of at most 500 records.
-Canonical endpoints share the device dictionary; glyphs and relation clips do
-not consume device IDs. An interface dictionary is deferred until a product
-requirement defines interface queries and parent authorization.</p>
-<p>A durable dictionary epoch changes only for incompatible restoration or
-replacement, independently of process restarts and layout changes. Every set
-carries its dictionary epoch and device kind. Incompatible operands are
-rejected. A future u64 identity protocol needs a separate migration.</p>
-<p>Deletion removes live membership without freeing the ordinal. Merges retain
-the losing identity as a tombstone and transfer membership to the survivor;
-a stale event cannot revive the loser. A legitimate restore reuses its ID.
-Physical retention cleanup must preserve these invariants: scrub an allocated
-device to a minimal retained tombstone instead of deleting its dictionary entry.
-Rollback keeps widened storage, epochs and assigned IDs. Ash resources describe
-the schema; explicit SQL owns sequence and trigger invariants.</p>
+<p>Reuse <code>platform.device_fleet_ordinals</code>. Store checked values in <code>1..4294967295</code>, retain every assignment and tombstone, and never renumber gaps. An existing assignment must not advance the allocator. Reject capacity exhaustion explicitly while preserving reads. Allocate canonical devices from all writers and backfill through resumable pages of at most 500 records. Canonical endpoints share the device dictionary; glyphs and relation clips do not consume device IDs. An interface dictionary is deferred until a product requirement defines interface queries and parent authorization.</p>
+<p>A durable dictionary epoch changes only for incompatible restoration or replacement, independently of process restarts and layout changes. Every set carries its dictionary epoch and device kind. Incompatible operands are rejected. A future u64 identity protocol needs a separate migration.</p>
+<p>Deletion removes live membership without freeing the ordinal. Merges retain the losing identity as a tombstone and transfer membership to the survivor; a stale event cannot revive the loser. A legitimate restore reuses its ID. Physical retention cleanup must preserve these invariants: scrub an allocated device to a minimal retained tombstone instead of deleting its dictionary entry. Rollback keeps widened storage, epochs and assigned IDs. Ash resources describe the schema; explicit SQL owns sequence and trigger invariants.</p>
+<p>Repeated sweep seeding at one address allocates new identities after eligible predecessors are purged. The deterministic address-root tombstone retains one current-successor pointer as minimal lineage. Each attempt reads at most eight successors, persists verified progress when that budget is exhausted, and defers remaining work. Existing UID-sorted identity fences bind the observed head; creation and head movement commit atomically. Merged roots do not redirect the new seed to a merge survivor, and a source-retired head still suppresses seeding. No old ordinal is reused. Physical scrub preserves the successor pointer.</p>
+<p>Rollback retains dictionary deletion/truncate protection. It requires a cleanup binary with retained-identity support (or that support backported), or cleanup must be paused; an arbitrary older cleanup worker is unsupported. Lifecycle DDL acquires both inventory and dictionary table locks with NOWAIT up front, so a busy deployment fails atomically for maintenance retry instead of deadlocking against writers. Canonical device liveness remains authoritative when historical dictionary tombstone flags lag inventory.</p>
 <h2>2. Native index and freshness</h2>
-<p>One supervised publisher per web replica applies complete typed rows in batches
-of at most 500. A row contains its ordinal, live status and supported facets.
-No JSON serialization is introduced between BEAM and Rust. Immutable revisions
-make each query's membership, counts and source metadata coherent. Native work
-runs on bounded dirty CPU workers with explicit deadlines, not normal BEAM
-schedulers. Charge postings, temporary sets, retained revisions, ordinal
-projections and simultaneous replacements to per-replica memory limits.</p>
-<p>Current inventory is truth. Reuse <code>DevicePubSub</code> invalidation hints, auditing
-raw writers at their actual transaction owners. A hint emitted before commit
-can cause a reread of old state; add missing notifications only after the outer
-transaction commits. Keep pending ordinals in native Roaring under a 512 KiB
-byte cap; the 500-row read batch is not its membership capacity. Normalize UID
-hints through bounded reads, with separate limits on that ingress. Coalesce
-repeated IDs; overflow requests reconciliation without an unbounded mailbox.
-Lost hints and restarts are repaired by rolling, bounded keyset scans. Preserve
-an accepted index while preparing a replacement and report its age honestly.</p>
-<p>There are no shared dirty bucket locks, outbox, JetStream control stream,
-replica leases or replay checkpoints. These hints are control-state freshness
-signals, not telemetry; the existing JetStream requirement for metrics is
-unchanged. No index consumer may block an inventory transaction.</p>
-<p>Full rolling reconciliation remains the completeness backstop. Existing
-<code>identity_revision</code> is per-device and does not cover every facet update;
-<code>modified_time</code> is not commit order. Neither is a safe global cursor, and a
-finite timestamp overlap cannot cover arbitrarily late commits. Any future
-incremental database cursor needs its own late-commit proof. Reconciliation
-reads share a bounded worker and rate budget with dirty updates, so a large
-fleet cannot create an unbounded scan or starve new hints. A configured cadence
-is not a guarantee that a million-row scan finishes within that interval.</p>
-<p>Expose seed readiness, last completed reconciliation, oldest pending work,
-source errors and unavailable facets. Exact counts mean exact for the returned
-published revision, not a claim that the entire fleet was read in one database
-transaction. On incomplete seed, exhausted memory or a source that cannot
-provide its advertised semantics, return an explicit unavailable/stale status.</p>
+<p>One supervised publisher per web replica applies complete typed rows in batches of at most 500. A row contains its ordinal, live status and supported facets. No JSON serialization is introduced between BEAM and Rust. Immutable revisions make each query's membership, counts and source metadata coherent. Native work runs on bounded dirty CPU workers with explicit deadlines, not normal BEAM schedulers. Charge postings, temporary sets, retained revisions, ordinal projections and simultaneous replacements to per-replica memory limits. Intrinsic address capacity includes the actual retained dirty bitmap charge. Final admission holds the existing pending lock through publication, preventing new hints from invalidating that capacity decision. Intrinsic exhaustion disables the address facet explicitly while scalar publication and queued hints survive; temporary reader or scratch pressure remains retryable.</p>
+<p>Current inventory is truth. Reuse <code>DevicePubSub</code> invalidation hints, auditing raw writers at their actual transaction owners. A hint emitted before commit can cause a reread of old state; add missing notifications only after the outer transaction commits. Keep pending ordinals in native Roaring under a 512 KiB byte cap; the 500-row read batch is not its membership capacity. Normalize UID hints through bounded reads, with separate limits on that ingress. Coalesce repeated IDs; overflow requests reconciliation without an unbounded mailbox. Lost hints and restarts are repaired by rolling, bounded keyset scans. Preserve an accepted index while preparing a replacement and report its age honestly.</p>
+<p>There are no shared dirty bucket locks, outbox, JetStream control stream, replica leases or replay checkpoints. These hints are control-state freshness signals, not telemetry; the existing JetStream requirement for metrics is unchanged. No index consumer may block an inventory transaction.</p>
+<p>Full rolling reconciliation remains the completeness backstop. Existing <code>identity_revision</code> is per-device and does not cover every facet update; <code>modified_time</code> is not commit order. Neither is a safe global cursor, and a finite timestamp overlap cannot cover arbitrarily late commits. Any future incremental database cursor needs its own late-commit proof. Reconciliation reads share a bounded worker and rate budget with dirty updates, so a large fleet cannot create an unbounded scan or starve new hints. A configured cadence is not a guarantee that a million-row scan finishes within that interval.</p>
+<p>Expose seed readiness, last completed reconciliation, oldest pending work, source errors and unavailable facets. Exact counts mean exact for the returned published revision, not a claim that the entire fleet was read in one database transaction. On incomplete seed, exhausted memory or a source that cannot provide its advertised semantics, return an explicit unavailable/stale status.</p>
 <h2>3. Supported sources</h2>
 <table>
 <thead>
@@ -14989,210 +14886,37 @@ provide its advertised semantics, return an explicit unavailable/stale status.</
 </tr>
 </tbody>
 </table>
-<p>Missing values use the documented unknown bucket. Cap facet count, key length,
-value length, value cardinality and retained bytes. A facet that exceeds its
-budget becomes wholly unavailable; never return a partial index as exact.</p>
-<p>Causal state has no approved fleet-scale producer today. The legacy bounded
-scene evaluator is not such a producer, and availability cannot substitute for
-causality. Site/role, alerts, incidents, impact and complete search-set adapters
-also remain unsupported until canonical source and completeness contracts are
-approved. This feature adds no replacement causal engine.</p>
+<p>Missing values use the documented unknown bucket. Cap facet count, key length, value length, value cardinality and retained bytes. A facet that exceeds its budget becomes wholly unavailable; never return a partial index as exact.</p>
+<p>Causal state has no approved fleet-scale producer today. The legacy bounded scene evaluator is not such a producer, and availability cannot substitute for causality. Site/role, alerts, incidents, impact and complete search-set adapters also remain unsupported until canonical source and completeness contracts are approved. This feature adds no replacement causal engine.</p>
 <h3>Map filter experience and prefix semantics</h3>
-<p>The map exposes a visible filter builder, not only a JavaScript setter. Operators
-can combine inventory VLANs, supported canonical fields and configured tags using
-AND, OR and EXCEPT; clear restores the base view without waiting for the index.
-The server advertises supported fields, configured tag keys, operators and
-readiness in bounded manifest metadata. Unconfigured or incomplete sources are
-explicitly unavailable; they never silently broaden a query. Numeric device
-class values and canonical VLAN identifiers are labeled honestly. Inventory VLAN
-means the recorded device assignment, not proof that a switch carries a VLAN on
-any port. A separate carried-VLAN predicate needs a complete canonical source.</p>
-<p>Text starts-with matching applies to indexed scalar values and configured tag
-keys. Tag-key prefix matching selects devices with a nonempty matching configured
-tag, optionally constrained by an exact value or value prefix. Prefixes are
-literal, case-sensitive strings after the existing canonical whitespace
-normalization; they are not regular expressions or glob programs. A bounded
-value-dictionary range and Roaring union is sufficient unless measurements
-justify a trie. A cap must reject the predicate rather than return a partial
-union. Prefix evaluation shares the query deadline and allocation accounting.</p>
-<p>IP/CIDR is a different operator: parse IPv4/IPv6 numerically and match any known
-current device or interface address. Several matching addresses on one device
-count once. Never combine per-device address-bit postings from different
-addresses: that can synthesize an address the device does not have. Keep address
-associations native, account their memory, and construct the result bitmap from
-exact address containment. Invalid input and incomplete address projection fail
-explicitly; no HTTP-handler fleet scan, per-IP high-cardinality scalar facet or
-interface ordinal dictionary is introduced. Canonical address source details,
-publication bounds and native structure must be measured before these
-requirements can be marked complete.</p>
-<p>Current address owners are Device.ip, active device aliases, interface address
-arrays and existing virtual interfaces. An administratively or operationally
-down interface retains its assigned addresses. Historical IP identity records
-alone are not current assignment evidence. Normalize host suffixes and zone IDs
-at ingestion; normalize IPv4-mapped IPv6 consistently. Query CIDRs accept only
-numeric IPv4/IPv6, with ambiguous mapped prefixes rejected explicitly.</p>
-<p>Read each bounded device batch and its address streams from one read-only
-repeatable-read transaction. Stream at most 500 associations at a time into one
-unpublished native stage, with a 16 MiB stage cap and fixed timeout. Complete all
-address sources before publishing that batch's scalar and IP state atomically.
-An oversized or incomplete source makes IP predicates unavailable; a later
-successful batch for another device cannot silently clear that condition.
-Exact scalar facets can remain available. Use sorted packed native address and
-reverse-owner indexes so containment and full-device address replacement need
-neither fleet BEAM enumeration nor per-IP scalar postings. Charge copied leaves,
-retained readers and staging to the same declared memory limits.</p>
+<p>The map exposes a visible filter builder, not only a JavaScript setter. Operators can combine inventory VLANs, supported canonical fields and configured tags using AND, OR and EXCEPT; clear restores the base view without waiting for the index. The server advertises supported fields, configured tag keys, operators and readiness in bounded manifest metadata. Unconfigured or incomplete sources are explicitly unavailable; they never silently broaden a query. Numeric device class values and canonical VLAN identifiers are labeled honestly. Inventory VLAN means the recorded device assignment, not proof that a switch carries a VLAN on any port. A separate carried-VLAN predicate needs a complete canonical source.</p>
+<p>Text starts-with matching applies to indexed scalar values and configured tag keys. Tag-key prefix matching selects devices with a nonempty matching configured tag, optionally constrained by an exact value or value prefix. Prefixes are literal, case-sensitive strings over canonically normalized source values. The builder and server reject empty input or surrounding whitespace rather than silently trimming and broadening it; internal spaces remain literal. This applies to exact values, scalar prefixes and configured tag-key/value predicates. They are not regular expressions or glob programs. A bounded value-dictionary range and Roaring union is sufficient unless measurements justify a trie. A cap must reject the predicate rather than return a partial union. Prefix evaluation shares the query deadline and allocation accounting.</p>
+<p>IP/CIDR is a different operator: parse IPv4/IPv6 numerically and match any known current device or interface address. Several matching addresses on one device count once. Never combine per-device address-bit postings from different addresses: that can synthesize an address the device does not have. Keep address associations native, account their memory, and construct the result bitmap from exact address containment. Invalid input and incomplete address projection fail explicitly; no HTTP-handler fleet scan, per-IP high-cardinality scalar facet or interface ordinal dictionary is introduced. Canonical address source details, publication bounds and native structure must be measured before these requirements can be marked complete.</p>
+<p>Current address owners are Device.ip, active device aliases, interface address arrays and existing virtual interfaces. An administratively or operationally down interface retains its assigned addresses. Historical IP identity records alone are not current assignment evidence. Normalize host suffixes and zone IDs at ingestion; normalize IPv4-mapped IPv6 consistently. Query CIDRs accept only numeric IPv4/IPv6, with ambiguous mapped prefixes rejected explicitly.</p>
+<p>Read each bounded device batch and its address streams from one read-only repeatable-read transaction. Stream at most 500 associations at a time into one unpublished native stage, with a 16 MiB stage cap and fixed timeout. Complete all address sources before publishing that batch's scalar and IP state atomically. An oversized or incomplete source makes IP predicates unavailable; a later successful batch for another device cannot silently clear that condition. Exact scalar facets can remain available. Use sorted packed native address and reverse-owner indexes so containment and full-device address replacement need neither fleet BEAM enumeration nor per-IP scalar postings. Charge copied leaves, retained readers and staging to the same declared memory limits.</p>
 <h3>Existing named Prefix Tags</h3>
-<p>The user also approved selecting existing named Prefix Tags. A predicate binds
-one source and exact label. Preserve the prefix engine's existing full matching
-chain: a label on any matching ancestor prefix contributes, with no invented
-longest-prefix override. A label's network union intersects the current native
-address index and returns deduplicated device membership.</p>
-<p>Capture source version and immutable native handle together. Reuse the web
-service's existing local loaders; query-time core RPC, per-device BEAM lookups
-and prefix-table scans are forbidden. Sources absent locally are explicitly
-unavailable. Label discovery returns at most 50 labels per page, binding its
-live lexical cursor to source, authority and last label. Pod-local source
-versions are response metadata, not cross-replica cursor identities. Reserve
-at most 4 MiB total additional catalog
-memory across sources and retained snapshots. Build catalogs only in the
-existing background bitmap worker; default-off snapshots allocate none. Retry
-admission after retained snapshots release memory, and release catalogs on
-feature disable. Catalog admission failure does
-not break existing prefix lookup; named-tag queries report unavailability.</p>
-<p>Return sorted, disjoint inclusive numeric ranges to the bitmap engine. Across
-one query, allow at most 4,096 merged ranges and 256 KiB compiled selector
-bytes, sharing the original one-second deadline. Reject overflow before partial
-results escape. These limits apply in addition to the 32 user predicates and
-16 KiB control request. Source versions are captured and rechecked within one
-response and reported as freshness metadata. Device pagination remains live:
-its cursor binds source/label expression identity, not an old prefix version.
-An update between pages can therefore change membership as already approved.</p>
+<p>The user also approved selecting existing named Prefix Tags. A predicate binds one source and exact label. Preserve the prefix engine's existing full matching chain: a label on any matching ancestor prefix contributes, with no invented longest-prefix override. A label's network union intersects the current native address index and returns deduplicated device membership.</p>
+<p>Capture source version and immutable native handle together. Reuse the web service's existing local loaders; query-time core RPC, per-device BEAM lookups and prefix-table scans are forbidden. Sources absent locally are explicitly unavailable. Label discovery returns at most 50 labels per page, binding its live lexical cursor to source, authority and last label. Pod-local source versions are response metadata, not cross-replica cursor identities. Reserve at most 4 MiB total additional catalog memory across sources and retained snapshots. Build catalogs only in the existing background bitmap worker; default-off snapshots allocate none. Retry admission after retained snapshots release memory, and release catalogs on feature disable. Catalog admission failure does not break existing prefix lookup; named-tag queries report unavailability.</p>
+<p>Return sorted, disjoint inclusive numeric ranges to the bitmap engine. Across one query, allow at most 4,096 merged ranges and 256 KiB compiled selector bytes, sharing the original one-second deadline. Reject overflow before partial results escape. These limits apply in addition to the 32 user predicates and 16 KiB control request. Source versions are captured and rechecked within one response and reported as freshness metadata. Device pagination remains live: its cursor binds source/label expression identity, not an old prefix version. An update between pages can therefore change membership as already approved.</p>
 <h2>4. Authorized queries and live pages</h2>
-<p>Accept normalized <code>all</code>, <code>any</code>, <code>except</code>, exact/prefix facet-value predicates,
-configured tag-key prefixes, typed IP/CIDR and named Prefix Tag predicates, with
-32 predicates, 65 expression nodes and depth 8 (root at depth 1, including every
-EXCEPT wrapper), at most 50 requested facet values, a 16 KiB control
-request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON;
-bulk membership and row state may not. Never fall back to a fleet scan in an
-HTTP handler.</p>
-<p>For current authorized live universe U, compute R = U AND expression.
-Negation is relative to U. Facets are conjunctive: count(R AND facet_value),
-including same-facet predicates. Empty results succeed with zero counts.
-One request pins one native revision for its results, facets, aggregate counts
-and metadata, then releases it. There is no result cache or cross-request pin.</p>
-<p>Revalidate current RBAC at admission and delivery, including search, details,
-counts, 304 responses and overlay frames. Current deployment-wide policy can
-produce all or none of the live universe; finer visibility must come from real
-policy. No tenants, bypass actors or parallel authorization model are added.
-Revocation cancels pending work and clears client membership.</p>
-<p>Pages use stable ordinal &gt; last_ordinal over the receiving pod's current
-published index. Authenticated cursors bind dictionary epoch, entity kind,
-normalized query digest, current authority fingerprint and last ordinal. The
-request resubmits its bounded expression. Source/index revisions are response
-freshness metadata, not an owning-node address. A later page can reflect changed
-membership; newly matching earlier ordinals require restarting from page one.
-Changing query, authority or dictionary requires a new cursor. Pod loss does
-not require routing to an old owner. Layout-bound detail cursors still enforce
-the existing world generation and candidate/page limits.</p>
+<p>Accept normalized <code>all</code>, <code>any</code>, <code>except</code>, exact/prefix facet-value predicates, configured tag-key prefixes, typed IP/CIDR and named Prefix Tag predicates, with 32 predicates, 65 expression nodes and depth 8 (root at depth 1, including every EXCEPT wrapper), at most 50 requested facet values, a 16 KiB control request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON; bulk membership and row state may not. Never fall back to a fleet scan in an HTTP handler. Each tile channel retains one occupied task slot until the actual bounded worker finishes, even after replacement, unwatch or reset. Cancelled results are discarded. Repeated watches receive <code>query_busy</code> without spawning more inner work; no global per-owner registry or extra queue is introduced. Missing users are rejected before query-pool admission. Query and tile-selection HTTP endpoints share bitmap error statuses, with no retry header on invalid or unsupported predicates.</p>
+<p>For current authorized live universe U, compute R = U AND expression. Negation is relative to U. Facets are conjunctive: count(R AND facet_value), including same-facet predicates. Empty results succeed with zero counts. One request pins one native revision for its results, facets, aggregate counts and metadata, then releases it. There is no result cache or cross-request pin.</p>
+<p>Revalidate current RBAC at admission and delivery, including search, details, counts, 304 responses and overlay frames. Current deployment-wide policy can produce all or none of the live universe; finer visibility must come from real policy. No tenants, bypass actors or parallel authorization model are added. Revocation cancels pending work and clears client membership.</p>
+<p>Pages use stable ordinal &gt; last_ordinal over the receiving pod's current published index. Authenticated cursors bind dictionary epoch, entity kind, normalized query digest, current authority fingerprint and last ordinal. The request resubmits its bounded expression. Source/index revisions are response freshness metadata, not an owning-node address. A later page can reflect changed membership; newly matching earlier ordinals require restarting from page one. Changing query, authority or dictionary requires a new cursor. Pod loss does not require routing to an old owner. Layout-bound detail cursors still enforce the existing world generation and candidate/page limits.</p>
 <h2>5. Tile projection and binary overlay</h2>
-<p>Filtering changes visibility and counts, never ELK positions or parent links.
-With no selected query, the base view remains available and preserves boundary
-portals without starting a membership stream. An explicit all-devices query is
-still a query and obeys all membership and unsupported-boundary guards.
-Intersect R with admitted glyph membership in native code. Leaves use persistent
-ordinals; aggregates use world-bound canonical membership and return exact
-authorized match counts. Do not enumerate whole aggregates in BEAM or the
-browser just to count them. Relations require both authorized endpoints or an
-explicit authorized aggregate/bundle population; unsupported boundary selectors
-remain hidden rather than exposing unrelated members.</p>
-<p>Build the world's canonical ordinal projection in the existing supervised world
-loader after geometry installation and index seeding. Stream dictionary pages
-of at most 500 identities, retaining a native u32 vector rather than another UID
-map. Seal and install it only against the exact accepted native world. Missing
-canonical identities remain excluded and are reported as incomplete mapping;
-bounded rescans repair later allocations without using sequence order as commit
-order. A complete mapping can be reused for that immutable world and dictionary.
-Limit generated portable aggregate selectors to 8 MiB for an entire admitted
-view, independently of the much smaller outgoing row frame. Include export
-scratch and temporary BEAM binaries in peak-memory reporting.</p>
-<p>Keep existing limits: 128 glyphs, 512 edges and 256 KiB per tile, 64 admitted
-tiles, four concurrent fetches and 32 MiB geometry cache. The membership budget
-remains 8 MiB including retained CPU/GPU buffers and temporary staging. Reject
-work before excessive allocation. Filtered detail pages retain 128-device,
-256-relation and 4,096-candidate limits; unsupported filtered scenes fail
-explicitly rather than broadening the result.</p>
-<p>Negotiate a versioned little-endian binary overlay aligned to exact Arrow tile
-row order. Each full replacement binds dictionary epoch, query digest, current
-authority fingerprint and admitted-view receipts. Include the exact whole-query
-device count; summing visible aggregate counts is incorrect when levels overlap.
-Include source/index revision
-metadata and a lossless sequence; revisions are never unsafe JavaScript numbers.
-Per tile, include coordinates, exact tile revision and row count, followed by
-contiguous matching u8, causal-state u8, availability-state u8 and matched-count
-u32 columns. Native projection produces these bounded buffers directly.</p>
-<p>Causal codes are 0=root_cause, 1=affected, 2=healthy, 3=unknown; release one emits
-unknown. Availability is a separate domain: 0=healthy, 1=unavailable, 2=unknown.
-An aggregate gets a known availability only when its authorized matching members
-are nonempty and unanimously in that state; mixed and empty populations are
-unknown. Leaf counts are zero or one; aggregate counts are exact intersections.</p>
-<p>Use full atomic replacements, not XOR deltas or chunk assembly. At the maximum
-admitted row count, the four columns occupy 57,344 bytes before bounded receipts
-and envelope, fitting one 256 KiB frame. Validate every receipt, length, enum
-and row count before replacing accepted masks. Discard obsolete sequences and
-late responses. A missed intermediate full replacement does not corrupt the
-next frame. Changes to query, authority, layout or admitted receipts require a
-matching replacement; pending filters never display unfiltered success.
-Membership receipts describe displayed geometry only; unrelated offscreen
-prefetch stays in the geometry watch without clearing accepted membership.
-Validate counts against each row's represented population, including zero for
-unsupported boundary rows. Do not sum overlapping tiles to validate a total.</p>
-<p>Allow only one unacknowledged full frame per connection. Coalesce updates by
-reading current membership after acknowledgement; retain no queued frame history.
-An acknowledgement stalled for fifteen seconds causes one reset. Reconnect
-requires a fresh replacement. Eviction, disconnect and
-feature disable release masks; valid geometry survives membership resets.
-Malformed frames and resets retry after 1, 2, 4, 8 and at most 10 seconds.
-Only an accepted complete frame resets the attempt counter; a successful watch
-binding is not recovery. Changed queries or displayed receipts start a new
-retry epoch.
-No roaring-wasm, browser worker or per-view UID dictionary is added.</p>
-<p>Phase 3 also replaces the existing per-tile health/flow JSON response, rather
-than leaving it beside a new membership stream. Encode directional rates,
-coverage, eligibility, explicit unknown values and observation timestamps as
-bounded typed binary fields. Keep telemetry revisions separate from membership
-revisions and preserve the current four-request scheduler. Each tile's binary
-response stays within 256 KiB; edge telemetry is not accumulated into a single
-64-tile frame. Encode once after telemetry reads and cache the binary payload;
-the HTTP route serves it directly under a negotiated binary MIME type. Replace
-JSON encoding used only for size checks with the actual binary frame budget.
-Keep native health epochs in their existing opaque hexadecimal domain and
-preserve integer revisions losslessly. Small query/control metadata may remain JSON, but no bulk
-health or flow arrays are wrapped in JSON or embedded as JSON inside a binary
-envelope. The rollout-disabled compatibility path is identified separately.
-Admit telemetry before fetching in stable numeric tile order, reserving maximum
-row bytes and CPU/GPU metadata allowances within the 5 MiB retention cap.
-Unadmitted telemetry stays explicitly unknown until the viewport admission
-changes, avoiding repeated fetch/eviction cycles on a stationary dense view.</p>
-<p>An aggregate's existing traffic rate describes its whole represented bundle.
-Hide the relation, traffic animation and rates if either endpoint has only
-partial query membership, until an exact filtered-relation calculation is
-implemented. Two partially matched endpoints do not prove that any underlying
-link joins their matching members. A
-whole-bundle rate must never be presented as the filtered population's rate.</p>
-<p>Arrow attributes stay typed. Measure IPC decode, native projection, transport,
-mask staging and GPU upload copies separately. WebGPU uploads do not establish
-end-to-end zero copy. Queued commands must finish before referenced buffers are
-destroyed or replaced.</p>
+<p>Filtering changes visibility and counts, never ELK positions or parent links. With no selected query, the base view remains available and preserves boundary portals without starting a membership stream. An explicit all-devices query is still a query and obeys all membership and unsupported-boundary guards. Intersect R with admitted glyph membership in native code. Leaves use persistent ordinals; aggregates use world-bound canonical membership and return exact authorized match counts. Do not enumerate whole aggregates in BEAM or the browser just to count them. Relations require both authorized endpoints or an explicit authorized aggregate/bundle population; unsupported boundary selectors remain hidden rather than exposing unrelated members.</p>
+<p>Build the world's canonical ordinal projection in the existing supervised world loader after geometry installation and index seeding. Stream dictionary pages of at most 500 identities, retaining a native u32 vector rather than another UID map. Seal and install it only against the exact accepted native world. Missing canonical identities remain excluded and are reported as incomplete mapping; bounded rescans repair later allocations without using sequence order as commit order. A complete mapping can be reused for that immutable world and dictionary. Limit generated portable aggregate selectors to 8 MiB for an entire admitted view, independently of the much smaller outgoing row frame. Include export scratch and temporary BEAM binaries in peak-memory reporting.</p>
+<p>Keep existing limits: 128 glyphs, 512 edges and 256 KiB per tile, 64 admitted tiles, four concurrent fetches and 32 MiB geometry cache. The membership budget remains 8 MiB including retained CPU/GPU buffers and temporary staging. Reject work before excessive allocation. Filtered detail pages retain 128-device, 256-relation and 4,096-candidate limits; unsupported filtered scenes fail explicitly rather than broadening the result.</p>
+<p>Negotiate a versioned little-endian binary overlay aligned to exact Arrow tile row order. Each full replacement binds dictionary epoch, query digest, current authority fingerprint and admitted-view receipts. Include the exact whole-query device count; summing visible aggregate counts is incorrect when levels overlap. Include source/index revision metadata and a lossless sequence; revisions are never unsafe JavaScript numbers. Per tile, include coordinates, exact tile revision and row count, followed by contiguous matching u8, causal-state u8, availability-state u8 and matched-count u32 columns. Native projection produces these bounded buffers directly.</p>
+<p>Causal codes are 0=root_cause, 1=affected, 2=healthy, 3=unknown; release one emits unknown. Availability is a separate domain: 0=healthy, 1=unavailable, 2=unknown. An aggregate gets a known availability only when its authorized matching members are nonempty and unanimously in that state; mixed and empty populations are unknown. Leaf counts are zero or one; aggregate counts are exact intersections.</p>
+<p>Use full atomic replacements, not XOR deltas or chunk assembly. At the maximum admitted row count, the four columns occupy 57,344 bytes before bounded receipts and envelope, fitting one 256 KiB frame. Validate every receipt, length, enum and row count before replacing accepted masks. Discard obsolete sequences and late responses. A missed intermediate full replacement does not corrupt the next frame. Changes to query, authority, layout or admitted receipts require a matching replacement; pending filters never display unfiltered success. Membership receipts describe displayed geometry only; unrelated offscreen prefetch stays in the geometry watch without clearing accepted membership. Validate counts against each row's represented population, including zero for unsupported boundary rows. Do not sum overlapping tiles to validate a total.</p>
+<p>Allow only one unacknowledged full frame per connection. Coalesce updates by reading current membership after acknowledgement; retain no queued frame history. An acknowledgement stalled for fifteen seconds causes one reset. Reconnect requires a fresh replacement. Eviction, disconnect and feature disable release masks; valid geometry survives membership resets. Malformed frames and resets retry after 1, 2, 4, 8 and at most 10 seconds. Only an accepted complete frame resets the attempt counter; a successful watch binding is not recovery. Changed queries or displayed receipts start a new retry epoch. Reconnect and empty dirty-tile reconciliation preserve the retry signature and attempt count. A Prefix Tags source-version refresh updates freshness metadata without resetting the builder or unchanged membership; actual source identity, support, discovery or readiness changes still invalidate capability identity. No roaring-wasm, browser worker or per-view UID dictionary is added.</p>
+<p>Phase 3 also replaces the existing per-tile health/flow JSON response, rather than leaving it beside a new membership stream. Encode directional rates, coverage, eligibility, explicit unknown values and observation timestamps as bounded typed binary fields. Keep telemetry revisions separate from membership revisions and preserve the current four-request scheduler. Each tile's binary response stays within 256 KiB; edge telemetry is not accumulated into a single 64-tile frame. Encode once after telemetry reads and cache the binary payload; the HTTP route serves it directly under a negotiated binary MIME type. Replace JSON encoding used only for size checks with the actual binary frame budget. Keep native health epochs in their existing opaque hexadecimal domain and preserve integer revisions losslessly. Small query/control metadata may remain JSON, but no bulk health or flow arrays are wrapped in JSON or embedded as JSON inside a binary envelope. The rollout-disabled compatibility path is identified separately. Admit telemetry before fetching in stable numeric tile order, reserving maximum row bytes and CPU/GPU metadata allowances within the 5 MiB retention cap. Unadmitted telemetry stays explicitly unknown until the viewport admission changes, avoiding repeated fetch/eviction cycles on a stationary dense view.</p>
+<p>An aggregate's existing traffic rate describes its whole represented bundle. Hide the relation, traffic animation and rates if either endpoint has only partial query membership, until an exact filtered-relation calculation is implemented. Two partially matched endpoints do not prove that any underlying link joins their matching members. A whole-bundle rate must never be presented as the filtered population's rate.</p>
+<p>Arrow attributes stay typed. Measure IPC decode, native projection, transport, mask staging and GPU upload copies separately. WebGPU uploads do not establish end-to-end zero copy. Queued commands must finish before referenced buffers are destroyed or replaced.</p>
 <h2>6. Rollout and measurement</h2>
-<p>The topology_bitmap_enabled flag defaults false and composes with the existing
-Atlas gate (<code>SERVICERADAR_GOD_VIEW_ENABLED</code>). Enable only after identity, convergence, authorization, synthetic
-scale and actual-hardware browser checks pass. Disabling releases resources and
-returns explicit unsupported-filter state while the bounded base view remains.
-Deployment, release and destructive data cleanup require separate authorization.</p>
-<p>Use independently synthetic 100,000 infrastructure plus 1,000,000 canonical
-endpoint devices, compact and sparse IDs including values above 2^31. Declare
-seed, facet distributions, selectivity, churn, machine, compiler, concurrency,
-sample count and warmup. Report p50/p95/p99 and peak memory.</p>
+<p>The topology_bitmap_enabled flag defaults false and composes with the existing Atlas gate (<code>SERVICERADAR_GOD_VIEW_ENABLED</code>). Enable only after identity, convergence, authorization, synthetic scale and actual-hardware browser checks pass. Disabling releases resources and returns explicit unsupported-filter state while the bounded base view remains. Deployment, release and destructive data cleanup require separate authorization.</p>
+<p>Use independently synthetic 100,000 infrastructure plus 1,000,000 canonical endpoint devices, compact and sparse IDs including values above 2^31. Declare seed, facet distributions, selectivity, churn, machine, compiler, concurrency, sample count and warmup. Report p50/p95/p99 and peak memory.</p>
 <table>
 <thead>
 <tr>
@@ -15231,14 +14955,8 @@ sample count and warmup. Report p50/p95/p99 and peak memory.</p>
 </tr>
 </tbody>
 </table>
-<p>Compare against an independently measured array baseline. A Rust tuple scan is
-not proof of the old JavaScript renderer's cost. Report full-fleet Roaring set
-bytes separately if useful; the original whole-fleet XOR wire target does not
-apply to an admitted-row overlay protocol. Test adversarial cardinality, empty
-results, merges/deletes/restores, late commits, malformed frames and revocation.
-Benchmarks and fixture provisioning use declared Bazel targets on BuildBuddy.
-No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
-<div class="checksum">Source SHA-256: cec2f3c9522d0157721153b4a12383cc058185895bbf12962fc324f650a2d221</div></section>
+<p>Compare against an independently measured array baseline. A Rust tuple scan is not proof of the old JavaScript renderer's cost. Report full-fleet Roaring set bytes separately if useful; the original whole-fleet XOR wire target does not apply to an admitted-row overlay protocol. Test adversarial cardinality, empty results, merges/deletes/restores, late commits, malformed frames and revocation. Benchmarks and fixture provisioning use declared Bazel targets on BuildBuddy. No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
+<div class="checksum">Source SHA-256: b3d2fd913b525520a0754c528bf6ce807283502ae6a6faf8ea724016afcc2151</div></section>
 <section id="requirements" class="source"><div class="section-label">Complete source document · specs/topology-god-view/spec.md</div><h2>ADDED Requirements</h2>
 <h3>Requirement: Persistent Device Bitmap Identity</h3>
 <p>The system SHALL reuse persisted device fleet ordinals for topology membership and SHALL bind native sets to a durable dictionary epoch and device entity kind.</p>
@@ -15258,6 +14976,23 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> merge/delete/restore and retention cleanup SHALL preserve identity without reviving a merged-away member</li>
 <li><strong>AND</strong> rollback SHALL retain the widened storage and existing assignments</li>
 <li><strong>AND</strong> exhaustion SHALL reject new allocations while preserving readable accepted state</li>
+</ul>
+<h4>Scenario: Repeated address seed retirement</h4>
+<ul>
+<li><strong>GIVEN</strong> an address has accumulated more than eight eligible purged seed identities</li>
+<li><strong>WHEN</strong> a later sweep needs a new identity</li>
+<li><strong>THEN</strong> a durable current-successor pointer SHALL preserve verified progress within eight reads per attempt</li>
+<li><strong>AND</strong> UID-sorted fences SHALL commit new identity creation and head movement atomically</li>
+<li><strong>AND</strong> merged roots SHALL NOT prevent a fresh successor or revive the merge loser</li>
+<li><strong>AND</strong> source-retired heads SHALL remain suppressed and old ordinals SHALL NOT be reused</li>
+</ul>
+<h4>Scenario: Compatible rollback and migration contention</h4>
+<ul>
+<li><strong>WHEN</strong> the identity migration is rolled back</li>
+<li><strong>THEN</strong> deletion and truncate protection SHALL remain active</li>
+<li><strong>AND</strong> rollback SHALL require a retention-compatible cleanup worker or paused cleanup</li>
+<li><strong>WHEN</strong> either required lifecycle table lock is unavailable during migration</li>
+<li><strong>THEN</strong> migration SHALL fail atomically for retry without waiting while holding a conflicting table lock</li>
 </ul>
 <h4>Scenario: Unsupported identity domain</h4>
 <ul>
@@ -15290,6 +15025,8 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> coalesced ordinal dirty sets SHALL use Roaring with an explicit byte cap</li>
 <li><strong>AND</strong> readers SHALL NOT observe a partially published revision or partial facets labeled exact</li>
 <li><strong>AND</strong> unavailable causal evidence SHALL NOT be synthesized from availability</li>
+<li><strong>AND</strong> intrinsic address capacity SHALL include actual pending bitmap memory under the final publication lock</li>
+<li><strong>AND</strong> address-capacity exhaustion SHALL preserve scalar progress and retained dirty hints</li>
 </ul>
 <h3>Requirement: Authorized Bitmap Query and Exact Facets</h3>
 <p>The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported sets, intersect current effective visibility and pin one coherent native revision per response.</p>
@@ -15315,6 +15052,14 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>THEN</strong> current authority SHALL be revalidated before bytes, counts or a 304 are delivered</li>
 <li><strong>AND</strong> revoked work SHALL be cancelled and client membership cleared</li>
 <li><strong>AND</strong> no tenancy or authorization bypass mode SHALL be introduced</li>
+</ul>
+<h4>Scenario: Cancelled channel work retains its concurrency slot</h4>
+<ul>
+<li><strong>GIVEN</strong> a channel query is still executing</li>
+<li><strong>WHEN</strong> the viewer replaces, resets or unwatches membership repeatedly</li>
+<li><strong>THEN</strong> that channel SHALL retain its occupied slot until the actual task finishes</li>
+<li><strong>AND</strong> replacement attempts SHALL receive bounded busy responses without creating additional inner workers</li>
+<li><strong>AND</strong> cancelled results SHALL NOT deliver frames and other clients SHALL retain pool capacity</li>
 </ul>
 <h4>Scenario: Live pagination reaches another pod</h4>
 <ul>
@@ -15357,6 +15102,12 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>THEN</strong> the client SHALL hide that relation and suppress its traffic rates and animation</li>
 <li><strong>AND</strong> the whole-bundle rate SHALL NOT be shown as a filtered-population rate</li>
 </ul>
+<h4>Scenario: Hidden geometry cannot receive picks</h4>
+<ul>
+<li><strong>WHEN</strong> a glyph or relation is excluded, pending, stale or hidden by an availability filter</li>
+<li><strong>THEN</strong> it SHALL NOT receive a GPU pick or intercept a visible item behind it</li>
+<li><strong>AND</strong> zero-match aggregate clicks SHALL NOT navigate or reveal unfiltered details</li>
+</ul>
 <h3>Requirement: Operator Map Set Filters</h3>
 <p>The system SHALL expose a usable map filter builder for supported canonical attributes, inventory VLAN assignments, configured device tags and named Prefix Tags, with AND, OR, EXCEPT, literal text prefixes and typed IP/CIDR predicates.</p>
 <h4>Scenario: VLAN set algebra on the map</h4>
@@ -15373,6 +15124,8 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>THEN</strong> the result SHALL union the complete matching supported postings under the query limits</li>
 <li><strong>AND</strong> tag-name matching SHALL cover configured keys and SHALL NOT imply arbitrary JSON-path indexing</li>
 <li><strong>AND</strong> exceeding the expansion or memory budget SHALL fail explicitly instead of returning partial matches</li>
+<li><strong>AND</strong> empty or surrounding-whitespace text SHALL be rejected consistently by builder and server, without silent trimming</li>
+<li><strong>AND</strong> internal spaces SHALL retain their literal meaning</li>
 </ul>
 <h4>Scenario: Any known address falls within a network</h4>
 <ul>
@@ -15400,6 +15153,7 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> subsequent device pages SHALL use current label membership without routing to a frozen owner</li>
 <li><strong>AND</strong> missing sources, catalog exhaustion or range-budget overflow SHALL fail explicitly without partial results</li>
 <li><strong>AND</strong> discovery SHALL be paged and query evaluation SHALL NOT scan the fleet in BEAM or call core by RPC</li>
+<li><strong>AND</strong> source-version-only refreshes SHALL preserve unchanged filters, accepted membership and in-flight label discovery</li>
 </ul>
 <h3>Requirement: Typed Binary Tile Overlay</h3>
 <p>The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.</p>
@@ -15443,6 +15197,7 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>WHEN</strong> watch binding succeeds but replacement frames remain invalid or reset</li>
 <li><strong>THEN</strong> retries SHALL back off through 1, 2, 4, 8 and at most 10 seconds</li>
 <li><strong>AND</strong> a successful binding alone SHALL NOT reset the attempt counter</li>
+<li><strong>AND</strong> disconnect/rejoin with unchanged displayed receipts and empty dirty-tile reconciliation SHALL preserve retry history</li>
 <li><strong>AND</strong> an accepted complete frame or a genuinely changed query/view SHALL begin a fresh retry epoch</li>
 </ul>
 <h4>Scenario: Slow viewer and resource lifetime</h4>
@@ -15473,7 +15228,7 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> GPU buffers SHALL remain alive while queued commands reference them</li>
 <li><strong>AND</strong> software-GPU results SHALL NOT be presented as actual-hardware performance or end-to-end zero-copy proof</li>
 </ul>
-<div class="checksum">Source SHA-256: 1e772b2a7a43ef11a41724db7fb2fd5d97a20eb15371891be85b87556de53d17</div></section>
+<div class="checksum">Source SHA-256: 3cd490b7e7c0d4628925c3bc871835d9dd8f10cbd1b823283d9b780108e93a7f</div></section>
 <section id="implementation-tasks" class="source"><div class="section-label">Complete source document · tasks.md</div><h1>ServiceRadar Atlas implementation tasks</h1>
 <h2>0. Approved direction</h2>
 <ul class="task-list">
@@ -15521,22 +15276,11 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><label><input type="checkbox" />4.6 Capture the production Atlas map/filter UI before and after the requested expression using only synthetic inventory; add images, figures, hero metadata and show-test coverage to the website blog branch, run <code>mix precommit</code> and push with an explicit refspec without opening a website PR.</label></li>
 <li><label><input type="checkbox" />4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it. Real negotiated 1/10/100-client probe passed; keep compression disabled. See <code>docs/topology-bitmap-websocket-measurements.md</code> for scope and results. Status awaits final integration.</label></li>
 </ul>
-<p>Deferred: interface identities/queries, durable dirty replication, owner-routed
-frozen pages, result caching and browser Roaring. Add them only for a demonstrated
-requirement; they are not unfinished release-one implementation tasks.</p>
-<p>Follow-up from review pass 3: move SRTO health/flow encoding to native Arrow IPC
-to reuse the existing Arrow decoder and nullable columns. Preserve exact tile
-receipts, field semantics and bounded cached bytes; compare encoding, decoding,
-retained memory and wire size before replacing the current fixed codec. This is
-not a release-one blocker. Omission of unchanged tiles also remains measurement
-driven; full replacements stay the current protocol.</p>
+<p>Deferred: interface identities/queries, durable dirty replication, owner-routed frozen pages, result caching and browser Roaring. Add them only for a demonstrated requirement; they are not unfinished release-one implementation tasks.</p>
+<p>Follow-up from review pass 3: move SRTO health/flow encoding to native Arrow IPC to reuse the existing Arrow decoder and nullable columns. Preserve exact tile receipts, field semantics and bounded cached bytes; compare encoding, decoding, retained memory and wire size before replacing the current fixed codec. This is not a release-one blocker. Omission of unchanged tiles also remains measurement driven; full replacements stay the current protocol.</p>
 <div class="checksum">Source SHA-256: 42888f8c19ec4a83bfec18ff5115d79a26fe51e05856c9421ee3d3d9cfce551b</div></section>
 <section id="review-response" class="source"><div class="section-label">Complete source document · review-response.md</div><h1>Review response</h1>
-<p>This responds to every finding in <code>review.md</code> without changing that independent
-append-only review. The user confirmed current membership on each page on
-2026-10-16. Proposal, design, requirements and tasks now describe the reduced
-implementation. Refreshed architecture HTML artifacts and their review receipts
-are committed alongside this change.</p>
+<p>This responds to every finding in <code>review.md</code> without changing that independent append-only review. The user confirmed current membership on each page on 2026-10-16. Proposal, design, requirements and tasks now describe the reduced implementation. Refreshed architecture HTML artifacts and their review receipts are committed alongside this change.</p>
 <h2>Confirmed findings and changes</h2>
 <table>
 <thead>
@@ -15614,211 +15358,122 @@ are committed alongside this change.</p>
 </table>
 <h2>Findings that need qualification</h2>
 <ul>
-<li><strong>C1:</strong> The integrated commit <code>07fd3f2158</code> already contains
-<code>20261016040000_generalize_fleet_identity_dictionaries.exs</code>, including the
-interface table. The outbox migration ran later. Executing both exact
-migrations and raw inventory writes on a disposable fixture database passed;
-the claimed missing-table outage does not describe the integrated tree.
-Interface work is still being removed for scope, not because its table was
-absent.</li>
-<li><strong>C2:</strong> That same migration installs canonical allocation hooks, so a raw
-device INSERT does allocate an ordinal. Direct PostgreSQL tests exercised
-INSERT, UPDATE, soft deletion, token-aware acknowledgment, late commit,
-overflow and 11,000 synthetic changes. The full Ash database ExUnit suite was
-not run; direct SQL and remote unit compilation do not substitute for it.
-Absence of a local <code>_build</code> does not determine whether Bazel remote tests ran.</li>
-<li><strong>C3:</strong> Canonical lifecycle hooks cover raw creation and tombstones in the
-integrated migration, and merge soft deletion occurs in the same transaction.
-Missing old assignments still need bounded backfill. The revised design
-requires full writer and purge coverage, after-commit hints where present,
-and rolling reconciliation; it makes no claim that dictionary-only changes
-inherently broadcast notifications.</li>
-<li><strong>B4's suggested cursor:</strong> <code>identity_revision</code> is per-device and does not
-increment for every indexed attribute; <code>modified_time</code> is not commit order.
-Neither plus a finite overlap proves coverage of arbitrary late commits.
-Keep full bounded keyset reconciliation until a better cursor is independently
-proven. Report database load and actual convergence rather than promising a
-thirty-second whole-fleet scan.</li>
-<li><strong>B4's writer gap:</strong> Sync ingestion already invalidates after its identity
-fence returns, and AWX discovery defers events until its outer transaction
-commits. The concrete missing hint is mapper polled-device creation after its
-standalone upsert. Fix that caller rather than broadcasting prematurely from
-the shared nested-transaction helper.</li>
-<li><strong>A2's size estimate:</strong> Sparse portable Roaring is not always two bytes per
-member: scattered high bits add container headers. The actual codec experiment
-below supports replacing it even more strongly.</li>
+<li><strong>C1:</strong> The integrated commit <code>07fd3f2158</code> already contains <code>20261016040000_generalize_fleet_identity_dictionaries.exs</code>, including the interface table. The outbox migration ran later. Executing both exact migrations and raw inventory writes on a disposable fixture database passed; the claimed missing-table outage does not describe the integrated tree. Interface work is still being removed for scope, not because its table was absent.</li>
+<li><strong>C2:</strong> That same migration installs canonical allocation hooks, so a raw device INSERT does allocate an ordinal. Direct PostgreSQL tests exercised INSERT, UPDATE, soft deletion, token-aware acknowledgment, late commit, overflow and 11,000 synthetic changes. The full Ash database ExUnit suite was not run; direct SQL and remote unit compilation do not substitute for it. Absence of a local <code>_build</code> does not determine whether Bazel remote tests ran.</li>
+<li><strong>C3:</strong> Canonical lifecycle hooks cover raw creation and tombstones in the integrated migration, and merge soft deletion occurs in the same transaction. Missing old assignments still need bounded backfill. The revised design requires full writer and purge coverage, after-commit hints where present, and rolling reconciliation; it makes no claim that dictionary-only changes inherently broadcast notifications.</li>
+<li><strong>B4's suggested cursor:</strong> <code>identity_revision</code> is per-device and does not increment for every indexed attribute; <code>modified_time</code> is not commit order. Neither plus a finite overlap proves coverage of arbitrary late commits. Keep full bounded keyset reconciliation until a better cursor is independently proven. Report database load and actual convergence rather than promising a thirty-second whole-fleet scan.</li>
+<li><strong>B4's writer gap:</strong> Sync ingestion already invalidates after its identity fence returns, and AWX discovery defers events until its outer transaction commits. The concrete missing hint is mapper polled-device creation after its standalone upsert. Fix that caller rather than broadcasting prematurely from the shared nested-transaction helper.</li>
+<li><strong>A2's size estimate:</strong> Sparse portable Roaring is not always two bytes per member: scattered high bits add container headers. The actual codec experiment below supports replacing it even more strongly.</li>
 </ul>
 <h2>Executed evidence and limits</h2>
 <ul>
-<li>Exact migration SQL on baseline-derived disposable fixture tables passed
-newer-token preservation, bounded slice rotation, 11,000-change capacity,
-durable overflow and late-commit discovery. The independent lock experiment
-then reproduced the new deadlock. Both scratch databases were dropped and
-their absence verified. This is rejection evidence for the removed design,
-not a claim that it is safe to ship.</li>
-<li>Core inventory unit shard passed with 1,043 discovered tests, 872 excluded,
-zero failures: BuildBuddy invocation
-<code>55eb5a47-81a7-4d3d-ba5e-2bb090062e43</code>. Database cases were excluded.</li>
-<li>The earlier native 1.1-million-device experiment retained 100 query pins
-and reported 64.0/90.2 MB after compact/sparse churn (invocation
-<code>02c8f8ee-e0e7-44c2-b7e9-2fe3193f7136</code>). That lifecycle was rejected; it is
-not current admission or memory acceptance. Later verification found that
-Roaring's bitset statistic reports bits despite its byte-oriented name, so
-those old charged figures overstated actual bitset storage eightfold. Current
-scalar and address results use the corrected counter. The address-capable
-index enforces 125 MB retained and 160 MB total reservation caps, with eight
-query pins. Its tuple baseline is independent Rust.</li>
-<li>Synthetic 8,192-row codec experiment: eight baseline portable sets used
-24,664 bytes for dense IDs and 245,824 for sparse IDs; seven-byte typed row
-columns use 57,344 bytes regardless of ID distribution. Source-built codec
-reserved a 6 MiB maximum heap (4 MiB initially), adding approximately 305 KB
-runtime and an Emscripten dependency. Node measurements are not real-browser
-or GPU acceptance. The revised protocol removes this runtime entirely.</li>
-<li>The replacement codec produced a 59,469-byte full frame for 8,192 synthetic
-rows, including its receipts and envelope. Aligned count copies add 32,768
-bytes; Node decode and validation measured 1.24 ms p95 over 100 iterations.
-This earlier Node-only measurement predates the exact-total header field;
-physical-browser and GPU evidence is recorded separately below.</li>
+<li>Exact migration SQL on baseline-derived disposable fixture tables passed newer-token preservation, bounded slice rotation, 11,000-change capacity, durable overflow and late-commit discovery. The independent lock experiment then reproduced the new deadlock. Both scratch databases were dropped and their absence verified. This is rejection evidence for the removed design, not a claim that it is safe to ship.</li>
+<li>Core inventory unit shard passed with 1,043 discovered tests, 872 excluded, zero failures: BuildBuddy invocation <code>55eb5a47-81a7-4d3d-ba5e-2bb090062e43</code>. Database cases were excluded.</li>
+<li>The earlier native 1.1-million-device experiment retained 100 query pins and reported 64.0/90.2 MB after compact/sparse churn (invocation <code>02c8f8ee-e0e7-44c2-b7e9-2fe3193f7136</code>). That lifecycle was rejected; it is not current admission or memory acceptance. Later verification found that Roaring's bitset statistic reports bits despite its byte-oriented name, so those old charged figures overstated actual bitset storage eightfold. Current scalar and address results use the corrected counter. The address-capable index enforces 125 MB retained and 160 MB total reservation caps, with eight query pins. Its tuple baseline is independent Rust.</li>
+<li>Synthetic 8,192-row codec experiment: eight baseline portable sets used 24,664 bytes for dense IDs and 245,824 for sparse IDs; seven-byte typed row columns use 57,344 bytes regardless of ID distribution. Source-built codec reserved a 6 MiB maximum heap (4 MiB initially), adding approximately 305 KB runtime and an Emscripten dependency. Node measurements are not real-browser or GPU acceptance. The revised protocol removes this runtime entirely.</li>
+<li>The replacement codec produced a 59,469-byte full frame for 8,192 synthetic rows, including its receipts and envelope. Aligned count copies add 32,768 bytes; Node decode and validation measured 1.24 ms p95 over 100 iterations. This earlier Node-only measurement predates the exact-total header field; physical-browser and GPU evidence is recorded separately below.</li>
 </ul>
-<p>The actual native Atlas-to-index 100-view workload passed three independent
-runs with automatic flaky retries disabled: invocation
-<code>6137b80f-5c80-4380-a498-8304fdc68ed1</code>. Each run completed 100 compact and
-100 sparse views through eight admitted workers. Sparse request p95 was
-393.8-415.8 ms and p99 456.0-507.8 ms; peak native charged allocation stayed
-below 160 MB with explicit temporary-budget retries. Earlier runs failed and
-exposed a fixed-size decoder reservation and a retained/transient accounting
-race; both were repaired without raising those caps. This is native scheduling
-evidence with a harness export gate, not 100 HTTP clients, authorization latency
-or whole-process memory. Details and reproducible targets live in the
-<a href="../../elixir/web-ng/native/god_view_nif/README.md">native README</a>.</p>
-<p>Integrated checks now pass in <code>ac3da572-16db-426f-8cc7-94802131f96c</code>:
-web quality, application-domain (478 discovered, 413 excluded) and Phoenix
-(783 discovered, 212 excluded), both with zero failures. The earlier timestamp
-inventory failure was repaired. Real channel/binary HTTP and two-replica database
-cases compile but remain unexecuted pending the hosted fixture lane.</p>
-<p>Physical-GPU stress completed sixteen zoom/pan cycles, reconnect, authority
-replacement, disable and a four-cycle remount with no validation errors and zero
-tracked devices/buffers after teardown. It found and repaired shared mutable
-compute bindings in the pinned Luma dependency, independently reproduced through
-the public compute API. The harness uses synthetic HTTP/WebSocket responders;
-it does not prove the real server/database path. Scope, bytes and timing are in
-<a href="../topology-bitmap-gpu-acceptance.md">GPU acceptance</a>.</p>
-<p>The user subsequently required visible AND/OR/EXCEPT map groups, literal tag
-prefixes and IPv4/IPv6 containment over any current device/interface address.
-Those additions are now explicit proposal/design/requirement tasks. They do not
-restore the rejected browser Roaring, frozen-page routing, interface identities
-or durable hint replication. Address-index memory and prefix/CIDR performance
-have separate declared proof.
-Existing named Prefix Tags are also approved. Their local immutable snapshots
-now supply bounded native network ranges, preserving the existing full matching
-chain and live pagination. This adds no interface identities, query-owner routing
-or per-device BEAM lookup; catalog and range costs are explicitly bounded.</p>
-<p>Native invocation <code>49a2c6f0-de5c-4c6c-9315-6f3bc99f0c4d</code> passed 35 native tests,
-778 web tests and scalar, Atlas-view and address benchmarks. Corrected scalar
-memory after 100 churn ticks was 7.94/19.21 MB compact/sparse. The separate
-2.2-million-association address benchmark retained 71.00/83.15 MB after 100
-one-percent mixed churn ticks; sparse total reservations peaked at 140.68 MB.
-All 100 concurrent native address queries completed with bounded harness retries,
-at 64.47 ms sparse request p95. The native README records pin-release retries,
-monotonic synthetic IPv6 assignment and excluded database/transport costs.
-These experiments do not prove a combined address-plus-Atlas-view peak.</p>
-<p>Source/parser/catalog integration passed 787 web tests with zero failures
-(212 database exclusions), plus quality in
-<code>b3a57067-4654-49e5-a4fc-ae01acb8189e</code>. The production filter and capture fixture
-passed 635 scene tests and seven WebGPU checks in
-<code>56545d47-fc2d-4d3a-939f-a8143c12fe0a</code>. Two real 1600x1000 browser captures
-show the requested expression returning 160 matches from 1,024 invented devices,
-with identical camera and decoded geometry. They use synthetic transport and
-do not replace the hosted database/channel acceptance lane.</p>
-<p>Final delivery checks now run geometry, canonical mapping and fresh authority
-checks inside the original one-second request budget. A suspended geometry owner
-reproduced the unbounded-call failure in <code>028c8130-a5da-40d5-a5f1-ca2645329aaf</code>;
-the fixed deadline regression and web quality passed in
-<code>f21041bc-d8a0-4971-8bd7-b8f5eb271138</code>. Canonical mappings retain their two-slot
-native admission permits through actual reclamation, and health snapshots no
-longer retain those separate mappings. The full remote <code>make test</code> gate passed
-414 targets with two Swift platform skips in
-<code>c3499e7a-246b-4498-9611-9e084119a583</code>, a later integrated run than
-<code>2acf322c-fbc1-4bba-8257-2a137605223e</code>. Both predate the latest review fixes and
-do not prove the final head. Database-backed acceptance remains a separate
-hosted gate. Historical commit identifiers elsewhere in this report name the
-tested pre-rebase checkpoints, not the current branch head.</p>
+<p>The actual native Atlas-to-index 100-view workload passed three independent runs with automatic flaky retries disabled: invocation <code>6137b80f-5c80-4380-a498-8304fdc68ed1</code>. Each run completed 100 compact and 100 sparse views through eight admitted workers. Sparse request p95 was 393.8-415.8 ms and p99 456.0-507.8 ms; peak native charged allocation stayed below 160 MB with explicit temporary-budget retries. Earlier runs failed and exposed a fixed-size decoder reservation and a retained/transient accounting race; both were repaired without raising those caps. This is native scheduling evidence with a harness export gate, not 100 HTTP clients, authorization latency or whole-process memory. Details and reproducible targets live in the <a href="../../../elixir/web-ng/native/god_view_nif/README.md">native README</a>.</p>
+<p>Integrated checks now pass in <code>ac3da572-16db-426f-8cc7-94802131f96c</code>: web quality, application-domain (478 discovered, 413 excluded) and Phoenix (783 discovered, 212 excluded), both with zero failures. The earlier timestamp inventory failure was repaired. Real channel/binary HTTP and two-replica database cases compile but remain unexecuted pending the hosted fixture lane.</p>
+<p>Physical-GPU stress completed sixteen zoom/pan cycles, reconnect, authority replacement, disable and a four-cycle remount with no validation errors and zero tracked devices/buffers after teardown. It found and repaired shared mutable compute bindings in the pinned Luma dependency, independently reproduced through the public compute API. The harness uses synthetic HTTP/WebSocket responders; it does not prove the real server/database path. Scope, bytes and timing are in <a href="../../../docs/topology-bitmap-gpu-acceptance.md">GPU acceptance</a>.</p>
+<p>The user subsequently required visible AND/OR/EXCEPT map groups, literal tag prefixes and IPv4/IPv6 containment over any current device/interface address. Those additions are now explicit proposal/design/requirement tasks. They do not restore the rejected browser Roaring, frozen-page routing, interface identities or durable hint replication. Address-index memory and prefix/CIDR performance have separate declared proof. Existing named Prefix Tags are also approved. Their local immutable snapshots now supply bounded native network ranges, preserving the existing full matching chain and live pagination. This adds no interface identities, query-owner routing or per-device BEAM lookup; catalog and range costs are explicitly bounded.</p>
+<p>Native invocation <code>49a2c6f0-de5c-4c6c-9315-6f3bc99f0c4d</code> passed 35 native tests, 778 web tests and scalar, Atlas-view and address benchmarks. Corrected scalar memory after 100 churn ticks was 7.94/19.21 MB compact/sparse. The separate 2.2-million-association address benchmark retained 71.00/83.15 MB after 100 one-percent mixed churn ticks; sparse total reservations peaked at 140.68 MB. All 100 concurrent native address queries completed with bounded harness retries, at 64.47 ms sparse request p95. The native README records pin-release retries, monotonic synthetic IPv6 assignment and excluded database/transport costs. These experiments do not prove a combined address-plus-Atlas-view peak.</p>
+<p>Source/parser/catalog integration passed 787 web tests with zero failures (212 database exclusions), plus quality in <code>b3a57067-4654-49e5-a4fc-ae01acb8189e</code>. The production filter and capture fixture passed 635 scene tests and seven WebGPU checks in <code>56545d47-fc2d-4d3a-939f-a8143c12fe0a</code>. Two real 1600x1000 browser captures show the requested expression returning 160 matches from 1,024 invented devices, with identical camera and decoded geometry. They use synthetic transport and do not replace the hosted database/channel acceptance lane.</p>
+<p>Final delivery checks now run geometry, canonical mapping and fresh authority checks inside the original one-second request budget. A suspended geometry owner reproduced the unbounded-call failure in <code>028c8130-a5da-40d5-a5f1-ca2645329aaf</code>; the fixed deadline regression and web quality passed in <code>f21041bc-d8a0-4971-8bd7-b8f5eb271138</code>. Canonical mappings retain their two-slot native admission permits through actual reclamation, and health snapshots no longer retain those separate mappings. The full remote <code>make test</code> gate passed 414 targets with two Swift platform skips in <code>c3499e7a-246b-4498-9611-9e084119a583</code>, a later integrated run than <code>2acf322c-fbc1-4bba-8257-2a137605223e</code>. Both predate the latest review fixes and do not prove the final head. Database-backed acceptance remains a separate hosted gate. Historical commit identifiers elsewhere in this report name the tested pre-rebase checkpoints, not the current branch head.</p>
 <h2>Pass 3 response</h2>
 <ul>
-<li>Naming: public prose and new UI copy use ServiceRadar Atlas. Existing source
-identifiers, flags and capability names retain their current spellings.</li>
-<li>P3-1: retain full-replacement membership frames. The negotiated WebSocket
-matrix for 1, 10 and 100 clients is recorded in
-<code>docs/topology-bitmap-websocket-measurements.md</code>. Compression stays
-disabled. Unchanged-tile omission stays deferred.</li>
-<li>P3-2: accept native Arrow IPC health/flow encoding as an explicit follow-up,
-consistent with the binary-path audit. The current SRTO codec remains in this
-release; the follow-up must preserve receipts, nullability, coverage and
-timestamps while comparing actual allocation and wire costs.</li>
-<li>P3-3: website capture delivery is complete separately at
-<code>6ec38c9180f8035b3893cb91577a49850b072147</code>, with 72 tests and no pull
-request, on <code>carverauto/serviceradar-web</code> branch
-<code>blog/set-algebra-over-device-groups</code>. The captures use synthetic inventory
-and transport and do not prove server or database acceptance.</li>
+<li>Naming: public prose and new UI copy use ServiceRadar Atlas. Existing source identifiers, flags and capability names retain their current spellings.</li>
+<li>P3-1: retain full-replacement membership frames. The negotiated WebSocket matrix for 1, 10 and 100 clients is recorded in <code>docs/topology-bitmap-websocket-measurements.md</code>. Compression stays disabled. Unchanged-tile omission stays deferred.</li>
+<li>P3-2: accept native Arrow IPC health/flow encoding as an explicit follow-up, consistent with the binary-path audit. The current SRTO codec remains in this release; the follow-up must preserve receipts, nullability, coverage and timestamps while comparing actual allocation and wire costs.</li>
+<li>P3-3: website capture delivery is complete separately at <code>6ec38c9180f8035b3893cb91577a49850b072147</code>, with 72 tests and no pull request, on <code>carverauto/serviceradar-web</code> branch <code>blog/set-algebra-over-device-groups</code>. The captures use synthetic inventory and transport and do not prove server or database acceptance.</li>
 </ul>
 <h2>Final implementation review corrections</h2>
-<p>The implementation review is tracked separately from the original proposal
-review. The following corrections preserve the approved scope and budgets:</p>
+<p>The implementation review is tracked separately from the original proposal review. The following corrections preserve the approved scope and budgets:</p>
 <ul>
-<li>Browser membership uses displayed geometry receipts; offscreen prefetch does
-not restart a live filter. Telemetry tiles are admitted in deterministic
-numeric tile order before fetching, within the existing five-MiB budget.
-Omitted telemetry remains unknown instead of creating an eviction/refetch loop.</li>
-<li>Malformed frames and resets retain exponential retry history until a complete
-frame is accepted. New watches use fresh view epochs. SRTO text decoding
-preserves a leading BOM in identifiers, and SRMO counts cannot exceed row
-population or assign membership to boundary rows.</li>
-<li>Parser and builder limits count EXCEPT instructions and the root level:
-32 predicates, 65 compiled instructions and eight levels. Native-backed tests
-accept the exact boundary and reject the next instruction or level.</li>
-<li>Transient index warmup leaves the geometry manifest and its canonical mapping
-intact for normal polling. Disabled indexing remains a distinct state. Named
-Prefix Tag delivery rechecks feature enablement within the original deadline
-after current authority and source validation.</li>
-<li>The proposed multipart-upload crash did not reproduce with pinned Jason:
-nested Plug.Upload values already produce HTTP 400 invalid_query through the
-actual controller boundary. A public regression retains that contract; no
-speculative rescue was added.</li>
-<li>Retention preserves old UID, ordinal and deletion lineage. Fresh seed
-successors remain bounded and policy-aware; source-retired identities remain
-suppressed. Scrubbing restores structural defaults and valid fresh timestamps
-without retaining historical payload. Service components are excluded from
-new allocation and projection while old reserved assignments remain intact.</li>
-<li>Dictionary widening precedes inventory lifecycle DDL in a separate migration;
-both use finite lock and statement timeouts. The heavy dictionary rewrite does
-not retain the inventory lifecycle lock.</li>
-<li>Duplicate native facet keys are rejected atomically. Publication validates
-outside the short revision guard, and immutable Prefix Tags catalog readers
-share a read lock while preparation and release use nonblocking writes.</li>
-<li>Scale fixtures use unique synthetic IPv6 primary addresses and a shared IPv4
-interface address. New inactive devices precede their invented dictionary
-assignments, then normal activation triggers run in the same transaction;
-this respects the immediate foreign key without remapping existing identity.
-Final predicates verify replaced addresses. Revocation must increase every
-client's denial counter after deactivation. The network client's retry
-schedule matches the browser and resets only after a complete frame.</li>
+<li>Browser membership uses displayed geometry receipts; offscreen prefetch does not restart a live filter. Telemetry tiles are admitted in deterministic numeric tile order before fetching, within the existing five-MiB budget. Omitted telemetry remains unknown instead of creating an eviction/refetch loop.</li>
+<li>Malformed frames and resets retain exponential retry history until a complete frame is accepted. New watches use fresh view epochs. SRTO text decoding preserves a leading BOM in identifiers, and SRMO counts cannot exceed row population or assign membership to boundary rows.</li>
+<li>Parser and builder limits count EXCEPT instructions and the root level: 32 predicates, 65 compiled instructions and eight levels. Native-backed tests accept the exact boundary and reject the next instruction or level.</li>
+<li>Transient index warmup leaves the geometry manifest and its canonical mapping intact for normal polling. Disabled indexing remains a distinct state. Named Prefix Tag delivery rechecks feature enablement within the original deadline after current authority and source validation.</li>
+<li>The proposed multipart-upload crash did not reproduce with pinned Jason: nested Plug.Upload values already produce HTTP 400 invalid_query through the actual controller boundary. A public regression retains that contract; no speculative rescue was added.</li>
+<li>Retention preserves old UID, ordinal and deletion lineage. Fresh seed successors remain bounded and policy-aware; source-retired identities remain suppressed. Scrubbing restores structural defaults and valid fresh timestamps without retaining historical payload. Service components are excluded from new allocation and projection while old reserved assignments remain intact.</li>
+<li>Dictionary widening precedes inventory lifecycle DDL in a separate migration; both use finite lock and statement timeouts. The heavy dictionary rewrite does not retain the inventory lifecycle lock.</li>
+<li>Duplicate native facet keys are rejected atomically. Publication validates outside the short revision guard, and immutable Prefix Tags catalog readers share a read lock while preparation and release use nonblocking writes.</li>
+<li>Scale fixtures use unique synthetic IPv6 primary addresses and a shared IPv4 interface address. New inactive devices precede their invented dictionary assignments, then normal activation triggers run in the same transaction; this respects the immediate foreign key without remapping existing identity. Final predicates verify replaced addresses. Revocation must increase every client's denial counter after deactivation. The network client's retry schedule matches the browser and resets only after a complete frame.</li>
 </ul>
-<p>Focused browser regression cases first failed against the earlier implementation
-in <code>fd272658-c0d4-48f5-8314-1a8cb174e5f8</code>, then 644 scene tests passed in
-<code>284ed484-a2fa-418d-89d0-87bdf2f94401</code>. Parser depth and instruction bounds
-failed in <code>bf70fe99-983e-4ad9-8aeb-64c80a822398</code>; the corrected parser/native
-boundary, controller upload contract, application-domain shard and web quality
-passed in <code>f90ed680-bfc5-4c9e-89a9-416fe3b36a84</code>.</p>
-<p>Identity-focused invocation <code>7f0f29c3-6ec7-45c5-b024-0f105da73792</code> passed core
-quality, the core shard (1,290 tests, zero failures, one skipped), sweep tests
-(72 tests, zero failures) and the Phoenix sibling target. Its web-quality failure
-was an existing overlong frame-test line, corrected in the later passing server
-run. Native duplicate-facet rejection first failed in
-<code>83b12f11-466a-46e7-916d-6acfed9a503f</code>; the corrected 36 native tests, nine
-Prefix Tags Rust tests and Phoenix NIF coverage passed in
-<code>733e7ce1-fce3-4abe-b7b9-f641b597a538</code>.</p>
-<p>These are focused revision checkpoints, not final integrated acceptance. Hosted
-migration, database lifecycle, real channel and compact/sparse combined scale
-execution remain required. In particular, database-free parser and controller
-checks do not prove disable-during-authority or persisted-world polling races.</p>
-<div class="checksum">Source SHA-256: 49039d99c899db798df55c02377496a882631a1aa70b826fa8cff29a805d3cdd</div></section><footer>ServiceRadar Atlas · Synthetic examples only · Artifact snapshot of the current approved design. Implementation progress is recorded in the source task checklist.</footer></main><script>document.querySelector('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';document.querySelector('#theme').textContent=light?'Dark theme':'Light theme'})</script></body></html>
+<p>Focused browser regression cases first failed against the earlier implementation in <code>fd272658-c0d4-48f5-8314-1a8cb174e5f8</code>, then 644 scene tests passed in <code>284ed484-a2fa-418d-89d0-87bdf2f94401</code>. Parser depth and instruction bounds failed in <code>bf70fe99-983e-4ad9-8aeb-64c80a822398</code>; the corrected parser/native boundary, controller upload contract, application-domain shard and web quality passed in <code>f90ed680-bfc5-4c9e-89a9-416fe3b36a84</code>.</p>
+<p>Identity-focused invocation <code>7f0f29c3-6ec7-45c5-b024-0f105da73792</code> passed core quality, the core shard (1,290 tests, zero failures, one skipped), sweep tests (72 tests, zero failures) and the Phoenix sibling target. Its web-quality failure was an existing overlong frame-test line, corrected in the later passing server run. Native duplicate-facet rejection first failed in <code>83b12f11-466a-46e7-916d-6acfed9a503f</code>; the corrected 36 native tests, nine Prefix Tags Rust tests and Phoenix NIF coverage passed in <code>733e7ce1-fce3-4abe-b7b9-f641b597a538</code>.</p>
+<p>These are focused revision checkpoints, not final integrated acceptance. Hosted migration, database lifecycle, real channel and compact/sparse combined scale execution remain required. In particular, database-free parser and controller checks do not prove disable-during-authority or persisted-world polling races.</p>
+<h2>Follow-up review corrections</h2>
+<p>The next review's fixer timed out before committing. Its successful edits were recovered, reviewed and corrected before integration; the timeout is not a passing review. The user confirmed durable seed successors, retained dictionary protection on rollback, and unchanged scale limits with cleanup reserved.</p>
+<table>
+<thead>
+<tr>
+<th>Finding</th>
+<th>Correction and acceptance boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tile query errors returned 503</td>
+<td>Query and tile controllers share bitmap status mapping: malformed input is 400, unsupported predicates 422 and expression limits 413; only retryable responses advertise Retry-After. The actual channel/database owner covers both controllers.</td>
+</tr>
+<tr>
+<td>Replaced watches orphaned query work</td>
+<td>A channel retains its occupied slot until its bounded task exits. Reset/unwatch discard delivery without killing only the outer caller. The database owner exercises repeated cancellation while another client progresses. No global slot registry was added.</td>
+</tr>
+<tr>
+<td>Pending Roaring bytes omitted from native-cap selection</td>
+<td>Final admission includes the actual pending queue charge. At the cap, IP becomes explicitly unavailable while scalar publication progresses; limits remain 125 MB retained / 160 MB transient.</td>
+</tr>
+<tr>
+<td>Prefix source version refreshed the whole form</td>
+<td>Capability identity excludes only source versions. Full descriptors and frame freshness checks remain; real support changes still invalidate the query.</td>
+</tr>
+<tr>
+<td>Seed succession stopped after eight retired identities</td>
+<td>A durable successor pointer advances atomically with fresh identity creation and preserves the eight-read attempt bound, with observed-revision fencing and permanent ordinal reservation.</td>
+</tr>
+<tr>
+<td>Migration rollback broke older cleanup</td>
+<td>Keep permanent dictionary protection. Rollback requires compatible retention cleanup or paused cleanup; document this requirement instead of permitting identity deletion.</td>
+</tr>
+<tr>
+<td>Scale observer/action deadlines overlapped</td>
+<td>Account from the hosted runner's actual start, including checkout. Require full test/quiet/cleanup time before scale admission, bound observer and cleanup processes including forced-exit grace, and retain all existing limits.</td>
+</tr>
+<tr>
+<td>Committing tests retained synthetic identity rows</td>
+<td>Use guarded exact-identity cleanup only in disposable database fixtures, with transactional protection restoration. Production retention remains unchanged.</td>
+</tr>
+<tr>
+<td>Old dictionary flags could resurrect deleted membership</td>
+<td>Canonical device liveness is authoritative at query-source reads; no fleet-wide startup repair write.</td>
+</tr>
+<tr>
+<td>Migration lock inversion</td>
+<td>Acquire both required table locks without waiting before lifecycle DDL, retaining finite migration deadlines.</td>
+</tr>
+<tr>
+<td>Literal prefixes silently trimmed</td>
+<td>Reject empty or surrounding-whitespace values in both parser and visible controls; preserve internal spaces and the user's draft.</td>
+</tr>
+<tr>
+<td>Reconnect reset retry history</td>
+<td>Preserve exponential retry history through binding cancellation and reconnect; accepted frames, changed requests or real capability changes reset it. Membership replacement is transient.</td>
+</tr>
+<tr>
+<td>Deadline test was scheduler-sensitive</td>
+<td>Retain the 100 ms request deadline and use a 1,500 ms observable completion bound, within a five-second test timeout.</td>
+</tr>
+<tr>
+<td>Scale runbook implied completed measurements</td>
+<td>Mark combined hosted compact/sparse runs as unexecuted until actual receipts exist. Native-only and component GPU measurements remain separate.</td>
+</tr>
+</tbody>
+</table>
+<p>The staging-finish comment finding was rejected after checking ownership: the stage is consumed, while the last accepted revision stays available. The comment describes the accepted revision, not retention of the stage.</p>
+<p>A fresh physical-GPU probe also found that transparent zero-radius glyphs could still be picked through their nonzero stroke. The corrected layer sets stroke width and minimum pixel size to zero while reusing original geometry. The public GPU test includes a visible underlay to distinguish a hidden hit from no rendered scene. Camera acceptance now waits for current camera, receipts, sequence and render completion; the transport uses the production numeric watch identifier.</p>
+<p>Native-cap RED <code>af614604-e53e-4a85-89c2-d68c3862b5ee</code> became GREEN with 37 native tests in <code>9e431e15-7b97-4dd3-8edb-7c49d6a3c410</code>. All ten web unit shards passed in <code>2b7cc820-6d22-41a9-92e3-43a35f488d73</code>; its workflow contract failure was corrected separately. The final workflow contract passed in <code>fac207b1-c616-4b11-a848-09d101d122b1</code>, after deliberately disabling admission made both negative budget cases fail in <code>4296db48-171a-4ae2-b785-cb0a56f6a4e4</code>. Browser scene tests (652), eight SwiftShader GPU cases, declared lint and the existing TypeScript scope passed in <code>73840a94-e01d-4d55-8b25-2869be7a4a2e</code>. The combined remote <code>make test</code> then passed 419 targets with two platform skips in <code>c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03</code>, at runtime commit <code>2a3032e125</code>. Hosted database and compact/sparse scale acceptance remain pending. Fresh physical Apple WebGPU checks passed on the integrated browser sources, including empty-filter picking with a visible positive control, tile eviction, retry/rejoin, capability refresh and full device teardown. The exact artifact and measurement limits are recorded in <code>docs/topology-bitmap-gpu-acceptance.md</code>.</p>
+<p>Identity RBE quality and sweep tests passed in <code>fb8c3314-1401-4da8-8a48-8994f4c0a9d8</code>. The hosted owners still must execute the new repeated-seed, concurrent-writer, migration and committing-fixture cases; the database-free tier excludes them.</p>
+<p>The portable artifact receipt now distinguishes optional web fonts from embedded operational assets and qualifies unchanged diagram bytes relative to the prior feature-branch refresh. The published topology page links to the protocol on GitHub rather than a file outside the Docusaurus tree. All five embedded source hashes match their canonical files and the embedded diagram bytes match the delivered diagram. A fresh visual containment check was not run because browser policy refused local file URLs; the earlier diagram receipts remain historical.</p>
+<div class="checksum">Source SHA-256: 59b0673a7659ed616ecc77df9439697fabae08bc59a1a0c36695dfd728fe157e</div></section><footer>ServiceRadar Atlas · Synthetic examples only · Artifact snapshot of the current approved design. Implementation progress is recorded in the source task checklist.</footer></main><script>document.querySelector('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';document.querySelector('#theme').textContent=light?'Dark theme':'Light theme'})</script></body></html>

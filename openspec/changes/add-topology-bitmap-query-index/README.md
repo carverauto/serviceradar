@@ -1,98 +1,90 @@
 # ServiceRadar Atlas implementation handoff
 
-Approved proposal, implementation in progress, no rollout authorized. The user
-accepted current membership on each page. `review-response.md` reconciles every
-independent finding; `design.md` and the requirement delta own the revised scope.
-Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
+Approved proposal; implementation and acceptance remain in progress. Product PR
+publication is authorized through no-mistakes. Do not merge, deploy, enable the
+feature or archive the proposal. Use Treehouse; agentboard is temporarily waived.
+The website work is complete and belongs to another repository/agent.
 
 ## Next agent prompt
 
-Complete the integrated review corrections, repeat final-head validation, then
-finish hosted database acceptance. Current-address
-CIDRs, named Prefix Tags and the visible map builder are integrated, alongside
-binary delivery, scalar set algebra, literal prefixes, rollout configuration
-and the public-GPU dependency repair. The existing Prefix Tags trie supplies
-bounded native label discovery and merged ranges through the topology adapter;
-the publisher owns background catalog preparation and release. Focused source,
-parser, catalog-to-address and browser checks passed. The real WebSocket
-compression matrix is recorded; compression stays disabled. Combined database
-compact and sparse scale acceptance is unrun, and task 4.2 stays open.
-Actual database lifecycle and channel tests remain open. The
-earlier integrated full remote unit gate passed 414 targets with two platform skips
-in invocation `c3499e7a-246b-4498-9611-9e084119a583`, before the latest review fixes;
-it is not final-head acceptance. The Helm migration guard
-now requires the latest shipped identity migration. Final delivery checks use
-the original request deadline and compare the exact canonical mapping.
-Graceful publisher shutdown traps exits and drains busy native resources within
-four seconds; the existing hosted replica lifecycle test still owns database
-acceptance of cleanup with externally retained references.
-Use `tasks.md`. OpenSpec leaves implementation checkboxes unchecked until
-accepted work is complete, so an open box is not missing evidence by itself.
-Completed measurements stay in the task text. Hosted database acceptance and
-combined compact/sparse scale remain unrun; leave those tasks unchecked.
-Preserve automatic
-ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
+All review corrections are integrated and the final remote unit gate passed.
+Restart full no-mistakes with Claude Opus 5.5 medium, then complete hosted
+database and scale acceptance against the published feature commit.
+The prior run `01M52NK4RKQRR4JH72FG9MF8WC` failed at its correction agent's
+60-minute limit; every successful edit was recovered and reviewed before these
+focused commits. Recovery is not a passing review. The branch is user-owned.
 
-The latest review corrections align parser/native limits, retain bounded retry
-history, admit telemetry before fetching, preserve warmup mappings, respect
-identity retention policy and repair synthetic scale fixture constraints. Focused
-regression evidence and disproven findings are in the final implementation
-review section of `review-response.md`; it does not substitute for final-head
-validation. Keep the portable proposal and its source hashes synchronized.
+Priority order:
+
+1. Publish through full no-mistakes. The remote `make test` for runtime commit
+   `2a3032e125` passed 419 targets with two platform skips in
+   `c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03`.
+2. Preserve the current documentation and portable-source receipts. Physical GPU acceptance passed on the integrated browser
+   sources; the current portable text refresh has no fresh visual containment
+   receipt because browser policy refused its local file URL.
+3. Read ordinary hosted BazelCI migration, identity and real channel assertions
+   against the exact published commit. Unit shards exclude those cases.
+4. Run compact then sparse through the existing WebNgDbDiagnostic action against
+   that same commit. Task 4.2 stays open until both pass and evidence is reviewed.
+
+All three child worktree leases were returned after integration and acceptance.
+The main feature worktree remains held for validation and delivery.
+
+Use `tasks.md`; unchecked tasks are not acceptance claims. BuildBuddy CLI access
+works from the primary checkout, and the existing API credential also passed a
+read-only invocation check. Dispatch permission has not yet been exercised.
 
 ## Settled contracts
 
-- Device dictionary only; persistent full-u32 identity and durable epoch.
-- Bounded typed publication, request-local immutable revision, current authority
-  at admission and delivery. Live pages may reach any healthy replica.
-- Native Roaring for set algebra and pending ordinal work. No durable dirty
-  replication, shared bucket locks, owner routing, result cache or interfaces.
-- Binary matching/state/count columns aligned to admitted Arrow receipts; full
-  atomic replacements, no browser Roaring, worker, XOR or chunk assembly.
-- The existing health and flow JSON response is also replaced, encoded once and
-  cached as bounded binary data. Partial aggregates hide relations whose matching endpoints cannot be proven.
-  No selected query preserves the base map including boundary links.
-- No approved fleet causal/alert/impact/search source means explicit unsupported
-  predicates. Availability is separate and does not imply causal health.
+- Persistent full-u32 device identity, durable epoch and permanent assignments.
+  Repeated address seeding uses new identities and a durable successor pointer,
+  at most eight reads per attempt. Source-retired heads remain suppressed.
+- Dictionary deletion/truncate protection survives rollback. Cleanup must use a
+  retention-compatible binary/backport or remain paused.
+- Server-side native Roaring, bounded typed publication and request-local
+  immutable revisions. Result pages use current membership on any healthy pod.
+  No owner routing, frozen result cache, shared dirty locks or interface IDs.
+- Visible VLAN/attribute/configured-tag set algebra; literal text prefixes,
+  any current device/interface IP, and existing named Prefix Tags. Invalid
+  surrounding whitespace is rejected rather than silently broadening input.
+- Binary full-replacement membership and telemetry columns aligned to admitted
+  Arrow rows. No browser Roaring, worker, XOR history or chunk assembly.
+- Fixed query, memory, pool, observer and lease limits. Scale admission reserves
+  remaining action/observer time for the full test, quiet window and cleanup.
+- Preserve automatic ELK rebuilding when the trusted parent tree changes.
+  Availability is not inferred causal health; unsupported predicates are explicit.
 
-## Evidence and remaining risk
+## Evidence ledger
 
-The separate manual [server scale acceptance workload](../../../docs/topology-bitmap-scale-acceptance.md)
-now has declared compact/sparse targets in the existing hosted scratch lifecycle.
-Its database-free harness checks passed; actual database execution is pending.
-Task 4.2 remains open until the combined measurements are collected and reviewed.
+- The separate WebGPU resource-lifetime repair merged as product PR #5693,
+  head `9c4dd13fddc8274b51f70465349a163c76e218a8`. Its full remote gate and hosted
+  BazelCI passed. Deployment has not been verified or performed by this work.
+- Native pending-memory regression: production-cap RED
+  `af614604-e53e-4a85-89c2-d68c3862b5ee`; all 37 native tests GREEN
+  `9e431e15-7b97-4dd3-8edb-7c49d6a3c410`.
+- Root web unit checkpoint: all ten shards passed in
+  `2b7cc820-6d22-41a9-92e3-43a35f488d73`; that invocation's first workflow
+  contract failed and was corrected separately.
+- Scale deadline/cleanup contract passed in
+  `fac207b1-c616-4b11-a848-09d101d122b1`; disabling admission fails both deadline
+  boundaries in `4296db48-171a-4ae2-b785-cb0a56f6a4e4`. These are harness proofs,
+  not a hosted scale run.
+- Identity focused RBE quality/sweep passed
+  `fb8c3314-1401-4da8-8a48-8994f4c0a9d8`; actual database cases remain pending.
+- Browser 652 scene tests, eight software-GPU cases and remote lint/typecheck
+  passed `73840a94-e01d-4d55-8b25-2869be7a4a2e`. Fresh physical Apple WebGPU
+  picking, eviction, reconnect, capabilities, disable and remount passed; see
+  `docs/topology-bitmap-gpu-acceptance.md` for exact scope and artifact binding.
+- Prior native 1.1M-device/2.2M-address benchmarks and negotiated WebSocket
+  measurements are recorded in `review-response.md` and their owner docs.
+  Compression stays disabled. Native-only timing does not establish a combined
+  database, transport or carrier-scale SLA.
+- Website synthetic captures were delivered separately at
+  `carverauto/serviceradar-web`, branch `blog/set-algebra-over-device-groups`,
+  commit `6ec38c9180f8035b3893cb91577a49850b072147`; no website PR was opened.
 
-Native scale and browser codec comparison are in `review-response.md`; integrated
-scale and complete database tests remain pending. The physical-GPU synthetic
-transport stress test passed; its exact scope is in
-`docs/topology-bitmap-gpu-acceptance.md`, not a deployed-backend acceptance claim.
-The shared-bucket experiment was rejected after a real deadlock, and its source
-and tests were removed. It is not a foundation to restore. HTML architecture
-artifacts now reflect binary row overlays; keep new UI/prefix scope synchronized
-before delivery. Do not deploy or archive this change.
-
-Website capture delivery is complete in the separate repository
-`carverauto/serviceradar-web`, branch `blog/set-algebra-over-device-groups`,
-at `6ec38c9180f8035b3893cb91577a49850b072147`. That run reported 72 tests and
-opened no pull request. The captures use synthetic inventory and transport for
-one unchanged viewport and the expression
-`(VLAN 20 OR VLAN 30) AND unavailable EXCEPT tag maintenance=true`, before and
-after, at 1600x1000, dark scheme, DPR 2 downsampled. They do not prove backend
-acceptance. Do not modify that repository from this product change.
-
-The Prefix Tags catalog passed nine Rust tests and the core unit shard (1,285
-tests, zero failures, one skipped, 521 excluded), plus core formatting/Credo,
-in BuildBuddy invocation `d4c90a7d-e3f8-4b8c-85c5-34048b6f9211`. Catalog memory
-is capped globally at four MiB, including retained old catalogs; this is separate
-from existing trie storage. Numeric address scale passed with 1.1 million
-invented devices and 2.2 million address associations. Corrected sparse index
-accounting was 83.15 MB after 100 mixed churn ticks, with 140.68 MB peak total
-reservations. These native results exclude database and transport costs; see
-the native README for admission retries and the synthetic address distribution.
-
-Current public limitations: Share map preserves camera state but not the filter
-expression. Zero-match glyphs are masked; partial aggregate links are hidden when
-exact matching endpoints cannot be established. Named Prefix Tag labels are
-paged, without full-catalog download or label search. The real WebSocket
-matrix is complete and compression remains off. Combined database compact and
-sparse scale acceptance remains unrun. Hosted database evidence is not done.
+Share map currently preserves camera state, not filter expressions. Filtered
+aggregate links remain hidden when exact endpoints cannot be established.
+Named Prefix Tag labels are paged without full-catalog download or label search.
+See `design.md`, `choices.md` and `review-response.md` for the durable contracts;
+keep public claims within the completed evidence.
