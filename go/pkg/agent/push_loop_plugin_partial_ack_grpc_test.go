@@ -18,6 +18,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"slices"
@@ -54,7 +55,7 @@ func (g *partialAckGateway) StreamStatus(stream grpc.ClientStreamingServer[proto
 	recorded := recordedPluginStream{}
 	for {
 		chunk, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -104,7 +105,7 @@ func startPartialAckGateway(t *testing.T, respond func(call int) *proto.GatewayS
 	t.Setenv("SR_ALLOW_INSECURE", "true")
 
 	gw := &partialAckGateway{respond: respond}
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
