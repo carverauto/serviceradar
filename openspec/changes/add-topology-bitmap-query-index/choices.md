@@ -1,38 +1,11 @@
 # Implementation decisions
 
-Intermediate ledger; consolidate against final shipped code before handoff.
+Current decisions in the integrated implementation, ordered with the remaining
+acceptance uncertainty first. A sound decision is not a claim that its hosted
+acceptance has completed. Historical alternatives belong in the review response.
 
-## Unsound decisions corrected
+## Keep complete rolling reconciliation until commit coverage is proven
 
-### Shared durable buckets for unrelated device changes
-
-- When: first integration pass, rejected during independent review.
-- Choice: several devices shared a locked dirty-work row. Two inventory writers
-  changing different devices could acquire these rows in opposite order and
-  abort one another. A per-statement sort did not order whole transactions.
-- Gap: the proposal required durable coalescing but did not choose its storage.
-- Reach: every raw inventory writer would inherit contention from the index.
-- Verdict: unsound. Current-state hints do not justify a replication subsystem;
-  remove it and reconcile missing hints without shared writer locks.
-- Confidence: high.
-
-### Browser Roaring for already bounded tile rows
-
-- When: browser prototype, replaced after measured comparison.
-- Choice: every admitted view allocated a codec runtime and decoded portable
-  sets before producing row masks. Sparse IDs made those sets larger than the
-  masks, even after a custom build reduced the heap.
-- Gap: the original issue suggested browser bitmaps without proving a need for
-  local set algebra after tiling bounded the view.
-- Reach: runtime dependency, toolchain, worker lifecycle and protocol complexity.
-- Verdict: unsound for this product path. Send the final bounded typed columns.
-- Confidence: high.
-
-## Sound decisions
-
-### Keep complete rolling reconciliation until commit coverage is proven
-
-- When: review reshaping.
 - Choice: if an update commits after a scan passed that device and its hint is
   lost, a later bounded scan repairs it. A timestamp overlap can miss a longer
   transaction, and the existing per-device revision is not a global commit log.
@@ -42,9 +15,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound; preserve correctness while measuring cost.
 - Confidence: medium.
 
-### Keep map sharing limited to its existing camera contract
+## Keep map sharing limited to its existing camera contract
 
-- When: filter-builder integration.
 - Choice: Share map keeps its existing layout/camera URL. Filter expressions are
   not encoded in that URL. Named Prefix Tag discovery keeps one page of 50 labels
   plus the selected label, without downloading or searching the full catalog.
@@ -55,65 +27,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound for the approved scope; keep the limitations explicit.
 - Confidence: medium.
 
-### Count canonical mapping lifetime through actual native reclamation
+## Hide relations whose filtered endpoints cannot be established
 
-- When: final delivery and memory review.
-- Choice: at most two native canonical mappings may exist, including mappings
-  pinned by in-flight responses or waiting for native reclamation. New builders
-  receive backpressure until an older allocation drops. Health retains only
-  its world and manifest; it does not retain the separate canonical mapping.
-- Gap: per-mapping caps alone did not bound overlap between builders, cache
-  replacement and delayed channel responses.
-- Reach: mapping retries can delay newly available filters, while accepted
-  projections remain usable through transient index-owner failures. Final
-  delivery compares the exact mapping, not only its dictionary epoch.
-- Verdict: sound; memory and receipt coherence follow actual resource lifetime.
-- Confidence: high.
-
-### Preserve existing source-prefix spellings while accepting mapped IPv6 masks
-
-- When: named Prefix Tags normalization review.
-- Choice: a configured network `::ffff:192.0.2.7/120` becomes the IPv4 network
-  `192.0.2.0/24`, so it matches a device whose stored address was already
-  normalized to IPv4. Existing prefix sources also accept the shorter mapped
-  spelling `/24`; that established source behavior stays valid. Masks between
-  33 and 95 are rejected. The new map query syntax uses standard mapped IPv6
-  lengths of 96 through 128.
-- Gap: source prefix parsing previously skipped valid standard mapped masks;
-  the query design did not account for its established short-mask spelling.
-- Reach: both existing prefix engines and the native catalog share the same
-  network membership. Existing configured prefixes do not change meaning.
-- Verdict: sound; accept the missing standard form without breaking existing
-  source data, while keeping the new query syntax unambiguous.
-- Confidence: high.
-
-### Retain minimal canonical tombstones during physical cleanup
-
-- When: device identity pass.
-- Choice: a deleted device with a persistent ordinal keeps its UID and deletion
-  lineage while mutable payload is scrubbed. Deleting its dictionary would let
-  future membership reuse or lose a previously assigned identity.
-- Gap: the previous cleanup owner deleted child dictionaries before deleting
-  the device; the proposal did not detail physical retention behavior.
-- Reach: purge queries and fixture cleanup must distinguish retained identity
-  from a live or unpurged device.
-- Verdict: sound; immutable identity survives cleanup and legitimate restoration.
-- Confidence: high.
-
-### Live result pages use current local membership
-
-- When: explicitly chosen by the user on 2026-10-16.
-- Choice: page two reads the receiving pod's current index after the last
-  ordinal, so devices may enter or leave between pages. Counts within one
-  response still share one coherent snapshot.
-- Gap: resolved by the user's product preference for a live NOC view.
-- Reach: no frozen export guarantee, retained query owner, routing or result cache.
-- Verdict: sound; cursor binds query, dictionary and current authority.
-- Confidence: high.
-
-### Hide relations whose filtered endpoints cannot be established
-
-- When: binary view integration.
 - Choice: a cluster can contain ten devices but only two matches. A line to
   another partially matched cluster does not prove that any matching devices
   connect. Hide that line and its whole-bundle traffic rather than attribute
@@ -126,9 +41,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound; an omitted unsupported relation is safer than a false link.
 - Confidence: medium.
 
-### Build the canonical world mapping after geometry becomes available
+## Build the canonical world mapping after geometry becomes available
 
-- When: binary view integration.
 - Choice: the normal world loader first installs geometry, then streams pages
   of canonical identities into a compact native vector. A new world rejects
   the old world's pending map. Missing assignments remain excluded and a later
@@ -140,64 +54,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound; one existing loader owns the work and avoids a fleet UID map.
 - Confidence: medium.
 
-### Encode telemetry once, preserving its separate update schedule
+## Resolve named Prefix Tags through the existing immutable prefix snapshots
 
-- When: binary telemetry integration.
-- Choice: a tile's health and directional traffic become one bounded binary
-  payload after the telemetry query. The cache retains those bytes, and HTTP
-  serves them directly. Matching masks use a separate whole-view frame, so
-  changing a filter does not require re-querying telemetry for every tile.
-- Gap: the reduced proposal required binary replacement but did not specify
-  how existing telemetry caching and membership cadence share transport.
-- Reach: two small, explicit row protocols share exact geometry receipts;
-  telemetry fields retain coverage, unknowns and observation timestamps.
-- Verdict: sound; replaces bulk JSON while preserving bounded source reads.
-- Confidence: high.
-
-### Use one outstanding membership frame and current-policy delivery
-
-- When: channel integration.
-- Choice: after sending a complete membership frame, the server waits for its
-  acknowledgement before computing another. A fifteen-second stall resets the
-  stream. Every completed response rechecks the current user policy, dictionary
-  and world before sending; no history queue or old query owner survives.
-- Gap: the plan required bounded slow-viewer behavior without choosing the
-  acknowledgement and cancellation lifecycle.
-- Reach: slow viewers see current replacements instead of accumulating deltas;
-  eight query workers and a one-second request deadline bound expensive work.
-- Verdict: sound; full replacement makes dropped intermediate states harmless.
-- Confidence: high.
-
-### Interpret current IP membership through current address owners
-
-- When: user-expanded filter scope.
-- Choice: the user requested any known device/interface IP. Current primary
-  addresses, active aliases, interface addresses and existing virtual interfaces
-  contribute. An old IP identity record alone does not: those records may remain
-  for months after reassignment. A down interface still has its assigned IP.
-- Gap: the user specified breadth but not which historical/current inventory
-  records establish present membership.
-- Reach: IP filtering requires complete bounded association publication;
-  historical address searches remain a separate product behavior.
-- Verdict: sound; the filter describes current assignment, not identity history.
-- Confidence: high.
-
-### Publish filter capabilities without making the base map depend on them
-
-- When: integrated binary delivery checkpoint.
-- Choice: the map manifest advertises configured fields and whether membership
-  can currently be projected. A user can still navigate an unfiltered map while
-  the dictionary mapping is being built or a filter source is unavailable.
-  The browser cannot mistake an empty list of filters for a ready empty result.
-- Gap: the approved UI needed supported-field discovery but did not place it.
-- Reach: the existing authenticated manifest owns this small metadata response;
-  no fleet-value download or extra request is needed to discover basic fields.
-- Verdict: sound; current authorization is checked after metadata preparation.
-- Confidence: high.
-
-### Resolve named Prefix Tags through the existing immutable prefix snapshots
-
-- When: named Prefix Tags implementation.
 - Choice: selecting a label such as `office` reads the networks already attached
   to that label, merges their overlapping ranges, and passes those ranges to the
   device address index. A small reverse index points into the existing trie;
@@ -216,9 +74,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   publisher's responsibility when the feature is enabled or disabled.
 - Confidence: medium.
 
-### Drain native ownership during graceful publisher shutdown
+## Drain native ownership during graceful publisher shutdown
 
-- When: final replica lifecycle review.
 - Choice: trap supervisor exits so the publisher's termination callback runs,
   and retry busy native closes synchronously for up to four seconds. Reuse the
   normal disable cleanup; timers addressed to a terminating owner cannot finish
@@ -233,27 +90,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Confidence: medium; the full remote unit gate passed, while the hosted
   database lifecycle acceptance remains pending.
 
-### Measure transport with prepared frames and a separate server process
+## Keep compression disabled after the measured CPU tradeoff
 
-- When: task 4.7 negotiated compression acceptance.
-- Choice: prepare the same 35 synthetic membership frames before opening the
-  measurement window. A real Phoenix socket sends them through Bandit to Gun
-  clients in a separate VM. When 100 clients ask for their next frame, Linux
-  process CPU counts the server's serializer, zlib and kernel work without
-  including client decompression. Preparation and query work stay outside that
-  measurement; the test does not replace hosted production-channel acceptance.
-- Gap: the task required concurrent transport cost but did not choose an
-  isolation boundary or a portable source of native CPU/memory accounting.
-- Reach: this manual Linux target can repeat the compression comparison without
-  database fixtures. It cannot establish whole-application capacity or the
-  production acknowledgement policy. RSS includes the prepared-frame fixture.
-- Verdict: sound; real upgrades and byte parity exercise the missing transport
-  boundary, while independent OS counters include native work.
-- Confidence: high.
-
-### Keep compression disabled after the measured CPU tradeoff
-
-- When: task 4.7 final remote run.
 - Choice: at 100 simultaneous viewers, compressing mixed synthetic frames saves
   about 56% of payload bytes but spends 22.50 CPU seconds instead of 0.45 for
   3,000 deliveries. Keep the existing disabled production setting. The manual
@@ -267,48 +105,12 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound; retain the current setting and the measured limits.
 - Confidence: medium; a bandwidth-constrained deployment may choose differently.
 
-### Keep the combined scale measurement inside the existing scratch lifecycle
+## Bootstrap sparse synthetic identities without remapping existing rows
 
-- When: task 4.2 acceptance harness, revised after measuring the hosted cap.
-- Choice: select compact or sparse IDs in the existing dispatch-only
-  WebNgDbDiagnostic action. Its network and plugin checks still run. Two server
-  VMs share one guarded clone; sparse requests the existing serial_1 generation
-  target, while compact uses serial_0. Existing observation and cleanup own the
-  run. Full BazelCI correctness remains a separate required PR gate.
-- Gap: the plan did not select an execution owner. The first choice appended
-  scale to BazelCI, but the hosted runner enforces a one-hour free-tier cap and
-  an ordinary run had already consumed 34 minutes. That choice could not leave
-  reliable time for a scale measurement and cleanup.
-- Reach: one variant per dispatch, a 44-minute scenario inside a 45-minute test
-  limit, and a 55-minute observer budget. The existing two-hour lease needs no
-  extra renewal. Preparation can still exhaust the outer cap; an incomplete
-  run remains a failure.
-- Verdict: sound; reusing the smaller existing lifecycle avoids another
-  provisioner and preserves the ordinary CI action unchanged.
-- Confidence: high.
-
-### Use real server paths while declaring the synthetic geometry boundary
-
-- When: task 4.2 acceptance harness.
-- Choice: two isolated BEAM VMs run the production bounded source, index,
-  authentication, endpoint and channel. Gun opens 100 actual sockets. An
-  invented native world is installed at WorldCache, then its mapping is built
-  from real dictionary pages. For example, a database availability change must
-  reach an independently decoded socket frame before that viewer progresses.
-- Gap: the plan did not choose whether this slice should also run discovery,
-  layout persistence and a physical browser. Those have separate existing
-  owners and evidence; combining all of them would obscure the server costs.
-- Reach: the result covers database-to-network behavior and whole-server RSS,
-  but cannot be advertised as full browser, layout or ingestion acceptance.
-- Verdict: sound; the narrower boundary is explicit and exercises real
-  production behavior without new production hooks or dependencies.
-- Confidence: high.
-
-### Bootstrap sparse synthetic identities without remapping existing rows
-
-- When: task 4.2 acceptance harness.
-- Choice: the fixture allocates invented dictionary IDs before creating its
-  devices or starting an index. Compact IDs use consecutive ordinals; sparse
+- Choice: the fixture creates new synthetic devices as inactive, then assigns
+  only those new devices invented dictionary ordinals, then activates them
+  through the normal trigger. The immediate device foreign key holds throughout
+  the single 500-row transaction. No index starts before this bootstrap ends. Compact IDs use consecutive ordinals; sparse
   IDs begin above 2^31 and advance by seven. Existing dictionary rows and
   tombstones keep their values. Real device triggers still execute.
 - Gap: production allocation is intentionally dense, so a fresh scratch
@@ -319,9 +121,8 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   reassignment is a supported production operation.
 - Confidence: medium.
 
-### Reject hidden starvation and report sampled memory honestly
+## Reject hidden starvation and report sampled memory honestly
 
-- When: task 4.2 acceptance harness.
 - Choice: normal clients emulate the renderer's bounded retry delay and must
   each accept a fresh revision within 30 seconds during ready churn. Cold
   owner restart is measured separately. Every deliberately slow client must
@@ -337,3 +138,234 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   the result falsifiable. The 30-second readiness bound is an acceptance
   workload choice, not a new product response-time promise.
 - Confidence: medium.
+
+## Preserve retired identities while allowing policy-valid successor seeding
+
+- Choice: retention scrubs mutable payload but preserves UID, ordinal and
+  deletion reason. A subsequent fresh seed may allocate a bounded successor
+  only after payload purge and only when policy permits; source-retired devices
+  remain blocked. Structural defaults and valid fresh timestamps keep a
+  legitimately restored retained row readable. Service components receive no
+  new device ordinal; existing reserved assignments are retained but excluded.
+- Gap: permanent identity retention must not accidentally make normal address
+  reuse impossible or broaden automatic restoration policy.
+- Reach: dictionary and inventory migration locks have finite deadlines, with
+  dictionary widening separate from inventory lifecycle DDL. Hosted database
+  lifecycle assertions still have to run against the final integrated code.
+- Verdict: sound; preserves identity and existing lifecycle policy together.
+- Confidence: medium pending hosted migration and lifecycle acceptance.
+
+## Preserve synthetic fixture constraints and measure causal progress
+
+- Choice: each device has a unique invented IPv6 primary address and a shared
+  interface IPv4 address. Churn replaces the primary /48. SQL-derived final
+  assertions check new and removed prefixes; authority denial must increase
+  each client's forbidden count after deactivation.
+- Gap: repeated primary addresses violate real uniqueness constraints, and
+  historical closes do not prove a later authority revocation was observed.
+- Reach: the harness exercises real schema and transport boundaries without
+  weakening constraints, remapping existing ordinals or claiming browser proof.
+- Verdict: sound; combined hosted execution remains pending.
+- Confidence: medium pending compact and sparse hosted acceptance.
+
+## Count canonical mapping lifetime through actual native reclamation
+
+- Choice: at most two native canonical mappings may exist, including mappings
+  pinned by in-flight responses or waiting for native reclamation. New builders
+  receive backpressure until an older allocation drops. Health retains only
+  its world and manifest; it does not retain the separate canonical mapping.
+- Gap: per-mapping caps alone did not bound overlap between builders, cache
+  replacement and delayed channel responses.
+- Reach: mapping retries can delay newly available filters, while accepted
+  projections remain usable through transient index-owner failures. Final
+  delivery compares the exact mapping, not only its dictionary epoch.
+- Verdict: sound; memory and receipt coherence follow actual resource lifetime.
+- Confidence: high.
+
+## Preserve existing source-prefix spellings while accepting mapped IPv6 masks
+
+- Choice: a configured network `::ffff:192.0.2.7/120` becomes the IPv4 network
+  `192.0.2.0/24`, so it matches a device whose stored address was already
+  normalized to IPv4. Existing prefix sources also accept the shorter mapped
+  spelling `/24`; that established source behavior stays valid. Masks between
+  33 and 95 are rejected. The new map query syntax uses standard mapped IPv6
+  lengths of 96 through 128.
+- Gap: source prefix parsing previously skipped valid standard mapped masks;
+  the query design did not account for its established short-mask spelling.
+- Reach: both existing prefix engines and the native catalog share the same
+  network membership. Existing configured prefixes do not change meaning.
+- Verdict: sound; accept the missing standard form without breaking existing
+  source data, while keeping the new query syntax unambiguous.
+- Confidence: high.
+
+## Retain minimal canonical tombstones during physical cleanup
+
+- Choice: a deleted device with a persistent ordinal keeps its UID and deletion
+  lineage while mutable payload is scrubbed. Deleting its dictionary would let
+  future membership reuse or lose a previously assigned identity.
+- Gap: the previous cleanup owner deleted child dictionaries before deleting
+  the device; the proposal did not detail physical retention behavior.
+- Reach: purge queries and fixture cleanup must distinguish retained identity
+  from a live or unpurged device.
+- Verdict: sound; immutable identity survives cleanup and legitimate restoration.
+- Confidence: high.
+
+## Live result pages use current local membership
+
+- Choice: page two reads the receiving pod's current index after the last
+  ordinal, so devices may enter or leave between pages. Counts within one
+  response still share one coherent snapshot.
+- Gap: resolved by the user's product preference for a live NOC view.
+- Reach: no frozen export guarantee, retained query owner, routing or result cache.
+- Verdict: sound; cursor binds query, dictionary and current authority.
+- Confidence: high.
+
+## Encode telemetry once, preserving its separate update schedule
+
+- Choice: a tile's health and directional traffic become one bounded binary
+  payload after the telemetry query. The cache retains those bytes, and HTTP
+  serves them directly. Matching masks use a separate whole-view frame, so
+  changing a filter does not require re-querying telemetry for every tile.
+- Gap: the reduced proposal required binary replacement but did not specify
+  how existing telemetry caching and membership cadence share transport.
+- Reach: two small, explicit row protocols share exact geometry receipts;
+  telemetry fields retain coverage, unknowns and observation timestamps.
+- Verdict: sound; replaces bulk JSON while preserving bounded source reads.
+- Confidence: high.
+
+## Use one outstanding membership frame and current-policy delivery
+
+- Choice: after sending a complete membership frame, the server waits for its
+  acknowledgement before computing another. A fifteen-second stall resets the
+  stream. Every completed response rechecks the current user policy, dictionary
+  and world before sending; no history queue or old query owner survives.
+- Gap: the plan required bounded slow-viewer behavior without choosing the
+  acknowledgement and cancellation lifecycle.
+- Reach: slow viewers see current replacements instead of accumulating deltas;
+  eight query workers and a one-second request deadline bound expensive work.
+- Verdict: sound; full replacement makes dropped intermediate states harmless.
+- Confidence: high.
+
+## Interpret current IP membership through current address owners
+
+- Choice: the user requested any known device/interface IP. Current primary
+  addresses, active aliases, interface addresses and existing virtual interfaces
+  contribute. An old IP identity record alone does not: those records may remain
+  for months after reassignment. A down interface still has its assigned IP.
+- Gap: the user specified breadth but not which historical/current inventory
+  records establish present membership.
+- Reach: IP filtering requires complete bounded association publication;
+  historical address searches remain a separate product behavior.
+- Verdict: sound; the filter describes current assignment, not identity history.
+- Confidence: high.
+
+## Publish filter capabilities without making the base map depend on them
+
+- Choice: the map manifest advertises configured fields and whether membership
+  can currently be projected. A user can still navigate an unfiltered map while
+  the dictionary mapping is being built or a filter source is unavailable.
+  The browser cannot mistake an empty list of filters for a ready empty result.
+- Gap: the approved UI needed supported-field discovery but did not place it.
+- Reach: the existing authenticated manifest owns this small metadata response;
+  no fleet-value download or extra request is needed to discover basic fields.
+- Verdict: sound; current authorization is checked after metadata preparation.
+- Confidence: high.
+
+## Measure transport with prepared frames and a separate server process
+
+- Choice: prepare the same 35 synthetic membership frames before opening the
+  measurement window. A real Phoenix socket sends them through Bandit to Gun
+  clients in a separate VM. When 100 clients ask for their next frame, Linux
+  process CPU counts the server's serializer, zlib and kernel work without
+  including client decompression. Preparation and query work stay outside that
+  measurement; the test does not replace hosted production-channel acceptance.
+- Gap: the task required concurrent transport cost but did not choose an
+  isolation boundary or a portable source of native CPU/memory accounting.
+- Reach: this manual Linux target can repeat the compression comparison without
+  database fixtures. It cannot establish whole-application capacity or the
+  production acknowledgement policy. RSS includes the prepared-frame fixture.
+- Verdict: sound; real upgrades and byte parity exercise the missing transport
+  boundary, while independent OS counters include native work.
+- Confidence: high.
+
+## Keep the combined scale measurement inside the existing scratch lifecycle
+
+- Choice: select compact or sparse IDs in the existing dispatch-only
+  WebNgDbDiagnostic action. Its network and plugin checks still run. Two server
+  VMs share one guarded clone; sparse requests the existing serial_1 generation
+  target, while compact uses serial_0. Existing observation and cleanup own the
+  run. Full BazelCI correctness remains a separate required PR gate.
+- Gap: the plan did not select an execution owner. The hosted runner enforces a one-hour free-tier cap, and an ordinary
+  correctness run can consume most of it. Scale therefore needs its own existing
+  diagnostic dispatch with reliable time for measurement and cleanup.
+- Reach: one variant per dispatch, a 44-minute scenario inside a 45-minute test
+  limit, and a 55-minute observer budget. The existing two-hour lease needs no
+  extra renewal. Preparation can still exhaust the outer cap; an incomplete
+  run remains a failure.
+- Verdict: sound; reusing the smaller existing lifecycle avoids another
+  provisioner and preserves the ordinary CI action unchanged.
+- Confidence: high.
+
+## Use real server paths while declaring the synthetic geometry boundary
+
+- Choice: two isolated BEAM VMs run the production bounded source, index,
+  authentication, endpoint and channel. Gun opens 100 actual sockets. An
+  invented native world is installed at WorldCache, then its mapping is built
+  from real dictionary pages. For example, a database availability change must
+  reach an independently decoded socket frame before that viewer progresses.
+- Gap: the plan did not choose whether this slice should also run discovery,
+  layout persistence and a physical browser. Those have separate existing
+  owners and evidence; combining all of them would obscure the server costs.
+- Reach: the result covers database-to-network behavior and whole-server RSS,
+  but cannot be advertised as full browser, layout or ingestion acceptance.
+- Verdict: sound; the narrower boundary is explicit and exercises real
+  production behavior without new production hooks or dependencies.
+- Confidence: high.
+
+## Use per-device hints and rolling reconciliation without shared writer locks
+
+- Choice: existing best-effort hints coalesce pending device ordinals, while
+  bounded rolling reconciliation repairs missed updates. Inventory writers do
+  not lock shared dirty buckets or depend on a new durable relay.
+- Gap: durable coalescing was not required to answer current-membership queries.
+- Reach: convergence depends on reconciliation throughput, which remains a
+  hosted acceptance gate; unrelated inventory writes avoid index lock coupling.
+- Verdict: sound; the independent transaction experiment established the cost
+  of shared writer locks, and the current design avoids that coupling.
+- Confidence: high.
+
+## Send bounded typed rows after server-side Roaring evaluation
+
+- Choice: Roaring computes device sets on the server. The browser receives
+  counts and masks for its admitted geometry, without a Roaring runtime or a
+  second set-algebra implementation.
+- Gap: a tiled view does not require browser set algebra over the whole fleet.
+- Reach: fixed-width row cost is independent of sparse device ordinal values;
+  the browser still validates receipts and performs explicit aligned copies.
+- Verdict: sound; codec measurements favor typed columns for this boundary.
+- Confidence: high.
+
+## Admit telemetry before fetching and bind membership to displayed geometry
+
+- Choice: deterministic numeric z/x/y order admits complete telemetry tiles
+  within the five-MiB cache budget before fetching. Omitted tiles show unknown
+  telemetry. Membership receipts include displayed tiles only; offscreen
+  geometry prefetch remains available without invalidating the active query.
+- Gap: per-tile limits alone did not prevent a visible working set from
+  repeatedly evicting and fetching itself or prefetch from restarting watches.
+- Reach: dense views can show unknown telemetry on omitted tiles, while filter
+  membership remains valid for every admitted displayed row.
+- Verdict: sound; explicit omission bounds work and avoids repeated refetching.
+- Confidence: high.
+
+## Retry incomplete membership with bounded backoff
+
+- Choice: malformed frames and stream resets retry after one, two, four, eight,
+  then ten seconds. A newly acknowledged watch does not erase this history;
+  only an accepted complete frame does. Each replacement uses a fresh view
+  epoch. The synthetic network harness uses the same schedule.
+- Gap: a successful watch can still produce no usable membership frame.
+- Reach: repeated failures cannot create a fast resubscription loop; transient
+  failures may take up to the existing capped retry delay to recover.
+- Verdict: sound; public browser regression cases establish the lifecycle.
+- Confidence: high.

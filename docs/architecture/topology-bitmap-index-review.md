@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `ed1dabfebb04975c62c0b1ea6ea948c8947f5f5b58a974c5cf657918d5244376` | 864899 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `df89112962525adb55d5f63a508627a8f3a4f8afa8a70f41e76d72fffb7ed9d4` | 873980 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -26,25 +26,27 @@ acceptance tasks and the deferred Arrow telemetry follow-up. Negotiated
 WebSocket measurement is complete and compression stays disabled. Code
 identifiers and protocol names remain unchanged.
 
-Proposal, design and requirements were checked at `8e92cbfd7a` and their
-embedded checksums still match those files. Tasks and the review response
-changed after that commit. The review response records corrected native memory
-accounting and limits, the final deadline/mapping checks, the full remote unit
-result (414 targets, two Swift platform skips), the completed negotiated
-transport measurement, separate website delivery, and the remaining hosted
-database and combined scale gates. Its source SHA-256 is
-`4d8fa9b81f9265689e281b49778c073d09959c0abc445dfd9c4cacd6ec7abac4`.
-The embedded tasks checklist records the negotiated compression result and
-leaves task 4.2 and hosted database acceptance unchecked. That source SHA-256 is
-`42888f8c19ec4a83bfec18ff5115d79a26fe51e05856c9421ee3d3d9cfce551b`.
+All five embedded source documents were regenerated from the current files.
+Their exact source checksums are:
 
-The portable summary states current public limitations from the same handoff:
-camera-only share links, paged labels without search, masked zero-match glyphs,
-hidden unproven partial-aggregate links and disabled compression. The handoff
-source SHA-256 is
-`f23337edf4cf51396624347dc445df5787df10cc47903903c0818c3bd8287cfc`.
-The portable summary and embedded review response were refreshed in place.
-Prior architecture visual receipts were not rerun.
+| Source | SHA-256 |
+| --- | --- |
+| `proposal.md` | `14e99f7907617406b0c7e33e67cbb08ac1b324b90485b983c4250f475d9fda62` |
+| `design.md` | `cec2f3c9522d0157721153b4a12383cc058185895bbf12962fc324f650a2d221` |
+| `specs/topology-god-view/spec.md` | `1e772b2a7a43ef11a41724db7fb2fd5d97a20eb15371891be85b87556de53d17` |
+| `tasks.md` | `42888f8c19ec4a83bfec18ff5115d79a26fe51e05856c9421ee3d3d9cfce551b` |
+| `review-response.md` | `49039d99c899db798df55c02377496a882631a1aa70b826fa8cff29a805d3cdd` |
+
+The current snapshot includes the final review corrections for bounded retries,
+displayed membership receipts, deterministic telemetry admission, parser/native
+limits, identity retention, catalog readers and schema-valid scale fixtures.
+It explicitly qualifies the earlier 414-target unit result as predating these
+fixes. Hosted database and combined scale acceptance remain unchecked.
+The portable summary retains camera-only sharing, paged labels without search,
+masked zero-match glyphs, hidden unproven aggregate links and disabled compression.
+Its handoff source SHA-256 is
+`1ab52c003af353188311316809eb957ce18d3dc7ac57d07169299d076669cc4f`.
+Architecture source and delivered diagram bytes are unchanged.
 The choices ledger and measurement report were reviewed as supporting evidence;
 they are not presented as additional embedded source documents.
 
@@ -74,13 +76,12 @@ at a narrow width of 500 pixels. Its five embedded source sections and diagram
 loaded. Document width matched viewport width; vertical scrolling is intentional.
 This is an artifact spot check, not product performance acceptance.
 
-The final portable-only refresh repeated those four browser containment/theme
-checks and verified the added acceptance/limitation prose. The architecture
-source, delivered diagram and its existing visual receipts are unchanged. No
-product or GPU tests were rerun for this documentation-only refresh. The later
-summary and review-response text refresh updated the portable file in place and
-was not repeated in the browser. The architecture receipt still identifies
-`topology-bitmap-index.html`.
+The current source refresh repeated containment and theme checks in Chrome at
+1470 x 780 and 500 x 780, in both light and dark themes. Each check required
+matching document/viewport widths, all five source sections and checksums, and a
+loaded embedded diagram. All four checks passed. This is a containment check;
+the unchanged architecture diagram keeps its existing visual-review receipts.
+No product or GPU acceptance is inferred from this documentation refresh.
 
 Product GPU evidence is recorded separately in
 [the synthetic hardware acceptance report](../topology-bitmap-gpu-acceptance.md).

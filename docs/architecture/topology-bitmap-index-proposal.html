@@ -14799,7 +14799,7 @@
   &lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
-"></iframe></section><section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before rollout.</h2><div class="grid"><article class="card"><h3>Identity and publication</h3><p>Verify ordinal persistence, current canonical sources, bounded publication and missed-hint reconciliation.</p></article><article class="card"><h3>Query and map controls</h3><p>Prove authorization, exact counts, live cursor pages and visible filter semantics. Readiness and incomplete sources remain visible.</p></article><article class="card"><h3>Browser and GPU</h3><p>Verify real binary decoding, tile eviction, reconnects, disable cleanup and GPU submission lifetime. Hardware component evidence is distinct from production-route acceptance.</p></article></div><div class="approval"><h3>Approved implementation scope; deployment remains pending.</h3><p>The complete current design and task checklist follow, including work that is still unfinished. These artifacts do not claim that rollout or carrier-scale acceptance is complete.</p></div><h3>Verified integration; remaining acceptance</h3><p>The full remote unit gate passed 414 targets with two Swift platform skips. Final delivery checks share the original request deadline and compare the exact canonical mapping. Native scale and synthetic production-component GPU checks have separate evidence. The negotiated WebSocket matrix is recorded in docs/topology-bitmap-websocket-measurements.md. Hosted database acceptance and combined compact/sparse scale remain unrun.</p><h3>Current product limits</h3><p>Share map preserves the camera, not the filter expression. Named Prefix Tag labels are paged without label search. Zero-match glyphs are masked, and links involving partial aggregates remain hidden when exact matching endpoints cannot be established. Compression stays disabled after the negotiated transport measurement. Combined database scale acceptance is unrun.</p></section><section id="proposal" class="source"><div class="section-label">Complete source document · proposal.md</div><h1>Change: Add a topology bitmap query index</h1>
+"></iframe></section><section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before rollout.</h2><div class="grid"><article class="card"><h3>Identity and publication</h3><p>Verify ordinal persistence, current canonical sources, bounded publication and missed-hint reconciliation.</p></article><article class="card"><h3>Query and map controls</h3><p>Prove authorization, exact counts, live cursor pages and visible filter semantics. Readiness and incomplete sources remain visible.</p></article><article class="card"><h3>Browser and GPU</h3><p>Verify real binary decoding, tile eviction, reconnects, disable cleanup and GPU submission lifetime. Hardware component evidence is distinct from production-route acceptance.</p></article></div><div class="approval"><h3>Approved implementation scope; deployment remains pending.</h3><p>The complete current design and task checklist follow, including work that is still unfinished. These artifacts do not claim that rollout or carrier-scale acceptance is complete.</p></div><h3>Verified integration; remaining acceptance</h3><p>An earlier integrated remote unit run passed 414 targets with two Swift platform skips. That run predates the latest review fixes and is not final-head acceptance. Final delivery checks share the original request deadline and compare the exact canonical mapping. Native scale and synthetic production-component GPU checks have separate evidence. The negotiated WebSocket matrix is recorded in docs/topology-bitmap-websocket-measurements.md. Hosted database acceptance and combined compact/sparse scale remain unrun.</p><h3>Current product limits</h3><p>Share map preserves the camera, not the filter expression. Named Prefix Tag labels are paged without label search. Zero-match glyphs are masked, and links involving partial aggregates remain hidden when exact matching endpoints cannot be established. Compression stays disabled after the negotiated transport measurement. Combined database scale acceptance is unrun.</p></section><section id="proposal" class="source"><div class="section-label">Complete source document · proposal.md</div><h1>Change: Add a topology bitmap query index</h1>
 <h2>Why</h2>
 <p>The topology renderer builds Roaring sets over temporary scene positions but
 sends only their sizes and counts. The persistent tiled world needs server-side
@@ -14848,7 +14848,7 @@ of existing named Prefix Tags. These are
 release-one requirements, not an internal API or an optional follow-up.</p>
 <p>The product name for the topology engine and its map is ServiceRadar Atlas,
 decided by the user on 2026-10-16. Website, documentation, UI copy and other
-public text say &quot;Atlas&quot; or &quot;ServiceRadar Atlas&quot;. The <code>topology-god-view</code>
+public text say "Atlas" or "ServiceRadar Atlas". The <code>topology-god-view</code>
 capability id, <code>god_view_*</code> module and asset names, and the
 <code>SERVICERADAR_GOD_VIEW_ENABLED</code> flag are unchanged by this change; renaming them
 is a separate change.</p>
@@ -14881,11 +14881,11 @@ native scale benchmarks and actual-hardware browser lifecycle checks.</li>
 </ul>
 <h2>Review Artifacts</h2>
 <ul>
-<li><a href="design.md">Design</a>, <a href="specs/topology-god-view/spec.md">requirements</a>,
-<a href="tasks.md">tasks</a>, <a href="choices.md">decisions</a> and <a href="review-response.md">review response</a>.</li>
-<li><a href="../../../docs/topology-binary-path-audit.md">Arrow path audit</a>.</li>
-<li>The <a href="../../../docs/architecture/topology-bitmap-index.html">architecture</a>
-and <a href="../../../docs/architecture/topology-bitmap-index-proposal.html">portable proposal</a>
+<li><a href="#design">Design</a>, <a href="#requirements">requirements</a>,
+<a href="#implementation-tasks">tasks</a>, <a href="../../openspec/changes/add-topology-bitmap-query-index/choices.md">decisions</a> and <a href="#review-response">review response</a>.</li>
+<li><a href="../topology-binary-path-audit.md">Arrow path audit</a>.</li>
+<li>The <a href="topology-bitmap-index.html">architecture</a>
+and <a href="topology-bitmap-index-proposal.html">portable proposal</a>
 reflect the reduced binary-overlay design. Keep the new filter-builder and
 named-prefix scope synchronized before delivery.</li>
 </ul>
@@ -15070,7 +15070,8 @@ An update between pages can therefore change membership as already approved.</p>
 <h2>4. Authorized queries and live pages</h2>
 <p>Accept normalized <code>all</code>, <code>any</code>, <code>except</code>, exact/prefix facet-value predicates,
 configured tag-key prefixes, typed IP/CIDR and named Prefix Tag predicates, with
-32 predicates, depth 8, at most 50 requested facet values, a 16 KiB control
+32 predicates, 65 expression nodes and depth 8 (root at depth 1, including every
+EXCEPT wrapper), at most 50 requested facet values, a 16 KiB control
 request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON;
 bulk membership and row state may not. Never fall back to a fleet scan in an
 HTTP handler.</p>
@@ -15140,12 +15141,20 @@ and envelope, fitting one 256 KiB frame. Validate every receipt, length, enum
 and row count before replacing accepted masks. Discard obsolete sequences and
 late responses. A missed intermediate full replacement does not corrupt the
 next frame. Changes to query, authority, layout or admitted receipts require a
-matching replacement; pending filters never display unfiltered success.</p>
+matching replacement; pending filters never display unfiltered success.
+Membership receipts describe displayed geometry only; unrelated offscreen
+prefetch stays in the geometry watch without clearing accepted membership.
+Validate counts against each row's represented population, including zero for
+unsupported boundary rows. Do not sum overlapping tiles to validate a total.</p>
 <p>Allow only one unacknowledged full frame per connection. Coalesce updates by
 reading current membership after acknowledgement; retain no queued frame history.
 An acknowledgement stalled for fifteen seconds causes one reset. Reconnect
 requires a fresh replacement. Eviction, disconnect and
 feature disable release masks; valid geometry survives membership resets.
+Malformed frames and resets retry after 1, 2, 4, 8 and at most 10 seconds.
+Only an accepted complete frame resets the attempt counter; a successful watch
+binding is not recovery. Changed queries or displayed receipts start a new
+retry epoch.
 No roaring-wasm, browser worker or per-view UID dictionary is added.</p>
 <p>Phase 3 also replaces the existing per-tile health/flow JSON response, rather
 than leaving it beside a new membership stream. Encode directional rates,
@@ -15159,7 +15168,11 @@ JSON encoding used only for size checks with the actual binary frame budget.
 Keep native health epochs in their existing opaque hexadecimal domain and
 preserve integer revisions losslessly. Small query/control metadata may remain JSON, but no bulk
 health or flow arrays are wrapped in JSON or embedded as JSON inside a binary
-envelope. The rollout-disabled compatibility path is identified separately.</p>
+envelope. The rollout-disabled compatibility path is identified separately.
+Admit telemetry before fetching in stable numeric tile order, reserving maximum
+row bytes and CPU/GPU metadata allowances within the 5 MiB retention cap.
+Unadmitted telemetry stays explicitly unknown until the viewport admission
+changes, avoiding repeated fetch/eviction cycles on a stationary dense view.</p>
 <p>An aggregate's existing traffic rate describes its whole represented bundle.
 Hide the relation, traffic animation and rates if either endpoint has only
 partial query membership, until an exact filtered-relation calculation is
@@ -15225,7 +15238,7 @@ apply to an admitted-row overlay protocol. Test adversarial cardinality, empty
 results, merges/deletes/restores, late commits, malformed frames and revocation.
 Benchmarks and fixture provisioning use declared Bazel targets on BuildBuddy.
 No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
-<div class="checksum">Source SHA-256: 7447767d3682d42d29132153479c5d2aeaf4110eeff48500cee6814ae8480e0f</div></section>
+<div class="checksum">Source SHA-256: cec2f3c9522d0157721153b4a12383cc058185895bbf12962fc324f650a2d221</div></section>
 <section id="requirements" class="source"><div class="section-label">Complete source document · specs/topology-god-view/spec.md</div><h2>ADDED Requirements</h2>
 <h3>Requirement: Persistent Device Bitmap Identity</h3>
 <p>The system SHALL reuse persisted device fleet ordinals for topology membership and SHALL bind native sets to a durable dictionary epoch and device entity kind.</p>
@@ -15288,6 +15301,13 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> empty results SHALL succeed with zero counts</li>
 <li><strong>AND</strong> predicates without an approved canonical source SHALL return explicit unsupported errors</li>
 </ul>
+<h4>Scenario: Expression limits agree across the builder and query engine</h4>
+<ul>
+<li><strong>WHEN</strong> an operator groups predicates or adds EXCEPT wrappers</li>
+<li><strong>THEN</strong> admission SHALL enforce at most 32 predicates, 65 expression nodes and eight levels with the root at level one</li>
+<li><strong>AND</strong> every EXCEPT wrapper SHALL consume a node and a level</li>
+<li><strong>AND</strong> over-budget expressions SHALL fail explicitly without increasing native limits</li>
+</ul>
 <h4>Scenario: Revocation during work</h4>
 <ul>
 <li><strong>GIVEN</strong> authority changes while a query, detail, search or overlay is in flight</li>
@@ -15322,6 +15342,13 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>THEN</strong> the client SHALL require a matching full overlay before rendering filtered success</li>
 <li><strong>AND</strong> valid geometry SHALL survive membership resets</li>
 <li><strong>AND</strong> health or membership updates SHALL NOT trigger ELK relayout</li>
+</ul>
+<h4>Scenario: Offscreen prefetch leaves the displayed result stable</h4>
+<ul>
+<li><strong>GIVEN</strong> an accepted overlay matches all displayed receipts</li>
+<li><strong>WHEN</strong> an offscreen tile enters or leaves the retained geometry cache</li>
+<li><strong>THEN</strong> the membership watch SHALL keep the unchanged displayed receipt set</li>
+<li><strong>AND</strong> the accepted result SHALL remain visible until that set, query or authority changes</li>
 </ul>
 <h4>Scenario: Partial aggregate telemetry</h4>
 <ul>
@@ -15385,6 +15412,12 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> each tile response SHALL remain within 256 KiB under the existing bounded fetch scheduler</li>
 <li><strong>AND</strong> bulk JSON SHALL NOT be embedded inside a binary envelope</li>
 </ul>
+<h4>Scenario: Dense telemetry remains within retention limits</h4>
+<ul>
+<li><strong>WHEN</strong> the complete displayed telemetry would exceed the 5 MiB retention cap</li>
+<li><strong>THEN</strong> the client SHALL admit a deterministic subset before fetching, including maximum row bytes and CPU/GPU metadata allowances</li>
+<li><strong>AND</strong> omitted telemetry SHALL remain explicitly unknown without repeated fetch/eviction churn for an unchanged admitted view</li>
+</ul>
 <h4>Scenario: Bounded typed columns</h4>
 <ul>
 <li><strong>WHEN</strong> an overlay is produced for at most 64 admitted tiles of 128 glyphs each</li>
@@ -15402,6 +15435,15 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> a skipped intermediate replacement SHALL NOT corrupt the next frame</li>
 <li><strong>AND</strong> obsolete sequences, mismatched receipts or authority, invalid enums and malformed lengths SHALL be rejected before excessive allocation or partial mutation</li>
 <li><strong>AND</strong> no XOR history or chunked baseline assembly SHALL be required</li>
+<li><strong>AND</strong> each matched count SHALL be bounded by its geometry row population, with unsupported boundary counts zero</li>
+<li><strong>AND</strong> decoding SHALL preserve leading U+FEFF identifier content in both membership and telemetry receipts</li>
+</ul>
+<h4>Scenario: Repeated invalid frames cannot bypass retry backoff</h4>
+<ul>
+<li><strong>WHEN</strong> watch binding succeeds but replacement frames remain invalid or reset</li>
+<li><strong>THEN</strong> retries SHALL back off through 1, 2, 4, 8 and at most 10 seconds</li>
+<li><strong>AND</strong> a successful binding alone SHALL NOT reset the attempt counter</li>
+<li><strong>AND</strong> an accepted complete frame or a genuinely changed query/view SHALL begin a fresh retry epoch</li>
 </ul>
 <h4>Scenario: Slow viewer and resource lifetime</h4>
 <ul>
@@ -15431,53 +15473,53 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li><strong>AND</strong> GPU buffers SHALL remain alive while queued commands reference them</li>
 <li><strong>AND</strong> software-GPU results SHALL NOT be presented as actual-hardware performance or end-to-end zero-copy proof</li>
 </ul>
-<div class="checksum">Source SHA-256: de9fc6c05e8d315c2bd0c65e0594071ed77c3950fb21bed23c8c1fa9a00540f6</div></section>
+<div class="checksum">Source SHA-256: 1e772b2a7a43ef11a41724db7fb2fd5d97a20eb15371891be85b87556de53d17</div></section>
 <section id="implementation-tasks" class="source"><div class="section-label">Complete source document · tasks.md</div><h1>ServiceRadar Atlas implementation tasks</h1>
 <h2>0. Approved direction</h2>
-<ul>
-<li>[x] 0.1 Obtain proposal approval before implementation.</li>
-<li>[x] 0.2 Review implementation complexity and incorporate the user's choice of current membership on each page.</li>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />0.1 Obtain proposal approval before implementation.</label></li>
+<li><label><input type="checkbox" checked="" />0.2 Review implementation complexity and incorporate the user's choice of current membership on each page.</label></li>
 </ul>
 <h2>1. Persistent identities and bounded server index</h2>
-<ul>
-<li>[ ] 1.1 Inventory canonical create/merge/delete/restore and retention writers; preserve the existing device dictionary.</li>
-<li>[ ] 1.2 Widen storage and sequence to checked full-u32, prevent repeat-allocation sequence burn, preserve tombstones and rollback compatibility.</li>
-<li>[ ] 1.3 Add resumable allocation/backfill; verify after-commit hint coverage at real transaction owners.</li>
-<li>[ ] 1.4 Integrate one bounded native publisher with world/health lifecycle, byte-bounded Roaring dirty sets, coherent revisions and rolling keyset reconciliation.</li>
-<li>[ ] 1.5 Implement canonical inventory/availability facets, value and memory caps, explicit readiness and freshness.</li>
-<li>[ ] 1.6 Prove persistence, purge/merge/delete/restore, lost hints, late commits, restart and two-replica convergence.</li>
-<li>[ ] 1.7 Run declared synthetic native benchmarks against an independent array baseline; report actual limits.</li>
+<ul class="task-list">
+<li><label><input type="checkbox" />1.1 Inventory canonical create/merge/delete/restore and retention writers; preserve the existing device dictionary.</label></li>
+<li><label><input type="checkbox" />1.2 Widen storage and sequence to checked full-u32, prevent repeat-allocation sequence burn, preserve tombstones and rollback compatibility.</label></li>
+<li><label><input type="checkbox" />1.3 Add resumable allocation/backfill; verify after-commit hint coverage at real transaction owners.</label></li>
+<li><label><input type="checkbox" />1.4 Integrate one bounded native publisher with world/health lifecycle, byte-bounded Roaring dirty sets, coherent revisions and rolling keyset reconciliation.</label></li>
+<li><label><input type="checkbox" />1.5 Implement canonical inventory/availability facets, value and memory caps, explicit readiness and freshness.</label></li>
+<li><label><input type="checkbox" />1.6 Prove persistence, purge/merge/delete/restore, lost hints, late commits, restart and two-replica convergence.</label></li>
+<li><label><input type="checkbox" />1.7 Run declared synthetic native benchmarks against an independent array baseline; report actual limits.</label></li>
 </ul>
 <h2>2. Authorized query and tiled projection</h2>
-<ul>
-<li>[ ] 2.1 Validate and normalize bounded expressions; exact AND/OR/ANDNOT and conjunctive facets on one request-local revision.</li>
-<li>[ ] 2.2 Enforce current RBAC on admission and delivery across queries, counts, search, details and overlays.</li>
-<li>[ ] 2.3 Implement authenticated live ordinal cursors usable on any healthy replica, binding query/dictionary/authority.</li>
-<li>[ ] 2.4 Project authorized leaf, aggregate and supported relation/bundle membership to admitted tile rows without relayout or whole-fleet BEAM/browser enumeration.</li>
-<li>[ ] 2.5 Report unsupported causal, site/role, alert/impact and complete-search predicates explicitly; keep availability separate.</li>
-<li>[ ] 2.6 Prove reference parity, empty results, revocation races, bounded details, count isolation and layout independence.</li>
-<li>[ ] 2.7 Add bounded literal value/tag-key prefix predicates and exact IPv4/IPv6 CIDR membership across current canonical device/interface addresses; prove deduplication, source completeness and memory/deadline bounds.</li>
-<li>[ ] 2.8 Reuse local immutable Prefix Tags snapshots for named source/label groups; implement atomic capture, bounded label discovery and native range selection, preserving full-chain semantics and live device pagination.</li>
+<ul class="task-list">
+<li><label><input type="checkbox" />2.1 Validate and normalize bounded expressions; exact AND/OR/ANDNOT and conjunctive facets on one request-local revision.</label></li>
+<li><label><input type="checkbox" />2.2 Enforce current RBAC on admission and delivery across queries, counts, search, details and overlays.</label></li>
+<li><label><input type="checkbox" />2.3 Implement authenticated live ordinal cursors usable on any healthy replica, binding query/dictionary/authority.</label></li>
+<li><label><input type="checkbox" />2.4 Project authorized leaf, aggregate and supported relation/bundle membership to admitted tile rows without relayout or whole-fleet BEAM/browser enumeration.</label></li>
+<li><label><input type="checkbox" />2.5 Report unsupported causal, site/role, alert/impact and complete-search predicates explicitly; keep availability separate.</label></li>
+<li><label><input type="checkbox" />2.6 Prove reference parity, empty results, revocation races, bounded details, count isolation and layout independence.</label></li>
+<li><label><input type="checkbox" />2.7 Add bounded literal value/tag-key prefix predicates and exact IPv4/IPv6 CIDR membership across current canonical device/interface addresses; prove deduplication, source completeness and memory/deadline bounds.</label></li>
+<li><label><input type="checkbox" />2.8 Reuse local immutable Prefix Tags snapshots for named source/label groups; implement atomic capture, bounded label discovery and native range selection, preserving full-chain semantics and live device pagination.</label></li>
 </ul>
 <h2>3. Binary admitted-row overlays</h2>
-<ul>
-<li>[ ] 3.1 Implement the versioned binary full-replacement envelope and typed state/count columns with fixed allocation limits.</li>
-<li>[ ] 3.2 Prove native-to-browser column interoperability, high canonical IDs, malformed lengths, receipt and state-domain handling.</li>
-<li>[ ] 3.3 Atomically replace matching admitted-row masks; reject stale work and bound slow-viewer coalescing without XOR history.</li>
-<li>[ ] 3.4 Replace the active per-tile health/flow JSON overlay and JSON size checks with bounded binary fields, preserving coverage, unknown values and timestamps; keep Arrow attributes typed.</li>
-<li>[ ] 3.5 Add the default-off rollout gate and explicit unsupported-filter fallback; release masks on eviction/disconnect/disable.</li>
-<li>[ ] 3.6 Run actual-browser zoom/reconnect/GPU-lifetime checks and measure retained bytes and upload copies.</li>
-<li>[ ] 3.7 Deliver a visible filter builder for inventory VLAN/attributes/tags, AND/OR/EXCEPT, text prefix, IP/CIDR and existing named Prefix Tags, with supported-field discovery, pending/error feedback, exact global/aggregate counts and clear-to-base behavior.</li>
+<ul class="task-list">
+<li><label><input type="checkbox" />3.1 Implement the versioned binary full-replacement envelope and typed state/count columns with fixed allocation limits.</label></li>
+<li><label><input type="checkbox" />3.2 Prove native-to-browser column interoperability, high canonical IDs, malformed lengths, receipt and state-domain handling.</label></li>
+<li><label><input type="checkbox" />3.3 Atomically replace matching admitted-row masks; reject stale work and bound slow-viewer coalescing without XOR history.</label></li>
+<li><label><input type="checkbox" />3.4 Replace the active per-tile health/flow JSON overlay and JSON size checks with bounded binary fields, preserving coverage, unknown values and timestamps; keep Arrow attributes typed.</label></li>
+<li><label><input type="checkbox" />3.5 Add the default-off rollout gate and explicit unsupported-filter fallback; release masks on eviction/disconnect/disable.</label></li>
+<li><label><input type="checkbox" />3.6 Run actual-browser zoom/reconnect/GPU-lifetime checks and measure retained bytes and upload copies.</label></li>
+<li><label><input type="checkbox" />3.7 Deliver a visible filter builder for inventory VLAN/attributes/tags, AND/OR/EXCEPT, text prefix, IP/CIDR and existing named Prefix Tags, with supported-field discovery, pending/error feedback, exact global/aggregate counts and clear-to-base behavior.</label></li>
 </ul>
 <h2>4. Scale proof and delivery</h2>
-<ul>
-<li>[ ] 4.1 Publish latency/memory and admitted-overlay bytes for the synthetic 100k + 1M fixture, including sparse IDs and full-population churn.</li>
-<li>[ ] 4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery.</li>
-<li>[ ] 4.3 Complete required remote checks and actual-hardware acceptance; identify each unrun check honestly.</li>
-<li>[ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.</li>
-<li>[ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.</li>
-<li>[ ] 4.6 Capture the production Atlas map/filter UI before and after the requested expression using only synthetic inventory; add images, figures, hero metadata and show-test coverage to the website blog branch, run <code>mix precommit</code> and push with an explicit refspec without opening a website PR.</li>
-<li>[ ] 4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it. Real negotiated 1/10/100-client probe passed; keep compression disabled. See <code>docs/topology-bitmap-websocket-measurements.md</code> for scope and results. Status awaits final integration.</li>
+<ul class="task-list">
+<li><label><input type="checkbox" />4.1 Publish latency/memory and admitted-overlay bytes for the synthetic 100k + 1M fixture, including sparse IDs and full-population churn.</label></li>
+<li><label><input type="checkbox" />4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery.</label></li>
+<li><label><input type="checkbox" />4.3 Complete required remote checks and actual-hardware acceptance; identify each unrun check honestly.</label></li>
+<li><label><input type="checkbox" />4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.</label></li>
+<li><label><input type="checkbox" />4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.</label></li>
+<li><label><input type="checkbox" />4.6 Capture the production Atlas map/filter UI before and after the requested expression using only synthetic inventory; add images, figures, hero metadata and show-test coverage to the website blog branch, run <code>mix precommit</code> and push with an explicit refspec without opening a website PR.</label></li>
+<li><label><input type="checkbox" />4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it. Real negotiated 1/10/100-client probe passed; keep compression disabled. See <code>docs/topology-bitmap-websocket-measurements.md</code> for scope and results. Status awaits final integration.</label></li>
 </ul>
 <p>Deferred: interface identities/queries, durable dirty replication, owner-routed
 frozen pages, result caching and browser Roaring. Add them only for a demonstrated
@@ -15648,7 +15690,7 @@ exposed a fixed-size decoder reservation and a retained/transient accounting
 race; both were repaired without raising those caps. This is native scheduling
 evidence with a harness export gate, not 100 HTTP clients, authorization latency
 or whole-process memory. Details and reproducible targets live in the
-<a href="../../../elixir/web-ng/native/god_view_nif/README.md">native README</a>.</p>
+<a href="../../elixir/web-ng/native/god_view_nif/README.md">native README</a>.</p>
 <p>Integrated checks now pass in <code>ac3da572-16db-426f-8cc7-94802131f96c</code>:
 web quality, application-domain (478 discovered, 413 excluded) and Phoenix
 (783 discovered, 212 excluded), both with zero failures. The earlier timestamp
@@ -15660,7 +15702,7 @@ tracked devices/buffers after teardown. It found and repaired shared mutable
 compute bindings in the pinned Luma dependency, independently reproduced through
 the public compute API. The harness uses synthetic HTTP/WebSocket responders;
 it does not prove the real server/database path. Scope, bytes and timing are in
-<a href="../../../docs/topology-bitmap-gpu-acceptance.md">GPU acceptance</a>.</p>
+<a href="../topology-bitmap-gpu-acceptance.md">GPU acceptance</a>.</p>
 <p>The user subsequently required visible AND/OR/EXCEPT map groups, literal tag
 prefixes and IPv4/IPv6 containment over any current device/interface address.
 Those additions are now explicit proposal/design/requirement tasks. They do not
@@ -15696,24 +15738,87 @@ the fixed deadline regression and web quality passed in
 native admission permits through actual reclamation, and health snapshots no
 longer retain those separate mappings. The full remote <code>make test</code> gate passed
 414 targets with two Swift platform skips in
-<code>2acf322c-fbc1-4bba-8257-2a137605223e</code>. Database-backed acceptance remains a
-separate hosted gate.</p>
+<code>c3499e7a-246b-4498-9611-9e084119a583</code>, a later integrated run than
+<code>2acf322c-fbc1-4bba-8257-2a137605223e</code>. Both predate the latest review fixes and
+do not prove the final head. Database-backed acceptance remains a separate
+hosted gate. Historical commit identifiers elsewhere in this report name the
+tested pre-rebase checkpoints, not the current branch head.</p>
 <h2>Pass 3 response</h2>
 <ul>
 <li>Naming: public prose and new UI copy use ServiceRadar Atlas. Existing source
 identifiers, flags and capability names retain their current spellings.</li>
 <li>P3-1: retain full-replacement membership frames. The negotiated WebSocket
 matrix for 1, 10 and 100 clients is recorded in
-docs/topology-bitmap-websocket-measurements.md. Compression stays
+<code>docs/topology-bitmap-websocket-measurements.md</code>. Compression stays
 disabled. Unchanged-tile omission stays deferred.</li>
 <li>P3-2: accept native Arrow IPC health/flow encoding as an explicit follow-up,
 consistent with the binary-path audit. The current SRTO codec remains in this
 release; the follow-up must preserve receipts, nullability, coverage and
 timestamps while comparing actual allocation and wire costs.</li>
 <li>P3-3: website capture delivery is complete separately at
-6ec38c9180f8035b3893cb91577a49850b072147, with 72 tests and no pull
-request, on carverauto/serviceradar-web branch
-blog/set-algebra-over-device-groups. The captures use synthetic inventory
+<code>6ec38c9180f8035b3893cb91577a49850b072147</code>, with 72 tests and no pull
+request, on <code>carverauto/serviceradar-web</code> branch
+<code>blog/set-algebra-over-device-groups</code>. The captures use synthetic inventory
 and transport and do not prove server or database acceptance.</li>
 </ul>
-<div class="checksum">Source SHA-256: 4d8fa9b81f9265689e281b49778c073d09959c0abc445dfd9c4cacd6ec7abac4</div></section><footer>ServiceRadar Atlas · Synthetic examples only · Artifact snapshot of the current approved design. Implementation progress is recorded in the source task checklist.</footer></main><script>document.querySelector('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';document.querySelector('#theme').textContent=light?'Dark theme':'Light theme'})</script></body></html>
+<h2>Final implementation review corrections</h2>
+<p>The implementation review is tracked separately from the original proposal
+review. The following corrections preserve the approved scope and budgets:</p>
+<ul>
+<li>Browser membership uses displayed geometry receipts; offscreen prefetch does
+not restart a live filter. Telemetry tiles are admitted in deterministic
+numeric tile order before fetching, within the existing five-MiB budget.
+Omitted telemetry remains unknown instead of creating an eviction/refetch loop.</li>
+<li>Malformed frames and resets retain exponential retry history until a complete
+frame is accepted. New watches use fresh view epochs. SRTO text decoding
+preserves a leading BOM in identifiers, and SRMO counts cannot exceed row
+population or assign membership to boundary rows.</li>
+<li>Parser and builder limits count EXCEPT instructions and the root level:
+32 predicates, 65 compiled instructions and eight levels. Native-backed tests
+accept the exact boundary and reject the next instruction or level.</li>
+<li>Transient index warmup leaves the geometry manifest and its canonical mapping
+intact for normal polling. Disabled indexing remains a distinct state. Named
+Prefix Tag delivery rechecks feature enablement within the original deadline
+after current authority and source validation.</li>
+<li>The proposed multipart-upload crash did not reproduce with pinned Jason:
+nested Plug.Upload values already produce HTTP 400 invalid_query through the
+actual controller boundary. A public regression retains that contract; no
+speculative rescue was added.</li>
+<li>Retention preserves old UID, ordinal and deletion lineage. Fresh seed
+successors remain bounded and policy-aware; source-retired identities remain
+suppressed. Scrubbing restores structural defaults and valid fresh timestamps
+without retaining historical payload. Service components are excluded from
+new allocation and projection while old reserved assignments remain intact.</li>
+<li>Dictionary widening precedes inventory lifecycle DDL in a separate migration;
+both use finite lock and statement timeouts. The heavy dictionary rewrite does
+not retain the inventory lifecycle lock.</li>
+<li>Duplicate native facet keys are rejected atomically. Publication validates
+outside the short revision guard, and immutable Prefix Tags catalog readers
+share a read lock while preparation and release use nonblocking writes.</li>
+<li>Scale fixtures use unique synthetic IPv6 primary addresses and a shared IPv4
+interface address. New inactive devices precede their invented dictionary
+assignments, then normal activation triggers run in the same transaction;
+this respects the immediate foreign key without remapping existing identity.
+Final predicates verify replaced addresses. Revocation must increase every
+client's denial counter after deactivation. The network client's retry
+schedule matches the browser and resets only after a complete frame.</li>
+</ul>
+<p>Focused browser regression cases first failed against the earlier implementation
+in <code>fd272658-c0d4-48f5-8314-1a8cb174e5f8</code>, then 644 scene tests passed in
+<code>284ed484-a2fa-418d-89d0-87bdf2f94401</code>. Parser depth and instruction bounds
+failed in <code>bf70fe99-983e-4ad9-8aeb-64c80a822398</code>; the corrected parser/native
+boundary, controller upload contract, application-domain shard and web quality
+passed in <code>f90ed680-bfc5-4c9e-89a9-416fe3b36a84</code>.</p>
+<p>Identity-focused invocation <code>7f0f29c3-6ec7-45c5-b024-0f105da73792</code> passed core
+quality, the core shard (1,290 tests, zero failures, one skipped), sweep tests
+(72 tests, zero failures) and the Phoenix sibling target. Its web-quality failure
+was an existing overlong frame-test line, corrected in the later passing server
+run. Native duplicate-facet rejection first failed in
+<code>83b12f11-466a-46e7-916d-6acfed9a503f</code>; the corrected 36 native tests, nine
+Prefix Tags Rust tests and Phoenix NIF coverage passed in
+<code>733e7ce1-fce3-4abe-b7b9-f641b597a538</code>.</p>
+<p>These are focused revision checkpoints, not final integrated acceptance. Hosted
+migration, database lifecycle, real channel and compact/sparse combined scale
+execution remain required. In particular, database-free parser and controller
+checks do not prove disable-during-authority or persisted-world polling races.</p>
+<div class="checksum">Source SHA-256: 49039d99c899db798df55c02377496a882631a1aa70b826fa8cff29a805d3cdd</div></section><footer>ServiceRadar Atlas · Synthetic examples only · Artifact snapshot of the current approved design. Implementation progress is recorded in the source task checklist.</footer></main><script>document.querySelector('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';document.querySelector('#theme').textContent=light?'Dark theme':'Light theme'})</script></body></html>

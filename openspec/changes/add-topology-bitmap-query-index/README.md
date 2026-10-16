@@ -7,7 +7,8 @@ Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
 
 ## Next agent prompt
 
-Finish hosted database acceptance. Current-address
+Complete the integrated review corrections, repeat final-head validation, then
+finish hosted database acceptance. Current-address
 CIDRs, named Prefix Tags and the visible map builder are integrated, alongside
 binary delivery, scalar set algebra, literal prefixes, rollout configuration
 and the public-GPU dependency repair. The existing Prefix Tags trie supplies
@@ -17,8 +18,9 @@ parser, catalog-to-address and browser checks passed. The real WebSocket
 compression matrix is recorded; compression stays disabled. Combined database
 compact and sparse scale acceptance is unrun, and task 4.2 stays open.
 Actual database lifecycle and channel tests remain open. The
-integrated full remote unit gate passed 414 targets with two platform skips
-in invocation `c3499e7a-246b-4498-9611-9e084119a583`; the Helm migration guard
+earlier integrated full remote unit gate passed 414 targets with two platform skips
+in invocation `c3499e7a-246b-4498-9611-9e084119a583`, before the latest review fixes;
+it is not final-head acceptance. The Helm migration guard
 now requires the latest shipped identity migration. Final delivery checks use
 the original request deadline and compare the exact canonical mapping.
 Graceful publisher shutdown traps exits and drains busy native resources within
@@ -31,10 +33,12 @@ combined compact/sparse scale remain unrun; leave those tasks unchecked.
 Preserve automatic
 ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
 
-Independent lanes own device identity/source/publisher/query API, native
-index/Atlas projection, and browser binary overlay/UI. The integration lane owns
-world mapping, channel/HTTP delivery and the existing Prefix Tags native catalog.
-Coordinate shared APIs before editing.
+The latest review corrections align parser/native limits, retain bounded retry
+history, admit telemetry before fetching, preserve warmup mappings, respect
+identity retention policy and repair synthetic scale fixture constraints. Focused
+regression evidence and disproven findings are in the final implementation
+review section of `review-response.md`; it does not substitute for final-head
+validation. Keep the portable proposal and its source hashes synchronized.
 
 ## Settled contracts
 

@@ -1,4 +1,4 @@
-# Atlas server scale acceptance
+# ServiceRadar Atlas server scale acceptance
 
 This manual workload measures the combined current-state database source,
 native index, Atlas projection, authorization, HTTP and WebSocket delivery.
@@ -67,9 +67,11 @@ and fail rather than silently reuse prior state.
 ## Declared workload
 
 Each variant creates 100,000 infrastructure devices and 1,000,000 endpoint
-devices, with two assigned addresses per device. One address is a shared IPv4
-value under `192.0.2.0/24`; the other is a permuted IPv6 assignment under
-`2001:db8::/32` on a real interface row. All identities and values are
+devices, with two assigned addresses per device. The primary address is unique
+under `2001:db8:1::/48`, using the bijection `(n * 7919) mod 1100000` for
+nonmonotonic address ownership. A current interface row supplies the shared
+IPv4 address `198.51.100.7`. This preserves the production unique active primary
+address constraint while exercising shared interface membership. All values are
 invented. Eight vendors, ten regions, eight VLANs and fifty cohort values
 exercise scalar facets. A separate fixture marker excludes preexisting
 scratch records from the expected population.
@@ -89,7 +91,8 @@ must add up to the exact matching population, including zero matches.
 
 After all 100 Gun WebSocket clients receive an accepted frame, 100 ticks
 update one percent of the entire population each, targeting a five-second
-cadence. Every device changes availability and its primary address once.
+cadence. Every device changes availability and its primary address once,
+preserving its unique suffix under the replacement `2001:db8:2::/48` prefix.
 Only server A receives post-commit hints. Server B must reconcile through its
 ordinary scans, including after its publisher is stopped and restarted at
 tick 60. That is an owner/index restart, not a pod or VM restart. Tick 30
@@ -113,12 +116,16 @@ Cold restart is a separately bounded recovery phase; every client must
 recover to the final SQL-derived population. Reconnects, cross-replica live
 pagination, facet-cardinality refusal and authority revocation are required
 before the scenario can finish. Separate HTTP predicates must find every
-replacement primary address and none of the removed primary addresses.
+replacement primary address and none of the removed primary addresses; the
+shared interface IPv4 predicate must still select the complete population.
+Revocation checks compare each client's forbidden counter with its value before
+deactivation, so a historical close cannot satisfy the new denial.
 
 Gun emulates the production renderer's transient-error retry schedule:
 1, 2, 4, 8, then at most 10 seconds, with the standard 10-second Phoenix push
 timeout. Successful watches stay subscribed and use the production server's
-five-second tick. A reset resubscribes after 50 milliseconds. The harness
+five-second tick. Resets use the same capped retry schedule. Rebinding a watch
+retains the failure count; only an accepted complete frame resets it. The harness
 does not repeatedly send successful watches to manufacture throughput.
 Compression is disabled, matching the current production endpoint; negotiated
 compression has its own independent transport probe.
