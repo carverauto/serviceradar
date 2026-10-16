@@ -975,6 +975,36 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("otel_traces", @rows, config: config, http_timeout: 3_000)
   end
 
+  # The StarRocks FE answers a Stream Load with a 307 from its headers alone and
+  # closes the connection without reading the body. A client that writes the
+  # body anyway races that close: once the body outgrows the socket buffers the
+  # redirect is lost to a reset socket, and large loads failed with
+  # `{:connect_failed, :closed}` on every attempt. The body must wait for the
+  # server to ask for it.
+  test "a load sends no body to the FE and follows its redirect sent from the headers" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_header_redirecting_fe(listener, parent, port) end})
+
+    pad = String.duplicate("x", 1_000_000)
+    rows = [%{"id" => "flow-alpha", "pad" => pad}, %{"id" => "flow-bravo", "pad" => pad}]
+
+    assert {:ok, %{loaded: 2}} =
+             StreamLoad.persist("otel_traces", rows,
+               config: %{fe_http: "http://127.0.0.1:#{port}"},
+               http_timeout: 10_000
+             )
+
+    assert_received {:wire_request, ["flow-alpha", "flow-bravo"]}
+    assert_received {:fe_early_body_bytes, 0}
+    refute_received {:fe_early_body_bytes, _}
+  end
+
   test "a coordinator 400 is terminal and is not retried on the wire" do
     {:ok, listener} =
       :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
@@ -1107,6 +1137,68 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       {:ok, _next_request} = :gen_tcp.recv(socket, 0, 3_000)
       :ok = :gen_tcp.send(socket, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
       :gen_tcp.close(socket)
+    end
+  end
+
+  # Models the StarRocks FE: every load to the FE path is redirected from its
+  # headers alone and the connection closed with the body unread. Loads to the
+  # redirect target are answered like a coordinator.
+  defp serve_header_redirecting_fe(listener, parent, port) do
+    case :gen_tcp.accept(listener, 5_000) do
+      {:ok, socket} ->
+        {:ok, {:http_request, :PUT, {:abs_path, path}, _}} = :gen_tcp.recv(socket, 0, 5_000)
+        headers = receive_headers(socket, %{})
+
+        if String.starts_with?(path, "/coordinator") do
+          :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+          :ok = :inet.setopts(socket, packet: :raw)
+          {:ok, body} = :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 5_000)
+          rows = Jason.decode!(body)
+          send(parent, {:wire_request, Enum.map(rows, & &1["id"])})
+
+          response =
+            Jason.encode!(%{
+              "Status" => "Success",
+              "NumberLoadedRows" => length(rows),
+              "NumberFilteredRows" => 0
+            })
+
+          :ok =
+            :gen_tcp.send(socket, [
+              "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+              Integer.to_string(byte_size(response)),
+              "\r\n\r\n",
+              response
+            ])
+        else
+          # Whatever body arrives before the FE has answered was sent without
+          # being asked for; the real FE never reads it.
+          :ok = :inet.setopts(socket, packet: :raw)
+
+          early_bytes =
+            case :gen_tcp.recv(socket, 0, 300) do
+              {:ok, data} -> byte_size(data)
+              {:error, _timeout_or_closed} -> 0
+            end
+
+          send(parent, {:fe_early_body_bytes, early_bytes})
+
+          :ok =
+            :gen_tcp.send(socket, [
+              "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:#{port}/coordinator",
+              path,
+              "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            ])
+        end
+
+        :gen_tcp.close(socket)
+        serve_header_redirecting_fe(listener, parent, port)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, :timeout} ->
+        serve_header_redirecting_fe(listener, parent, port)
     end
   end
 
