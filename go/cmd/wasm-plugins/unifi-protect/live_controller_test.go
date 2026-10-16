@@ -55,7 +55,7 @@ func TestProtectLiveControllerSmoke(t *testing.T) {
 	httpClient := &http.Client{
 		Timeout: cfg.ParsedTimeout(10 * time.Second),
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureTLS}, //nolint:gosec
+			TLSClientConfig: liveTLSConfig(t, insecureTLS),
 		},
 	}
 	client := &testProtectHTTPClient{
@@ -109,7 +109,7 @@ func TestProtectLiveControllerSmoke(t *testing.T) {
 		protectEventDial = func(rawURL string, headers map[string]string, insecureSkipVerify bool, timeout time.Duration) (protectEventConn, error) {
 			dialer := websocket.Dialer{
 				HandshakeTimeout: timeout,
-				TLSClientConfig:  &tls.Config{InsecureSkipVerify: insecureSkipVerify}, //nolint:gosec
+				TLSClientConfig:  liveTLSConfig(t, insecureSkipVerify),
 			}
 			reqHeaders := make(http.Header, len(headers))
 			for key, value := range headers {
@@ -157,4 +157,20 @@ func envIntOrDefault(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// liveTLSConfig honours UNIFI_PROTECT_LIVE_INSECURE (or the plugin's own
+// insecure_skip_verify) for a lab controller with a self-signed certificate,
+// and records every skip in the test log. This standalone module cannot import
+// the agent's tlsclient package.
+func liveTLSConfig(t *testing.T, insecure bool) *tls.Config {
+	t.Helper()
+
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if insecure {
+		t.Log("TLS certificate verification disabled for the live Protect controller")
+		cfg.InsecureSkipVerify = true
+	}
+
+	return cfg
 }
