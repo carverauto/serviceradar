@@ -419,6 +419,52 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
            }
   end
 
+  test "health rows preserve the exact mixed tile glyph order used by binary overlays" do
+    leaf = corner("sr:ordered-leaf.example.com", 5_000_000, 1_000_000)
+    left = corner("sr:ordered-left.example.com", 1, 3_000_000)
+    right = corner("sr:ordered-right.example.com", 16_000_000, 3_000_000)
+
+    clustered =
+      for n <- 1..5 do
+        "sr:ordered-cluster-#{n}.example.com"
+        |> corner(6_000_000 + n, 2_000_000)
+        |> Map.put(:min_zoom, 24)
+      end
+
+    relation = %{
+      relation_id: "invented-ordered-crossing",
+      source_id: left.device_id,
+      target_id: right.device_id,
+      evidence_class: "direct-physical"
+    }
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-order-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, [leaf, left, right | clustered])
+    assert :ok = TopologyAtlas.add_relations(builder, [relation])
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 2, 1, 0)
+    assert MapSet.new(tile.glyphs, & &1.kind) == MapSet.new([:device, :aggregate, :boundary])
+    assert {:ok, health} = TopologyAtlas.new_health(world, 1)
+
+    assert {:ok, _} =
+             TopologyAtlas.apply_health(world, health, 1, [
+               %{device_id: leaf.device_id, state: :healthy},
+               %{device_id: hd(clustered).device_id, state: :unavailable}
+             ])
+
+    assert {:ok, rows} = TopologyAtlas.tile_health(world, health, tile.selection)
+    assert Enum.map(rows.glyphs, & &1.id) == Enum.map(tile.glyphs, & &1.id)
+    assert rows.tile_revision == tile.revision
+
+    for {glyph, row} <- Enum.zip(tile.glyphs, rows.glyphs) do
+      case glyph.kind do
+        :device -> assert row.counts.healthy == 1 and row.counts.total == 1
+        :aggregate -> assert row.counts.unavailable == 1 and row.counts.total == 5
+        :boundary -> assert row.counts.total == 0
+      end
+    end
+  end
+
   test "packaged aggregate profile recovers a descriptor budget failure without truncating identity" do
     id = "sr:" <> String.duplicate("x", 1_048_576)
     world = cold_world([position(id, 100, true)])

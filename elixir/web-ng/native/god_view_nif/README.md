@@ -3,7 +3,8 @@
 `bitmap_index.rs` owns persistent ordinal membership; `bitmap_nif.rs` is its
 bounded typed BEAM boundary. The index does not own device UIDs, coordinates,
 current RBAC or durable delivery. Those remain with inventory, Atlas and the
-supervised publisher. Bulk membership uses portable 32-bit Roaring bytes.
+supervised publisher. Atlas-to-index membership uses portable 32-bit Roaring
+bytes; browser overlays use typed admitted-row columns.
 
 Create an unpublished index with 16-byte dictionary and index epochs, entity
 kind and an allowlist of canonical facet keys. Publish full current rows in
@@ -19,6 +20,25 @@ index remains readable. Call `bitmap_index_close/1` when disabling or replacing
 an index, and close query handles when their server-side owner discards them.
 These explicit releases run on dirty CPU schedulers.
 
+`bitmap_index_mark_dirty/3` coalesces at most 500 nonzero ordinals per call in
+a native Roaring set. Its third argument requests a full source reconciliation.
+`bitmap_index_take_dirty/2` removes up to 500 sorted ordinals before the owner
+reads current rows. A failed read or publication must re-mark the taken IDs;
+new hints received during that work remain queued. The set is capped at 512 KiB
+of portable serialized bytes, with allocated containers and metadata also
+charged to the index's native budget. Overflow releases the detailed set and
+requests a full scan. Hints are not a durable delivery log; a periodic complete
+keyset pass remains responsible for repairing missed notifications and deletes.
+
+Both calls return pending count, serialized/native bytes, `rescan_needed`, and
+`rescan_generation`; take returns `{:ok, {ordinals, status}}`. Index status also
+includes this map as `pending`. Every overflow or explicit rescan request
+advances the ephemeral generation. Capture that token before a full scan and
+call `bitmap_index_acknowledge_reconcile/2` only after accepting the entire pass.
+A different token returns `stale_reconcile`, preserving a request that arrived
+during the scan. Acknowledgement never removes later pending ordinals. These
+operations use bounded inputs, nonblocking lock admission and dirty CPU NIFs.
+
 Queries use a bounded postfix program. Instructions are
 `{opcode, facet, value, arity}`: 0 is an exact predicate, 1 is all, 2 is any and
 3 is except with one child. Operator strings are empty. Negation is relative to
@@ -32,10 +52,9 @@ device visibility projection is installed; cross-kind algebra is rejected.
 receipt with the authenticated server-side handle. It describes the pinned
 result, even if a new index revision publishes before the response is sent.
 Pages are ordered by unsigned ordinal, and conjunctive facet counts intersect
-that exact result. `bitmap_query_view_sets/5` returns portable member bytes,
-followed by the requested facet subsets in request order, from the same pin.
-It does not change or rebuild geometry. Portable sets remain a server-side
-interchange format; the browser consumes admitted row columns.
+that exact result. Aggregate portable sets remain a server-side interchange
+format; the browser consumes admitted row columns. Queries do not rebuild
+geometry.
 
 `bitmap_query_row_overlay/7` accepts at most 128 `{:leaf, ordinal}` or
 `{:aggregate, portable_bytes}` selectors, with 8 MiB of combined aggregate
@@ -50,8 +69,8 @@ The owner binds these columns to its exact tile receipt; a changed row order
 requires a new complete overlay. No browser Roaring runtime is required.
 
 Admission limits are 32 predicates, depth 8, 65 instructions, 50 facet counts,
-128 page rows, 8,192 admitted leaf IDs, 16 view subsets and 256 KiB of serialized
-view sets. Pins live for 30 seconds, with 128 retained handles and eight active
+128 page rows and 128 rows per overlay projection. Pins live for 30 seconds,
+with 128 retained handles and eight active
 readers. The owner periodically calls status to expire idle pins. Every read
 has a deadline of at most one second. Unsupported or cardinality-capped facets
 fail explicitly; the index never returns a partial facet as exact. A canonical

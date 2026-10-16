@@ -100,6 +100,15 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc "Read admission/memory/freshness diagnostics and reap expired query pins."
   def bitmap_index_status(_index), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Coalesce at most 500 nonzero ordinals; a rescan request advances the reconciliation fence."
+  def bitmap_index_mark_dirty(_index, _ordinals, _request_rescan), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Take up to 500 sorted ordinals before reading their source rows; requeue on failure."
+  def bitmap_index_take_dirty(_index, _limit), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Acknowledge a completed full keyset pass only at the generation observed before that pass."
+  def bitmap_index_acknowledge_reconcile(_index, _observed_generation), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Evaluate a typed postfix expression and pin its exact revision for 30 seconds.
   Instructions are {opcode, facet, value, arity}: predicate=0, all=1, any=2,
@@ -111,7 +120,6 @@ defmodule ServiceRadarWebNG.Topology.Native do
 
   def bitmap_query_page(_query, _authority, _after, _limit, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
   def bitmap_query_facets(_query, _authority, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
-  def bitmap_query_view(_query, _authority, _ordinals, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
 
   def bitmap_query_intersection_count(
         _query,
@@ -122,9 +130,6 @@ defmodule ServiceRadarWebNG.Topology.Native do
         _portable_bitmap,
         _timeout_ms
       ), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc "Return portable member bytes followed by each requested facet subset, from one pinned revision."
-  def bitmap_query_view_sets(_query, _authority, _ordinals, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc "Project at most 128 leaf/aggregate selectors into typed row columns from one pinned revision."
   def bitmap_query_row_overlay(_query, _authority, _dictionary_epoch, _index_epoch, _kind, _rows, _timeout_ms),
