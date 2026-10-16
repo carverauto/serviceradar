@@ -199,7 +199,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     assert next_page["total"] == expected
     assert hd(next_page["ordinals"]) > hd(page["ordinals"])
 
-    for session <- sessions, {cidr, total} <- [{"198.51.100.7/32", expected}, {"192.0.2.0/24", 0}] do
+    for session <- sessions,
+        {cidr, total} <- [{"2001:db8:2::/48", expected}, {"2001:db8:1::/48", 0}, {"198.51.100.7/32", expected}] do
       expression = %{"all" => [%{"facet" => "tag:scale", "value" => "fixture"}, %{"ip_cidr" => cidr}]}
 
       await(
@@ -266,6 +267,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     })
 
     Enum.each(clients, &Client.phase(&1.pid, :recovery))
+    before_revocation = reports(clients)
     user |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor) |> Ash.update!()
 
     for session <- sessions do
@@ -284,7 +286,13 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
 
     await(
       fn -> reports(clients) end,
-      &Enum.all?(&1, fn row -> Map.has_key?(row.errors, "forbidden") or Map.has_key?(row.errors, "channel_closed") end),
+      fn after_revocation ->
+        before_revocation
+        |> Enum.zip(after_revocation)
+        |> Enum.all?(fn {before, after_row} ->
+          Map.get(after_row.errors, "forbidden", 0) > Map.get(before.errors, "forbidden", 0)
+        end)
+      end,
       15_000,
       "socket authority revocation"
     )

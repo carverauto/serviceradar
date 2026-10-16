@@ -18,8 +18,8 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
       ]
     }
 
-  # Bootstrap invented identities before creating devices or starting any index.
-  # Existing dictionary rows and tombstones are never reassigned or removed.
+  # Bootstrap invented identities while their new devices are inactive, before
+  # starting any index. Existing identities and tombstones are never reassigned.
   def seed(distribution) do
     [[max_ordinal]] = Repo.query!("SELECT coalesce(max(ordinal), 0) FROM platform.device_fleet_ordinals").rows
     base = if distribution == :sparse, do: max(2_147_483_648, max_ordinal + 1), else: max_ordinal + 1
@@ -36,6 +36,23 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
 
             Repo.query!(
               """
+              INSERT INTO platform.ocsf_devices
+                (uid, hostname, type_id, ip, vendor_name, region, vlan_uid, is_available, is_active, tags)
+              SELECT 'sr:atlas-scale-' || n, 'node.example.com', CASE WHEN n < 100000 THEN 12 ELSE 2 END,
+                '2001:db8:1::' || to_hex(((n * 7919) % 1100000) / 65536) || ':' ||
+                  to_hex(((n * 7919) % 1100000) % 65536),
+                'vendor-' || (n % 8), 'region-' || (n % 10),
+                (20 + n % 8)::text, true, false,
+                jsonb_build_object('cohort', 'cohort-' || (n % 50), 'scale', 'fixture')
+              FROM generate_series($1::bigint, $2::bigint) n
+              """,
+              [first, last]
+            )
+
+            # The immediate FK requires devices first. Inactive insertion avoids
+            # automatic assignment; normal activation then adopts these new IDs.
+            Repo.query!(
+              """
               INSERT INTO platform.device_fleet_ordinals(uid, ordinal, tombstoned)
               SELECT 'sr:atlas-scale-' || n, $3::bigint + n * $4::bigint, false
               FROM generate_series($1::bigint, $2::bigint) n
@@ -45,24 +62,20 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
 
             Repo.query!(
               """
-              INSERT INTO platform.ocsf_devices
-                (uid, hostname, type_id, ip, vendor_name, region, vlan_uid, is_available, tags)
-              SELECT 'sr:atlas-scale-' || n, 'node.example.com', CASE WHEN n < 100000 THEN 12 ELSE 2 END,
-                '192.0.2.' || (n % 254 + 1), 'vendor-' || (n % 8), 'region-' || (n % 10),
-                (20 + n % 8)::text, true, jsonb_build_object('cohort', 'cohort-' || (n % 50), 'scale', 'fixture')
+              UPDATE platform.ocsf_devices SET is_active = true
               FROM generate_series($1::bigint, $2::bigint) n
+              WHERE uid = 'sr:atlas-scale-' || n
               """,
               [first, last]
             )
 
-            # The second assignment lives on a real interface source. Multiplication
-            # permutes ownership, avoiding the monotonic-address native benchmark.
+            # Primary addresses above are unique and permute ownership. Shared
+            # addresses belong on interfaces, outside the primary-IP unique index.
             Repo.query!(
               """
               INSERT INTO platform.discovered_interfaces(device_id, interface_uid, timestamp, ip_addresses)
               SELECT 'sr:atlas-scale-' || n, 'example-port', now(),
-                ARRAY['2001:db8::' || to_hex(((n * 7919) % 1100000) / 65536) || ':' ||
-                  to_hex(((n * 7919) % 1100000) % 65536)]
+                ARRAY['198.51.100.7']
               FROM generate_series($1::bigint, $2::bigint) n
               """,
               [first, last]
@@ -88,16 +101,19 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
     last = first + div(@population, 100) - 1
 
     for start <- first..last//@batch do
-      ids = Enum.map(start..min(start + @batch - 1, last), &uid/1)
+      finish = min(start + @batch - 1, last)
+      ids = Enum.map(start..finish, &uid/1)
 
       result =
         Repo.query!(
           """
           UPDATE platform.ocsf_devices SET is_available = NOT is_available,
-            ip = CASE WHEN is_available THEN '198.51.100.7' ELSE '192.0.2.7' END
-          WHERE uid = ANY($1::text[])
+            ip = '2001:db8:2::' || to_hex(((n * 7919) % 1100000) / 65536) || ':' ||
+              to_hex(((n * 7919) % 1100000) % 65536)
+          FROM generate_series($1::bigint, $2::bigint) n
+          WHERE uid = 'sr:atlas-scale-' || n
           """,
-          [ids],
+          [start, finish],
           timeout: 30_000
         )
 

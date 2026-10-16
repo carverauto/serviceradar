@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
         {:noreply, error(state, "channel_closed")}
 
       [_, _, @topic, "phx_reply", %{"status" => "ok", "response" => %{"view_digest" => _} = binding}] ->
-        {:noreply, %{state | binding: binding, retry_attempt: 0}}
+        {:noreply, %{state | binding: binding}}
 
       [_, _, _, "phx_reply", %{"status" => "ok"}] ->
         {:noreply, state}
@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
             max_slow_reset_ms: max(state.stats.max_slow_reset_ms, if(slow_reset, do: elapsed, else: 0))
         }
 
-        {:noreply, schedule(%{state | started: nil, awaiting: nil, stats: stats}, 50)}
+        {:noreply, retry(%{state | started: nil, awaiting: nil, stats: stats})}
 
       :baseline ->
         true = not is_nil(state.binding)
@@ -171,7 +171,10 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
             last_revision: decoded.revision
         }
 
+        if state.retry_timer, do: Process.cancel_timer(state.retry_timer)
         Process.send_after(self(), {:ack, decoded.sequence, decoded.digest}, if(state.slow, do: 25_000, else: 0))
+        state = %{state | retry_attempt: 0, retry_timer: nil}
+
         {:noreply, %{state | started: nil, awaiting: decoded.sequence, stats: stats}}
     end
   end
@@ -246,8 +249,9 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
   def handle_call(:report, _from, state), do: {:reply, state.stats, state}
   def terminate(_reason, state), do: :gun.close(state.conn)
 
-  # Emulate the production WorldMapRenderer transient-error backoff. Successful
-  # watches stay subscribed; only the real server tick produces subsequent work.
+  # Emulate the production WorldMapRenderer reset/transient backoff. Only an
+  # accepted full frame resets it; a successful binding alone proves no progress.
+  # Healthy watches stay subscribed to the real server tick.
   defp retry(state) do
     delay = min(10_000, 1_000 * Integer.pow(2, min(state.retry_attempt, 4)))
     state = %{state | retry_attempt: state.retry_attempt + 1, stats: %{state.stats | retries: state.stats.retries + 1}}

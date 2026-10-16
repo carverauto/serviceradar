@@ -58,10 +58,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
     start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
-    :ok
+    %{cohort: "bitmap-query-" <> Ecto.UUID.generate()}
   end
 
-  test "typed source projects canonical fields and configured scalar tags without retaining arbitrary device payloads" do
+  test "typed source projects canonical fields and configured scalar tags without retaining arbitrary device payloads", %{
+    cohort: cohort
+  } do
     tag_keys = ["rack", "maintenance", "flag", "count", "ratio", "label", "nested", "list", "empty"]
     Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, tag_keys)
     on_exit(fn -> Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, ["rack"]) end)
@@ -82,7 +84,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     device =
       create("sr:bitmap-source", %{
         vendor_name: " ExampleVendor ",
-        region: "example-west",
+        region: cohort,
         vlan_uid: "example-vlan",
         type_id: 10,
         os: %{"name" => "ExampleOS", "version" => "2", "unused" => String.duplicate("z", 100_000)},
@@ -96,7 +98,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     assert Map.new(values) == %{
              "vendor" => "ExampleVendor",
-             "region" => "example-west",
+             "region" => cohort,
              "vlan" => "example-vlan",
              "device_class" => "10",
              "os_name" => "ExampleOS",
@@ -112,6 +114,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     twin =
       create("sr:bitmap-source-text", %{
+        region: cohort,
         tags: %{
           "maintenance" => "true",
           "flag" => "false",
@@ -124,9 +127,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     retained =
       create("sr:bitmap-source-retained", %{
+        region: cohort,
         tags: %{"rack" => "other", "nested" => %{"child" => true}, "list" => ["true"], "empty" => nil},
         is_available: true
       })
+
+    create("sr:bitmap-source-unrelated", %{region: "outside-" <> cohort, tags: scalar_tags})
+    create("sr:bitmap-source-unrelated-missing", %{region: "outside-" <> cohort})
 
     twin_ordinal = FleetIdentity.device_ordinal(twin.uid)
     retained_ordinal = FleetIdentity.device_ordinal(retained.uid)
@@ -151,7 +158,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
 
     assert_ordinals = fn expression, expected ->
-      params = %{"expression" => expression, "limit" => 16}
+      params = %{"expression" => within_cohort(cohort, expression), "limit" => 16}
 
       await(fn -> BitmapQueries.run(scope, params) end, fn
         {:ok, %{ordinals: ordinals, total: total}} ->
@@ -203,12 +210,37 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert {:ok, [{^ordinal, false, []}]} = BitmapSource.fetch([ordinal], facets)
     assert {:ok, %{entries: identities}} = BitmapSource.identity_page(ordinal - 1)
     assert {device.uid, ordinal} in identities
+
+    # A reserved identity from an older writer remains durable even though
+    # service components are outside the network-device query universe.
+    component = create("serviceradar:bitmap-" <> Ecto.UUID.generate(), %{})
+
+    %{rows: [[reserved]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.device_fleet_ordinals(uid) VALUES ($1)
+        ON CONFLICT (uid) DO UPDATE SET uid = EXCLUDED.uid
+        RETURNING ordinal
+        """,
+        [component.uid]
+      )
+
+    assert {:ok, []} = BitmapSource.resolve_ids([component.uid])
+    assert {:ok, [{^reserved, false, []}]} = BitmapSource.fetch([reserved], facets)
+    assert {:ok, %{entries: identities}} = BitmapSource.identity_page(reserved - 1)
+    refute Enum.any?(identities, fn {uid, _} -> uid == component.uid end)
+
+    assert %{rows: [[^reserved]]} =
+             Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [component.uid])
   end
 
-  test "real owner repairs unhinted writes, pages current membership, and rechecks revoked authority before delivery" do
-    first = create("sr:bitmap-first", %{vendor_name: "example-a"})
-    removed = create("sr:bitmap-removed", %{vendor_name: "example-a"})
-    excluded = create("sr:bitmap-excluded", %{vendor_name: "example-b"})
+  test "real owner repairs unhinted writes, pages current membership, and rechecks revoked authority before delivery", %{
+    cohort: cohort
+  } do
+    first = create("sr:bitmap-first", %{vendor_name: "example-a", region: cohort})
+    removed = create("sr:bitmap-removed", %{vendor_name: "example-a", region: cohort})
+    excluded = create("sr:bitmap-excluded", %{vendor_name: "example-b", region: cohort})
+    create("sr:bitmap-unrelated", %{vendor_name: "example-a", region: "outside-" <> cohort})
 
     user =
       User
@@ -222,7 +254,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     start_supervised!(BitmapQueries)
     await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
 
-    expression = %{"facet" => "vendor", "value" => "example-a"}
+    expression = within_cohort(cohort, %{"facet" => "vendor", "value" => "example-a"})
     params = %{"expression" => expression, "limit" => 1, "facets" => [%{"facet" => "vendor", "value" => "example-a"}]}
     first_ordinal = FleetIdentity.device_ordinal(first.uid)
 
@@ -235,7 +267,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     # This raw writer emits no PubSub event. A complete keyset pass must repair
     # membership without treating modified_time or allocation order as a commit watermark.
     Repo.update_all(from(d in Device, where: d.uid == ^removed.uid), set: [vendor_name: "example-b"])
-    added = create("sr:bitmap-added", %{vendor_name: "example-a"})
+    added = create("sr:bitmap-added", %{vendor_name: "example-a", region: cohort})
     added_ordinal = FleetIdentity.device_ordinal(added.uid)
     send(owner, :devices_rescan)
 
@@ -258,9 +290,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert {:ok, %{ready: false, cardinality: 0}} = Native.bitmap_index_status(snapshot.device)
   end
 
-  test "real channel projects admitted Arrow rows and binary HTTP preserves authority before cached delivery" do
-    included = create("sr:bitmap-map-included", %{vlan_uid: "20", is_available: true})
-    excluded = create("sr:bitmap-map-excluded", %{vlan_uid: "30", is_available: false})
+  test "real channel projects admitted Arrow rows and binary HTTP preserves authority before cached delivery", %{
+    cohort: cohort
+  } do
+    included = create("sr:bitmap-map-included", %{vlan_uid: "20", is_available: true, region: cohort})
+    excluded = create("sr:bitmap-map-excluded", %{vlan_uid: "30", is_available: false, region: cohort})
+    create("sr:bitmap-map-unrelated", %{vlan_uid: "20", region: "outside-" <> cohort})
 
     user =
       User
@@ -307,7 +342,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     params = %{
       "protocol" => 1,
       "layout_version" => @version,
-      "query" => %{"facet" => "vlan", "value" => "20"},
+      "query" => within_cohort(cohort, %{"facet" => "vlan", "value" => "20"}),
       "tiles" => [%{"z" => 16, "x" => 0, "y" => 0, "revision" => tile.revision}]
     }
 
@@ -470,6 +505,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   defp create(uid, attrs) do
     Device |> Ash.Changeset.for_create(:create, Map.put(attrs, :uid, uid), actor: @actor) |> Ash.create!()
   end
+
+  defp within_cohort(cohort, expression), do: %{"all" => [%{"facet" => "region", "value" => cohort}, expression]}
 
   defp await(read, predicate, deadline \\ nil) do
     deadline = deadline || System.monotonic_time(:millisecond) + 15_000
