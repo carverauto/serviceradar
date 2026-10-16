@@ -1,0 +1,36 @@
+Accept padded ChannelData in the TURN client.
+
+RFC 8656 section 12.5 lets a TURN server pad a ChannelData message to a
+multiple of four bytes, and requires it over TCP. eturnal pads over UDP as
+well. ex_turn 0.2.3 matched `data::binary-size(len)` against the whole
+datagram, so any payload whose length is not a multiple of four arrived with
+one to three trailing bytes, failed the match, and was dropped as "invalid
+channel data".
+
+That breaks WebRTC media relayed through TURN. Chrome's DTLS ClientHello no
+longer fits one 1200-byte datagram, so it is sent as two fragments. The
+first fragment is 1200 bytes and passes; the short tail is not a multiple of
+four and is always dropped. The server's DTLS transport waits for the rest of
+the ClientHello forever, so the connection stays in `connecting` after ICE
+succeeds over a relay pair.
+
+Allow up to three padding bytes after `len`. Upstream master still has the
+strict match; drop this patch once a release accepts padding.
+
+--- a/lib/ex_turn/client.ex
++++ b/lib/ex_turn/client.ex
+@@ -403,7 +403,13 @@
+     {:channel_expired, peer_addr, client}
+   end
+ 
+-  defp handle_channel_data(client, <<channel_number::16, len::16, data::binary-size(len)>>) do
++  # A server may pad ChannelData to a multiple of four bytes even over UDP
++  # (RFC 8656, section 12.5), so up to three trailing bytes follow `len`.
++  defp handle_channel_data(
++         client,
++         <<channel_number::16, len::16, data::binary-size(len), padding::binary>>
++       )
++       when byte_size(padding) <= 3 do
+     case Map.get(client.channel_addr, channel_number) do
+       nil ->
+         Logger.debug("""
