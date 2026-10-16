@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
+  import Phoenix.ChannelTest
 
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
@@ -9,19 +10,30 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Repo
+  alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSelection
   alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNG.Topology.TileKey
+  alias ServiceRadarWebNG.Topology.WorldCache
+  alias ServiceRadarWebNG.Topology.WorldHealth
+  alias ServiceRadarWebNG.Topology.WorldOverlay
+  alias ServiceRadarWebNG.Topology.WorldTile
   alias ServiceRadarWebNGWeb.Endpoint
+  alias ServiceRadarWebNGWeb.TopologyTileChannel
+  alias ServiceRadarWebNGWeb.TopologyTileController
+  alias ServiceRadarWebNGWeb.UserSocket
 
+  @endpoint Endpoint
+  @version "00000000-0000-4000-8000-000000000613"
   @moduletag :topology_atlas_db
   @actor SystemActor.system(:bitmap_query_database_test)
 
   setup do
-    :ok = Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo, isolation: "REPEATABLE READ")
     :ok = Sandbox.mode(Repo, {:shared, self()})
 
     previous =
@@ -141,6 +153,187 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     Application.put_env(:serviceradar_web_ng, :topology_bitmap_enabled, false)
     assert {:error, :bitmap_disabled} = BitmapIndex.snapshot()
     assert {:ok, %{ready: false, cardinality: 0}} = Native.bitmap_index_status(snapshot.device)
+  end
+
+  test "real channel projects admitted Arrow rows and binary HTTP preserves authority before cached delivery" do
+    included = create("sr:bitmap-map-included", %{vlan_uid: "20", is_available: true})
+    excluded = create("sr:bitmap-map-excluded", %{vlan_uid: "30", is_available: false})
+
+    user =
+      User
+      |> Ash.Changeset.for_create(:create, %{email: "bitmap-map-viewer@example.com", role: :viewer}, actor: @actor)
+      |> Ash.create!()
+
+    scope = Scope.for_user(user)
+    start_supervised!({Endpoint, []})
+    tasks = start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.Topology.TileWatchTasks, max_children: 8})
+    start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    start_supervised!(BitmapQueries)
+    start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    {:ok, snapshot} = await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
+    world = install_world([included, excluded], snapshot.dictionary_epoch)
+    {:ok, key} = TileKey.new(@version, 16, 0, 0)
+    {:ok, tile} = WorldCache.fetch(key)
+
+    assert Enum.sort(Enum.map(tile.glyphs, &{&1.kind, &1.id})) ==
+             Enum.sort([{:device, included.uid}, {:device, excluded.uid}])
+
+    response = TopologyTileController.manifest(binary_conn(scope), %{})
+    assert response.status == 200
+    manifest = Jason.decode!(response.resp_body)
+    assert manifest["bitmap_membership_protocol"] == 1
+    assert manifest["world_overlay_protocol"] == 1
+    assert manifest["bitmap"]["ready"]
+    assert manifest["bitmap"]["query"]["tag_keys"] == ["rack"]
+    vlan = Enum.find(manifest["bitmap"]["query"]["facets"], &(&1["key"] == "vlan"))
+    assert vlan["label"] == "Inventory VLAN"
+    assert "eq" in vlan["operators"]
+
+    {:ok, %{ordinals: projection}} = WorldCache.world()
+    :ok = WorldCache.clear_ordinals()
+    response = TopologyTileController.manifest(binary_conn(scope), %{})
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body)["bitmap"]["reason"] == "membership_not_ready"
+    :ok = WorldCache.install_ordinals(world, projection.mapping)
+
+    {:ok, _fence, socket} =
+      UserSocket
+      |> socket("synthetic-bitmap-viewer", %{current_scope: scope})
+      |> subscribe_and_join(TopologyTileChannel, "topology:tiles", %{})
+
+    params = %{
+      "protocol" => 1,
+      "layout_version" => @version,
+      "query" => %{"facet" => "vlan", "value" => "20"},
+      "tiles" => [%{"z" => 16, "x" => 0, "y" => 0, "revision" => tile.revision}]
+    }
+
+    ref = push(socket, "membership:watch", params)
+    assert_reply ref, :ok, %{view_digest: digest, projection: %{mapped: 2, total: 2}}, 5_000
+    assert_push "membership:frame", {:binary, frame}, 5_000
+    {sequence, wire_digest, revision, mask, causal, availability, counts} = membership_rows(frame)
+    assert wire_digest == digest
+    assert revision == tile.revision
+    assert causal == <<3, 3>>
+    expected = for glyph <- tile.glyphs, do: if(glyph.id == included.uid, do: 1, else: 0)
+    assert :binary.bin_to_list(mask) == expected
+    assert for(<<count::little-32 <- counts>>, do: count) == expected
+    assert :binary.bin_to_list(availability) == Enum.map(expected, &if(&1 == 1, do: 0, else: 2))
+    assert {:ok, %{world: ^world}} = WorldCache.world()
+
+    # No second frame is queued while the client owes an acknowledgement.
+    send(socket.channel_pid, :tile_tick)
+    refute_push "membership:frame", _frame, 100
+    ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
+    assert_reply ref, :ok
+    ref = push(socket, "membership:unwatch", %{})
+    assert_reply ref, :ok
+    send(socket.channel_pid, :tile_tick)
+    refute_push "membership:frame", _frame, 100
+
+    stale = put_in(params, ["tiles"], [%{"z" => 16, "x" => 0, "y" => 0, "revision" => String.duplicate("f", 64)}])
+    ref = push(socket, "membership:watch", stale)
+    assert_reply ref, :error, %{reason: "source_changed"}, 5_000
+    refute_push "membership:frame", _frame, 100
+
+    health = start_supervised!({WorldHealth, cache: WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    await(fn -> WorldHealth.snapshot(health) end, &match?({:ok, _}, &1))
+
+    start_supervised!(
+      {WorldOverlay,
+       name: WorldOverlay, cache: WorldCache, health: health, task_supervisor: tasks, pubsub: ServiceRadar.PubSub}
+    )
+
+    # An empty real tile exercises cache/read/encoding/HTTP without depending on
+    # telemetry rows; source timestamps and binary negotiation still travel.
+    {:ok, empty_key} = TileKey.new(@version, 16, 1, 1)
+    {:ok, empty} = WorldCache.fetch(empty_key)
+    overlay_params = %{"layout_version" => @version, "z" => "16", "x" => "1", "y" => "1", "revision" => empty.revision}
+    response = TopologyTileController.overlay(binary_conn(scope), overlay_params)
+    assert response.status == 200
+    assert <<"SRTO", _::binary>> = response.resp_body
+    assert [type] = Plug.Conn.get_resp_header(response, "content-type")
+    assert String.starts_with?(type, "application/vnd.serviceradar.world-overlay")
+    [etag] = Plug.Conn.get_resp_header(response, "etag")
+    cached = scope |> binary_conn() |> Plug.Conn.put_req_header("if-none-match", etag)
+    assert TopologyTileController.overlay(cached, overlay_params).status == 304
+
+    user |> Ash.Changeset.for_update(:deactivate, %{}, actor: @actor) |> Ash.update!()
+    assert TopologyTileController.overlay(cached, overlay_params).status == 403
+    monitor = Process.monitor(socket.channel_pid)
+    send(socket.channel_pid, :tile_tick)
+    assert_push "topology_error", %{reason: "forbidden"}, 5_000
+    assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 5_000
+  end
+
+  defp install_world(devices, epoch) do
+    {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
+
+    positions =
+      devices
+      |> Enum.with_index(1)
+      |> Enum.map(fn {device, n} ->
+        %{
+          device_id: device.uid,
+          label: "Synthetic device",
+          x: n * 20,
+          y: n * 20,
+          min_zoom: 0,
+          parent_id: nil,
+          component_id: "invented-bitmap-component",
+          component_z: 1,
+          component_x: 0,
+          component_y: 0,
+          placement_depth: 4,
+          active: true
+        }
+      end)
+
+    :ok = TopologyAtlas.add_positions(builder, positions)
+    {:ok, world} = TopologyAtlas.finish_world(builder)
+    manifest = %{layout_version: @version, generation: 1, zmax: 16}
+
+    prepared =
+      Map.new(TileKey.low_zoom(manifest), fn key ->
+        {:ok, tile} = WorldTile.build(world, key)
+        {key, tile}
+      end)
+
+    :ok = WorldCache.install(world, manifest, prepared)
+    {:ok, mapping} = TopologyAtlas.new_ordinals(world, epoch)
+
+    {:ok, _} =
+      TopologyAtlas.apply_ordinals(world, mapping, Enum.map(devices, &{&1.uid, FleetIdentity.device_ordinal(&1.uid)}))
+
+    {:ok, _} = TopologyAtlas.seal_ordinals(world, mapping)
+    :ok = WorldCache.install_ordinals(world, mapping)
+    world
+  end
+
+  defp binary_conn(scope) do
+    :get
+    |> Plug.Test.conn("/")
+    |> Plug.Conn.assign(:current_scope, scope)
+    |> Plug.Conn.put_req_header("accept", "application/vnd.serviceradar.world-overlay")
+  end
+
+  # Decode only this test's one-tile SRMO wire contract independently of the
+  # production encoder; expected membership comes from the invented inventory.
+  defp membership_rows(frame) do
+    <<"SRMO", 1, 0, 0::little-16, size::little-32, sequence::little-64, rest::binary>> = frame
+    assert size == byte_size(frame)
+
+    {fields, rest} =
+      Enum.map_reduce(1..7, rest, fn _, <<length::little-16, tail::binary>> ->
+        <<value::binary-size(length), tail::binary>> = tail
+        {value, tail}
+      end)
+
+    <<1, 16, 0::little-32, 0::little-32, length::little-16, rest::binary>> = rest
+    <<revision::binary-size(length), rows::little-16, rest::binary>> = rest
+    <<mask::binary-size(rows), causal::binary-size(rows), availability::binary-size(rows), counts::binary>> = rest
+    assert byte_size(counts) == rows * 4
+    {sequence, Enum.at(fields, 4), revision, mask, causal, availability, counts}
   end
 
   defp create(uid, attrs) do

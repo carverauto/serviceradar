@@ -136,3 +136,16 @@ Intermediate ledger; consolidate against final shipped code before handoff.
   historical address searches remain a separate product behavior.
 - Verdict: sound; the filter describes current assignment, not identity history.
 - Confidence: high.
+
+### Publish filter capabilities without making the base map depend on them
+
+- When: integrated binary delivery checkpoint.
+- Choice: the map manifest advertises configured fields and whether membership
+  can currently be projected. A user can still navigate an unfiltered map while
+  the dictionary mapping is being built or a filter source is unavailable.
+  The browser cannot mistake an empty list of filters for a ready empty result.
+- Gap: the approved UI needed supported-field discovery but did not place it.
+- Reach: the existing authenticated manifest owns this small metadata response;
+  no fleet-value download or extra request is needed to discover basic fields.
+- Verdict: sound; current authorization is checked after metadata preparation.
+- Confidence: high.

@@ -7,7 +7,10 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSelection
+  alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldDetails
@@ -19,25 +22,11 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
   def manifest(conn, _params) do
     with {:ok, manifest} <- WorldCache.manifest(),
+         payload = manifest_payload(manifest),
          {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)
-      |> json(
-        Map.take(manifest, [
-          :layout_version,
-          :generation,
-          :extent,
-          :bounds,
-          :algorithm_version,
-          :zmax,
-          :node_count,
-          :relation_count,
-          :pipeline_stats,
-          :generated_at,
-          :observed_generation,
-          :catching_up
-        ])
-      )
+      |> json(payload)
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -125,17 +114,81 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
     with {:ok, key} <- TileKey.parse(params),
          {:ok, revision} <- TileKey.content_revision(revision),
          {:ok, content} <- WorldOverlay.fetch(key, revision),
-         {:ok, payload} <- Jason.encode(content),
+         {:ok, payload, content_type} <- overlay_payload(conn, content),
          :ok <- overlay_budget(payload),
          {:ok, _scope} <- current_authority(conn) do
       digest = :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
-      json_payload(conn, content, payload, "overlay:" <> digest)
+
+      conn
+      |> generation_headers(content)
+      |> conditional_payload(payload, ~s("#{content.layout_version}:overlay:#{digest}"), content_type)
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def overlay(conn, _params), do: error(conn, :invalid_tile)
+
+  defp manifest_payload(manifest) do
+    manifest
+    |> Map.take([
+      :layout_version,
+      :generation,
+      :extent,
+      :bounds,
+      :algorithm_version,
+      :zmax,
+      :node_count,
+      :relation_count,
+      :pipeline_stats,
+      :generated_at,
+      :observed_generation,
+      :catching_up
+    ])
+    |> Map.merge(overlay_protocols(manifest))
+  end
+
+  defp overlay_protocols(manifest) do
+    if BitmapQueries.enabled?(),
+      do: %{bitmap_membership_protocol: 1, world_overlay_protocol: 1, bitmap: bitmap_descriptor(manifest)},
+      else: %{}
+  end
+
+  defp bitmap_descriptor(manifest) do
+    case BitmapSource.query_descriptor() do
+      {:ok, query} -> Map.put(bitmap_readiness(manifest), :query, query)
+      {:error, _reason} -> %{ready: false, reason: "invalid_filter_configuration"}
+    end
+  end
+
+  defp bitmap_readiness(manifest) do
+    with {:ok, snapshot} <- BitmapIndex.snapshot(),
+         {:ok, %{manifest: current, ordinals: %{info: info} = projection}} <- WorldCache.world(),
+         true <- current.generation == manifest.generation and info.dictionary_epoch == snapshot.dictionary_epoch do
+      %{
+        ready: true,
+        progress: snapshot.progress,
+        projection: Map.put(Map.take(info, [:mapped, :total]), :completed_at, projection.completed_at)
+      }
+    else
+      {:error, reason} when is_atom(reason) -> %{ready: false, reason: Atom.to_string(reason)}
+      _ -> %{ready: false, reason: "membership_not_ready"}
+    end
+  end
+
+  defp overlay_payload(conn, %{binary: payload}) do
+    if BitmapQueries.enabled?() and "application/vnd.serviceradar.world-overlay" in get_req_header(conn, "accept"),
+      do: {:ok, payload, "application/vnd.serviceradar.world-overlay"},
+      else: {:error, :overlay_protocol_changed}
+  end
+
+  defp overlay_payload(_conn, content) do
+    if BitmapQueries.enabled?() do
+      {:error, :overlay_protocol_changed}
+    else
+      with {:ok, payload} <- Jason.encode(content), do: {:ok, payload, "application/json"}
+    end
+  end
 
   defp overlay_budget(payload) when byte_size(payload) <= 262_144, do: :ok
   defp overlay_budget(_payload), do: {:error, :payload_too_large}
@@ -247,6 +300,9 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
         :stale_revision ->
           {409, "stale_revision"}
+
+        :overlay_protocol_changed ->
+          {409, "overlay_protocol_changed"}
 
         reason when reason in [:payload_too_large, :overlay_budget_exceeded, :tile_budget_exceeded] ->
           {413, "topology_budget_exceeded"}

@@ -22,6 +22,7 @@
 - [ ] 2.5 Report unsupported causal, site/role, alert/impact and complete-search predicates explicitly; keep availability separate.
 - [ ] 2.6 Prove reference parity, empty results, revocation races, bounded details, count isolation and layout independence.
 - [ ] 2.7 Add bounded literal value/tag-key prefix predicates and exact IPv4/IPv6 CIDR membership across current canonical device/interface addresses; prove deduplication, source completeness and memory/deadline bounds.
+- [ ] 2.8 Reuse local immutable Prefix Tags snapshots for named source/label groups; implement atomic capture, bounded label discovery and native range selection, preserving full-chain semantics and live device pagination.
 
 ## 3. Binary admitted-row overlays
 
@@ -31,7 +32,7 @@
 - [ ] 3.4 Replace the active per-tile health/flow JSON overlay and JSON size checks with bounded binary fields, preserving coverage, unknown values and timestamps; keep Arrow attributes typed.
 - [ ] 3.5 Add the default-off rollout gate and explicit unsupported-filter fallback; release masks on eviction/disconnect/disable.
 - [ ] 3.6 Run actual-browser zoom/reconnect/GPU-lifetime checks and measure retained bytes and upload copies.
-- [ ] 3.7 Deliver a visible filter builder for inventory VLAN/attributes/tags, AND/OR/EXCEPT, text prefix and IP/CIDR, with supported-field discovery, pending/error feedback, exact aggregate counts and clear-to-base behavior.
+- [ ] 3.7 Deliver a visible filter builder for inventory VLAN/attributes/tags, AND/OR/EXCEPT, text prefix, IP/CIDR and existing named Prefix Tags, with supported-field discovery, pending/error feedback, exact global/aggregate counts and clear-to-base behavior.
 
 ## 4. Scale proof and delivery
 

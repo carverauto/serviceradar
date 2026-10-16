@@ -103,13 +103,19 @@ evidence with a harness export gate, not 100 HTTP clients, authorization latency
 or whole-process memory. Details and reproducible targets live in the
 [native README](../../../elixir/web-ng/native/god_view_nif/README.md).
 
-Integrated web application-domain checks passed (478 discovered, 413 excluded,
-zero failures) in `48a6bc64-5365-41b0-b39d-2d1a90bbb3a4`. Web quality passed
-in `d6a0a56f-6b17-4fe8-953e-94230cfc11ab`; its Phoenix shard failed the
-timestamp formatter inventory after renderer edits. That drift is being repaired;
-it is not reported as a green integration run. The real channel/binary HTTP and
-two-replica database cases compile but remain unexecuted pending the hosted
-fixture lane. Hardware lifetime acceptance is still in progress.
+Integrated checks now pass in `ac3da572-16db-426f-8cc7-94802131f96c`:
+web quality, application-domain (478 discovered, 413 excluded) and Phoenix
+(783 discovered, 212 excluded), both with zero failures. The earlier timestamp
+inventory failure was repaired. Real channel/binary HTTP and two-replica database
+cases compile but remain unexecuted pending the hosted fixture lane.
+
+Physical-GPU stress completed sixteen zoom/pan cycles, reconnect, authority
+replacement, disable and a four-cycle remount with no validation errors and zero
+tracked devices/buffers after teardown. It found and repaired shared mutable
+compute bindings in the pinned Luma dependency, independently reproduced through
+the public compute API. The harness uses synthetic HTTP/WebSocket responders;
+it does not prove the real server/database path. Scope, bytes and timing are in
+[GPU acceptance](../../../docs/topology-bitmap-gpu-acceptance.md).
 
 The user subsequently required visible AND/OR/EXCEPT map groups, literal tag
 prefixes and IPv4/IPv6 containment over any current device/interface address.
@@ -117,4 +123,7 @@ Those additions are now explicit proposal/design/requirement tasks. They do not
 restore the rejected browser Roaring, frozen-page routing, interface identities
 or durable hint replication. Address-index memory and prefix/CIDR performance
 need their own declared proof before acceptance.
-
+Existing named Prefix Tags are also approved. Their local immutable snapshots
+will supply bounded native network ranges, preserving the existing full matching
+chain and live pagination. This adds no interface identities, query-owner routing
+or per-device BEAM lookup; catalog and range costs are explicit acceptance work.

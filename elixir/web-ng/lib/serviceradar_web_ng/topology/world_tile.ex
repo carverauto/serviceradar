@@ -55,6 +55,7 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
          revision: revision,
          selection: tile.selection,
          selection_bytes: tile.selection_bytes,
+         glyphs: Enum.map(tile.glyphs, &Map.take(&1, [:id, :kind])),
          flow_edges: Enum.map(tile.edges, &Map.take(&1, [:id, :count, :stale]))
        }}
     end

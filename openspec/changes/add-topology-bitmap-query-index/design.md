@@ -82,6 +82,7 @@ provide its advertised semantics, return an explicit unavailable/stale status.
 | OS name/version | Allowlisted canonical Device.os fields. |
 | Tags | Explicitly configured canonical Device.tags keys; no arbitrary JSON-path indexes. |
 | IP/CIDR | Any current canonical device or interface IP; typed IPv4/IPv6 containment returns device membership. |
+| Named Prefix Tags | Existing locally loaded immutable prefix snapshots; an exact source/label selects devices through their current addresses. |
 | Availability | Current canonical availability using the existing world-health semantics: healthy, unavailable or unknown. |
 
 Missing values use the documented unknown bucket. Cap facet count, key length,
@@ -123,13 +124,61 @@ associations native, account their memory, and construct the result bitmap from
 exact address containment. Invalid input and incomplete address projection fail
 explicitly; no HTTP-handler fleet scan, per-IP high-cardinality scalar facet or
 interface ordinal dictionary is introduced. Canonical address source details,
-publication bounds and native structure must be settled and measured before
-these requirements can be marked complete.
+publication bounds and native structure must be measured before these
+requirements can be marked complete.
+
+Current address owners are Device.ip, active device aliases, interface address
+arrays and existing virtual interfaces. An administratively or operationally
+down interface retains its assigned addresses. Historical IP identity records
+alone are not current assignment evidence. Normalize host suffixes and zone IDs
+at ingestion; normalize IPv4-mapped IPv6 consistently. Query CIDRs accept only
+numeric IPv4/IPv6, with ambiguous mapped prefixes rejected explicitly.
+
+Read each bounded device batch and its address streams from one read-only
+repeatable-read transaction. Stream at most 500 associations at a time into one
+unpublished native stage, with a 16 MiB stage cap and fixed timeout. Complete all
+address sources before publishing that batch's scalar and IP state atomically.
+An oversized or incomplete source makes IP predicates unavailable; a later
+successful batch for another device cannot silently clear that condition.
+Exact scalar facets can remain available. Use sorted packed native address and
+reverse-owner indexes so containment and full-device address replacement need
+neither fleet BEAM enumeration nor per-IP scalar postings. Charge copied leaves,
+retained readers and staging to the same declared memory limits.
+
+### Existing named Prefix Tags
+
+The user also approved selecting existing named Prefix Tags. A predicate binds
+one source and exact label. Preserve the prefix engine's existing full matching
+chain: a label on any matching ancestor prefix contributes, with no invented
+longest-prefix override. A label's network union intersects the current native
+address index and returns deduplicated device membership.
+
+Capture source version and immutable native handle together. Reuse the web
+service's existing local loaders; query-time core RPC, per-device BEAM lookups
+and prefix-table scans are forbidden. Sources absent locally are explicitly
+unavailable. Label discovery returns at most 50 labels per page, binding its
+live lexical cursor to source, authority and last label. Pod-local source
+versions are response metadata, not cross-replica cursor identities. Reserve
+at most 4 MiB total additional catalog
+memory across sources and retained snapshots. Build catalogs only in the
+existing background bitmap worker; default-off snapshots allocate none. Retry
+admission after retained snapshots release memory, and release catalogs on
+feature disable. Catalog admission failure does
+not break existing prefix lookup; named-tag queries report unavailability.
+
+Return sorted, disjoint inclusive numeric ranges to the bitmap engine. Across
+one query, allow at most 4,096 merged ranges and 256 KiB compiled selector
+bytes, sharing the original one-second deadline. Reject overflow before partial
+results escape. These limits apply in addition to the 32 user predicates and
+16 KiB control request. Source versions are captured and rechecked within one
+response and reported as freshness metadata. Device pagination remains live:
+its cursor binds source/label expression identity, not an old prefix version.
+An update between pages can therefore change membership as already approved.
 
 ## 4. Authorized queries and live pages
 
 Accept normalized `all`, `any`, `except`, exact/prefix facet-value predicates,
-configured tag-key prefixes and typed IP/CIDR predicates, with
+configured tag-key prefixes, typed IP/CIDR and named Prefix Tag predicates, with
 32 predicates, depth 8, at most 50 requested facet values, a 16 KiB control
 request, at most eight concurrent query workers and a 1 second end-to-end deadline. Control parameters may be JSON;
 bulk membership and row state may not. Never fall back to a fleet scan in an
@@ -190,7 +239,9 @@ explicitly rather than broadening the result.
 
 Negotiate a versioned little-endian binary overlay aligned to exact Arrow tile
 row order. Each full replacement binds dictionary epoch, query digest, current
-authority fingerprint and admitted-view receipts. Include source/index revision
+authority fingerprint and admitted-view receipts. Include the exact whole-query
+device count; summing visible aggregate counts is incorrect when levels overlap.
+Include source/index revision
 metadata and a lossless sequence; revisions are never unsafe JavaScript numbers.
 Per tile, include coordinates, exact tile revision and row count, followed by
 contiguous matching u8, causal-state u8, availability-state u8 and matched-count
@@ -246,7 +297,7 @@ destroyed or replaced.
 ## 6. Rollout and measurement
 
 The topology_bitmap_enabled flag defaults false and composes with the existing
-God View gate. Enable only after identity, convergence, authorization, synthetic
+Atlas gate (`SERVICERADAR_GOD_VIEW_ENABLED`). Enable only after identity, convergence, authorization, synthetic
 scale and actual-hardware browser checks pass. Disabling releases resources and
 returns explicit unsupported-filter state while the bounded base view remains.
 Deployment, release and destructive data cleanup require separate authorization.

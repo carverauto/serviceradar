@@ -27,6 +27,9 @@ buffer lifetime fix. Filtering never changes layout.
   configured tags, with AND/OR/EXCEPT, text-prefix matching and IPv4/IPv6 CIDR
   membership. CIDR matches any known canonical device or interface address and
   returns devices; it does not introduce interface entity queries.
+- Include existing named Prefix Tags as device groups, matching current device
+  addresses against their configured networks. Reuse local immutable prefix
+  snapshots and their matching-chain semantics, with bounded label discovery.
 - Replace the active per-tile JSON overlay with typed binary membership, health
   and flow fields, preserving coverage and unknown-state semantics. Membership
   masks/counts align to admitted Arrow rows. The browser needs neither fleet
@@ -44,8 +47,16 @@ in `review.md` led to a smaller scope. The user explicitly chose current
 membership on each result page. Every response pins one local revision; a later
 page can use a newer revision on any healthy pod. Counts and pages are not a
 frozen export. The user also explicitly required usable map filters, text tag
-prefixes and IP/CIDR membership across any known device/interface IP. These are
+prefixes, IP/CIDR membership across any known device/interface IP, and selection
+of existing named Prefix Tags. These are
 release-one requirements, not an internal API or an optional follow-up.
+
+The product name for the topology engine and its map is ServiceRadar Atlas,
+decided by the user on 2026-10-16. Website, documentation, UI copy and other
+public text say "Atlas" or "ServiceRadar Atlas". The `topology-god-view`
+capability id, `god_view_*` module and asset names, and the
+`SERVICERADAR_GOD_VIEW_ENABLED` flag are unchanged by this change; renaming them
+is a separate change.
 
 No cross-pod query ownership, result cache, interface dictionary, durable hint
 replication, browser Roaring, XOR history or chunked baseline assembly is added.
@@ -81,6 +92,7 @@ space requires a separate migration and protocol decision.
 - [Design](design.md), [requirements](specs/topology-god-view/spec.md),
   [tasks](tasks.md), [decisions](choices.md) and [review response](review-response.md).
 - [Arrow path audit](../../../docs/topology-binary-path-audit.md).
-- The existing [architecture](../../../docs/architecture/topology-bitmap-index.html)
+- The [architecture](../../../docs/architecture/topology-bitmap-index.html)
   and [portable proposal](../../../docs/architecture/topology-bitmap-index-proposal.html)
-  still show the original design; refreshing them is an explicit delivery task.
+  reflect the reduced binary-overlay design. Keep the new filter-builder and
+  named-prefix scope synchronized before delivery.
