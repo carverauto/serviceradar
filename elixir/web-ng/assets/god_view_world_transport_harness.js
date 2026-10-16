@@ -30,7 +30,9 @@ export function mountTransportHarness() {
     revision: worldTileRevision,
   }
   void renderer.mount().then(() => {
-    renderer.deck.setProps({onAfterRender: () => {
+    const onAfterRender = renderer.deck.props.onAfterRender
+    renderer.deck.setProps({onAfterRender: context => {
+      onAfterRender?.(context)
       const usable = renderer.cache.entries.size > 0 && renderer.deck.props.layers[0]?.isLoaded
       const recording = measurements.recordFrames
       if ((!usable || measurements.firstFrame != null) && !recording) return

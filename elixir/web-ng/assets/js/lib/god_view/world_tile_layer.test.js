@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest"
 import {AttributeManager, Deck, OrthographicViewport} from "@deck.gl/core"
 import ViewManager from "../../../node_modules/@deck.gl/core/dist/lib/view-manager.js"
 import {AnimationLoop} from "@luma.gl/engine"
+import {luma} from "@luma.gl/core"
 import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import WorldTileLayer from "./world_tile_layer"
 import WorldMapRenderer from "./WorldMapRenderer"
@@ -30,6 +31,17 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("keeps renderer failure visible after later topology status updates", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.summary = {textContent: ""}
+    renderer.deck = {device: {submit() {}}, setProps: vi.fn()}
+    renderer.failRenderer(new Error("synthetic GPU failure"))
+    renderer.status("4096 devices")
+    expect(renderer.summary.textContent).toContain("synthetic GPU failure")
+    expect(renderer.summary.textContent).toContain("Reload to try again")
+    expect(renderer.deck.setProps).toHaveBeenLastCalledWith({_animate: false, layers: []})
+  })
+
   it("keeps admitted geometry while hiding pending, excluded and expired membership", () => {
     const geometry = tile()
     geometry.nodes[1] = {...geometry.nodes[1], kind: "device", count: 1}
@@ -138,7 +150,7 @@ describe("world tile rendering contract", () => {
     vi.stubGlobal("document", {createElement: domNode})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
-    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
     vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
     const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, vi.fn(), vi.fn())
     vi.spyOn(renderer, "poll").mockResolvedValue()
@@ -211,7 +223,7 @@ describe("world tile rendering contract", () => {
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
     // Keep Deck's real camera lifecycle; only GPU startup and drawing are absent.
-    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
     vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
     const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, vi.fn(),
       (name, handler) => handlers.set(name, handler))
@@ -499,7 +511,7 @@ describe("world tile rendering contract", () => {
     vi.stubGlobal("document", {createElement: domNode})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
-    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
     vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
     const handlers = new Map()
     const pushEvent = vi.fn()

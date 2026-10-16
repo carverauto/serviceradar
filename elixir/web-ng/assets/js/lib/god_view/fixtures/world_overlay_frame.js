@@ -5,7 +5,7 @@ export const telemetryGeometry = {
 }
 export const telemetryTime = 1893456000123456n
 
-export function telemetryFrame(geometry = telemetryGeometry) {
+export function telemetryFrame(geometry = telemetryGeometry, {complete = false} = {}) {
   const parts = []
   const integer = (size, value) => {
     const bytes = new Uint8Array(size), view = new DataView(bytes.buffer)
@@ -24,14 +24,19 @@ export function telemetryFrame(geometry = telemetryGeometry) {
   for (const value of [geometry.generation, 9007199254740993n, 9007199254740995n, 9007199254740997n]) integer(8, value)
   time(); time(); integer(1, 2); integer(1, 1); integer(4, 4); time(); time(-9223372036854775808n)
   integer(1, 1); integer(8, 2); integer(1, 0); integer(8, 0)
-  for (const value of [3, 2, 9, 4, 3, 1]) integer(4, value)
+  const total = complete ? geometry.edges.reduce((sum, edge) => sum + edge.count, 0) : 3
+  for (const value of [total, complete ? total : 2, 9, 4, 3, 1]) integer(4, value)
   integer(1, 0)
   time(telemetryTime - 900000000n); time(); time(telemetryTime - 120000000n)
   for (const value of [900, 120, 5000]) integer(4, value)
   integer(2, geometry.nodes.length); integer(2, geometry.edges.length)
-  for (let row = 0; row < geometry.nodes.length; row += 1) for (const count of [row % 2, 0, 2 - row % 2, row % 2, 2]) integer(8, count)
+  for (let row = 0; row < geometry.nodes.length; row += 1) {
+    const total = geometry.nodes[row].count ?? 2, healthy = Math.min(row % 2, total)
+    for (const count of [healthy, 0, total - healthy, healthy, total]) integer(8, count)
+  }
   for (const edge of geometry.edges) {
-    for (const count of [edge.count, 2, 1, 0, 0, 0, 0, 1, edge.count - 2]) integer(4, count)
+    for (const count of [edge.count, complete ? edge.count : 2, complete ? edge.count : 1, 0, 0, 0, 0,
+      complete ? 0 : 1, complete ? 0 : edge.count - 2]) integer(4, count)
     for (let direction = 0; direction < 2; direction += 1) {
       integer(1, direction === 0 ? 1 : 0); integer(1, direction === 0 ? 1 : 0); integer(2, 0)
       for (const value of [NaN, direction === 0 ? 12.5 : NaN, direction === 0 ? 0 : NaN, NaN]) rate(value)

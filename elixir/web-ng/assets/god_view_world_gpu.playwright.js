@@ -4,6 +4,44 @@ import {transportTile, transportDetail} from "./js/lib/god_view/fixtures/world_t
 
 const html = resolve(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE, process.env.GOD_VIEW_WORLD_GPU_PAGE)
 
+test("binary overlays survive refinement, reconnect and device teardown", async ({page}) => {
+  await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
+  await page.goto("http://localhost:4774/?bitmap=1")
+  await page.getByRole("button", {name: "Zoom tiles", exact: true}).click()
+  await page.getByRole("button", {name: "Toggle query", exact: true}).click()
+  const active = () => page.waitForFunction(() => {
+    const state = window.__SR_BITMAP_GPU__.metrics()
+    return !state.pending && state.membershipEntries > 0 && state.overlayEntries > 0
+  })
+  await active()
+  for (let cycle = 0; cycle < 4; cycle += 1) {
+    await page.getByRole("button", {name: "Overview tiles", exact: true}).click()
+    await active()
+    await page.getByRole("button", {name: "Pan tiles", exact: true}).click()
+    await active()
+  }
+  await page.getByRole("button", {name: "Disconnect socket", exact: true}).click()
+  await active()
+  await page.getByRole("button", {name: "Change authority", exact: true}).click()
+  await active()
+  const retained = await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics())
+  expect(retained.rendererMode).toBe("webgpu")
+  expect(retained.geometryEntries).toBeLessThanOrEqual(64)
+  expect(retained.membershipRetainedBytes + retained.overlayChargedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+  expect(retained.errors).toEqual([])
+  await page.getByRole("button", {name: "Toggle binary", exact: true}).click()
+  await expect(page.getByRole("status")).toContainText("filtering is disabled")
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().membershipRetainedBytes)).toBe(0)
+  await page.getByRole("button", {name: "Teardown renderer", exact: true}).click()
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().gpuBufferBytes)).toBe(0)
+  await page.getByRole("button", {name: "Remount renderer", exact: true}).click()
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 1)
+  await page.getByRole("button", {name: "Teardown renderer", exact: true}).click()
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+})
+
 test("compute pipelines retain their own bindings after another pipeline retires its input", async ({page}) => {
   await page.route("http://localhost:4774/", route => route.fulfill({path: html, contentType: "text/html"}))
   await page.goto("http://localhost:4774/")

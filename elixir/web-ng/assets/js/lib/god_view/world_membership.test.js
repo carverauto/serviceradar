@@ -100,13 +100,13 @@ describe("binary admitted-row membership", () => {
     })}
     try {
       renderer.syncWatch()
-      replies[0].error({reason: "membership_not_ready"})
+      replies[0].error({reason: "index_not_ready"})
       renderer.syncWatch()
       expect(renderer.channel.push).toHaveBeenCalledTimes(1)
       expect(renderer.membership.pending).toBe(true)
       await vi.advanceTimersByTimeAsync(1050)
       expect(renderer.channel.push).toHaveBeenCalledTimes(2)
-      replies[1].error({reason: "query_busy"})
+      replies[1].error({reason: "index_unavailable"})
       await vi.advanceTimersByTimeAsync(1050)
       expect(renderer.channel.push).toHaveBeenCalledTimes(2)
       await vi.advanceTimersByTimeAsync(1000)
