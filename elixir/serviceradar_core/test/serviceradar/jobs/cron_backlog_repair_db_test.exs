@@ -51,6 +51,15 @@ defmodule ServiceRadar.Jobs.CronBacklogRepairDbTest do
         )
       end
 
+    # Ahead of the stager's due window, so this pass can cancel it safely.
+    future_tick =
+      insert_job!(queue,
+        worker: @tick_worker,
+        meta: @cron_meta,
+        state: "scheduled",
+        scheduled_at: DateTime.add(DateTime.utc_now(), 60, :second)
+      )
+
     newest_tick = insert_job!(queue, worker: @tick_worker, meta: @cron_meta)
     running_tick = insert_job!(queue, worker: @tick_worker, meta: @cron_meta, state: "executing")
 
@@ -75,6 +84,7 @@ defmodule ServiceRadar.Jobs.CronBacklogRepairDbTest do
     {snoozed, waiting} = Enum.split_with(stale_ticks, &(&1.state == "scheduled"))
     for tick <- waiting, do: assert(%{state: "cancelled"} = rows[tick.id])
     for tick <- snoozed, do: assert(%{state: "scheduled"} = rows[tick.id])
+    assert %{state: "cancelled"} = rows[future_tick.id]
     assert %{state: "available"} = rows[newest_tick.id]
     assert %{state: "executing"} = rows[running_tick.id]
     assert %{state: "available", priority: 0} = rows[starved_scheduler.id]
@@ -112,6 +122,43 @@ defmodule ServiceRadar.Jobs.CronBacklogRepairDbTest do
 
     assert :ok = ReapStalePeriodicJobsWorker.perform(%Job{})
     assert rows_by_id(queue) == before
+  end
+
+  test "an executing job leaves its older available duplicate unpromoted", %{queue: queue} do
+    long_ago = DateTime.shift(DateTime.utc_now(), day: -2)
+
+    duplicate =
+      insert_job!(queue,
+        worker: @ash_scheduler,
+        meta: @cron_meta,
+        priority: 3,
+        scheduled_at: long_ago
+      )
+
+    executing =
+      insert_job!(queue,
+        worker: @ash_scheduler,
+        meta: @cron_meta,
+        priority: 3,
+        state: "executing",
+        scheduled_at: DateTime.shift(long_ago, hour: 1)
+      )
+
+    other_args =
+      insert_job!(queue,
+        worker: @ash_scheduler,
+        meta: @cron_meta,
+        args: %{"partition" => "other"},
+        priority: 3,
+        scheduled_at: long_ago
+      )
+
+    assert :ok = ReapStalePeriodicJobsWorker.perform(%Job{})
+
+    rows = rows_by_id(queue)
+    assert %{state: "available", priority: 3} = rows[duplicate.id]
+    assert %{state: "executing", priority: 3} = rows[executing.id]
+    assert %{state: "available", priority: 0} = rows[other_args.id]
   end
 
   defp insert_job!(queue, attrs) do
