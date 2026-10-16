@@ -5,8 +5,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+#[path = "bitmap_facets.rs"]
+mod facets;
 #[path = "bitmap_pending.rs"]
 mod pending;
+use facets::Presence;
 use pending::Pending;
 pub use pending::PendingStatus;
 
@@ -37,8 +40,8 @@ impl From<&str> for Value {
         }
     }
 }
-/// Postfix instructions: predicate=0, all=1, any=2, except=3 (one operand).
-pub type Instruction = (u8, String, String, u16);
+/// Postfix predicates and boolean operators. Values remain binary at the NIF boundary.
+pub type Instruction = (u8, String, Vec<u8>, u16);
 pub const BATCH_LIMIT: usize = 500;
 pub const PIN_TTL: Duration = Duration::from_secs(30);
 pub enum ViewRow<'a> {
@@ -188,6 +191,7 @@ struct Revision {
     live: Arc<Bitmap>,
     facets: BTreeMap<Facet, Arc<Bitmap>>,
     unavailable: BTreeSet<String>,
+    presence: BTreeMap<String, Presence>,
     _charge: Charge,
 }
 impl Revision {
@@ -195,6 +199,7 @@ impl Revision {
         std::iter::once(&self._charge)
             .chain(std::iter::once(&self.live.charge))
             .chain(self.facets.values().map(|bitmap| &bitmap.charge))
+            .chain(self.presence.values().filter_map(Presence::charge))
     }
     fn retiring_charges(&self, sole_revision: bool) -> impl Iterator<Item = &Charge> + Clone {
         std::iter::once(&self._charge)
@@ -202,6 +207,7 @@ impl Revision {
             .chain(
                 std::iter::once(&self.live)
                     .chain(self.facets.values())
+                    .chain(self.presence.values().filter_map(Presence::subset))
                     .filter(move |bitmap| sole_revision && Arc::strong_count(bitmap) == 1)
                     .map(|bitmap| &bitmap.charge),
             )
@@ -302,7 +308,12 @@ impl Index {
             live: Bitmap::new(RoaringBitmap::new(), &budget)?,
             facets: BTreeMap::new(),
             unavailable: BTreeSet::new(),
-            _charge: budget.reserve(1024)?,
+            presence: supported
+                .iter()
+                .cloned()
+                .map(|key| (key, Presence::AllLive))
+                .collect(),
+            _charge: budget.reserve(8192)?,
         });
         budget.admit(
             revision.charges().chain(std::iter::once(&charge)),
@@ -388,6 +399,7 @@ impl Index {
         }
         let mut changed = RoaringBitmap::new();
         let mut additions: BTreeMap<Facet, RoaringBitmap> = BTreeMap::new();
+        let mut present = BTreeMap::<String, RoaringBitmap>::new();
         let mut live_additions = RoaringBitmap::new();
         let mut unavailable = old.unavailable.clone();
         for (id, live, values) in rows {
@@ -413,6 +425,9 @@ impl Index {
                         unavailable.insert(facet);
                     }
                 }
+            }
+            for facet in &seen {
+                present.entry(facet.clone()).or_default().insert(id);
             }
             for facet in self.supported.difference(&seen) {
                 additions
@@ -480,7 +495,9 @@ impl Index {
             drop(reserve);
             result
         };
-        let metadata = 2048
+        let presence =
+            facets::refresh_presence(&old, &live, &changed, &present, &self.budget, end)?;
+        let metadata = 8192
             + facets
                 .keys()
                 .map(|(f, v)| 192 + f.capacity() + v.capacity())
@@ -493,6 +510,7 @@ impl Index {
             live,
             facets,
             unavailable,
+            presence,
             _charge: self.budget.reserve(metadata)?,
         });
         drop(scratch);
@@ -558,6 +576,7 @@ impl Index {
             live: Bitmap::new(RoaringBitmap::new(), &self.budget)?,
             facets: BTreeMap::new(),
             unavailable: BTreeSet::new(),
+            presence: BTreeMap::new(),
             _charge: self.budget.reserve(1024)?,
         };
         let mut published = self.revision.try_lock().map_err(|_| "busy")?;
@@ -594,17 +613,8 @@ impl Index {
         let mut stack: Vec<Arc<Bitmap>> = Vec::new();
         for (opcode, facet, value, arity) in program {
             check_time(end)?;
-            if *opcode == 0 {
-                if !self.supported.contains(facet) {
-                    return Err("unsupported_facet");
-                }
-                if revision.unavailable.contains(facet) {
-                    return Err("facet_unavailable");
-                }
-                stack.push(match revision.facets.get(&(facet.clone(), value.clone())) {
-                    Some(bitmap) => bitmap.clone(),
-                    None => Bitmap::new(RoaringBitmap::new(), &self.budget)?,
-                });
+            if matches!(*opcode, 0 | 4..=7) {
+                stack.push(facets::select(self, &revision, *opcode, facet, value, end)?);
             } else {
                 let operands = stack.split_off(stack.len() - *arity as usize);
                 let mut result = if *opcode == 2 {
@@ -682,13 +692,15 @@ fn validate_program(program: &[Instruction]) -> Result<(), Error> {
     let mut bytes = 0;
     for (op, facet, value, arity) in program {
         bytes += facet.len() + value.len() + 8;
-        if *op == 0 {
+        if matches!(*op, 0 | 4..=7) {
             predicates += 1;
             if *arity != 0
                 || facet.is_empty()
                 || facet.len() > 64
-                || value.is_empty()
                 || value.len() > 256
+                || (*op == 5) != value.is_empty()
+                || std::str::from_utf8(value).is_err()
+                || (*op >= 5 && !valid_facet(&format!("tag:{facet}")))
             {
                 return Err("invalid_expression");
             }
@@ -966,13 +978,109 @@ mod tests {
         )
     }
     fn predicate(facet: &str, value: &str) -> Instruction {
-        (0, facet.into(), value.into(), 0)
+        (0, facet.into(), value.as_bytes().to_vec(), 0)
     }
     fn operator(code: u8, arity: u16) -> Instruction {
-        (code, String::new(), String::new(), arity)
+        (code, String::new(), Vec::new(), arity)
     }
     fn all(index: &Index) -> Query {
         index.query(b"allow", &[operator(1, 0)], 1000).unwrap().0
+    }
+
+    #[test]
+    fn literal_prefixes_preserve_presence_pairing_and_published_revisions() {
+        let index = Index::new(
+            [1; 16],
+            [2; 16],
+            Kind::Device,
+            ["vendor", "tag:role.edge", "tag:role.core", "tag:site"]
+                .map(String::from)
+                .to_vec(),
+        )
+        .unwrap();
+        let make = |id, attrs: &[(&str, &str)]| {
+            (
+                id,
+                true,
+                attrs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), (*v).into()))
+                    .collect(),
+            )
+        };
+        index
+            .publish(
+                0,
+                b"prefix-seed",
+                vec![
+                    make(1, &[("vendor", "unknown"), ("tag:role.edge", "blue")]),
+                    make(2, &[("tag:role.core", "red"), ("tag:site", "blue")]),
+                    make(
+                        3,
+                        &[("vendor", "Universal"), ("tag:role.edge", "blue-green")],
+                    ),
+                    make(
+                        u32::MAX,
+                        &[("vendor", "Ünicode"), ("tag:role.edge", "unknown")],
+                    ),
+                    make(5, &[]),
+                ],
+                true,
+            )
+            .unwrap();
+        let request = |opcode, key: &str, value: &str| {
+            (opcode, key.to_string(), value.as_bytes().to_vec(), 0)
+        };
+        let cases = [
+            (request(0, "vendor", "unknown"), vec![1, 2, 5]),
+            (request(4, "vendor", "un"), vec![1]),
+            (request(4, "vendor", "U"), vec![3]),
+            (request(4, "vendor", "Ü"), vec![u32::MAX]),
+            (request(5, "role.", ""), vec![1, 2, 3, u32::MAX]),
+            (request(6, "role.", "blue"), vec![1]),
+            (request(7, "role.", "blue"), vec![1, 3]),
+            (request(6, "role.", "unknown"), vec![u32::MAX]),
+            (request(5, "Role.", ""), vec![]),
+        ];
+        for (instruction, expected) in cases {
+            let (query, _, _, count) = index.query(b"allow", &[instruction], 1000).unwrap();
+            assert_eq!(count, expected.len() as u64);
+            assert_eq!(query.page(b"allow", 0, 128, 1000).unwrap(), expected);
+        }
+        let pinned = index
+            .query(b"allow", &[request(7, "role.", "blue")], 1000)
+            .unwrap()
+            .0;
+        index
+            .publish(1, b"prefix-replace", vec![make(1, &[]), make(6, &[])], true)
+            .unwrap();
+        assert_eq!(pinned.page(b"allow", 0, 128, 1000).unwrap(), vec![1, 3]);
+        let current = index
+            .query(b"allow", &[request(7, "role.", "blue")], 1000)
+            .unwrap()
+            .0;
+        assert_eq!(current.page(b"allow", 0, 128, 1000).unwrap(), vec![3]);
+        index
+            .publish(2, b"prefix-delete", vec![(3, false, vec![])], true)
+            .unwrap();
+        let missing_prefix = index
+            .query(b"allow", &[request(4, "vendor", "un")], 1000)
+            .unwrap()
+            .0;
+        assert!(missing_prefix
+            .page(b"allow", 0, 128, 1000)
+            .unwrap()
+            .is_empty());
+        for malformed in [
+            request(4, "vendor", ""),
+            request(5, "role/", ""),
+            (4, "vendor".into(), vec![255], 0),
+        ] {
+            assert!(matches!(
+                index.query(b"allow", &[malformed], 1000),
+                Err("invalid_expression")
+            ));
+        }
     }
 
     #[test]
