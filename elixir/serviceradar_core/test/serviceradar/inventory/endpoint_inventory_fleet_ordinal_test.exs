@@ -62,8 +62,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
   test "delete and legitimate restore retain identity while stale merge restores are denied", %{
     actor: actor
   } do
+    require Ash.Query
+
     uid = "sr:lifecycle-#{System.unique_integer([:positive])}"
-    device = create_device!(actor, uid)
+    create_device!(actor, uid)
     ordinal = FleetIdentity.device_ordinal(uid)
     epoch = FleetIdentity.epoch()
     assert is_binary(epoch)
@@ -85,13 +87,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
     )
 
     assert {:ok, nil} = FleetIdentity.ensure_device(uid)
-    merged = %{device | deleted_at: DateTime.utc_now(), deleted_reason: "merged"}
 
-    assert {:error, _} =
-             merged
-             |> Ash.Changeset.for_update(:restore, %{}, actor: actor)
-             |> Ash.update(actor: actor)
+    assert %Ash.BulkResult{status: :error, errors: errors} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^uid)
+             |> Ash.bulk_update(:restore, %{}, actor: actor, return_errors?: true)
 
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "is a retained tombstone"))
     assert FleetIdentity.device_ordinal(uid) == nil
     restore!(uid, actor, allow_retained: true)
     assert FleetIdentity.device_ordinal(uid) == ordinal
@@ -113,12 +116,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
     assert FleetIdentity.device_ordinal(uid) == high
     assert {:error, :invalid_page_limit} = FleetIdentity.backfill_devices(nil, limit: 501)
 
-    assert {:ok, %{cursor: cursor, count: 1, done?: false}} =
-             FleetIdentity.backfill_devices(nil, limit: 1)
+    %{rows: [[before]]} =
+      Repo.query!(
+        "SELECT max(uid) FROM platform.ocsf_devices WHERE uid < $1 AND uid NOT LIKE 'serviceradar:%'",
+        [uid]
+      )
 
-    assert is_binary(cursor)
-    assert {:ok, %{count: count}} = FleetIdentity.backfill_devices(cursor, limit: 1)
-    assert count <= 1
+    assert {:ok, %{cursor: ^uid, count: 1}} = FleetIdentity.backfill_devices(before, limit: 1)
     assert FleetIdentity.device_ordinal(uid) == high
   end
 

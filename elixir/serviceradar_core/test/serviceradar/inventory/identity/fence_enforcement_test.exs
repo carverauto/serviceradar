@@ -465,15 +465,9 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     end
   end
 
-  # Unboxed rows outlive the test. Tombstone and purge through the cleanup worker,
-  # which removes every child row that restricts the delete, then the audit rows.
+  # Committed fixtures need guarded identity teardown as well as their audit cleanup.
   defp cleanup!(uid) do
-    Repo.query!(
-      "UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = $1 AND deleted_at IS NULL",
-      [uid]
-    )
-
-    purge!(uid)
+    TestSupport.delete_device_fixtures!([uid])
 
     Repo.query!(
       "DELETE FROM platform.merge_audit WHERE from_device_id = $1 OR to_device_id = $1",

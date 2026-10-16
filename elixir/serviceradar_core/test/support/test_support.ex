@@ -63,7 +63,7 @@ defmodule ServiceRadar.TestSupport do
         ServiceRadar.Repo.query!("SET LOCAL statement_timeout = '10s'")
 
         ServiceRadar.Repo.query!(
-          "LOCK TABLE platform.ocsf_devices, platform.device_fleet_ordinals IN ACCESS EXCLUSIVE MODE NOWAIT"
+          "LOCK TABLE platform.ocsf_devices, platform.device_fleet_ordinals IN ACCESS EXCLUSIVE MODE"
         )
 
         assert_identity_delete_guard!()
