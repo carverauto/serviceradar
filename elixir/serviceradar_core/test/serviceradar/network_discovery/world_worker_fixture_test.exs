@@ -191,7 +191,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     replacement = job.args["layout_version"]
 
     try do
-      assert_drain_success()
+      # Publish without queue acknowledgement, as when an executor exits after
+      # activation but before Oban records completion.
+      assert :ok = WorldWorker.perform(job)
       assert {:ok, current} = World.active_manifest(scope())
       assert current.layout_version == replacement
       refute current.layout_version == previous.layout_version
@@ -205,7 +207,44 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
                  "SELECT status FROM platform.topology_world_layouts WHERE layout_version = $1::uuid",
                  [Ecto.UUID.dump!(previous.layout_version)]
                )
+
+      persisted = Repo.get!(Oban.Job, job.id, prefix: "platform")
+      assert :ok = WorldWorker.perform(persisted)
+      assert {:ok, ^current} = World.active_manifest(scope())
+
+      next_target = Enum.at(ids, 20)
+      assert :ok = Dgraph.rebuild_canonical([edge(source, next_target)])
+      retry = Repo.get!(Oban.Job, job.id, prefix: "platform")
+      assert {:snooze, 5} = WorldWorker.perform(retry)
+
+      rotated = Repo.get!(Oban.Job, job.id, prefix: "platform")
+      next_version = rotated.args["layout_version"]
+      refute next_version == replacement
+      assert rotated.args["mode"] == "reconcile"
+      assert rotated.args["observed_request"] == retry.meta["request_id"]
+      assert {:ok, ^current} = World.active_manifest(scope())
+      assert placements() == positions
+
+      assert_drain_success()
+      drained = Repo.get!(Oban.Job, job.id, prefix: "platform")
+      assert drained.state == "completed"
+      assert drained.args["layout_version"] == next_version
+      assert {:ok, latest} = World.active_manifest(scope())
+      assert latest.layout_version == next_version
+      assert latest.generation == current.generation + 1
+      latest_positions = placements()
+
+      assert latest_positions[source].parent_id == next_target or
+               latest_positions[next_target].parent_id == source
+
+      assert %{rows: [["retired"]]} =
+               Repo.query!(
+                 "SELECT status FROM platform.topology_world_layouts WHERE layout_version = $1::uuid",
+                 [Ecto.UUID.dump!(replacement)]
+               )
     after
+      persisted = Repo.get!(Oban.Job, job.id, prefix: "platform")
+      delete_layout(persisted.args["layout_version"])
       cleanup(replacement, ids, job.id)
     end
   end
@@ -920,6 +959,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     resumed = Repo.get!(Oban.Job, repair.id, prefix: "platform")
     assert resumed.args["checkpoint"]["guests_done"]
     assert resumed.args["checkpoint"]["edges_done"]
+    # Direct perform/1 writes the checkpoint and leaves the row available.
+    # The queue drains the oldest available job, and the parent-tree case
+    # that follows has one slot, so the engine must complete this repair first.
+    assert resumed.state == "available"
+    assert_drain_success()
+    assert Repo.get!(Oban.Job, repair.id, prefix: "platform").state == "completed"
+    assert reconcile_job!().id != repair.id
   end
 
   defp guest_host!(uid) do
@@ -976,7 +1022,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     |> Ash.create!(actor: actor())
   end
 
-  defp cleanup(version, ids, first_job_id) do
+  defp delete_layout(version) do
     Repo.query!(
       "DELETE FROM platform.topology_world_head WHERE active_layout_version = $1::uuid",
       [
@@ -995,6 +1041,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     Repo.query!("DELETE FROM platform.topology_world_layouts WHERE layout_version = $1::uuid", [
       Ecto.UUID.dump!(version)
     ])
+  end
+
+  defp cleanup(version, ids, first_job_id) do
+    delete_layout(version)
 
     Repo.delete_all(
       from(job in Oban.Job,
