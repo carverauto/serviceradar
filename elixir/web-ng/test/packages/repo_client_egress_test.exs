@@ -149,6 +149,22 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
         {429, exhausted, nil, "GitHub API rate limit exceeded (HTTP 429); #{resets}#{raise_hint}"},
         {403, [{"retry-after", "60"}], nil,
          "GitHub API rate limit exceeded (HTTP 403); retry after 60 seconds.#{raise_hint}"},
+        {403, [{"retry-after", "0"}], nil,
+         "GitHub API rate limit exceeded (HTTP 403); retry after 0 seconds.#{raise_hint}"},
+        {403,
+         [
+           {"x-ratelimit-remaining", "42"},
+           {"x-ratelimit-reset", "1767225600"},
+           {"retry-after", "60"}
+         ], nil,
+         "GitHub API rate limit exceeded (HTTP 403); retry after 60 seconds.#{raise_hint}"},
+        {429,
+         [
+           {"x-ratelimit-remaining", "42"},
+           {"x-ratelimit-reset", "1767225600"},
+           {"retry-after", "0"}
+         ], nil,
+         "GitHub API rate limit exceeded (HTTP 429); retry after 0 seconds.#{raise_hint}"},
         {429, [], nil, "GitHub API rate limit exceeded (HTTP 429).#{raise_hint}"},
         {403, exhausted, "synthetic-token", "GitHub API rate limit exceeded (HTTP 403); #{resets}"},
         {403, [{"x-ratelimit-remaining", "42"}], nil,

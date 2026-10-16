@@ -506,12 +506,12 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   end
 
   defp rate_limit_window(response) do
-    reset = reset_time(response_header(response, "x-ratelimit-reset"))
     retry_after = parse_seconds(response_header(response, "retry-after"))
+    reset = reset_time(response_header(response, "x-ratelimit-reset"))
 
     cond do
+      is_integer(retry_after) -> "; retry after #{retry_after} seconds"
       reset -> "; resets at #{DateTime.to_iso8601(reset)}"
-      retry_after -> "; retry after #{retry_after} seconds"
       true -> ""
     end
   end
