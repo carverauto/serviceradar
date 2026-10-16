@@ -146,15 +146,17 @@ impl CanonicalOrdinals {
     }
 
     /// O(member count) traversal stays native; no full aggregate list crosses the BEAM.
-    /// The caller supplies the pinned query's epoch when intersecting these portable bytes.
+    /// The caller supplies its remaining view-byte budget before serialization and
+    /// the pinned query's epoch when intersecting these portable bytes.
     pub fn aggregate(
         &self,
         world: &World,
         aggregate: &AggregateSelection,
+        max_bytes: usize,
         timeout_ms: u64,
     ) -> Result<Vec<u8>, Error> {
         self.check_ready(world)?;
-        if !(1..=1000).contains(&timeout_ms) {
+        if !(1..=1000).contains(&timeout_ms) || !(1..=ORDINAL_PORTABLE_BYTES).contains(&max_bytes) {
             return Err(Error::InvalidBudget);
         }
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -165,14 +167,14 @@ impl CanonicalOrdinals {
             }
             // Bound output/container growth while avoiding a container scan for every row.
             if visited % 65_536 == 0 {
-                check_bitmap(&bitmap)?;
+                check_bitmap(&bitmap, max_bytes)?;
             }
             let ordinal = self.ordinals[index];
             if ordinal != 0 {
                 bitmap.insert(ordinal);
             }
         }
-        check_bitmap(&bitmap)?;
+        check_bitmap(&bitmap, max_bytes)?;
         check_time(deadline)?;
         let mut bytes = Vec::with_capacity(bitmap.serialized_size());
         bitmap
@@ -191,13 +193,13 @@ fn check_time(deadline: Instant) -> Result<(), Error> {
     }
 }
 
-fn check_bitmap(bitmap: &RoaringBitmap) -> Result<(), Error> {
+fn check_bitmap(bitmap: &RoaringBitmap, max_bytes: usize) -> Result<(), Error> {
     let stats = bitmap.statistics();
     let allocated = 128 * stats.n_containers as usize
         + (stats.n_bytes_array_containers
             + stats.n_bytes_bitset_containers
             + stats.n_bytes_run_containers) as usize;
-    if bitmap.serialized_size() > ORDINAL_PORTABLE_BYTES
+    if bitmap.serialized_size() > max_bytes
         || allocated + bitmap.serialized_size() > 32 * 1024 * 1024
     {
         Err(Error::OrdinalBudgetExceeded)

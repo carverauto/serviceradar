@@ -36,11 +36,31 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, selection} =
              TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
 
-    assert {:ok, portable} = TopologyAtlas.aggregate_ordinals(world, mapping, selection, 1000)
+    assert {:ok, portable} =
+             TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8 * 1024 * 1024, 1000)
+
     assert is_binary(portable) and byte_size(portable) > 0
 
+    assert {:ok, ^portable} =
+             TopologyAtlas.aggregate_ordinals(
+               world,
+               mapping,
+               selection,
+               byte_size(portable),
+               1000
+             )
+
+    assert {:error, :bitmap_budget} =
+             TopologyAtlas.aggregate_ordinals(
+               world,
+               mapping,
+               selection,
+               byte_size(portable) - 1,
+               1000
+             )
+
     assert {:error, :invalid_request} =
-             TopologyAtlas.aggregate_ordinals(world, mapping, selection, 1001)
+             TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8 * 1024 * 1024, 1001)
 
     other = cold_world([])
     assert {:error, :stale_revision} = TopologyAtlas.ordinal_info(other, mapping)

@@ -216,7 +216,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
     assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
     aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
     assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
-    assert {:ok, bytes} = TopologyAtlas.aggregate_ordinals(world, mapping, selection, 1000)
+    assert {:ok, bytes} = TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8 * 1024 * 1024, 1000)
     bytes
   end
 end

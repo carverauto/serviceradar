@@ -4,7 +4,8 @@ use std::time::Instant;
 
 use roaring::RoaringBitmap;
 use serviceradar_topology_atlas::{
-    Budget, CanonicalOrdinals, Cell, DetailScope, Error, GlyphKind, Position, World,
+    Budget, CanonicalOrdinals, Cell, DetailScope, Error, GlyphKind, ORDINAL_PORTABLE_BYTES,
+    Position, World,
 };
 
 fn position(n: u32) -> Position {
@@ -86,7 +87,25 @@ fn canonical_membership_excludes_promoted_and_unmapped_geometry_without_relayout
         let aggregate = world
             .aggregate_selection(&tile.selection, &glyph.id)
             .unwrap();
-        let portable = mapping.aggregate(&world, &aggregate, 1000).unwrap();
+        let portable = mapping
+            .aggregate(&world, &aggregate, ORDINAL_PORTABLE_BYTES, 1000)
+            .unwrap();
+        assert_eq!(
+            mapping
+                .aggregate(&world, &aggregate, portable.len(), 1000)
+                .unwrap(),
+            portable
+        );
+        assert_eq!(
+            mapping.aggregate(&world, &aggregate, portable.len() - 1, 1000),
+            Err(Error::OrdinalBudgetExceeded)
+        );
+        for invalid in [0, ORDINAL_PORTABLE_BYTES + 1] {
+            assert_eq!(
+                mapping.aggregate(&world, &aggregate, invalid, 1000),
+                Err(Error::InvalidBudget)
+            );
+        }
         let actual = RoaringBitmap::deserialize_from(portable.as_slice()).unwrap();
         let mut expected = RoaringBitmap::new();
         let scope = DetailScope::AggregateMembers(aggregate.clone());
@@ -107,7 +126,7 @@ fn canonical_membership_excludes_promoted_and_unmapped_geometry_without_relayout
         assert!(actual.is_disjoint(&union));
         union |= actual;
         assert_eq!(
-            mapping.aggregate(&world, &aggregate, 0),
+            mapping.aggregate(&world, &aggregate, ORDINAL_PORTABLE_BYTES, 0),
             Err(Error::InvalidBudget)
         );
     }
@@ -244,7 +263,9 @@ fn synthetic_aggregate_scale() {
         let mut size = 0;
         for sample in 0..110 {
             let start = Instant::now();
-            let portable = mapping.aggregate(&world, &aggregate, 1000).unwrap();
+            let portable = mapping
+                .aggregate(&world, &aggregate, ORDINAL_PORTABLE_BYTES, 1000)
+                .unwrap();
             if sample >= 10 {
                 samples.push(start.elapsed().as_nanos());
             }
