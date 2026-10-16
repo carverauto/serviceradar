@@ -256,9 +256,8 @@ When `networkPolicy.enabled` is true, the chart adds:
 - `serviceradar-turn-ingress`: client ports from the gateway namespace (or
   from `service.allowedCIDRs`), UDP 3478 and the relay range from
   `serviceradar-core` pods, and the relay range from the TURN pod itself.
-- `serviceradar-turn-core-egress`: core-elx to the TURN pod on the in-cluster
-  Service UDP port (3478 with gateway exposure, `externalPorts.udp` with
-  service exposure) and the relay range.
+- `serviceradar-turn-core-egress`: core-elx to the TURN pod on UDP 3478 and the
+  relay range.
 - `serviceradar-turn-relay-egress`: the TURN pod to itself on the relay range,
   so relay-to-relay media still flows when same-namespace egress is off.
 - With `networkPolicy.calicoLogDenied.enabled`, Calico `Allow` rules for that

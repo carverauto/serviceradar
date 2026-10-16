@@ -545,7 +545,7 @@ tests:
           path: spec.egress[0].ports
           value:
             - protocol: UDP
-              port: 3479
+              port: 3478
             - protocol: UDP
               port: 49160
               endPort: 49359
@@ -556,7 +556,7 @@ tests:
       - equal:
           path: spec.egress[0].destination.ports
           value:
-            - 3479
+            - 3478
             - "49160:49359"
         template: templates/webrtc-turn-server.yaml
         documentSelector:

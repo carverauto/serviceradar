@@ -3,7 +3,7 @@ Chart-managed TURN relay (eturnal) for WebRTC viewers (add-webrtc-turn-relay).
 
 Traffic model:
   browser  --UDP/TCP 3478, TLS 5349--> gateway or Service --> eturnal (client side)
-  core-elx --UDP (in-cluster Service port)-------------> eturnal (client side)
+  core-elx --UDP 3478 (in-cluster Service)--------------> eturnal (client side)
   browser relay allocation <--> core-elx relay allocation, both on this pod
 
 Relay addresses are the pod address, so the relay port range is reachable only
@@ -60,10 +60,6 @@ container renders the final eturnal.yml into a memory-backed emptyDir.
   {{- if ne $serviceType "LoadBalancer" -}}
     {{- fail "webrtc.turnServer.exposure=service supports only service.type LoadBalancer; use webrtc.turnServer.exposure=gateway instead" -}}
   {{- end -}}
-{{- end -}}
-{{- $allocatePort := 3478 -}}
-{{- if eq $exposure "service" -}}
-  {{- $allocatePort = int (default 3478 $externalPorts.udp) -}}
 {{- end -}}
 {{- $clientPorts := list (dict "name" "turn-udp" "protocol" "UDP" "port" 3478) (dict "name" "turn-tcp" "protocol" "TCP" "port" 3478) -}}
 {{- if $tlsEnabled -}}
@@ -442,7 +438,7 @@ spec:
               app: {{ $name }}
       ports:
         - protocol: UDP
-          port: {{ $allocatePort }}
+          port: 3478
         - protocol: UDP
           port: {{ $relayMin }}
           endPort: {{ $relayMax }}
@@ -493,7 +489,7 @@ spec:
       destination:
         selector: {{ printf "app == '%s'" $name | quote }}
         ports:
-          - {{ $allocatePort }}
+          - 3478
           - {{ printf "%d:%d" $relayMin $relayMax | quote }}
 ---
 # Same relay-to-relay exception, ordered just before Calico's final Deny.
