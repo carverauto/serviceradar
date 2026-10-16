@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.TopologyAtlas
+  alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.Native
 
   @moduletag :db_free
@@ -123,6 +124,40 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
     assert {:ok, _} = Native.bitmap_index_close(index)
     assert {:error, "not_ready"} = Native.bitmap_query_page(query, authority, 0, 128, 1000)
     assert {:ok, %{cardinality: 0, ready: false}} = Native.bitmap_index_status(index)
+  end
+
+  test "native reader saturation is retryable and a released response restores admission" do
+    dictionary = <<11::128>>
+    epoch = <<12::128>>
+    authority = <<13::256>>
+    assert {:ok, index} = Native.bitmap_index_new(dictionary, epoch, :device, ["vendor"])
+    on_exit(fn -> Native.bitmap_index_close(index) end)
+    assert {:ok, _} = Native.bitmap_index_publish(index, 0, "seed", [{17, true, [{"vendor", "example"}]}], true)
+
+    query = fn ->
+      Native.bitmap_index_query(index, dictionary, epoch, :device, authority, [{0, "vendor", "example", 0}], 1000)
+    end
+
+    pins =
+      for _ <- 1..8 do
+        assert {:ok, {pin, 1, "seed", 1}} = query.()
+        pin
+      end
+
+    assert {:error, "pin_budget"} = saturated = query.()
+    assert {:error, :query_busy} = BitmapQueries.normalize(saturated)
+    assert {:ok, _} = Native.bitmap_query_close(hd(pins))
+    assert {:ok, {replacement, 1, "seed", 1}} = query.()
+    assert {:ok, [17]} = Native.bitmap_query_page(replacement, authority, 0, 128, 1000)
+
+    assert {:error, :forbidden} =
+             replacement
+             |> Native.bitmap_query_page(<<14::256>>, 0, 128, 1000)
+             |> BitmapQueries.normalize()
+
+    for pin <- [replacement | tl(pins)], do: Native.bitmap_query_close(pin)
+    assert {:ok, _} = Native.bitmap_index_close(index)
+    assert {:error, :index_not_ready} = BitmapQueries.normalize(query.())
   end
 
   test "dirty hints use unsigned ordinals and fence full-pass acknowledgements" do

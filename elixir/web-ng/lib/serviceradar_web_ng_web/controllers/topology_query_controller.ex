@@ -41,11 +41,17 @@ defmodule ServiceRadarWebNGWeb.TopologyQueryController do
         reason when reason in [:invalid_query, :invalid_expression, :invalid_predicate, :invalid_page_limit] ->
           {400, "invalid_query"}
 
-        reason when reason in [:query_timeout, "deadline_exceeded"] ->
+        :query_timeout ->
           {503, "query_timeout"}
 
-        reason when reason in [:query_busy, "pin_budget", "reader_budget"] ->
+        :query_busy ->
           {503, "query_busy"}
+
+        :index_not_ready ->
+          {503, "index_not_ready"}
+
+        :source_changed ->
+          {503, "source_changed"}
 
         _ ->
           {503, "query_unavailable"}
