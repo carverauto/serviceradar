@@ -1,0 +1,96 @@
+# Synthetic binary-overlay GPU acceptance
+
+This pass exercises the production WorldMapRenderer, Phoenix client, Arrow
+reader, SRMO/SRTO decoders, Deck layers and WebGPU. The harness supplies invented
+HTTP/WebSocket responses in the page. It is **not** a running Phoenix route,
+database, authorization service or million-device backend acceptance run.
+
+## Reproduce
+
+Build the declared page with
+`bazel run --config=remote //elixir/web-ng/assets:world_gpu_smoke`, serve the
+assets directory on localhost, and open `world_gpu_smoke.html?bitmap=1`.
+The harness contains 4096 invented grid devices and aggregate/leaf tile responses;
+no deployment records or captures are fixtures. Use Zoom tiles, Toggle query,
+Overview tiles and Pan tiles, then exercise reconnect, authority change, disable,
+teardown and remount. The on-page counters expose explicit error and pending
+states. A zero error counter is meaningful only after the requested transitions
+have completed.
+
+The automated owner tests run with
+`bazel test --config=remote //elixir/web-ng/test/playwright:world_gpu_test`.
+RBE uses SwiftShader; physical hardware timing below is separate.
+
+## Defects found and repaired
+
+The pinned Luma 9.4.2 compute pipelines shared a mutable module-level binding
+dictionary, while each pipeline kept its own bind-group cache keys. A later
+pipeline could change that dictionary without invalidating an earlier pipeline's
+cached bindings. After label eviction, a fresh interleave command could therefore
+submit a cached `rowIndexes` or `instanceIconDefs` buffer that had been destroyed.
+
+A public compute regression creates two different pipelines, dispatches each,
+retires the first input and rebinds the first pipeline to the second input.
+Before the patch, the physical GPU reports a destroyed-buffer validation error.
+With per-instance dictionaries it reports no error and writes the independently
+expected integer 19. The maintained source/ESM/CJS dependency patch is declared
+in Bun, pnpm and Bazel; package versions are unchanged. Existing queue-submission
+lifetime guards remain necessary and are covered separately.
+
+Deck finalization also left the separately created topology device and Luma's
+per-device buffer pool alive. Topology now owns its adapter-created device,
+submits pending work, finalizes Deck, drains the submitted queue and destroys that
+device. Late creation after unmount is released too. It does not destroy a
+supplied external device. The old teardown retained 20 buffers / 875,476 bytes in
+this probe; the new teardown and remount teardown both reached zero tracked
+buffers, bytes and devices.
+
+The transport harness previously replaced `onAfterRender`, accidentally dropping
+the production submit callback. It now chains the callback before measuring
+frames. Errors remain visible even when subsequent telemetry updates status.
+
+## Physical GPU observations
+
+Chrome 155, macOS 26.6.2, Apple Metal 3, `fallback: false`; 1280 x 900 CSS pixels,
+device pixel ratio 1. The final rebuilt page completed 16 overview/zoom/pan cycles,
+reconnect, authority replacement and feature disable with no renderer or GPU
+errors. It created a fresh device on remount, completed four more cycles and
+released that device on teardown with no errors.
+
+| Observation | Result |
+| --- | ---: |
+| Geometry requests / retained entries after cycling | 66 / 62 (64-entry cap) |
+| Retained membership frame and aligned count columns | 47,192 B |
+| Retained telemetry accounting charge | 263,920 B |
+| Tracked whole-renderer GPU buffers at steady sample | 3,442,188 B |
+| Peak tracked whole-renderer GPU buffers | 3,537,292 B |
+| Membership-only replacement payload | 31,824 B |
+| Phoenix ArrayBuffer slice during that replacement | 31,854 B |
+| Geometry requests / Arrow bytes caused by that replacement | 0 / 0 |
+| Three-second steady sample | 178 frame intervals |
+| Frame interval p50 / p95 / p99 / maximum | 16.8 / 18.6 / 19.9 / 22.2 ms |
+
+The 30-byte difference in the observed Phoenix slice is its binary event/topic
+header. This measures that primitive, not every browser allocation or transport
+copy. The decoder borrows u8 columns and SRTO row views, but aligns u32 counts in
+a separate typed array. Arrow geometry still expands quantized positions and
+bounded render attributes; GPU `writeBuffer` uploads copy their input. Animated
+flow continues uploading while measurements run, so cumulative GPU upload bytes
+are not attributed solely to one membership change. There is no browser Roaring
+runtime, secondary WASM heap, bulk JSON ID list or base64 bitmap on this path.
+
+Disabling binary support during an active filter released membership and overlay
+retention to zero and showed an explicit unavailable state. Clearing the filter
+restored base geometry. GPU counters include geometry, labels and flow buffers;
+they exclude textures and the JavaScript heap. The fake backend's fixture cache
+is also outside production renderer retention. These observations do not prove a
+carrier-scale latency or total-memory guarantee.
+
+## Executable verification
+
+[BuildBuddy 02a26fc3](https://carverauto.buildbuddy.io/invocation/02a26fc3-239e-462a-aec7-391b82e4d098)
+completed the production JS bundle, 626 browser unit tests and seven real WebGPU
+browser tests. Those include the compute binding regression, binary overlay
+refinement/reconnect/disable/teardown, and existing picking/detail/label-lifetime
+contracts at both tested device pixel ratios. Full repository checks and actual
+server-route acceptance remain the integrated workstream's responsibility.

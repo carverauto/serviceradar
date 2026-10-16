@@ -427,6 +427,7 @@ js_binary(
 js_run_binary(
     name = "world_gpu_page",
     srcs = [
+        "god_view_bitmap_gpu_harness.js",
         "god_view_world_gpu_harness.js",
         "god_view_world_transport_harness.js",
         ":css_bundle",

@@ -6,8 +6,11 @@ import {worldTileIpc, worldTileKey} from "./js/lib/god_view/fixtures/world_tile_
 import {snapshotIpcBytes} from "./js/lib/god_view/fixtures/snapshot_ipc"
 import GodViewRenderer from "./js/lib/GodViewRenderer"
 import {mountTransportHarness} from "./god_view_world_transport_harness"
+import {mountBitmapGpuHarness} from "./god_view_bitmap_gpu_harness"
 
-if (new URLSearchParams(window.location.search).has("transport")) {
+if (new URLSearchParams(window.location.search).has("bitmap")) {
+  mountBitmapGpuHarness()
+} else if (new URLSearchParams(window.location.search).has("transport")) {
   mountTransportHarness()
 } else {
 

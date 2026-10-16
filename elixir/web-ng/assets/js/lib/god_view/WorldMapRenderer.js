@@ -1,4 +1,5 @@
-import {Deck, LinearInterpolator, OrthographicView} from "@deck.gl/core"
+import {LinearInterpolator, OrthographicView} from "@deck.gl/core"
+import {TopologyDeck} from "./topology_deck"
 import {Socket} from "phoenix"
 import GodViewRenderer from "../GodViewRenderer"
 import {GOD_VIEW_DEVICE_PROPS, createTopologyLabelMeasureText} from "./lifecycle_dom_setup_methods"
@@ -128,7 +129,7 @@ export default class WorldMapRenderer {
       if (this.detailRenderer && event.target.tagName === "CANVAS") this.dismissPanel()
     }, {signal: this.lifetime.signal})
     this.viewState = this.overviewView()
-    this.deck = new Deck({
+    this.deck = new TopologyDeck({
       canvas: this.canvas, width: this.el.clientWidth, height: this.el.clientHeight,
       views: new OrthographicView({id: "god-view-world"}),
       deviceProps: {...GOD_VIEW_DEVICE_PROPS, onError: error => this.failRenderer(error)},
@@ -373,6 +374,7 @@ export default class WorldMapRenderer {
       const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
       this.membershipEnabled = manifest.bitmap_membership_protocol === 1
       this.overlays.setBinary(manifest.world_overlay_protocol === 1)
+      if (!this.membershipEnabled && this.bitmapQuery !== null) this.status("Topology query unavailable: filtering is disabled")
       if (!changed) {
         if (membershipChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
         return
@@ -497,7 +499,7 @@ export default class WorldMapRenderer {
     }).receive("error", error => {
       if (signature !== this.membershipSignature) return
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
-      if (["membership_not_ready", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
+      if (["membership_not_ready", "index_not_ready", "index_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
       this.retryMembership(signature)
     })
@@ -518,7 +520,8 @@ export default class WorldMapRenderer {
       this.cache.prefetch()
     }
     const manifest = this.cache.manifest
-    this.status(this.membership.pending ? "Topology filter pending…" : this.mapSummary(tiles.length))
+    this.status(this.bitmapQuery !== null && !this.membershipEnabled ? "Topology query unavailable: filtering is disabled" :
+      this.membership.pending ? "Topology filter pending…" : this.mapSummary(tiles.length))
     const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
@@ -759,14 +762,15 @@ export default class WorldMapRenderer {
     return this.bitmapQuery !== null && this.membershipProjectionIncomplete ? `${summary} · Some geometry has no canonical device identity` : summary
   }
 
-  status(message) {if (this.summary) this.summary.textContent = message}
+  status(message) {if (this.summary) this.summary.textContent = this.rendererError || message}
 
   failRenderer(error) {
     if (this.rendererFailed) return
     this.rendererFailed = true
+    this.rendererError = `Topology renderer stopped: ${error.message}. Reload to try again.`
     this.flushPendingCommands()
     this.deck?.setProps({_animate: false, layers: []})
-    this.status(`Topology renderer stopped: ${error.message}. Reload to try again.`)
+    this.status(this.rendererError)
   }
 
   update() {}
