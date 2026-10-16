@@ -163,9 +163,13 @@ valid bounded labels. This is control metadata, not bulk membership JSON.
 
 ## Follow-up picking and reconnect acceptance
 
-Fresh physical Chrome acceptance used browser commit
-`d64834abcba18a610847a1bf6bcc098a743cf881` and the declared RBE-built page with
-SHA-256 `f3558550546c50bb19ad8b60c024dfef788980662eb8bc209349efd9940757e4`.
+Fresh physical Chrome acceptance used browser child checkpoint
+`d64834abcba18a610847a1bf6bcc098a743cf881`, a local checkpoint rather than a
+published review reference. It was integrated by
+`5ddb17d441`, whose subject is reachable on this branch after rebase as
+`77a7db25b1`. The physical run was not re-executed on the rebased commit.
+The declared RBE-built page has SHA-256
+`f3558550546c50bb19ad8b60c024dfef788980662eb8bc209349efd9940757e4`.
 The adapter reported Apple Metal 3 WebGPU with `fallback: false`. This remains
 production browser components over entirely synthetic HTTP/WebSocket transport,
 not hosted Phoenix/database acceptance or a deployment verification.
@@ -206,3 +210,21 @@ restored camera and picking checks passed in
 Buffer counters exclude textures and the JavaScript heap, including Deck's
 shared typed-array pool. This interaction run did not measure steady frame-time
 percentiles or whole-system capacity.
+
+
+## Retained layer and startup regressions
+
+Later browser corrections passed the nine-case remote Chromium WebGPU target in
+`f4da3820-b4a2-42da-967d-86814b5a4c34`, along with 653 scene tests, lint and the
+existing TypeScript scope. The new Clear regression holds the actual Deck layer's
+geometry, overlay and filter identities constant while exercising pending,
+missing-receipt and Clear states; it asserts public glyph and link picking.
+Missing-receipt inputs are supplied at the component boundary, so this does not
+claim a production backend route produced them.
+
+Removing only membership-enabled update triggers failed Clear restoration in
+`f4a69b39-9174-4ad7-a1e4-241daa3942ca` while eight GPU siblings passed. Removing
+the renderer-startup and request-instance guards failed their existing scene
+owners in `d5e741b1-d919-49bb-bea8-b7d625cc82a4`. The restored sources passed.
+These later changes have no fresh physical-adapter run; the physical receipt
+above remains bound to its recorded artifact and source checkpoint.

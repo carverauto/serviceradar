@@ -7,28 +7,35 @@ The website work is complete and belongs to another repository/agent.
 
 ## Next agent prompt
 
-All review corrections are integrated and the final remote unit gate passed.
-Restart full no-mistakes with Claude Opus 5.5 medium, then complete hosted
-database and scale acceptance against the published feature commit.
-The prior run `01M52NK4RKQRR4JH72FG9MF8WC` failed at its correction agent's
-60-minute limit; every successful edit was recovered and reviewed before these
-focused commits. Recovery is not a passing review. The branch is user-owned.
+Restart full no-mistakes with Claude Opus 5.5 medium. Current corrections and
+focused regression proofs are integrated. The complete remote unit gate passed
+419 targets with two platform skips in `afe6cf35-2ec3-4d95-bbed-bee09930704f`
+at runtime checkpoint `18ff6bd6d0`. Run
+`01M52WPF0MN3F45GSFYS3PN67F` failed at its correction agent's 60-minute limit.
+Custody returned at `59adc905f8`; all 74 successful edits and the documentation
+refresh were recovered from the durable journal. Recovery is not a passing
+review. Browser, retention and loader corrections have focused regression evidence.
+Hosted database and scale acceptance remain pending.
 
 Priority order:
 
-1. Publish through full no-mistakes. The remote `make test` for runtime commit
-   `2a3032e125` passed 419 targets with two platform skips in
-   `c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03`.
-2. Preserve the current documentation and portable-source receipts. Physical GPU acceptance passed on the integrated browser
-   sources; the current portable text refresh has no fresh visual containment
-   receipt because browser policy refused its local file URL.
+1. Complete full review and publish through no-mistakes. The current runtime
+   checkpoint `18ff6bd6d0` passed the complete remote `make test` in
+   `afe6cf35-2ec3-4d95-bbed-bee09930704f`: 419 targets passed, two platform skips.
+   Earlier pre-rebase receipts remain historical.
+2. Preserve the current documentation and portable-source receipts. Physical GPU
+   acceptance passed on the recorded earlier browser checkpoint; later retained-layer
+   and startup corrections have software-GPU evidence only. The current portable
+   text refresh has no fresh visual containment receipt because browser policy
+   refused its local file URL.
 3. Read ordinary hosted BazelCI migration, identity and real channel assertions
    against the exact published commit. Unit shards exclude those cases.
 4. Run compact then sparse through the existing WebNgDbDiagnostic action against
    that same commit. Task 4.2 stays open until both pass and evidence is reviewed.
 
-All three child worktree leases were returned after integration and acceptance.
-The main feature worktree remains held for validation and delivery.
+The main feature worktree remains held for integrated validation and delivery.
+All three child leases were returned after exact commit-content integration and
+preserving their remaining shared recovery patches.
 
 Use `tasks.md`; unchecked tasks are not acceptance claims. BuildBuddy CLI access
 works from the primary checkout, and the existing API credential also passed a
@@ -37,6 +44,8 @@ read-only invocation check. Dispatch permission has not yet been exercised.
 ## Settled contracts
 
 - Persistent full-u32 device identity, durable epoch and permanent assignments.
+  Bounded purge allocates missing tombstoned ordinals before scrubbing older
+  deleted rows, preserving partition and merge/seed lineage.
   Repeated address seeding uses new identities and a durable successor pointer,
   at most eight reads per attempt. Source-retired heads remain suppressed.
 - Dictionary deletion/truncate protection survives rollback. Cleanup must use a
@@ -56,6 +65,15 @@ read-only invocation check. Dispatch permission has not yet been exercised.
 
 ## Evidence ledger
 
+- Current native/loader quality, application-domain/Phoenix, native index, ordinal
+  keeper and native scale targets passed
+  `30d6ab6b-e7da-4bd7-8a50-c71451a2c2b4`. Disabling stable mapping retention
+  failed its owner assertion in `170e7092-0971-4e4b-8b3f-96d62bd67e46`.
+  Hosted loader and delivery cases remain unrun.
+- Current channel and quality checks passed
+  `0bc00e05-a3e2-4307-8d5f-3829bc08b92d`, after guard removal failed the stale
+  reset owner in `9a58f0ae-18cb-4e56-a33a-8d37209e0fb1`.
+
 - The separate WebGPU resource-lifetime repair merged as product PR #5693,
   head `9c4dd13fddc8274b51f70465349a163c76e218a8`. Its full remote gate and hosted
   BazelCI passed. Deployment has not been verified or performed by this work.
@@ -71,9 +89,11 @@ read-only invocation check. Dispatch permission has not yet been exercised.
   not a hosted scale run.
 - Identity focused RBE quality/sweep passed
   `fb8c3314-1401-4da8-8a48-8994f4c0a9d8`; actual database cases remain pending.
-- Browser 652 scene tests, eight software-GPU cases and remote lint/typecheck
-  passed `73840a94-e01d-4d55-8b25-2869be7a4a2e`. Fresh physical Apple WebGPU
-  picking, eviction, reconnect, capabilities, disable and remount passed; see
+- Current browser 653 scene tests, nine software-GPU cases and remote lint/typecheck
+  passed `f4da3820-b4a2-42da-967d-86814b5a4c34`. Trigger and startup/callback
+  mutations failed at their intended assertions; see `review-response.md`.
+  Earlier physical Apple WebGPU picking, eviction, reconnect, capabilities,
+  disable and remount passed on the recorded browser checkpoint; see
   `docs/topology-bitmap-gpu-acceptance.md` for exact scope and artifact binding.
 - Prior native 1.1M-device/2.2M-address benchmarks and negotiated WebSocket
   measurements are recorded in `review-response.md` and their owner docs.
