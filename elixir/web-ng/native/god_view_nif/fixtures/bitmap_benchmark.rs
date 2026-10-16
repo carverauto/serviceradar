@@ -82,7 +82,7 @@ fn proc_field(path: &str, prefix: &str) -> String {
 
 #[test]
 fn synthetic_scale() {
-    println!("fixture: seed=deterministic arithmetic v1, infrastructure={INFRASTRUCTURE}, endpoints={ENDPOINTS}, compact_and_sparse=true, vendor_cardinality=8, region_cardinality=10, class_cardinality=2, tag_cardinality=50, availability_skew=97/2/1, samples={SAMPLES}, warmup={WARMUP}, concurrent_readers=1, build=bazel -c opt, native_deadline_ms=1000");
+    println!("fixture: seed=deterministic arithmetic v1, infrastructure={INFRASTRUCTURE}, endpoints={ENDPOINTS}, compact_and_sparse=true, vendor_cardinality=8, region_cardinality=10, class_cardinality=2, tag_cardinality=50, availability_skew=97/2/1, samples={SAMPLES}, warmup={WARMUP}, active_readers=1, request_pins=8, build=bazel -c opt, native_deadline_ms=1000");
     println!(
         "hardware: cpu={}, ram={}, available_parallelism={:?}",
         proc_field("/proc/cpuinfo", "model name"),
@@ -197,25 +197,36 @@ fn synthetic_scale() {
         let overlay = percentiles(overlay_times);
         let status = index.status().unwrap();
         assert!(status.ready);
+        assert_eq!(status.pending.pending_count, 0);
         assert_eq!(status.source, b"synthetic-ready");
         println!("sparse={sparse} query_ns_p50_p95_p99={q:?} query_plus_50_facets_ns_p50_p95_p99={f:?} array_query_ns_p50_p95_p99={a:?} native_accounted_bytes={} native_peak_accounted_bytes={} process_rss={} process_high_water={} selectivity=~1.1percent",status.native_bytes,status.peak_bytes,proc_field("/proc/self/status","VmRSS"),proc_field("/proc/self/status","VmHWM"));
         assert!(q[1] < 5_000_000, "four-term p95 >=5ms: {q:?}");
         assert!(f[1] < 50_000_000, "query + facet p95 >=50ms: {f:?}");
-        assert!(status.native_bytes < 200_000_000);
+        assert!(status.native_bytes < 64_000_000);
         println!("sparse={sparse} overlay_127_leaves_plus_full_population_aggregate_ns_p50_p95_p99={overlay:?} aggregate_input_bytes={} typed_columns_bytes=896", aggregate_bytes.len());
-        let pins: Vec<_> = (0..100)
-            .map(|sample| {
-                index
-                    .query(b"synthetic-current-authority", &program(sample), 1000)
-                    .unwrap()
-                    .0
-            })
-            .collect();
-        let retained_bytes = index.status().unwrap().native_bytes;
+        let mut retained_bytes = 0;
+        let mut pin_lifetimes = Vec::new();
         let mut states: Vec<_> = (0..POPULATION).map(|n| values(n).3).collect();
         let mut publish_times = Vec::new();
         let mut revision = index.status().unwrap().revision;
         for tick in 0..SAMPLES {
+            let request_start = Instant::now();
+            let pins: Vec<_> = (0..8)
+                .map(|sample| {
+                    let (query, _, _, _) = index
+                        .query(
+                            b"synthetic-current-authority",
+                            &program(tick + sample),
+                            1000,
+                        )
+                        .unwrap();
+                    let page = query
+                        .page(b"synthetic-current-authority", 0, 128, 1000)
+                        .unwrap();
+                    (query, page)
+                })
+                .collect();
+            assert_eq!(index.status().unwrap().pins, 8);
             let started = Instant::now();
             let mut pending = Vec::with_capacity(500);
             // An odd stride selects exactly 1% of the full population.
@@ -246,11 +257,21 @@ fn synthetic_scale() {
             }
             assert!(pending.is_empty());
             publish_times.push(started.elapsed().as_nanos());
+            retained_bytes = retained_bytes.max(index.status().unwrap().native_bytes);
+            for (query, page) in pins {
+                assert_eq!(
+                    query
+                        .page(b"synthetic-current-authority", 0, 128, 1000)
+                        .unwrap(),
+                    page
+                );
+                query.close().unwrap();
+            }
+            pin_lifetimes.push(request_start.elapsed().as_nanos());
+            assert_eq!(index.status().unwrap().pins, 0);
         }
-        // A slow reader retains its admitted revision; current readers see all
-        // published updates. Complete browser frame costs are measured separately.
-        let still_pinned = pins[0].page(b"synthetic-current-authority", 0, 128, 1000);
-        assert!(still_pinned.is_ok() || still_pinned == Err("restart_required"));
+        // Each group pins one revision only while its request is in progress;
+        // current readers see all accepted updates after those requests close.
         let (current, _, _, _) = index
             .query(
                 b"synthetic-current-authority",
@@ -272,8 +293,8 @@ fn synthetic_scale() {
         }
         assert_eq!(counts, expected);
         let current_bytes = index.status().unwrap().native_bytes;
-        println!("sparse={sparse} retained_100_queries_bytes={retained_bytes} sustained_ticks={SAMPLES} publish_1percent_population_ns_p50_p95_p99={:?} post_churn_native_bytes={current_bytes}",percentiles(publish_times));
-        drop(pins);
+        assert!(current_bytes <= 64_000_000 && retained_bytes <= 64_000_000);
+        println!("sparse={sparse} max_retained_8_request_pins_bytes={retained_bytes} sustained_ticks={SAMPLES} publish_1percent_population_ns_p50_p95_p99={:?} pin_lifetime_ns_p50_p95_p99={:?} post_churn_native_bytes={current_bytes}",percentiles(publish_times), percentiles(pin_lifetimes));
         index.close().unwrap();
     }
 }

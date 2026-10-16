@@ -48,10 +48,13 @@ pub enum ViewRow<'a> {
 pub type RowOverlay = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
 const MAX_VALUES: usize = 4096;
 const MAX_FACET_VALUES: usize = 1024;
-const MAX_PINS: usize = 128;
+const MAX_PINS: usize = 8;
 const MAX_READERS: usize = 8;
-const MAX_BYTES: usize = 200_000_000;
-const PEAK_BYTES: usize = 400_000_000;
+// The owner admits at most two indices and two 32 MiB Atlas ordinal mappings:
+// 195.1 MB steady and 387.1 MB transient for these allocations only. Atlas export
+// scratch, BEAM portable buffers and existing world geometry are separate.
+const MAX_BYTES: usize = 64_000_000;
+const PEAK_BYTES: usize = 160_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -288,7 +291,7 @@ impl Index {
         Ok(Status {
             revision: revision.number,
             source: revision.source.clone(),
-            ready: revision.ready,
+            ready: revision.ready && !self.closed.load(Ordering::Acquire),
             cardinality: revision.live.set.len(),
             native_bytes: self.budget.used.load(Ordering::Acquire),
             peak_bytes: self.budget.peak.load(Ordering::Relaxed),
@@ -379,7 +382,14 @@ impl Index {
             }
             let before = old.facets.get(&key);
             let add = additions.get(&key);
-            if add.is_none() && before.is_some_and(|b| b.set.is_disjoint(&changed)) {
+            let unchanged = match (before, add) {
+                (Some(before), Some(add)) => {
+                    add.is_subset(&before.set) && before.set.intersection_len(&changed) == add.len()
+                }
+                (Some(before), None) => before.set.is_disjoint(&changed),
+                _ => false,
+            };
+            if unchanged {
                 facets.insert(key, before.unwrap().clone());
                 continue;
             }
@@ -395,9 +405,18 @@ impl Index {
             }
             drop(reserve);
         }
-        let reserve = self.budget.reserve(old.live.charge.bytes * 2 + 8192)?;
-        let mut live = &old.live.set - &changed;
-        live |= live_additions;
+        let live = if live_additions.is_subset(&old.live.set)
+            && old.live.set.intersection_len(&changed) == live_additions.len()
+        {
+            old.live.clone()
+        } else {
+            let reserve = self.budget.reserve(old.live.charge.bytes * 2 + 8192)?;
+            let mut live = &old.live.set - &changed;
+            live |= live_additions;
+            let result = Bitmap::new(live, &self.budget)?;
+            drop(reserve);
+            result
+        };
         let metadata = 2048
             + facets
                 .keys()
@@ -408,18 +427,35 @@ impl Index {
             source: source.to_vec(),
             fence: self.fence.load(Ordering::Acquire) + u64::from(!ready),
             ready,
-            live: Bitmap::new(live, &self.budget)?,
+            live,
             facets,
             unavailable,
             _charge: self.budget.reserve(metadata)?,
         });
-        drop(reserve);
         drop(scratch);
         check_time(end)?;
-        if self.budget.used.load(Ordering::Acquire) > MAX_BYTES {
+        let mut published = self.revision.try_lock().map_err(|_| "busy")?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err("closed");
+        }
+        // While the revision lock is held no new reader can retain the old
+        // revision. Subtract only allocations that this swap provably retires;
+        // both revisions already passed transient admission on every allocation.
+        let retired = if Arc::strong_count(&old) == 2 {
+            old._charge.bytes
+                + std::iter::once(&old.live)
+                    .chain(old.facets.values())
+                    .filter(|bitmap| Arc::strong_count(bitmap) == 1)
+                    .map(|bitmap| bitmap.charge.bytes)
+                    .sum::<usize>()
+        } else {
+            0
+        };
+        if self.budget.used.load(Ordering::Acquire) - retired > MAX_BYTES {
             return Err("native_memory_budget");
         }
-        *self.revision.try_lock().map_err(|_| "busy")? = next;
+        *published = next;
+        drop(published);
         self.active.store(ready, Ordering::Release);
         if !ready {
             self.fence.fetch_add(1, Ordering::AcqRel);
@@ -431,7 +467,7 @@ impl Index {
         Ok(Status {
             revision: revision.number,
             source: revision.source.clone(),
-            ready: revision.ready,
+            ready: revision.ready && !self.closed.load(Ordering::Acquire),
             cardinality: revision.live.set.len(),
             native_bytes: self.budget.used.load(Ordering::Acquire),
             peak_bytes: self.budget.peak.load(Ordering::Relaxed),
@@ -441,18 +477,22 @@ impl Index {
         })
     }
     pub fn close(&self) -> Result<(), Error> {
-        let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
-        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
-        pending.clear(&self.budget)?;
+        // Fence access even if an in-flight dirty NIF prevents immediate cleanup.
+        // The owner must retain this resource and retry reclamation before reuse.
         self.closed.store(true, Ordering::Release);
         self.active.store(false, Ordering::Release);
         self.fence.fetch_add(1, Ordering::AcqRel);
+        let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
+        if self.budget.readers.load(Ordering::Acquire) != 0 {
+            return Err("reader_busy");
+        }
+        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
+        pending.clear(&self.budget)?;
         let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
         for weak in pins.iter() {
             if let Some(slot) = weak.upgrade() {
-                if let Ok(mut pin) = slot.try_lock() {
-                    *pin = None;
-                }
+                let mut pin = slot.try_lock().map_err(|_| "reader_busy")?;
+                *pin = None;
             }
         }
         pins.clear();
@@ -477,6 +517,9 @@ impl Index {
     ) -> Result<(Query, u64, Vec<u8>, u64), Error> {
         let end = deadline(timeout_ms)?;
         let _reader = self.budget.reader()?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err("not_ready");
+        }
         if authority.is_empty() || authority.len() > 128 {
             return Err("invalid_authority");
         }
@@ -519,6 +562,7 @@ impl Index {
         }
         let expression = stack.pop().ok_or("invalid_expression")?;
         let result = Bitmap::combine(&revision.live, &expression, 1, &self.budget)?;
+        let pin_charge = self.budget.reserve(512)?;
         check_time(end)?;
         if self.budget.used.load(Ordering::Acquire) > MAX_BYTES {
             return Err("native_memory_budget");
@@ -536,7 +580,7 @@ impl Index {
             result,
             authority: authority.to_vec(),
             expires: Instant::now() + PIN_TTL,
-            _charge: self.budget.reserve(512)?,
+            _charge: pin_charge,
         };
         let slot = Arc::new(Mutex::new(Some(pin)));
         let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
@@ -1179,7 +1223,7 @@ mod tests {
             Instant::now() - Duration::from_millis(1);
         assert_eq!(index.status().unwrap().pins, 0);
         assert_eq!(expired.page(b"allow", 0, 1, 1000), Err("restart_required"));
-        let pins: Vec<_> = (0..128).map(|_| all(&index)).collect();
+        let pins: Vec<_> = (0..8).map(|_| all(&index)).collect();
         assert!(matches!(
             index.query(b"allow", &[operator(1, 0)], 1000),
             Err("pin_budget")
@@ -1246,5 +1290,96 @@ mod tests {
         ));
         drop(reservation);
         assert_eq!(index.status().unwrap().cardinality, 1);
+    }
+
+    #[test]
+    fn closing_fences_readers_before_a_busy_publisher_can_be_reclaimed() {
+        let index = index();
+        index
+            .publish(0, b"seed", vec![row(1, "A", "healthy")], true)
+            .unwrap();
+        let query = all(&index);
+        let writer = index.publisher.lock().unwrap();
+        let reader = index.budget.reader().unwrap();
+        assert_eq!(index.close(), Err("publisher_busy"));
+        assert!(!index.status().unwrap().ready);
+        assert_eq!(query.page(b"allow", 0, 128, 1000), Err("not_ready"));
+        drop(writer);
+        assert_eq!(index.close(), Err("reader_busy"));
+        drop(reader);
+        assert_eq!(
+            index
+                .publish(1, b"late", vec![row(2, "B", "healthy")], true)
+                .unwrap_err(),
+            "closed"
+        );
+        index.close().unwrap();
+        assert_eq!(index.status().unwrap().cardinality, 0);
+    }
+
+    #[test]
+    fn real_sparse_postings_hit_the_budget_without_partially_publishing() {
+        let supported: Vec<_> = (0..32).map(|n| format!("tag:synthetic-{n}")).collect();
+        let index = Index::new([1; 16], [2; 16], Kind::Device, supported.clone()).unwrap();
+        let mut accepted = index.status().unwrap();
+        let mut rejected = false;
+        // One ordinal per high-16-bit container exercises real allocated metadata,
+        // not a mocked allocator or a reduced test-only production limit.
+        for start in (0u32..65_536).step_by(500) {
+            let rows = (start..(start + 500).min(65_536))
+                .map(|n| {
+                    (
+                        (n << 16) | 1,
+                        true,
+                        supported
+                            .iter()
+                            .map(|key| (key.clone(), "a".into()))
+                            .collect(),
+                    )
+                })
+                .collect();
+            match index.publish(accepted.revision, &start.to_le_bytes(), rows, true) {
+                Ok(status) => accepted = status,
+                Err("native_memory_budget") => {
+                    rejected = true;
+                    break;
+                }
+                Err(error) => panic!("unexpected admission error: {error}"),
+            }
+        }
+        assert!(
+            rejected,
+            "the real sparse allocation must reach the fixed cap"
+        );
+        let actual = index.status().unwrap();
+        assert_eq!(
+            (actual.revision, actual.cardinality, actual.source),
+            (accepted.revision, accepted.cardinality, accepted.source)
+        );
+        assert!(actual.native_bytes <= MAX_BYTES);
+        // A full query result also needs admission headroom. Release known rows
+        // and verify the failed batch did not enter membership as capacity returns.
+        let mut revision = actual.revision;
+        for start in (0..1000).step_by(500) {
+            let deleted = (start..start + 500)
+                .map(|n| ((n << 16) | 1, false, vec![]))
+                .collect();
+            revision = index
+                .publish(revision, b"synthetic-release", deleted, true)
+                .unwrap()
+                .revision;
+        }
+        let (query, _, _, total) = index.query(b"allow", &[operator(1, 0)], 1000).unwrap();
+        assert_eq!(total, accepted.cardinality - 1000);
+        assert_eq!(
+            query.page(b"allow", 0, 1, 1000).unwrap(),
+            vec![(1000 << 16) | 1]
+        );
+        assert_eq!(
+            query
+                .facets(b"allow", &[(supported[0].clone(), "a".into())], 1000)
+                .unwrap(),
+            vec![total]
+        );
     }
 }

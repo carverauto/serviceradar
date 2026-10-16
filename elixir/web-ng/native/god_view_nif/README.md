@@ -19,6 +19,9 @@ does not revive them. Build replacements as separate resources so the accepted
 index remains readable. Call `bitmap_index_close/1` when disabling or replacing
 an index, and close query handles when their server-side owner discards them.
 These explicit releases run on dirty CPU schedulers.
+Close fences queries immediately even if a running publisher/reader makes
+cleanup return `publisher_busy` or `reader_busy`. Retain the closing resource
+and retry; do not create another replacement until reclamation succeeds.
 
 `bitmap_index_mark_dirty/3` coalesces at most 500 nonzero ordinals per call in
 a native Roaring set. Its third argument requests a full source reconciliation.
@@ -70,8 +73,9 @@ requires a new complete overlay. No browser Roaring runtime is required.
 
 Admission limits are 32 predicates, depth 8, 65 instructions, 50 facet counts,
 128 page rows and 128 rows per overlay projection. Pins live for 30 seconds,
-with 128 retained handles and eight active
-readers. The owner periodically calls status to expire idle pins. Every read
+with eight retained handles and eight active readers. The serving owner closes
+request-local pins when the request finishes; 30 seconds is a native expiry
+backstop, not a cross-request cache. Every read
 has a deadline of at most one second. Unsupported or cardinality-capped facets
 fail explicitly; the index never returns a partial facet as exact. A canonical
 value exceeding 256 bytes also makes its whole facet unavailable until rebuild,
@@ -81,10 +85,18 @@ exact literal `unknown`; values are not truncated or silently dropped.
 Posting sets are immutable and shared across revisions; only changed postings
 are replaced. Conservative native accounting includes bitmap container
 capacities, map/string metadata, retained revisions and query results. The
-steady admission cap is 200,000,000 bytes and transient reservations are capped
-at 400,000,000 bytes per resource. A serving owner preparing a separate
-replacement must additionally bound the sum across both resources. These
-figures are not total BEAM or GPU memory.
+steady admission cap is 64,000,000 bytes and transient reservations are capped
+at 160,000,000 bytes per resource. Publication subtracts only a provably
+unretained retiring revision when checking steady admission; old and new
+allocations always remain charged against the transient limit. Full current
+rows reuse unchanged facet/live sets instead of duplicating them under readers.
+An allocation rejection leaves the published revision and membership unchanged.
+
+The serving owner must admit at most two index resources, including any awaiting
+reclamation, and at most two 32 MiB Atlas mappings. Those allocations sum to at
+most 195,108,864 steady bytes and 387,108,864 transient bytes. This is not total
+replica peak memory: Atlas export scratch (up to 32 MiB per export), server
+portable buffers, existing world geometry, BEAM and GPU allocations are separate.
 
 ## Verification
 
@@ -103,7 +115,9 @@ bazel test -c opt --config=remote \
 It declares 100,000 invented infrastructure devices plus 1,000,000 invented
 endpoints, compact and sparse high-u32 ordinals, facet distributions, hardware,
 warmup and sample count. It checks result parity, reports p50/p95/p99, and runs
-100 one-percent publication ticks while 100 queries retain older revisions.
+100 one-percent publication ticks, each with eight request pins that close
+before the next tick. Read operations are serial; this measures retained
+request overlap with publication, not eight simultaneous CPU operations.
 The array baseline is an optimized Rust tuple count scan, not a browser frame
 timing. A typed-row benchmark covers 127 leaves plus a full-population aggregate
 in one query revision; its four columns occupy 896 bytes. The browser protocol
@@ -114,8 +128,10 @@ The initial BuildBuddy run
 [2278ce3c](https://carverauto.buildbuddy.io/invocation/2278ce3c-791b-41b2-aac9-8f4b56be7250)
 measured compact/sparse query p95 of 0.220/1.112 ms, query plus 50 facet counts
 of 2.70/3.74 ms, and 64.0/90.2 MB retained native accounting after sustained
-churn. The sparse tuple count scan was faster than the bitmap result query in
-that run. These native measurements do not certify distributed freshness,
+churn with 100 long-retained pins. That pin lifecycle was rejected in favor of
+eight request-local pins and smaller explicit limits; it is historical evidence,
+not current acceptance. The sparse tuple count scan was faster than the bitmap
+result query in that run. These native measurements do not certify freshness,
 authorization latency, complete wire bytes, browser heap or hardware FPS.
 
 The typed-row benchmark in
@@ -126,3 +142,17 @@ aggregate membership; Atlas traversal/serialization is measured separately in
 `rust/topology-atlas/README.md`. The same invocation passed the native bitmap,
 core NIF and web NIF targets; Atlas fixture corrections were verified in the
 Atlas README's later invocation.
+
+The current eight-pin lifecycle passed in
+[327b995a](https://carverauto.buildbuddy.io/invocation/327b995a-f27f-48c9-9340-bb066f175b7a)
+on a Xeon Gold 6258R executor. Compact/sparse peak retained index bytes during
+100 churn ticks were 33.0/57.3 MB; after closing the request pins they were
+30.7/46.3 MB. Query p95 was 0.256/1.301 ms, query plus 50 facets was
+2.979/4.230 ms, and typed-row projection was 0.211/0.594 ms. One-percent
+publication tick p95 was 37.6/59.7 ms; request-pin lifetime p95 was 38.8/70.2 ms.
+The same invocation passed 31 native tests, including actual sparse allocation
+rejection, unchanged published state after rejection, capacity recovery after
+deletion, and query fencing while close waits for active work. The actual BEAM
+ABI passed in
+[3b243767](https://carverauto.buildbuddy.io/invocation/3b243767-6004-443d-adb9-ac3c65373d61);
+its only failing test was the subsequently corrected capacity-recovery assertion.
