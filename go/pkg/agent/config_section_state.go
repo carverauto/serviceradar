@@ -304,6 +304,9 @@ func activationHeldAddonDecision(
 		return addonDeliverySucceeded, false
 	}
 	if recordedHash != payloadHash {
+		if visibility == addonDeliveryPermanentFailure {
+			return addonDeliveryPermanentFailure, true
+		}
 		return addonDeliveryTransientFailure, false
 	}
 	if recorded.escalated || recorded.disposition == addonDeliveryPermanentFailure {

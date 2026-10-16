@@ -1647,28 +1647,31 @@ func TestActivationHeldAddonDecision(t *testing.T) {
 			want:         addonDeliveryTransientFailure,
 		},
 		{
-			name:         "different hash transient record stays unapplied once visibility is permanent",
+			name:         "different hash transient record is recorded once visibility is permanent",
 			recorded:     transient,
 			recordedHash: transient.payloadHash,
 			payloadHash:  "hash-b",
 			visibility:   addonDeliveryPermanentFailure,
-			want:         addonDeliveryTransientFailure,
+			want:         addonDeliveryPermanentFailure,
+			wantTouch:    true,
 		},
 		{
-			name:         "different hash permanent record stays unapplied once visibility is permanent",
+			name:         "different hash permanent record is recorded once visibility is permanent",
 			recorded:     permanent,
 			recordedHash: permanent.payloadHash,
 			payloadHash:  "hash-b",
 			visibility:   addonDeliveryPermanentFailure,
-			want:         addonDeliveryTransientFailure,
+			want:         addonDeliveryPermanentFailure,
+			wantTouch:    true,
 		},
 		{
-			name:         "different hash escalated record stays unapplied once visibility is permanent",
+			name:         "different hash escalated record is recorded once visibility is permanent",
 			recorded:     escalated,
 			recordedHash: escalated.payloadHash,
 			payloadHash:  "hash-b",
 			visibility:   addonDeliveryPermanentFailure,
-			want:         addonDeliveryTransientFailure,
+			want:         addonDeliveryPermanentFailure,
+			wantTouch:    true,
 		},
 	}
 
@@ -1687,7 +1690,8 @@ func TestActivationHeldAddonDecision(t *testing.T) {
 				tt.recorded.escalated != before.escalated || tt.recorded.reason != before.reason) {
 				t.Fatalf("recorded failure = %+v, want unchanged %+v", *tt.recorded, before)
 			}
-			if tt.recordedHash != tt.payloadHash && tt.recorded != nil && got == tt.recorded.disposition && tt.recorded.disposition == addonDeliveryPermanentFailure {
+			if tt.recordedHash != tt.payloadHash && tt.recorded != nil && !touch &&
+				got == tt.recorded.disposition && tt.recorded.disposition == addonDeliveryPermanentFailure {
 				t.Fatal("a different payload reused the recorded permanent disposition")
 			}
 			if tt.recordedHash != tt.payloadHash && tt.recorded != nil && tt.visibility == addonDeliveryPermanentFailure && got == addonDeliverySucceeded {
@@ -1877,10 +1881,11 @@ func TestMatchingTransientAddonCommitsWhenVisibilityEscalates(t *testing.T) {
 	}
 }
 
-// A later netprobe assignment must not commit on the previous delivery's
-// escalated result while visibility blocks activation. The new assignment is
-// downloaded only after visibility applies.
-func TestChangedAddonPayloadStaysUncommittedUntilApplied(t *testing.T) {
+// A later netprobe assignment stays uncommitted while visibility is still
+// transient. Once visibility escalates, that assignment is recorded as a
+// blocked failure and the version commits without downloading it. The
+// visibility retry then runs the new assignment.
+func TestChangedAddonPayloadCommitsWhenVisibilityEscalates(t *testing.T) {
 	srv, hits := statusServer(t, http.StatusServiceUnavailable)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "netprobe.json")
@@ -1932,23 +1937,41 @@ func TestChangedAddonPayloadStaysUncommittedUntilApplied(t *testing.T) {
 	}
 	for range transientSectionEscalationAttempts {
 		if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
-			t.Fatal("cfg-v2 must stay uncommitted while its netprobe assignment is activation-blocked")
+			t.Fatal("cfg-v2 must stay uncommitted while visibility is still transient")
 		}
-	}
-	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
-	if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
-		t.Fatal("escalated visibility must not commit a netprobe assignment that was not applied")
 	}
 	if got := pl.getConfigVersion(); got != "cfg-v1" {
 		t.Fatalf("committed version = %q, want cfg-v1", got)
 	}
-	if got := atomic.LoadInt64(hits); got != hitsAtEscalation {
-		t.Fatalf("artifact downloads = %d, want %d while activation is blocked", got, hitsAtEscalation)
+	if got := pl.configSectionFailureSnapshot()[configSectionAddons]; got.payloadHash != escalated.payloadHash || got.attempts != escalated.attempts ||
+		!got.escalated || !got.since.Equal(escalated.since) {
+		t.Fatalf("addons failure = %+v, want the cfg-v1 record unchanged while visibility is transient (%+v)", got, escalated)
 	}
-	got := pl.configSectionFailureSnapshot()[configSectionAddons]
-	if got.payloadHash != escalated.payloadHash || got.attempts != escalated.attempts || !got.escalated ||
-		got.disposition != escalated.disposition || !got.since.Equal(escalated.since) || got.reason != escalated.reason {
-		t.Fatalf("addons failure = %+v, want the cfg-v1 record unchanged (%+v)", got, escalated)
+	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
+	if !pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+		t.Fatal("cfg-v2 must commit once visibility has escalated")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v2" {
+		t.Fatalf("committed version = %q, want cfg-v2", got)
+	}
+	if got := atomic.LoadInt64(hits); got != hitsAtEscalation {
+		t.Fatalf("artifact downloads = %d, want %d: the blocked assignment must not be downloaded", got, hitsAtEscalation)
+	}
+	blocked := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if blocked.payloadHash == escalated.payloadHash || blocked.escalated || blocked.attempts != 0 ||
+		blocked.disposition != addonDeliveryPermanentFailure || blocked.version != "cfg-v2" ||
+		len(blocked.addonIDs) != 1 || blocked.addonIDs[0] != agentnetprobe.DefaultSidecarName {
+		t.Fatalf("addons failure = %+v, want cfg-v2 recorded as a blocked netprobe failure", blocked)
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionPermanent || !strings.Contains(helloAddons.GetError(), agentnetprobe.DefaultSidecarName) ||
+		helloAddons.GetSince() != blocked.since.Unix() || helloAddons.GetSince() == escalated.since.Unix() {
+		t.Fatalf("hello addons status = %+v, want the cfg-v2 blocked netprobe failure", helloAddons)
+	}
+	statuses := pl.configApplyFailureStatuses(nil)
+	if len(statuses) != 1 || statuses[0].GetName() != "addon:"+agentnetprobe.DefaultSidecarName ||
+		statuses[0].GetState() != string(agentaddon.StateUnhealthy) {
+		t.Fatalf("add-on statuses = %v, want netprobe unhealthy", statuses)
 	}
 	visibility := pl.configSectionFailureSnapshot()[configSectionVisibility]
 	if !visibility.escalated || visibility.disposition != addonDeliveryPermanentFailure {
@@ -1956,19 +1979,19 @@ func TestChangedAddonPayloadStaysUncommittedUntilApplied(t *testing.T) {
 	}
 
 	lifecycle.statuses[0].ConfigPath = configPath
-	if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
-		t.Fatal("the new netprobe assignment still fails to download, so cfg-v2 stays uncommitted")
+	if !pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+		t.Fatal("visibility recovery must retry the blocked netprobe assignment")
 	}
-	if version := pl.getConfigVersion(); version != "cfg-v1" {
-		t.Fatalf("committed version = %q, want cfg-v1", version)
+	if version := pl.getConfigVersion(); version != "cfg-v2" {
+		t.Fatalf("committed version = %q, want cfg-v2", version)
 	}
 	if downloaded := atomic.LoadInt64(hits); downloaded != hitsAtEscalation+1 {
 		t.Fatalf("artifact downloads = %d, want %d: visibility recovery must download the new assignment", downloaded, hitsAtEscalation+1)
 	}
 	applied := pl.configSectionFailureSnapshot()[configSectionAddons]
-	if applied.payloadHash == escalated.payloadHash || applied.attempts != 1 || applied.escalated ||
+	if applied.payloadHash != blocked.payloadHash || applied.attempts != 1 || applied.escalated ||
 		applied.disposition != addonDeliveryTransientFailure || applied.version != "cfg-v2" {
-		t.Fatalf("addons failure = %+v, want a new transient attempt of cfg-v2", applied)
+		t.Fatalf("addons failure = %+v, want the recovered assignment attempted", applied)
 	}
 	if _, ok := pl.configSectionFailureSnapshot()[configSectionVisibility]; ok {
 		t.Fatal("visibility failure record was not cleared once the bootstrap write succeeded")
