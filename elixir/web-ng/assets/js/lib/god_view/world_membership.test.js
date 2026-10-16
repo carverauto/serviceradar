@@ -4,8 +4,9 @@ import {WorldMembership} from "./world_membership"
 import {decodeBitmapFrame} from "./bitmap_frame"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {bitmapBinding, bitmapFrame} from "./fixtures/bitmap_frame"
+import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
 
-const geometry = {key: {z: 0, x: 0, y: 0}, revision: "synthetic-tile", nodes: [{kind: "device"}, {kind: "aggregate"}]}
+const geometry = {key: {z: 0, x: 0, y: 0}, revision: "synthetic-tile", nodes: [{kind: "device", count: 1}, {kind: "aggregate", count: 9001}]}
 const tile = {z: 0, x: 0, y: 0, revision: geometry.revision, mask: [1, 1], causal: [3, 3], availability: [0, 2], counts: [1, 9001]}
 function session() {
   const state = new WorldMembership({onChange: vi.fn(), onAck: vi.fn(), onReset: vi.fn()})
@@ -14,6 +15,125 @@ function session() {
 }
 
 describe("binary admitted-row membership", () => {
+  it("keeps an accepted displayed view through offscreen prefetch, then replaces the new viewport atomically", async () => {
+    vi.useFakeTimers()
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    const requests = []
+    renderer.channel = {state: "joined", push: vi.fn((name, payload) => {
+      const reply = {name, payload}
+      requests.push(reply)
+      const push = {receive: (kind, callback) => {
+        reply[kind] = callback
+        if (name === "tiles:watch" && kind === "ok") callback({watch_id: requests.length})
+        return push
+      }}
+      return push
+    })}
+    renderer.cache.observe({layout_version: worldTileKey.layout_version, generation: 1, zmax: 2,
+      extent: 2 ** 24, node_count: 70000, relation_count: 90000})
+    renderer.membershipEnabled = true
+    renderer.bitmapQuery = {all: []}
+    vi.stubGlobal("fetch", vi.fn(async url => {
+      const [z, x, y] = url.split("/").slice(-3).map(Number), width = 2 ** (24 - z)
+      return new Response(worldTileIpc({metadata: {z, x, y, origin_x: x * width, origin_y: y * width, coordinate_scale: width / 65535}}),
+        {headers: {"x-sr-topology-layout-version": worldTileKey.layout_version, "x-sr-topology-generation": "1",
+          etag: `"${worldTileKey.layout_version}:${worldTileRevision}"`}})
+    }))
+    const matches = key => ({...key, revision: worldTileRevision, mask: [1, 0], causal: [3, 3], availability: [2, 2], counts: [70000, 0]})
+    const watches = () => requests.filter(request => request.name === "membership:watch")
+    try {
+      renderer.cache.setVisible([worldTileKey])
+      await renderer.cache.get(worldTileKey)
+      await vi.advanceTimersByTimeAsync(50)
+      watches()[0].ok(bitmapBinding)
+      renderer.membership.receive(bitmapFrame({total: 70000, tiles: [matches(worldTileKey)]}))
+      const accepted = renderer.membership.entries
+      const neighbor = {...worldTileKey, x: 0}
+      await renderer.cache.get(neighbor, {prefetch: true})
+      expect(renderer.membership.pending).toBe(false)
+      expect(renderer.membership.entries).toBe(accepted)
+      await vi.advanceTimersByTimeAsync(50)
+      expect(watches()).toHaveLength(1)
+      expect(requests.filter(request => request.name === "tiles:watch").at(-1).payload.tiles).toHaveLength(2)
+      renderer.cache.setVisible([neighbor])
+      renderer.scheduleWatch()
+      expect(renderer.membership.pending).toBe(true)
+      renderer.syncWatch()
+      expect(watches()).toHaveLength(2)
+      expect(watches()[1].payload.tiles).toEqual([{z: 1, x: 0, y: 0, revision: worldTileRevision}])
+      expect(renderer.membership.pending).toBe(true)
+      watches()[1].ok({...bitmapBinding, view_digest: "new-visible-view"})
+      renderer.membership.receive(bitmapFrame({tiles: [matches(worldTileKey)]}))
+      expect(renderer.membership.pending).toBe(true)
+      renderer.membership.receive(bitmapFrame({binding: {view_digest: "new-visible-view"}, total: 70000, tiles: [matches(neighbor)]}))
+      expect(renderer.membership.pending).toBe(false)
+      expect([...renderer.membership.entries.keys()]).toEqual(["1/0/0"])
+    } finally {
+      renderer.destroyed = true; renderer.clearMembershipRetry(); clearTimeout(renderer.watchTimer)
+      renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals(); vi.useRealTimers()
+    }
+  })
+
+  it.each(["malformed", "receipt"])("backs off repeated %s frames until a complete replacement succeeds", async failure => {
+    vi.useFakeTimers()
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn()), replies = []
+    renderer.membershipEnabled = true; renderer.bitmapQuery = {all: []}
+    renderer.cache.manifest = {layout_version: "synthetic-layout", node_count: 2}
+    renderer.cache.visible.set("0/0/0", geometry.key)
+    renderer.cache.entries.set("0/0/0", {geometry})
+    renderer.watchSignature = JSON.stringify(renderer.cache.watchPayload())
+    renderer.channel = {state: "joined", push: vi.fn(name => {
+      const callbacks = {}, push = {receive: (kind, callback) => {callbacks[kind] = callback; return push}}
+      if (name === "membership:watch") replies.push(callbacks)
+      return push
+    })}
+    const fail = () => renderer.membership.receive(failure === "malformed" ? new Uint8Array(24) :
+      bitmapFrame({sequence: 2n, tiles: [{...tile, revision: "mismatched-receipt"}]}))
+    try {
+      renderer.syncWatch()
+      for (const delay of [1000, 2000, 4000, 8000, 10000]) {
+        replies.at(-1).ok(bitmapBinding)
+        fail()
+        const sent = replies.length
+        expect(renderer.membership.pending).toBe(true)
+        renderer.syncWatch()
+        await vi.advanceTimersByTimeAsync(delay - 1)
+        expect(replies).toHaveLength(sent)
+        await vi.advanceTimersByTimeAsync(51)
+        expect(replies).toHaveLength(sent + 1)
+      }
+      replies.at(-1).ok(bitmapBinding)
+      renderer.membership.receive(bitmapFrame({tiles: [tile]}))
+      expect(renderer.membership.pending).toBe(false)
+      fail()
+      const sent = replies.length
+      await vi.advanceTimersByTimeAsync(1050)
+      expect(replies).toHaveLength(sent + 1)
+      renderer.setBitmapQuery(null)
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(replies).toHaveLength(sent + 1)
+    } finally {
+      renderer.destroyed = true; renderer.clearMembershipRetry(); clearTimeout(renderer.watchTimer)
+      renderer.cache.destroy(); renderer.overlays.destroy(); vi.useRealTimers()
+    }
+  })
+
+  it.each(["aggregate", "boundary"])("rejects an oversized %s population before publishing any rows", kind => {
+    const state = session()
+    const nodes = [geometry.nodes[0], {kind, count: kind === "aggregate" ? 2 : 0}]
+    state.bind(bitmapBinding, [{...geometry, nodes}])
+    const accepted = {...tile, mask: [1, kind === "aggregate" ? 1 : 0], counts: [1, nodes[1].count]}
+    state.receive(bitmapFrame({tiles: [accepted]}))
+    expect(state.pending).toBe(false)
+    state.onAck.mockClear()
+    state.receive(bitmapFrame({sequence: 2n, tiles: [{...tile, counts: [1, nodes[1].count + 1]}]}))
+    expect(state.pending).toBe(true)
+    expect(state.entries.size).toBe(0)
+    expect(state.total).toBeNull()
+    expect(state.onAck).not.toHaveBeenCalled()
+    expect(state.onReset).toHaveBeenCalledOnce()
+  })
+
   it("refreshes filter capabilities while the channel is joined and geometry stays unchanged", async () => {
     const manifest = {layout_version: "00000000-0000-4000-8000-000000000478", generation: 1,
       zmax: 1, extent: 2 ** 24, node_count: 2, relation_count: 0, bitmap_membership_protocol: 1}
@@ -162,6 +282,7 @@ describe("binary admitted-row membership", () => {
     renderer.bitmapQuery = {all: []}
     renderer.cache.manifest = {node_count: 2}
     renderer.cache.entries.set("0/0/0", {geometry})
+    renderer.cache.visible.set("0/0/0", geometry.key)
     renderer.cache.watchPayload = () => payload
     renderer.watchSignature = JSON.stringify(payload)
     renderer.channel = {state: "joined", push: vi.fn(name => {

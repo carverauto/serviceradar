@@ -40,6 +40,43 @@ beforeEach(() => {
 afterEach(() => {panel.destroy(); browser.happyDOM.abort(); vi.unstubAllGlobals()})
 
 describe("topology device filter controls", () => {
+  it("counts EXCEPT wrappers before admitting a ninth level and keeps removal usable", () => {
+    edit("Value", "320")
+    for (let depth = 0; depth < 6; depth += 1) {
+      click("Add group", 0)
+      edit("Value", "320", depth + 1)
+    }
+    const excludes = controls("Exclude (EXCEPT)")
+    expect(excludes[0].disabled).toBe(true)
+    expect(excludes.at(-1).disabled).toBe(true)
+    click("Apply filters")
+    expect(onApply).toHaveBeenCalledOnce()
+    click("Remove group", 5)
+    expect(controls("Exclude (EXCEPT)")[0].disabled).toBe(false)
+    check(0)
+    expect(controls("Exclude (EXCEPT)")[0].disabled).toBe(false)
+    expect(controls("Exclude (EXCEPT)").at(-1).disabled).toBe(true)
+    click("Apply filters")
+    expect(onApply).toHaveBeenCalledTimes(2)
+    expect(onApply.mock.calls.at(-1)[0]).toHaveProperty("except")
+  })
+
+  it("reserves the 65-node expression budget for exclusions while allowing at most 32 conditions", () => {
+    edit("Value", "320")
+    for (let index = 1; index < 32; index += 1) {click("Add condition"); edit("Value", String(320 + index), index)}
+    for (let index = 1; index <= 32; index += 1) check(index)
+    expect(controls("Exclude (EXCEPT)")[0].disabled).toBe(true)
+    expect([...document.querySelectorAll("button")].filter(button => ["Add condition", "Add group"].includes(button.textContent)).every(button => button.disabled)).toBe(true)
+    click("Apply filters")
+    expect(onApply).toHaveBeenCalledOnce()
+    expect(onApply.mock.calls[0][0].all).toHaveLength(32)
+    click("Remove condition", 0)
+    expect(controls("Exclude (EXCEPT)")[0].disabled).toBe(false)
+    check(0)
+    click("Apply filters")
+    expect(onApply.mock.calls.at(-1)[0].except.all).toHaveLength(31)
+  })
+
   it("builds nested AND/OR with unary EXCEPT, exact inventory VLAN, literal tags and any-address CIDR", () => {
     edit("Value", "320")
     click("Add group")

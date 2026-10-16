@@ -4,6 +4,13 @@ import {decodeWorldOverlay} from "./world_overlay_frame"
 import {telemetryFrame, telemetryGeometry, telemetryTime} from "./fixtures/world_overlay_frame"
 
 describe("SRTO telemetry protocol", () => {
+  it("preserves leading BOMs in opaque identities and rejects a different exact receipt", () => {
+    const geometry = {...telemetryGeometry, revision: `\uFEFF${telemetryGeometry.revision}`}
+    const frame = telemetryFrame(geometry)
+    expect(() => decodeWorldOverlay(frame, telemetryGeometry)).toThrow()
+    expect(decodeWorldOverlay(frame, geometry).revision).toBe(geometry.revision)
+  })
+
   it("preserves unknown versus zero, partial flow, coverage, and exact source timestamps", () => {
     const frame = telemetryFrame()
     const overlay = decodeWorldOverlay(frame, telemetryGeometry)

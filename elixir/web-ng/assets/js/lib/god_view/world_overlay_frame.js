@@ -11,6 +11,11 @@ const rateFields = ["packets_per_second", "observed_packets_per_second", "observ
 const timeFields = ["previous_observed_at", "earliest_observed_at", "observed_at"]
 const invalid = () => {throw new Error("Invalid topology telemetry frame")}
 
+// Includes the maximum metadata strings, fixed header and CPU/GPU attributes.
+export function worldOverlayReservation(geometry) {
+  return 815 + geometry.nodes.length * HEALTH_STRIDE + geometry.edges.length * EDGE_STRIDE + 8192 + geometry.edges.length * 128
+}
+
 /** Exact receipt + row order replaces repeated IDs. Records stay in their byte buffer. */
 export function decodeWorldOverlay(input, geometry) {
   let bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
@@ -32,7 +37,7 @@ export function decodeWorldOverlay(input, geometry) {
     const size = u16()
     if (size < 1 || size > 128) invalid()
     const at = take(size)
-    const value = new TextDecoder("utf-8", {fatal: true}).decode(bytes.subarray(at, at + size))
+    const value = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(bytes.subarray(at, at + size))
     if (value.includes("\0")) invalid()
     return value
   }

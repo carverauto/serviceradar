@@ -1,6 +1,6 @@
 import {readBoundedBody, worldJson} from "./world_http"
 import {tileId} from "./world_tile_cache"
-import {decodeWorldOverlay, WORLD_OVERLAY_MIME, WORLD_OVERLAY_MAX_BYTES} from "./world_overlay_frame"
+import {decodeWorldOverlay, worldOverlayReservation, WORLD_OVERLAY_MIME, WORLD_OVERLAY_MAX_BYTES} from "./world_overlay_frame"
 
 // Reserve 3MiB for four bounded HTTP assemblies and transient decoding/packing.
 const MAX_RETAINED_BYTES = 5 * 1024 * 1024
@@ -16,6 +16,7 @@ export class WorldOverlays {
     this.onChange = onChange
     this.entries = new Map()
     this.visible = new Map()
+    this.admitted = new Map()
     this.pending = new Map()
     this.polling = null
     this.binary = false
@@ -28,6 +29,7 @@ export class WorldOverlays {
     this.modeGeneration += 1
     this.entries.clear()
     for (const job of this.pending.values()) job.controller.abort()
+    this.admit()
     this.pollAgain = true
     this.onChange()
   }
@@ -39,13 +41,28 @@ export class WorldOverlays {
     const visible = new Map(geometries.map(geometry => [tileId(geometry.key), geometry]))
     if (visible.size === this.visible.size && [...visible].every(([id, geometry]) => this.visible.get(id) === geometry)) return
     this.visible = visible
+    this.admit()
+  }
+
+  admit() {
+    let remaining = MAX_RETAINED_BYTES
+    this.admitted = new Map([...this.visible].sort(([, left], [, right]) => left.key.z - right.key.z || left.key.x - right.key.x || left.key.y - right.key.y)
+      .filter(([, geometry]) => {
+        if (!this.binary) return true
+        const bytes = worldOverlayReservation(geometry)
+        if (bytes > remaining) return false
+        remaining -= bytes
+        return true
+      }))
+    let changed = false
     for (const [id, overlay] of this.entries) {
-      const geometry = this.visible.get(id)
-      if (!geometry || !matches(overlay, geometry)) this.entries.delete(id)
+      const geometry = this.admitted.get(id)
+      if (!geometry || !matches(overlay, geometry)) {this.entries.delete(id); changed = true}
     }
     for (const [id, job] of this.pending) {
-      if (job.geometry !== this.visible.get(id)) job.controller.abort()
+      if (job.geometry !== this.admitted.get(id)) job.controller.abort()
     }
+    if (changed) this.onChange()
   }
 
   poll() {
@@ -61,11 +78,11 @@ export class WorldOverlays {
     do {
       this.pollAgain = false
       this.pollingVisible = this.visible
-      const queue = [...this.visible.values()]
+      const queue = [...this.admitted.values()]
       const run = async () => {
         while (queue.length > 0) {
           const geometry = queue.shift()
-          if (this.visible.get(tileId(geometry.key)) === geometry) await this.load(geometry)
+          if (this.admitted.get(tileId(geometry.key)) === geometry) await this.load(geometry)
         }
       }
       await Promise.all(Array.from({length: Math.min(4, queue.length)}, run))
@@ -96,9 +113,9 @@ export class WorldOverlays {
         if (!matches(overlay, geometry) || !Array.isArray(overlay.health?.glyphs) || overlay.health.glyphs.length > 128 ||
             !Array.isArray(overlay.flow?.edges) || overlay.flow.edges.length > 512) throw new Error("Invalid topology overlay")
       }
-      if (controller.signal.aborted || modeGeneration !== this.modeGeneration || this.visible.get(id) !== geometry) return
+      if (this.binary && overlay.retainedBytes > worldOverlayReservation(geometry)) throw new Error("Topology overlay exceeds admitted bytes")
+      if (controller.signal.aborted || modeGeneration !== this.modeGeneration || this.admitted.get(id) !== geometry) return
       this.entries.delete(id)
-      while (this.entries.size && this.retainedBytes + (overlay.retainedBytes || 0) > MAX_RETAINED_BYTES) this.entries.delete(this.entries.keys().next().value)
       this.entries.set(id, overlay)
       this.onChange()
     } catch (_error) {
@@ -112,6 +129,7 @@ export class WorldOverlays {
 
   destroy() {
     this.visible.clear()
+    this.admitted.clear()
     this.entries.clear()
     for (const job of this.pending.values()) job.controller.abort()
   }

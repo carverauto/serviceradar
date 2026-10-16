@@ -67,14 +67,14 @@ export default class WorldMapRenderer {
     this.sceneControls = new Map()
     this.cache = new WorldTileCache({
       onChange: () => {this.geometryRevision += 1; this.invalidateMembership()},
-      onRetain: () => {this.invalidateMembership(); this.scheduleWatch()},
+      onRetain: () => this.scheduleWatch(),
     })
     this.overlays = new WorldOverlays(() => {this.overlayRevision += 1; this.render()})
     this.membership = new WorldMembership({
       onChange: () => {
         if (this.destroyed) return
         this.membershipRevision += 1
-        if (!this.membership.pending) this.membershipError = null
+        if (!this.membership.pending) {this.membershipError = null; this.clearMembershipRetry()}
         this.updateFilterPanel()
         this.render()
         if (!this.membership.pending && this.cache.manifest) {
@@ -83,10 +83,9 @@ export default class WorldMapRenderer {
       },
       onAck: payload => this.channel?.push("membership:ack", payload),
       onReset: (reason, view_digest) => {
-        this.membershipSignature = null
         this.channel?.push("membership:reset", {view_digest})
         this.status(`Topology filter pending: ${reason}`)
-        this.scheduleWatch()
+        this.retryMembership(this.membershipSignature)
       },
     })
     this.getTileData = ({index, signal}) => this.cache.get(index, {signal})
@@ -441,7 +440,10 @@ export default class WorldMapRenderer {
   }
 
   scheduleWatch() {
-    if (this.watchTimer || this.destroyed) return
+    if (this.destroyed) return
+    if (this.membershipSignature && this.cache.manifest &&
+        JSON.stringify(this.membershipRequest(this.cache.watchPayload())) !== this.membershipSignature) this.invalidateMembership()
+    if (this.watchTimer) return
     this.watchTimer = setTimeout(() => {this.watchTimer = null; this.syncWatch()}, 50)
   }
 
@@ -493,10 +495,18 @@ export default class WorldMapRenderer {
     }, delay)
   }
 
+  membershipRequest(payload) {
+    // Prefetched geometry stays watched for invalidation but cannot change the
+    // displayed membership view. Canonical order also ignores cache LRU churn.
+    const tiles = payload.tiles.filter(tile => this.cache.visible.has(`${tile.z}/${tile.x}/${tile.y}`) && typeof tile.revision === "string")
+      .sort((left, right) => left.z - right.z || left.x - right.x || left.y - right.y)
+    return {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery}
+  }
+
   syncMembership(payload) {
     if (!this.membershipEnabled || this.bitmapQuery === null) return
-    const tiles = payload.tiles.filter(tile => typeof tile.revision === "string")
-    const request = {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery}
+    const request = this.membershipRequest(payload)
+    const {tiles} = request
     const signature = JSON.stringify(request)
     if (signature === this.membershipRetrySignature && this.membershipRetryTimer) return
     if (signature !== this.membershipRetrySignature) this.clearMembershipRetry()
@@ -505,7 +515,6 @@ export default class WorldMapRenderer {
     this.membership.clear(true)
     this.channel.push("membership:watch", request).receive("ok", binding => {
       if (this.destroyed || signature !== this.membershipSignature) return
-      this.clearMembershipRetry()
       const geometries = tiles.map(tile => this.cache.entries.get(`${tile.z}/${tile.x}/${tile.y}`)?.geometry)
       if (geometries.some((geometry, index) => !geometry || geometry.revision !== tiles[index].revision)) {
         this.invalidateMembership()
