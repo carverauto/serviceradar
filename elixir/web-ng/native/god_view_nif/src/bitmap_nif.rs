@@ -1,8 +1,10 @@
 //! Typed BEAM boundary for the persistent membership index; no JSON intermediates.
-use crate::bitmap_index::{Index, Instruction, Kind, Query, Row, Value};
+use crate::bitmap_index::{Index, Instruction, Kind, Query, Row, Value, ViewRow};
 use crate::core::arrow_serde::vec_into_binary;
 use rustler::types::list::ListIterator;
-use rustler::{Binary, Decoder, Env, NifMap, NifUnitEnum, Resource, ResourceArc, Term};
+use rustler::{
+    Binary, Decoder, Env, NifMap, NifTaggedEnum, NifUnitEnum, Resource, ResourceArc, Term,
+};
 
 fn list<'a, T>(
     term: Term<'a>,
@@ -86,6 +88,49 @@ impl Resource for BitmapIndexResource {}
 pub struct BitmapQueryResource(Query);
 #[rustler::resource_impl]
 impl Resource for BitmapQueryResource {}
+
+#[derive(NifTaggedEnum)]
+enum WireViewRow<'a> {
+    Leaf(u32),
+    Aggregate(Binary<'a>),
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_query_row_overlay<'a>(
+    env: Env<'a>,
+    query: ResourceArc<BitmapQueryResource>,
+    authority: Binary<'a>,
+    dictionary_epoch: Binary<'a>,
+    index_epoch: Binary<'a>,
+    kind: EntityKind,
+    rows: Term<'a>,
+    timeout_ms: u64,
+) -> Result<(Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>), &'static str> {
+    let rows: Vec<WireViewRow<'a>> =
+        list(rows, 128, |row| row.decode().map_err(|_| "invalid_row"))?;
+    let selections: Vec<_> = rows
+        .iter()
+        .map(|row| match row {
+            WireViewRow::Leaf(id) => ViewRow::Leaf(*id),
+            WireViewRow::Aggregate(bytes) => ViewRow::Aggregate(bytes.as_slice()),
+        })
+        .collect();
+    let (mask, causal, availability, counts) = query.0.row_overlay(
+        authority.as_slice(),
+        dictionary_epoch.as_slice(),
+        index_epoch.as_slice(),
+        kind.into(),
+        &selections,
+        timeout_ms,
+    )?;
+    let bytes = |column| vec_into_binary(env, column).map_err(|_| "allocation_failed");
+    Ok((
+        bytes(mask)?,
+        bytes(causal)?,
+        bytes(availability)?,
+        bytes(counts)?,
+    ))
+}
 #[derive(NifMap)]
 pub struct BitmapIndexStatus<'a> {
     revision: u64,

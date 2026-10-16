@@ -37,6 +37,11 @@ pub type Instruction = (u8, String, String, u16);
 pub const BATCH_LIMIT: usize = 500;
 pub const VIEW_LIMIT: usize = 8192;
 pub const PIN_TTL: Duration = Duration::from_secs(30);
+pub enum ViewRow<'a> {
+    Leaf(u32),
+    Aggregate(&'a [u8]),
+}
+pub type RowOverlay = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
 const MAX_VALUES: usize = 4096;
 const MAX_FACET_VALUES: usize = 1024;
 const MAX_PINS: usize = 128;
@@ -751,20 +756,115 @@ impl Query {
             // Checked portable decoding can hold container descriptions plus input
             // and output buffers. Reserve worst-case bounded scratch before decoding.
             let _scratch = self.budget.reserve(64 * 1024 * 1024)?;
-            let mut cursor = std::io::Cursor::new(bytes);
-            let bitmap =
-                RoaringBitmap::deserialize_from(&mut cursor).map_err(|_| "invalid_bitmap")?;
-            if cursor.position() != bytes.len() as u64 || bitmap.contains(0) {
-                return Err("invalid_bitmap");
-            }
+            let bitmap = deserialize_bitmap(bytes)?;
             check_time(end)?;
             Ok(pin.result.set.intersection_len(&bitmap))
+        })
+    }
+    /// Complete admitted-row columns: matching u8, causal u8, availability u8,
+    /// matched-device count LE-u32. The caller binds this order to its tile receipt.
+    pub fn row_overlay(
+        &self,
+        authority: &[u8],
+        dictionary: &[u8],
+        epoch: &[u8],
+        kind: Kind,
+        rows: &[ViewRow<'_>],
+        timeout_ms: u64,
+    ) -> Result<RowOverlay, Error> {
+        if dictionary != self.dictionary_epoch
+            || epoch != self.index_epoch
+            || kind != self.kind
+            || kind != Kind::Device
+        {
+            return Err("identity_mismatch");
+        }
+        let input_bytes = rows
+            .iter()
+            .try_fold(0usize, |sum, row| {
+                sum.checked_add(match row {
+                    ViewRow::Leaf(_) => 0,
+                    ViewRow::Aggregate(bytes) => bytes.len(),
+                })
+            })
+            .ok_or("bitmap_budget")?;
+        if rows.len() > 128 || input_bytes > 8 * 1024 * 1024 {
+            return Err("bitmap_budget");
+        }
+        self.with_pin(authority, timeout_ms, |pin, end| {
+            let _scratch = self.budget.reserve(if input_bytes == 0 {
+                4096
+            } else {
+                64 * 1024 * 1024
+            })?;
+            let mut mask = Vec::with_capacity(rows.len());
+            let mut availability = Vec::with_capacity(rows.len());
+            let mut counts = Vec::with_capacity(rows.len() * 4);
+            let availability_supported = self.supported.contains("availability")
+                && !pin.revision.unavailable.contains("availability");
+            let healthy = pin
+                .revision
+                .facets
+                .get(&("availability".into(), "healthy".into()));
+            let unavailable = pin
+                .revision
+                .facets
+                .get(&("availability".into(), "unavailable".into()));
+            for row in rows {
+                check_time(end)?;
+                let (count, healthy_count, unavailable_count) = match row {
+                    ViewRow::Leaf(0) => (0, 0, 0),
+                    ViewRow::Leaf(id) => {
+                        let count = u64::from(pin.result.set.contains(*id));
+                        (
+                            count,
+                            count * u64::from(healthy.is_some_and(|set| set.set.contains(*id))),
+                            count * u64::from(unavailable.is_some_and(|set| set.set.contains(*id))),
+                        )
+                    }
+                    ViewRow::Aggregate(bytes) => {
+                        let members = deserialize_bitmap(bytes)? & &pin.result.set;
+                        check_time(end)?;
+                        (
+                            members.len(),
+                            healthy.map_or(0, |set| members.intersection_len(&set.set)),
+                            unavailable.map_or(0, |set| members.intersection_len(&set.set)),
+                        )
+                    }
+                };
+                mask.push(u8::from(count > 0));
+                availability.push(
+                    if availability_supported && count > 0 && healthy_count == count {
+                        0
+                    } else if availability_supported && count > 0 && unavailable_count == count {
+                        1
+                    } else {
+                        2
+                    },
+                );
+                counts.extend_from_slice(
+                    &u32::try_from(count)
+                        .map_err(|_| "bitmap_budget")?
+                        .to_le_bytes(),
+                );
+            }
+            // There is no canonical fleet-wide causal producer; availability is independent.
+            Ok((mask, vec![3; rows.len()], availability, counts))
         })
     }
     pub fn close(&self) -> Result<(), Error> {
         *self.slot.try_lock().map_err(|_| "busy")? = None;
         Ok(())
     }
+}
+
+fn deserialize_bitmap(bytes: &[u8]) -> Result<RoaringBitmap, Error> {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let bitmap = RoaringBitmap::deserialize_from(&mut cursor).map_err(|_| "invalid_bitmap")?;
+    if cursor.position() != bytes.len() as u64 || bitmap.contains(0) {
+        return Err("invalid_bitmap");
+    }
+    Ok(bitmap)
 }
 
 #[cfg(test)]
@@ -797,6 +897,103 @@ mod tests {
     }
     fn all(index: &Index) -> Query {
         index.query(b"allow", &[operator(1, 0)], 1000).unwrap().0
+    }
+
+    #[test]
+    fn row_overlays_use_one_revision_and_exact_homogeneous_matched_availability() {
+        let index = index();
+        index
+            .publish(
+                0,
+                b"seed",
+                vec![
+                    row(1, "Example A", "healthy"),
+                    row(2, "Example A", "unavailable"),
+                    row(u32::MAX, "Example A", "unknown"),
+                    row(4, "Example B", "unavailable"),
+                ],
+                true,
+            )
+            .unwrap();
+        let query = index
+            .query(b"allow", &[predicate("vendor", "Example A")], 1000)
+            .unwrap()
+            .0;
+        let serialize = |ids: &[u32]| {
+            let bitmap: RoaringBitmap = ids.iter().copied().collect();
+            let mut bytes = Vec::new();
+            bitmap.serialize_into(&mut bytes).unwrap();
+            bytes
+        };
+        let mixed = serialize(&[1, 2, u32::MAX]);
+        let filtered_healthy = serialize(&[1, 4]);
+        let nonmatching = serialize(&[4]);
+        let rows = [
+            ViewRow::Leaf(0),
+            ViewRow::Leaf(1),
+            ViewRow::Leaf(2),
+            ViewRow::Leaf(u32::MAX),
+            ViewRow::Aggregate(&mixed),
+            ViewRow::Aggregate(&filtered_healthy),
+            ViewRow::Aggregate(&nonmatching),
+        ];
+        index
+            .publish(
+                1,
+                b"changed",
+                vec![row(1, "Example A", "unavailable"), (2, false, vec![])],
+                true,
+            )
+            .unwrap();
+        let (mask, causal, availability, counts) = query
+            .row_overlay(b"allow", &[1; 16], &[2; 16], Kind::Device, &rows, 1000)
+            .unwrap();
+        assert_eq!(mask, [0, 1, 1, 1, 1, 1, 0]);
+        assert_eq!(causal, [3; 7]);
+        assert_eq!(availability, [2, 0, 1, 2, 2, 0, 2]);
+        assert_eq!(
+            counts
+                .chunks_exact(4)
+                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+                .collect::<Vec<_>>(),
+            [0, 1, 1, 1, 3, 1, 0]
+        );
+        assert_eq!(
+            query.row_overlay(b"allow", &[9; 16], &[2; 16], Kind::Device, &rows, 1000),
+            Err("identity_mismatch")
+        );
+        assert_eq!(
+            query.row_overlay(b"revoked", &[1; 16], &[2; 16], Kind::Device, &rows, 1000),
+            Err("authority_mismatch")
+        );
+        assert_eq!(
+            query.row_overlay(
+                b"allow",
+                &[1; 16],
+                &[2; 16],
+                Kind::Device,
+                &[ViewRow::Aggregate(&serialize(&[0]))],
+                1000
+            ),
+            Err("invalid_bitmap")
+        );
+        let excessive: Vec<_> = (0..129).map(ViewRow::Leaf).collect();
+        assert_eq!(
+            query.row_overlay(b"allow", &[1; 16], &[2; 16], Kind::Device, &excessive, 1000),
+            Err("bitmap_budget")
+        );
+        let huge = vec![0; 8 * 1024 * 1024 + 1];
+        assert_eq!(
+            query.row_overlay(
+                b"allow",
+                &[1; 16],
+                &[2; 16],
+                Kind::Device,
+                &[ViewRow::Aggregate(&huge)],
+                1000
+            ),
+            Err("bitmap_budget")
+        );
     }
 
     #[test]

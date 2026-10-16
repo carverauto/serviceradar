@@ -2,7 +2,7 @@
 //! exercise the shipping index API, including bounded publication and fresh queries.
 #[path = "../src/bitmap_index.rs"]
 mod bitmap_index;
-use bitmap_index::{Index, Instruction, Kind, Row};
+use bitmap_index::{Index, Instruction, Kind, Row, ViewRow};
 use roaring::RoaringBitmap;
 use std::hint::black_box;
 use std::time::Instant;
@@ -131,6 +131,14 @@ fn synthetic_scale() {
         let mut query_times = Vec::new();
         let mut facet_times = Vec::new();
         let mut array_times = Vec::new();
+        let mut overlay_times = Vec::new();
+        let aggregate: RoaringBitmap = (0..POPULATION).map(|n| ordinal(n, sparse)).collect();
+        let mut aggregate_bytes = Vec::new();
+        aggregate.serialize_into(&mut aggregate_bytes).unwrap();
+        let mut rows: Vec<_> = (0..127)
+            .map(|n| ViewRow::Leaf(ordinal(n * 101, sparse)))
+            .collect();
+        rows.push(ViewRow::Aggregate(&aggregate_bytes));
         for sample in 0..SAMPLES + WARMUP {
             let program = program(sample);
             let start = Instant::now();
@@ -152,15 +160,41 @@ fn synthetic_scale() {
             let array_ns = start.elapsed().as_nanos();
             assert_eq!(total, expected as u64);
             assert_eq!(counts.iter().sum::<u64>(), total);
+            let start = Instant::now();
+            let (mask, causal, availability, counts) = query
+                .row_overlay(
+                    b"synthetic-current-authority",
+                    &[1; 16],
+                    &[2; 16],
+                    Kind::Device,
+                    &rows,
+                    1000,
+                )
+                .unwrap();
+            let overlay_ns = start.elapsed().as_nanos();
+            assert_eq!(
+                u32::from_le_bytes(counts[508..512].try_into().unwrap()),
+                total as u32
+            );
+            assert_eq!(
+                mask.len() + causal.len() + availability.len() + counts.len(),
+                896
+            );
+            assert!(causal.iter().all(|state| *state == 3));
+            for (matched, state) in mask.iter().zip(availability.iter()) {
+                assert_eq!(*state, if *matched == 1 { 0 } else { 2 });
+            }
             if sample >= WARMUP {
                 query_times.push(query_ns);
                 facet_times.push(facet_ns);
                 array_times.push(array_ns);
+                overlay_times.push(overlay_ns);
             }
         }
         let q = percentiles(query_times);
         let f = percentiles(facet_times);
         let a = percentiles(array_times);
+        let overlay = percentiles(overlay_times);
         let status = index.status().unwrap();
         assert!(status.ready);
         assert_eq!(status.source, b"synthetic-ready");
@@ -168,6 +202,7 @@ fn synthetic_scale() {
         assert!(q[1] < 5_000_000, "four-term p95 >=5ms: {q:?}");
         assert!(f[1] < 50_000_000, "query + facet p95 >=50ms: {f:?}");
         assert!(status.native_bytes < 200_000_000);
+        println!("sparse={sparse} overlay_127_leaves_plus_full_population_aggregate_ns_p50_p95_p99={overlay:?} aggregate_input_bytes={} typed_columns_bytes=896", aggregate_bytes.len());
         let pins: Vec<_> = (0..100)
             .map(|sample| {
                 index
@@ -178,26 +213,17 @@ fn synthetic_scale() {
             .collect();
         let retained_bytes = index.status().unwrap().native_bytes;
         let mut states: Vec<_> = (0..POPULATION).map(|n| values(n).3).collect();
-        let mut deltas = Vec::new();
         let mut publish_times = Vec::new();
         let mut revision = index.status().unwrap().revision;
         for tick in 0..SAMPLES {
             let started = Instant::now();
-            let mut changed = [
-                RoaringBitmap::new(),
-                RoaringBitmap::new(),
-                RoaringBitmap::new(),
-            ];
             let mut pending = Vec::with_capacity(500);
-            // An odd stride selects exactly 1% of the full population. Each
-            // ordinal leaves one state and enters another; charge both XOR sets.
+            // An odd stride selects exactly 1% of the full population.
             for n in 0..POPULATION / 100 {
                 let entity = (n * 101 + tick as u32 * 7919) % POPULATION;
                 let old = states[entity as usize] as usize;
                 let new = (old + 1) % 3;
                 states[entity as usize] = new as u8;
-                changed[old].insert(ordinal(entity, sparse));
-                changed[new].insert(ordinal(entity, sparse));
                 let mut current = row(entity, sparse);
                 current
                     .2
@@ -220,15 +246,9 @@ fn synthetic_scale() {
             }
             assert!(pending.is_empty());
             publish_times.push(started.elapsed().as_nanos());
-            deltas.push(
-                changed
-                    .iter()
-                    .map(RoaringBitmap::serialized_size)
-                    .sum::<usize>() as u128,
-            );
         }
         // A slow reader retains its admitted revision; current readers see all
-        // published updates. Transport ACK/backpressure is measured separately.
+        // published updates. Complete browser frame costs are measured separately.
         let still_pinned = pins[0].page(b"synthetic-current-authority", 0, 128, 1000);
         assert!(still_pinned.is_ok() || still_pinned == Err("restart_required"));
         let (current, _, _, _) = index
@@ -252,7 +272,7 @@ fn synthetic_scale() {
         }
         assert_eq!(counts, expected);
         let current_bytes = index.status().unwrap().native_bytes;
-        println!("sparse={sparse} retained_100_queries_bytes={retained_bytes} sustained_ticks={SAMPLES} publish_1percent_population_ns_p50_p95_p99={:?} post_churn_native_bytes={current_bytes} full_population_one_percent_churn_portable_sets_bytes_p50_p95_p99={:?} envelope_bytes=reported_by_protocol_benchmark",percentiles(publish_times),percentiles(deltas));
+        println!("sparse={sparse} retained_100_queries_bytes={retained_bytes} sustained_ticks={SAMPLES} publish_1percent_population_ns_p50_p95_p99={:?} post_churn_native_bytes={current_bytes}",percentiles(publish_times));
         drop(pins);
         index.close().unwrap();
     }

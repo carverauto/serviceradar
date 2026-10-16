@@ -34,7 +34,20 @@ result, even if a new index revision publishes before the response is sent.
 Pages are ordered by unsigned ordinal, and conjunctive facet counts intersect
 that exact result. `bitmap_query_view_sets/5` returns portable member bytes,
 followed by the requested facet subsets in request order, from the same pin.
-It does not change or rebuild geometry.
+It does not change or rebuild geometry. Portable sets remain a server-side
+interchange format; the browser consumes admitted row columns.
+
+`bitmap_query_row_overlay/7` accepts at most 128 `{:leaf, ordinal}` or
+`{:aggregate, portable_bytes}` selectors, with 8 MiB of combined aggregate
+input, validated dictionary/index epochs and device kind. It returns four
+binaries in input row order: matching u8 (0/1), causal u8 (unknown=3),
+availability u8 (healthy=0, unavailable=1, unknown=2), and matched-device counts
+as little-endian u32. All columns read one pinned revision. An aggregate is
+healthy/unavailable only when its entire matched population has that exact
+state. Mixed/empty populations are unknown. Leaf ordinal zero represents an
+unmapped or unsupported population and returns a nonmatch with count zero.
+The owner binds these columns to its exact tile receipt; a changed row order
+requires a new complete overlay. No browser Roaring runtime is required.
 
 Admission limits are 32 predicates, depth 8, 65 instructions, 50 facet counts,
 128 page rows, 8,192 admitted leaf IDs, 16 view subsets and 256 KiB of serialized
@@ -58,9 +71,8 @@ figures are not total BEAM or GPU memory.
 
 The regular native test target owns algebra, publication, lifetime and budget
 behavior. `test/phoenix/topology/bitmap_index_native_test.exs` separately verifies
-the actual BEAM ABI and binary round trip. `bitmap_interop_fixture` generates
-portable empty, sparse, dense and run-container inputs from the shipping Rust
-serializer for independent browser codec tests.
+the actual BEAM ABI and binary round trip. Atlas independently verifies
+portable aggregate membership against its existing detail iterator.
 
 Run the synthetic scale target on BuildBuddy:
 
@@ -74,9 +86,10 @@ endpoints, compact and sparse high-u32 ordinals, facet distributions, hardware,
 warmup and sample count. It checks result parity, reports p50/p95/p99, and runs
 100 one-percent publication ticks while 100 queries retain older revisions.
 The array baseline is an optimized Rust tuple count scan, not a browser frame
-timing. Churn bytes cover all changed portable state sets; the protocol test
-must add its real envelope. Process RSS includes benchmark scaffolding and is
-reported separately from conservative index accounting.
+timing. A typed-row benchmark covers 127 leaves plus a full-population aggregate
+in one query revision; its four columns occupy 896 bytes. The browser protocol
+test measures complete frame bytes separately. Process RSS includes benchmark
+scaffolding and is reported separately from conservative index accounting.
 
 The initial BuildBuddy run
 [2278ce3c](https://carverauto.buildbuddy.io/invocation/2278ce3c-791b-41b2-aac9-8f4b56be7250)
@@ -85,3 +98,12 @@ of 2.70/3.74 ms, and 64.0/90.2 MB retained native accounting after sustained
 churn. The sparse tuple count scan was faster than the bitmap result query in
 that run. These native measurements do not certify distributed freshness,
 authorization latency, complete wire bytes, browser heap or hardware FPS.
+
+The typed-row benchmark in
+[ff73422b](https://carverauto.buildbuddy.io/invocation/ff73422b-5dd7-4a9c-bed8-b85dc6d4915b)
+measured compact/sparse projection p95 of 0.146/0.507 ms for 127 leaves plus a
+full-population aggregate, producing 896 column bytes. It starts with prepared
+aggregate membership; Atlas traversal/serialization is measured separately in
+`rust/topology-atlas/README.md`. The same invocation passed the native bitmap,
+core NIF and web NIF targets; Atlas fixture corrections were verified in the
+Atlas README's later invocation.

@@ -126,6 +126,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc "Return portable member bytes followed by each requested facet subset, from one pinned revision."
   def bitmap_query_view_sets(_query, _authority, _ordinals, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Project at most 128 leaf/aggregate selectors into typed row columns from one pinned revision."
+  def bitmap_query_row_overlay(_query, _authority, _dictionary_epoch, _index_epoch, _kind, _rows, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def bitmap_index_close(_index), do: :erlang.nif_error(:nif_not_loaded)
 
   def bitmap_query_close(_query), do: :erlang.nif_error(:nif_not_loaded)
