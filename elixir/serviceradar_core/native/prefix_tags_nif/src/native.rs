@@ -7,11 +7,11 @@ compile_error!("prefix_tags_nif requires panic=unwind to contain native panics")
 use crate::{Catalog, Entry, Indicator, Prefix, Trie};
 use rustler::{Binary, Env, NifMap, OwnedBinary, Resource, ResourceArc};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 struct Builder(Mutex<Option<Trie>>);
-struct Snapshot(Trie, Mutex<Option<Catalog>>);
+struct Snapshot(Trie, RwLock<Option<Catalog>>);
 
 #[rustler::resource_impl]
 impl Resource for Builder {}
@@ -92,7 +92,7 @@ fn prepare_catalog(
 ) -> Result<CatalogStatus, String> {
     contained(|| {
         let deadline = deadline(timeout_ms)?;
-        let mut catalog = snapshot.1.try_lock().map_err(|_| "catalog_busy")?;
+        let mut catalog = snapshot.1.try_write().map_err(|_| "catalog_busy")?;
         if catalog.is_none() {
             *catalog = Some(Catalog::build(&snapshot.0, deadline)?);
         }
@@ -103,7 +103,7 @@ fn prepare_catalog(
 #[rustler::nif(schedule = "DirtyCpu")]
 fn release_catalog(snapshot: ResourceArc<Snapshot>) -> Result<bool, String> {
     contained(|| {
-        let mut catalog = snapshot.1.try_lock().map_err(|_| "catalog_busy")?;
+        let mut catalog = snapshot.1.try_write().map_err(|_| "catalog_busy")?;
         *catalog = None;
         Ok(true)
     })
@@ -112,7 +112,7 @@ fn release_catalog(snapshot: ResourceArc<Snapshot>) -> Result<bool, String> {
 #[rustler::nif]
 fn catalog_status(snapshot: ResourceArc<Snapshot>) -> Result<CatalogStatus, String> {
     contained(|| {
-        let catalog = snapshot.1.try_lock().map_err(|_| "catalog_busy")?;
+        let catalog = snapshot.1.try_read().map_err(|_| "catalog_busy")?;
         Ok(catalog_info(catalog.as_ref()))
     })
 }
@@ -127,7 +127,7 @@ fn label_page(
     contained(|| {
         let deadline = deadline(timeout_ms)?;
         let after = after.as_ref().map(label_text).transpose()?;
-        let guard = snapshot.1.try_lock().map_err(|_| "catalog_busy")?;
+        let guard = snapshot.1.try_read().map_err(|_| "catalog_busy")?;
         let catalog = guard.as_ref().ok_or("catalog_not_ready")?;
         let page = catalog.page(&snapshot.0, after, limit, deadline)?;
         Ok(LabelPage {
@@ -149,7 +149,7 @@ fn label_ranges<'a>(
     contained(|| {
         let deadline = deadline(timeout_ms)?;
         let label = label_text(&label)?;
-        let guard = snapshot.1.try_lock().map_err(|_| "catalog_busy")?;
+        let guard = snapshot.1.try_read().map_err(|_| "catalog_busy")?;
         let catalog = guard.as_ref().ok_or("catalog_not_ready")?;
         let bytes = catalog.ranges(&snapshot.0, label, max_ranges, max_bytes, deadline)?;
         let mut output = OwnedBinary::new(bytes.len()).ok_or("range_budget")?;
@@ -205,7 +205,7 @@ fn finish(builder: ResourceArc<Builder>) -> Result<ResourceArc<Snapshot>, String
             .map_err(|_| "failed builder")?
             .take()
             .ok_or("consumed builder")?;
-        Ok(ResourceArc::new(Snapshot(trie, Mutex::new(None))))
+        Ok(ResourceArc::new(Snapshot(trie, RwLock::new(None))))
     })
 }
 

@@ -126,11 +126,13 @@ impl Index {
         if rows.len() > BATCH_LIMIT || source.is_empty() || source.len() > 128 {
             return Err("batch_budget");
         }
-        let old = self.revision.try_lock().map_err(|_| "busy")?;
-        if old.number != expected {
-            return Err("revision_conflict");
-        }
-        let unavailable = old.ip_unavailable;
+        let unavailable = {
+            let old = self.revision.try_lock().map_err(|_| "busy")?;
+            if old.number != expected {
+                return Err("revision_conflict");
+            }
+            old.ip_unavailable
+        };
         let mut registered = self.stage.try_lock().map_err(|_| "busy")?;
         if let Some(active) = registered.as_ref().and_then(|weak| weak.upgrade()) {
             let mut active = active.try_lock().map_err(|_| "publisher_busy")?;
