@@ -71,6 +71,12 @@ describe("world tile rendering contract", () => {
     expect(excluded.some(item => item.id.endsWith("-packets"))).toBe(false)
     const stale = draw(layer.clone({membership: new Map([["1/1/0", {...entry, revision: "old-tile"}]])}))
     expect(nodes(stale).props.getRadius(null, {index: 0})).toBe(0)
+    // A zero-radius stroked point can still rasterize a subpixel dot.
+    for (const [items, index] of [[pending, 0], [excluded, 1], [stale, 0]]) {
+      expect(nodes(items).props.getFillColor(null, {index})[3]).toBe(0)
+      expect(nodes(items).props.getLineColor(null, {index})[3]).toBe(0)
+      expect(items.find(item => item.id.endsWith("-node-glow")).props.getFillColor(null, {index})[3]).toBe(0)
+    }
   })
 
   it("preserves base-view boundary links until a query explicitly requests membership", () => {

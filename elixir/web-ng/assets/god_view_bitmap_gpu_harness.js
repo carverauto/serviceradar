@@ -4,10 +4,12 @@ import {decodeWorldTile} from "./js/lib/god_view/world_tile_decode"
 import {bitmapBinding, bitmapFrame} from "./js/lib/god_view/fixtures/bitmap_frame"
 import {telemetryFrame} from "./js/lib/god_view/fixtures/world_overlay_frame"
 import {WORLD_OVERLAY_MIME} from "./js/lib/god_view/world_overlay_frame"
+import {atlasCaptureHealth, atlasCaptureInventory, atlasCaptureMatches, atlasCaptureQueryDescriptor, atlasCaptureTile} from "./js/lib/god_view/fixtures/atlas_capture"
 
 // Synthetic transport only. The real WorldMapRenderer, Phoenix client, Arrow
 // decoder and WebGPU execute unchanged. This is not a running Phoenix server.
 export function mountBitmapGpuHarness() {
+  const capture = new URLSearchParams(location.search).has("capture")
   let enabled = true, unavailable = false, authority = 0, sequence = 0n, connection, watch, pan = 0
   const version = worldTileKey.layout_version
   const geometries = new Map()
@@ -55,6 +57,11 @@ export function mountBitmapGpuHarness() {
   function tile(z, x, y) {
     const id = `${z}/${x}/${y}`
     if (geometries.has(id)) return geometries.get(id)
+    if (capture) {
+      const result = atlasCaptureTile(z, x, y)
+      geometries.set(id, result)
+      return result
+    }
     const width = 512 / 2 ** z
     const points = []
     for (let row = 0; row < 64; row += 1) for (let column = 0; column < 64; column += 1) {
@@ -80,9 +87,9 @@ export function mountBitmapGpuHarness() {
     const url = new URL(typeof input === "string" ? input : input.url, location.href)
     if (!url.pathname.startsWith("/topology/")) return originalFetch(input, options)
     if (url.pathname.endsWith("/manifest")) return Response.json({layout_version: version, generation: 1, zmax: 8,
-      extent: 2 ** 24, node_count: 4096, relation_count: 4095, bounds: [[0, 0], [2 ** 24, 2 ** 24]],
+      extent: 2 ** 24, node_count: capture ? 1024 : 4096, relation_count: capture ? 64 : 4095, bounds: [[0, 0], [2 ** 24, 2 ** 24]],
       bitmap_membership_protocol: enabled ? 1 : 0, world_overlay_protocol: enabled ? 1 : 0,
-      bitmap: {ready: enabled, query: {entity_kind: "device", facets: [
+      bitmap: {ready: enabled, query: capture ? atlasCaptureQueryDescriptor : {entity_kind: "device", facets: [
         {key: "vlan", label: "Inventory VLAN", operators: ["eq", "prefix"]},
         {key: "tag:owner", label: "Device tag: owner", operators: ["eq", "prefix"]},
         {key: "vendor", label: "Vendor", operators: ["eq", "prefix"]},
@@ -92,7 +99,7 @@ export function mountBitmapGpuHarness() {
     if (url.pathname === "/topology/query/prefix-tags") return Response.json({source: "synthetic-prefixes", version: 1, labels: ["Synthetic Transit", "Synthetic Access"], cursor: null})
     const parts = url.pathname.split("/").slice(-3).map(Number)
     if (parts.some(Number.isNaN)) return new Response(null, {status: 404})
-    const {bytes, geometry} = tile(...parts)
+    const {bytes, geometry, populations} = tile(...parts)
     if (url.pathname.startsWith("/topology/tiles/")) {
       samples.tileRequests += 1; samples.arrowBytes += bytes.byteLength
       return new Response(bytes, {headers: {"content-type": "application/vnd.apache.arrow.file",
@@ -101,7 +108,7 @@ export function mountBitmapGpuHarness() {
     samples.overlayRequests += 1
     if (!enabled) return new Response(null, {status: 503})
     if (options.headers?.Accept !== WORLD_OVERLAY_MIME) throw new Error("Expected binary telemetry request")
-    const frame = telemetryFrame(geometry, {complete: true})
+    const frame = telemetryFrame(geometry, {complete: true, health: populations?.map(atlasCaptureHealth)})
     samples.telemetryBytes += frame.byteLength
     return new Response(frame, {headers: {"content-type": WORLD_OVERLAY_MIME}})
   }
@@ -115,12 +122,14 @@ export function mountBitmapGpuHarness() {
   function deliver() {
     if (!watch || !enabled || connection?.readyState !== 1) return
     const tiles = watch.tiles.map(receipt => {
-      const {geometry} = tile(receipt.z, receipt.x, receipt.y)
-      const counts = geometry.nodes.map(node => node.count)
+      const {geometry, populations} = tile(receipt.z, receipt.x, receipt.y)
+      const selected = populations?.map(members => members.filter(device => watch.selected.has(device.id)))
+      const counts = selected ? selected.map(members => members.length) : geometry.nodes.map(node => node.count)
       return {...receipt, mask: counts.map(count => Number(count > 0)), counts,
-        causal: counts.map(() => 3), availability: counts.map(() => unavailable ? 1 : 0)}
+        causal: counts.map(() => 3), availability: selected ? selected.map(members => !members.length ? 2 :
+          members.every(device => device.availability === "healthy") ? 0 : members.every(device => device.availability === "unavailable") ? 1 : 2) : counts.map(() => unavailable ? 1 : 0)}
     })
-    const frame = bitmapFrame({sequence: ++sequence, total: 4096, binding: watch.binding, tiles})
+    const frame = bitmapFrame({sequence: ++sequence, total: capture ? watch.selected.size : 4096, binding: watch.binding, tiles})
     samples.membershipFrames += 1; samples.membershipBytes += frame.byteLength
     const before = samples.arrayBufferSliceBytes
     broadcast(connection, "membership:frame", frame)
@@ -132,17 +141,20 @@ export function mountBitmapGpuHarness() {
     close() {this.readyState = 3; watch = null; this.onclose?.({code: 1006})}
     send(raw) {
       const [join, ref, topic, event, payload] = JSON.parse(raw)
-      let response = {}
+      let response = {}, status = "ok"
       if (event === "phx_join") response = {layout_version: version, generation: 1}
       if (event === "tiles:watch") response = {watch_id: ++sequence + ""}
       if (event === "membership:ack") samples.acknowledgements += 1
       if (event === "membership:unwatch") watch = null
       if (event === "membership:watch") {
         const binding = {...bitmapBinding, authority_fingerprint: `synthetic-authority-${authority}`, view_digest: `synthetic-view-${++sequence}`}
-        watch = {...payload, binding}; response = binding
+        try {
+          const selected = capture ? new Set(atlasCaptureInventory.filter(device => atlasCaptureMatches(device, payload.query)).map(device => device.id)) : null
+          watch = {...payload, binding, selected}; response = binding
+        } catch (error) {watch = null; status = "error"; response = {reason: error.message}}
       }
       setTimeout(() => {
-        this.onmessage?.({data: JSON.stringify([join, ref, topic, "phx_reply", {status: "ok", response}])})
+        this.onmessage?.({data: JSON.stringify([join, ref, topic, "phx_reply", {status, response}])})
         if (event === "membership:watch") setTimeout(deliver, 20)
       }, 0)
     }
@@ -178,7 +190,8 @@ export function mountBitmapGpuHarness() {
     document.body.append(controls)
   })
   remount.disabled = true
-  controls.append(output); document.body.append(controls)
+  controls.append(output)
+  if (!capture) document.body.append(controls)
   function metrics() {
     return {...samples, enabled, authority, pending: renderer.membership.pending, channel: renderer.channel?.state,
       rendererMode: renderer.deviceType, rendererFailed: !!renderer.rendererFailed,

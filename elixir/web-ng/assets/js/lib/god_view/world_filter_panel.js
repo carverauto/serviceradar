@@ -63,11 +63,10 @@ export class WorldFilterPanel {
     this.button = button("Filters", () => this.toggle())
     this.button.setAttribute("aria-label", "Topology filters")
     this.button.setAttribute("aria-expanded", "false")
-    this.panel = node("section", "absolute left-3 z-30 rounded-lg border border-sr-line bg-sr-surface p-4 text-sm text-sr-ink shadow-sr-control")
+    this.panel = node("section", "absolute left-3 z-30 rounded-lg border border-sr-line bg-sr-surface p-3 text-sm text-sr-ink shadow-sr-control")
     this.panel.id = `topology-filters-${++panelSequence}`
     this.panel.hidden = true
     this.panel.style.width = "min(34rem, calc(100% - 1.5rem))"
-    this.panel.style.maxHeight = "min(72vh, 40rem)"
     this.panel.style.overflowY = "auto"
     this.panel.setAttribute("role", "dialog")
     this.panel.setAttribute("aria-label", "Topology filters")
@@ -77,7 +76,7 @@ export class WorldFilterPanel {
     this.status = node("p", "mb-3 text-sm text-sr-muted")
     this.status.setAttribute("aria-live", "polite")
     this.tree = node("div", "space-y-3")
-    this.error = node("p", "mt-3 text-sm text-sr-ink")
+    this.error = node("p", "mt-3 text-sm text-sr-ink empty:hidden")
     this.error.setAttribute("role", "alert")
     this.apply = button("Apply filters", () => this.submit())
     const clear = button("Clear filters", () => {
@@ -133,7 +132,9 @@ export class WorldFilterPanel {
 
   toggle() {
     if (!this.panel.hidden) return this.close()
-    this.panel.style.top = `${this.toolbar.offsetTop + this.toolbar.offsetHeight + 8}px`
+    const top = this.toolbar.offsetTop + this.toolbar.offsetHeight + 8
+    this.panel.style.top = `${top}px`
+    this.panel.style.maxHeight = `calc(100% - ${top + 32}px)`
     this.panel.hidden = false
     this.button.setAttribute("aria-expanded", "true")
     this.panel.querySelector("select, input, button")?.focus()
@@ -165,6 +166,7 @@ export class WorldFilterPanel {
     if (term.children) {
       tools.append(select([["all", "Match all (AND)"], ["any", "Match any (OR)"]], term.mode, mode => {term.mode = mode}), exclusion)
       tools.firstChild.setAttribute("aria-label", "Group match")
+      tools.firstChild.className = `${CONTROL} min-w-0 flex-1`
     } else tools.append(exclusion)
     if (parent) tools.append(button(term.children ? "Remove group" : "Remove condition", () => {
       parent.children.splice(parent.children.indexOf(term), 1)
@@ -201,21 +203,27 @@ export class WorldFilterPanel {
       Object.assign(term, {field: value, operator: value === "$tag_keys" ? "present" : "eq", value: "", source: "", tagValue: ""})
       this.renderTree()
     })
-    box.append(labeled("Filter field", field))
-    if (term.field === "$prefix_tag") return this.renderPrefixTag(term, box)
+    const fields = node("div", term.field === "$ip" || term.field === "$prefix_tag" || term.field === "$tag_keys" ? "grid gap-2" :
+      "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]")
+    fields.append(labeled("Filter field", field))
+    box.append(fields)
+    if (term.field === "$prefix_tag") return this.renderPrefixTag(term, fields)
     const scalar = facets.find(facet => facet.key === term.field)
     if (term.field !== "$ip") {
       const operators = term.field === "$tag_keys" ? [["present", "Has a matching tag"], ["eq", "Tag value equals"], ["prefix", "Tag value starts with"]] :
         [["eq", "Equals"], ["prefix", "Starts with", !scalar?.operators?.includes("prefix")]]
-      box.append(labeled("Match", select(operators, term.operator || "eq", value => {term.operator = value; this.renderTree()})))
+      fields.append(labeled("Match", select(operators, term.operator || "eq", value => {term.operator = value; this.renderTree()})))
     }
-    box.append(this.textInput(term, "value", term.field === "$ip" ? "IP network" : term.field === "$tag_keys" ? "Tag name prefix" : "Value"))
+    fields.append(this.textInput(term, "value", term.field === "$ip" ? "IP network" : term.field === "$tag_keys" ? "Tag name prefix" : "Value"))
     if (term.field === "$tag_keys" && term.operator !== "present") box.append(this.textInput(term, "tagValue", "Tag value"))
     const hint = term.field === "$ip" ? "Matches any current device or interface address. Use numeric IPv4 or IPv6 CIDR, such as 192.0.2.0/24." :
       term.field === "$tag_keys" || term.operator === "prefix" ? "Starts with is literal and case-sensitive; no wildcards or regular expressions." :
         term.field === "vlan" ? "Canonical inventory VLAN assignment; this does not identify every VLAN carried on a switch port." :
           term.field === "device_class" ? "Use the canonical numeric device class value." : ""
-    if (hint) box.append(node("p", "text-xs leading-relaxed text-sr-muted", hint))
+    if (hint) {
+      field.title = hint
+      if (term.field !== "vlan") box.append(node("p", "text-xs leading-relaxed text-sr-muted", hint))
+    }
   }
 
   textInput(term, key, label) {
@@ -254,7 +262,7 @@ export class WorldFilterPanel {
         url.searchParams.set("source", term.source)
         url.searchParams.set("limit", "50")
         if (cursor) url.searchParams.set("cursor", cursor)
-        const result = await worldJson(url.toString(), controller.signal, 65536)
+        const result = await worldJson(url.toString(), controller.signal, 131072)
         if (controller.signal.aborted || this.discovery !== controller || !labels.isConnected) return
         if (result.source !== term.source || !Number.isSafeInteger(result.version) || result.version < 0 ||
             !Array.isArray(result.labels) || result.labels.length > 50 || result.labels.some(value => typeof value !== "string" || !value || new TextEncoder().encode(value).length > 256) ||

@@ -314,22 +314,24 @@ export default class WorldTileLayer extends TileLayer {
         id: `${props.id}-node-glow`, data: frame.glyphs, pickable: false,
         radiusUnits: "pixels",
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 13 : 9) : 0,
-        getFillColor: (_, info) => [...healthColor(node(info)).slice(0, 3), 35],
-        updateTriggers: {getFillColor: [overlay, membership], getRadius: [overlay, filters, membership, this.props.membershipPending]},
+        getFillColor: (_, info) => shown(node(info)) ? [...healthColor(node(info)).slice(0, 3), 35] : [0, 0, 0, 0],
+        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending], getRadius: [overlay, filters, membership, this.props.membershipPending]},
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
         radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
         getFillColor: (_, info) => {
+          if (!shown(node(info))) return [0, 0, 0, 0]
           if (node(info).kind === "device") return [232, 242, 237, 255]
           return healthColor(node(info))
         },
         getLineColor: (_, info) => {
+          if (!shown(node(info))) return [0, 0, 0, 0]
           if (node(info).kind !== "device") return [210, 226, 240, 230]
           return healthColor(node(info))
         },
-        updateTriggers: {getFillColor: [overlay, membership], getLineColor: [overlay, membership], getRadius: [overlay, filters, membership, this.props.membershipPending]},
+        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending], getLineColor: [overlay, filters, membership, this.props.membershipPending], getRadius: [overlay, filters, membership, this.props.membershipPending]},
       }),
     ]
   }

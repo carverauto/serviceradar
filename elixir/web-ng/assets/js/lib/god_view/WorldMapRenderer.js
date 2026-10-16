@@ -244,7 +244,8 @@ export default class WorldMapRenderer {
     if (this.destroyed || this.polling) return
     this.polling = true
     try {
-      if (this.channel?.state !== "joined" || this.cache.manifest?.bitmap?.ready === false) await this.refreshManifest()
+      // Index readiness and source catalogs change without geometry publication.
+      await this.refreshManifest()
       if (this.destroyed) return
       if (!this.channel) this.connect()
       if (this.retryTiles) {
@@ -384,13 +385,15 @@ export default class WorldMapRenderer {
       const previous = this.cache.manifest
       if (this.destroyed) return
       const changed = this.cache.observe(manifest)
+      const capability = value => [value?.bitmap?.ready, value?.bitmap?.reason, value?.bitmap?.query]
+      const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(manifest))
       const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
       this.membershipEnabled = manifest.bitmap_membership_protocol === 1
       this.overlays.setBinary(manifest.world_overlay_protocol === 1)
       this.updateFilterPanel()
       if (!this.membershipEnabled && this.bitmapQuery !== null) this.status("Topology query unavailable: filtering is disabled")
       if (!changed) {
-        if (membershipChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
+        if (membershipChanged || capabilityChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
         return
       }
       this.watchSignature = null
@@ -516,7 +519,7 @@ export default class WorldMapRenderer {
       this.membershipError = error.reason || "unsupported filter"
       this.updateFilterPanel()
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
-      if (["membership_not_ready", "index_not_ready", "index_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
+      if (["membership_not_ready", "index_not_ready", "index_unavailable", "prefix_source_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
       this.retryMembership(signature)
     })

@@ -124,7 +124,10 @@ describe("topology device filter controls", () => {
     edit("Prefix Tag label", "Synthetic Access")
     click("Next labels")
     expect(requests[2].url.searchParams.get("cursor")).toBe("synthetic-next")
-    requests[2].resolve(Response.json({source: "synthetic-west", version: 2, labels: [" Synthetic Edge "], cursor: null}))
+    const escapedPage = {source: "synthetic-west", version: 2,
+      labels: [" Synthetic Edge ", ...Array.from({length: 49}, (_, index) => "\u0001".repeat(250) + index)], cursor: null}
+    expect(new TextEncoder().encode(JSON.stringify(escapedPage)).length).toBeGreaterThan(65536)
+    requests[2].resolve(Response.json(escapedPage))
     await vi.waitFor(() => expect(controls("Prefix Tag label")[0].textContent).toContain(" Synthetic Edge "))
     expect(controls("Prefix Tag label")[0].textContent).not.toContain("Synthetic Transit")
     expect(controls("Prefix Tag label")[0].textContent).not.toContain("Stale label")
