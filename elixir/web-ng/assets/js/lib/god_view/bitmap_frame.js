@@ -47,7 +47,7 @@ class Reader {
 export function decodeBitmapFrame(input) {
   valid(input instanceof Uint8Array || input instanceof ArrayBuffer, "binary frame required")
   let bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
-  valid(bytes.byteLength >= 20 && bytes.byteLength <= BITMAP_FRAME_BYTES, "frame byte budget")
+  valid(bytes.byteLength >= 24 && bytes.byteLength <= BITMAP_FRAME_BYTES, "frame byte budget")
   // Do not pin an oversized transport backing buffer through a small subview.
   if (bytes.buffer.byteLength > BITMAP_FRAME_BYTES) bytes = bytes.slice()
   const reader = new Reader(bytes)
@@ -57,7 +57,7 @@ export function decodeBitmapFrame(input) {
   valid(kind, "payload kind")
   valid(reader.number(2) === 0, "reserved bytes")
   valid(reader.number(4) === bytes.length, "frame length")
-  const frame = {kind, sequence: reader.sequence(), byteLength: bytes.length}
+  const frame = {kind, sequence: reader.sequence(), total: reader.number(4), byteLength: bytes.length}
   for (const field of FRAME_FIELDS) frame[field] = reader.text()
   frame.tiles = new Map()
   if (kind === "baseline") {

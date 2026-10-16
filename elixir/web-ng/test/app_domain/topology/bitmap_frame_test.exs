@@ -15,7 +15,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
       view_digest: "synthetic-view",
       source_revision: "9007199254740993",
       index_revision: "9007199254740995",
-      sequence: 9_007_199_254_740_993
+      sequence: 9_007_199_254_740_993,
+      total: 4_294_967_295
     }
   end
 
@@ -34,8 +35,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
 
   test "encodes native row columns and uint64 sequence without JSON conversion" do
     assert {:ok, frame} = BitmapFrame.encode(metadata(), [tile()])
-    assert <<"SRMO", 1, 0, 0::little-16, length::little-32, 9_007_199_254_740_993::little-64, fields::binary>> = frame
+
+    assert <<"SRMO", 1, 0, 0::little-16, length::little-32, 9_007_199_254_740_993::little-64, 4_294_967_295::little-32,
+             fields::binary>> = frame
+
     assert byte_size(frame) == length
+
+    assert Base.encode16(:crypto.hash(:sha256, frame), case: :lower) ==
+             "595bcf21e73507ffc8363e460d45fbec93b405f599ee00301e471756796301c7"
 
     payload =
       Enum.reduce(1..7, fields, fn _, <<size::little-16, rest::binary>> ->
@@ -53,6 +60,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
     assert {:error, _} = BitmapFrame.encode(metadata(), [%{tile() | availability: <<0, 3>>}])
     assert {:error, _} = BitmapFrame.encode(%{metadata() | dictionary_epoch: ""}, [tile()])
     assert {:error, _} = BitmapFrame.encode(%{metadata() | sequence: -1}, [tile()])
+    assert {:error, _} = BitmapFrame.encode(%{metadata() | total: -1}, [tile()])
+    assert {:error, _} = BitmapFrame.encode(%{metadata() | total: 4_294_967_296}, [tile()])
+    assert {:error, _} = BitmapFrame.encode(Map.delete(metadata(), :total), [tile()])
   end
 
   test "fits every admitted row in one frame and encodes a bounded reset" do

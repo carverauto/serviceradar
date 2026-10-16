@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto"
 import {describe, expect, it, vi} from "vitest"
 import {WorldMembership} from "./world_membership"
 import {decodeBitmapFrame} from "./bitmap_frame"
@@ -15,17 +16,20 @@ function session() {
 describe("binary admitted-row membership", () => {
   it("keeps uint64 sequence precision, replaces the complete view and accepts fresh index revisions", () => {
     const state = session()
-    const bytes = bitmapFrame({sequence: 9007199254740993n, tiles: [tile]})
+    const bytes = bitmapFrame({sequence: 9007199254740993n, total: 0xffffffff, binding: {index_epoch: "synthetic-process"}, tiles: [tile]})
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe("595bcf21e73507ffc8363e460d45fbec93b405f599ee00301e471756796301c7")
     const decoded = decodeBitmapFrame(bytes)
     expect(decoded.sequence).toBe(9007199254740993n)
+    expect(decoded.total).toBe(0xffffffff)
     expect(decoded.tiles.get("0/0/0").mask.buffer).toBe(bytes.buffer)
     state.receive(bytes)
     expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
-    state.receive(bitmapFrame({sequence: 9007199254740995n, binding: {index_epoch: "fresh-process", index_revision: "999"},
+    state.receive(bitmapFrame({sequence: 9007199254740995n, binding: {index_epoch: "fresh-process", index_revision: "999"}, total: 12,
       tiles: [{...tile, mask: [0, 1], counts: [0, 12]}]}))
     expect([...state.entries.get("0/0/0").mask]).toEqual([0, 1])
     state.receive(bytes)
     expect([...state.entries.get("0/0/0").counts]).toEqual([0, 12])
+    expect(state.total).toBe(12)
     expect(state.onAck).toHaveBeenLastCalledWith({sequence: "9007199254740995", view_digest: bitmapBinding.view_digest})
     expect(state.retainedBufferBytes).toBeLessThan(262144 + 32768)
     const oversizedTransport = new Uint8Array(1024 * 1024)
@@ -40,6 +44,7 @@ describe("binary admitted-row membership", () => {
     expect(state.sequence).toBe(1n)
     state.receive(bitmapFrame({sequence: 2n, tiles: [{...tile, revision: "wrong-receipt"}]}))
     expect(state.pending).toBe(true)
+    expect(state.total).toBeNull()
     expect(state.entries.size).toBe(0)
     expect(state.onReset).toHaveBeenCalledOnce()
     state.bind(bitmapBinding, [geometry])
@@ -57,6 +62,7 @@ describe("binary admitted-row membership", () => {
     expect(state.receipts.size).toBe(0)
     expect(state.retainedBufferBytes).toBe(0)
     expect(state.pending).toBe(false)
+    expect(state.total).toBeNull()
   })
 
   it("stays below the frame ceiling for all 64 admitted tiles and 8192 rows", () => {
