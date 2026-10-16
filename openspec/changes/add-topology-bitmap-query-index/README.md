@@ -24,7 +24,11 @@ the original request deadline and compare the exact canonical mapping.
 Graceful publisher shutdown traps exits and drains busy native resources within
 four seconds; the existing hosted replica lifecycle test still owns database
 acceptance of cleanup with externally retained references.
-Use `tasks.md`; unchecked work is not shipped or verified. Preserve automatic
+Use `tasks.md`. OpenSpec leaves implementation checkboxes unchecked until
+accepted work is complete, so an open box is not missing evidence by itself.
+Completed measurements stay in the task text. Hosted database acceptance and
+combined compact/sparse scale remain unrun; leave those tasks unchecked.
+Preserve automatic
 ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
 
 Independent lanes own device identity/source/publisher/query API, native

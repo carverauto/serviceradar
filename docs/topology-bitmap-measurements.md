@@ -82,7 +82,8 @@ not perform an HTTP upgrade, browser decompression, or concurrent socket load.
 
 Compression substantially reduces these synthetic messages. Context takeover
 adds little savings for the mixed distribution, which exceeds the deflate
-history window. Keep compression disabled pending the concurrent transport
-measurement: these results alone do not establish the CPU or connection-memory
-cost of enabling it on the shared application socket. Full replacement frames
+history window. These codec-only numbers exclude an HTTP upgrade and concurrent
+sockets. The later negotiated transport measurement is in
+[Atlas negotiated WebSocket compression measurement](topology-bitmap-websocket-measurements.md).
+That matrix keeps compression disabled. Full replacement frames
 remain the protocol; unchanged-tile omission is a separate measured follow-up.
