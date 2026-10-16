@@ -1,11 +1,14 @@
 defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.BitmapAddress
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
+  alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNGWeb.TopologyQueryController
+  alias ServiceRadarWebNGWeb.TopologyTileController
 
   @moduletag :db_free
 
@@ -118,17 +121,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert {:error, :invalid_address} = BitmapAddress.source("router.example.com")
   end
 
-  test "prefix controls canonicalize literal whitespace while retaining same-key pairs and source identity" do
-    expression = %{"tag_key_prefix" => " role", "prefix" => " edge "}
-    canonical = %{"tag_key_prefix" => "role", "prefix" => "edge"}
-    assert {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, @facets)
-    assert {:ok, normalized} = BitmapExpression.parse(%{"expression" => canonical}, @facets)
-    assert parsed.digest == normalized.digest
+  test "prefix controls reject surrounding whitespace and keep internal spaces literal" do
+    assert {:error, :invalid_predicate} =
+             BitmapExpression.parse(%{"expression" => %{"tag_key_prefix" => " role", "prefix" => " edge "}}, @facets)
+
+    assert {:error, :invalid_predicate} =
+             BitmapExpression.parse(%{"expression" => %{"facet" => "vendor", "value" => " ExampleVendor"}}, @facets)
+
+    assert {:ok, spaced} =
+             BitmapExpression.parse(
+               %{"expression" => %{"tag_key_prefix" => "team", "prefix" => "edge router"}},
+               @facets
+             )
 
     assert {:ok, exact} =
              BitmapExpression.parse(%{"expression" => %{"tag_key_prefix" => "role", "value" => "edge"}}, @facets)
 
-    refute exact.digest == parsed.digest
+    refute exact.digest == spaced.digest
 
     for expression <- [
           %{"facet" => "vendor", "prefix" => " "},
@@ -186,6 +195,44 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert {:error, :invalid_page_limit} = BitmapExpression.parse(%{"limit" => 129}, @facets)
   end
 
+  test "query and tile selection share bitmap statuses without retrying client errors" do
+    unauthorized = TopologyQueryController.create(Plug.Test.conn(:post, "/topology/query"), %{})
+    assert unauthorized.status == 401
+    assert Jason.decode!(unauthorized.resp_body) == %{"error" => "unauthorized"}
+    assert Plug.Conn.get_resp_header(unauthorized, "retry-after") == []
+    assert {:error, :unauthorized} = BitmapQueries.run(nil, %{})
+    assert {:error, :unauthorized} = BitmapQueries.prefix_tags(%Scope{}, %{"source" => "synthetic"})
+
+    flags = [:god_view_enabled, :topology_bitmap_enabled]
+    previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
+    Enum.each(flags, &Application.put_env(:serviceradar_web_ng, &1, true))
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
+      end)
+    end)
+
+    scope = %Scope{user: %{id: "synthetic-user"}}
+
+    budget =
+      scope
+      |> then(&Plug.Conn.assign(Plug.Test.conn(:post, "/topology/query"), :current_scope, &1))
+      |> TopologyQueryController.create(%{"expression" => String.duplicate("x", 20_000)})
+
+    assert budget.status == 413
+    assert Jason.decode!(budget.resp_body) == %{"error" => "query_budget"}
+    assert Plug.Conn.get_resp_header(budget, "retry-after") == []
+
+    missing_world =
+      TopologyTileController.search(Plug.Test.conn(:get, "/topology/tiles/search"), %{"device_id" => "synthetic"})
+
+    assert missing_world.status == 503
+    assert Jason.decode!(missing_world.resp_body) == %{"error" => "world_unavailable"}
+    assert Plug.Conn.get_resp_header(missing_world, "retry-after") == ["1"]
+  end
+
   test "multipart uploads receive HTTP 400 before query admission" do
     flags = [:god_view_enabled, :topology_bitmap_enabled]
     previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
@@ -206,7 +253,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
           %{"expression" => %{"all" => [upload]}},
           %{"cursor" => upload}
         ] do
-      conn = TopologyQueryController.create(Plug.Test.conn(:post, "/topology/query"), params)
+      conn =
+        :post
+        |> Plug.Test.conn("/topology/query")
+        |> Plug.Conn.assign(:current_scope, %Scope{user: %{id: "synthetic-user"}})
+        |> TopologyQueryController.create(params)
+
       assert conn.status == 400
       assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_query"}
     end

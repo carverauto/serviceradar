@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   @moduledoc "Current-membership queries with one local native snapshot per authorized response."
   use Supervisor
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.BitmapAuthority
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
@@ -33,7 +34,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   @doc "Authorized lexical label discovery from an already prepared local prefix snapshot."
   def prefix_tags(scope, params) when is_map(params) do
-    with :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
+    with :ok <- require_user(scope), :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
       deadline = now() + @deadline_ms
 
       bounded(
@@ -75,7 +76,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   @doc "Bounds final receipt checks and fresh authorization by the response's original deadline."
   def confirm_delivery(scope, expected_authority, deadline, prefix_sources \\ %{}, check \\ fn -> :ok end) do
-    with :ok <- enabled(),
+    with :ok <- require_user(scope),
+         :ok <- enabled(),
          {:ok, :authorized} <-
            bounded(
              fn ->
@@ -87,6 +89,62 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
              deadline
            ) do
       :ok
+    end
+  end
+
+  @doc "HTTP status for a bitmap query reason. Nil leaves tile-only world errors to the tile controller."
+  def http_status(reason) do
+    case reason do
+      :unauthorized ->
+        {401, "unauthorized"}
+
+      :forbidden ->
+        {403, "forbidden"}
+
+      :bitmap_disabled ->
+        {404, "bitmap_disabled"}
+
+      :invalid_cursor ->
+        {400, "invalid_cursor"}
+
+      reason
+      when reason in [:query_budget, :expression_budget, "expression_budget", :prefix_range_budget, "range_budget"] ->
+        {413, "query_budget"}
+
+      reason when reason in [:unsupported_entity, :unsupported_facet, "unsupported_facet"] ->
+        {422, "unsupported_query"}
+
+      reason when reason in ["facet_unavailable", "ip_unavailable"] ->
+        {422, reason}
+
+      reason
+      when reason in [
+             :prefix_source_unavailable,
+             :prefix_registry_unavailable,
+             "catalog_not_ready",
+             "catalog_budget",
+             "label_budget"
+           ] ->
+        {503, "prefix_source_unavailable"}
+
+      reason
+      when reason in [:invalid_query, :invalid_expression, :invalid_predicate, :invalid_page_limit, :invalid_cidr] ->
+        {400, "invalid_query"}
+
+      :query_timeout ->
+        {503, "query_timeout"}
+
+      :query_busy ->
+        {503, "query_busy"}
+
+      :index_not_ready ->
+        {503, "index_not_ready"}
+
+      :source_changed ->
+        {503, "source_changed"}
+
+      _ ->
+        nil
     end
   end
 
@@ -129,7 +187,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   def normalize(_), do: {:error, :query_unavailable}
 
   defp dispatch(scope, params, fun, opts) do
-    with :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
+    with :ok <- require_user(scope), :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
       deadline = min(Keyword.get(opts, :deadline, now() + @deadline_ms), now() + @deadline_ms)
       bounded(fn -> query(scope, params, fun, deadline) end, deadline)
     end
@@ -243,6 +301,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   catch
     :exit, _ -> {:error, :query_unavailable}
   end
+
+  defp require_user(%Scope{user: user}) when not is_nil(user), do: :ok
+  defp require_user(_scope), do: {:error, :unauthorized}
 
   defp fence(context),
     do:

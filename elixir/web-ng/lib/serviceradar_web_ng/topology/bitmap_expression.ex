@@ -123,9 +123,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   defp exact_predicate(%{"facet" => key, "value" => value} = term, supported)
        when map_size(term) == 2 and is_binary(key) and is_binary(value) and byte_size(key) <= 64 and
               byte_size(value) <= 256 do
-    if key in supported and String.valid?(value),
-      do: {:ok, {:predicate, key, value}},
-      else: {:error, :unsupported_facet}
+    if key not in supported or not String.valid?(value) do
+      {:error, :unsupported_facet}
+    else
+      with {:ok, value} <- literal_text(value, 256), do: {:ok, {:predicate, key, value}}
+    end
   end
 
   defp exact_predicate(_value, _supported), do: {:error, :invalid_predicate}
@@ -134,7 +136,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
 
   defp predicate(%{"facet" => key, "prefix" => value} = term, supported)
        when map_size(term) == 2 and is_binary(key) and byte_size(key) <= 64 do
-    with true <- key in supported, {:ok, value} <- text_prefix(value, 256) do
+    with true <- key in supported, {:ok, value} <- literal_text(value, 256) do
       {:ok, {:value_prefix, key, value}}
     else
       false -> {:error, :unsupported_facet}
@@ -143,12 +145,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   end
 
   defp predicate(%{"tag_key_prefix" => key} = term, _supported) when map_size(term) == 1 do
-    with {:ok, key} <- text_prefix(key, 60), do: {:ok, {:tag_key_prefix, key}}
+    with {:ok, key} <- literal_text(key, 60), do: {:ok, {:tag_key_prefix, key}}
   end
 
   defp predicate(%{"tag_key_prefix" => key, "value" => value} = term, _supported)
        when map_size(term) == 2 and is_binary(value) and byte_size(value) <= 256 do
-    with {:ok, key} <- text_prefix(key, 60), true <- String.valid?(value) do
+    with {:ok, key} <- literal_text(key, 60), {:ok, value} <- literal_text(value, 256) do
       {:ok, {:tag_pair, key, value}}
     else
       _ -> {:error, :invalid_predicate}
@@ -156,7 +158,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   end
 
   defp predicate(%{"tag_key_prefix" => key, "prefix" => value} = term, _supported) when map_size(term) == 2 do
-    with {:ok, key} <- text_prefix(key, 60), {:ok, value} <- text_prefix(value, 256) do
+    with {:ok, key} <- literal_text(key, 60), {:ok, value} <- literal_text(value, 256) do
       {:ok, {:tag_pair_prefix, key, value}}
     end
   end
@@ -175,13 +177,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
 
   defp predicate(_value, _supported), do: {:error, :invalid_predicate}
 
-  defp text_prefix(value, maximum) when is_binary(value) and byte_size(value) <= maximum do
-    if String.valid?(value) and String.trim(value) != "",
-      do: {:ok, String.trim(value)},
+  defp literal_text(value, maximum) when is_binary(value) and byte_size(value) <= maximum do
+    if String.valid?(value) and value != "" and value == String.trim(value),
+      do: {:ok, value},
       else: {:error, :invalid_predicate}
   end
 
-  defp text_prefix(_value, _maximum), do: {:error, :invalid_predicate}
+  defp literal_text(_value, _maximum), do: {:error, :invalid_predicate}
 
   defp bounded_program(tree) do
     program = compile(tree)

@@ -15,9 +15,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def watch(params, socket) do
     with true <- BitmapQueries.enabled?(), {:ok, _watch} <- BitmapView.validate(params) do
-      state = cancel(socket.assigns.bitmap_stream)
-      state = %{empty() | sequence: state.sequence, request: params, reply: socket_ref(socket)}
-      {:noreply, launch(assign(socket, :bitmap_stream, state))}
+      socket = reset(socket)
+      state = socket.assigns.bitmap_stream
+
+      if state.task do
+        {:reply, {:error, error(:query_busy)}, socket}
+      else
+        state = %{state | request: params, reply: socket_ref(socket)}
+        {:noreply, launch(assign(socket, :bitmap_stream, state))}
+      end
     else
       false -> {:reply, {:error, %{reason: "bitmap_disabled"}}, socket}
       {:error, reason} -> {:reply, {:error, error(reason)}, socket}
@@ -38,7 +44,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def unwatch(socket) do
     state = cancel(socket.assigns.bitmap_stream)
-    assign(socket, :bitmap_stream, %{empty() | sequence: state.sequence})
+    assign(socket, :bitmap_stream, %{state | metadata: nil, awaiting: nil})
   end
 
   def reset(socket) do
@@ -51,7 +57,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       end
     end
 
-    assign(socket, :bitmap_stream, %{empty() | sequence: state.sequence})
+    assign(socket, :bitmap_stream, %{state | metadata: nil, awaiting: nil})
   end
 
   def tick(socket) do
@@ -72,10 +78,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       %{token: ^token} ->
         state = release(state)
 
-        with {:ok, result} <- BitmapQueries.normalize(result),
+        with true <- not is_nil(state.request),
+             {:ok, result} <- BitmapQueries.normalize(result),
              :ok <- BitmapView.confirm_delivery(socket.assigns.current_scope, result) do
           deliver(result, state, socket)
         else
+          false -> assign(socket, :bitmap_stream, state)
           {:error, reason} -> failed(state, reason, socket)
         end
 
@@ -97,7 +105,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def timeout(token, socket) do
     case socket.assigns.bitmap_stream.task do
-      %{token: ^token} -> failed(cancel(socket.assigns.bitmap_stream, :query_timeout), :query_timeout, socket)
+      %{token: ^token} -> failed(socket.assigns.bitmap_stream, :query_timeout, socket)
       _ -> socket
     end
   end
@@ -110,7 +118,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   end
 
   def terminate(socket) do
-    if socket.assigns[:bitmap_stream], do: cancel(socket.assigns.bitmap_stream)
+    if state = socket.assigns[:bitmap_stream] do
+      if state.task, do: Process.exit(state.task.pid, :kill)
+      release(state)
+    end
+
     :ok
   end
 
@@ -149,8 +161,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   defp cancel(state, reason \\ :membership_replaced) do
     if state.reply, do: reply(state.reply, {:error, error(reason)})
-    if state.task, do: Process.exit(state.task.pid, :kill)
-    %{release(state) | reply: nil}
+    # Keep the slot until the bounded query exits. Killing only its caller would
+    # leave the inner query running and let repeated watches exhaust the pool.
+    %{state | reply: nil, request: nil}
   end
 
   defp release(%{task: nil} = state), do: state

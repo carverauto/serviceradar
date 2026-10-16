@@ -264,69 +264,58 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
   defp error(conn, reason) do
     {status, code} =
-      case reason do
-        :unauthorized ->
-          {401, "unauthorized"}
-
-        :forbidden ->
-          {403, "forbidden"}
-
-        :god_view_disabled ->
-          {404, "god_view_disabled"}
-
-        :invalid_tile ->
-          {400, "invalid_tile"}
-
-        :invalid_revision ->
-          {400, "invalid_revision"}
-
-        :invalid_search ->
-          {400, "invalid_search"}
-
-        :invalid_detail ->
-          {400, "invalid_detail"}
-
-        :invalid_cursor ->
-          {400, "invalid_cursor"}
-
-        :invalid_query ->
-          {400, "invalid_query"}
-
-        :filtered_detail_unavailable ->
-          {422, "filtered_detail_unavailable"}
-
-        :bitmap_disabled ->
-          {404, "bitmap_disabled"}
-
-        :stale_revision ->
-          {409, "stale_revision"}
-
-        :overlay_protocol_changed ->
-          {409, "overlay_protocol_changed"}
-
-        reason when reason in [:payload_too_large, :overlay_budget_exceeded, :tile_budget_exceeded] ->
-          {413, "topology_budget_exceeded"}
-
-        :not_found ->
-          {404, "topology_item_not_found"}
-
-        :layout_changed ->
-          {409, "layout_changed"}
-
-        :busy ->
-          {503, "tile_busy"}
-
-        :not_ready ->
-          {503, "world_not_ready"}
-
-        :source_changed ->
-          {503, "source_changed"}
-
-        _ ->
-          {503, "world_unavailable"}
+      case BitmapQueries.http_status(reason) do
+        {status, code} -> {status, code}
+        nil -> tile_status(reason)
       end
 
     conn = if status == 503, do: put_resp_header(conn, "retry-after", "1"), else: conn
     conn |> put_resp_header("cache-control", "no-store") |> put_status(status) |> json(%{error: code})
+  end
+
+  defp tile_status(reason) do
+    case reason do
+      :god_view_disabled ->
+        {404, "god_view_disabled"}
+
+      :invalid_tile ->
+        {400, "invalid_tile"}
+
+      :invalid_revision ->
+        {400, "invalid_revision"}
+
+      :invalid_search ->
+        {400, "invalid_search"}
+
+      :invalid_detail ->
+        {400, "invalid_detail"}
+
+      :filtered_detail_unavailable ->
+        {422, "filtered_detail_unavailable"}
+
+      :stale_revision ->
+        {409, "stale_revision"}
+
+      :overlay_protocol_changed ->
+        {409, "overlay_protocol_changed"}
+
+      reason when reason in [:payload_too_large, :overlay_budget_exceeded, :tile_budget_exceeded] ->
+        {413, "topology_budget_exceeded"}
+
+      :not_found ->
+        {404, "topology_item_not_found"}
+
+      :layout_changed ->
+        {409, "layout_changed"}
+
+      :busy ->
+        {503, "tile_busy"}
+
+      :not_ready ->
+        {503, "world_not_ready"}
+
+      _ ->
+        {503, "world_unavailable"}
+    end
   end
 end

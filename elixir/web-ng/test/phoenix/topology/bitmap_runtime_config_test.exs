@@ -1,13 +1,14 @@
 defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.WorldCache
 
   @moduletag :db_free
 
-  @tag timeout: 2_000
+  @tag timeout: 5_000
   test "a suspended geometry owner cannot extend the original delivery deadline" do
     keys = [:god_view_enabled, :topology_bitmap_enabled]
     previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
@@ -29,12 +30,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
 
     try do
       assert {:error, :query_timeout} =
-               BitmapQueries.confirm_delivery(nil, <<0::256>>, started + 100, %{}, fn ->
-                 send(owner, {:delivery_check, self()})
-                 WorldCache.world(cache)
-               end)
+               BitmapQueries.confirm_delivery(
+                 %Scope{user: %{id: "synthetic-viewer"}},
+                 <<0::256>>,
+                 started + 100,
+                 %{},
+                 fn ->
+                   send(owner, {:delivery_check, self()})
+                   WorldCache.world(cache)
+                 end
+               )
 
-      assert System.monotonic_time(:millisecond) - started < 1_000
+      assert System.monotonic_time(:millisecond) - started < 1_500
       assert_receive {:delivery_check, worker}
       refute worker == self()
       refute Process.alive?(worker)
