@@ -1,133 +1,134 @@
 ## ADDED Requirements
 
-### Requirement: Persistent Typed Bitmap Identity
-The system SHALL reuse persisted device fleet ordinals for topology query membership and SHALL namespace every bitmap by dictionary epoch and entity kind.
+### Requirement: Persistent Device Bitmap Identity
+The system SHALL reuse persisted device fleet ordinals for topology membership and SHALL bind native sets to a durable dictionary epoch and device entity kind.
 
 #### Scenario: Layout and process changes preserve identity
 - **GIVEN** a canonical device has an allocated ordinal
-- **WHEN** a tile changes, ELK rebuilds, or an index process restarts
+- **WHEN** a tile changes, ELK rebuilds or an index process restarts
 - **THEN** the device SHALL retain its ordinal independently of row position
-- **AND** canonical endpoint devices SHALL share the same device dictionary
+- **AND** canonical endpoints SHALL share the device dictionary
 - **AND** aggregate glyphs and relation clips SHALL NOT allocate device ordinals
 
-#### Scenario: Safe migration and identity transitions
-- **WHEN** signed integer storage is widened to the checked `1..4294967295` range
-- **THEN** all existing IDs, uniqueness and tombstones SHALL be preserved
-- **AND** IDs SHALL never be reused or renumbered to close gaps
-- **AND** merge/delete/restore processing SHALL converge on the current canonical identity without reviving a merged-away member
-- **AND** capacity exhaustion SHALL reject new allocations explicitly while retaining readable accepted state
+#### Scenario: Migration and lifecycle safety
+- **WHEN** storage is widened to the checked `1..4294967295` range
+- **THEN** existing assignments, uniqueness and tombstones SHALL be preserved
+- **AND** repeat allocation SHALL NOT consume new sequence values
+- **AND** merge/delete/restore and retention cleanup SHALL preserve identity without reviving a merged-away member
+- **AND** rollback SHALL retain the widened storage and existing assignments
+- **AND** exhaustion SHALL reject new allocations while preserving readable accepted state
 
-#### Scenario: Cross-kind or cross-epoch intersection
-- **WHEN** operands have different dictionary epochs or entity kinds
-- **THEN** direct set algebra SHALL be rejected
-- **AND** interface-to-device projection SHALL use the current canonical parent mapping and authorization
+#### Scenario: Unsupported identity domain
+- **WHEN** a query supplies an incompatible dictionary epoch or an unsupported entity kind
+- **THEN** it SHALL fail explicitly before set algebra
+- **AND** interface queries SHALL remain unsupported until their identity and parent-authorization contract is separately approved
 
 ### Requirement: Bounded Incremental Topology Bitmap Index
-The system SHALL maintain rebuildable native attribute indexes through bounded current-state reads, durable dirty work, reconciliation and atomic published revisions.
+The system SHALL maintain rebuildable native attribute indexes through bounded current-state reads, coalesced invalidation hints, rolling reconciliation and atomic published revisions.
 
-#### Scenario: Lost notifications and publisher crash
-- **GIVEN** a canonical write commits without a delivered notification or a publisher crashes before acknowledging work
-- **WHEN** dirty work is retried or reconciled
-- **THEN** current canonical data SHALL be reread and applied idempotently
-- **AND** newer or late-committing changes SHALL remain discoverable
-- **AND** readers SHALL NOT observe a partially updated revision
+#### Scenario: Lost hints and late commits
+- **GIVEN** an update commits after a scan passes its identity or its notification is lost
+- **WHEN** a subsequent bounded reconciliation reaches that identity
+- **THEN** current canonical state SHALL converge idempotently on every replica
+- **AND** freshness metadata SHALL distinguish a completed reconciliation from pending or incomplete work
+- **AND** existing identity revisions or timestamps SHALL NOT be treated as a proven global commit-order cursor
 
-#### Scenario: Overload or incomplete source
-- **WHEN** dirty work, facet cardinality, native memory, reader retention or query admission exceeds its configured limit
-- **THEN** the system SHALL bound retained work and expose backlog, staleness or a structured rejection
-- **AND** it SHALL NOT silently drop membership changes or label partial counts exact
+#### Scenario: Independent writers and replicas
+- **WHEN** independent inventory transactions update different devices or an index replica is offline
+- **THEN** bitmap freshness machinery SHALL NOT add shared bucket locks to those transactions
+- **AND** each replica SHALL reconcile without consuming another replica's hints or waiting for it
+- **AND** startup SHALL seed before reporting readiness
+
+#### Scenario: Dirty work and source budgets
+- **WHEN** pending changes, facet cardinality, native memory or query concurrency reach a configured limit
+- **THEN** retained work SHALL remain bounded and expose staleness, unavailability or structured rejection
+- **AND** publisher read batches SHALL be limited independently of pending-set capacity
+- **AND** coalesced ordinal dirty sets SHALL use Roaring with an explicit byte cap
+- **AND** readers SHALL NOT observe a partially published revision or partial facets labeled exact
 - **AND** unavailable causal evidence SHALL NOT be synthesized from availability
 
-#### Scenario: Independent replicas and expired replay history
-- **GIVEN** two web pods maintain local indexes from a durable dirty-event stream
-- **WHEN** one replica acknowledges an update or another falls behind retention
-- **THEN** the first acknowledgment SHALL NOT consume the second replica's delivery
-- **AND** missing history, expired ownership or a changed durable rescan generation SHALL fence that replica until a complete reseed
-- **AND** outbox and stream retention SHALL remain bounded without waiting for an offline replica
-
 ### Requirement: Authorized Bitmap Query and Exact Facets
-The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported facet sets and intersect current effective visibility before returning any result, count or membership.
+The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported sets, intersect current effective visibility and pin one coherent native revision per response.
 
-#### Scenario: Exact query and facet semantics
-- **WHEN** a supported expression is evaluated against a pinned revision
+#### Scenario: Exact query and facets
+- **WHEN** a supported expression is evaluated
 - **THEN** negation SHALL be relative to the authorized live universe
-- **AND** facet counts SHALL equal `cardinality(result AND facet_value)` including same-facet predicates
-- **AND** unsupported mappings or incomplete search sets SHALL return an explicit error
-- **AND** empty results SHALL return successful zero counts
+- **AND** each facet count SHALL equal cardinality of the result intersected with that facet value, including same-facet predicates
+- **AND** empty results SHALL succeed with zero counts
+- **AND** predicates without an approved canonical source SHALL return explicit unsupported errors
 
-#### Scenario: Revocation after a cache hit
-- **GIVEN** authorization changes while a cached query or stream update is in flight
-- **WHEN** the response is ready for delivery
-- **THEN** current authority SHALL be revalidated before bytes, counts or a 304 are sent
+#### Scenario: Revocation during work
+- **GIVEN** authority changes while a query, detail, search or overlay is in flight
+- **WHEN** the response is ready
+- **THEN** current authority SHALL be revalidated before bytes, counts or a 304 are delivered
 - **AND** revoked work SHALL be cancelled and client membership cleared
-- **AND** tenant routing or authorization bypass modes SHALL NOT be introduced
+- **AND** no tenancy or authorization bypass mode SHALL be introduced
 
-#### Scenario: Cache and pagination revision safety
-- **WHEN** inventory, negated predicates, live universe, search or authority changes
-- **THEN** affected cache entries SHALL be patched from changed IDs or invalidated
-- **AND** cache reuse SHALL prove unchanged dependencies
-- **AND** a page cursor SHALL bind query, epochs, revision, authority, entity kind and last ordinal
-- **AND** expired revisions SHALL require restart rather than mixed pages
-
-#### Scenario: Cursor request reaches a different web pod
-- **WHEN** a pinned cursor is presented to a pod other than its live index owner
-- **THEN** the request SHALL route to the fenced owner under the same deadline and current authorization
-- **AND** the authenticated handle SHALL resolve its owner through trusted service membership rather than a caller-supplied address
-- **AND** owner loss SHALL require an explicit restart and fresh baseline
-- **AND** the request SHALL NOT silently run against another replica's revision
+#### Scenario: Live pagination reaches another pod
+- **GIVEN** a cursor binds dictionary epoch, device kind, normalized query, authority and last ordinal
+- **WHEN** the next page reaches any healthy replica
+- **THEN** it SHALL evaluate ordinal greater than the cursor against that replica's current published membership
+- **AND** the response SHALL report its source/index freshness
+- **AND** membership may change between pages without retaining or routing to an old query owner
+- **AND** a changed query, dictionary or authority SHALL require a fresh cursor
+- **AND** the native result SHALL be released at request completion
 
 ### Requirement: Bitmap Filters Preserve Bounded Tile Geometry
-The system SHALL apply query membership to the persistent tiled world without changing layout, inventing graph edges or expanding the full result into browser objects.
+The system SHALL apply membership to the persistent tiled world without changing layout, inventing edges or enumerating whole-fleet browser objects.
 
-#### Scenario: Filtering a large aggregate
+#### Scenario: Large aggregate projection
 - **WHEN** a query matches members of an admitted aggregate
-- **THEN** the server SHALL return authorized matching counts and bounded leaf/detail pages
-- **AND** the browser SHALL NOT receive the aggregate's complete underlying membership solely to count it
-- **AND** existing tile, fetch, cache and detail budgets SHALL remain enforced
+- **THEN** native projection SHALL return exact authorized match counts and bounded row masks
+- **AND** complete aggregate membership SHALL NOT be enumerated in BEAM or the browser solely to count it
+- **AND** detail pages SHALL stay within existing candidate and output limits
+- **AND** unsupported filtered details or boundary populations SHALL fail explicitly rather than broaden the result
 
-#### Scenario: Tile replacement and bitmap resynchronization
-- **WHEN** admitted tile receipts, query, authority or layout generation changes
-- **THEN** membership SHALL require a matching baseline before being rendered as filtered
-- **AND** a bitmap sequence reset SHALL preserve still-valid geometry
-- **AND** health or membership changes SHALL NOT trigger ELK relayout
+#### Scenario: Receipt or filter changes
+- **WHEN** query, authority, layout or admitted tile receipts change
+- **THEN** the client SHALL require a matching full overlay before rendering filtered success
+- **AND** valid geometry SHALL survive membership resets
+- **AND** health or membership updates SHALL NOT trigger ELK relayout
 
-### Requirement: Versioned Portable Roaring Membership Stream
-The system SHALL transmit actual portable 32-bit Roaring bytes for admitted-view membership using a negotiated binary envelope and atomic baseline or XOR updates.
+### Requirement: Typed Binary Tile Overlay
+The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.
 
-#### Scenario: Compatible decoding and explicit state domains
-- **WHEN** a Rust-produced frame is decoded with roaring-wasm
-- **THEN** membership SHALL match for empty, sparse, dense, run-container and unsigned high-ID cases
-- **AND** protocol version, epochs, entity kind, query, authority, view receipt and revisions SHALL be validated
-- **AND** causal and availability state domains SHALL be explicit and independent of legacy enum ordering
-- **AND** bulk membership SHALL NOT use JSON arrays or base64 encoding
+#### Scenario: Bounded typed columns
+- **WHEN** an overlay is produced for at most 64 admitted tiles of 128 glyphs each
+- **THEN** it SHALL bind exact tile receipts and row counts, dictionary, query and authority
+- **AND** it SHALL contain matching u8, causal u8, availability u8 and little-endian matched-count u32 columns
+- **AND** every row in the response SHALL use the same pinned query revision
+- **AND** causal and availability domains SHALL remain explicit and separate
+- **AND** bulk overlay data SHALL NOT use JSON arrays, base64 or a browser Roaring/WASM runtime
 
-#### Scenario: Duplicate, gap or malformed frame
-- **WHEN** a duplicate, missing sequence, wrong epoch or invalid length is received
-- **THEN** a duplicate SHALL NOT reapply XOR
-- **AND** a gap or incompatible base SHALL request a fresh baseline
-- **AND** malformed frames SHALL fail before excessive allocation or partial mutation
-- **AND** late frames for an evicted view SHALL be discarded
+#### Scenario: Full replacement and invalid input
+- **WHEN** a complete valid replacement arrives
+- **THEN** the browser SHALL publish its columns atomically
+- **AND** a skipped intermediate replacement SHALL NOT corrupt the next frame
+- **AND** obsolete sequences, mismatched receipts or authority, invalid enums and malformed lengths SHALL be rejected before excessive allocation or partial mutation
+- **AND** no XOR history or chunked baseline assembly SHALL be required
 
-#### Scenario: Slow viewer or partial baseline
-- **WHEN** queued frames or baseline assembly reaches its declared byte, count or time limit
-- **THEN** the sender SHALL coalesce or require a bounded resynchronization
-- **AND** partial baselines SHALL NOT replace accepted membership
-- **AND** decoded membership, WASM storage and staging SHALL fit the 8 MiB browser membership budget
+#### Scenario: Slow viewer and resource lifetime
+- **WHEN** a viewer falls behind, reconnects, evicts tiles or disables the feature
+- **THEN** obsolete work SHALL be coalesced or reset under fixed pending-frame limits
+- **AND** a fresh matching replacement SHALL be required after reconnect
+- **AND** retained membership and staging SHALL fit the 8 MiB budget, with each frame at most 256 KiB
+- **AND** eviction, disconnect and disable SHALL release obsolete membership resources
 
 ### Requirement: Measured Bitmap Scale and Copy Budget
-The system SHALL validate the query index with independently synthetic scale benchmarks and SHALL report measured memory, copies, concurrency and limitations alongside latency and payload results.
+The system SHALL validate the index with independently synthetic benchmarks and report latency, memory, copies, concurrency, freshness and limitations.
 
 #### Scenario: Primary scale acceptance
-- **GIVEN** 100,000 infrastructure and 1,000,000 endpoint devices with declared facet distributions and compact plus sparse ordinal variants
-- **WHEN** uncached representative work is benchmarked after declared warmup
-- **THEN** four-term filter p95 SHALL be below 5 ms and fifty exact facet counts p95 below 50 ms
-- **AND** full-population one-percent state-churn delta p95 SHALL be below 50,000 bytes including all changed sets and envelope
-- **AND** steady-state index-owned memory per replica SHALL be below 200,000,000 bytes including dictionaries, caches and retained revisions, with cluster totals reported separately
-- **AND** the current array baseline, peak rebuild memory and end-to-end authorization latency SHALL be reported separately
+- **GIVEN** 100,000 infrastructure and 1,000,000 endpoint devices with declared compact and sparse ordinal distributions
+- **WHEN** representative uncached queries run after declared warmup
+- **THEN** four-term filter p95 SHALL be below 5 ms and query plus fifty exact facets p95 below 50 ms
+- **AND** steady index-owned memory per replica SHALL be below 200,000,000 bytes including projections and retained revisions
+- **AND** one-percent full-population churn SHALL report admitted-overlay payload bytes, convergence and database reconciliation load
+- **AND** every admitted overlay SHALL fit 256 KiB independent of ordinal sparsity
+- **AND** array-baseline, peak replacement and end-to-end authorization results SHALL be reported separately
 
-#### Scenario: Sustained operation and browser lifecycle
-- **WHEN** churn, concurrent viewers, slow consumers, restarts, zoom and tile eviction are exercised
-- **THEN** backlog, convergence and native/browser resource retention SHALL remain within declared caps
-- **AND** Arrow attributes SHALL remain binary typed columns with copies measured at each boundary
-- **AND** the GPU lifecycle SHALL prevent destruction of buffers still used by queued work
-- **AND** software-GPU functional results SHALL NOT be presented as actual-hardware frame-rate proof or an end-to-end zero-copy guarantee
+#### Scenario: Sustained operation
+- **WHEN** 100 concurrent views, slow viewers, two replicas, missed hints, restarts and authority changes are exercised
+- **THEN** pending work, convergence and retained native/browser resources SHALL stay within declared bounds
+- **AND** Arrow attributes SHALL remain typed binary columns with copies measured at each boundary
+- **AND** GPU buffers SHALL remain alive while queued commands reference them
+- **AND** software-GPU results SHALL NOT be presented as actual-hardware performance or end-to-end zero-copy proof
