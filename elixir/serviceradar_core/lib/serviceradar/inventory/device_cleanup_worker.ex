@@ -317,7 +317,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # ONLY those are purged -- so a concurrent restore/gateway_sync that clears
   # deleted_at in the gap can never have its now-LIVE device's child rows wiped.
   #
-  # Allocated identities retain a minimal tombstone and their deletion/merge lineage;
+  # Every inventory identity receives an ordinal before payload purge, including old
+  # tombstones not yet backfilled. Internal service identities remain excluded.
+  # Retained identities keep a minimal tombstone and their deletion/merge lineage;
   # identity_purged_at prevents repeatedly processing those rows on later runs.
   # Public (@doc false) so the DIRE lifecycle trace can purge exactly the devices it
   # created; running the worker would purge every expired tombstone in the database.
@@ -375,6 +377,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
         Repo.all(
           from(d in "ocsf_devices",
             where: d.uid in ^uids and not is_nil(d.deleted_at) and is_nil(d.identity_purged_at),
+            order_by: [asc: d.uid],
             select: d.uid,
             lock: "FOR UPDATE"
           ),
@@ -388,6 +391,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       if purge_uids == [] do
         {0, skipped}
       else
+        reserve_tombstone_ordinals(purge_uids)
+
         Enum.each(plan.deletes, fn {table, predicate} ->
           Repo.query!("DELETE FROM #{table} WHERE #{predicate}", [purge_uids])
         end)
@@ -428,6 +433,30 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     end
   rescue
     error -> {:error, error}
+  end
+
+  # The canonical rows are already locked and rechecked as deleted. Allocate only
+  # missing identities so repeated retention never consumes another sequence value.
+  # Capacity exhaustion rolls back this batch before any payload or link is removed.
+  defp reserve_tombstone_ordinals(uids) do
+    Repo.query!(
+      """
+      INSERT INTO platform.device_fleet_ordinals (uid, tombstoned)
+      SELECT d.uid, true FROM platform.ocsf_devices d
+      WHERE d.uid = ANY($1::text[]) AND d.uid NOT LIKE 'serviceradar:%'
+        AND NOT EXISTS (SELECT 1 FROM platform.device_fleet_ordinals o WHERE o.uid = d.uid)
+      ORDER BY d.uid
+      """,
+      [uids]
+    )
+
+    Repo.query!(
+      """
+      UPDATE platform.device_fleet_ordinals SET tombstoned = true
+      WHERE uid = ANY($1::text[]) AND NOT tombstoned
+      """,
+      [uids]
+    )
   end
 
   # Devices among `uids` referenced from a retained table, with the constraint.
@@ -531,7 +560,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     "UPDATE platform.ocsf_devices SET " <>
       cleared <>
       ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at', '_seed_successor']::text[])), " <>
-      "partition = 'default', created_time = timezone('utc', now()), modified_time = timezone('utc', now()), " <>
+      "created_time = timezone('utc', now()), modified_time = timezone('utc', now()), " <>
       "identity_purged_at = now(), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end
 

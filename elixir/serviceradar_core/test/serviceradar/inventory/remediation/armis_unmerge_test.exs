@@ -1388,7 +1388,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     manifest = Manifest.open(manifest_path, %{test: "committed_failure"})
     faulting_manifest = %{manifest | writer: FailCommittedWriter}
 
-    # -- seeding helpers -------------------------------------------------------
     on_exit(fn ->
       Manifest.close(manifest)
       File.rm(manifest_path)
@@ -1408,6 +1407,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
   end
 
+  # -- seeding helpers -------------------------------------------------------
   defp seed_connected_agent!(agent_uid) do
     Repo.query!(
       """
@@ -1836,7 +1836,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         end
 
       {:error, _reason} ->
-        # -- assertion helpers ------------------------------------------------------
         Process.sleep(25)
         wait_for_manifest_entry(path, marker, attempts - 1)
     end
@@ -1882,6 +1881,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     )
   end
 
+  # -- assertion helpers ------------------------------------------------------
   defp owner_of_mac(mac) do
     Repo.one(
       from(di in DeviceIdentifier,

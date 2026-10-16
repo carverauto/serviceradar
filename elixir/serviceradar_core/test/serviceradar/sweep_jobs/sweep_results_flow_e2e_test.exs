@@ -1186,6 +1186,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     other = "sr:concurrent-owner-#{Ash.UUID.generate()}"
 
     on_exit(fn ->
+      Repo.query!(
+        """
+        DELETE FROM platform.sweep_group_execution_versions
+        WHERE version_source_id IN (
+          SELECT id FROM platform.sweep_group_executions WHERE sweep_group_id = $1::text::uuid
+        )
+        """,
+        [group.id]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.sweep_group_versions WHERE version_source_id = $1::text::uuid",
+        [group.id]
+      )
+
       TestSupport.delete_device_fixtures!([root, second, third, fourth, other])
       Repo.query!("DELETE FROM platform.sweep_groups WHERE id = $1::text::uuid", [group.id])
       IdentityCache.delete(ip)

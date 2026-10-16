@@ -1121,7 +1121,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     assert %{rows: [[0]]} =
              Repo.query!(
-               "SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[]) AND identity_purged_at IS NULL",
+               "SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[])",
                [ids]
              )
 
