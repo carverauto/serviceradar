@@ -100,6 +100,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        last_pushed_config_version: nil,
        last_synced_config_version: nil,
        last_synced_section_statuses: [],
+       section_status_sync: nil,
        pending_config_version: nil,
        pending_config_acknowledged: false,
        pending_config_persisted: false,
@@ -811,15 +812,37 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp forward_config_ack(state, ack) do
     if registered_agent?(state) do
       agent_id = state.agent_id
-      {:ok, _pid} = Task.start(fn -> ConfigSyncForwarder.record_config_ack(agent_id, ack) end)
 
       state
+      |> enqueue_section_status_write(fn -> ConfigSyncForwarder.record_config_ack(agent_id, ack) end)
       |> Map.put(:last_synced_config_version, ack.config_version)
       |> put_synced_section_statuses(ack.section_statuses)
     else
       state
     end
   end
+
+  defp enqueue_section_status_write(state, fun) when is_function(fun, 0) do
+    previous = state.section_status_sync
+
+    {:ok, pid} =
+      Task.start(fn ->
+        await_section_status_write(previous)
+        fun.()
+      end)
+
+    %{state | section_status_sync: pid}
+  end
+
+  defp await_section_status_write(pid) when is_pid(pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _} -> :ok
+    end
+  end
+
+  defp await_section_status_write(_previous), do: :ok
 
   defp put_synced_section_statuses(state, [_ | _] = statuses), do: %{state | last_synced_section_statuses: statuses}
 
@@ -858,10 +881,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     if registered_agent?(state) and statuses != state.last_synced_section_statuses do
       agent_id = state.agent_id
 
-      {:ok, _pid} =
-        Task.start(fn -> ConfigSyncForwarder.record_section_statuses(agent_id, hello) end)
-
-      put_synced_section_statuses(state, statuses)
+      state
+      |> enqueue_section_status_write(fn ->
+        ConfigSyncForwarder.record_section_statuses(agent_id, hello)
+      end)
+      |> put_synced_section_statuses(statuses)
     else
       state
     end

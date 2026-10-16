@@ -212,14 +212,25 @@ func configSectionReconcilesEveryApply(section string) bool {
 	return section == configSectionAddons
 }
 
-// hasEscalatedConfigSectionFailure reports whether any section is waiting on a
-// same-version retry after its transient failure was escalated.
-func (p *PushLoop) hasEscalatedConfigSectionFailure() bool {
+// configSectionFailureRetriesOnCommittedVersion reports whether this failure must be
+// re-applied on a same-version or NotModified delivery. That is a transient or
+// escalated failure recorded for the committed config version. A classified
+// permanent failure is not retried, and a failure for some other version belongs
+// to a payload this delivery is not applying.
+func configSectionFailureRetriesOnCommittedVersion(failure configSectionFailure, version string) bool {
+	return version != "" && failure.version == version &&
+		(failure.escalated || failure.disposition == addonDeliveryTransientFailure)
+}
+
+// hasRetryableConfigSectionFailure reports whether any section failure for the
+// committed version must be re-applied from the retained response.
+func (p *PushLoop) hasRetryableConfigSectionFailure() bool {
+	version := p.getConfigVersion()
 	p.configSectionMu.Lock()
 	defer p.configSectionMu.Unlock()
 
 	for _, failure := range p.configSectionFailures {
-		if failure.escalated {
+		if configSectionFailureRetriesOnCommittedVersion(failure, version) {
 			return true
 		}
 	}
@@ -227,15 +238,16 @@ func (p *PushLoop) hasEscalatedConfigSectionFailure() bool {
 	return false
 }
 
-// configSectionIsEscalated reports whether this section's recorded failure was
-// escalated and must be re-attempted on the next same-version delivery.
-func (p *PushLoop) configSectionIsEscalated(section string) bool {
+// configSectionFailureNeedsRetry reports whether this section's recorded failure
+// for the committed version must be re-applied.
+func (p *PushLoop) configSectionFailureNeedsRetry(section string) bool {
+	version := p.getConfigVersion()
 	p.configSectionMu.Lock()
 	defer p.configSectionMu.Unlock()
 
 	failure, ok := p.configSectionFailures[section]
 
-	return ok && failure.escalated
+	return ok && configSectionFailureRetriesOnCommittedVersion(failure, version)
 }
 
 // recordedVisibilityApplyFailed reports whether the visibility section's last apply

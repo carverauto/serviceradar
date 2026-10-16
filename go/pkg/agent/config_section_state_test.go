@@ -1138,3 +1138,193 @@ func TestVisibilityEscalationRecoveryActivatesBlockedNetprobe(t *testing.T) {
 		t.Fatalf("sent %d config acks when the poll changed nothing, want 1", len(acks))
 	}
 }
+
+// openPostCommitAddonTransient escalates visibility, then recovers it on a
+// NotModified poll whose add-on supervisor fails. The add-on section is left
+// transient on the committed version.
+func openPostCommitAddonTransient(t *testing.T) (*PushLoop, *gateAddonManager, *fakeControlStreamClient, *atomic.Int32) {
+	t.Helper()
+
+	dir := t.TempDir()
+	lifecycle := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: filepath.Join(dir, "netprobe.json"),
+		}},
+		startAttachErr: errStartAttachTest,
+	}
+	manager := &gateAddonManager{}
+	pl := NewPushLoop(&Server{
+		config:          &ServerConfig{AgentID: "agent-test"},
+		addonManager:    manager,
+		netprobeSidecar: agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()}),
+		sidecarManager:  lifecycle,
+		sidecarStatus:   lifecycle,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	full := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-visibility",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons: []*proto.AddonAssignmentConfig{
+			systemdNetprobeAssignment(),
+			osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon"),
+		},
+	}
+	phase := &atomic.Int32{}
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		if phase.Load() == 0 {
+			return cloneConfig(full)
+		}
+		return notModifiedDecoy()
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	backdateConfigSectionFailure(t, pl, configSectionVisibility, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+	if failure := pl.configSectionFailureSnapshot()[configSectionVisibility]; !failure.escalated {
+		t.Fatalf("visibility failure = %+v, want escalated", failure)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionAddons]; ok {
+		t.Fatal("add-on section failed while netprobe activation was blocked")
+	}
+
+	pl.recordConfigSectionFailure(
+		configSectionBumblebee, "unrelated-payload", "v0", errTestSectionBoom, addonDeliveryPermanentFailure)
+	lifecycle.startAttachErr = nil
+	manager.fail = true
+	phase.Store(1)
+	stream := &fakeControlStreamClient{}
+	pl.setControlStreamSender(newControlStreamSender(stream))
+	callsBeforeRecovery := manager.applyCalls
+	pl.fetchAndApplyConfig(t.Context())
+
+	if manager.applyCalls != callsBeforeRecovery+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d on visibility recovery", manager.applyCalls, callsBeforeRecovery+1)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionVisibility]; ok {
+		t.Fatal("visibility failure record was not cleared")
+	}
+	addons := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if addons.disposition != addonDeliveryTransientFailure || addons.escalated || addons.attempts != 1 || addons.version != "cfg-visibility" {
+		t.Fatalf("addons failure after recovery = %+v, want a new transient for cfg-visibility", addons)
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]; !ok {
+		t.Fatal("recovery re-ran a section recorded for another version")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("committed version = %q, want cfg-visibility", got)
+	}
+
+	return pl, manager, stream, phase
+}
+
+func TestPostCommitAddonTransientRetriesUntilSuccess(t *testing.T) {
+	pl, manager, stream, _ := openPostCommitAddonTransient(t)
+	callsAfterRecovery := manager.applyCalls
+
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAfterRecovery+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: the transient add-on section must be retried", manager.applyCalls, callsAfterRecovery+1)
+	}
+	if got := pl.configSectionFailureSnapshot()[configSectionAddons].attempts; got != 2 {
+		t.Fatalf("addon attempts = %d, want 2", got)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 1 {
+		t.Fatalf("sent %d config acks while the transient failure was unchanged, want 1", len(acks))
+	}
+
+	// The unsigned netprobe records a permanent delivery failure once activation
+	// runs. Dropping host visibility support removes that assignment so the
+	// supervisor success can clear the section.
+	setHostNetworkVisibilitySupportForTest(pl, false)
+	manager.fail = false
+	pl.fetchAndApplyConfig(t.Context())
+
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionAddons]; ok {
+		t.Fatal("recovered add-on section failure record was not cleared")
+	}
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]; !ok {
+		t.Fatal("success retry re-ran a section recorded for another version")
+	}
+	acks := sentConfigAcks(stream)
+	if len(acks) != 2 {
+		t.Fatalf("sent %d config acks after the add-on section recovered, want 2", len(acks))
+	}
+	if got := acks[1].GetConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("recovery ack version = %q, want cfg-visibility", got)
+	}
+	recovered := sectionStatus(acks[1].GetSectionStatuses(), configSectionAddons)
+	if recovered.GetDisposition() != configSectionDispositionSuccess || recovered.GetError() != "" {
+		t.Fatalf("recovery ack addons status = %+v, want success", recovered)
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionSuccess {
+		t.Fatalf("hello addons disposition = %q, want success", helloAddons.GetDisposition())
+	}
+	if got := pl.getConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("committed version = %q, want cfg-visibility", got)
+	}
+
+	callsAfterSuccess := manager.applyCalls
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAfterSuccess {
+		t.Fatalf("supervisor Apply calls = %d, want %d after the section cleared", manager.applyCalls, callsAfterSuccess)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 2 {
+		t.Fatalf("sent %d config acks when the poll changed nothing, want 2", len(acks))
+	}
+}
+
+func TestPostCommitAddonTransientRetriesUntilEscalation(t *testing.T) {
+	pl, manager, stream, _ := openPostCommitAddonTransient(t)
+
+	pl.fetchAndApplyConfig(t.Context())
+	failure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if failure.attempts != 2 || failure.escalated || failure.disposition != addonDeliveryTransientFailure {
+		t.Fatalf("addons failure before the age bound = %+v, want transient attempts 2", failure)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 1 {
+		t.Fatalf("sent %d config acks before escalation, want 1", len(acks))
+	}
+
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	callsBeforeEscalation := manager.applyCalls
+	pl.fetchAndApplyConfig(t.Context())
+
+	failure = pl.configSectionFailureSnapshot()[configSectionAddons]
+	if !failure.escalated || failure.disposition != addonDeliveryPermanentFailure || failure.attempts < transientSectionEscalationAttempts {
+		t.Fatalf("addons failure at the bound = %+v, want escalated permanent", failure)
+	}
+	if manager.applyCalls != callsBeforeEscalation+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d at escalation", manager.applyCalls, callsBeforeEscalation+1)
+	}
+	acks := sentConfigAcks(stream)
+	if len(acks) != 2 {
+		t.Fatalf("sent %d config acks at escalation, want 2", len(acks))
+	}
+	if got := acks[1].GetConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("escalation ack version = %q, want cfg-visibility", got)
+	}
+	escalated := sectionStatus(acks[1].GetSectionStatuses(), configSectionAddons)
+	if escalated.GetDisposition() != configSectionDispositionPermanent {
+		t.Fatalf("escalation ack addons disposition = %q, want permanent", escalated.GetDisposition())
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionPermanent {
+		t.Fatalf("hello addons disposition = %q, want permanent", helloAddons.GetDisposition())
+	}
+	if got := pl.getConfigVersion(); got != "cfg-visibility" {
+		t.Fatalf("committed version = %q, want cfg-visibility", got)
+	}
+
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsBeforeEscalation+2 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: an escalated section must still be retried", manager.applyCalls, callsBeforeEscalation+2)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 2 {
+		t.Fatalf("sent %d config acks while the escalated failure was unchanged, want 2", len(acks))
+	}
+}

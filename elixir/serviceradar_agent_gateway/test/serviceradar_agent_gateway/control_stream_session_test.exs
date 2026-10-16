@@ -1061,6 +1061,63 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       assert_receive {:config_sync, :record_config_section_statuses, ["agent-ack", _attrs]}
     end
 
+    test "a slow hello cannot commit section statuses after a later ack", %{pid: pid} do
+      parent = self()
+
+      Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
+        if function == :record_config_section_statuses do
+          send(parent, {:hello_entered, self()})
+
+          receive do
+            :release_hello -> :ok
+          end
+        end
+
+        send(parent, {:committed, function, args})
+        :ok
+      end)
+
+      hello = %Monitoring.ControlStreamHello{
+        agent_id: "agent-ack",
+        config_version: "v1",
+        config_section_statuses: [
+          %Monitoring.ConfigSectionStatus{
+            section: "addons",
+            disposition: "permanent_failure",
+            error: "stuck",
+            since: 1
+          }
+        ]
+      }
+
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{payload: {:hello, hello}})
+
+      assert_receive {:hello_entered, hello_pid}
+
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload:
+          {:config_ack,
+           %Monitoring.ConfigAck{
+             config_version: "v1",
+             timestamp: 20,
+             section_statuses: [
+               %Monitoring.ConfigSectionStatus{section: "addons", disposition: "success", since: 2}
+             ]
+           }}
+      })
+
+      refute_receive {:committed, :record_config_ack, [_, %{section_statuses: [_ | _]}]}, 100
+
+      send(hello_pid, :release_hello)
+
+      assert_receive {:committed, :record_config_section_statuses, ["agent-ack", hello_attrs]}
+
+      assert [%{"disposition" => "permanent_failure"}] = hello_attrs.section_statuses
+
+      assert_receive {:committed, :record_config_ack,
+                      ["agent-ack", %{section_statuses: [%{"disposition" => "success"}]}]}
+    end
+
     test "an unregistered session does not forward acks" do
       pid = start_supervised!({ControlStreamSession, stream: nil}, id: :unregistered_session)
 

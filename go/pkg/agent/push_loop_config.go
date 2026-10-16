@@ -204,21 +204,21 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// fully-successful apply, so a deferred/partial apply (which leaves the old version)
 	// will not be short-circuited and is still retried.
 	//
-	// An escalated section is the exception, including a NotModified poll after the
-	// version has been acked. Re-run only those sections from the retained full
-	// response. Ack the committed version when their status changes; an unchanged
-	// permanent failure is not acked again.
+	// A transient or escalated failure for the committed version is the exception,
+	// including a NotModified poll after the version has been acked. Re-apply each
+	// such section from the retained full response, in apply order. Ack when their
+	// status changes; an unchanged failure is not acked again.
 	v := configResp.GetConfigVersion()
 	sameVersion := v != "" && v == p.getConfigVersion()
 	if configResp.NotModified || sameVersion {
-		if p.hasEscalatedConfigSectionFailure() {
-			if p.retryEscalatedFromRetained(ctx) {
+		if p.hasRetryableConfigSectionFailure() {
+			if p.retryFailedFromRetained(ctx) {
 				return true
 			}
 			p.logger.Debug().
 				Str("version", p.getConfigVersion()).
 				Str("source", source).
-				Msg("Escalated config sections unchanged; skipping config ack")
+				Msg("Retryable config sections unchanged; skipping config ack")
 
 			return false
 		}
@@ -467,10 +467,11 @@ func (p *PushLoop) rememberFullConfig(configResp *proto.AgentConfigResponse) {
 	p.lastFullConfig = cloned
 }
 
-// retryEscalatedFromRetained re-applies escalated sections from the retained full
-// response. A missing retain leaves the recorded status unchanged.
-func (p *PushLoop) retryEscalatedFromRetained(ctx context.Context) bool {
-	if !p.hasEscalatedConfigSectionFailure() || p.lastFullConfig == nil {
+// retryFailedFromRetained re-applies committed-version failures from the retained
+// full response. A missing or different retain leaves the recorded status unchanged.
+func (p *PushLoop) retryFailedFromRetained(ctx context.Context) bool {
+	if !p.hasRetryableConfigSectionFailure() || p.lastFullConfig == nil ||
+		p.lastFullConfig.GetConfigVersion() != p.getConfigVersion() {
 		return false
 	}
 	cloned, ok := gproto.Clone(p.lastFullConfig).(*proto.AgentConfigResponse)
@@ -478,26 +479,27 @@ func (p *PushLoop) retryEscalatedFromRetained(ctx context.Context) bool {
 		return false
 	}
 
-	return p.retryEscalatedConfigSections(ctx, cloned)
+	return p.retryFailedConfigSections(ctx, cloned)
 }
 
-// retryEscalatedConfigSections re-applies only the sections whose recorded failure was
-// escalated, using the retained full response. When a visibility retry newly succeeds,
-// the add-on section runs in the same cycle so a systemd netprobe that was blocked on
-// that failure can activate. It reports whether any section status changed.
-func (p *PushLoop) retryEscalatedConfigSections(ctx context.Context, configResp *proto.AgentConfigResponse) bool {
+// retryFailedConfigSections re-applies every section with a transient or escalated
+// failure for this response's version. Visibility runs before add-ons. When a
+// visibility retry newly succeeds, the add-on section runs in the same cycle so a
+// systemd netprobe that was blocked on that failure can activate. It reports
+// whether any section status changed.
+func (p *PushLoop) retryFailedConfigSections(ctx context.Context, configResp *proto.AgentConfigResponse) bool {
 	before := p.configSectionStatuses()
 	version := configResp.ConfigVersion
 
-	if p.configSectionIsEscalated(configSectionBumblebee) {
+	if p.configSectionFailureNeedsRetry(configSectionBumblebee) {
 		p.applyBumblebeeConfigSection(ctx, configResp, version)
 	}
-	if p.configSectionIsEscalated(configSectionEndpointInventory) {
+	if p.configSectionFailureNeedsRetry(configSectionEndpointInventory) {
 		p.applyEndpointInventoryConfigSection(ctx, configResp, version)
 	}
 
-	retryVisibility := p.configSectionIsEscalated(configSectionVisibility)
-	retryAddons := p.configSectionIsEscalated(configSectionAddons)
+	retryVisibility := p.configSectionFailureNeedsRetry(configSectionVisibility)
+	retryAddons := p.configSectionFailureNeedsRetry(configSectionAddons)
 	if retryVisibility || retryAddons {
 		effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
 		visibilityDisposition := addonDeliverySucceeded
