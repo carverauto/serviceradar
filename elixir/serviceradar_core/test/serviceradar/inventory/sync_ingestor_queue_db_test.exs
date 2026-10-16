@@ -83,7 +83,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
     assert snapshot_count(source.id, previous_run) == 1
     assert present_count(source.id) == 1
 
-    if !Process.whereis(WorkerBudget), do: start_supervised!({WorkerBudget, pool_size: 7})
+    if !Process.whereis(WorkerBudget), do: start_supervised!({WorkerBudget, pool_size: 8})
     tasks = start_supervised!({Task.Supervisor, []})
     # Occupy every general permit through the real budget owner, so the queue's
     # first accepted chunk remains in flight while another chunk is rejected.

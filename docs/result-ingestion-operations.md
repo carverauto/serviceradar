@@ -6,8 +6,8 @@ Malformed or older sweep metadata falls back to the conservative agent key.
 Generic status snapshots keep per-agent order. The retained plugin lane is the
 exception: each job is its own key, fixed in the lane and not selectable by
 callers, so its two workers can run two chunks from the same agent at once.
-Per-agent item and byte caps still apply, and the plugin database permit stays
-one. Type ingestion and irreversible transitions are never coalesced. Only
+Per-agent item and byte caps still apply, and the plugin lane has two database
+permits. Type ingestion and irreversible transitions are never coalesced. Only
 completed service-state projections with all five identity fields may replace
 an older pending projection.
 
@@ -64,8 +64,11 @@ overrides are capped at the effective lane credit, including runtime byte
 overrides.
 
 The node also limits DB-active ingestion workers. A Repo pool of ten reserves
-three slots for other core services, one each for flow, plugin, and endpoint,
-and four for other ingestion. A pool below seven cannot start this topology.
+three slots for other core services, one for flow, two for retained plugin
+(one per lane worker, so both chunks of the gateway's pair reach the database),
+one for endpoint, and three for other ingestion. Other ingestion takes up to
+four once the pool reaches eleven. A pool below eight cannot start this
+topology.
 Sync device batches execute sequentially inside their permit. The gate bounds
 this topology's writers, not all unrelated application DB callers.
 

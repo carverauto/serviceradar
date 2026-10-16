@@ -725,6 +725,8 @@ core:
   alertEvaluation:
     mode: prepared
   database:
+    # Core refuses to start result ingestion below 8 (see
+    # docs/result-ingestion-operations.md, "Capacity").
     poolSize: 40
     queueTargetMs: 2000
     queueIntervalMs: 2000
