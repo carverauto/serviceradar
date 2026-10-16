@@ -7,20 +7,18 @@ Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
 
 ## Next agent prompt
 
-Finish integrated canonical world mapping, authorized channel delivery and the
-binary health/flow HTTP path. Source/index/query implementation and both binary
-codecs are implemented in the independent lanes; combine them, then run actual
-database lifecycle and channel tests, concurrency measurements and hardware
-browser acceptance. Preserve the already merged ELK and GPU lifetime repairs.
-Use `tasks.md`; unchecked work is not shipped or verified. The user additionally
-requires an actual map filter builder, text tag prefixes and CIDR matching across
-any known device/interface IP. Complete the current binary integration checkpoint,
-then settle and implement those source/operator/UI contracts before delivery.
+Finish the integrated binary delivery checkpoint, then the visible map builder,
+text prefixes, current-address CIDRs and existing named Prefix Tags. Native
+scalar set algebra, both binary codecs, rollout configuration and a public-GPU
+dependency repair are integrated. Parent integration checks are being rerun;
+actual database lifecycle/channel tests and end-to-end scale remain open.
+Use `tasks.md`; unchecked work is not shipped or verified. Preserve automatic
+ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
 
 Independent lanes own device identity/source/publisher/query API, native
-index/Atlas projection, and browser binary overlay. The integration lane owns
-world mapping, channel wiring and binary HTTP delivery. Coordinate shared APIs
-before editing.
+index/Atlas projection, and browser binary overlay/UI. The integration lane owns
+world mapping, channel/HTTP delivery and the existing Prefix Tags native catalog.
+Coordinate shared APIs before editing.
 
 ## Settled contracts
 
@@ -40,8 +38,10 @@ before editing.
 ## Evidence and remaining risk
 
 Native scale and browser codec comparison are in `review-response.md`; integrated
-scale, complete database tests and actual-hardware acceptance remain pending.
+scale and complete database tests remain pending. The physical-GPU synthetic
+transport stress test passed; its exact scope is in
+`docs/topology-bitmap-gpu-acceptance.md`, not a deployed-backend acceptance claim.
 The shared-bucket experiment was rejected after a real deadlock, and its source
-and tests were removed. It is not a foundation to restore. The existing HTML
-architecture/review artifacts still describe the old plan and must be refreshed
+and tests were removed. It is not a foundation to restore. HTML architecture
+artifacts now reflect binary row overlays; keep new UI/prefix scope synchronized
 before delivery. Do not deploy or archive this change.

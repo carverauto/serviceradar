@@ -96,7 +96,7 @@ The system SHALL apply membership to the persistent tiled world without changing
 - **AND** the whole-bundle rate SHALL NOT be shown as a filtered-population rate
 
 ### Requirement: Operator Map Set Filters
-The system SHALL expose a usable map filter builder for supported canonical attributes, inventory VLAN assignments and configured tags, with AND, OR, EXCEPT, literal text prefixes and typed IP/CIDR predicates.
+The system SHALL expose a usable map filter builder for supported canonical attributes, inventory VLAN assignments, configured device tags and named Prefix Tags, with AND, OR, EXCEPT, literal text prefixes and typed IP/CIDR predicates.
 
 #### Scenario: VLAN set algebra on the map
 - **WHEN** an operator selects `(VLAN 20 OR VLAN 30) AND unavailable EXCEPT maintenance=true` using configured inventory fields
@@ -125,6 +125,16 @@ The system SHALL expose a usable map filter builder for supported canonical attr
 - **AND** an unfiltered view SHALL NOT wait for query-index readiness
 - **AND** a deliberately selected all-devices expression SHALL still follow query membership guards
 
+#### Scenario: Named Prefix Tag groups
+- **GIVEN** a locally available Prefix Tag source assigns a label to configured networks
+- **WHEN** the operator selects that source and label alongside VLAN or other Boolean filters
+- **THEN** devices with any current address matching that label under the existing full prefix-chain semantics SHALL participate in the set expression
+- **AND** shared addresses or overlapping prefixes SHALL NOT count a device more than once
+- **AND** the response SHALL use one captured prefix version and report its freshness
+- **AND** subsequent device pages SHALL use current label membership without routing to a frozen owner
+- **AND** missing sources, catalog exhaustion or range-budget overflow SHALL fail explicitly without partial results
+- **AND** discovery SHALL be paged and query evaluation SHALL NOT scan the fleet in BEAM or call core by RPC
+
 ### Requirement: Typed Binary Tile Overlay
 The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.
 
@@ -141,6 +151,7 @@ The system SHALL replace the active tiled path's per-tile JSON membership overla
 - **THEN** it SHALL bind exact tile receipts and row counts, dictionary, query and authority
 - **AND** it SHALL contain matching u8, causal u8, availability u8 and little-endian matched-count u32 columns
 - **AND** every row in the response SHALL use the same pinned query revision
+- **AND** the envelope SHALL carry the exact whole-query count rather than summing overlapping visible tiles
 - **AND** causal and availability domains SHALL remain explicit and separate
 - **AND** bulk overlay data SHALL NOT use JSON arrays, base64 or a browser Roaring/WASM runtime
 

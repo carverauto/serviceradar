@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
 
   use GenServer
 
+  alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.TileControl
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldTile
@@ -30,6 +31,15 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
   def observe_head(manifest, server \\ __MODULE__), do: call(server, {:observe_head, manifest})
   def manifest(server \\ __MODULE__), do: call(server, :manifest)
   def world(server \\ __MODULE__), do: call(server, :world)
+
+  @doc "Install a sealed canonical mapping only while its exact native world is current."
+  def install_ordinals(world, ordinals, server \\ __MODULE__) do
+    with {:ok, info} <- TopologyAtlas.ordinal_info(world, ordinals) do
+      call(server, {:install_ordinals, world, ordinals, info})
+    end
+  end
+
+  def clear_ordinals(server \\ __MODULE__), do: call(server, :clear_ordinals)
 
   def fetch(%TileKey{} = key, priority \\ :foreground, server \\ __MODULE__) when priority in [:foreground, :background],
     do: call(server, {:fetch, key, priority})
@@ -90,7 +100,7 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
 
         state = %{
           state
-          | current: %{world: world, manifest: manifest},
+          | current: %{world: world, manifest: manifest, ordinals: nil},
             pinned: MapSet.new(Map.keys(prepared)),
             entries: entries,
             bytes: bytes,
@@ -117,6 +127,20 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
   end
 
   def handle_call(:world, _from, state), do: {:reply, {:ok, state.current}, state}
+
+  def handle_call({:install_ordinals, world, ordinals, %{ready: true} = info}, _from, state) do
+    if world == state.current.world do
+      projection = %{mapping: ordinals, info: info, completed_at: DateTime.utc_now()}
+      current = %{state.current | ordinals: projection}
+      {:reply, :ok, %{state | current: current}}
+    else
+      {:reply, {:error, :source_changed}, state}
+    end
+  end
+
+  def handle_call({:install_ordinals, _world, _ordinals, _info}, _from, state), do: {:reply, {:error, :not_ready}, state}
+
+  def handle_call(:clear_ordinals, _from, state), do: {:reply, :ok, %{state | current: %{state.current | ordinals: nil}}}
 
   def handle_call({:fetch, key, priority}, from, state) do
     manifest = state.current.manifest
