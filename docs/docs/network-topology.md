@@ -31,9 +31,9 @@ new layout version and keeps the accepted world until that replacement
 activates. Timestamp-only observation refreshes do not swap an equally trusted
 forest or move unchanged geometry. An operator relayout or a staged layout
 upgrade can also replace the coordinate space. Arrow tiles stay bounded; the
-[binary path audit](../topology-binary-path-audit.md) records the remaining
+[binary path audit](https://github.com/carverauto/serviceradar/blob/staging/docs/topology-binary-path-audit.md) records the remaining
 producer and browser copies and the scale evidence still missing.
-The optional [bitmap membership protocol](../topology-bitmap-protocol.md) uses
+The optional [bitmap membership protocol](https://github.com/carverauto/serviceradar/blob/staging/docs/topology-bitmap-protocol.md) uses
 server-side set queries and bounded binary row overlays without changing tile geometry.
 The client fetches only the tiles in the viewport, keyed by
 `layout_version`/`z`/`x`/`y`, and renders schema-3 Arrow batches; telemetry

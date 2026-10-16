@@ -246,3 +246,67 @@ These are focused revision checkpoints, not final integrated acceptance. Hosted
 migration, database lifecycle, real channel and compact/sparse combined scale
 execution remain required. In particular, database-free parser and controller
 checks do not prove disable-during-authority or persisted-world polling races.
+
+## Follow-up review corrections
+
+The next review's fixer timed out before committing. Its successful edits were
+recovered, reviewed and corrected before integration; the timeout is not a
+passing review. The user confirmed durable seed successors, retained dictionary
+protection on rollback, and unchanged scale limits with cleanup reserved.
+
+| Finding | Correction and acceptance boundary |
+| --- | --- |
+| Tile query errors returned 503 | Query and tile controllers share bitmap status mapping: malformed input is 400, unsupported predicates 422 and expression limits 413; only retryable responses advertise Retry-After. The actual channel/database owner covers both controllers. |
+| Replaced watches orphaned query work | A channel retains its occupied slot until its bounded task exits. Reset/unwatch discard delivery without killing only the outer caller. The database owner exercises repeated cancellation while another client progresses. No global slot registry was added. |
+| Pending Roaring bytes omitted from native-cap selection | Final admission includes the actual pending queue charge. At the cap, IP becomes explicitly unavailable while scalar publication progresses; limits remain 125 MB retained / 160 MB transient. |
+| Prefix source version refreshed the whole form | Capability identity excludes only source versions. Full descriptors and frame freshness checks remain; real support changes still invalidate the query. |
+| Seed succession stopped after eight retired identities | A durable successor pointer advances atomically with fresh identity creation and preserves the eight-read attempt bound, with observed-revision fencing and permanent ordinal reservation. |
+| Migration rollback broke older cleanup | Keep permanent dictionary protection. Rollback requires compatible retention cleanup or paused cleanup; document this requirement instead of permitting identity deletion. |
+| Scale observer/action deadlines overlapped | Account from the hosted runner's actual start, including checkout. Require full test/quiet/cleanup time before scale admission, bound observer and cleanup processes including forced-exit grace, and retain all existing limits. |
+| Committing tests retained synthetic identity rows | Use guarded exact-identity cleanup only in disposable database fixtures, with transactional protection restoration. Production retention remains unchanged. |
+| Old dictionary flags could resurrect deleted membership | Canonical device liveness is authoritative at query-source reads; no fleet-wide startup repair write. |
+| Migration lock inversion | Acquire both required table locks without waiting before lifecycle DDL, retaining finite migration deadlines. |
+| Literal prefixes silently trimmed | Reject empty or surrounding-whitespace values in both parser and visible controls; preserve internal spaces and the user's draft. |
+| Reconnect reset retry history | Preserve exponential retry history through binding cancellation and reconnect; accepted frames, changed requests or real capability changes reset it. Membership replacement is transient. |
+| Deadline test was scheduler-sensitive | Retain the 100 ms request deadline and use a 1,500 ms observable completion bound, within a five-second test timeout. |
+| Scale runbook implied completed measurements | Mark combined hosted compact/sparse runs as unexecuted until actual receipts exist. Native-only and component GPU measurements remain separate. |
+
+The staging-finish comment finding was rejected after checking ownership: the
+stage is consumed, while the last accepted revision stays available. The comment
+describes the accepted revision, not retention of the stage.
+
+A fresh physical-GPU probe also found that transparent zero-radius glyphs could
+still be picked through their nonzero stroke. The corrected layer sets stroke
+width and minimum pixel size to zero while reusing original geometry. The public
+GPU test includes a visible underlay to distinguish a hidden hit from no rendered
+scene. Camera acceptance now waits for current camera, receipts, sequence and
+render completion; the transport uses the production numeric watch identifier.
+
+Native-cap RED `af614604-e53e-4a85-89c2-d68c3862b5ee` became GREEN with 37 native
+tests in `9e431e15-7b97-4dd3-8edb-7c49d6a3c410`. All ten web unit shards passed
+in `2b7cc820-6d22-41a9-92e3-43a35f488d73`; its workflow contract failure was
+corrected separately. The final workflow contract passed in
+`fac207b1-c616-4b11-a848-09d101d122b1`, after deliberately disabling admission
+made both negative budget cases fail in `4296db48-171a-4ae2-b785-cb0a56f6a4e4`.
+Browser scene tests (652), eight SwiftShader GPU cases, declared lint and the
+existing TypeScript scope passed in `73840a94-e01d-4d55-8b25-2869be7a4a2e`.
+The combined remote `make test` then passed 419 targets with two platform skips
+in `c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03`, at runtime commit `2a3032e125`.
+Hosted database and compact/sparse scale acceptance remain pending. Fresh physical Apple WebGPU checks passed on
+the integrated browser sources, including empty-filter picking with a visible
+positive control, tile eviction, retry/rejoin, capability refresh and full device
+teardown. The exact artifact and measurement limits are recorded in
+`docs/topology-bitmap-gpu-acceptance.md`.
+
+Identity RBE quality and sweep tests passed in
+`fb8c3314-1401-4da8-8a48-8994f4c0a9d8`. The hosted owners still must execute the
+new repeated-seed, concurrent-writer, migration and committing-fixture cases;
+the database-free tier excludes them.
+
+The portable artifact receipt now distinguishes optional web fonts from embedded
+operational assets and qualifies unchanged diagram bytes relative to the prior
+feature-branch refresh. The published topology page links to the protocol on
+GitHub rather than a file outside the Docusaurus tree. All five embedded source
+hashes match their canonical files and the embedded diagram bytes match the
+delivered diagram. A fresh visual containment check was not run because browser
+policy refused local file URLs; the earlier diagram receipts remain historical.

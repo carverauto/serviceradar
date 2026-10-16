@@ -50,6 +50,22 @@ BazelCI workload. Schema preparation, compilation and diagnostic cases still
 consume outer time. ExecuteWorkflow cannot override that timeout. A timeout
 is a failed, incomplete measurement, never evidence of acceptance.
 
+The diagnostic reads the parent runner's process-start clock (including checkout
+before the first workflow step), verifies that parent is the declared runner,
+and warms
+the database suites and selected scale target before starting the observer.
+Immediately before scale execution it checks both remaining clocks: 2,760
+seconds for the complete Bazel command (including its unchanged 2,700-second
+test limit), 30 seconds for quiescence and 120 seconds for cleanup. Teardown and
+lease release each have a 60-second command envelope, including forced exit.
+The observer's complete command is also bounded by the smaller of 3,300 seconds
+and the remaining action time minus ten seconds for final status cleanup; its
+five-second kill grace is inside that envelope. A stuck final sample cannot
+leave the cleanup waiting beyond the action's remaining budget.
+Insufficient time refuses admission and runs cleanup; it does not shorten the
+scenario or count an incomplete workload as a pass. Observer coverage still
+includes the earlier database suites and clone creation.
+
 Local compile and database-free verification use RBE:
 
 ```sh
@@ -77,10 +93,11 @@ exercise scalar facets. A separate fixture marker excludes preexisting
 scratch records from the expected population.
 
 Compact ordinals start above existing allocations with stride one. Sparse
-ordinals start at or above 2^31 with stride seven. This is an explicit fixture
-bootstrap before any fixture device, index or mapping exists; it never
-reassigns an existing identity or tombstone. Device insertion still executes
-the real allocation triggers. The sequence is advanced after bootstrap.
+ordinals start at or above 2^31 with stride seven. In each 500-row transaction,
+the fixture creates new inactive canonical devices, assigns their invented
+sparse dictionary ordinals, then activates them through the real lifecycle
+triggers. This happens before indexing or mapping and never reassigns an
+existing identity or tombstone. The sequence is advanced after bootstrap.
 Sparse means separated high IDs, not a uniform sample of the entire u32 space.
 
 Two isolated BEAM VMs run the production source publishers and endpoint, with

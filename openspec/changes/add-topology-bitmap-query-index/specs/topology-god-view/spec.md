@@ -18,6 +18,21 @@ The system SHALL reuse persisted device fleet ordinals for topology membership a
 - **AND** rollback SHALL retain the widened storage and existing assignments
 - **AND** exhaustion SHALL reject new allocations while preserving readable accepted state
 
+#### Scenario: Repeated address seed retirement
+- **GIVEN** an address has accumulated more than eight eligible purged seed identities
+- **WHEN** a later sweep needs a new identity
+- **THEN** a durable current-successor pointer SHALL preserve verified progress within eight reads per attempt
+- **AND** UID-sorted fences SHALL commit new identity creation and head movement atomically
+- **AND** merged roots SHALL NOT prevent a fresh successor or revive the merge loser
+- **AND** source-retired heads SHALL remain suppressed and old ordinals SHALL NOT be reused
+
+#### Scenario: Compatible rollback and migration contention
+- **WHEN** the identity migration is rolled back
+- **THEN** deletion and truncate protection SHALL remain active
+- **AND** rollback SHALL require a retention-compatible cleanup worker or paused cleanup
+- **WHEN** either required lifecycle table lock is unavailable during migration
+- **THEN** migration SHALL fail atomically for retry without waiting while holding a conflicting table lock
+
 #### Scenario: Unsupported identity domain
 - **WHEN** a query supplies an incompatible dictionary epoch or an unsupported entity kind
 - **THEN** it SHALL fail explicitly before set algebra
@@ -46,6 +61,8 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** coalesced ordinal dirty sets SHALL use Roaring with an explicit byte cap
 - **AND** readers SHALL NOT observe a partially published revision or partial facets labeled exact
 - **AND** unavailable causal evidence SHALL NOT be synthesized from availability
+- **AND** intrinsic address capacity SHALL include actual pending bitmap memory under the final publication lock
+- **AND** address-capacity exhaustion SHALL preserve scalar progress and retained dirty hints
 
 ### Requirement: Authorized Bitmap Query and Exact Facets
 The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported sets, intersect current effective visibility and pin one coherent native revision per response.
@@ -69,6 +86,13 @@ The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported 
 - **THEN** current authority SHALL be revalidated before bytes, counts or a 304 are delivered
 - **AND** revoked work SHALL be cancelled and client membership cleared
 - **AND** no tenancy or authorization bypass mode SHALL be introduced
+
+#### Scenario: Cancelled channel work retains its concurrency slot
+- **GIVEN** a channel query is still executing
+- **WHEN** the viewer replaces, resets or unwatches membership repeatedly
+- **THEN** that channel SHALL retain its occupied slot until the actual task finishes
+- **AND** replacement attempts SHALL receive bounded busy responses without creating additional inner workers
+- **AND** cancelled results SHALL NOT deliver frames and other clients SHALL retain pool capacity
 
 #### Scenario: Live pagination reaches another pod
 - **GIVEN** a cursor binds dictionary epoch, device kind, normalized query, authority and last ordinal
@@ -107,6 +131,11 @@ The system SHALL apply membership to the persistent tiled world without changing
 - **THEN** the client SHALL hide that relation and suppress its traffic rates and animation
 - **AND** the whole-bundle rate SHALL NOT be shown as a filtered-population rate
 
+#### Scenario: Hidden geometry cannot receive picks
+- **WHEN** a glyph or relation is excluded, pending, stale or hidden by an availability filter
+- **THEN** it SHALL NOT receive a GPU pick or intercept a visible item behind it
+- **AND** zero-match aggregate clicks SHALL NOT navigate or reveal unfiltered details
+
 ### Requirement: Operator Map Set Filters
 The system SHALL expose a usable map filter builder for supported canonical attributes, inventory VLAN assignments, configured device tags and named Prefix Tags, with AND, OR, EXCEPT, literal text prefixes and typed IP/CIDR predicates.
 
@@ -122,6 +151,8 @@ The system SHALL expose a usable map filter builder for supported canonical attr
 - **THEN** the result SHALL union the complete matching supported postings under the query limits
 - **AND** tag-name matching SHALL cover configured keys and SHALL NOT imply arbitrary JSON-path indexing
 - **AND** exceeding the expansion or memory budget SHALL fail explicitly instead of returning partial matches
+- **AND** empty or surrounding-whitespace text SHALL be rejected consistently by builder and server, without silent trimming
+- **AND** internal spaces SHALL retain their literal meaning
 
 #### Scenario: Any known address falls within a network
 - **GIVEN** a device has primary and interface addresses, including IPv4 and IPv6
@@ -146,6 +177,7 @@ The system SHALL expose a usable map filter builder for supported canonical attr
 - **AND** subsequent device pages SHALL use current label membership without routing to a frozen owner
 - **AND** missing sources, catalog exhaustion or range-budget overflow SHALL fail explicitly without partial results
 - **AND** discovery SHALL be paged and query evaluation SHALL NOT scan the fleet in BEAM or call core by RPC
+- **AND** source-version-only refreshes SHALL preserve unchanged filters, accepted membership and in-flight label discovery
 
 ### Requirement: Typed Binary Tile Overlay
 The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.
@@ -185,6 +217,7 @@ The system SHALL replace the active tiled path's per-tile JSON membership overla
 - **WHEN** watch binding succeeds but replacement frames remain invalid or reset
 - **THEN** retries SHALL back off through 1, 2, 4, 8 and at most 10 seconds
 - **AND** a successful binding alone SHALL NOT reset the attempt counter
+- **AND** disconnect/rejoin with unchanged displayed receipts and empty dirty-tile reconciliation SHALL preserve retry history
 - **AND** an accepted complete frame or a genuinely changed query/view SHALL begin a fresh retry epoch
 
 #### Scenario: Slow viewer and resource lifetime
