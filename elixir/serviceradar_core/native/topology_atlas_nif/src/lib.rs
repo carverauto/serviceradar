@@ -9,6 +9,7 @@ mod async_read;
 mod details;
 mod health;
 mod model;
+mod ordinals;
 #[cfg(test)]
 mod tests;
 

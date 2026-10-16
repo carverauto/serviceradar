@@ -5,6 +5,47 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
   @moduletag :db_free
 
+  test "canonical mapping ABI preserves unsigned ordinals and seals partial world coverage" do
+    nodes =
+      for n <- 1..4, do: Map.put(position("sr:ordinal-#{n}.example.com", n, true), :min_zoom, 24)
+
+    world = cold_world(nodes)
+    dictionary = <<255::128>>
+    assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, dictionary)
+    assert {:error, :not_ready} = TopologyAtlas.device_ordinals(world, mapping, [])
+
+    assert {:ok, %{ready: false, mapped: 2, total: 4, dictionary_epoch: ^dictionary}} =
+             TopologyAtlas.apply_ordinals(world, mapping, [
+               {Enum.at(nodes, 0).device_id, 4_294_967_295},
+               {Enum.at(nodes, 2).device_id, 2_147_483_648},
+               {"sr:outside-world.example.com", 7}
+             ])
+
+    assert {:error, :bitmap_budget} =
+             TopologyAtlas.apply_ordinals(world, mapping, List.duplicate({"synthetic", 1}, 501))
+
+    assert {:ok, %{ready: true, mapped: 2}} = TopologyAtlas.seal_ordinals(world, mapping)
+
+    assert {:ok, [4_294_967_295, 0, 2_147_483_648, 0]} =
+             TopologyAtlas.device_ordinals(world, mapping, Enum.map(nodes, & &1.device_id))
+
+    assert {:error, :sealed} = TopologyAtlas.apply_ordinals(world, mapping, [])
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
+
+    assert {:ok, selection} =
+             TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
+
+    assert {:ok, portable} = TopologyAtlas.aggregate_ordinals(world, mapping, selection, 1000)
+    assert is_binary(portable) and byte_size(portable) > 0
+
+    assert {:error, :invalid_request} =
+             TopologyAtlas.aggregate_ordinals(world, mapping, selection, 1001)
+
+    other = cold_world([])
+    assert {:error, :stale_revision} = TopologyAtlas.ordinal_info(other, mapping)
+  end
+
   test "packaged native world consumes a bounded builder and excludes inactive reservations" do
     a = position("sr:host0001.example.com", 100, true)
     b = position("sr:host0002.example.com", 200, false)

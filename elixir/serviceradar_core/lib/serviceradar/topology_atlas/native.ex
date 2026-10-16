@@ -41,6 +41,15 @@ defmodule ServiceRadar.TopologyAtlas.Native do
   def apply_health(_world, _health, _sequence, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def tile_health(_world, _health, _selection), do: :erlang.nif_error(:nif_not_loaded)
   def health_info(_world, _health), do: :erlang.nif_error(:nif_not_loaded)
+  def new_ordinals(_world, _dictionary_epoch), do: :erlang.nif_error(:nif_not_loaded)
+  def apply_ordinals(_world, _mapping, _rows), do: :erlang.nif_error(:nif_not_loaded)
+  def seal_ordinals(_world, _mapping), do: :erlang.nif_error(:nif_not_loaded)
+  def ordinal_info(_world, _mapping), do: :erlang.nif_error(:nif_not_loaded)
+  def device_ordinals(_world, _mapping, _ids), do: :erlang.nif_error(:nif_not_loaded)
+
+  def aggregate_ordinals(_world, _mapping, _aggregate, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def search(_world, _id), do: :erlang.nif_error(:nif_not_loaded)
   def positions_page(_candidate, _cursor, _limit), do: :erlang.nif_error(:nif_not_loaded)
   def relations_page(_candidate, _cursor, _limit), do: :erlang.nif_error(:nif_not_loaded)
