@@ -14799,7 +14799,7 @@
   &lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
-"></iframe></section><section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before rollout.</h2><div class="grid"><article class="card"><h3>Identity and publication</h3><p>Verify ordinal persistence, current canonical sources, bounded publication and missed-hint reconciliation.</p></article><article class="card"><h3>Query and map controls</h3><p>Prove authorization, exact counts, live cursor pages and visible filter semantics. Readiness and incomplete sources remain visible.</p></article><article class="card"><h3>Browser and GPU</h3><p>Verify real binary decoding, tile eviction, reconnects, disable cleanup and GPU submission lifetime. Hardware component evidence is distinct from production-route acceptance.</p></article></div><div class="approval"><h3>Approved implementation scope; deployment remains pending.</h3><p>The complete current design and task checklist follow, including work that is still unfinished. These artifacts do not claim that rollout or carrier-scale acceptance is complete.</p></div></section><section id="proposal" class="source"><div class="section-label">Complete source document · proposal.md</div><h1>Change: Add a topology bitmap query index</h1>
+"></iframe></section><section id="rollout"><div class="section-label">Delivery sequence</div><h2>Prove each boundary before rollout.</h2><div class="grid"><article class="card"><h3>Identity and publication</h3><p>Verify ordinal persistence, current canonical sources, bounded publication and missed-hint reconciliation.</p></article><article class="card"><h3>Query and map controls</h3><p>Prove authorization, exact counts, live cursor pages and visible filter semantics. Readiness and incomplete sources remain visible.</p></article><article class="card"><h3>Browser and GPU</h3><p>Verify real binary decoding, tile eviction, reconnects, disable cleanup and GPU submission lifetime. Hardware component evidence is distinct from production-route acceptance.</p></article></div><div class="approval"><h3>Approved implementation scope; deployment remains pending.</h3><p>The complete current design and task checklist follow, including work that is still unfinished. These artifacts do not claim that rollout or carrier-scale acceptance is complete.</p></div><h3>Verified integration; remaining acceptance</h3><p>The full remote unit gate passed 414 targets with two Swift platform skips. Final delivery checks share the original request deadline and compare the exact canonical mapping. Native scale and synthetic production-component GPU checks have separate evidence; hosted database/channel acceptance and concurrent HTTP/WebSocket measurements remain open.</p><h3>Current product limits</h3><p>Share map preserves the camera, not the filter expression. Named Prefix Tag labels are paged without label search. Zero-match glyphs are masked, and links involving partial aggregates remain hidden when exact matching endpoints cannot be established. Compression stays disabled pending concurrent transport measurements.</p></section><section id="proposal" class="source"><div class="section-label">Complete source document · proposal.md</div><h1>Change: Add a topology bitmap query index</h1>
 <h2>Why</h2>
 <p>The topology renderer builds Roaring sets over temporary scene positions but
 sends only their sizes and counts. The persistent tiled world needs server-side
@@ -15493,7 +15493,8 @@ driven; full replacements stay the current protocol.</p>
 <p>This responds to every finding in <code>review.md</code> without changing that independent
 append-only review. The user confirmed current membership on each page on
 2026-10-16. Proposal, design, requirements and tasks now describe the reduced
-implementation. Architecture HTML artifacts remain explicitly pending refresh.</p>
+implementation. Refreshed architecture HTML artifacts and their review receipts
+are committed alongside this change.</p>
 <h2>Confirmed findings and changes</h2>
 <table>
 <thead>
@@ -15617,12 +15618,14 @@ not a claim that it is safe to ship.</li>
 zero failures: BuildBuddy invocation
 <code>55eb5a47-81a7-4d3d-ba5e-2bb090062e43</code>. Database cases were excluded.</li>
 <li>The earlier native 1.1-million-device experiment retained 100 query pins
-and reached 64.0/90.2 MB after compact/sparse churn (invocation
+and reported 64.0/90.2 MB after compact/sparse churn (invocation
 <code>02c8f8ee-e0e7-44c2-b7e9-2fe3193f7136</code>). That lifecycle was rejected; it is
-not current admission or memory acceptance. The eight-pin implementation
-passed native tests and sustained churn under unchanged 64 MB retained /
-160 MB transient index caps. Its tuple baseline is independent Rust, not
-the old JavaScript renderer.</li>
+not current admission or memory acceptance. Later verification found that
+Roaring's bitset statistic reports bits despite its byte-oriented name, so
+those old charged figures overstated actual bitset storage eightfold. Current
+scalar and address results use the corrected counter. The address-capable
+index enforces 125 MB retained and 160 MB total reservation caps, with eight
+query pins. Its tuple baseline is independent Rust.</li>
 <li>Synthetic 8,192-row codec experiment: eight baseline portable sets used
 24,664 bytes for dense IDs and 245,824 for sparse IDs; seven-byte typed row
 columns use 57,344 bytes regardless of ID distribution. Source-built codec
@@ -15632,7 +15635,8 @@ or GPU acceptance. The revised protocol removes this runtime entirely.</li>
 <li>The replacement codec produced a 59,469-byte full frame for 8,192 synthetic
 rows, including its receipts and envelope. Aligned count copies add 32,768
 bytes; Node decode and validation measured 1.24 ms p95 over 100 iterations.
-Actual-browser and GPU measurement remains pending.</li>
+This earlier Node-only measurement predates the exact-total header field;
+physical-browser and GPU evidence is recorded separately below.</li>
 </ul>
 <p>The actual native Atlas-to-index 100-view workload passed three independent
 runs with automatic flaky retries disabled: invocation
@@ -15662,11 +15666,38 @@ prefixes and IPv4/IPv6 containment over any current device/interface address.
 Those additions are now explicit proposal/design/requirement tasks. They do not
 restore the rejected browser Roaring, frozen-page routing, interface identities
 or durable hint replication. Address-index memory and prefix/CIDR performance
-need their own declared proof before acceptance.
+have separate declared proof.
 Existing named Prefix Tags are also approved. Their local immutable snapshots
-will supply bounded native network ranges, preserving the existing full matching
+now supply bounded native network ranges, preserving the existing full matching
 chain and live pagination. This adds no interface identities, query-owner routing
-or per-device BEAM lookup; catalog and range costs are explicit acceptance work.</p>
+or per-device BEAM lookup; catalog and range costs are explicitly bounded.</p>
+<p>Native invocation <code>49a2c6f0-de5c-4c6c-9315-6f3bc99f0c4d</code> passed 35 native tests,
+778 web tests and scalar, Atlas-view and address benchmarks. Corrected scalar
+memory after 100 churn ticks was 7.94/19.21 MB compact/sparse. The separate
+2.2-million-association address benchmark retained 71.00/83.15 MB after 100
+one-percent mixed churn ticks; sparse total reservations peaked at 140.68 MB.
+All 100 concurrent native address queries completed with bounded harness retries,
+at 64.47 ms sparse request p95. The native README records pin-release retries,
+monotonic synthetic IPv6 assignment and excluded database/transport costs.
+These experiments do not prove a combined address-plus-Atlas-view peak.</p>
+<p>Source/parser/catalog integration passed 787 web tests with zero failures
+(212 database exclusions), plus quality in
+<code>b3a57067-4654-49e5-a4fc-ae01acb8189e</code>. The production filter and capture fixture
+passed 635 scene tests and seven WebGPU checks in
+<code>56545d47-fc2d-4d3a-939f-a8143c12fe0a</code>. Two real 1600x1000 browser captures
+show the requested expression returning 160 matches from 1,024 invented devices,
+with identical camera and decoded geometry. They use synthetic transport and
+do not replace the hosted database/channel acceptance lane.</p>
+<p>Final delivery checks now run geometry, canonical mapping and fresh authority
+checks inside the original one-second request budget. A suspended geometry owner
+reproduced the unbounded-call failure in <code>028c8130-a5da-40d5-a5f1-ca2645329aaf</code>;
+the fixed deadline regression and web quality passed in
+<code>f21041bc-d8a0-4971-8bd7-b8f5eb271138</code>. Canonical mappings retain their two-slot
+native admission permits through actual reclamation, and health snapshots no
+longer retain those separate mappings. The full remote <code>make test</code> gate passed
+414 targets with two Swift platform skips in
+<code>2acf322c-fbc1-4bba-8257-2a137605223e</code>. Database-backed acceptance remains a
+separate hosted gate.</p>
 <h2>Pass 3 response</h2>
 <ul>
 <li>Naming: public prose and new UI copy use ServiceRadar Atlas. Existing source
@@ -15683,4 +15714,4 @@ Production renderer and filter components must generate the images; no
 composited UI or captured deployment inventory is allowed. Synthetic transport
 must be disclosed separately from actual server/database acceptance.</li>
 </ul>
-<div class="checksum">Source SHA-256: 446ffcbe652342dbacf0b2204a52ad234d3f61dbfe0e1e04f5b67c67c91d65e7</div></section><footer>ServiceRadar Atlas · Synthetic examples only · Artifact snapshot of the current approved design. Implementation progress is recorded in the source task checklist.</footer></main><script>document.querySelector('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';document.querySelector('#theme').textContent=light?'Dark theme':'Light theme'})</script></body></html>
+<div class="checksum">Source SHA-256: 450a19ae634c45e472abb09852d2b3f4ecfbf329c513485983d27ef951905691</div></section><footer>ServiceRadar Atlas · Synthetic examples only · Artifact snapshot of the current approved design. Implementation progress is recorded in the source task checklist.</footer></main><script>document.querySelector('#theme').addEventListener('click',()=>{const light=document.documentElement.dataset.theme!=='light';document.documentElement.dataset.theme=light?'light':'dark';document.querySelector('#theme').textContent=light?'Dark theme':'Light theme'})</script></body></html>
