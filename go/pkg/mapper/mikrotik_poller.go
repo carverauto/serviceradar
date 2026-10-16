@@ -273,11 +273,10 @@ func buildMikroTikInventory(
 	}
 
 	metadata := map[string]string{
-		"source":      "mikrotik-api",
-		"api_name":    apiConfig.Name,
-		"api_url":     apiConfig.BaseURL,
-		"vendor_name": "MikroTik",
-		//nolint:misspell // RouterOS is the vendor product name.
+		"source":            "mikrotik-api",
+		"api_name":          apiConfig.Name,
+		"api_url":           apiConfig.BaseURL,
+		"vendor_name":       "MikroTik",
 		"routeros_version":  resource.Version,
 		"architecture_name": resource.ArchitectureName,
 	}
@@ -309,9 +308,8 @@ func buildMikroTikInventory(
 		}
 
 		ifaceMetadata := map[string]string{
-			"source":   "mikrotik-api",
-			"api_name": apiConfig.Name,
-			//nolint:misspell // RouterOS is the vendor product name.
+			"source":        "mikrotik-api",
+			"api_name":      apiConfig.Name,
 			"routeros_type": stringValue(raw, "type"),
 			"running":       stringValue(raw, "running"),
 			"disabled":      stringValue(raw, "disabled"),
@@ -398,8 +396,7 @@ func buildMikroTikTopologyLinks(
 				"source":          "mikrotik-api-neighbor",
 				"evidence_class":  evidenceClassDirectPhysical,
 				"relation_family": "CONNECTS_TO",
-				//nolint:misspell // RouterOS is the vendor product name.
-				"evidence": "routeros-ip-neighbor",
+				"evidence":        "routeros-ip-neighbor",
 			},
 		}
 
