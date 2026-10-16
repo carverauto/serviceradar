@@ -769,8 +769,19 @@ actions:
           # rejects them.
           bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test
 
+          OBSERVER_MAX_SECONDS=1800
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in
+            0|"") SCALE_VARIANTS="" ;;
+            compact|sparse) SCALE_VARIANTS="$SERVICERADAR_TOPOLOGY_BITMAP_SCALE" ;;
+            both) SCALE_VARIANTS="compact sparse" ;;
+            *) echo "Invalid SERVICERADAR_TOPOLOGY_BITMAP_SCALE selector" >&2; exit 1 ;;
+          esac
+          if [[ -n "$SCALE_VARIANTS" ]]; then
+            bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //elixir/web-ng:topology_bitmap_scale_acceptance
+            OBSERVER_MAX_SECONDS=10800
+          fi
           START_NS="$(date +%s%N)"
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds "$OBSERVER_MAX_SECONDS" --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
@@ -791,6 +802,16 @@ actions:
           # The worker combines its owned Dgraph namespace with serial_0; run
           # after the ordinary lanes and focused DB cases have released it.
           bazel test $FLAGS //rust/dgraph-topology:world_worker_test
+          # Default off. Use the existing generation, observer, clones and cleanup
+          # trap. Keep variants sequential so only two peer server pools run at once.
+          if [[ -n "$SCALE_VARIANTS" ]]; then
+            for SCALE_VARIANT in $SCALE_VARIANTS; do
+              # prepare on the same ready digest renews its existing 7,200s lease.
+              SCALE_READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+              validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$SCALE_READY_JSON"
+              bazel test $FLAGS //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance
+            done
+          fi
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #
