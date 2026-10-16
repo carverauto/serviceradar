@@ -606,7 +606,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
                  actor: actor
                )
 
-      refute match?({:ok, %Device{}}, Device.get_by_uid(device_from.uid, true, actor: actor))
+      assert {:ok, %Device{identity_purged_at: %DateTime{}, deleted_reason: "merged"}} =
+               Device.get_by_uid(device_from.uid, true, actor: actor)
 
       assert {:ok, %Device{deleted_at: nil}} =
                Device.get_by_uid(device_to.uid, false, actor: actor)
@@ -714,8 +715,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
     end
   end
 
-  # DeviceCleanupWorker's retention purge of one tombstone: the row and its
-  # identifiers go, merge_audit stays.
+  # Retention removes mutable inventory and identifiers; the identity tombstone
+  # and merge audit remain available to reject stale events.
   defp purge!(uid) do
     assert {_stats, 1} =
              DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])

@@ -34,7 +34,7 @@ defmodule ServiceRadar.Inventory.Identity.EndpointInventoryMoves do
     repo = Keyword.get(opts, :repo, Repo)
 
     case repo.transaction(fn ->
-           with :ok <- ensure_endpoint_inventory_survivor_ordinal(device_uid),
+           with :ok <- ensure_endpoint_inventory_survivor_ordinal(device_uid, repo: repo),
                 :ok <-
                   backfill_endpoint_inventory_null_device_uid_rows(repo, [agent_id], device_uid) do
              :ok
@@ -58,8 +58,8 @@ defmodule ServiceRadar.Inventory.Identity.EndpointInventoryMoves do
     end
   end
 
-  def ensure_endpoint_inventory_survivor_ordinal(device_uid) do
-    case EndpointInventoryFleetOrdinal.ensure_allocated(device_uid) do
+  def ensure_endpoint_inventory_survivor_ordinal(device_uid, opts \\ []) do
+    case EndpointInventoryFleetOrdinal.ensure_allocated(device_uid, opts) do
       {:ok, _ordinal} -> :ok
       {:error, _} = error -> error
     end

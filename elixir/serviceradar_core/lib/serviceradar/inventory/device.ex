@@ -898,6 +898,10 @@ defmodule ServiceRadar.Inventory.Device do
       description "Actor identifier that deleted the device"
     end
 
+    attribute :identity_purged_at, :utc_datetime_usec do
+      description "When mutable inventory was purged while retaining its permanent identity"
+    end
+
     attribute :deleted_reason, :string do
       public? true
       description "Optional reason for device deletion"

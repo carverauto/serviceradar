@@ -758,7 +758,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
     log(trace, after_, [], act("GraceDelete", d, "NoDev", 0, bumped(trace, before, after_)))
   end
 
-  @doc "`DeviceCleanupWorker` hard-deletes the tombstoned `d` (its retention cutoff passed)."
+  @doc "`DeviceCleanupWorker` purges mutable inventory, retaining any permanent identity tombstone."
   def purge(trace, d) do
     uid = uid_of!(trace, d)
     before = raw(trace)
@@ -857,6 +857,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
         Enum.filter(devices, fn d ->
           case row(trace, raw, d) do
             nil -> false
+            %{identity_purged_at: %_{}} -> false
             row -> not restore_source?(row.discovery_sources)
           end
         end),
@@ -887,11 +888,13 @@ defmodule ServiceRadar.DireLifecycleTrace do
     end
   end
 
-  # A missing row is purged only if an earlier logged state had it; a device named by this
-  # step's write did not exist in the step's pre-state.
+  # Purge removes mutable inventory. An allocated identity retains a marked
+  # tombstone; an unallocated row is absent after purge. Both map to the model's
+  # purged state, while an unknown UID is absent.
   defp row_status(trace, raw, uid) do
     case Map.get(raw.devices, uid) do
       nil -> if MapSet.member?(trace.seen, uid), do: "purged", else: "absent"
+      %{identity_purged_at: %_{}} -> "purged"
       %{deleted_at: nil} -> "live"
       _ -> "tomb"
     end
@@ -1044,6 +1047,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
          %{
            deleted_at: d.deleted_at,
            deleted_reason: d.deleted_reason,
+           identity_purged_at: d.identity_purged_at,
            ip: d.ip,
            identity_revision: d.identity_revision,
            discovery_sources: d.discovery_sources,
