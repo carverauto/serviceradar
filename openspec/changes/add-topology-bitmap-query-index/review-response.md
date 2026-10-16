@@ -166,14 +166,16 @@ separate hosted gate.
 
 - Naming: public prose and new UI copy use ServiceRadar Atlas. Existing source
   identifiers, flags and capability names retain their current spellings.
-- P3-1: retain full-replacement membership frames. Task 4.7 measures WebSocket
-  compression before enabling it; unchanged-tile omission stays deferred until
-  transport measurements justify additional state.
+- P3-1: retain full-replacement membership frames. The negotiated WebSocket
+  matrix for 1, 10 and 100 clients is recorded in
+  `docs/topology-bitmap-websocket-measurements.md`. Compression stays
+  disabled. Unchanged-tile omission stays deferred.
 - P3-2: accept native Arrow IPC health/flow encoding as an explicit follow-up,
   consistent with the binary-path audit. The current SRTO codec remains in this
   release; the follow-up must preserve receipts, nullability, coverage and
   timestamps while comparing actual allocation and wire costs.
-- P3-3: task 4.6 owns the synthetic before/after website capture and delivery.
-  Production renderer and filter components must generate the images; no
-  composited UI or captured deployment inventory is allowed. Synthetic transport
-  must be disclosed separately from actual server/database acceptance.
+- P3-3: website capture delivery is complete separately at
+  `6ec38c9180f8035b3893cb91577a49850b072147`, with 72 tests and no pull
+  request, on `carverauto/serviceradar-web` branch
+  `blog/set-algebra-over-device-groups`. The captures use synthetic inventory
+  and transport and do not prove server or database acceptance.

@@ -269,7 +269,17 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     user |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor) |> Ash.update!()
 
     for session <- sessions do
-      await(fn -> query(session) end, fn {status, _} -> status in [401, 403] end, 15_000, "authority revocation")
+      path = "/topology/tiles/#{session.version}/3/0/0"
+
+      await(
+        fn ->
+          {status, _headers, _body} = Client.http(session, "GET", path)
+          status
+        end,
+        &(&1 in [401, 403]),
+        15_000,
+        "authority revocation"
+      )
     end
 
     await(
