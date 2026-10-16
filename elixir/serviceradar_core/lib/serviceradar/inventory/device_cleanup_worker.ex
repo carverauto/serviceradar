@@ -40,7 +40,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   @max_fk_depth 4
 
   # Identity assignments outlive payload retention; they are never purge children.
-  @identity_children ["platform.device_fleet_ordinals", "platform.interface_fleet_ordinals"]
+  @identity_children ["platform.device_fleet_ordinals"]
 
   # Audit/quarantine history keeps its full canonical record, unlike identity-only
   # retention which permits mutable inventory payloads to be scrubbed.

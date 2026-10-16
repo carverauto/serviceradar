@@ -1,13 +1,12 @@
 # Persistent topology bitmap identities
 
-`FleetIdentity` owns typed identity allocation. Canonical devices, including
-canonical endpoint devices, share `platform.device_fleet_ordinals`. Interfaces
-use `platform.interface_fleet_ordinals` keyed by `(device_uid, interface_uid)`.
-A layout row, aggregate glyph, edge clip or interface timestamp is never an
-inventory identity. `fleet_dictionary_epochs` stores the durable inventory epoch;
-index processes have separate, volatile epochs.
+`FleetIdentity` owns identity allocation. Canonical devices, including canonical
+endpoint devices, share `platform.device_fleet_ordinals`. A layout row,
+aggregate glyph or edge clip is never an inventory identity.
+`fleet_dictionary_epochs` stores the durable inventory epoch; index processes
+have separate, volatile epochs.
 
-Both sequences and columns support `1..4294967295`, reserve zero and never cycle.
+The sequence and column support `1..4294967295`, reserve zero and never cycle.
 Migration preserves existing values, gaps and tombstones. Routine lookups of an
 assigned UID do not consume sequence values. Allocation locks the canonical
 device row, so concurrent allocation and identity transitions serialize. At
@@ -28,8 +27,7 @@ and `is_active`; availability is a separate facet.
 | `Inventory.Sync.DeviceWrites` raw bulk upserts | Same database triggers; merged/retained records remain excluded by the existing conflict update |
 | `Edge.AgentGatewaySync` | Gateway actions and retained/merged identity checks |
 | Sweep, mapper, source-retirement and remediation writes | Same lifecycle triggers when deletion/active state changes |
-| `Identity.MergeEngine`, `Identity.Reassignments`, `EndpointInventoryMoves` | Existing device transaction locks; survivor ordinal stays, losing ordinal becomes tombstoned; interface reassignments allocate the new canonical pair |
-| Interface Ash actions and raw current-state upserts/deletes | Interface table lifecycle triggers keyed by device and interface UID |
+| `Identity.MergeEngine`, `Identity.Reassignments`, `EndpointInventoryMoves` | Existing device transaction locks; survivor ordinal stays, losing ordinal becomes tombstoned |
 | `DeviceCleanupWorker` | Permanent dictionaries are excluded from the recursive delete plan |
 
 A stale event cannot restore a merged-away device through the ordinary restore
@@ -38,8 +36,7 @@ validation. An explicit operator restore or unmerge uses the existing
 
 ## Backfill and retention
 
-`FleetIdentity.backfill_devices/2` and `backfill_interfaces/2` reconcile keyset
-pages of at most 500 source rows. The caller persists the returned cursor and
+`FleetIdentity.backfill_devices/2` reconciles keyset pages of at most 500 source rows. The caller persists the returned cursor and
 continues until `done?`; restarting a scan is safe. Allocation does not build a
 second index or run a fleet-wide startup transaction. Dirty delivery and periodic
 reconciliation remain responsible for changes behind an earlier cursor.
