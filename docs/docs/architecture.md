@@ -104,13 +104,15 @@ sequenceDiagram
   B->>W: POST camera relay webrtc/session
   W->>C: create viewer session (ERTS RPC, STUN-only ICE list)
   C->>C: mint peer TURN credential (shared provider)
-  C->>T: allocate relay (in-cluster TURN Service)
-  C-->>W: SDP offer, viewer session id
+  C-->>W: SDP offer, returned before ICE gathering finishes
   W->>W: mint browser TURN credential for this viewer
-  W-->>B: offer + ice_servers (STUN + TURN credential)
+  W-->>B: offer + ice_servers + remote_ice_candidates so far
+  C->>T: allocate relay after the offer; candidates trickle
+  B->>W: answer, browser candidates, and GET polls for late ones
+  W-->>B: gathered remote_ice_candidates (at most 64)
+  B->>B: addIceCandidate, which installs the TURN permission
   B->>T: allocate relay (gateway or load balancer)
-  B->>W: answer + ICE candidates
-  W->>C: forward answer and candidates
+  W->>C: forward answer and browser candidates
   B-->>C: media over the two relay allocations on T
 ```
 
