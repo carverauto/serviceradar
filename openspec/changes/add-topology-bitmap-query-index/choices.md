@@ -269,17 +269,22 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 
 ### Keep the combined scale measurement inside the existing scratch lifecycle
 
-- When: task 4.2 acceptance harness.
-- Choice: an operator selects compact or sparse IDs in the existing BazelCI
-  environment. The ordinary tests run first, then two server VMs share one
-  already-created scratch database. Existing lease renewal, connection
-  observation and cleanup own the run. Selecting both repeats this sequentially
-  on the other clone; it does not create another database provisioner.
-- Gap: the plan required a combined measurement without choosing an execution
-  owner. A separate runner would have duplicated credentials and cleanup.
-- Reach: each variant has a 55-minute test deadline. The hosted outer deadline
-  must also be verified; an incomplete run stays a failure.
-- Verdict: sound; one lifecycle owns every scratch resource.
+- When: task 4.2 acceptance harness, revised after measuring the hosted cap.
+- Choice: select compact or sparse IDs in the existing dispatch-only
+  WebNgDbDiagnostic action. Its network and plugin checks still run. Two server
+  VMs share one guarded clone; sparse requests the existing serial_1 generation
+  target, while compact uses serial_0. Existing observation and cleanup own the
+  run. Full BazelCI correctness remains a separate required PR gate.
+- Gap: the plan did not select an execution owner. The first choice appended
+  scale to BazelCI, but the hosted runner enforces a one-hour free-tier cap and
+  an ordinary run had already consumed 34 minutes. That choice could not leave
+  reliable time for a scale measurement and cleanup.
+- Reach: one variant per dispatch, a 44-minute scenario inside a 45-minute test
+  limit, and a 55-minute observer budget. The existing two-hour lease needs no
+  extra renewal. Preparation can still exhaust the outer cap; an incomplete
+  run remains a failure.
+- Verdict: sound; reusing the smaller existing lifecycle avoids another
+  provisioner and preserves the ordinary CI action unchanged.
 - Confidence: high.
 
 ### Use real server paths while declaring the synthetic geometry boundary

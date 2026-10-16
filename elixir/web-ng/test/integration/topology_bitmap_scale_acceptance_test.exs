@@ -8,7 +8,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   alias ServiceRadarWebNG.Topology.Scale.Replica
 
   @moduletag :topology_bitmap_scale
-  @moduletag timeout: 3_300_000
+  # Leave one minute for peer teardown inside the hosted 2,700-second test budget.
+  @moduletag timeout: 2_640_000
 
   test "two database publishers converge while 100 actual socket views consume bounded replacements" do
     distribution =

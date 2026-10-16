@@ -944,7 +944,7 @@ ex_unit_test(
 )
 
 # Manual full-server acceptance. Both peer replicas in a variant share one
-# guarded clone; variants execute sequentially in the opt-in hosted lifecycle.
+# guarded clone; each dispatch selects one variant in the existing diagnostic lifecycle.
 _TOPOLOGY_SCALE_DATA = glob(
     ["config/**", "lib/**", "priv/**", "test/integration/topology_bitmap_scale/**"],
     exclude = ["priv/plts/**"],
