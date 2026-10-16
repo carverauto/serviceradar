@@ -5,13 +5,19 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+#[path = "bitmap_addresses.rs"]
+mod addresses;
 #[path = "bitmap_facets.rs"]
 mod facets;
 #[path = "bitmap_pending.rs"]
 mod pending;
+#[path = "bitmap_staging.rs"]
+mod staging;
+use addresses::{Addresses, Entry};
 use facets::Presence;
 use pending::Pending;
 pub use pending::PendingStatus;
+pub use staging::Stage;
 
 pub type Error = &'static str;
 pub type Facet = (String, String);
@@ -53,10 +59,10 @@ const MAX_VALUES: usize = 4096;
 const MAX_FACET_VALUES: usize = 1024;
 const MAX_PINS: usize = 8;
 const MAX_READERS: usize = 8;
-// The owner admits at most two indices and two 32 MiB Atlas ordinal mappings:
-// 195.1 MB steady and 387.1 MB transient for these allocations only. Atlas export
-// scratch, BEAM portable buffers and existing world geometry are separate.
-const MAX_BYTES: usize = 64_000_000;
+// One owner index, two 32 MiB Atlas mappings, and a deployment-wide 4 MiB
+// Prefix Tags catalog remain below 200 MB retained. Export scratch, BEAM
+// buffers and existing world geometry are separate from this index budget.
+const MAX_BYTES: usize = 125_000_000;
 const PEAK_BYTES: usize = 160_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,15 +164,32 @@ struct Bitmap {
 }
 fn bitmap_bytes(set: &RoaringBitmap) -> usize {
     let s = set.statistics();
-    // Statistics accounts for container capacities. Double the container metadata
-    // allowance because Roaring does not expose its outer Vec capacity.
+    // roaring 0.11.4's "bytes" bitset statistic reports bit capacity: each
+    // Box<[u64; 1024]> is 8192 bytes, not 65536. The array statistic counts
+    // Vec<u16> capacity with sizeof(u32); retain that conservative allowance.
+    // Double container metadata because the outer Vec capacity is not exposed.
     128 + 128 * s.n_containers as usize
-        + (s.n_bytes_array_containers + s.n_bytes_bitset_containers + s.n_bytes_run_containers)
-            as usize
+        + s.n_bytes_array_containers as usize
+        + 8192 * s.n_bitset_containers as usize
+        + s.n_bytes_run_containers as usize
 }
 impl Bitmap {
     fn new(set: RoaringBitmap, budget: &Arc<Budget>) -> Result<Arc<Self>, Error> {
         let charge = budget.reserve(bitmap_bytes(&set))?;
+        Ok(Arc::new(Self { set, charge }))
+    }
+    fn from_reserved(set: RoaringBitmap, mut charge: Charge) -> Result<Arc<Self>, Error> {
+        let bytes = bitmap_bytes(&set);
+        if bytes > charge.bytes {
+            return Err("reservation_too_small");
+        }
+        // The completed set occupies the memory already reserved for computing
+        // it. Transfer that allocation's ownership instead of reserving it twice.
+        charge
+            .budget
+            .used
+            .fetch_sub(charge.bytes - bytes, Ordering::AcqRel);
+        charge.bytes = bytes;
         Ok(Arc::new(Self { set, charge }))
     }
     fn combine(a: &Self, b: &Self, op: u8, budget: &Arc<Budget>) -> Result<Arc<Self>, Error> {
@@ -177,9 +200,7 @@ impl Bitmap {
             3 => &a.set - &b.set,
             _ => return Err("invalid_expression"),
         };
-        let output = Self::new(set, budget)?;
-        drop(scratch);
-        Ok(output)
+        Self::from_reserved(set, scratch)
     }
 }
 
@@ -192,6 +213,8 @@ struct Revision {
     facets: BTreeMap<Facet, Arc<Bitmap>>,
     unavailable: BTreeSet<String>,
     presence: BTreeMap<String, Presence>,
+    addresses: Option<Arc<Addresses>>,
+    ip_unavailable: Option<&'static str>,
     _charge: Charge,
 }
 impl Revision {
@@ -200,6 +223,11 @@ impl Revision {
             .chain(std::iter::once(&self.live.charge))
             .chain(self.facets.values().map(|bitmap| &bitmap.charge))
             .chain(self.presence.values().filter_map(Presence::charge))
+            .chain(
+                self.addresses
+                    .iter()
+                    .flat_map(|addresses| addresses.charges()),
+            )
     }
     fn retiring_charges(&self, sole_revision: bool) -> impl Iterator<Item = &Charge> + Clone {
         std::iter::once(&self._charge)
@@ -211,6 +239,9 @@ impl Revision {
                     .filter(move |bitmap| sole_revision && Arc::strong_count(bitmap) == 1)
                     .map(|bitmap| &bitmap.charge),
             )
+            .chain(self.addresses.iter().flat_map(move |addresses| {
+                addresses.retiring(sole_revision && Arc::strong_count(addresses) == 1)
+            }))
     }
 }
 struct Pin {
@@ -242,9 +273,10 @@ pub struct Index {
     fence: Arc<AtomicU64>,
     revision: Mutex<Arc<Revision>>,
     publisher: Mutex<()>,
-    closed: AtomicBool,
+    closed: Arc<AtomicBool>,
     pins: Mutex<Vec<Weak<PinSlot>>>,
     pending: Mutex<Pending>,
+    stage: Mutex<Option<Weak<staging::StageSlot>>>,
     budget: Arc<Budget>,
     _charge: Charge,
 }
@@ -259,6 +291,8 @@ pub struct Status {
     pub pins: usize,
     pub unavailable: Vec<String>,
     pub pending: PendingStatus,
+    pub ip_available: bool,
+    pub ip_unavailable_reason: Option<&'static str>,
 }
 
 fn deadline(timeout_ms: u64) -> Result<Instant, Error> {
@@ -313,6 +347,8 @@ impl Index {
                 .cloned()
                 .map(|key| (key, Presence::AllLive))
                 .collect(),
+            addresses: None,
+            ip_unavailable: None,
             _charge: budget.reserve(8192)?,
         });
         budget.admit(
@@ -326,11 +362,12 @@ impl Index {
             supported: Arc::new(supported.into_iter().collect()),
             active: Arc::new(AtomicBool::new(false)),
             fence: Arc::new(AtomicU64::new(0)),
-            closed: AtomicBool::new(false),
+            closed: Arc::new(AtomicBool::new(false)),
             revision: Mutex::new(revision),
             publisher: Mutex::new(()),
             pins: Mutex::new(Vec::new()),
             pending: Mutex::new(Pending::new(&budget)?),
+            stage: Mutex::new(None),
             budget,
             _charge: charge,
         })
@@ -372,6 +409,8 @@ impl Index {
             pins,
             unavailable: revision.unavailable.iter().cloned().collect(),
             pending,
+            ip_available: revision.addresses.is_some(),
+            ip_unavailable_reason: revision.ip_unavailable,
         })
     }
     /// Full current rows replace each dirty ordinal; replay is harmless. The caller
@@ -382,6 +421,16 @@ impl Index {
         source: &[u8],
         rows: Vec<Row>,
         ready: bool,
+    ) -> Result<Status, Error> {
+        self.publish_complete(expected, source, rows, ready, None)
+    }
+    fn publish_complete(
+        &self,
+        expected: u64,
+        source: &[u8],
+        rows: Vec<Row>,
+        ready: bool,
+        address_update: Option<(Vec<Entry<4>>, Vec<Entry<16>>, Option<&'static str>)>,
     ) -> Result<Status, Error> {
         let end = deadline(1000)?;
         let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
@@ -471,38 +520,71 @@ impl Index {
                 facets.insert(key, before.unwrap().clone());
                 continue;
             }
-            let reserve = self
-                .budget
-                .reserve(before.map_or(0, |b| b.charge.bytes * 2) + 8192)?;
+            let reserve = self.budget.reserve(
+                2 * (before.map_or(0, |b| b.charge.bytes) + add.map_or(0, bitmap_bytes)) + 4096,
+            )?;
             let mut next = before.map_or_else(RoaringBitmap::new, |b| &b.set - &changed);
             if let Some(add) = add {
                 next |= add;
             }
             if !next.is_empty() {
-                facets.insert(key, Bitmap::new(next, &self.budget)?);
+                facets.insert(key, Bitmap::from_reserved(next, reserve)?);
             }
-            drop(reserve);
         }
         let live = if live_additions.is_subset(&old.live.set)
             && old.live.set.intersection_len(&changed) == live_additions.len()
         {
             old.live.clone()
         } else {
-            let reserve = self.budget.reserve(old.live.charge.bytes * 2 + 8192)?;
+            let reserve = self
+                .budget
+                .reserve(2 * (old.live.charge.bytes + bitmap_bytes(&live_additions)) + 4096)?;
             let mut live = &old.live.set - &changed;
             live |= live_additions;
-            let result = Bitmap::new(live, &self.budget)?;
-            drop(reserve);
-            result
+            Bitmap::from_reserved(live, reserve)?
         };
         let presence =
             facets::refresh_presence(&old, &live, &changed, &present, &self.budget, end)?;
+        let (addresses, ip_unavailable) = match (old.ip_unavailable, address_update) {
+            (Some(reason), _) => (None, Some(reason)),
+            (None, Some((_, _, Some(reason)))) => (None, Some(reason)),
+            (None, Some((added4, added6, None))) => {
+                let before = match &old.addresses {
+                    Some(addresses) => addresses.clone(),
+                    None => Addresses::empty(&self.budget)?,
+                };
+                match before.replace(
+                    &changed.iter().collect::<Vec<_>>(),
+                    added4,
+                    added6,
+                    &self.budget,
+                    MAX_BYTES.saturating_sub(
+                        self._charge.bytes
+                            + live.charge.bytes
+                            + facets.values().map(|set| set.charge.bytes).sum::<usize>()
+                            + presence
+                                .values()
+                                .filter_map(Presence::charge)
+                                .map(|charge| charge.bytes)
+                                .sum::<usize>()
+                            + 8192,
+                    ),
+                    end,
+                ) {
+                    Ok(addresses) => (Some(addresses), None),
+                    Err("ip_native_cap") => (None, Some("native_cap")),
+                    Err(error) => return Err(error),
+                }
+            }
+            (None, None) if changed.is_empty() => (old.addresses.clone(), None),
+            (None, None) => (None, Some("not_seeded")),
+        };
         let metadata = 8192
             + facets
                 .keys()
                 .map(|(f, v)| 192 + f.capacity() + v.capacity())
                 .sum::<usize>();
-        let next = Arc::new(Revision {
+        let mut next = Revision {
             number: old.number.checked_add(1).ok_or("revision_exhausted")?,
             source: source.to_vec(),
             fence: self.fence.load(Ordering::Acquire) + u64::from(!ready),
@@ -511,8 +593,20 @@ impl Index {
             facets,
             unavailable,
             presence,
+            addresses,
+            ip_unavailable,
             _charge: self.budget.reserve(metadata)?,
-        });
+        };
+        // Disable only an intrinsically oversized address index. Old request
+        // pins or transient scratch pressure remain retryable admission errors.
+        if next.addresses.is_some()
+            && next.charges().map(|charge| charge.bytes).sum::<usize>() + self._charge.bytes
+                > MAX_BYTES
+        {
+            next.addresses = None;
+            next.ip_unavailable = Some("native_cap");
+        }
+        let next = Arc::new(next);
         drop(scratch);
         check_time(end)?;
         let mut published = self.revision.try_lock().map_err(|_| "busy")?;
@@ -546,6 +640,8 @@ impl Index {
             pins,
             unavailable: revision.unavailable.iter().cloned().collect(),
             pending,
+            ip_available: revision.addresses.is_some(),
+            ip_unavailable_reason: revision.ip_unavailable,
         })
     }
     pub fn close(&self) -> Result<(), Error> {
@@ -555,6 +651,13 @@ impl Index {
         self.active.store(false, Ordering::Release);
         self.fence.fetch_add(1, Ordering::AcqRel);
         let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
+        {
+            let mut registered = self.stage.try_lock().map_err(|_| "busy")?;
+            if let Some(stage) = registered.as_ref().and_then(|weak| weak.upgrade()) {
+                *stage.try_lock().map_err(|_| "publisher_busy")? = None;
+            }
+            *registered = None;
+        }
         if self.budget.readers.load(Ordering::Acquire) != 0 {
             return Err("reader_busy");
         }
@@ -577,6 +680,8 @@ impl Index {
             facets: BTreeMap::new(),
             unavailable: BTreeSet::new(),
             presence: BTreeMap::new(),
+            addresses: None,
+            ip_unavailable: None,
             _charge: self.budget.reserve(1024)?,
         };
         let mut published = self.revision.try_lock().map_err(|_| "busy")?;
@@ -609,12 +714,24 @@ impl Index {
         if !revision.ready {
             return Err("not_ready");
         }
+        let input_bytes = program
+            .iter()
+            .map(|(_, key, value, _)| key.len() + value.len() + 64)
+            .sum::<usize>();
+        if program.len() > 65 || input_bytes > addresses::SELECTOR_BYTES + 16384 {
+            return Err("expression_budget");
+        }
+        let _input = self.budget.reserve(2 * input_bytes + 4096)?;
         validate_program(program)?;
         let mut stack: Vec<Arc<Bitmap>> = Vec::new();
         for (opcode, facet, value, arity) in program {
             check_time(end)?;
             if matches!(*opcode, 0 | 4..=7) {
                 stack.push(facets::select(self, &revision, *opcode, facet, value, end)?);
+            } else if matches!(*opcode, 8 | 9) {
+                let addresses = revision.addresses.as_ref().ok_or("ip_unavailable")?;
+                let ranges = addresses::ranges(*opcode, value, *arity)?;
+                stack.push(addresses.select(&ranges, &self.budget, end)?);
             } else {
                 let operands = stack.split_off(stack.len() - *arity as usize);
                 let mut result = if *opcode == 2 {
@@ -690,9 +807,19 @@ fn validate_program(program: &[Instruction]) -> Result<(), Error> {
     let mut depths = Vec::new();
     let mut predicates = 0;
     let mut bytes = 0;
+    let mut selectors = 0;
+    let mut ranges = 0;
     for (op, facet, value, arity) in program {
-        bytes += facet.len() + value.len() + 8;
-        if matches!(*op, 0 | 4..=7) {
+        if matches!(*op, 8 | 9) {
+            predicates += 1;
+            selectors += value.len();
+            if !facet.is_empty() {
+                return Err("invalid_expression");
+            }
+            ranges += addresses::ranges(*op, value, *arity)?.len();
+            depths.push(1usize);
+        } else if matches!(*op, 0 | 4..=7) {
+            bytes += facet.len() + value.len() + 8;
             predicates += 1;
             if *arity != 0
                 || facet.is_empty()
@@ -722,7 +849,12 @@ fn validate_program(program: &[Instruction]) -> Result<(), Error> {
             depths.push(depth);
         }
     }
-    if depths.len() != 1 || predicates > 32 || bytes > 16384 {
+    if depths.len() != 1
+        || predicates > 32
+        || bytes > 16384
+        || selectors > addresses::SELECTOR_BYTES
+        || ranges > addresses::MAX_RANGES
+    {
         return Err("expression_budget");
     }
     Ok(())
@@ -958,6 +1090,35 @@ fn deserialize_bitmap(bytes: &[u8]) -> Result<RoaringBitmap, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitset_footprint_and_completed_reservations_track_owned_storage() {
+        // Alternating entries force a dense bitset without run optimization.
+        let make = || (0u32..65_536).step_by(2).collect::<RoaringBitmap>();
+        let set = make();
+        assert_eq!(set.statistics().n_bitset_containers, 1);
+        let bytes = 128 + 128 + std::mem::size_of::<[u64; 1024]>();
+        assert_eq!(bitmap_bytes(&set), bytes);
+        let budget = Arc::new(Budget::default());
+        let scratch = budget.reserve(bytes * 2 + 4096).unwrap();
+        let bitmap = Bitmap::from_reserved(set, scratch).unwrap();
+        assert_eq!(budget.used.load(Ordering::Acquire), bytes);
+        budget
+            .admit(std::iter::once(&bitmap.charge), std::iter::empty())
+            .unwrap();
+        assert_eq!(budget.retained.load(Ordering::Acquire), bytes);
+        // A failed transfer drops its reservation and cannot reclaim the live
+        // bitmap still owned by a retained revision.
+        assert!(matches!(
+            Bitmap::from_reserved(make(), budget.reserve(bytes - 1).unwrap()),
+            Err("reservation_too_small")
+        ));
+        assert_eq!(budget.used.load(Ordering::Acquire), bytes);
+        assert_eq!(budget.retained.load(Ordering::Acquire), bytes);
+        drop(bitmap);
+        assert_eq!(budget.used.load(Ordering::Acquire), 0);
+        assert_eq!(budget.retained.load(Ordering::Acquire), 0);
+    }
     fn index() -> Index {
         Index::new(
             [1; 16],

@@ -111,12 +111,24 @@ defmodule ServiceRadarWebNG.Topology.Native do
 
   @doc """
   Evaluate a typed postfix expression and pin its exact revision for 30 seconds.
-  Instructions are {opcode, facet, value, arity}: predicate=0, all=1, any=2,
-  except=3 (one child). Operator strings are empty. Current RBAC admission and
+  Instructions are {opcode, facet, value_binary, arity}: exact=0, all=1, any=2,
+  except=3, value-prefix=4, tag-key-prefix=5, paired-tag-exact=6,
+  paired-tag-prefix=7, numeric CIDR=8, packed address ranges=9.
+  Boolean operator strings are empty. Current RBAC admission and
   delivery checks remain the caller's responsibility; authority is its fingerprint.
   """
   def bitmap_index_query(_index, _dictionary_epoch, _index_epoch, _kind, _authority, _program, _timeout_ms),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Stage at most 500 scalar rows; complete address pages publish atomically at finish."
+  def bitmap_index_begin_publish(_index, _expected_revision, _source_revision, _rows, _ready),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Add at most 500 {ordinal, packed IPv4/IPv6} pairs and 500 completed device ordinals."
+  def bitmap_publish_addresses(_stage, _addresses, _completed), do: :erlang.nif_error(:nif_not_loaded)
+  def bitmap_publish_ip_unavailable(_stage), do: :erlang.nif_error(:nif_not_loaded)
+  def bitmap_publish_abort(_stage), do: :erlang.nif_error(:nif_not_loaded)
+  def bitmap_index_finish_publish(_index, _stage), do: :erlang.nif_error(:nif_not_loaded)
 
   def bitmap_query_page(_query, _authority, _after, _limit, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
   def bitmap_query_facets(_query, _authority, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)

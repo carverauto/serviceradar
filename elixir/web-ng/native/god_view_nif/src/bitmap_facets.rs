@@ -59,7 +59,7 @@ pub(super) fn refresh_presence(
                 return Ok((key.clone(), presence.clone()));
             }
             let bytes = presence.charge().map_or(0, |charge| charge.bytes);
-            let _scratch = budget.reserve(2 * (bytes + live.charge.bytes) + 8192)?;
+            let scratch = budget.reserve(2 * (bytes + live.charge.bytes) + 8192)?;
             let mut set = before - changed;
             set |= add;
             let represented = if inverted {
@@ -76,7 +76,7 @@ pub(super) fn refresh_presence(
                 if absent != inverted {
                     set = &live.set - &set;
                 }
-                let bitmap = Bitmap::new(set, budget)?;
+                let bitmap = Bitmap::from_reserved(set, scratch)?;
                 if absent {
                     Presence::Absent(bitmap)
                 } else {

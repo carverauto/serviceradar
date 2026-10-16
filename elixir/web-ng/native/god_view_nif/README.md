@@ -15,8 +15,9 @@ Repeated current rows preserve membership. Source revisions are opaque binaries.
 
 The owner announces readiness only after seed/replay acceptance. Publishing
 `ready=false` permanently fences earlier query pins; enabling a later revision
-does not revive them. Build replacements as separate resources so the accepted
-index remains readable. Call `bitmap_index_close/1` when disabling or replacing
+does not revive them. Ordinary reconciliation retains the accepted resource and
+publishes revisions. Explicit replacement closes the old resource before
+allocating another one. Call `bitmap_index_close/1` when disabling or replacing
 an index, and close query handles when their server-side owner discards them.
 These explicit releases run on dirty CPU schedulers.
 Close fences queries immediately even if a running publisher/reader makes
@@ -44,7 +45,14 @@ operations use bounded inputs, nonblocking lock admission and dirty CPU NIFs.
 
 Queries use a bounded postfix program. Instructions are
 `{opcode, facet, value, arity}`: 0 is an exact predicate, 1 is all, 2 is any and
-3 is except with one child. Operator strings are empty. Negation is relative to
+3 is except with one child. Values are typed binary fields. Opcodes 4-7 are
+literal, case-sensitive prefixes: 4 selects a facet value prefix; 5 selects
+present tag keys by name prefix; 6 pairs a tag-name prefix with an exact value;
+7 pairs it with a value prefix on the same key. Tag-name prefixes omit `tag:`.
+Presence excludes the synthetic missing-value `unknown` bucket. An actual
+value `unknown` still matches. Key presence remains exact when that key's
+value cardinality exceeds its cap; value predicates reject unavailable facets.
+Operator strings are empty. Negation is relative to
 the live universe. The serving owner derives the authority fingerprint from
 current permission checks, never from a client field, and rechecks permission
 before delivery. Interface indices must not be exposed until a coherent parent
@@ -85,7 +93,7 @@ exact literal `unknown`; values are not truncated or silently dropped.
 Posting sets are immutable and shared across revisions; only changed postings
 are replaced. Conservative native accounting includes bitmap container
 capacities, map/string metadata, retained revisions and query results. The
-steady admission cap is 64,000,000 bytes and transient reservations are capped
+steady admission cap is 125,000,000 bytes and transient reservations are capped
 at 160,000,000 bytes per resource. Allocation ownership distinguishes steady
 published revisions, accepted query pins and the dirty queue from transient
 expression/decode work. A shared admission lock atomically promotes new retained
@@ -93,15 +101,27 @@ allocations and retires only provably unshared old allocations. All allocations
 remain charged against the transient limit until they are actually dropped. Full current
 rows reuse unchanged facet/live sets instead of duplicating them under readers.
 An allocation rejection leaves the published revision and membership unchanged.
+Completed bitmap calculations transfer their scratch reservation into the
+result allocation, releasing only the unused allowance. Failed transfers
+release their reservation without retiring other readers' allocations.
+The pinned roaring 0.11.4 statistics report bitset capacity in bits despite a
+bytes field name; accounting uses 8192 bytes per `Box<[u64; 1024]>`. Array
+statistics conservatively charge twice their u16 capacity. Earlier benchmark
+memory figures below used the inflated bitset statistic and are historical
+accounting results, not measurements of physical allocation.
 Portable decoding reserves bounded scratch from input size, including the
 checked decoder's allocation-before-EOF cases. Row intersection separately
 reserves from both decoded operands, so run compression cannot hide expansion.
 
-The serving owner must admit at most two index resources, including any awaiting
-reclamation, and at most two 32 MiB Atlas mappings. Those allocations sum to at
-most 195,108,864 steady bytes and 387,108,864 transient bytes. This is not total
-replica peak memory: Atlas export scratch (up to 32 MiB per export), server
-portable buffers, existing world geometry, BEAM and GPU allocations are separate.
+The serving owner admits one index resource, including any awaiting reclamation,
+at most two 32 MiB Atlas mappings, and a global 4 MiB Prefix Tags catalog across
+current and retained snapshots. Their retained ceiling is 196,303,168 bytes.
+The index's 160 MB transient ceiling includes unpublished address staging and
+old pinned revisions. Two 32 MiB Atlas export scratch slots, two 32 MiB mappings,
+eight 8 MiB whole-view selector buffers and the 4 MiB catalog raise the explicit
+allocation envelope to 365,520,896 bytes; eight 256 KiB encoded frames add
+2,097,152 bytes. This is not total process memory: existing geometry, Prefix
+Tags tries, source row terms and other BEAM/application allocations are separate.
 
 ## Verification
 
@@ -205,3 +225,95 @@ is a complete replica peak estimate including BEAM/browser memory.
 
 The actual BEAM boundary passed after the accounting change in
 [f107f2a7](https://carverauto.buildbuddy.io/invocation/f107f2a7-3e5e-4ca6-ba94-ea505294db24).
+
+
+## Complete address publication
+
+`bitmap_index_begin_publish/5` stores at most 500 scalar rows and returns an
+unpublished stage. Feed `bitmap_publish_addresses/3` at most 500
+`{ordinal, address_binary}` pairs and 500 completed ordinals per call. Addresses
+are numeric network-order 4-byte IPv4 or 16-byte IPv6 values. Every live scalar
+row needs a completion marker, including devices with no addresses. Deleted
+rows are already complete. Additions after completion or for other ordinals
+fail explicitly. A stage has a 16 MiB native budget and ten-second lifetime;
+the source transaction must finish within eight seconds to leave commit time.
+
+`bitmap_index_finish_publish/2` consumes a complete stage and atomically replaces
+both facets and complete address ownership in one revision. Incomplete stages
+remain open for completion or abort. `bitmap_publish_abort/1`, last-resource
+drop, and index close release staged allocations. The index keeps only a weak
+stage reference, so cancellation does not retain a stage until its timeout.
+`bitmap_publish_ip_unavailable/1` records source overflow while allowing scalar
+publication. Status returns `ip_available` and `ip_unavailable_reason`;
+unavailability is sticky until a full index rebuild. A nonempty legacy scalar
+publication cannot certify addresses and marks IP unavailable as `not_seeded`.
+An empty legacy publication preserves addresses for readiness changes.
+
+Addresses use separate packed IPv4/IPv6 forward and reverse sorted leaf indexes.
+Forward ranges select addresses before projecting to canonical device ordinals;
+reverse lookup replaces every old assignment for a changed device. Shared
+addresses retain every owner. Untouched leaves are immutable and shared, and
+adjacent underfilled leaves are locally coalesced during updates. There is no
+per-address scalar facet or device-level address bit slicing.
+
+Opcode 8 is `{8, "", packed_address, prefix_length}`. Opcode 9 is one named
+Prefix Tags range predicate, `{9, "", packed_ranges, 0}`. Each 33-byte record
+contains family byte 4/6, a 16-byte inclusive low endpoint and a 16-byte inclusive
+high endpoint; IPv4 endpoints are zero extended. Records must be ordered and
+nonoverlapping. An empty selector matches no devices. The complete expression
+allows 4096 ranges and 256 KiB selector bytes, separately from 16 KiB scalar
+text. Both paths read the same revision as facets and use the shared one-second
+deadline. Catalog matching-chain semantics remain with the existing Prefix Tags
+snapshot producer.
+
+Run the complete-assignment benchmark with:
+
+```
+bazel test -c opt --config=remote \
+  //elixir/web-ng/native/god_view_nif:bitmap_address_scale_benchmark \
+  --test_output=all --flaky_test_attempts=1
+```
+
+It generates 1.1M devices and 2.2M address associations, with one synthetic IPv4
+and IPv6 assignment per device. IPv4 deliberately shares documentation-range
+addresses. It checks /0, /32, /128, broad IPv6 ranges, literal tag prefixes,
+100 concurrent queries on eight native workers, and 100 one-percent address
+and availability churn ticks with eight revision pins. Publication retries only
+after releasing old request pins when the actual cap rejects admission.
+Native timings exclude the database source, HTTP/channel transport and browser.
+IPv6 addresses are monotonic by invented entity number, so this fixture does
+not establish update costs for shuffled address-to-ordinal assignments.
+
+The complete pass in
+[49a2c6f0](https://carverauto.buildbuddy.io/invocation/49a2c6f0-de5c-4c6c-9315-6f3bc99f0c4d)
+passed 35 native tests, 778 web tests, both scalar benchmarks and the address
+benchmark on a Xeon Platinum 8176 executor. Corrected scalar-only seed
+accounting was 7.67/17.40 MB compact/sparse. All 100 native Atlas views completed
+without memory-admission retries; sparse request p95 was 395.74 ms and index
+peak reservations were 47.10 MB. Atlas admission still required harness retries.
+
+For compact/sparse address indices, seed accounting was 71.03/82.43 MB and final
+accounting after 100 mixed address/availability ticks was 71.00/83.15 MB.
+Retained accounting with eight pins peaked at 124.97/125.00 MB, below the
+125,000,000-byte cap; total index reservations peaked at 138.58/140.68 MB.
+All 100 concurrent address queries completed, with two/three transient harness
+retries and request p95 of 29.13/64.47 ms. Sparse query p95 was 0.83 ms for
+IPv4 /0, 0.48 ms for shared IPv4 /32, 0.017 ms for unique IPv6 /128, 47.86 ms
+for broad IPv6 /32 and 6.94 ms for a literal tag-value prefix. The mixed
+one-percent tick p95 was 869.26/1324.90 ms across 22 bounded publications;
+each tick explicitly released old pins and retried once after admission refused
+their retained overlap. Process high-water RSS was 140,016/137,572 KiB and
+includes fixture scaffolding, so it is separate from native allocation accounting.
+The address benchmark and the 100-view Atlas benchmark are separate experiments;
+they do not prove their combined peak or actual HTTP/channel request throughput.
+
+Earlier sparse address seed runs
+[088f6095](https://carverauto.buildbuddy.io/invocation/088f6095-3c36-4adc-9a15-9eb435953585)
+rejected admission at 899,000 devices. Fixing reservation transfer then exposed
+the pinned Roaring statistic's bit-versus-byte mismatch. The footprint regression
+failed with the original formula in
+[64914d7d](https://carverauto.buildbuddy.io/invocation/64914d7d-e4ac-4776-ac4e-e099e100242e),
+reporting 65,792 bytes instead of 8,448 including metadata. The complete pass
+above restores the corrected formula and checks both successful ownership
+transfer and failed transfer cleanup. The earlier inflated accounting is not
+evidence of actual allocated memory.
