@@ -37,7 +37,12 @@ describe("SRTO telemetry protocol", () => {
       {...telemetryGeometry, nodes: []}, {...telemetryGeometry, edges: [{count: 4}]}]) {
       expect(() => decodeWorldOverlay(frame, geometry)).toThrow()
     }
-    for (const mutate of [bytes => bytes.subarray(0, bytes.length - 1), bytes => {bytes[5] = 1; return bytes},
+    for (const mutate of [bytes => bytes.subarray(0, bytes.length - 1), bytes => {
+      const cut = bytes.subarray(0, bytes.length - 1)
+      const body = cut.slice()
+      new DataView(body.buffer, body.byteOffset, body.byteLength).setUint32(8, body.length, true)
+      return body
+    }, bytes => {bytes[5] = 1; return bytes},
       bytes => {new DataView(bytes.buffer).setFloat64(bytes.length - 220 + 40, Infinity, true); return bytes},
       bytes => {new DataView(bytes.buffer).setBigUint64(bytes.length - 220 + 40, 0x7ff0000000000001n, true); return bytes}]) {
       expect(() => decodeWorldOverlay(mutate(frame.slice()), telemetryGeometry)).toThrow()
