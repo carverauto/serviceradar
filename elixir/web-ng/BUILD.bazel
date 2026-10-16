@@ -890,6 +890,7 @@ ex_unit_test(
     srcs = [
         "test/app_domain/topology/runtime_graph_virtualization_inventory_test.exs",
         "test/phoenix/topology/bitmap_queries_db_test.exs",
+        "test/phoenix/topology/bitmap_replica_lifecycle_db_test.exs",
         "test/phoenix/topology/world_health_source_db_test.exs",
     ],
     data = glob(

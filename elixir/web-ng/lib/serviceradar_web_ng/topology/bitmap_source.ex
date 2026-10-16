@@ -1,5 +1,10 @@
 defmodule ServiceRadarWebNG.Topology.BitmapSource do
-  @moduledoc "Bounded current inventory projection for the device bitmap index."
+  @moduledoc """
+  Bounded current inventory projection for the device bitmap index.
+
+  Membership follows active operator inventory, so source-retired records are
+  excluded even while their stable identities and historical geometry remain.
+  """
 
   import Ash.Expr
 
@@ -101,7 +106,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true}, actor: @actor)
       |> Ash.Query.filter(uid in ^ids)
-      |> Ash.Query.select([:uid, :type_id, :is_active, :is_available, :deleted_at])
+      |> Ash.Query.select([:uid, :type_id, :is_active, :is_available, :deleted_at, :source_retired_at])
       |> Ash.Query.limit(@page_size)
       |> Ash.Query.timeout(5_000)
       |> Ash.Query.calculate(:vendor, :string, expr(fragment("left(btrim(?), 257)", vendor_name)))
@@ -156,7 +161,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
     end)
   end
 
-  defp row(%{ordinal: ordinal, tombstoned: false}, %{deleted_at: nil, is_active: active} = device, facets)
+  defp row(
+         %{ordinal: ordinal, tombstoned: false},
+         %{deleted_at: nil, source_retired_at: nil, is_active: active} = device,
+         facets
+       )
        when active != false do
     values = [
       {"vendor", device.calculations.vendor},
