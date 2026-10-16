@@ -23,7 +23,7 @@ func TestDecodeTelemetryStreamMapsByColumnName(t *testing.T) {
 	rows := `["u",1700000000000000000,"ut` + testTerminalA + `",42.5,31,[53,80,99],"example-build"],` +
 		`["r",1700000000000000000,"` + testRouterA + `",3600,20,7],` +
 		`["i",1700000000000000000,"ut` + testTerminalA + `","` + testAccountNumber + `",["192.0.2.10"]]`
-	samples, stats := decodeTelemetryStream(gjson.Parse(streamBody(terminalColumns, rows)))
+	samples, stats, _ := decodeTelemetryStream(gjson.Parse(streamBody(terminalColumns, rows)))
 
 	if stats.Rows != 3 || stats.Invalid != 0 || len(samples) != 2 {
 		t.Fatalf("stats %+v samples %d", stats, len(samples))
@@ -55,7 +55,7 @@ func TestDecodeTelemetryStreamSurvivesColumnReorder(t *testing.T) {
 	// DeviceType first); every other column is matched by name.
 	reordered := `["DeviceType","PingLatencyMsAvg","DeviceId","UtcTimestampNs","DownlinkThroughput"]`
 	rows := `["u",31,"ut` + testTerminalA + `",1700000000000000000,42.5]`
-	samples, _ := decodeTelemetryStream(gjson.Parse(streamBody(reordered, rows)))
+	samples, _, _ := decodeTelemetryStream(gjson.Parse(streamBody(reordered, rows)))
 	if len(samples) != 1 || samples[0].Values["starlink_downlink_throughput"] != 42.5 ||
 		samples[0].Values["starlink_pop_ping_latency"] != 31 {
 		t.Fatalf("reordered columns mis-mapped: %+v", samples)
@@ -64,7 +64,7 @@ func TestDecodeTelemetryStreamSurvivesColumnReorder(t *testing.T) {
 
 func TestDecodeTelemetryStreamRejectsUnidentifiedRows(t *testing.T) {
 	rows := `["u",1700000000000000000,"",1,2,[],"x"],["u",0,"ut` + testTerminalA + `",1,2,[],"x"]`
-	samples, stats := decodeTelemetryStream(gjson.Parse(streamBody(terminalColumns, rows)))
+	samples, stats, _ := decodeTelemetryStream(gjson.Parse(streamBody(terminalColumns, rows)))
 	if len(samples) != 0 || stats.Invalid != 2 {
 		t.Fatalf("rows without device id or timestamp must be invalid: %+v %+v", samples, stats)
 	}
@@ -103,6 +103,9 @@ func TestDrainTelemetryStopsWhenCaughtUpAndEmitsEachBatch(t *testing.T) {
 	})
 	if run.Err != nil || !run.CaughtUp || run.Iterations != 2 || run.Rows != 3 {
 		t.Fatalf("run = %+v", run)
+	}
+	if got := run.SampleCounts[terminalDeviceID(testTerminalA)]; got != 3 {
+		t.Fatalf("samples counted for the terminal = %d, want 3", got)
 	}
 	if calls != 2 || emitted != 2 {
 		t.Fatalf("each response must be emitted before the next request: calls %d records %d", calls, emitted)

@@ -162,6 +162,9 @@ producer_schedules:
         telemetry_max_iterations:
           type: integer
           default: 8
+        telemetry_gap_seconds:
+          type: integer
+          default: 300
     credential_requirements:
       starlink_service_account:
         required: true
@@ -338,3 +341,55 @@ alert_rules:
     alert:
       title: Starlink critical alert
       severity: critical
+  # Warning-level, so the critical rule above does not cover it. A dish off
+  # vertical keeps working with degraded alignment until someone fixes the mount.
+  - name: starlink_mast_not_vertical
+    description: A Starlink terminal reports that its mast is not vertical, which degrades alignment.
+    signal: event
+    match:
+      subject_prefix: starlink.alert
+      attribute_equals:
+        alert: mast_not_vertical
+      recovery:
+        subject_prefix: starlink.alert
+        attribute_equals:
+          alert: mast_not_vertical
+          level: ok
+    group_by:
+      - device.uid
+    threshold: 1
+    window_seconds: 300
+    bucket_seconds: 60
+    cooldown_seconds: 3600
+    renotify_seconds: 86400
+    event:
+      log_name: alert.starlink.mast_not_vertical
+      message: "Starlink device {device.uid} mast is not vertical"
+    alert:
+      title: Starlink mast not vertical
+      severity: warning
+  # The vendor has no offline alert. Every collection run reports each listed
+  # device's sample count, zero included, so a device that stays silent for
+  # five runs within ten minutes (at the default 60 s cadence) is offline or
+  # cut off from the vendor.
+  - name: starlink_device_offline
+    description: A Starlink terminal or router listed on the account sent no telemetry for five collection runs within ten minutes.
+    signal: metric
+    match:
+      metric_name: starlink_telemetry_samples
+      condition:
+        comparison: lte
+        threshold: 0
+    group_by:
+      - starlink_device_ref
+    threshold: 5
+    window_seconds: 600
+    bucket_seconds: 60
+    cooldown_seconds: 1800
+    renotify_seconds: 21600
+    event:
+      log_name: alert.starlink.offline
+      message: "Starlink device {starlink_device_ref} has sent no telemetry for several collection runs"
+    alert:
+      title: Starlink device offline
+      severity: warning

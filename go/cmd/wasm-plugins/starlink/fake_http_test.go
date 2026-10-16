@@ -21,8 +21,9 @@ const (
 )
 
 type fakeResponse struct {
-	status int
-	body   string
+	status  int
+	body    string
+	headers map[string]string
 }
 
 // fakeHTTP serves canned responses keyed by "METHOD path?page=N" (the query is
@@ -39,6 +40,13 @@ func newFakeHTTP(t *testing.T) *fakeHTTP {
 
 func (f *fakeHTTP) on(method, pathAndQuery string, status int, body string) {
 	f.responses[method+" "+pathAndQuery] = fakeResponse{status: status, body: body}
+}
+
+// onRateLimited answers with a 429 carrying the vendor's Retry-After.
+func (f *fakeHTTP) onRateLimited(method, pathAndQuery, retryAfter string) {
+	f.responses[method+" "+pathAndQuery] = fakeResponse{
+		status: 429, body: "rate limited", headers: map[string]string{"Retry-After": retryAfter},
+	}
 }
 
 func (f *fakeHTTP) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
@@ -61,7 +69,7 @@ func (f *fakeHTTP) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	if !ok {
 		f.t.Fatalf("unexpected request %s", key)
 	}
-	return &sdk.HTTPResponse{Status: resp.status, Body: []byte(resp.body)}, nil
+	return &sdk.HTTPResponse{Status: resp.status, Headers: resp.headers, Body: []byte(resp.body)}, nil
 }
 
 func envelope(content string) string {

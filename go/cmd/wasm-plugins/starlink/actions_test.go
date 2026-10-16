@@ -20,7 +20,9 @@ type fakeVendor struct {
 	lines     map[string]*fakeLine
 	maxPerSL  int // -1 = unlimited
 	failOnce  map[string]int
-	mutations []string
+	// rateLimitOnce answers a request once with a 429 and this Retry-After.
+	rateLimitOnce map[string]string
+	mutations     []string
 }
 
 type fakeTerminal struct {
@@ -45,9 +47,10 @@ func newFakeVendor(t *testing.T) *fakeVendor {
 			testTerminalA: {id: testTerminalA, kit: "KITTEST0000001", sl: testServiceLine,
 				l2vpn: `[{"circuitIds":["circuit-test-1"],"customerVlans":[101,102],"serviceVlan":200}]`},
 		},
-		lines:    map[string]*fakeLine{testServiceLine: {product: "example-product", active: true}},
-		maxPerSL: 1,
-		failOnce: map[string]int{},
+		lines:         map[string]*fakeLine{testServiceLine: {product: "example-product", active: true}},
+		maxPerSL:      1,
+		failOnce:      map[string]int{},
+		rateLimitOnce: map[string]string{},
 	}
 }
 
@@ -58,6 +61,10 @@ func (f *fakeVendor) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	if n := f.failOnce[key]; n > 0 {
 		f.failOnce[key] = n - 1
 		return &sdk.HTTPResponse{Status: 503, Body: []byte("unavailable")}, nil
+	}
+	if retryAfter, ok := f.rateLimitOnce[key]; ok {
+		delete(f.rateLimitOnce, key)
+		return &sdk.HTTPResponse{Status: 429, Headers: map[string]string{"Retry-After": retryAfter}, Body: []byte("rate limited")}, nil
 	}
 	if req.Method != http.MethodGet {
 		f.mutations = append(f.mutations, key)
@@ -181,6 +188,17 @@ func TestSwapTerminalEndToEnd(t *testing.T) {
 	if gjson.Get(moved.l2vpn, "0.circuitIds.0").String() != "circuit-test-1" ||
 		gjson.Get(moved.l2vpn, "0.customerVlans.1").Int() != 102 || gjson.Get(moved.l2vpn, "0.serviceVlan").Int() != 200 {
 		t.Fatalf("L2VPN circuits not re-applied: %s", moved.l2vpn)
+	}
+}
+
+func TestRateLimitedStepDefersForVendorRetryAfter(t *testing.T) {
+	vendor := newFakeVendor(t)
+	vendor.rateLimitOnce["POST /service-lines/"+testServiceLine+"/user-terminals"] = "120"
+
+	result := runManagementAction(invocationConfig(t, actionSwapTerminal, map[string]any{"new_device_id": testNewKit}, nil), vendor)
+	if result.Status != sdk.ActionStatusPolling || result.NextPollDelaySeconds != 120 {
+		t.Fatalf("a 429 must defer for the vendor's Retry-After: status %q, next poll %ds",
+			result.Status, result.NextPollDelaySeconds)
 	}
 }
 

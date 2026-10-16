@@ -2,9 +2,11 @@ package main
 
 import (
 	"net/http"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/tidwall/gjson"
@@ -13,6 +15,7 @@ import (
 const (
 	deviceTypeTerminal = "u"
 	deviceTypeRouter   = "r"
+	deviceTypeIPAllocs = "i"
 
 	// maxRecordsPerEmit bounds one emit_telemetry call; each record is one
 	// device's batch for one stream response.
@@ -105,7 +108,9 @@ type streamDecodeStats struct {
 // decodeTelemetryStream decodes one columnar stream response. Alert codes are
 // mapped only through the enum table carried in the same response: the
 // vendor reassigns codes, so a code is meaningless outside its response.
-func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeStats) {
+// The third result is each terminal's latest public address allocation from
+// IpAllocs rows, keyed by device reference.
+func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeStats, map[string]publicAddresses) {
 	initMetricMaps()
 	var stats streamDecodeStats
 	columns := map[string][]string{}
@@ -120,6 +125,7 @@ func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeSt
 	alertNames := body.Get("metadata.enums.AlertsByDeviceType")
 
 	var samples []telemetrySample
+	allocations := map[string]publicAddresses{}
 	for _, row := range body.Get("data.values").Array() {
 		stats.Rows++
 		cells := row.Array()
@@ -129,8 +135,14 @@ func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeSt
 		}
 		deviceType := cells[0].String()
 		names, ok := columns[deviceType]
+		if ok && deviceType == deviceTypeIPAllocs {
+			if ref, addrs, ok := decodeIPAllocation(names, cells); ok {
+				allocations[ref] = addrs
+			}
+			continue
+		}
 		if !ok || (deviceType != deviceTypeTerminal && deviceType != deviceTypeRouter) {
-			// IpAllocs and unknown device types carry no metrics.
+			// Unknown device types carry no metrics.
 			continue
 		}
 		sample, ok := decodeRow(deviceType, names, cells, alertNames.Get(deviceType))
@@ -140,7 +152,82 @@ func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeSt
 		}
 		samples = append(samples, sample)
 	}
-	return samples, stats
+	return samples, stats, allocations
+}
+
+// publicAddresses is a terminal's public address allocation. Carrier-grade
+// NAT shares public addresses across terminals, so they are metadata only and
+// never a device identifier.
+type publicAddresses struct {
+	IPv4 []string
+	IPv6 []string
+}
+
+// decodeIPAllocation reads one IpAllocs row. Address columns are matched by
+// name prefix and every value must parse as an address of that family.
+func decodeIPAllocation(names []string, cells []gjson.Result) (string, publicAddresses, bool) {
+	var ref string
+	var addrs publicAddresses
+	for i, name := range names {
+		if i >= len(cells) {
+			break
+		}
+		switch {
+		case name == "DeviceId":
+			ref = terminalDeviceID(cells[i].String())
+		case strings.HasPrefix(name, "Ipv4"):
+			addrs.IPv4 = appendAddresses(addrs.IPv4, cells[i], netip.Addr.Is4)
+		case strings.HasPrefix(name, "Ipv6"):
+			addrs.IPv6 = appendAddresses(addrs.IPv6, cells[i], netip.Addr.Is6)
+		}
+	}
+	if ref == "" || len(addrs.IPv4)+len(addrs.IPv6) == 0 {
+		return "", publicAddresses{}, false
+	}
+	return ref, addrs, true
+}
+
+func appendAddresses(out []string, cell gjson.Result, family func(netip.Addr) bool) []string {
+	values := cell.Array()
+	if !cell.IsArray() {
+		values = []gjson.Result{cell}
+	}
+	for _, v := range values {
+		if addr, err := netip.ParseAddr(strings.TrimSpace(v.String())); err == nil && family(addr) {
+			out = append(out, addr.String())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// buildAddressDiscovery enriches known terminals with their public addresses.
+// Each device carries the integration_id core matches on.
+func buildAddressDiscovery(allocations map[string]publicAddresses, instance string, now time.Time) *sdk.DeviceDiscovery {
+	if len(allocations) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(allocations))
+	for ref := range allocations {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+
+	discovery := sdk.NewDeviceDiscovery(sourceName)
+	discovery.ObservedAt = now.UTC().Format(time.RFC3339Nano)
+	for _, ref := range refs {
+		addrs := allocations[ref]
+		discovery.AddDevice(sdk.DiscoveredDevice{
+			DeviceID: ref,
+			Metadata: compactMetadata(map[string]any{
+				"integration_id":  ref,
+				"source_instance": instance,
+				"public_ipv4":     strings.Join(addrs.IPv4, ","),
+				"public_ipv6":     strings.Join(addrs.IPv6, ","),
+			}),
+		})
+	}
+	return discovery
 }
 
 func decodeRow(deviceType string, names []string, cells []gjson.Result, alertEnum gjson.Result) (telemetrySample, bool) {
@@ -248,26 +335,53 @@ func buildMetricRecordsFor(samples []telemetrySample, instance, producerID strin
 			})
 		}
 
-		records = append(records, sdk.NewServiceRadarMetricTelemetryRecordFromBatch(
+		records = append(records, deviceMetricRecord(
 			"starlink-metrics-"+ref+"-"+strconv.FormatUint(byDevice[ref][0].At, 10),
-			sdk.MetricBatch{
-				Resource: sdk.MetricResource{
-					ServiceName: sourceName,
-					ServiceType: "wasm-plugin",
-					DeviceID:    ref,
-					Attributes: []sdk.MetricStringMapEntry{
-						{Key: "plugin_id", Value: producerID},
-						{Key: "source_instance", Value: instance},
-					},
-				},
-				IngestIdentity: sdk.MetricIngestIdentity{
-					Source:       "plugin-metrics",
-					ProducerID:   producerID,
-					ProducerKind: "wasm-plugin",
-				},
-				Metrics: metrics,
+			ref, instance, producerID, metrics))
+	}
+	return records
+}
+
+func deviceMetricRecord(id, ref, instance, producerID string, metrics []sdk.Metric) sdk.TelemetryRecord {
+	return sdk.NewServiceRadarMetricTelemetryRecordFromBatch(id, sdk.MetricBatch{
+		Resource: sdk.MetricResource{
+			ServiceName: sourceName,
+			ServiceType: "wasm-plugin",
+			DeviceID:    ref,
+			Attributes: []sdk.MetricStringMapEntry{
+				{Key: "plugin_id", Value: producerID},
+				{Key: "source_instance", Value: instance},
 			},
-		))
+		},
+		IngestIdentity: sdk.MetricIngestIdentity{
+			Source:       "plugin-metrics",
+			ProducerID:   producerID,
+			ProducerKind: "wasm-plugin",
+		},
+		Metrics: metrics,
+	})
+}
+
+// buildReportingRecords reports, for every device the account lists, how many
+// telemetry samples this run received from it - zero included. The plugin
+// keeps no state between runs, so "silent for several runs" is left to the
+// starlink_device_offline metric rule, which counts zeros across its window.
+func buildReportingRecords(known []string, counts map[string]int, instance string, now time.Time) []sdk.TelemetryRecord {
+	at := uint64(now.UnixNano())
+	records := make([]sdk.TelemetryRecord, 0, len(known))
+	for _, ref := range known {
+		records = append(records, deviceMetricRecord(
+			"starlink-reporting-"+ref+"-"+strconv.FormatUint(at, 10),
+			ref, instance, cloudPluginID, []sdk.Metric{{
+				Name: "starlink_telemetry_samples",
+				Kind: sdk.MetricKindGauge,
+				Unit: "count",
+				// Core rewrites device_id to the canonical uid once the
+				// device is resolved; the offline rule groups by this tag so
+				// a device resolved mid-window keeps one count.
+				Tags:   []sdk.MetricStringMapEntry{{Key: "starlink_device_ref", Value: ref}},
+				Points: []sdk.MetricPoint{{Value: float64(counts[ref]), ObservedAtUnixNano: at}},
+			}}))
 	}
 	return records
 }
@@ -279,6 +393,15 @@ type telemetryRun struct {
 	Devices    int
 	CaughtUp   bool
 	Err        error
+	// Allocations is each terminal's latest public addresses.
+	Allocations map[string]publicAddresses
+	// SampleCounts is the number of samples each device sent this run.
+	SampleCounts map[string]int
+	// NewestAt is the latest sample time seen, in Unix nanoseconds.
+	NewestAt uint64
+	// LongestHoleNs is the widest spacing between consecutive samples of one
+	// device within the run.
+	LongestHoleNs uint64
 }
 
 // drainTelemetry reads the stream until it is caught up or the per-run
@@ -287,7 +410,9 @@ type telemetryRun struct {
 // emitted before the next request.
 func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.TelemetryRecord) error) telemetryRun {
 	var run telemetryRun
-	devices := map[string]bool{}
+	lastAt := map[string]uint64{}
+	run.Allocations = map[string]publicAddresses{}
+	run.SampleCounts = map[string]int{}
 	request := []byte(`{"batchSize":` + strconv.Itoa(cfg.TelemetryBatchSize) +
 		`,"maxLingerMs":` + strconv.Itoa(cfg.TelemetryMaxLingerMS) + `}`)
 
@@ -299,13 +424,23 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 		}
 		run.Iterations++
 
-		samples, stats := decodeTelemetryStream(body)
+		samples, stats, allocations := decodeTelemetryStream(body)
+		for ref, addrs := range allocations {
+			run.Allocations[ref] = addrs
+		}
 		run.Rows += stats.Rows
 		run.Invalid += stats.Invalid
 		for _, s := range samples {
-			devices[s.DeviceRef] = true
+			run.SampleCounts[s.DeviceRef]++
+			if prev, seen := lastAt[s.DeviceRef]; !seen || s.At > prev {
+				if seen {
+					run.LongestHoleNs = max(run.LongestHoleNs, s.At-prev)
+				}
+				lastAt[s.DeviceRef] = s.At
+			}
+			run.NewestAt = max(run.NewestAt, s.At)
 		}
-		run.Devices = len(devices)
+		run.Devices = len(lastAt)
 
 		records := buildMetricRecords(samples, instance)
 		for start := 0; start < len(records); start += maxRecordsPerEmit {
@@ -322,6 +457,20 @@ func drainTelemetry(c *apiClient, cfg Config, instance string, emit func([]sdk.T
 		}
 	}
 	return run
+}
+
+// telemetryGap is the longest stretch this run saw without telemetry: a hole
+// between one device's samples, or, once the stream is drained, the time since
+// the newest sample. It is zero when nothing exceeds the threshold.
+func telemetryGap(run telemetryRun, now time.Time, threshold time.Duration) time.Duration {
+	gap := time.Duration(run.LongestHoleNs)
+	if run.CaughtUp && run.NewestAt > 0 {
+		gap = max(gap, now.Sub(time.Unix(0, int64(run.NewestAt))))
+	}
+	if gap <= threshold {
+		return 0
+	}
+	return gap
 }
 
 func emitTelemetryRecords(instance string) func([]sdk.TelemetryRecord) error {

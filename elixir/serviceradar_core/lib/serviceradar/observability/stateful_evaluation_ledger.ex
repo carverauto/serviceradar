@@ -127,6 +127,25 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
     end
   end
 
+  @doc """
+  Admits metric rows to stateful evaluation. Metric points carry no event id
+  for the ledger to record, so the caller supplies a deterministic `:id` per
+  point and the engine's replay check deduplicates a redelivered batch. A
+  deployment whose alert evaluation is not activated skips them, as
+  `evaluate_events/1` does.
+  """
+  @spec evaluate_metrics([map()]) :: :ok | {:error, term()}
+  def evaluate_metrics(rows) when is_list(rows) do
+    case engine().evaluate_metrics(rows) do
+      {:error, :alert_evaluation_not_activated} ->
+        {:skipped, _count} = skip_not_activated(rows)
+        :ok
+
+      result ->
+        result
+    end
+  end
+
   # Only the not-activated refusal is skipped. Draining and capability failures
   # still fail the batch: they are transient states of an activated deployment.
   defp skip_not_activated(events) do

@@ -72,6 +72,27 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     end
   end
 
+  test "the starlink manifest proposes the mast and offline rules without arming them" do
+    path = Path.join(@wasm_plugins_root, "starlink/plugin.yaml")
+    assert {:ok, manifest} = path |> File.read!() |> Manifest.from_yaml()
+    rules = Map.new(manifest.alert_rules, &{&1["name"], &1})
+
+    mast = rules["starlink_mast_not_vertical"]
+    assert mast["signal"] == "event"
+    assert get_in(mast, ["match", "attribute_equals", "alert"]) == "mast_not_vertical"
+    refute Map.has_key?(mast, "enabled")
+
+    offline = rules["starlink_device_offline"]
+    assert offline["signal"] == "metric"
+    assert get_in(offline, ["match", "metric_name"]) == "starlink_telemetry_samples"
+    assert get_in(offline, ["match", "condition", "comparison"]) == "lte"
+    assert get_in(offline, ["match", "condition", "threshold"]) == 0
+    assert offline["group_by"] == ["starlink_device_ref"]
+    assert offline["threshold"] == 5
+    assert offline["window_seconds"] == 600
+    refute Map.has_key?(offline, "enabled")
+  end
+
   test "signal schema declarations parse and normalize" do
     signal_schema = %{
       "id" => "com.carverauto.sample.dns_activity",

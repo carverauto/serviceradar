@@ -90,8 +90,8 @@ and emit terminal and router measurements as `serviceradar.metric.v1` records th
 - **THEN** the run stops at the budget, reports success, and the remaining backlog is drained by later runs
 
 #### Scenario: Telemetry gap detected
-- **WHEN** no telemetry arrives for longer than the configured interval while devices are known online
-- **THEN** the run reports a warning status that names the gap
+- **WHEN** a hole between one device's samples, or the age of the newest sample once the stream is drained, exceeds `telemetry_gap_seconds` (default 300)
+- **THEN** the run reports a warning status that names the gap in seconds
 
 ### Requirement: Starlink Alerts As Events
 The plugins SHALL convert active Starlink alerts into OCSF events carrying a declared
@@ -103,8 +103,12 @@ only through the enum metadata of the same response.
 - **THEN** the agent produces one raise event and one clear event for that device and alert, and the plugin emits no event for alerts that were never active
 
 #### Scenario: Unknown alert code
-- **WHEN** a numeric alert code is not present in the response enum metadata
-- **THEN** an event named `unknown_alert_<code>` is emitted instead of dropping or guessing the alert
+- **WHEN** a numeric alert code in the telemetry stream is not present in the same response's enum metadata
+- **THEN** it is counted in the device's active-alert metric as `unknown_alert_<code>` instead of being dropped or guessed, and no alert event is derived from a stream code
+
+#### Scenario: Device stops reporting
+- **WHEN** a terminal or router listed on the account sends no telemetry on several consecutive runs
+- **THEN** each fully drained run reports exactly one zero sample count for it, even when the listing repeats the device, and the proposed offline rule, once enabled, fires on that device
 
 #### Scenario: Proposed alert rules start disabled
 - **WHEN** the `starlink-cloud` package is approved

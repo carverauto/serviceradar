@@ -124,7 +124,8 @@ and units normalized (Mbps, ms, ratio, seconds). `IpAllocs` rows update metadata
 The stream cursor is per client ID and account and delivery is at-most-once. Therefore:
 exactly one ServiceRadar consumer per service account (`target_cardinality: single`), docs
 tell operators to create a dedicated service account for ServiceRadar, and the plugin
-reports a warning status when it observes a data gap longer than its interval. The
+reports a warning when a hole between one device's samples, or the age of the newest
+sample once the stream is drained, exceeds `telemetry_gap_seconds` (default 300). The
 8-hour retention bounds recoverable downtime.
 
 ### D5. Alerts to events
@@ -133,16 +134,40 @@ boolean alert fields). For each device and active alert the plugin emits an OCSF
 signal schema `com.carverauto.starlink.alert` and `unmapped.condition_key =
 starlink:<device_id>:<alert_name>` plus `unmapped.level`; the agent's condition debounce
 (`go/pkg/agent/plugin_condition_debounce.go`) turns levels into raise/clear transitions.
-When alert codes are read from the stream's `ActiveAlert(s)` column they are mapped only
-through `metadata.enums.AlertsByDeviceType` from the same response, because the vendor
-reassigns codes and its docs disagree on some values; unknown codes become an
-`unknown_alert_<code>` event rather than being dropped or guessed.
+Alert events come only from those named query flags. The stream's `ActiveAlert(s)` column
+carries numeric codes; they are mapped only through `metadata.enums.AlertsByDeviceType`
+from the same response, because the vendor reassigns codes and its docs disagree on some
+values, and an unknown code is named `unknown_alert_<code>` rather than dropped or guessed.
+Stream codes feed the per-device `starlink_active_alerts` count metric and never become
+events: the stream is not a complete per-device snapshot, so an event raised from it could
+never be cleared, and it would duplicate the query-derived events.
 
 The vendor publishes no severities. The plugin ships an explicit, reviewable
-alert-name -> severity table (unknown names default to `low`), and the manifest proposes
-`alert_rules` (created disabled, per `add-plugin-alert-rules`) for thermal shutdown,
-motors stuck, offline, and mast-not-vertical. No rule is proposed for the reboot-pending
-alert, which the vendor currently reports unreliably.
+alert-name -> severity table. Unknown names default to `warning`: the SDK has no `low`
+severity (`info` is its lowest), and a new vendor alert should not be under-reported until
+someone classifies it. The manifest proposes `alert_rules` (created disabled, per
+`add-plugin-alert-rules`): one for every critical-level alert (which covers thermal
+shutdown and stuck motors), one for mast-not-vertical, and one for an offline device. No
+rule is proposed for the reboot-pending alert, which the vendor currently reports
+unreliably.
+
+The vendor has no offline alert and the plugin keeps no state between runs (D11), so
+offline is derived: every telemetry run that drained the stream and walked the full
+listing reports `starlink_telemetry_samples` for each listed terminal and router, zero
+included, once per device even when upstream paging repeats a row. The
+`starlink_device_offline` metric rule fires when a device reports zero on five runs within
+ten minutes; the stateful alert engine, not the plugin, holds that history.
+
+The rule is the first `signal: metric` rule shipped, and core did not admit ingested metrics
+to the engine before it: `EventWriter.Processors.Metrics` now admits stored points that
+match an enabled metric rule (`MetricAlertAdmission`). Matching runs in process against
+active metric rules cached per EventWriter process for a few seconds, so with no metric rule
+enabled the high-rate metrics path does no extra database work. An admitted point's id is
+derived from its stored identity (timestamp, gateway, series key), so a redelivered batch is
+not counted twice, and a refused admission fails the batch for redelivery, which rewrites
+the same stored points. The rule groups by a `starlink_device_ref` tag rather than
+`device_id`, because core rewrites `device_id` to the canonical uid once the device is
+resolved, and a device resolved mid-window would otherwise split its count.
 
 ### D6. Management actions
 Actions are northbound actions on the existing path (UI or dashboard ->
@@ -157,8 +182,11 @@ Actions are northbound actions on the existing path (UI or dashboard ->
 | `starlink.change_product`, `starlink.deactivate_line`, `starlink.reactivate_line` | destructive, confirm | preflight; single call; verify |
 
 Multi-step actions run as long-running actions: every step boundary is persisted in
-`continuation_state` and the action returns `polling`, so an agent restart, timeout or
-vendor 429 resumes at the failed step instead of repeating completed ones. Each step
+`continuation_state` and the action returns `polling`, so an agent restart or timeout
+resumes at the failed step instead of repeating completed ones. A vendor 429 does the
+same, no sooner than the vendor's `Retry-After` and never sooner than 30 seconds. A
+collection run stops at the first 429 and makes no further vendor calls, because the
+limit is per account. Each step
 re-reads current vendor state before acting (idempotent resume). Preflight captures
 everything needed to roll forward or report (service line, product
 `maxNumberOfUserTerminals`, L2VPN circuits) and fails fast when a precondition is unmet.
@@ -278,7 +306,8 @@ reconciliation can close such alerts (tracked as an open question).
 
 ## Risks / Trade-offs
 - Vendor alert docs are inconsistent and codes can be reassigned -> map only through
-  response metadata; unknown codes are surfaced, not dropped.
+  response metadata; an unknown stream code is counted on the active-alert metric and
+  does not become an event.
 - Telemetry stream is at-most-once with one cursor per client -> single consumer per
   service account, gap detection, dedicated-service-account guidance.
 - 250 requests/minute is shared with every other tool using the account -> per-run request

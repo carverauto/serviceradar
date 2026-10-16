@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
@@ -32,22 +36,59 @@ func TestDispatchInventoryRefreshEmitsDiscovery(t *testing.T) {
 	}
 }
 
-func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
-	row := `["u",1700000000000000000,"ut` + testTerminalA + `",1,2,[],"x"]`
+// The vendor's rate limit is per account and shared with every other client,
+// so one 429 ends the run's requests instead of spending more of it.
+func TestRateLimitedRunStopsRequesting(t *testing.T) {
+	fake := newFakeHTTP(t)
+	fake.on(http.MethodGet, "/account", 200, accountFixture())
+	fake.onRateLimited(http.MethodGet, "/user-terminals?page=0", "60")
+
+	result := dispatch(actionConfig(t, actionInventoryRefresh), fake, testObservedAt)
+	if len(fake.requests) != 2 {
+		t.Fatalf("requests after the 429 = %d, want none", len(fake.requests)-2)
+	}
+	if result.Status != sdk.StatusWarning || !strings.Contains(result.Summary, "starlink_rate_limited") {
+		t.Fatalf("status %q summary %q", result.Status, result.Summary)
+	}
+}
+
+// sampleAtNs is the timestamp of the fixture telemetry rows.
+const sampleAtNs = 1700000000000000000
+
+func terminalRow(atNs int64) string {
+	return `["u",` + strconv.FormatInt(atNs, 10) + `,"ut` + testTerminalA + `",1,2,[],"x"]`
+}
+
+// runTelemetryFixture runs one telemetry collection against a single-terminal
+// account whose stream returns rows, as of now.
+func runTelemetryFixture(t *testing.T, rows string, now time.Time) (*sdk.Result, []sdk.TelemetryRecord) {
+	t.Helper()
+	return runTelemetryFixtureListing(t, terminalRowA, rows, now)
+}
+
+// runTelemetryFixtureListing is runTelemetryFixture with the terminal listing
+// page given as its rows.
+func runTelemetryFixtureListing(t *testing.T, listing, rows string, now time.Time) (*sdk.Result, []sdk.TelemetryRecord) {
+	t.Helper()
 	fake := &cacheHTTP{fakeHTTP: newFakeHTTP(t), wantBody: cacheQueryPage0, status: 200}
 	fake.on(http.MethodGet, "/account", 200, accountFixture())
-	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
+	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, listing))
 	// collectFlightStatus fetches service-lines to find aviation (tail number) terminals;
 	// the fixture has none so it short-circuits after this page.
 	fake.on(http.MethodGet, "/service-lines?page=0", 200, envelope(serviceLinesPage))
-	stream := &streamThenFake{inner: fake, bodies: []string{streamBody(terminalColumns, row)}}
+	stream := &streamThenFake{inner: fake, bodies: []string{streamBody(terminalColumns, rows)}}
 
 	var emitted []sdk.TelemetryRecord
-	result := runTelemetry(newAPIClient(stream, actionConfig(t, actionTelemetryCollect)),
-		actionConfig(t, actionTelemetryCollect),
+	cfg := actionConfig(t, actionTelemetryCollect)
+	result := runTelemetry(newAPIClient(stream, cfg), cfg, now,
 		func(string) func([]sdk.TelemetryRecord) error {
 			return func(r []sdk.TelemetryRecord) error { emitted = append(emitted, r...); return nil }
 		})
+	return result, emitted
+}
+
+func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
+	result, emitted := runTelemetryFixture(t, terminalRow(sampleAtNs), time.Unix(0, sampleAtNs).Add(time.Minute))
 
 	if result.Status != sdk.StatusOK {
 		t.Fatalf("status %q: %s", result.Status, result.Summary)
@@ -61,11 +102,136 @@ func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
 			events++
 		}
 	}
-	// One metric batch for terminal A; three active alerts from the cache
-	// fixture plus the scope-complete marker.
-	if metrics != 1 || events != 4 {
+	// One metric batch for terminal A, one reporting record per listed device
+	// (terminal A and router A); three active alerts from the cache fixture
+	// plus the scope-complete marker.
+	if metrics != 3 || events != 4 {
 		t.Fatalf("metrics %d events %d", metrics, events)
 	}
+}
+
+// The stream delivers at most once, so a stretch with no telemetry is data
+// that will never arrive; the run names how long it was.
+func TestTelemetryCollectNamesAGapLongerThanTheThreshold(t *testing.T) {
+	minute := int64(time.Minute)
+	cases := map[string]struct {
+		rows string
+		now  time.Time
+		want string
+	}{
+		"stream drained but stale": {
+			rows: terminalRow(sampleAtNs),
+			now:  time.Unix(0, sampleAtNs).Add(10 * time.Minute),
+			want: "starlink_telemetry_gap_600s",
+		},
+		"hole between one device's samples": {
+			rows: terminalRow(sampleAtNs) + "," + terminalRow(sampleAtNs+15*minute),
+			now:  time.Unix(0, sampleAtNs+16*minute),
+			want: "starlink_telemetry_gap_900s",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result, _ := runTelemetryFixture(t, tc.rows, tc.now)
+			if result.Status != sdk.StatusWarning || !strings.Contains(result.Summary, tc.want) {
+				t.Fatalf("status %q summary %q, want a warning naming %s", result.Status, result.Summary, tc.want)
+			}
+		})
+	}
+}
+
+// Carrier-grade NAT gives many terminals one public address, so an address is
+// metadata on each terminal and never an identifier that could merge them.
+func TestSharedPublicAddressNeverMergesTerminals(t *testing.T) {
+	shared := `["192.0.2.10"]`
+	rows := terminalRow(sampleAtNs) + "," +
+		`["i",` + strconv.FormatInt(sampleAtNs, 10) + `,"ut` + testTerminalA + `","` + testAccountNumber + `",` + shared + `],` +
+		`["i",` + strconv.FormatInt(sampleAtNs, 10) + `,"ut` + testTerminalB + `","` + testAccountNumber + `",` + shared + `]`
+	result, _ := runTelemetryFixture(t, rows, time.Unix(0, sampleAtNs).Add(time.Minute))
+
+	if len(result.DeviceDiscovery) != 1 || len(result.DeviceDiscovery[0].Devices) != 2 {
+		t.Fatalf("want one enrichment with both terminals, got %+v", result.DeviceDiscovery)
+	}
+	byID := map[string]sdk.DiscoveredDevice{}
+	for _, device := range result.DeviceDiscovery[0].Devices {
+		byID[device.DeviceID] = device
+	}
+	for _, want := range []string{terminalDeviceID(testTerminalA), terminalDeviceID(testTerminalB)} {
+		device, ok := byID[want]
+		if !ok || device.Metadata["integration_id"] != want {
+			t.Fatalf("device %q missing or integration_id %v; got %+v", want, device.Metadata["integration_id"], byID)
+		}
+		if device.IP != "" || device.Metadata["public_ipv4"] != "192.0.2.10" {
+			t.Fatalf("device %q ip %q public_ipv4 %v: a shared address must be metadata only", want, device.IP, device.Metadata["public_ipv4"])
+		}
+	}
+}
+
+// A device that sends nothing produces no metric of its own, so silence is only
+// visible if every listed device is reported each run, zero included. The
+// listing repeats terminal A, as upstream paging can: each device is still
+// reported once, or one run would count its silence twice.
+func TestTelemetryReportsEveryListedDeviceIncludingSilentOnes(t *testing.T) {
+	_, emitted := runTelemetryFixtureListing(t, terminalRowA+","+terminalRowA,
+		terminalRow(sampleAtNs), time.Unix(0, sampleAtNs).Add(time.Minute))
+
+	reported := map[string]int{}
+	for _, r := range emitted {
+		for _, ref := range []string{terminalDeviceID(testTerminalA), routerDeviceID(testRouterA)} {
+			if strings.HasPrefix(r.EventID, "starlink-reporting-"+ref+"-") {
+				reported[ref]++
+				body := metricPayloadText(t, r)
+				if !strings.Contains(body, "starlink_telemetry_samples") || !strings.Contains(body, "starlink_device_ref") || !strings.Contains(body, ref) {
+					t.Fatalf("reporting record for %s does not carry the stable device ref tag: %q", ref, body)
+				}
+			}
+		}
+	}
+	if reported[terminalDeviceID(testTerminalA)] != 1 || reported[routerDeviceID(testRouterA)] != 1 {
+		t.Fatalf("reporting records %v; want exactly one for the sampled terminal and one for the silent router", reported)
+	}
+}
+
+// Stream alert codes that the vendor has not named are counted on
+// starlink_active_alerts. They are not condition events: an unknown code must
+// not page anyone, and the cache snapshot is the only event source.
+func TestUnknownStreamAlertIsCountedAndNotAnEvent(t *testing.T) {
+	row := `["u",` + strconv.FormatInt(sampleAtNs, 10) + `,"ut` + testTerminalA + `",1,2,[99],"x"]`
+	_, emitted := runTelemetryFixture(t, row, time.Unix(0, sampleAtNs).Add(time.Minute))
+
+	var counted bool
+	for _, r := range emitted {
+		switch r.PayloadKind {
+		case sdk.SignalSchemaPayloadKindOCSFEvent:
+			raw, err := json.Marshal(r.Payload)
+			if err != nil {
+				t.Fatalf("event payload: %v", err)
+			}
+			if strings.Contains(string(raw), "unknown_alert_99") {
+				t.Fatalf("unknown stream alert became an event: %s", raw)
+			}
+		case sdk.SignalSchemaPayloadKindServiceRadarMetrics:
+			if strings.Contains(metricPayloadText(t, r), "starlink_active_alerts") {
+				counted = true
+			}
+		}
+	}
+	if !counted {
+		t.Fatal("stream alert code 99 was not counted on starlink_active_alerts")
+	}
+}
+
+func metricPayloadText(t *testing.T, r sdk.TelemetryRecord) string {
+	t.Helper()
+	encoded, ok := r.Payload.(string)
+	if !ok {
+		t.Fatalf("metric payload is %T, want the base64 batch", r.Payload)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("metric payload is not base64: %v", err)
+	}
+	return string(raw)
 }
 
 func TestDispatchWithoutActionIsUnknown(t *testing.T) {

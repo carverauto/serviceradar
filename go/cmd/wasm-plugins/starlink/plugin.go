@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +64,7 @@ func dispatch(cfg Config, doer httpDoer, now time.Time) *sdk.Result {
 	case actionInventoryRefresh:
 		return runInventory(client, now)
 	case actionTelemetryCollect:
-		return runTelemetry(client, cfg, emitTelemetryRecords)
+		return runTelemetry(client, cfg, now, emitTelemetryRecords)
 	case "":
 		return sdk.Unknown("starlink-cloud runs only as scheduled or operator actions; attach a Starlink credential rule")
 	default:
@@ -115,7 +116,7 @@ func runInventory(client *apiClient, now time.Time) *sdk.Result {
 		WithDeviceDiscovery(*discovery)
 }
 
-func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk.TelemetryRecord) error) *sdk.Result {
+func runTelemetry(client *apiClient, cfg Config, now time.Time, emitter func(string) func([]sdk.TelemetryRecord) error) *sdk.Result {
 	content, err := client.call(http.MethodGet, "/account", nil, nil, 0)
 	if err != nil {
 		return sdk.Critical(errorCode(err))
@@ -136,6 +137,20 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 		if err := emit(alertRecords[start:end]); err != nil {
 			alertEmitErr = "starlink_alert_emit_failed"
 			break
+		}
+	}
+
+	// Zero samples is only evidence of silence when the stream was fully
+	// drained and the listing complete; otherwise the count is partial.
+	reportingEmitErr := ""
+	if run.Err == nil && run.CaughtUp && alerts.Complete {
+		reporting := buildReportingRecords(alerts.Known, run.SampleCounts, instance, now)
+		for start := 0; start < len(reporting); start += maxRecordsPerEmit {
+			end := min(start+maxRecordsPerEmit, len(reporting))
+			if err := emit(reporting[start:end]); err != nil {
+				reportingEmitErr = "starlink_reporting_emit_failed"
+				break
+			}
 		}
 	}
 
@@ -168,11 +183,19 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 	if flightEmitErr != "" {
 		problems = append(problems, flightEmitErr)
 	}
+	if reportingEmitErr != "" {
+		problems = append(problems, reportingEmitErr)
+	}
 	if run.Err == nil && run.Rows == 0 {
 		// Either every device is offline, or another consumer shares this
 		// service account and is reading the stream (each client ID has one
 		// read position, so two readers split the data between them).
 		problems = append(problems, "starlink_telemetry_no_rows")
+	}
+	if gap := telemetryGap(run, now, time.Duration(cfg.TelemetryGapSeconds)*time.Second); gap > 0 {
+		// At-most-once delivery means a gap is data that will not arrive:
+		// devices were down, or another consumer read this account's stream.
+		problems = append(problems, "starlink_telemetry_gap_"+strconv.Itoa(int(gap/time.Second))+"s")
 	}
 
 	result := sdk.Ok(summary)
@@ -181,6 +204,9 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 	}
 	if flightDiscovery != nil {
 		result.AddDeviceDiscovery(*flightDiscovery)
+	}
+	if addressDiscovery := buildAddressDiscovery(run.Allocations, instance, now); addressDiscovery != nil {
+		result.AddDeviceDiscovery(*addressDiscovery)
 	}
 	details, _ := json.Marshal(map[string]any{
 		"stream_iterations": run.Iterations,

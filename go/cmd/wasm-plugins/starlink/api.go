@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/tidwall/gjson"
@@ -31,6 +32,8 @@ type httpDoer interface {
 type apiError struct {
 	code   string
 	status int
+	// retryAfter is the vendor's Retry-After on a 429, when it sent one.
+	retryAfter time.Duration
 }
 
 func (e *apiError) Error() string { return e.code }
@@ -45,6 +48,14 @@ func errorCode(err error) string {
 	return "starlink_request_failed"
 }
 
+// retryAfterOf returns the vendor's requested wait carried by err, if any.
+func retryAfterOf(err error) (time.Duration, bool) {
+	if typed, ok := err.(*apiError); ok && typed.retryAfter > 0 {
+		return typed.retryAfter, true
+	}
+	return 0, false
+}
+
 // apiClient calls the Management and Telemetry APIs. It sends no credential:
 // the agent host exchanges the brokered service-account credential for a
 // bearer token and injects it into every allowed request.
@@ -56,6 +67,10 @@ type apiClient struct {
 	// stops early rather than spend the whole minute's allowance.
 	budget   int
 	requests int
+	// rateLimited is the 429 that ended this run's requests. The limit is per
+	// account, so once the vendor refuses, every further call in the run is
+	// refused locally instead of spending more of the shared allowance.
+	rateLimited *apiError
 }
 
 func newAPIClient(doer httpDoer, cfg Config) *apiClient {
@@ -64,6 +79,9 @@ func newAPIClient(doer httpDoer, cfg Config) *apiClient {
 
 // call performs one request and returns the envelope's content.
 func (c *apiClient) call(method, path string, query url.Values, body []byte, timeoutMS int) (gjson.Result, error) {
+	if c.rateLimited != nil {
+		return gjson.Result{}, c.rateLimited
+	}
 	if c.budget <= 0 {
 		return gjson.Result{}, &apiError{code: "starlink_request_budget_exhausted"}
 	}
@@ -83,6 +101,8 @@ func (c *apiClient) call(method, path string, query url.Values, body []byte, tim
 		URL:       target,
 		Headers:   map[string]string{"Accept": "application/json"},
 		TimeoutMS: timeoutMS,
+		// Envelope mode returns response headers, which carry Retry-After.
+		ResponseMode: sdk.ResponseModeEnvelope,
 	}
 	if body != nil {
 		req.Headers["Content-Type"] = "application/json"
@@ -94,7 +114,12 @@ func (c *apiClient) call(method, path string, query url.Values, body []byte, tim
 		return gjson.Result{}, &apiError{code: "starlink_request_failed"}
 	}
 	if code := statusErrorCode(resp.Status); code != "" {
-		return gjson.Result{}, &apiError{code: code, status: resp.Status}
+		apiErr := &apiError{code: code, status: resp.Status}
+		if resp.Status == http.StatusTooManyRequests {
+			apiErr.retryAfter, _ = resp.RetryAfter()
+			c.rateLimited = apiErr
+		}
+		return gjson.Result{}, apiErr
 	}
 
 	envelope := gjson.ParseBytes(resp.Body)

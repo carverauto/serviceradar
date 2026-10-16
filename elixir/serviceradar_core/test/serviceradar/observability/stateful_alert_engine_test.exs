@@ -10,6 +10,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
+  alias ServiceRadar.EventWriter.Processors.Metrics
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.AnomalyAlertLivenessCheck
@@ -235,6 +242,72 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     assert Enum.any?(history, &(&1.event_type == :fired))
     assert Enum.any?(history, &(&1.event_type == :recovered))
+  end
+
+  # The metrics stream processor is the only production path from a stored
+  # metric point to the engine; a metric rule it never admits cannot fire.
+  test "metric rules evaluate points ingested through the metrics stream", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    metric_name = "reported_samples_#{unique}"
+    device_ref = "test:device-#{unique}"
+    alert_title = "Device silent #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "device-silent-#{unique}",
+          enabled: true,
+          signal: :metric,
+          match: %{
+            "metric_name" => metric_name,
+            "condition" => %{"comparison" => "lte", "threshold" => 0}
+          },
+          group_by: ["device_ref"],
+          threshold: 3,
+          window_seconds: 600,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.test.silent",
+            "message" => "Device {device_ref} is silent"
+          },
+          alert: %{"title" => alert_title, "severity" => "warning"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    now = DateTime.utc_now()
+
+    point = fn minutes_ago ->
+      metric_message(metric_name, device_ref, 0.0, DateTime.shift(now, minute: -minutes_ago))
+    end
+
+    active_alerts = fn ->
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(&(&1.title == alert_title))
+    end
+
+    # A redelivered batch rewrites the same stored points; counted again, the
+    # two points would reach the threshold of three.
+    batch = [point.(2), point.(1)]
+    assert {:ok, 2} = Metrics.process_batch(batch)
+    assert {:ok, _count} = Metrics.process_batch(batch)
+    TestSupport.complete_alert_effects!()
+    assert active_alerts.() == []
+
+    assert {:ok, 1} = Metrics.process_batch([point.(0)])
+    TestSupport.complete_alert_effects!()
+
+    assert [alert] = active_alerts.()
+    assert alert.metadata["incident_group_values"] == %{"device_ref" => device_ref}
+    assert alert.metadata["incident_window_count"] == 3
   end
 
   test "groups endpoint vulnerability findings by OCSF device uid", %{actor: actor} do
@@ -1695,6 +1768,43 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   # Public admission is asynchronous. Effects are read only after the real
   # worker has committed receipts and the real outbox has delivered events.
+  defp metric_message(metric_name, device_ref, value, %DateTime{} = observed_at) do
+    data =
+      MetricBatch.encode(%MetricBatch{
+        schema_version: "serviceradar.metric.v1",
+        resource: %MetricResource{
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          partition: "default",
+          service_name: "metrics",
+          service_type: "metrics"
+        },
+        ingest_identity: %IngestIdentity{
+          source: "test-metrics",
+          payload_kind: "serviceradar.metric.v1",
+          producer_id: "agent-1",
+          producer_kind: "agent"
+        },
+        metrics: [
+          %Metric{
+            name: metric_name,
+            metric_type: "test",
+            kind: :METRIC_KIND_GAUGE,
+            unit: "count",
+            tags: [%StringMapEntry{key: "device_ref", value: device_ref}],
+            points: [
+              %MetricPoint{
+                value: value,
+                observed_at_unix_nano: DateTime.to_unix(observed_at, :nanosecond)
+              }
+            ]
+          }
+        ]
+      })
+
+    %{data: data, metadata: %{subject: "metrics.test.#{metric_name}"}}
+  end
+
   defp evaluate_events_and_complete!(events) do
     result = StatefulAlertEngine.evaluate_events(events)
     if result == :ok, do: TestSupport.complete_alert_effects!()
