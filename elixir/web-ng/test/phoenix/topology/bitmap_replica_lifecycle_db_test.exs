@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
   @tag sandbox: :unboxed
   test "world loader leaves stable incomplete identities alone, yields pages to geometry, and detects late commits", %{
-    ids: [first_id, trigger_id, late_id, higher_id | _],
+    ids: [first_id, trigger_id, late_id, higher_id, unrelated_id],
     vendor: vendor
   } do
     assert {:error, :not_ready} = World.active_manifest(:system)
@@ -88,7 +88,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     first = create(first_id, vendor, true)
     seed_padding(padding)
     first_ordinal = FleetIdentity.device_ordinal(first.uid)
-    ids = [first_id, late_id, "serviceradar:#{vendor}"]
+    ids = [first_id, late_id]
     stage_world(first_version, ids)
     stage_world(next_version, ids)
     assert {:ok, %{generation: generation}} = World.activate_relayout(0, first_version)
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     cache = start_supervised!({WorldCache, task_supervisor: cache_tasks, pubsub: ServiceRadar.PubSub})
     observer = observe_loader_queries(loader_tasks)
     loader = start_supervised!({WorldLoader, cache: cache, task_supervisor: loader_tasks, pubsub: ServiceRadar.PubSub})
-    expected = [first_ordinal, 0, 0]
+    expected = [first_ordinal, 0]
     {assignment, progress} = await_projection(cache, first_version, ids, expected)
     await_loader_idle(loader)
     drain_loader_queries(observer)
@@ -162,7 +162,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
       after_progress = {high_water, before_count + 1}
       assert {:ok, ^after_progress} = BitmapSource.dictionary_progress()
       send(loader, :refresh)
-      await_projection(cache, next_version, ids, [first_ordinal, late_ordinal, 0], after_progress)
+      complete = [first_ordinal, late_ordinal]
+      {complete_assignment, ^after_progress} = await_projection(cache, next_version, ids, complete, after_progress)
+      await_loader_idle(loader)
+      drain_loader_queries(observer)
+
+      # A new identity outside this immutable, completely mapped world cannot
+      # change any assignment. Poll the real owner without counting or paging it.
+      create(unrelated_id, vendor, false)
+      assert {:ok, {_higher_water, count}} = BitmapSource.dictionary_progress()
+      assert count == before_count + 2
+      send(loader, :refresh)
+      assert_receive {:loader_query, ^observer, complete_task, :head, _}, 10_000
+      await_task(complete_task)
+      await_loader_idle(loader)
+      assert {^complete_assignment, ^after_progress} = await_projection(cache, next_version, ids, complete)
+      refute_receive {:loader_query, ^observer, _, :progress, _}
+      refute_receive {:loader_query, ^observer, _, :page, _}
     after
       if Process.alive?(writer.pid), do: Task.shutdown(writer, :brutal_kill)
     end
@@ -448,9 +464,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
         fn _event, _timings, metadata, owner ->
           query = String.upcase(to_string(metadata.query))
 
-          if String.contains?(query, "DEVICE_FLEET_ORDINALS") and self() in Task.Supervisor.children(tasks) do
-            kind = if String.contains?(query, "COUNT(*)"), do: :progress, else: :page
+          kind =
+            cond do
+              String.contains?(query, "TOPOLOGY_WORLD_HEAD") -> :head
+              String.contains?(query, "DEVICE_FLEET_ORDINALS") and String.contains?(query, "COUNT(*)") -> :progress
+              String.contains?(query, "DEVICE_FLEET_ORDINALS") -> :page
+              true -> nil
+            end
 
+          if kind && self() in Task.Supervisor.children(tasks) do
             rows =
               case metadata.result do
                 {:ok, %{num_rows: count}} -> count
