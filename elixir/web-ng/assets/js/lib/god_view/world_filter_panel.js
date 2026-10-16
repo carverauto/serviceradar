@@ -2,6 +2,7 @@ import {worldJson} from "./world_http"
 
 const CONTROL = "rounded-sr-control border border-sr-line bg-sr-control px-2 py-1.5 text-sm text-sr-ink outline-none focus-visible:ring-2 focus-visible:ring-sr-focus"
 const BUTTON = `${CONTROL} font-semibold hover:border-sr-line-hover disabled:opacity-50`
+const MAX_DEPTH = 8, MAX_NODES = 65, MAX_CONDITIONS = 32
 let panelSequence = 0
 
 function node(tag, className = "", text = "") {
@@ -39,6 +40,15 @@ function select(values, selected, change) {
 }
 
 function group(children = []) {return {mode: "all", children, exclude: false}}
+
+function querySize(term) {
+  const children = (term.children || []).map(querySize)
+  return {
+    nodes: 1 + Number(term.exclude === true) + children.reduce((sum, child) => sum + child.nodes, 0),
+    conditions: term.children ? children.reduce((sum, child) => sum + child.conditions, 0) : 1,
+    depth: 1 + Number(term.exclude === true) + Math.max(0, ...children.map(child => child.depth)),
+  }
+}
 
 function fromExpression(expression) {
   if (expression.except) {
@@ -154,13 +164,14 @@ export class WorldFilterPanel {
     this.tree.replaceChildren(this.renderNode(this.draft))
   }
 
-  renderNode(term, parent = null, depth = 0) {
+  renderNode(term, parent = null, depth = 1, budget = querySize(this.draft)) {
     const box = node("fieldset", "min-w-0 space-y-2 rounded border border-sr-line p-2")
     const tools = node("div", "flex flex-wrap items-center gap-2")
     const exclude = node("input")
     exclude.type = "checkbox"
     exclude.checked = term.exclude === true
-    exclude.addEventListener("change", () => {term.exclude = exclude.checked})
+    exclude.disabled = !term.exclude && (budget.nodes >= MAX_NODES || depth + querySize(term).depth > MAX_DEPTH)
+    exclude.addEventListener("change", () => {term.exclude = exclude.checked; this.renderTree()})
     const exclusion = labeled("Exclude (EXCEPT)", exclude)
     exclusion.className = "inline-flex items-center gap-2 text-xs text-sr-muted"
     if (term.children) {
@@ -174,22 +185,19 @@ export class WorldFilterPanel {
     }))
     box.append(tools)
     if (term.children) {
-      for (const child of term.children) box.append(this.renderNode(child, term, depth + 1))
+      const childDepth = depth + 1 + Number(term.exclude === true)
+      for (const child of term.children) box.append(this.renderNode(child, term, childDepth, budget))
       const add = node("div", "flex flex-wrap gap-2")
       const condition = button("Add condition", () => {term.children.push(this.condition()); this.renderTree()})
       const nested = button("Add group", () => {term.children.push(group([this.condition()])); this.renderTree()})
-      const bounded = this.conditionCount() >= 32
-      condition.disabled = bounded || this.nodeCount() >= 65
-      nested.disabled = bounded || this.nodeCount() >= 64 || depth >= 6
+      const bounded = budget.conditions >= MAX_CONDITIONS
+      condition.disabled = bounded || budget.nodes >= MAX_NODES || childDepth > MAX_DEPTH
+      nested.disabled = bounded || budget.nodes + 2 > MAX_NODES || childDepth + 1 > MAX_DEPTH
       add.append(condition, nested)
       box.append(add)
     } else this.renderCondition(term, box)
     return box
   }
-
-  conditionCount(term = this.draft) {return term.children ? term.children.reduce((sum, child) => sum + this.conditionCount(child), 0) : 1}
-
-  nodeCount(term = this.draft) {return 1 + (term.children?.reduce((sum, child) => sum + this.nodeCount(child), 0) || 0)}
 
   renderCondition(term, box) {
     const facets = this.descriptor?.facets || []
@@ -281,14 +289,15 @@ export class WorldFilterPanel {
     box.append(labeled("Prefix Tags source", source), labeled("Prefix Tag label", labels), button("Load labels", () => void load()), next, message)
   }
 
-  expression(term = this.draft, depth = 0, budget = {predicates: 0, nodes: 0}) {
-    if (depth > 8 || ++budget.nodes > 65) throw new Error("Use fewer nested groups (maximum depth 8).")
-    if (term.exclude) return {except: this.expression({...term, exclude: false}, depth + 1, budget)}
+  expression(term = this.draft) {
+    const budget = querySize(term)
+    if (budget.depth > MAX_DEPTH || budget.nodes > MAX_NODES) throw new Error("Use fewer groups or exclusions (maximum depth 8 and 65 expression nodes).")
+    if (budget.conditions > MAX_CONDITIONS) throw new Error("Use at most 32 conditions.")
+    if (term.exclude) return {except: this.expression({...term, exclude: false})}
     if (term.children) {
       if (!term.children.length) throw new Error("Add a condition to each group, or clear filters.")
-      return {[term.mode]: term.children.map(child => this.expression(child, depth + 1, budget))}
+      return {[term.mode]: term.children.map(child => this.expression(child))}
     }
-    if (++budget.predicates > 32) throw new Error("Use at most 32 conditions.")
     const value = term.field === "$prefix_tag" ? term.value || "" : (term.value || "").trim()
     if (!value || new TextEncoder().encode(value).length > 256) throw new Error("Each condition needs a value of at most 256 bytes.")
     if (term.field === "$ip" && this.descriptor?.operators?.ip_cidr) return {ip_cidr: value}

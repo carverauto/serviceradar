@@ -90,7 +90,7 @@ describe("world telemetry polling", () => {
     expect(overlays.entries.size).toBe(0)
   })
 
-  it("caps four binary fetches and evicts old telemetry to retain the complete overlay budget", async () => {
+  it("admits a stable dense viewport before fetching, within four requests and the complete overlay budget", async () => {
     const geometries = Array.from({length: 64}, (_, x) => ({...telemetryGeometry, key: {...telemetryGeometry.key, z: 6, x},
       nodes: Array.from({length: 128}, (_, index) => ({index})), edges: Array.from({length: 512}, (_, index) => ({index, count: 3}))}))
     let active = 0, peak = 0
@@ -109,6 +109,19 @@ describe("world telemetry polling", () => {
     expect(overlays.entries.size).toBeGreaterThan(0)
     expect(overlays.entries.size).toBeLessThan(64)
     expect(overlays.retainedBytes + 3 * 1024 * 1024).toBeLessThanOrEqual(8 * 1024 * 1024)
+    const admitted = [...overlays.entries.keys()].sort()
+    expect(fetch.mock.calls).toHaveLength(admitted.length)
+    fetch.mockClear()
+    overlays.setVisible([...geometries].reverse())
+    await overlays.poll()
+    expect([...overlays.entries.keys()].sort()).toEqual(admitted)
+    expect(fetch.mock.calls).toHaveLength(admitted.length)
+    expect(fetch.mock.calls.map(([url]) => url.split("/").slice(-3).join("/").split("?")[0]).sort()).toEqual(admitted)
+    // A geometry outside the old admission becomes eligible after panning.
+    const next = geometries.find(item => !admitted.includes(`6/${item.key.x}/0`))
+    overlays.setVisible([next])
+    await overlays.poll()
+    expect([...overlays.entries.keys()]).toEqual([`6/${next.key.x}/0`])
     overlays.setVisible([])
     expect(overlays.retainedBytes).toBe(0)
   })
