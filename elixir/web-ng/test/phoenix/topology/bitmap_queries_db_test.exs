@@ -211,7 +211,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     ref = push(socket, "membership:watch", params)
     assert_reply ref, :ok, %{view_digest: digest, projection: %{mapped: 2, total: 2}}, 5_000
     assert_push "membership:frame", {:binary, frame}, 5_000
-    {sequence, wire_digest, revision, mask, causal, availability, counts} = membership_rows(frame)
+    {sequence, total, wire_digest, revision, mask, causal, availability, counts} = membership_rows(frame)
+    assert total == 1
     assert wire_digest == digest
     assert revision == tile.revision
     assert causal == <<3, 3>>
@@ -320,7 +321,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   # Decode only this test's one-tile SRMO wire contract independently of the
   # production encoder; expected membership comes from the invented inventory.
   defp membership_rows(frame) do
-    <<"SRMO", 1, 0, 0::little-16, size::little-32, sequence::little-64, rest::binary>> = frame
+    <<"SRMO", 1, 0, 0::little-16, size::little-32, sequence::little-64, total::little-32, rest::binary>> = frame
     assert size == byte_size(frame)
 
     {fields, rest} =
@@ -333,7 +334,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     <<revision::binary-size(length), rows::little-16, rest::binary>> = rest
     <<mask::binary-size(rows), causal::binary-size(rows), availability::binary-size(rows), counts::binary>> = rest
     assert byte_size(counts) == rows * 4
-    {sequence, Enum.at(fields, 4), revision, mask, causal, availability, counts}
+    {sequence, total, Enum.at(fields, 4), revision, mask, causal, availability, counts}
   end
 
   defp create(uid, attrs) do

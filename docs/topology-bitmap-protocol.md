@@ -1,4 +1,4 @@
-# Topology membership protocol, version 1
+# ServiceRadar Atlas membership protocol, version 1
 
 The server evaluates bitmap queries. Browsers receive complete binary overlays
 for the rows already admitted by the tile renderer. Membership never changes

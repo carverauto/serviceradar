@@ -1,4 +1,4 @@
-# Persistent topology bitmap identities
+# ServiceRadar Atlas persistent bitmap identities
 
 `FleetIdentity` owns identity allocation. Canonical devices, including canonical
 endpoint devices, share `platform.device_fleet_ordinals`. A layout row,

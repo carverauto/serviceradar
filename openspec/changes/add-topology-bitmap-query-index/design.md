@@ -1,6 +1,8 @@
+# ServiceRadar Atlas bitmap query design
+
 ## Context
 
-The persistent ELK world already owns geometry, aggregate membership and bounded
+ServiceRadar Atlas's persistent ELK world owns geometry, aggregate membership and bounded
 Arrow tiles. Roaring belongs beside that world as a server-side query index.
 The browser admits at most 64 tiles of 128 glyphs each, so it needs at most
 8,192 rows of membership and state, not a second set-algebra engine.

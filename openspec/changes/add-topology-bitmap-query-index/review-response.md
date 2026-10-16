@@ -127,3 +127,19 @@ Existing named Prefix Tags are also approved. Their local immutable snapshots
 will supply bounded native network ranges, preserving the existing full matching
 chain and live pagination. This adds no interface identities, query-owner routing
 or per-device BEAM lookup; catalog and range costs are explicit acceptance work.
+
+## Pass 3 response
+
+- Naming: public prose and new UI copy use ServiceRadar Atlas. Existing source
+  identifiers, flags and capability names retain their current spellings.
+- P3-1: retain full-replacement membership frames. Task 4.7 measures WebSocket
+  compression before enabling it; unchanged-tile omission stays deferred until
+  transport measurements justify additional state.
+- P3-2: accept native Arrow IPC health/flow encoding as an explicit follow-up,
+  consistent with the binary-path audit. The current SRTO codec remains in this
+  release; the follow-up must preserve receipts, nullability, coverage and
+  timestamps while comparing actual allocation and wire costs.
+- P3-3: task 4.6 owns the synthetic before/after website capture and delivery.
+  Production renderer and filter components must generate the images; no
+  composited UI or captured deployment inventory is allowed. Synthetic transport
+  must be disclosed separately from actual server/database acceptance.
