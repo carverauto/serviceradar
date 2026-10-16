@@ -254,8 +254,7 @@ func validCredentialInjectionIntent(intent *credentialInjectionIntent) bool {
 		return false
 	}
 	mode := strings.ToLower(strings.TrimSpace(intent.Mode))
-	_, ok := notificationCredentialInjectionModes[mode]
-	return ok
+	return notificationCredentialInjectionModeSupported(mode)
 }
 
 func credentialInjectionIntentMatchesGrant(

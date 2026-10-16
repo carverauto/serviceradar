@@ -26,6 +26,7 @@ func newPrivateCAAndLeaf(t *testing.T, ip net.IP) (caPEM string, leaf tls.Certif
 // validatePluginHostAuthorityBinding), so the only way to reach a node behind
 // the cluster CA is to pin that CA on the rule.
 func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	loopback := net.ParseIP("127.0.0.1")
 	caPEM, leaf := newPrivateCAAndLeaf(t, loopback)
 
@@ -61,14 +62,14 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 	}
 
 	t.Run("system roots alone cannot reach it", func(t *testing.T) {
-		client := pluginHTTPClient(base, false, 5*time.Second)
+		client := transports.client(base, false, 5*time.Second)
 		if _, err := get(t, client); err == nil {
 			t.Fatal("expected verification to fail against the system trust store")
 		}
 	})
 
 	t.Run("the pinned cluster CA reaches it", func(t *testing.T) {
-		client := pluginHTTPClientWithPinnedRoots(pluginHTTPClient(base, false, 5*time.Second), caPEM)
+		client := transports.clientWithPinnedRoots(transports.client(base, false, 5*time.Second), caPEM)
 		status, err := get(t, client)
 		if err != nil {
 			t.Fatalf("pinned CA should verify the node certificate: %v", err)
@@ -80,8 +81,8 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 
 	t.Run("an unrelated CA does not", func(t *testing.T) {
 		otherPEM, _ := newPrivateCAAndLeaf(t, loopback)
-		client := pluginHTTPClientWithPinnedRoots(
-			pluginHTTPClient(base, false, 5*time.Second),
+		client := transports.clientWithPinnedRoots(
+			transports.client(base, false, 5*time.Second),
 			otherPEM,
 		)
 		if _, err := get(t, client); err == nil {
@@ -135,6 +136,7 @@ func leafFingerprint(t *testing.T, leaf tls.Certificate) string {
 }
 
 func TestPinnedFingerprintVerifiesMatchingLeafAndRejectsOthers(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	loopback := net.ParseIP("127.0.0.1")
 	_, leaf := newPrivateCAAndLeaf(t, loopback)
 	_, otherLeaf := newPrivateCAAndLeaf(t, loopback)
@@ -164,8 +166,8 @@ func TestPinnedFingerprintVerifiesMatchingLeafAndRejectsOthers(t *testing.T) {
 	}
 
 	t.Run("the pinned leaf fingerprint reaches it", func(t *testing.T) {
-		client := pluginHTTPClientWithPinnedFingerprint(
-			pluginHTTPClient(base, false, 5*time.Second),
+		client := transports.clientWithPinnedFingerprint(
+			transports.client(base, false, 5*time.Second),
 			leafFingerprint(t, leaf),
 		)
 		if err := get(t, client); err != nil {
@@ -174,8 +176,8 @@ func TestPinnedFingerprintVerifiesMatchingLeafAndRejectsOthers(t *testing.T) {
 	})
 
 	t.Run("an unrelated fingerprint does not", func(t *testing.T) {
-		client := pluginHTTPClientWithPinnedFingerprint(
-			pluginHTTPClient(base, false, 5*time.Second),
+		client := transports.clientWithPinnedFingerprint(
+			transports.client(base, false, 5*time.Second),
 			leafFingerprint(t, otherLeaf),
 		)
 		if err := get(t, client); err == nil {
@@ -246,6 +248,7 @@ func TestPluginHostAuthorityRejectsCABundleAndFingerprintTogether(t *testing.T) 
 // pool: a full handshake each time, plus an idle connection stranded in each
 // discarded transport until IdleConnTimeout.
 func TestPinnedBindingReusesOneConnectionAcrossRequests(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	loopback := net.ParseIP("127.0.0.1")
 	caPEM, leaf := newPrivateCAAndLeaf(t, loopback)
 
@@ -286,7 +289,7 @@ func TestPinnedBindingReusesOneConnectionAcrossRequests(t *testing.T) {
 			base := &http.Client{Transport: &http.Transport{}}
 
 			for range 3 {
-				client := pluginHTTPClientForBinding(base, false, 5*time.Second, tc.binding)
+				client := transports.clientForBinding(base, false, 5*time.Second, tc.binding)
 
 				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 				if err != nil {

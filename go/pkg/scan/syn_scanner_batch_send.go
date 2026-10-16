@@ -57,7 +57,7 @@ func (s *SYNScanner) sendSynBatchFamily(socket int, familyEntries []synBatchEntr
 
 	for i := range familyEntries {
 		if familyEntries[i].pooled {
-			s.packetPool.Put(familyEntries[i].packet) //nolint:staticcheck // slice is reference type, Put accepts interface{}
+			s.packetPool.Put((*[ipv4TcpPacketSize]byte)(familyEntries[i].packet))
 		}
 	}
 

@@ -65,21 +65,18 @@ var (
 	errPluginGRPCTLSTrust  = errors.New("plugin gRPC TLS trust configuration unavailable")
 )
 
-// Request-metadata keys the host owns. The HTTP/2 transport, content
-// negotiation, deadline propagation and connection management are set by the
-// host and must not be replaced or duplicated by guest metadata.
-//
-//nolint:gochecknoglobals
-var pluginGRPCReservedMetadataKeys = map[string]struct{}{
-	"connection":        {},
-	"content-type":      {},
-	"host":              {},
-	"keep-alive":        {},
-	"proxy-connection":  {},
-	"te":                {},
-	"transfer-encoding": {},
-	"upgrade":           {},
-	"user-agent":        {},
+// pluginGRPCReservedMetadataKey reports whether key is request metadata the
+// host owns. The HTTP/2 transport, content negotiation, deadline propagation
+// and connection management are set by the host and must not be replaced or
+// duplicated by guest metadata.
+func pluginGRPCReservedMetadataKey(key string) bool {
+	switch key {
+	case "connection", "content-type", "host", "keep-alive", "proxy-connection",
+		"te", "transfer-encoding", "upgrade", "user-agent":
+		return true
+	default:
+		return false
+	}
 }
 
 type grpcUnaryRequestPayload struct {
@@ -594,7 +591,7 @@ func parseGRPCRequestMetadata(raw map[string]string) (metadata.MD, bool) {
 		if key == "" || strings.HasPrefix(key, ":") || strings.HasPrefix(key, "grpc-") {
 			return nil, false
 		}
-		if _, reserved := pluginGRPCReservedMetadataKeys[key]; reserved {
+		if pluginGRPCReservedMetadataKey(key) {
 			return nil, false
 		}
 		if !validGRPCMetadataKey(key) {

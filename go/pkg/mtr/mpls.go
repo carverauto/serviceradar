@@ -38,6 +38,20 @@ const (
 	// minOrigDatagramLen is the minimum original datagram length (128 bytes)
 	// before extension data begins in ICMP Time Exceeded / Dest Unreachable.
 	minOrigDatagramLen = 128
+
+	// icmpLengthUnit is the unit of the ICMP header's original-datagram length
+	// field: 32-bit words.
+	icmpLengthUnit = 4
+	// extVersionShift moves the extension header's version nibble down.
+	extVersionShift = 4
+
+	// An MPLS label stack entry is a 20-bit label, a 3-bit traffic class, the
+	// bottom-of-stack bit and an 8-bit TTL (RFC 3032).
+	mplsLabelShift    = 12
+	mplsExpShift      = 9
+	mplsExpMask       = 0x07
+	mplsBottomOfStack = 1 << 8
+	mplsTTLMask       = 0xFF
 )
 
 // ParseMPLSFromICMP extracts MPLS label stack entries from ICMP Time Exceeded
@@ -60,7 +74,7 @@ const (
 func ParseMPLSFromICMP(payload []byte, icmpLengthField int) []MPLSLabel {
 	// icmpLengthField is the "Length" field from byte 5 of the ICMP header,
 	// expressed in 32-bit words. It tells us where the original datagram ends.
-	origLen := max(icmpLengthField*4, minOrigDatagramLen) //nolint:mnd
+	origLen := max(icmpLengthField*icmpLengthUnit, minOrigDatagramLen)
 
 	if len(payload) <= origLen+extHeaderLen {
 		return nil
@@ -69,7 +83,7 @@ func ParseMPLSFromICMP(payload []byte, icmpLengthField int) []MPLSLabel {
 	extData := payload[origLen:]
 
 	// Parse extension header: version must be 2.
-	version := extData[0] >> 4 //nolint:mnd
+	version := extData[0] >> extVersionShift
 	if version != extVersion2 {
 		return nil
 	}
@@ -112,10 +126,10 @@ func parseMPLSLabelEntries(data []byte) []MPLSLabel {
 		entry := binary.BigEndian.Uint32(data[:mplsLabelEntryLen])
 
 		labels = append(labels, MPLSLabel{
-			Label: int(entry >> 12),         //nolint:mnd
-			Exp:   int((entry >> 9) & 0x07), //nolint:mnd
-			S:     (entry>>8)&0x01 == 1,     //nolint:mnd
-			TTL:   int(entry & 0xFF),
+			Label: int(entry >> mplsLabelShift),
+			Exp:   int((entry >> mplsExpShift) & mplsExpMask),
+			S:     entry&mplsBottomOfStack != 0,
+			TTL:   int(entry & mplsTTLMask),
 		})
 
 		data = data[mplsLabelEntryLen:]

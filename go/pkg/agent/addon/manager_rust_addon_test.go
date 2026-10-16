@@ -21,60 +21,50 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
 
-// rustAddonBin is the compiled Rust reference add-on
+// resolveRustAddonBin returns the compiled Rust reference add-on
 // (rust/addon-sdk serviceradar-rust-sample-addon) used by the cross-language
-// interop test. It is empty when no binary could be produced (no prebuilt path
-// and no cargo toolchain), in which case the test skips rather than fails.
+// interop test, or "" when no binary could be produced (no prebuilt path and no
+// cargo toolchain), in which case the test skips rather than fails.
 //
-//nolint:gochecknoglobals // resolved once and shared read-only by the Rust interop test.
-var (
-	rustAddonBin     string
-	rustAddonBinOnce sync.Once
-)
-
-// resolveRustAddonBin prefers a prebuilt binary supplied via
-// SERVICERADAR_RUST_ADDON_BIN (e.g. a Bazel data dependency or a CI artifact)
-// and otherwise compiles the Rust reference add-on with cargo. Building Rust is
-// slow, so the env override is the expected path in CI.
+// It prefers a prebuilt binary supplied via SERVICERADAR_RUST_ADDON_BIN (e.g. a
+// Bazel data dependency or a CI artifact) and otherwise compiles the Rust
+// reference add-on with cargo. Building Rust is slow, so the env override is the
+// expected path in CI.
 func resolveRustAddonBin(t *testing.T) string {
 	t.Helper()
-	rustAddonBinOnce.Do(func() {
-		if bin := resolveBinPath(os.Getenv("SERVICERADAR_RUST_ADDON_BIN")); bin != "" {
-			rustAddonBin = bin
-			return
-		}
+	if bin := resolveBinPath(os.Getenv("SERVICERADAR_RUST_ADDON_BIN")); bin != "" {
+		return bin
+	}
 
-		// Optional cargo fallback, gated on SERVICERADAR_BUILD_RUST_ADDON so the
-		// default `go test` run does not silently kick off a multi-minute Rust
-		// build. The repo root is found by walking up from the test's CWD.
-		if os.Getenv("SERVICERADAR_BUILD_RUST_ADDON") == "" {
-			return
-		}
-		if _, err := exec.LookPath("cargo"); err != nil {
-			return
-		}
-		root := repoRoot()
-		if root == "" {
-			return
-		}
-		cmd := exec.CommandContext(context.Background(), "cargo", "build",
-			"-p", "addon-sdk", "--bin", "serviceradar-rust-sample-addon")
-		cmd.Dir = root
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return
-		}
-		candidate := filepath.Join(root, "target", "debug", "serviceradar-rust-sample-addon")
-		if _, err := os.Stat(candidate); err == nil {
-			rustAddonBin = candidate
-		}
-	})
-	return rustAddonBin
+	// Optional cargo fallback, gated on SERVICERADAR_BUILD_RUST_ADDON so the
+	// default `go test` run does not silently kick off a multi-minute Rust
+	// build. The repo root is found by walking up from the test's CWD.
+	if os.Getenv("SERVICERADAR_BUILD_RUST_ADDON") == "" {
+		return ""
+	}
+	if _, err := exec.LookPath("cargo"); err != nil {
+		return ""
+	}
+	root := repoRoot()
+	if root == "" {
+		return ""
+	}
+	cmd := exec.CommandContext(context.Background(), "cargo", "build",
+		"-p", "addon-sdk", "--bin", "serviceradar-rust-sample-addon")
+	cmd.Dir = root
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	candidate := filepath.Join(root, "target", "debug", "serviceradar-rust-sample-addon")
+	if _, err := os.Stat(candidate); err != nil {
+		return ""
+	}
+	return candidate
 }
 
 // repoRoot walks up from the working directory to find the Cargo workspace root

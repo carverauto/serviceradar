@@ -17,7 +17,6 @@
 package accounts
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/nats-io/nkeys"
@@ -26,29 +25,19 @@ import (
 const testOperatorSeed = "SOAAFY5ZRTNXZC3KR3DIGXIF2CNEXXT3XPHRW2SMVS7WDDSZEOMAU3HDNY"
 const testAccountSeed = "SAAHPPNBNGJS55UFJ25VHHOKBBXFTZRFMOKVOIMD6E23SUDADM2YUDRNRE"
 
-//nolint:gochecknoglobals // test-only globals for sync.Once caching pattern
-var (
-	testOperatorOnce sync.Once
-	testOperator     *Operator
-	testOperatorErr  error
-)
-
-// newTestOperator returns a cached operator to avoid repeated key generation in tests.
+// newTestOperator returns an operator signing with the fixed test seed.
 func newTestOperator(t *testing.T) *Operator {
 	t.Helper()
 
-	testOperatorOnce.Do(func() {
-		testOperator, testOperatorErr = NewOperator(&OperatorConfig{
-			Name:         "test-operator",
-			OperatorSeed: testOperatorSeed,
-		})
+	operator, err := NewOperator(&OperatorConfig{
+		Name:         "test-operator",
+		OperatorSeed: testOperatorSeed,
 	})
-
-	if testOperatorErr != nil {
-		t.Fatalf("NewOperator() error = %v", testOperatorErr)
+	if err != nil {
+		t.Fatalf("NewOperator() error = %v", err)
 	}
 
-	return testOperator
+	return operator
 }
 
 func testOperatorPublicKey(t *testing.T) string {

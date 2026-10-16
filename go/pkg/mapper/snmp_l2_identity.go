@@ -19,8 +19,6 @@ package mapper
 import (
 	"fmt"
 
-	"math"
-
 	"net"
 
 	"strconv"
@@ -151,8 +149,8 @@ func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
 	}
 
 	idxOffset := len(baseParts)
-	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
-	if err != nil || ifIndexVal <= 0 || ifIndexVal > math.MaxInt32 {
+	ifIndexVal, err := strconv.ParseInt(parts[idxOffset], 10, 32)
+	if err != nil || ifIndexVal <= 0 {
 		return 0, "", false
 	}
 
@@ -165,7 +163,7 @@ func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
 		octets[i] = strconv.Itoa(octet)
 	}
 
-	return int32(ifIndexVal), strings.Join(octets, "."), true //nolint:gosec // G115: bounds checked above
+	return int32(ifIndexVal), strings.Join(octets, "."), true
 }
 
 func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
@@ -176,8 +174,8 @@ func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
 	}
 
 	idxOffset := len(baseParts)
-	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
-	if err != nil || ifIndexVal <= 0 || ifIndexVal > math.MaxInt32 {
+	ifIndexVal, err := strconv.ParseInt(parts[idxOffset], 10, 32)
+	if err != nil || ifIndexVal <= 0 {
 		return 0, "", false
 	}
 
@@ -211,5 +209,5 @@ func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
 		octets[i] = strconv.Itoa(octet)
 	}
 
-	return int32(ifIndexVal), strings.Join(octets, "."), true //nolint:gosec // G115: bounds checked above
+	return int32(ifIndexVal), strings.Join(octets, "."), true
 }

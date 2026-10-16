@@ -598,10 +598,8 @@ func TestStageAgentReleaseAllowsSameOriginHTTPSRedirects(t *testing.T) {
 
 func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
 	// A redirect rejection is not a status error, so isRetryableReleaseDownloadError
-	// classifies it transient and downloadReleaseArtifact burns the full 1s+2s+4s
-	// backoff before returning it. Without this the test costs 7s.
-	shrinkReleaseDownloadBackoff(t)
-
+	// classifies it transient and downloadReleaseArtifact burns the full retry
+	// backoff before returning it; fastReleaseDownloadBackoff keeps that cheap.
 	binaryData := []byte("binary")
 	artifactServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
@@ -626,18 +624,16 @@ func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
 		},
 	}
 
-	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+	_, err := stageAgentRelease(context.Background(), payload, fastReleaseDownloadBackoff(releaseStageConfig{
 		RuntimeRoot: t.TempDir(),
 		HTTPClient:  httpClient,
-	})
+	}))
 	if !errors.Is(err, errReleaseRedirectOriginChanged) {
 		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
 	}
 }
 
 func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
-	shrinkReleaseDownloadBackoff(t)
-
 	binaryData := []byte("binary")
 	insecureServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
@@ -656,18 +652,16 @@ func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 		Arch:   runtime.GOARCH,
 	})
 
-	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+	_, err := stageAgentRelease(context.Background(), payload, fastReleaseDownloadBackoff(releaseStageConfig{
 		RuntimeRoot: t.TempDir(),
 		HTTPClient:  server.Client(),
-	})
+	}))
 	if !errors.Is(err, errReleaseRedirectInsecure) {
 		t.Fatalf("expected errReleaseRedirectInsecure, got %v", err)
 	}
 }
 
 func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
-	shrinkReleaseDownloadBackoff(t)
-
 	binaryData := []byte("gateway-binary")
 	artifactServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
@@ -713,12 +707,12 @@ func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
 		},
 	}
 
-	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
+	_, err = stageAgentRelease(context.Background(), payload, fastReleaseDownloadBackoff(releaseStageConfig{
 		RuntimeRoot: t.TempDir(),
 		HTTPClient:  httpClient,
 		GatewayAddr: gatewayURL.Host,
 		CommandID:   testReleaseCommandID,
-	})
+	}))
 	if !errors.Is(err, errReleaseRedirectOriginChanged) {
 		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
 	}
@@ -875,17 +869,12 @@ func digestHex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func shrinkReleaseDownloadBackoff(t *testing.T) {
-	t.Helper()
-
-	origInit := releaseDownloadInitialBackoff
-	origMax := releaseDownloadMaxBackoff
-	releaseDownloadInitialBackoff = time.Millisecond
-	releaseDownloadMaxBackoff = 2 * time.Millisecond
-	t.Cleanup(func() {
-		releaseDownloadInitialBackoff = origInit
-		releaseDownloadMaxBackoff = origMax
-	})
+// fastReleaseDownloadBackoff shortens cfg's transient-failure retry backoff so a
+// retried download costs milliseconds instead of 1s+2s+4s.
+func fastReleaseDownloadBackoff(cfg releaseStageConfig) releaseStageConfig {
+	cfg.DownloadInitialBackoff = time.Millisecond
+	cfg.DownloadMaxBackoff = 2 * time.Millisecond
+	return cfg
 }
 
 func releaseDownloadTestPayload(t *testing.T, url string, data []byte) releaseUpdatePayload {
@@ -902,8 +891,6 @@ func releaseDownloadTestPayload(t *testing.T, url string, data []byte) releaseUp
 }
 
 func TestDownloadReleaseArtifactRetriesTransientStatusThenSucceeds(t *testing.T) {
-	shrinkReleaseDownloadBackoff(t)
-
 	data := []byte("retryable-artifact")
 	var attempts int
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -920,7 +907,7 @@ func TestDownloadReleaseArtifactRetriesTransientStatusThenSucceeds(t *testing.T)
 	got, err := downloadReleaseArtifact(
 		context.Background(),
 		releaseDownloadTestPayload(t, server.URL, data),
-		releaseStageConfig{HTTPClient: server.Client()},
+		fastReleaseDownloadBackoff(releaseStageConfig{HTTPClient: server.Client()}),
 	)
 	if err != nil {
 		t.Fatalf("downloadReleaseArtifact() error = %v", err)
@@ -934,8 +921,6 @@ func TestDownloadReleaseArtifactRetriesTransientStatusThenSucceeds(t *testing.T)
 }
 
 func TestDownloadReleaseArtifactDoesNotRetryTerminalStatus(t *testing.T) {
-	shrinkReleaseDownloadBackoff(t)
-
 	var attempts int
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		attempts++
@@ -947,7 +932,7 @@ func TestDownloadReleaseArtifactDoesNotRetryTerminalStatus(t *testing.T) {
 	_, err := downloadReleaseArtifact(
 		context.Background(),
 		releaseDownloadTestPayload(t, server.URL, data),
-		releaseStageConfig{HTTPClient: server.Client()},
+		fastReleaseDownloadBackoff(releaseStageConfig{HTTPClient: server.Client()}),
 	)
 	if err == nil {
 		t.Fatal("expected terminal 403 download to fail")
@@ -961,8 +946,6 @@ func TestDownloadReleaseArtifactDoesNotRetryTerminalStatus(t *testing.T) {
 }
 
 func TestDownloadReleaseArtifactExhaustsRetriesThenFails(t *testing.T) {
-	shrinkReleaseDownloadBackoff(t)
-
 	var attempts int
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		attempts++
@@ -974,7 +957,7 @@ func TestDownloadReleaseArtifactExhaustsRetriesThenFails(t *testing.T) {
 	_, err := downloadReleaseArtifact(
 		context.Background(),
 		releaseDownloadTestPayload(t, server.URL, data),
-		releaseStageConfig{HTTPClient: server.Client()},
+		fastReleaseDownloadBackoff(releaseStageConfig{HTTPClient: server.Client()}),
 	)
 	if err == nil {
 		t.Fatal("expected exhausted retries to fail")

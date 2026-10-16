@@ -91,16 +91,12 @@ func (p *candidatePlanner) recordSuccess(candidate Candidate, at time.Time) {
 	delete(p.backoffUntil, key)
 }
 
-//nolint:unparam // duration parameterized for future adaptive backoff strategies
-func (p *candidatePlanner) recordBackoff(candidate Candidate, duration time.Duration) {
-	if duration <= 0 {
-		return
-	}
-
+// recordBackoff holds candidate back from probing for defaultBackoff.
+func (p *candidatePlanner) recordBackoff(candidate Candidate) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.backoffUntil[candidateKey(candidate.Host, candidate.Port, candidate.Protocol)] = p.now().Add(duration)
+	p.backoffUntil[candidateKey(candidate.Host, candidate.Port, candidate.Protocol)] = p.now().Add(defaultBackoff)
 }
 
 func candidateKey(host string, port int, protocol string) string {

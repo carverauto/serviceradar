@@ -58,15 +58,13 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	origUnitDir := systemdUnitDir
-	systemdUnitDir = unitDir
-	t.Cleanup(func() { systemdUnitDir = origUnitDir })
-	installMockSystemctl(t, t.TempDir())
+	host := fixtureSystemHost(unitDir)
+	host.systemctlPath = installMockSystemctl(t, t.TempDir())
 
 	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-netprobe", map[string][]byte{
 		"serviceradar-netprobe.service": bundled,
 	})
-	if err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+	if err := host.installUnits(context.Background(), AddonSystemdInstallRequest{
 		RuntimeRoot:    root,
 		PrivilegedRoot: filepath.Join(root, "privileged"),
 		AddonID:        "netprobe",

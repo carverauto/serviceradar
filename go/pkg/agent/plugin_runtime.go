@@ -125,6 +125,7 @@ type PluginManager struct {
 	credentialCache               map[string]credentialBrokerCacheEntry
 	credentialNow                 func() time.Time
 	oauth2Tokens                  oauth2TokenCache
+	httpTransports                pluginHTTPTransportCache
 	credentialMu                  sync.Mutex
 	awxCallbackCredentialMu       sync.Mutex
 	artifactMu                    sync.Mutex

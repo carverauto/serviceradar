@@ -99,56 +99,6 @@ const (
 
 var errOtlpRelayGatewayRejected = errors.New("gateway did not acknowledge otlp relay status")
 
-// agentOtlpRelayFrames* count relay frames through the agent-side pump,
-// surfaced as `agent_otlp_relay_frames_forwarded_total`,
-// `agent_otlp_relay_frames_acked_total`,
-// `agent_otlp_relay_frames_retried_total`, and
-// `agent_otlp_relay_frames_skipped_oversize_total` by the Prometheus
-// exporter (same style as agentFlowAttributionEventsForwardedTotal).
-//
-//nolint:gochecknoglobals // process-global Prometheus counters
-var (
-	agentOtlpRelayFramesForwardedTotal       atomic.Uint64
-	agentOtlpRelayFramesAckedTotal           atomic.Uint64
-	agentOtlpRelayFramesRetriedTotal         atomic.Uint64
-	agentOtlpRelayFramesSkippedOversizeTotal atomic.Uint64
-)
-
-// AgentOtlpRelayFramesForwardedTotal returns the number of relay frames the
-// gateway accepted. Exposed for the Prometheus exporter and tests.
-func AgentOtlpRelayFramesForwardedTotal() uint64 {
-	return agentOtlpRelayFramesForwardedTotal.Load()
-}
-
-// AgentOtlpRelayFramesAckedTotal returns the number of relay frames resolved
-// by a cumulative ack watermark sent to the add-on (delivered frames plus
-// skipped oversized frames). Exposed for the Prometheus exporter and tests.
-func AgentOtlpRelayFramesAckedTotal() uint64 {
-	return agentOtlpRelayFramesAckedTotal.Load()
-}
-
-// AgentOtlpRelayFramesRetriedTotal returns the number of frame deliveries
-// re-attempted after a gateway flush failure. Exposed for the Prometheus
-// exporter and tests.
-func AgentOtlpRelayFramesRetriedTotal() uint64 {
-	return agentOtlpRelayFramesRetriedTotal.Load()
-}
-
-// AgentOtlpRelayFramesSkippedOversizeTotal returns the number of relay frames
-// skipped (and acked) because they violated the <=900 KiB edge pre-chunking
-// invariant. Exposed for the Prometheus exporter and tests.
-func AgentOtlpRelayFramesSkippedOversizeTotal() uint64 {
-	return agentOtlpRelayFramesSkippedOversizeTotal.Load()
-}
-
-// resetAgentOtlpRelayFrameCounters is exposed for tests.
-func resetAgentOtlpRelayFrameCounters() {
-	agentOtlpRelayFramesForwardedTotal.Store(0)
-	agentOtlpRelayFramesAckedTotal.Store(0)
-	agentOtlpRelayFramesRetriedTotal.Store(0)
-	agentOtlpRelayFramesSkippedOversizeTotal.Store(0)
-}
-
 // otlpRelayGateway is the narrow gateway surface the relay pump needs.
 // Satisfied by *agentgateway.GatewayClient.
 type otlpRelayGateway interface {
@@ -305,6 +255,22 @@ type otlpRelayPump struct {
 	retryBackoffInitial time.Duration
 	retryBackoffMax     time.Duration
 	ackSendTimeout      time.Duration
+
+	stats otlpRelayPumpStats
+}
+
+// otlpRelayPumpStats counts frames through one relay pump.
+type otlpRelayPumpStats struct {
+	// forwarded counts frames the gateway accepted.
+	forwarded atomic.Uint64
+	// acked counts frames resolved by a cumulative ack watermark sent to the
+	// add-on: delivered frames plus skipped oversized frames.
+	acked atomic.Uint64
+	// retried counts frame deliveries retried after a gateway failure.
+	retried atomic.Uint64
+	// skippedOversize counts frames skipped (and acked) because they exceed
+	// the per-frame size limit.
+	skippedOversize atomic.Uint64
 }
 
 func (p *otlpRelayPump) normalize() {
@@ -376,7 +342,7 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 				return false
 			}
 
-			agentOtlpRelayFramesForwardedTotal.Add(uint64(len(pending)))
+			p.stats.forwarded.Add(uint64(len(pending)))
 			resolvedSinceAck += uint64(len(pending))
 			pending = nil
 			pendingBytes = 0
@@ -386,7 +352,7 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 			if !p.sendAck(ctx, acks, lastPulled) {
 				return false
 			}
-			agentOtlpRelayFramesAckedTotal.Add(resolvedSinceAck)
+			p.stats.acked.Add(resolvedSinceAck)
 			resolvedSinceAck = 0
 		}
 
@@ -433,7 +399,7 @@ func (p *otlpRelayPump) run(ctx context.Context, frames <-chan *addonpb.OtlpRela
 				// Edge pre-chunking invariant violated. The frame is skipped,
 				// counted, and acked: it can never become deliverable, and
 				// spool-side rejection accounting already counted it.
-				agentOtlpRelayFramesSkippedOversizeTotal.Add(1)
+				p.stats.skippedOversize.Add(1)
 				p.logger.Warn().
 					Str("addon", p.addonID).
 					Uint64("relay_id", frame.GetRelayId()).
@@ -490,7 +456,7 @@ func (p *otlpRelayPump) flushWithRetry(ctx context.Context, pending []otlpRelayP
 			return false
 		}
 
-		agentOtlpRelayFramesRetriedTotal.Add(uint64(len(pending)))
+		p.stats.retried.Add(uint64(len(pending)))
 		p.logger.Warn().Err(err).
 			Str("addon", p.addonID).
 			Int("frame_count", len(pending)).

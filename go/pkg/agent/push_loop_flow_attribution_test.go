@@ -693,39 +693,27 @@ func TestAgentFlowAttributionEventCounters(t *testing.T) {
 }
 
 func TestFlowAttributionDroppedSinceLast_TrackingDelta(t *testing.T) {
-	// Reset baseline so the test is order-independent.
-	lastDroppedFlowAttribution.Store(0)
-	t.Cleanup(func() { lastDroppedFlowAttribution.Store(0) })
+	var queue flowAttributionDeliveryQueue
 
-	// First observation: the sidecar's cumulative counter has advanced
-	// from 0 to 10 — entire delta is reported.
-	if got := computeFlowAttributionDroppedDelta(10); got != 10 {
-		t.Errorf("first delta = %d, want 10", got)
+	for _, step := range []struct {
+		name       string
+		cumulative uint64
+		want       uint32
+	}{
+		// The sidecar's cumulative counter has advanced from 0 to 10 —
+		// the entire delta is reported.
+		{name: "first", cumulative: 10, want: 10},
+		{name: "second", cumulative: 25, want: 15},
+		{name: "unchanged", cumulative: 25, want: 0},
+		// Counter wrap / reset (cumulative goes backwards): clamp to the
+		// current cumulative and continue.
+		{name: "wrap", cumulative: 3, want: 3},
+	} {
+		if got := queue.observeDropped(step.cumulative); got != step.want {
+			t.Errorf("%s delta = %d, want %d", step.name, got, step.want)
+		}
+		queue.commitDropped(step.cumulative)
 	}
-	// Second observation: cumulative is now 25 — delta is 15.
-	if got := computeFlowAttributionDroppedDelta(25); got != 15 {
-		t.Errorf("second delta = %d, want 15", got)
-	}
-	// Cumulative unchanged: delta is zero.
-	if got := computeFlowAttributionDroppedDelta(25); got != 0 {
-		t.Errorf("third delta = %d, want 0", got)
-	}
-	// Counter wrap / reset (cumulative goes backwards): clamp to the
-	// current cumulative and continue.
-	if got := computeFlowAttributionDroppedDelta(3); got != 3 {
-		t.Errorf("wrap delta = %d, want 3", got)
-	}
-}
-
-// computeFlowAttributionDroppedDelta is the inner pure helper used by
-// flowAttributionDroppedSinceLast; exposed here for direct testing
-// without needing a real Sidecar instance.
-func computeFlowAttributionDroppedDelta(cumulative uint64) uint32 {
-	prev := lastDroppedFlowAttribution.Swap(cumulative)
-	if cumulative < prev {
-		return clampToUint32(cumulative)
-	}
-	return clampToUint32(cumulative - prev)
 }
 
 func assertFlowAttributionChunkMetadata(t *testing.T, chunk *proto.GatewayStatusChunk, index, total int32, final bool) {

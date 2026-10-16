@@ -111,20 +111,19 @@ const (
 	defaultGracePeriod   = 200 * time.Millisecond // Maximum grace period
 
 	// Network packet size constants
-	ipv4HeaderMinSize  = 20   // Minimum IPv4 header size
-	ipv6HeaderSize     = 40   // Fixed IPv6 header size
-	icmpv6HeaderSize   = 8    // ICMPv6 error header size before the embedded packet
-	tcpHeaderMinSize   = 20   // Minimum TCP header size
-	ethernetHeaderSize = 14   // Ethernet header size
-	ipv4TcpPacketSize  = 40   // Combined IPv4 (20) + TCP (20) header size
-	ipv6TcpPacketSize  = 60   // Combined IPv6 (40) + TCP (20) header size
-	ipv4Version        = 4    // IPv4 version number
-	ipv6Version        = 6    // IPv6 version number
-	ipv4ProtocolCheck  = 0x01 // IPv4 protocol check value
-	ipProtoICMPv6      = 58   // IPv6 ICMP protocol number
-	icmpv6DstUnreach   = 1    // ICMPv6 Destination Unreachable
-	icmpv6PacketTooBig = 2    // ICMPv6 Packet Too Big
-	icmpv6TimeExceeded = 3    // ICMPv6 Time Exceeded
+	ipv4HeaderMinSize  = 20 // Minimum IPv4 header size
+	ipv6HeaderSize     = 40 // Fixed IPv6 header size
+	icmpv6HeaderSize   = 8  // ICMPv6 error header size before the embedded packet
+	tcpHeaderMinSize   = 20 // Minimum TCP header size
+	ethernetHeaderSize = 14 // Ethernet header size
+	ipv4TcpPacketSize  = 40 // Combined IPv4 (20) + TCP (20) header size
+	ipv6TcpPacketSize  = 60 // Combined IPv6 (40) + TCP (20) header size
+	ipv4Version        = 4  // IPv4 version number
+	ipv6Version        = 6  // IPv6 version number
+	ipProtoICMPv6      = 58 // IPv6 ICMP protocol number
+	icmpv6DstUnreach   = 1  // ICMPv6 Destination Unreachable
+	icmpv6PacketTooBig = 2  // ICMPv6 Packet Too Big
+	icmpv6TimeExceeded = 3  // ICMPv6 Time Exceeded
 
 	// Buffer and memory constants
 	sendBufferSizeMB    = 8     // Send buffer size in MB (8MB = 8<<20)

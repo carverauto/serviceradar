@@ -8,9 +8,9 @@ package banner_grab
 
 import "context"
 
-//nolint:gochecknoglobals // packet template constant
-var ntpReadvarRequest = []byte{0x17, 0x02, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00}
-
+// ProbeNTP sends a fixed NTP mode 7 private request.
 func ProbeNTP(ctx context.Context, host string, port int, opts ProbeOpts) (BannerObservation, error) {
-	return probeUDP(ctx, host, port, ProtocolNTP, ntpReadvarRequest, opts)
+	mode7Request := []byte{0x17, 0x02, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00}
+
+	return probeUDP(ctx, host, port, ProtocolNTP, mode7Request, opts)
 }

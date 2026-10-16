@@ -25,16 +25,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The ranges the shipped on-prem appliance manifests declare. Link-local
-// (169.254.0.0/16) is deliberately absent: an appliance that fell back to an
-// APIPA address is not a destination anyone configured.
-//
-//nolint:gochecknoglobals
-var onPremApplianceAllowedNetworks = []string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"100.64.0.0/10",
+// onPremApplianceAllowedNetworks returns the ranges the shipped on-prem
+// appliance manifests declare. Link-local (169.254.0.0/16) is deliberately
+// absent: an appliance that fell back to an APIPA address is not a destination
+// anyone configured.
+func onPremApplianceAllowedNetworks() []string {
+	return []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"100.64.0.0/10",
+	}
 }
 
 type shippedPluginManifest struct {
@@ -89,9 +90,9 @@ func TestOnPremApplianceManifestsDeclareAllowedNetworks(t *testing.T) {
 			t.Parallel()
 
 			manifest := readShippedPluginManifest(t, path)
-			if !slices.Equal(manifest.Permissions.AllowedNetworks, onPremApplianceAllowedNetworks) {
+			if !slices.Equal(manifest.Permissions.AllowedNetworks, onPremApplianceAllowedNetworks()) {
 				t.Fatalf("allowed_networks = %v, want %v",
-					manifest.Permissions.AllowedNetworks, onPremApplianceAllowedNetworks)
+					manifest.Permissions.AllowedNetworks, onPremApplianceAllowedNetworks())
 			}
 
 			permissions := pluginPermissions{

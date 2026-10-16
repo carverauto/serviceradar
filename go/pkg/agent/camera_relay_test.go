@@ -433,7 +433,20 @@ func (c *cameraRelayStopWaitContext) Done() <-chan struct{} {
 	return c.Context.Done()
 }
 
-//nolint:gocyclo // One startup-stop race: allocation, cancellation, cleanup, and a later relay stay in one scenario.
+// pendingOpenStopScenario drives one startup-stop race: Stop arrives while
+// the gateway has allocated an ingress but not yet answered OpenRelaySession.
+// Each method is one phase of that single scenario and must run in order.
+type pendingOpenStopScenario struct {
+	t           *testing.T
+	ctx         context.Context
+	service     *allocatedCameraRelayRPCServer
+	gateway     *agentgateway.GatewayClient
+	manager     *cameraRelayManager
+	spec        cameraRelaySessionSpec
+	startResult chan error
+	stopResult  chan error
+}
+
 func TestCameraRelayManagerStopClosesIngressAllocatedBeforeOpenResponse(t *testing.T) {
 	t.Setenv("SR_ALLOW_INSECURE", "true")
 	service := &allocatedCameraRelayRPCServer{
@@ -450,103 +463,138 @@ func TestCameraRelayManagerStopClosesIngressAllocatedBeforeOpenResponse(t *testi
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	spec := cameraRelaySessionSpec{
-		RelaySessionID: "relay-allocation-delay-1", AgentID: "agent-invented-4", CameraSourceID: "camera-invented-4",
-		StreamProfileID: "main", LeaseToken: "lease-invented-4",
+	scenario := &pendingOpenStopScenario{
+		t: t, ctx: ctx, service: service, gateway: gateway, manager: manager,
+		spec: cameraRelaySessionSpec{
+			RelaySessionID: "relay-allocation-delay-1", AgentID: "agent-invented-4", CameraSourceID: "camera-invented-4",
+			StreamProfileID: "main", LeaseToken: "lease-invented-4",
+		},
+		startResult: make(chan error, 1),
+		stopResult:  make(chan error, 1),
 	}
-	startResult := make(chan error, 1)
-	go func() { _, err := manager.Start(ctx, spec); startResult <- err }()
+
+	scenario.startUntilIngressAllocated()
+	scenario.stopWhileOpenPending()
+	scenario.releaseOpenAndAwaitIngressCleanup()
+	scenario.releaseCloseAndAwaitStop()
+	scenario.assertSessionReleased()
+	scenario.assertFreshRelayRuns()
+}
+
+func (s *pendingOpenStopScenario) startUntilIngressAllocated() {
+	s.t.Helper()
+	go func() { _, err := s.manager.Start(s.ctx, s.spec); s.startResult <- err }()
 	select {
-	case <-service.allocated:
-	case <-ctx.Done():
-		t.Fatal("upstream ingress was not allocated")
+	case <-s.service.allocated:
+	case <-s.ctx.Done():
+		s.t.Fatal("upstream ingress was not allocated")
 	}
-	stopCtx := &cameraRelayStopWaitContext{Context: ctx, waiting: make(chan struct{})}
-	stopResult := make(chan error, 1)
+}
+
+func (s *pendingOpenStopScenario) stopWhileOpenPending() {
+	s.t.Helper()
+	stopCtx := &cameraRelayStopWaitContext{Context: s.ctx, waiting: make(chan struct{})}
 	go func() {
-		stopResult <- manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID, Reason: "operator pending-open stop"})
+		s.stopResult <- s.manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: s.spec.RelaySessionID, Reason: "operator pending-open stop"})
 	}()
 	select {
 	case <-stopCtx.waiting:
-	case <-ctx.Done():
-		t.Fatal("Stop did not begin waiting")
+	case <-s.ctx.Done():
+		s.t.Fatal("Stop did not begin waiting")
 	}
 	select {
-	case err := <-stopResult:
-		t.Fatalf("Stop completed before the allocated ingress open response: %v", err)
+	case err := <-s.stopResult:
+		s.t.Fatalf("Stop completed before the allocated ingress open response: %v", err)
 	default:
 	}
-	close(service.releaseOpen)
+}
+
+func (s *pendingOpenStopScenario) releaseOpenAndAwaitIngressCleanup() {
+	s.t.Helper()
+	close(s.service.releaseOpen)
 	select {
-	case req := <-service.closeEntered:
-		if req.GetReason() != "operator pending-open stop" || req.GetAgentId() != spec.AgentID {
-			t.Fatalf("unexpected allocated ingress cleanup: %v", req)
+	case req := <-s.service.closeEntered:
+		if req.GetReason() != "operator pending-open stop" || req.GetAgentId() != s.spec.AgentID {
+			s.t.Fatalf("unexpected allocated ingress cleanup: %v", req)
 		}
-	case err := <-stopResult:
-		t.Fatalf("Stop completed before allocated ingress cleanup: %v", err)
-	case <-ctx.Done():
-		t.Fatal("allocated ingress cleanup did not reach gateway")
+	case err := <-s.stopResult:
+		s.t.Fatalf("Stop completed before allocated ingress cleanup: %v", err)
+	case <-s.ctx.Done():
+		s.t.Fatal("allocated ingress cleanup did not reach gateway")
 	}
 	select {
-	case err := <-startResult:
-		t.Fatalf("Start completed before upstream close: %v", err)
-	case err := <-stopResult:
-		t.Fatalf("Stop completed before upstream close: %v", err)
+	case err := <-s.startResult:
+		s.t.Fatalf("Start completed before upstream close: %v", err)
+	case err := <-s.stopResult:
+		s.t.Fatalf("Stop completed before upstream close: %v", err)
 	default:
 	}
-	if _, err := manager.Start(ctx, spec); !errors.Is(err, errCameraRelaySessionExists) {
-		t.Fatalf("upstream close released session ownership too early: %v", err)
+	if _, err := s.manager.Start(s.ctx, s.spec); !errors.Is(err, errCameraRelaySessionExists) {
+		s.t.Fatalf("upstream close released session ownership too early: %v", err)
 	}
-	close(service.releaseClose)
+}
+
+func (s *pendingOpenStopScenario) releaseCloseAndAwaitStop() {
+	s.t.Helper()
+	close(s.service.releaseClose)
 	select {
-	case err := <-stopResult:
+	case err := <-s.stopResult:
 		if err != nil {
-			t.Fatalf("Stop after upstream close: %v", err)
+			s.t.Fatalf("Stop after upstream close: %v", err)
 		}
-	case <-ctx.Done():
-		t.Fatal("Stop did not complete after upstream close")
+	case <-s.ctx.Done():
+		s.t.Fatal("Stop did not complete after upstream close")
 	}
 	select {
-	case <-service.ingressDone:
+	case <-s.service.ingressDone:
 	default:
-		t.Fatal("Stop reported success with an allocated ingress")
+		s.t.Fatal("Stop reported success with an allocated ingress")
 	}
 	select {
-	case err := <-startResult:
+	case err := <-s.startResult:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("stopped startup: %v", err)
+			s.t.Fatalf("stopped startup: %v", err)
 		}
-	case <-ctx.Done():
-		t.Fatal("stopped startup did not return")
+	case <-s.ctx.Done():
+		s.t.Fatal("stopped startup did not return")
 	}
+}
+
+func (s *pendingOpenStopScenario) assertSessionReleased() {
+	s.t.Helper()
 	select {
-	case req := <-service.closed:
-		if req.GetRelaySessionId() != spec.RelaySessionID || req.GetMediaIngestId() != "media-allocation-delay-1" {
-			t.Fatalf("wrong ingress closed: %v", req)
+	case req := <-s.service.closed:
+		if req.GetRelaySessionId() != s.spec.RelaySessionID || req.GetMediaIngestId() != "media-allocation-delay-1" {
+			s.t.Fatalf("wrong ingress closed: %v", req)
 		}
 	default:
-		t.Fatal("upstream close was not acknowledged")
+		s.t.Fatal("upstream close was not acknowledged")
 	}
-	if !gateway.IsConnected() {
-		t.Fatal("pending-open Stop disconnected the shared gateway")
+	if !s.gateway.IsConnected() {
+		s.t.Fatal("pending-open Stop disconnected the shared gateway")
 	}
-	if err := manager.Stop(ctx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID}); !errors.Is(err, errCameraRelaySessionNotFound) {
-		t.Fatalf("closed ingress remained registered: %v", err)
+	if err := s.manager.Stop(s.ctx, cameraRelayStopPayload{RelaySessionID: s.spec.RelaySessionID}); !errors.Is(err, errCameraRelaySessionNotFound) {
+		s.t.Fatalf("closed ingress remained registered: %v", err)
 	}
-	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+}
+
+func (s *pendingOpenStopScenario) assertFreshRelayRuns() {
+	s.t.Helper()
+	s.manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
 		return &sliceCameraRelayStream{chunks: []*cameraRelayChunk{{TrackID: "video", Payload: []byte("invented-recovery-frame"), Sequence: 4, IsFinal: true}}}, nil
 	}
+	spec := s.spec
 	spec.RelaySessionID = "relay-allocation-recovery-1"
-	if _, err := manager.Start(ctx, spec); err != nil {
-		t.Fatalf("fresh relay after pending-open cleanup: %v", err)
+	if _, err := s.manager.Start(s.ctx, spec); err != nil {
+		s.t.Fatalf("fresh relay after pending-open cleanup: %v", err)
 	}
 	select {
-	case req := <-service.closed:
+	case req := <-s.service.closed:
 		if req.GetRelaySessionId() != spec.RelaySessionID || req.GetReason() != cameraRelayReasonSourceCompleted {
-			t.Fatalf("unexpected recovery cleanup: %v", req)
+			s.t.Fatalf("unexpected recovery cleanup: %v", req)
 		}
-	case <-ctx.Done():
-		t.Fatal("fresh relay did not upload and close")
+	case <-s.ctx.Done():
+		s.t.Fatal("fresh relay did not upload and close")
 	}
 }
 

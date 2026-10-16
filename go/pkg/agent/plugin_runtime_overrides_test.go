@@ -26,8 +26,10 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
-//nolint:gochecknoglobals // fixed reference time shared by every test case in this file
-var overrideTestNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+// overrideTestNow is the fixed reference time every test case in this file shares.
+func overrideTestNow() time.Time {
+	return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+}
 
 func overrideConfigJSON(t *testing.T, overrides ...pluginRunOverride) []byte {
 	t.Helper()
@@ -64,7 +66,7 @@ func TestParseRunOverridesConfigRejectsWrongSchemaAndInvalidEntries(t *testing.T
 		t.Fatal("expected an error for an unexpected schema")
 	}
 
-	start := overrideTestNow
+	start := overrideTestNow()
 	parsed, err := parseRunOverridesConfig(overrideConfigJSON(t,
 		overrideAt("good", start, start.Add(time.Minute)),
 		overrideAt("", start, start.Add(time.Minute)),
@@ -80,14 +82,14 @@ func TestParseRunOverridesConfigRejectsWrongSchemaAndInvalidEntries(t *testing.T
 
 func TestRunOverrideDeliveryMarksExpiredUntilAcknowledged(t *testing.T) {
 	store := newRunOverrideStore()
-	start := overrideTestNow.Add(-5 * time.Minute)
+	start := overrideTestNow().Add(-5 * time.Minute)
 	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t,
-		overrideAt("active", start, overrideTestNow.Add(time.Minute)),
-		overrideAt("expired", start, overrideTestNow.Add(-time.Second)),
-		overrideAt("future", overrideTestNow.Add(time.Hour), overrideTestNow.Add(2*time.Hour)),
-	)}, overrideTestNow)
+		overrideAt("active", start, overrideTestNow().Add(time.Minute)),
+		overrideAt("expired", start, overrideTestNow().Add(-time.Second)),
+		overrideAt("future", overrideTestNow().Add(time.Hour), overrideTestNow().Add(2*time.Hour)),
+	)}, overrideTestNow())
 
-	delivered, expired := store.deliver("a1", overrideTestNow)
+	delivered, expired := store.deliver("a1", overrideTestNow())
 	got := deliveredIDs(delivered)
 	if expiredFlag, ok := got["active"]; !ok || expiredFlag {
 		t.Fatalf("active override: delivered=%v expired=%v", ok, expiredFlag)
@@ -103,20 +105,20 @@ func TestRunOverrideDeliveryMarksExpiredUntilAcknowledged(t *testing.T) {
 	}
 
 	// A run that fails never acknowledges, so the next run receives it again.
-	if _, again := store.deliver("a1", overrideTestNow); len(again) != 1 {
+	if _, again := store.deliver("a1", overrideTestNow()); len(again) != 1 {
 		t.Fatalf("unacknowledged expired override not redelivered: %v", again)
 	}
 
 	store.acknowledge("a1", expired)
-	delivered, expired = store.deliver("a1", overrideTestNow)
+	delivered, expired = store.deliver("a1", overrideTestNow())
 	if _, ok := deliveredIDs(delivered)["expired"]; ok || len(expired) != 0 {
 		t.Fatalf("acknowledged override still delivered: %+v", delivered)
 	}
 
 	// Core forgets the acknowledged override; so does the agent's suppression.
 	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t,
-		overrideAt("active", start, overrideTestNow.Add(time.Minute)),
-	)}, overrideTestNow)
+		overrideAt("active", start, overrideTestNow().Add(time.Minute)),
+	)}, overrideTestNow())
 	if _, ok := store.assignments["a1"].acked["expired"]; ok {
 		t.Fatal("acknowledgement retained after core dropped the override")
 	}
@@ -124,70 +126,70 @@ func TestRunOverrideDeliveryMarksExpiredUntilAcknowledged(t *testing.T) {
 
 func TestRunOverrideLocalOverlayFromSucceededActionOnly(t *testing.T) {
 	store := newRunOverrideStore()
-	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
+	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow())
 
 	failed := []byte(`{"status":"failed","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":60}]}`)
-	store.recordActionResult("a1", failed, overrideTestNow, 3600)
-	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
+	store.recordActionResult("a1", failed, overrideTestNow(), 3600)
+	if delivered, _ := store.deliver("a1", overrideTestNow()); len(delivered) != 0 {
 		t.Fatalf("failed action set an override: %+v", delivered)
 	}
 
 	succeeded := []byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","target":"conveyor-7","duration_seconds":60}]}`)
-	store.recordActionResult("a1", succeeded, overrideTestNow, 3600)
-	delivered, _ := store.deliver("a1", overrideTestNow.Add(time.Second))
+	store.recordActionResult("a1", succeeded, overrideTestNow(), 3600)
+	delivered, _ := store.deliver("a1", overrideTestNow().Add(time.Second))
 	if len(delivered) != 1 || delivered[0].Target != "conveyor-7" || delivered[0].Expired {
 		t.Fatalf("local override not delivered: %+v", delivered)
 	}
 
 	// The local copy only bridges the gap to the next config poll.
-	if delivered, _ := store.deliver("a1", overrideTestNow.Add(runOverrideLocalTTL+time.Second)); len(delivered) != 0 {
+	if delivered, _ := store.deliver("a1", overrideTestNow().Add(runOverrideLocalTTL+time.Second)); len(delivered) != 0 {
 		t.Fatalf("local override outlived its TTL: %+v", delivered)
 	}
 }
 
 func TestRunOverrideLocalOverlayRejectsSetWithoutDescriptorMaximum(t *testing.T) {
 	store := newRunOverrideStore()
-	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
+	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow())
 
 	succeeded := []byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":60}]}`)
-	store.recordActionResult("a1", succeeded, overrideTestNow, 0)
-	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
+	store.recordActionResult("a1", succeeded, overrideTestNow(), 0)
+	if delivered, _ := store.deliver("a1", overrideTestNow()); len(delivered) != 0 {
 		t.Fatalf("descriptor without a maximum must not be able to set a local override: %+v", delivered)
 	}
 }
 
 func TestRunOverrideLocalOverlayClampsToDescriptorMaximum(t *testing.T) {
 	store := newRunOverrideStore()
-	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
+	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow())
 
 	succeeded := []byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":3600}]}`)
-	store.recordActionResult("a1", succeeded, overrideTestNow, 60)
-	delivered, _ := store.deliver("a1", overrideTestNow)
+	store.recordActionResult("a1", succeeded, overrideTestNow(), 60)
+	delivered, _ := store.deliver("a1", overrideTestNow())
 	if len(delivered) != 1 {
 		t.Fatalf("clamped override not delivered: %+v", delivered)
 	}
-	if want := overrideTestNow.Add(60 * time.Second); !delivered[0].ExpiresAt.Equal(want) {
+	if want := overrideTestNow().Add(60 * time.Second); !delivered[0].ExpiresAt.Equal(want) {
 		t.Fatalf("override not clamped to descriptor maximum: got %v want %v", delivered[0].ExpiresAt, want)
 	}
 }
 
 func TestRunOverrideConfigSupersedesLocalAndEndIsHonoured(t *testing.T) {
 	store := newRunOverrideStore()
-	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
+	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow())
 	store.recordActionResult("a1",
 		[]byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":3600}]}`),
-		overrideTestNow, 3600)
+		overrideTestNow(), 3600)
 
 	// Core clamped the override to 5 minutes; its copy wins.
-	clamped := overrideAt("f1", overrideTestNow, overrideTestNow.Add(5*time.Minute))
-	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, clamped)}, overrideTestNow)
-	delivered, _ := store.deliver("a1", overrideTestNow)
+	clamped := overrideAt("f1", overrideTestNow(), overrideTestNow().Add(5*time.Minute))
+	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, clamped)}, overrideTestNow())
+	delivered, _ := store.deliver("a1", overrideTestNow())
 	if len(delivered) != 1 || !delivered[0].ExpiresAt.Equal(clamped.ExpiresAt) {
 		t.Fatalf("config did not supersede the local override: %+v", delivered)
 	}
 
-	store.recordActionResult("a1", []byte(`{"status":"succeeded","run_overrides":[{"op":"end","id":"f1"}]}`), overrideTestNow, 3600)
-	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
+	store.recordActionResult("a1", []byte(`{"status":"succeeded","run_overrides":[{"op":"end","id":"f1"}]}`), overrideTestNow(), 3600)
+	if delivered, _ := store.deliver("a1", overrideTestNow()); len(delivered) != 0 {
 		t.Fatalf("ended override still delivered before the config caught up: %+v", delivered)
 	}
 }
@@ -195,15 +197,15 @@ func TestRunOverrideConfigSupersedesLocalAndEndIsHonoured(t *testing.T) {
 func TestRunOverrideStoreForgetsRemovedAssignments(t *testing.T) {
 	store := newRunOverrideStore()
 	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t,
-		overrideAt("x", overrideTestNow, overrideTestNow.Add(time.Minute)))}, overrideTestNow)
-	store.applyConfig(nil, overrideTestNow)
-	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
+		overrideAt("x", overrideTestNow(), overrideTestNow().Add(time.Minute)))}, overrideTestNow())
+	store.applyConfig(nil, overrideTestNow())
+	if delivered, _ := store.deliver("a1", overrideTestNow()); len(delivered) != 0 {
 		t.Fatalf("removed assignment still has overrides: %+v", delivered)
 	}
 }
 
 func TestMergeRunOverridesIntoConfigIsHostOwned(t *testing.T) {
-	override := overrideAt("f1", overrideTestNow, overrideTestNow.Add(time.Minute))
+	override := overrideAt("f1", overrideTestNow(), overrideTestNow().Add(time.Minute))
 
 	merged, err := mergeRunOverridesIntoConfig([]byte(`{"site":"a"}`), []pluginRunOverride{override})
 	if err != nil {
@@ -247,7 +249,7 @@ func TestPluginResultAcknowledgementIsHostAuthored(t *testing.T) {
 	payload, _, err := loop.normalizePluginPayload(PluginResult{
 		AssignmentID:             "a1",
 		Payload:                  []byte(`{"status":"OK","summary":"fine","run_overrides_acknowledged":["forged"]}`),
-		ObservedAt:               overrideTestNow,
+		ObservedAt:               overrideTestNow(),
 		AcknowledgedRunOverrides: []string{"f1"},
 	}, "agent-1", "default")
 	if err != nil {
@@ -265,7 +267,7 @@ func TestPluginResultAcknowledgementIsHostAuthored(t *testing.T) {
 	payload, _, err = loop.normalizePluginPayload(PluginResult{
 		AssignmentID: "a1",
 		Payload:      []byte(`{"status":"OK","summary":"fine","run_overrides_acknowledged":["forged"]}`),
-		ObservedAt:   overrideTestNow,
+		ObservedAt:   overrideTestNow(),
 	}, "agent-1", "default")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)

@@ -53,11 +53,16 @@ type handshakeSend struct {
 	sentAt  time.Time
 }
 
+// expectedSendsPerAttempt sizes the in-flight SYN index for a first send and
+// one retransmission per attempt; the map grows if an attempt is retransmitted
+// further.
+const expectedSendsPerAttempt = 2
+
 func newTCPHandshake(ttl, attempts int) *tcpHandshake {
 	return &tcpHandshake{
 		ttl:      ttl,
 		attempts: make([]handshakeAttempt, attempts),
-		bySeq:    make(map[int]handshakeSend, attempts*2), //nolint:mnd
+		bySeq:    make(map[int]handshakeSend, attempts*expectedSendsPerAttempt),
 		updateCh: make(chan struct{}, 1),
 	}
 }

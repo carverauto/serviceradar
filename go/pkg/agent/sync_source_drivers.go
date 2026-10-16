@@ -21,13 +21,13 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources/armis"
 )
 
-// This file is the single wiring point between the integration-agnostic sync
-// runtime and concrete sync-source drivers. To add a new integration (for
+// syncSourceDrivers is the single wiring point between the integration-agnostic
+// sync runtime and concrete sync-source drivers. To add a new integration (for
 // example NetBox or UniFi), implement syncsources.SourceDriver in a new
 // subpackage under go/pkg/agent/syncsources/ and register it here. The sync
 // runtime itself never references individual integrations.
-//
-//nolint:gochecknoinits // This package is the explicit sync driver registration boundary.
-func init() {
-	syncsources.Register(armis.SourceType, armis.NewDriver)
+func syncSourceDrivers() syncsources.Registry {
+	drivers := syncsources.Registry{}
+	drivers.Register(armis.SourceType, armis.NewDriver)
+	return drivers
 }

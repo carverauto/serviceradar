@@ -35,16 +35,23 @@ var (
 	errSecondExit = errors.New("second exit")
 )
 
-// sampleAddonBin is the compiled reference add-on used across the e2e tests. It
-// is empty when no binary could be produced (e.g. a sandbox without the Go
-// toolchain), in which case the dependent tests skip rather than fail.
-//
-//nolint:gochecknoglobals // resolved once in TestMain and shared read-only by the e2e add-on tests.
-var sampleAddonBin string
+// sampleAddonBinEnv names the compiled reference add-on used across the e2e
+// tests. The build system may supply it; otherwise TestMain builds the add-on
+// once and publishes its path here, so every test resolves the same binary.
+const sampleAddonBinEnv = "SERVICERADAR_SAMPLE_ADDON_BIN"
 
 func TestMain(m *testing.M) {
-	sampleAddonBin = resolveSampleAddonBin()
+	if bin := resolveSampleAddonBin(); bin != "" {
+		_ = os.Setenv(sampleAddonBinEnv, bin)
+	}
 	os.Exit(m.Run())
+}
+
+// sampleAddonBin returns the compiled reference add-on, or "" when no binary
+// could be produced (e.g. a sandbox without the Go toolchain), in which case the
+// dependent tests skip rather than fail.
+func sampleAddonBin() string {
+	return resolveBinPath(os.Getenv(sampleAddonBinEnv))
 }
 
 // resolveBinPath resolves a reference add-on path supplied by the build system or
@@ -98,7 +105,7 @@ func fileExists(path string) bool {
 // SERVICERADAR_SAMPLE_ADDON_BIN (e.g. a Bazel data dependency) and otherwise
 // compiles the reference add-on with the Go toolchain.
 func resolveSampleAddonBin() string {
-	if bin := resolveBinPath(os.Getenv("SERVICERADAR_SAMPLE_ADDON_BIN")); bin != "" {
+	if bin := sampleAddonBin(); bin != "" {
 		return bin
 	}
 	// Fall through to building when the supplied path cannot be resolved.
@@ -124,7 +131,7 @@ func resolveSampleAddonBin() string {
 
 func requireSampleAddon(t *testing.T) {
 	t.Helper()
-	if sampleAddonBin == "" {
+	if sampleAddonBin() == "" {
 		t.Skip("reference add-on binary unavailable (no SERVICERADAR_SAMPLE_ADDON_BIN and no Go toolchain)")
 	}
 }
@@ -205,7 +212,7 @@ func TestManagerLaunchesConfiguresAndSupervises(t *testing.T) {
 	err := mgr.Apply(context.Background(), []Spec{{
 		ID:           "sample",
 		Version:      "0.1.0",
-		BinaryPath:   sampleAddonBin,
+		BinaryPath:   sampleAddonBin(),
 		ConfigJSON:   []byte(`{"message":"hi"}`),
 		Capabilities: []string{"sample"},
 	}})
@@ -244,7 +251,7 @@ func TestManagerSurfacesResourceLimitEnforcementFailure(t *testing.T) {
 	err := mgr.Apply(context.Background(), []Spec{{
 		ID:         "sample",
 		Version:    "0.1.0",
-		BinaryPath: sampleAddonBin,
+		BinaryPath: sampleAddonBin(),
 		ConfigJSON: []byte(`{"message":"hi"}`),
 		Resources: Resources{
 			MemoryMaxBytes: 64 << 20,
@@ -319,7 +326,7 @@ func TestManagerKeepsLegacyAddonNonTelemetry(t *testing.T) {
 	err := mgr.Apply(context.Background(), []Spec{{
 		ID:         "sample",
 		Version:    "0.1.0",
-		BinaryPath: sampleAddonBin,
+		BinaryPath: sampleAddonBin(),
 		ConfigJSON: []byte(`{"message":"legacy"}`),
 	}})
 	if err != nil {
@@ -345,7 +352,7 @@ func TestManagerStopsRemovedAddon(t *testing.T) {
 
 	if err := mgr.Apply(context.Background(), []Spec{{
 		ID:         "sample",
-		BinaryPath: sampleAddonBin,
+		BinaryPath: sampleAddonBin(),
 		ConfigJSON: []byte("{}"),
 	}}); err != nil {
 		t.Fatalf("apply: %v", err)
@@ -370,7 +377,7 @@ func TestManagerRunsCommandByAssignmentID(t *testing.T) {
 		AssignmentID: "assignment-1",
 		ID:           "sample",
 		Version:      "0.1.0",
-		BinaryPath:   sampleAddonBin,
+		BinaryPath:   sampleAddonBin(),
 		ConfigJSON:   []byte(`{"message":"command"}`),
 		Capabilities: []string{coreaddon.CapabilityProducerScheduleV1},
 	}}); err != nil {
@@ -633,7 +640,7 @@ func TestManagerRestartsOnBinaryChange(t *testing.T) {
 	// A second copy of the reference binary at a different path.
 	dir := t.TempDir()
 	bin2 := filepath.Join(dir, "serviceradar-sample-addon-v2")
-	data, err := os.ReadFile(sampleAddonBin)
+	data, err := os.ReadFile(sampleAddonBin())
 	if err != nil {
 		t.Fatalf("read sample addon: %v", err)
 	}
@@ -646,7 +653,7 @@ func TestManagerRestartsOnBinaryChange(t *testing.T) {
 
 	if err := mgr.Apply(context.Background(), []Spec{{
 		ID:         "sample",
-		BinaryPath: sampleAddonBin,
+		BinaryPath: sampleAddonBin(),
 		ConfigJSON: []byte("{}"),
 	}}); err != nil {
 		t.Fatalf("apply: %v", err)
@@ -685,7 +692,7 @@ func TestManagerRestartsOnVersionChangeWithStableBinaryPath(t *testing.T) {
 	spec := Spec{
 		ID:         "sample",
 		Version:    "0.1.0",
-		BinaryPath: sampleAddonBin,
+		BinaryPath: sampleAddonBin(),
 		ConfigJSON: []byte("{}"),
 	}
 	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
@@ -736,7 +743,7 @@ func TestManagerReportsDeliveredVersionNotSelfReported(t *testing.T) {
 	err := mgr.Apply(context.Background(), []Spec{{
 		ID:           "sample",
 		Version:      delivered,
-		BinaryPath:   sampleAddonBin,
+		BinaryPath:   sampleAddonBin(),
 		ConfigJSON:   []byte(`{"message":"hi"}`),
 		Capabilities: []string{"sample"},
 	}})

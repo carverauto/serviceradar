@@ -733,17 +733,14 @@ func TestNotificationCredentialInjectionModesAreTheCanonicalSet(t *testing.T) {
 		"query",
 	}
 
-	got := make([]string, 0, len(notificationCredentialInjectionModes))
-	for mode := range notificationCredentialInjectionModes {
-		got = append(got, mode)
-	}
+	got := notificationCredentialInjectionModes()
 	sort.Strings(got)
 
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("notification injection modes = %v, want %v (see manifest.ex)", got, want)
 	}
 
-	if _, ok := notificationCredentialInjectionModes["url_path"]; ok {
+	if notificationCredentialInjectionModeSupported("url_path") {
 		t.Fatal("a url_path injection mode is out of scope for v1 and must be added to the host first")
 	}
 }

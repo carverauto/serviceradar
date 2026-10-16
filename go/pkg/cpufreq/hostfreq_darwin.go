@@ -7,6 +7,22 @@ package cpufreq
 #cgo darwin CXXFLAGS: -std=c++20 -fobjc-arc -x objective-c++
 #cgo darwin LDFLAGS: -framework Foundation -framework IOKit -framework CoreFoundation -lIOReport
 #include "hostfreq_bridge.h"
+
+// hostfreq_result carries hostfreq_collect_json's out-parameters back by value,
+// so the Go caller passes the bridge no Go pointers.
+typedef struct {
+	int status;
+	char* json;
+	double actual_interval_ms;
+	char* error;
+} hostfreq_result;
+
+static hostfreq_result hostfreq_collect(int interval_ms, int sample_count) {
+	hostfreq_result result = {0};
+	result.status = hostfreq_collect_json(interval_ms, sample_count, &result.json,
+	                                      &result.actual_interval_ms, &result.error);
+	return result;
+}
 */
 import "C"
 
@@ -43,10 +59,7 @@ const (
 	hostfreqStatusPermission  = 2
 	hostfreqStatusInternal    = 3
 
-	hostfreqMinInterval        = 250 * time.Millisecond
-	hostfreqBackgroundInterval = 250 * time.Millisecond
-	hostfreqRetentionWindow    = 5 * time.Minute
-	hostfreqRequestTimeout     = 1 * time.Second
+	hostfreqMinInterval = 250 * time.Millisecond
 )
 
 var (
@@ -56,46 +69,7 @@ var (
 	errHostfreqEmptyPayload = errors.New("hostfreq returned empty payload")
 )
 
-var hostfreqSampler = newBufferedSampler( //nolint:gochecknoglobals // shared buffered sampler for hostfreq background collection
-	hostfreqBackgroundInterval,
-	hostfreqRetentionWindow,
-	hostfreqRequestTimeout,
-	func(ctx context.Context) (*Snapshot, error) {
-		return collectHostfreqSnapshot(ctx, hostfreqBackgroundInterval)
-	},
-)
-
-// StartHostfreqSampler initializes the background hostfreq sampler with the provided parent context.
-// If called multiple times, only the first invocation with a non-nil context starts the sampler.
-func StartHostfreqSampler(ctx context.Context) error {
-	return hostfreqSampler.start(ctx)
-}
-
-// StopHostfreqSampler stops the background hostfreq sampler.
-func StopHostfreqSampler() {
-	hostfreqSampler.stop()
-}
-
 func collectViaHostfreq(ctx context.Context, window time.Duration) (*Snapshot, error) {
-	if hostfreqSampler.running() {
-		if snap, ok := hostfreqSampler.latest(); ok {
-			return snap, nil
-		}
-	}
-
-	snapshot, err := collectHostfreqSnapshot(ctx, window)
-	if err != nil {
-		return nil, err
-	}
-
-	if hostfreqSampler.running() {
-		hostfreqSampler.record(snapshot, time.Now())
-	}
-
-	return snapshotClone(snapshot), nil
-}
-
-func collectHostfreqSnapshot(ctx context.Context, window time.Duration) (*Snapshot, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -110,21 +84,13 @@ func collectHostfreqSnapshot(ctx context.Context, window time.Duration) (*Snapsh
 		interval = min
 	}
 
-	var outJSON *C.char
-	var outError *C.char
-	var actual C.double
-
 	const smoothingEnabled = 1
-	//nolint:gocritic // false positive when analyzing CGO bridge macro.
-	status := int(C.hostfreq_collect_json(
-		C.int(interval),
-		C.int(smoothingEnabled),
-		&outJSON,
-		&actual,
-		&outError,
-	))
-	defer C.hostfreq_free(outJSON)
-	defer C.hostfreq_free(outError)
+	result := C.hostfreq_collect(C.int(interval), C.int(smoothingEnabled))
+	defer C.hostfreq_free(result.json)
+	defer C.hostfreq_free(result.error)
+
+	status := int(result.status)
+	outJSON, outError := result.json, result.error
 
 	if status != hostfreqStatusOK {
 		message := ""

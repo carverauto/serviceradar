@@ -71,54 +71,8 @@ type EnrollOptions struct {
 }
 
 // EnrollAgentFromToken downloads an edge onboarding bundle and writes agent config + certs.
-//
-// bundle download, certificate/credential placement, config merging, and atomic install;
-// the branching reflects required environment validation rather than incidental complexity.
-//
-//nolint:gocyclo // enrollment is an end-to-end orchestration step covering token parsing,
 func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
-	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
-	if err != nil {
-		return fmt.Errorf("parse onboarding token: %w", err)
-	}
-
-	baseURL, err := normalizeCoreURL(payload.CoreURL)
-	if err != nil {
-		return fmt.Errorf("resolve core API host: %w", err)
-	}
-
-	bundleURL := fmt.Sprintf(
-		"%s/api/edge-packages/%s/bundle",
-		strings.TrimRight(baseURL, "/"),
-		payload.PackageID,
-	)
-
-	// The bundle endpoint verifies the full edgepkg-v3 envelope (signature + package +
-	// partition binding) via OnboardingToken.decode, so send the raw token, not the bare
-	// inner download token. Sending only payload.DownloadToken made the server reject it
-	// as :unsupported_token_format (401 "onboarding token invalid").
-	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.rawToken)
-	if err != nil {
-		return err
-	}
-
-	client := opts.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("download bundle: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("%w (%s): %s", ErrBundleDownloadFailed, resp.Status, strings.TrimSpace(string(body)))
-	}
-
-	bundle, err := extractBundle(resp.Body)
+	bundle, err := downloadAgentBundle(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -143,42 +97,13 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	}
 
 	if opts.SkipOverwrite {
-		if fileExists(opts.ConfigPath) {
-			backupPath, err := backupFile(opts.ConfigPath)
-			if err != nil {
-				return err
-			}
-			if opts.Logf != nil && backupPath != "" {
-				opts.Logf("Existing agent config backed up to %s", backupPath)
-			}
-		}
-		if anyCertExists(certDir) {
-			backupDir, err := backupDirectory(certDir)
-			if err != nil {
-				return err
-			}
-			if opts.Logf != nil && backupDir != "" {
-				opts.Logf("Existing agent certs backed up to %s", backupDir)
-			}
+		if err := backupExistingAgentAssets(opts.ConfigPath, certDir, opts.Logf); err != nil {
+			return err
 		}
 	}
 
-	if err := writeFileAtomic(opts.ConfigPath, updatedConfig, 0644); err != nil {
-		return fmt.Errorf("write agent config: %w", err)
-	}
-
-	if err := os.MkdirAll(certDir, 0755); err != nil {
-		return fmt.Errorf("create cert dir: %w", err)
-	}
-
-	if err := writeFileAtomic(filepath.Join(certDir, "component.pem"), bundle.ComponentCert, 0644); err != nil {
-		return fmt.Errorf("write component cert: %w", err)
-	}
-	if err := writeFileAtomic(filepath.Join(certDir, "component-key.pem"), bundle.ComponentKey, 0600); err != nil {
-		return fmt.Errorf("write component key: %w", err)
-	}
-	if err := writeFileAtomic(filepath.Join(certDir, "ca-chain.pem"), bundle.CAChain, 0644); err != nil {
-		return fmt.Errorf("write CA chain: %w", err)
+	if err := installAgentBundle(opts.ConfigPath, certDir, updatedConfig, bundle); err != nil {
+		return err
 	}
 
 	if len(overrideUpdates) > 0 {
@@ -203,6 +128,102 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 
 	if opts.Logf != nil {
 		opts.Logf("Agent enrollment complete. Wrote config to %s and certs to %s", opts.ConfigPath, certDir)
+	}
+
+	return nil
+}
+
+// downloadAgentBundle resolves the onboarding token to its core and fetches
+// and unpacks the package's bundle.
+func downloadAgentBundle(ctx context.Context, opts EnrollOptions) (*bundlePayload, error) {
+	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
+	if err != nil {
+		return nil, fmt.Errorf("parse onboarding token: %w", err)
+	}
+
+	baseURL, err := normalizeCoreURL(payload.CoreURL)
+	if err != nil {
+		return nil, fmt.Errorf("resolve core API host: %w", err)
+	}
+
+	bundleURL := fmt.Sprintf(
+		"%s/api/edge-packages/%s/bundle",
+		strings.TrimRight(baseURL, "/"),
+		payload.PackageID,
+	)
+
+	// The bundle endpoint verifies the full edgepkg-v3 envelope (signature + package +
+	// partition binding) via OnboardingToken.decode, so send the raw token, not the bare
+	// inner download token. Sending only payload.DownloadToken made the server reject it
+	// as :unsupported_token_format (401 "onboarding token invalid").
+	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.rawToken)
+	if err != nil {
+		return nil, err
+	}
+
+	client := opts.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download bundle: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("%w (%s): %s", ErrBundleDownloadFailed, resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	return extractBundle(resp.Body)
+}
+
+// backupExistingAgentAssets backs up the agent config and certificates an
+// enrollment is about to replace.
+func backupExistingAgentAssets(configPath, certDir string, logf func(string, ...interface{})) error {
+	if fileExists(configPath) {
+		backupPath, err := backupFile(configPath)
+		if err != nil {
+			return err
+		}
+		if logf != nil && backupPath != "" {
+			logf("Existing agent config backed up to %s", backupPath)
+		}
+	}
+	if anyCertExists(certDir) {
+		backupDir, err := backupDirectory(certDir)
+		if err != nil {
+			return err
+		}
+		if logf != nil && backupDir != "" {
+			logf("Existing agent certs backed up to %s", backupDir)
+		}
+	}
+
+	return nil
+}
+
+// installAgentBundle atomically writes the agent config and the bundle's
+// certificate, key and CA chain.
+func installAgentBundle(configPath, certDir string, config []byte, bundle *bundlePayload) error {
+	if err := writeFileAtomic(configPath, config, 0644); err != nil {
+		return fmt.Errorf("write agent config: %w", err)
+	}
+
+	if err := os.MkdirAll(certDir, 0755); err != nil {
+		return fmt.Errorf("create cert dir: %w", err)
+	}
+
+	if err := writeFileAtomic(filepath.Join(certDir, "component.pem"), bundle.ComponentCert, 0644); err != nil {
+		return fmt.Errorf("write component cert: %w", err)
+	}
+	if err := writeFileAtomic(filepath.Join(certDir, "component-key.pem"), bundle.ComponentKey, 0600); err != nil {
+		return fmt.Errorf("write component key: %w", err)
+	}
+	if err := writeFileAtomic(filepath.Join(certDir, "ca-chain.pem"), bundle.CAChain, 0644); err != nil {
+		return fmt.Errorf("write CA chain: %w", err)
 	}
 
 	return nil

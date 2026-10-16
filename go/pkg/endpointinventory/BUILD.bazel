@@ -37,6 +37,7 @@ go_test(
         "hashes_test.go",
         "packages_test.go",
         "spool_test.go",
+        "spool_unix_test.go",
         "stabilize_test.go",
         "upload_test.go",
     ],

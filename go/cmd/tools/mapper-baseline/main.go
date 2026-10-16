@@ -333,7 +333,7 @@ func loadRunConfig(path string) (*runConfig, error) {
 	return &cfg, nil
 }
 
-func (c *runConfig) normalize() error { //nolint:gocyclo // CLI mode normalization intentionally centralizes validation.
+func (c *runConfig) normalize() error {
 	if c == nil {
 		return errBaselineConfigRequired
 	}
@@ -348,6 +348,33 @@ func (c *runConfig) normalize() error { //nolint:gocyclo // CLI mode normalizati
 		c.Type = string(mapper.DiscoveryTypeTopology)
 	}
 
+	c.trimInputs()
+	c.resolveModeAlias()
+
+	if err := c.applyModeDefaults(); err != nil {
+		return err
+	}
+
+	if len(c.Seeds) == 0 {
+		return fmt.Errorf("%s %w", c.Mode, errBaselineNeedsSeed)
+	}
+
+	if _, err := parseDiscoveryType(c.Type); err != nil {
+		return err
+	}
+
+	if c.Timeout != "" {
+		if _, err := time.ParseDuration(c.Timeout); err != nil {
+			return fmt.Errorf("invalid timeout %q: %w", c.Timeout, err)
+		}
+	}
+
+	return nil
+}
+
+// trimInputs trims the seeds and controller settings and drops empty or
+// duplicate seeds.
+func (c *runConfig) trimInputs() {
 	for i := range c.Seeds {
 		c.Seeds[i] = strings.TrimSpace(c.Seeds[i])
 	}
@@ -364,7 +391,11 @@ func (c *runConfig) normalize() error { //nolint:gocyclo // CLI mode normalizati
 		c.MikroTik[i].Password = strings.TrimSpace(c.MikroTik[i].Password)
 		c.MikroTik[i].Name = strings.TrimSpace(c.MikroTik[i].Name)
 	}
+}
 
+// resolveModeAlias rewrites the api and snmp-api modes to controller mode with
+// the matching discovery mode.
+func (c *runConfig) resolveModeAlias() {
 	switch c.Mode {
 	case modeAPI:
 		c.Mode = modeController
@@ -373,7 +404,11 @@ func (c *runConfig) normalize() error { //nolint:gocyclo // CLI mode normalizati
 		c.Mode = modeController
 		c.DiscoveryMode = modeSNMPAPI
 	}
+}
 
+// applyModeDefaults checks that the mode has the inputs it needs and fills in
+// its default seeds, SNMP version and discovery mode.
+func (c *runConfig) applyModeDefaults() error {
 	switch c.Mode {
 	case modeSNMP:
 		if len(c.Seeds) == 0 {
@@ -425,20 +460,6 @@ func (c *runConfig) normalize() error { //nolint:gocyclo // CLI mode normalizati
 		}
 	default:
 		return fmt.Errorf("%w: %q", errUnsupportedBaselineMode, c.Mode)
-	}
-
-	if len(c.Seeds) == 0 {
-		return fmt.Errorf("%s %w", c.Mode, errBaselineNeedsSeed)
-	}
-
-	if _, err := parseDiscoveryType(c.Type); err != nil {
-		return err
-	}
-
-	if c.Timeout != "" {
-		if _, err := time.ParseDuration(c.Timeout); err != nil {
-			return fmt.Errorf("invalid timeout %q: %w", c.Timeout, err)
-		}
 	}
 
 	return nil

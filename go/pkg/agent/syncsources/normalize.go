@@ -117,13 +117,10 @@ func normalizeMACList(candidates []string) []string {
 	return macs
 }
 
-//nolint:gochecknoglobals // strings.Replacer is immutable and safe to reuse.
-var macSeparatorReplacer = strings.NewReplacer(":", "", "-", "", ".", "")
-
 // normalizeMACAddress strips ':', '-', and '.' separators and uppercases the
 // value, returning "" unless the result is exactly 12 hexadecimal characters.
 func normalizeMACAddress(value string) string {
-	cleaned := macSeparatorReplacer.Replace(strings.TrimSpace(value))
+	cleaned := strings.Map(dropMACSeparator, strings.TrimSpace(value))
 	if len(cleaned) != 12 {
 		return ""
 	}
@@ -168,5 +165,16 @@ func deleteMetadataField(update map[string]any, key string) {
 		delete(metadata, key)
 	case map[string]any:
 		delete(metadata, key)
+	}
+}
+
+// dropMACSeparator is a strings.Map mapping that deletes the ':', '-' and '.'
+// separators of a MAC address and keeps every other rune.
+func dropMACSeparator(r rune) rune {
+	switch r {
+	case ':', '-', '.':
+		return -1
+	default:
+		return r
 	}
 }

@@ -18,7 +18,6 @@ package mapper
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -190,7 +189,7 @@ func TestProbeProxmoxCandidateRecordsCertificateSANs(t *testing.T) {
 	defer server.Close()
 
 	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} //nolint:gosec // test server
+	client := server.Client()
 
 	device, err := engine.probeProxmoxCandidate(context.Background(), client, server.URL)
 	require.NoError(t, err)

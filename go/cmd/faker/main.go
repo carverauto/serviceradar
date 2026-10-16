@@ -897,6 +897,14 @@ func main() {
 	flag.StringVar(&configPath, "config", "/etc/serviceradar/faker.json", "Path to configuration file")
 	flag.Parse()
 
+	if err := run(configPath); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run loads the faker config, starts the simulations and serves the fake
+// Armis API until the server stops.
+func run(configPath string) error {
 	ctx := context.Background()
 
 	config = &Config{}
@@ -952,15 +960,14 @@ func main() {
 	}
 
 	if err := server.ListenAndServe(); err != nil {
-		if bootstrapResult != nil {
-			_ = bootstrapResult.Close()
-		}
 		if errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server shut down gracefully")
-			return
+			return nil
 		}
-		log.Fatalf("Server failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
+		return fmt.Errorf("server failed: %w", err)
 	}
+
+	return nil
 }
 
 func armisReadyHandler(w http.ResponseWriter, r *http.Request) {
@@ -1492,8 +1499,6 @@ func generateSingleIP(index int) string {
 
 // generateMACCount determines how many MAC addresses a device should have
 // Simulates real Armis behavior where devices can have many historical MACs
-//
-//nolint:wsl // false positive for whitespace before opening brace
 func generateMACCount(deviceIndex int) int {
 	// Weight distribution to be more realistic:
 	// 60% of devices have 1-5 MACs

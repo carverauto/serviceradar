@@ -29,7 +29,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -90,11 +89,9 @@ type SourceDriver interface {
 // Constructor builds a new driver instance for a sync run.
 type Constructor func() SourceDriver
 
-//nolint:gochecknoglobals // Driver registration is process-wide by design.
-var (
-	registryMu sync.RWMutex
-	registry   = make(map[string]Constructor)
-)
+// Registry maps source types to driver constructors. The agent builds one at
+// wiring time and hands it to the sync runtime; it is read-only afterwards.
+type Registry map[string]Constructor
 
 // NormalizeType canonicalizes a source-type string for registry lookups.
 func NormalizeType(sourceType string) string {
@@ -104,7 +101,7 @@ func NormalizeType(sourceType string) string {
 // Register adds a driver constructor for a source type. It panics on empty
 // types, nil constructors, or duplicate registrations, all of which are
 // programmer errors at wiring time.
-func Register(sourceType string, ctor Constructor) {
+func (r Registry) Register(sourceType string, ctor Constructor) {
 	key := NormalizeType(sourceType)
 	if key == "" {
 		panic("syncsources: cannot register empty source type")
@@ -112,27 +109,20 @@ func Register(sourceType string, ctor Constructor) {
 	if ctor == nil {
 		panic(fmt.Sprintf("syncsources: nil constructor for source type %q", key))
 	}
-
-	registryMu.Lock()
-	defer registryMu.Unlock()
-
-	if _, exists := registry[key]; exists {
+	if _, exists := r[key]; exists {
 		panic(fmt.Sprintf("syncsources: driver already registered for source type %q", key))
 	}
-	registry[key] = ctor
+	r[key] = ctor
 }
 
 // Lookup returns the registered constructor for a source type.
-func Lookup(sourceType string) (Constructor, bool) {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-
-	ctor, ok := registry[NormalizeType(sourceType)]
+func (r Registry) Lookup(sourceType string) (Constructor, bool) {
+	ctor, ok := r[NormalizeType(sourceType)]
 	return ctor, ok
 }
 
 // IsSupported reports whether a driver is registered for the source type.
-func IsSupported(sourceType string) bool {
-	_, ok := Lookup(sourceType)
+func (r Registry) IsSupported(sourceType string) bool {
+	_, ok := r.Lookup(sourceType)
 	return ok
 }

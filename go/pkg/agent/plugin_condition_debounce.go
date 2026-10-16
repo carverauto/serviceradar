@@ -227,15 +227,14 @@ type conditionScopeMarkerUnmapped struct {
 
 // conditionScopeMarkerField is checked before decoding so ordinary events do
 // not pay for a second JSON decode.
-//nolint:gochecknoglobals // effectively-const byte pattern, read-only
-var conditionScopeMarkerField = []byte(`"condition_scope_complete"`)
+const conditionScopeMarkerField = `"condition_scope_complete"`
 
 // parseConditionScopeMarker extracts a scope-complete marker. Both fields are
 // required: a marker without a JSON string array of active keys (an empty
 // array is fine) is not trusted, because treating it as "nothing is active"
 // would clear every alert in the scope.
 func parseConditionScopeMarker(payload []byte) (conditionScopeMarker, bool) {
-	if !bytes.Contains(payload, conditionScopeMarkerField) {
+	if !bytes.Contains(payload, []byte(conditionScopeMarkerField)) {
 		return conditionScopeMarker{}, false
 	}
 	var env conditionScopeMarkerUnmapped
@@ -517,24 +516,22 @@ func newConditionClearTemplate(record *addonpb.TelemetryRecord, sample condition
 	}
 }
 
-// conditionTemplateKeptFields are the top-level OCSF fields an oversized
-// template is reduced to: what the event writer requires, plus the event's
-// provenance. The device is reduced to its identifying fields below.
-//nolint:gochecknoglobals // fixed read-only field list, shared by the reduce function
-var conditionTemplateKeptFields = []string{
-	"class_uid", "category_uid", "type_uid", "activity_id", "activity_name",
-	"log_name", "log_provider", "log_version",
-}
-
 // reduceConditionTemplate shrinks an oversized payload to the fields a clear
 // needs, bounded by the lengths of the condition key, scope and device uid.
 func reduceConditionTemplate(payload []byte, sample conditionSample) []byte {
+	// The top-level OCSF fields an oversized template keeps: what the event
+	// writer requires, plus the event's provenance. The device is reduced to
+	// its identifying fields below.
+	keptFields := [...]string{
+		"class_uid", "category_uid", "type_uid", "activity_id", "activity_name",
+		"log_name", "log_provider", "log_version",
+	}
 	var event map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &event); err != nil {
 		event = nil
 	}
-	reduced := make(map[string]any, len(conditionTemplateKeptFields)+2)
-	for _, field := range conditionTemplateKeptFields {
+	reduced := make(map[string]any, len(keptFields)+2)
+	for _, field := range keptFields {
 		if raw, ok := event[field]; ok && len(raw) <= 256 {
 			reduced[field] = raw
 		}

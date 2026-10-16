@@ -164,17 +164,15 @@ func waitForWatermark(t *testing.T, acks <-chan uint64, expected uint64) []uint6
 	}
 }
 
-func requireAckedFramesEventually(t *testing.T, expected uint64) {
+func requireAckedFramesEventually(t *testing.T, pump *otlpRelayPump, expected uint64) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		return AgentOtlpRelayFramesAckedTotal() == expected
+		return pump.stats.acked.Load() == expected
 	}, time.Second, time.Millisecond, "acked frame counter should reach expected watermark")
 }
 
 func TestOtlpRelayPumpForwardsFramesThenAcks(t *testing.T) {
-	resetAgentOtlpRelayFrameCounters()
-
 	gw := &fakeRelayGateway{}
 	pump := newTestOtlpRelayPump(gw)
 
@@ -210,15 +208,13 @@ func TestOtlpRelayPumpForwardsFramesThenAcks(t *testing.T) {
 			"statuses must be delivered in relay_id order")
 	}
 
-	require.Equal(t, uint64(3), AgentOtlpRelayFramesForwardedTotal())
-	requireAckedFramesEventually(t, 3)
-	require.Zero(t, AgentOtlpRelayFramesRetriedTotal())
-	require.Zero(t, AgentOtlpRelayFramesSkippedOversizeTotal())
+	require.Equal(t, uint64(3), pump.stats.forwarded.Load())
+	requireAckedFramesEventually(t, pump, 3)
+	require.Zero(t, pump.stats.retried.Load())
+	require.Zero(t, pump.stats.skippedOversize.Load())
 }
 
 func TestOtlpRelayPumpRetriesWithoutAckOnGatewayFailure(t *testing.T) {
-	resetAgentOtlpRelayFrameCounters()
-
 	gw := &fakeRelayGateway{failFirst: 2}
 	pump := newTestOtlpRelayPump(gw)
 	// Deterministic single flush: window-full at exactly two frames, timer
@@ -238,14 +234,12 @@ func TestOtlpRelayPumpRetriesWithoutAckOnGatewayFailure(t *testing.T) {
 		"no ack may be sent before the gateway accepts the frames")
 
 	require.Equal(t, 3, gw.attemptCount(), "two failed attempts plus the successful one")
-	require.Equal(t, uint64(4), AgentOtlpRelayFramesRetriedTotal(), "2 frames x 2 failed attempts")
-	require.Equal(t, uint64(2), AgentOtlpRelayFramesForwardedTotal())
-	requireAckedFramesEventually(t, 2)
+	require.Equal(t, uint64(4), pump.stats.retried.Load(), "2 frames x 2 failed attempts")
+	require.Equal(t, uint64(2), pump.stats.forwarded.Load())
+	requireAckedFramesEventually(t, pump, 2)
 }
 
 func TestOtlpRelayPumpSkipsOversizedFrameAndStillAcksIt(t *testing.T) {
-	resetAgentOtlpRelayFrameCounters()
-
 	gw := &fakeRelayGateway{}
 	pump := newTestOtlpRelayPump(gw)
 	pump.maxFrameBytes = 1024
@@ -272,14 +266,12 @@ func TestOtlpRelayPumpSkipsOversizedFrameAndStillAcksIt(t *testing.T) {
 		require.Equal(t, wantEvent, decoded.GetRecords()[0].GetEventId())
 	}
 
-	require.Equal(t, uint64(1), AgentOtlpRelayFramesSkippedOversizeTotal())
-	require.Equal(t, uint64(2), AgentOtlpRelayFramesForwardedTotal())
-	requireAckedFramesEventually(t, 3)
+	require.Equal(t, uint64(1), pump.stats.skippedOversize.Load())
+	require.Equal(t, uint64(2), pump.stats.forwarded.Load())
+	requireAckedFramesEventually(t, pump, 3)
 }
 
 func TestOtlpRelayPumpAcksOversizedFrameImmediatelyWhenIdle(t *testing.T) {
-	resetAgentOtlpRelayFrameCounters()
-
 	gw := &fakeRelayGateway{}
 	pump := newTestOtlpRelayPump(gw)
 	pump.maxFrameBytes = 1024
@@ -294,14 +286,12 @@ func TestOtlpRelayPumpAcksOversizedFrameImmediatelyWhenIdle(t *testing.T) {
 	watermarks := waitForWatermark(t, acks, 7)
 	require.Equal(t, []uint64{7}, watermarks)
 	require.Zero(t, gw.attemptCount(), "nothing deliverable: the gateway must not be called")
-	require.Equal(t, uint64(1), AgentOtlpRelayFramesSkippedOversizeTotal())
-	requireAckedFramesEventually(t, 1)
-	require.Zero(t, AgentOtlpRelayFramesForwardedTotal())
+	require.Equal(t, uint64(1), pump.stats.skippedOversize.Load())
+	requireAckedFramesEventually(t, pump, 1)
+	require.Zero(t, pump.stats.forwarded.Load())
 }
 
 func TestOtlpRelayPumpStopsPullingWhenAcksStall(t *testing.T) {
-	resetAgentOtlpRelayFrameCounters()
-
 	gw := &fakeRelayGateway{failFirst: math.MaxInt}
 	pump := newTestOtlpRelayPump(gw)
 	const window = 4
@@ -327,8 +317,8 @@ func TestOtlpRelayPumpStopsPullingWhenAcksStall(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	require.Len(t, frames, fed-window, "pulling must stop while acks are stalled")
 	require.Empty(t, acks, "frames stay unacked while the gateway rejects them")
-	require.NotZero(t, AgentOtlpRelayFramesRetriedTotal())
-	require.Zero(t, AgentOtlpRelayFramesForwardedTotal())
+	require.NotZero(t, pump.stats.retried.Load())
+	require.Zero(t, pump.stats.forwarded.Load())
 }
 
 func TestOtlpRelayPumpStopsOnContextCancel(t *testing.T) {

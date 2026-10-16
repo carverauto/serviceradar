@@ -97,7 +97,7 @@ func (h *oauth2CacheHarness) authorize(password string) (*http.Request, string) 
 		"password": password,
 	}}
 	if err := h.exec.applyCredentialBrokerOAuth2Bearer(
-		h.t.Context(), req, h.grant, material, oauth2GrantShapes[injectTypeOAuth2PasswordBearer], true,
+		h.t.Context(), req, h.grant, material, mustOAuth2GrantShape(injectTypeOAuth2PasswordBearer), true,
 	); err != nil {
 		h.t.Fatalf("token exchange failed: %v", err)
 	}

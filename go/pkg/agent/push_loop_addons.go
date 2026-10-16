@@ -854,7 +854,7 @@ func systemdUnitActive(ctx context.Context, unit string) bool {
 	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	return runSystemctl(checkCtx, "is-active", "--quiet", unit) == nil
+	return trustedSystemHost().runSystemctl(checkCtx, "is-active", "--quiet", unit) == nil
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned

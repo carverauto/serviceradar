@@ -100,6 +100,7 @@ func TestPluginDownloadUsesArtifactHTTPClient(t *testing.T) {
 }
 
 func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -109,7 +110,7 @@ func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
 	defer server.Close()
 
 	base := &http.Client{Timeout: 20 * time.Millisecond}
-	client := pluginHTTPClient(base, false, 500*time.Millisecond)
+	client := transports.client(base, false, 500*time.Millisecond)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, http.NoBody)
 	if err != nil {
@@ -131,11 +132,12 @@ func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
 }
 
 func TestPluginHTTPClientReusesInsecureTransport(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	baseTransport := &http.Transport{}
 	base := &http.Client{Transport: baseTransport, Timeout: 20 * time.Millisecond}
 
-	first := pluginHTTPClient(base, true, 500*time.Millisecond)
-	second := pluginHTTPClient(base, true, 750*time.Millisecond)
+	first := transports.client(base, true, 500*time.Millisecond)
+	second := transports.client(base, true, 750*time.Millisecond)
 
 	if first == second {
 		t.Fatal("expected per-request client clones, got the same client")
@@ -159,11 +161,12 @@ func TestPluginHTTPClientReusesInsecureTransport(t *testing.T) {
 }
 
 func TestPluginHTTPClientPreservesExplicitCustomTransportForInsecureRequest(t *testing.T) {
+	var transports pluginHTTPTransportCache
 	t.Parallel()
 
 	transport := &countingPluginHTTPTransport{}
 	base := &http.Client{Transport: transport, Timeout: 20 * time.Millisecond}
-	client := pluginHTTPClient(base, true, 500*time.Millisecond)
+	client := transports.client(base, true, 500*time.Millisecond)
 
 	if client.Transport != transport {
 		t.Fatalf("transport = %T, want original explicit transport", client.Transport)

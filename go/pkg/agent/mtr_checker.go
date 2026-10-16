@@ -40,6 +40,9 @@ const (
 	mtrProbesPerHopUpperBound    = 20
 	mtrProbeIntervalMsUpperBound = 10_000
 	mtrPacketSizeUpperBound      = 1500
+
+	// mtrResultsPushTimeout bounds streaming one batch of MTR results to the gateway.
+	mtrResultsPushTimeout = 30 * time.Second
 )
 
 type mtrCheckConfig struct {
@@ -123,7 +126,7 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 
 	statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
 
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:mnd
+	pushCtx, cancel := context.WithTimeout(ctx, mtrResultsPushTimeout)
 	defer cancel()
 
 	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {

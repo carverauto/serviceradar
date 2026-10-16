@@ -98,10 +98,9 @@ only catches the first:
   `pkg/sysmon/process_test.go`, `internal/fastsum/api_test.go`), and the package-level check
   passed the whole time because each package did have a target.
 
-The same drift hits libraries. `pkg/cpufreq` shipped a `go_library` missing
-`hostfreq_sampler.go` and `snapshot_clone.go`, so on macOS `go build` compiled the buffered
-sampler and Bazel did not. Build constraints kept it off Linux, so no image was ever affected,
-but the two builds disagreed for months.
+The same drift hits libraries. A `go_library` can omit a source that `go build` compiles.
+Build constraints can keep that disagreement off Linux, so container images stay green while
+the two builds disagree.
 
 The audit that catches all of it compares declared `srcs` against disk:
 

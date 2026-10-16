@@ -81,7 +81,7 @@ func (s *SYNScanner) randUint32() uint32 {
 // buildSynPacketFromTemplate efficiently builds a SYN packet using the pre-allocated template
 func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, destPort uint16) []byte {
 	// Get packet buffer from pool to reduce allocations
-	packet := s.packetPool.Get().([]byte)
+	packet := s.packetPool.Get().(*[ipv4TcpPacketSize]byte)[:]
 	copy(packet, s.packetTemplate[:])
 
 	// Set variable IPv4 fields

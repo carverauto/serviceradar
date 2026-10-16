@@ -74,11 +74,8 @@ const (
 	releaseDownloadMaxAttempts = 4
 )
 
-// Backoff durations for transient release artifact download retries. Declared as
-// vars (not consts) so tests can shrink them; production values are fixed.
-//
-//nolint:gochecknoglobals // tunable for tests
-var (
+// Backoff durations for transient release artifact download retries.
+const (
 	releaseDownloadInitialBackoff = 1 * time.Second
 	releaseDownloadMaxBackoff     = 15 * time.Second
 )
@@ -227,6 +224,23 @@ type releaseStageConfig struct {
 	GatewayAddr     string
 	GatewaySecurity *models.SecurityConfig
 	CommandID       string
+	// DownloadInitialBackoff and DownloadMaxBackoff bound the retry backoff for
+	// transient artifact download failures. Zero means the release defaults.
+	DownloadInitialBackoff time.Duration
+	DownloadMaxBackoff     time.Duration
+}
+
+// downloadBackoff returns the initial and maximum retry backoff for transient
+// artifact download failures.
+func (cfg releaseStageConfig) downloadBackoff() (initial, maxBackoff time.Duration) {
+	initial, maxBackoff = cfg.DownloadInitialBackoff, cfg.DownloadMaxBackoff
+	if initial <= 0 {
+		initial = releaseDownloadInitialBackoff
+	}
+	if maxBackoff <= 0 {
+		maxBackoff = releaseDownloadMaxBackoff
+	}
+	return initial, maxBackoff
 }
 
 func stageAgentRelease(ctx context.Context, payload releaseUpdatePayload, cfg releaseStageConfig) (releaseStageResult, error) {
@@ -1000,7 +1014,7 @@ func downloadReleaseArtifact(ctx context.Context, payload releaseUpdatePayload, 
 		return nil, err
 	}
 
-	backoff := releaseDownloadInitialBackoff
+	backoff, maxBackoff := cfg.downloadBackoff()
 	var lastErr error
 
 	for attempt := 1; attempt <= releaseDownloadMaxAttempts; attempt++ {
@@ -1029,8 +1043,8 @@ func downloadReleaseArtifact(ctx context.Context, payload releaseUpdatePayload, 
 		case <-time.After(backoff):
 		}
 
-		if backoff *= 2; backoff > releaseDownloadMaxBackoff {
-			backoff = releaseDownloadMaxBackoff
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
 		}
 	}
 

@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -374,22 +373,20 @@ func newProjectionBuilderWithLimits(cve string, limits projectionLimits) *projec
 	}
 }
 
-//nolint:err113 // Product-cap validation is an internal projection invariant and is not matched.
 func (builder *projectionBuilder) ensureLogicalProductCapacity(count int64) error {
 	if count < 0 || builder.limits.logicalProducts <= 0 || builder.logical > builder.limits.logicalProducts || count > builder.limits.logicalProducts-builder.logical {
-		return errors.New("logical product cap exceeded")
+		return newDiagnostic("logical product cap exceeded")
 	}
 	return nil
 }
 
-//nolint:err113 // Product-cap validation is an internal projection invariant and is not matched.
 func (builder *projectionBuilder) accumulateLogicalProductCount(total *int64, count int) error {
 	if total == nil || count < 0 || builder.limits.logicalProducts <= 0 || builder.logical > builder.limits.logicalProducts {
-		return errors.New("logical product cap exceeded")
+		return newDiagnostic("logical product cap exceeded")
 	}
 	remaining := builder.limits.logicalProducts - builder.logical
 	if *total < 0 || *total > remaining || int64(count) > remaining-*total {
-		return errors.New("logical product cap exceeded")
+		return newDiagnostic("logical product cap exceeded")
 	}
 	*total += int64(count)
 	return nil
@@ -403,10 +400,9 @@ func (builder *projectionBuilder) reservePreflightedLogicalProducts(count int64)
 	return nil
 }
 
-//nolint:err113 // Assertion-cap validation is an internal projection invariant and is not matched.
 func (builder *projectionBuilder) ensureAssertionCapacity(count int) error {
 	if count < 0 || builder.limits.assertions <= 0 || builder.assertions > builder.limits.assertions || int64(count) > builder.limits.assertions-builder.assertions {
-		return errors.New("assertion cap exceeded")
+		return newDiagnostic("assertion cap exceeded")
 	}
 	return nil
 }
@@ -420,10 +416,9 @@ func (builder *projectionBuilder) addAssertion(record *projectedRecord, assertio
 	return nil
 }
 
-//nolint:err113 // Collection overflow is an internal projection invariant and is not matched.
 func checkedCollectionSize(left, right int) (int, error) {
 	if left < 0 || right < 0 || left > int(^uint(0)>>1)-right {
-		return 0, errors.New("collection size overflow")
+		return 0, newDiagnostic("collection size overflow")
 	}
 	return left + right, nil
 }
@@ -476,19 +471,18 @@ func projectionDefinitions(builder *projectionBuilder) ([]productDTO, []productS
 	return products, sets
 }
 
-//nolint:err113 // UUID collision and cap diagnostics are local projection invariants.
 func unseenProjectionProducts(state *projectionState, products []productDTO) ([]productDTO, error) {
 	unseen := make([]productDTO, 0, len(products))
 	for _, product := range products {
 		prior, exists := state.seenProducts[product.ID]
 		if exists {
 			if prior != product.Digest {
-				return nil, errors.New("product UUID collision")
+				return nil, newDiagnostic("product UUID collision")
 			}
 			continue
 		}
 		if len(state.seenProducts) >= maxSeenProducts {
-			return nil, errors.New("unique product cap exceeded")
+			return nil, newDiagnostic("unique product cap exceeded")
 		}
 		state.seenProducts[product.ID] = product.Digest
 		if product.Metadata.MissingRelease {
@@ -499,19 +493,18 @@ func unseenProjectionProducts(state *projectionState, products []productDTO) ([]
 	return unseen, nil
 }
 
-//nolint:err113 // UUID collision and cap diagnostics are local projection invariants.
 func unseenProjectionSets(state *projectionState, sets []productSetDTO) ([]productSetDTO, error) {
 	unseen := make([]productSetDTO, 0, len(sets))
 	for _, set := range sets {
 		prior, exists := state.seenSets[set.ID]
 		if exists {
 			if prior != set.Digest {
-				return nil, errors.New("product-set UUID collision")
+				return nil, newDiagnostic("product-set UUID collision")
 			}
 			continue
 		}
 		if len(state.seenSets) >= maxSeenProductSets {
-			return nil, errors.New("unique product-set cap exceeded")
+			return nil, newDiagnostic("unique product-set cap exceeded")
 		}
 		state.seenSets[set.ID] = set.Digest
 		unseen = append(unseen, set)
@@ -539,10 +532,9 @@ func updateProjectionCounters(state *projectionState, builder *projectionBuilder
 	}
 }
 
-//nolint:err113 // Projection invariant diagnostics are consumed as text by this internal pipeline.
 func projectRecordWithLimits(cve string, osvRaw, vexRaw []byte, osvArchiveDigest, vexArchiveDigest string, state *projectionState, limits projectionLimits) (projectedRecord, error) {
 	if state == nil {
-		return projectedRecord{}, errors.New("nil projection state")
+		return projectedRecord{}, newDiagnostic("nil projection state")
 	}
 	builder := newProjectionBuilderWithLimits(cve, limits)
 	record := projectedRecord{
@@ -558,7 +550,7 @@ func projectRecordWithLimits(cve string, osvRaw, vexRaw []byte, osvArchiveDigest
 		return projectedRecord{}, err
 	}
 	if osv == nil && vex == nil {
-		return projectedRecord{}, errors.New("empty projection record")
+		return projectedRecord{}, newDiagnostic("empty projection record")
 	}
 	if err := preflightAssertionCount(builder, osv, vex); err != nil {
 		return projectedRecord{}, err
@@ -582,7 +574,7 @@ func projectRecordWithLimits(cve string, osvRaw, vexRaw []byte, osvArchiveDigest
 	sort.Slice(record.Assertions, func(i, j int) bool { return record.Assertions[i].AssertionKey < record.Assertions[j].AssertionKey })
 	for i := 1; i < len(record.Assertions); i++ {
 		if record.Assertions[i-1].AssertionKey == record.Assertions[i].AssertionKey {
-			return projectedRecord{}, errors.New("duplicate semantic assertion")
+			return projectedRecord{}, newDiagnostic("duplicate semantic assertion")
 		}
 	}
 
@@ -610,7 +602,6 @@ func projectRecordWithLimits(cve string, osvRaw, vexRaw []byte, osvArchiveDigest
 	return record, nil
 }
 
-//nolint:err113 // Assertion-cap validation is an internal projection invariant and is not matched.
 func preflightAssertionCount(builder *projectionBuilder, osv *rawOSV, vex *rawVEX) error {
 	count := 0
 	var err error
@@ -620,7 +611,7 @@ func preflightAssertionCount(builder *projectionBuilder, osv *rawOSV, vex *rawVE
 	if vex != nil {
 		count, err = checkedCollectionSize(count, len(vex.Statements))
 		if err != nil {
-			return errors.New("assertion cap exceeded")
+			return newDiagnostic("assertion cap exceeded")
 		}
 	}
 	return builder.ensureAssertionCapacity(count)
@@ -630,35 +621,34 @@ func parseOSV(cve string, raw []byte) (*rawOSV, error) {
 	return parseOSVWithLimits(cve, raw, defaultProjectionLimits())
 }
 
-//nolint:err113 // OSV validation diagnostics are consumed as text by this internal parser.
 func parseOSVWithLimits(cve string, raw []byte, limits projectionLimits) (*rawOSV, error) {
 	if _, err := preflightDocumentStructure("osv", cve, raw, limits); err != nil {
 		return nil, err
 	}
 	var doc rawOSV
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, errors.New("invalid OSV object")
+		return nil, newDiagnostic("invalid OSV object")
 	}
 	if doc.ID != "UBUNTU-"+cve {
-		return nil, errors.New("OSV identity mismatch")
+		return nil, newDiagnostic("OSV identity mismatch")
 	}
 	if err := corroborateCVE(cve, append(append([]string{}, doc.Aliases...), doc.Upstream...)); err != nil {
 		return nil, fmt.Errorf("OSV identity corroboration: %w", err)
 	}
 	if _, err := canonicalTimestamp(doc.Modified, false); err != nil {
-		return nil, errors.New("invalid OSV modified timestamp")
+		return nil, newDiagnostic("invalid OSV modified timestamp")
 	}
 	if _, err := canonicalTimestamp(doc.Published, true); err != nil {
-		return nil, errors.New("invalid OSV published timestamp")
+		return nil, newDiagnostic("invalid OSV published timestamp")
 	}
 	if _, err := canonicalTimestamp(doc.Withdrawn, true); err != nil {
-		return nil, errors.New("invalid OSV withdrawn timestamp")
+		return nil, newDiagnostic("invalid OSV withdrawn timestamp")
 	}
 	if len(doc.Details) > maxDescriptionBytes {
-		return nil, errors.New("OSV description cap exceeded")
+		return nil, newDiagnostic("OSV description cap exceeded")
 	}
 	if doc.Withdrawn == "" && len(doc.Affected) == 0 {
-		return nil, errors.New("live OSV document has no affected entries")
+		return nil, newDiagnostic("live OSV document has no affected entries")
 	}
 	for i := range doc.Affected {
 		if _, err := validateOSVAffected(&doc.Affected[i]); err != nil {
@@ -667,11 +657,11 @@ func parseOSVWithLimits(cve string, raw []byte, limits projectionLimits) (*rawOS
 	}
 	for _, reference := range doc.References {
 		if reference.URL == "" || len(reference.URL) > maxEvidenceBytes {
-			return nil, errors.New("invalid OSV reference")
+			return nil, newDiagnostic("invalid OSV reference")
 		}
 	}
 	if len(doc.References) > maxReferences {
-		return nil, errors.New("OSV reference cap exceeded")
+		return nil, newDiagnostic("OSV reference cap exceeded")
 	}
 	doc.Modified, _ = canonicalTimestamp(doc.Modified, false)
 	doc.Published, _ = canonicalTimestamp(doc.Published, true)
@@ -687,18 +677,17 @@ type validatedOSVAffected struct {
 	Repaired       bool
 }
 
-//nolint:err113 // OSV affected-entry diagnostics are consumed as text by this internal parser.
 func validateOSVAffected(affected *osvAffected) (validatedOSVAffected, error) {
 	var out validatedOSVAffected
 	if affected.Package.Name == "" || !strings.HasPrefix(affected.Package.Ecosystem, "Ubuntu:") {
-		return out, errors.New("invalid Ubuntu source package")
+		return out, newDiagnostic("invalid Ubuntu source package")
 	}
 	if err := validateOSVProductComponent(affected.Package.Name); err != nil {
 		return out, err
 	}
 	out.ReleaseChannel = strings.TrimPrefix(affected.Package.Ecosystem, "Ubuntu:")
 	if out.ReleaseChannel == "" {
-		return out, errors.New("empty Ubuntu release channel")
+		return out, newDiagnostic("empty Ubuntu release channel")
 	}
 	if err := validateOSVProductComponent(out.ReleaseChannel); err != nil {
 		return out, err
@@ -707,7 +696,7 @@ func validateOSVAffected(affected *osvAffected) (validatedOSVAffected, error) {
 	var repaired bool
 	if affected.Package.PURL == "" {
 		if !validPURLComponent(affected.Package.Name) || strings.Contains(affected.Package.Name, "/") {
-			return out, errors.New("invalid Ubuntu source package name")
+			return out, newDiagnostic("invalid Ubuntu source package name")
 		}
 		parsed = parsedPURL{
 			PackageType: "deb",
@@ -719,16 +708,16 @@ func validateOSVAffected(affected *osvAffected) (validatedOSVAffected, error) {
 		var err error
 		parsed, repaired, err = parseUbuntuPURL(affected.Package.PURL, true)
 		if err != nil || parsed.Name != affected.Package.Name || (parsed.Qualifiers["arch"] != sourceArchitecture && parsed.Qualifiers["arch"] != "src") || parsed.Qualifiers["distro"] == "" {
-			return out, errors.New("invalid Ubuntu source PURL")
+			return out, newDiagnostic("invalid Ubuntu source PURL")
 		}
 	}
 	out.Source, out.Repaired = parsed, repaired
 	if len(affected.Ranges) != 1 || affected.Ranges[0].Type != "ECOSYSTEM" {
-		return out, errors.New("exactly one ECOSYSTEM range is required")
+		return out, newDiagnostic("exactly one ECOSYSTEM range is required")
 	}
 	events := affected.Ranges[0].Events
 	if len(events) < 1 || len(events) > 2 {
-		return out, errors.New("exactly one introduced/fixed cycle is required")
+		return out, newDiagnostic("exactly one introduced/fixed cycle is required")
 	}
 	introduced, err := singleEventValue(events[0], "introduced")
 	if err != nil {
@@ -744,7 +733,7 @@ func validateOSVAffected(affected *osvAffected) (validatedOSVAffected, error) {
 	}
 	for _, version := range affected.Versions {
 		if version == "" {
-			return out, errors.New("empty affected version")
+			return out, newDiagnostic("empty affected version")
 		}
 		if err := validateOSVProductComponent(version); err != nil {
 			return out, err
@@ -752,7 +741,7 @@ func validateOSVAffected(affected *osvAffected) (validatedOSVAffected, error) {
 	}
 	for _, binaryPackage := range affected.EcosystemSpecific.Binaries {
 		if binaryPackage.Name == "" || binaryPackage.Version == "" {
-			return out, errors.New("invalid binary package correlation")
+			return out, newDiagnostic("invalid binary package correlation")
 		}
 		if err := validateOSVProductComponent(binaryPackage.Name); err != nil {
 			return out, err
@@ -764,29 +753,27 @@ func validateOSVAffected(affected *osvAffected) (validatedOSVAffected, error) {
 	return out, nil
 }
 
-//nolint:err113 // OSV component diagnostics are consumed as text by this internal parser.
 func validateOSVProductComponent(value string) error {
 	if len(value) > maxPURLBytes {
-		return errors.New("OSV product component cap exceeded")
+		return newDiagnostic("OSV product component cap exceeded")
 	}
 	if !validPURLComponent(value) {
-		return errors.New("invalid OSV product component")
+		return newDiagnostic("invalid OSV product component")
 	}
 	return nil
 }
 
-//nolint:err113 // OSV range diagnostics are consumed as text by this internal parser.
 func singleEventValue(event map[string]json.RawMessage, name string) (string, error) {
 	if len(event) != 1 {
-		return "", errors.New("range event must contain one field")
+		return "", newDiagnostic("range event must contain one field")
 	}
 	raw, ok := event[name]
 	if !ok {
-		return "", fmt.Errorf("expected %s range event", name)
+		return "", diagnosticf("expected %s range event", name)
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil || value == "" {
-		return "", fmt.Errorf("invalid %s range event", name)
+		return "", diagnosticf("invalid %s range event", name)
 	}
 	if err := validateOSVProductComponent(value); err != nil {
 		return "", err
@@ -798,7 +785,6 @@ func parseVEX(cve string, raw []byte) (*rawVEX, error) {
 	return parseVEXWithLimits(cve, raw, defaultProjectionLimits())
 }
 
-//nolint:err113 // VEX validation diagnostics are consumed as text by this internal parser.
 func parseVEXWithLimits(cve string, raw []byte, limits projectionLimits) (*rawVEX, error) {
 	structure, err := preflightDocumentStructure("vex", cve, raw, limits)
 	if err != nil {
@@ -806,24 +792,24 @@ func parseVEXWithLimits(cve string, raw []byte, limits projectionLimits) (*rawVE
 	}
 	var doc rawVEX
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, errors.New("invalid VEX object")
+		return nil, newDiagnostic("invalid VEX object")
 	}
 	if err := applyVEXDocumentMetadata(structure.vex, &doc); err != nil {
 		return nil, err
 	}
 	if doc.Context != canonicalTombstoneContext || doc.ID == "" || doc.Author != canonicalAuthor || doc.Version <= 0 {
-		return nil, errors.New("invalid VEX document metadata")
+		return nil, newDiagnostic("invalid VEX document metadata")
 	}
 	if err := corroborateCVE(cve, []string{doc.ID}); err != nil {
 		return nil, fmt.Errorf("VEX document identity: %w", err)
 	}
 	doc.Timestamp, err = canonicalTimestamp(doc.Timestamp, false)
 	if err != nil {
-		return nil, errors.New("invalid VEX document timestamp")
+		return nil, newDiagnostic("invalid VEX document timestamp")
 	}
 	doc.LastUpdated, err = canonicalTimestamp(doc.LastUpdated, true)
 	if err != nil {
-		return nil, errors.New("invalid VEX document last_updated")
+		return nil, newDiagnostic("invalid VEX document last_updated")
 	}
 	for i := range doc.Statements {
 		if err := validateVEXStatement(cve, &doc.Statements[i]); err != nil {
@@ -847,10 +833,9 @@ func applyVEXDocumentMetadata(structure vexStructure, doc *rawVEX) error {
 	return nil
 }
 
-//nolint:err113 // Statement validation diagnostics are consumed as text by the internal parser.
 func validateVEXStatement(cve string, statement *vexStatement) error {
 	if statement.Vulnerability.Name != cve {
-		return errors.New("vulnerability identity mismatch")
+		return newDiagnostic("vulnerability identity mismatch")
 	}
 	// Alias URLs are references, not identity assertions; a publisher may link
 	// a closely related vulnerability from this list. The archive path,
@@ -860,52 +845,52 @@ func validateVEXStatement(cve string, statement *vexStatement) error {
 		return err
 	}
 	if len(statement.Vulnerability.Description) > maxDescriptionBytes {
-		return errors.New("vulnerability description cap exceeded")
+		return newDiagnostic("vulnerability description cap exceeded")
 	}
 	var err error
 	statement.Timestamp, err = canonicalTimestamp(statement.Timestamp, true)
 	if err != nil {
-		return errors.New("invalid statement timestamp")
+		return newDiagnostic("invalid statement timestamp")
 	}
 	statement.LastUpdated, err = canonicalTimestamp(statement.LastUpdated, true)
 	if err != nil {
-		return errors.New("invalid statement last_updated")
+		return newDiagnostic("invalid statement last_updated")
 	}
 	statement.ActionStatementTimestamp, err = canonicalTimestamp(statement.ActionStatementTimestamp, true)
 	if err != nil {
-		return errors.New("invalid action_statement_timestamp")
+		return newDiagnostic("invalid action_statement_timestamp")
 	}
 	if statement.Version != nil && *statement.Version <= 0 {
-		return errors.New("statement version must be positive")
+		return newDiagnostic("statement version must be positive")
 	}
 	for _, text := range []string{statement.Vulnerability.ID, statement.StatusNotes, statement.ActionStatement, statement.ImpactStatement, statement.Justification} {
 		if len(text) > maxEvidenceBytes {
-			return errors.New("statement evidence cap exceeded")
+			return newDiagnostic("statement evidence cap exceeded")
 		}
 	}
 	if len(statement.Vulnerability.Aliases) > maxReferences {
-		return errors.New("too many vulnerability aliases")
+		return newDiagnostic("too many vulnerability aliases")
 	}
 	for _, alias := range statement.Vulnerability.Aliases {
 		if alias == "" || len(alias) > maxEvidenceBytes {
-			return errors.New("invalid vulnerability alias")
+			return newDiagnostic("invalid vulnerability alias")
 		}
 	}
 	switch statement.Status {
 	case "affected":
 		if statement.ActionStatement == "" {
-			return errors.New("affected statement requires action_statement")
+			return newDiagnostic("affected statement requires action_statement")
 		}
 	case "not_affected":
 		if !validNotAffectedEvidence(statement) {
-			return errors.New("not_affected statement lacks trusted evidence")
+			return newDiagnostic("not_affected statement lacks trusted evidence")
 		}
 	case "fixed", "under_investigation":
 	default:
-		return errors.New("invalid VEX status")
+		return newDiagnostic("invalid VEX status")
 	}
 	if len(statement.Products) == 0 {
-		return errors.New("VEX statement has no products")
+		return newDiagnostic("VEX statement has no products")
 	}
 	return nil
 }
@@ -921,25 +906,23 @@ func validNotAffectedEvidence(statement *vexStatement) bool {
 	}
 }
 
-//nolint:err113 // Identity conflicts are exact internal validation diagnostics and are not matched.
 func corroborateCVE(expected string, values []string) error {
 	for _, value := range values {
 		for _, found := range cveInID.FindAllString(value, -1) {
 			if found != expected {
-				return fmt.Errorf("found conflicting %s", found)
+				return diagnosticf("found conflicting %s", found)
 			}
 		}
 	}
 	return nil
 }
 
-//nolint:err113 // Timestamp validation diagnostics are consumed as text by this internal parser.
 func canonicalTimestamp(value string, optional bool) (string, error) {
 	if value == "" {
 		if optional {
 			return "", nil
 		}
-		return "", errors.New("timestamp missing")
+		return "", newDiagnostic("timestamp missing")
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
@@ -1157,7 +1140,6 @@ func preflightOSVProducts(builder *projectionBuilder, doc *rawOSV) error {
 	return builder.reservePreflightedLogicalProducts(total)
 }
 
-//nolint:err113 // Empty-set validation is an internal projection invariant and is not matched.
 func projectVEX(builder *projectionBuilder, record *projectedRecord, doc *rawVEX, provenance advisoryProvenance) error {
 	if err := builder.ensureAssertionCapacity(len(doc.Statements)); err != nil {
 		return err
@@ -1177,7 +1159,7 @@ func projectVEX(builder *projectionBuilder, record *projectedRecord, doc *rawVEX
 			return err
 		}
 		if set == nil {
-			return errors.New("VEX statement has an empty product set")
+			return newDiagnostic("VEX statement has an empty product set")
 		}
 		fingerprint := vexStatementFingerprint(doc, &statement)
 		setDigest, _ := hex.DecodeString(set.Digest)
@@ -1261,11 +1243,10 @@ func preflightVEXProducts(builder *projectionBuilder, doc *rawVEX) error {
 	return nil
 }
 
-//nolint:err113 // Product-depth validation is an internal projection invariant and is not matched.
 func preflightVEXProductSlice(builder *projectionBuilder, products []vexProduct, depth int, total *int64) error {
 	for i := range products {
 		if depth > maxProductDepth {
-			return errors.New("VEX product nesting cap exceeded")
+			return newDiagnostic("VEX product nesting cap exceeded")
 		}
 		if err := builder.accumulateLogicalProductCount(total, 1); err != nil {
 			return fmt.Errorf("VEX %w", err)
@@ -1277,10 +1258,9 @@ func preflightVEXProductSlice(builder *projectionBuilder, products []vexProduct,
 	return nil
 }
 
-//nolint:err113 // Product validation diagnostics are consumed as text by this internal projector.
 func projectVEXProduct(builder *projectionBuilder, raw vexProduct, depth int, parent *normalizedProduct, members *[]normalizedProduct) error {
 	if depth > maxProductDepth {
-		return errors.New("VEX product nesting cap exceeded")
+		return newDiagnostic("VEX product nesting cap exceeded")
 	}
 	parsed, err := selectVEXProductPURL(raw)
 	if err != nil {
@@ -1288,7 +1268,7 @@ func projectVEXProduct(builder *projectionBuilder, raw vexProduct, depth int, pa
 	}
 	architecture := parsed.Qualifiers["arch"]
 	if architecture == "" {
-		return errors.New("VEX product lacks architecture")
+		return newDiagnostic("VEX product lacks architecture")
 	}
 	release := parsed.Qualifiers["distro"]
 	scope := "exact_product"
@@ -1327,7 +1307,6 @@ func projectVEXProduct(builder *projectionBuilder, raw vexProduct, depth int, pa
 	return nil
 }
 
-//nolint:err113 // Product PURL conflicts are exact internal validation diagnostics and are not matched.
 func selectVEXProductPURL(product vexProduct) (parsedPURL, error) {
 	identified := product.Identifiers.PURL
 	direct := product.ID
@@ -1336,7 +1315,7 @@ func selectVEXProductPURL(product vexProduct) (parsedPURL, error) {
 		selected = direct
 	}
 	if selected == "" || !strings.HasPrefix(selected, "pkg:") {
-		return parsedPURL{}, errors.New("VEX product lacks a PURL")
+		return parsedPURL{}, newDiagnostic("VEX product lacks a PURL")
 	}
 	parsed, _, err := parseUbuntuPURL(selected, false)
 	if err != nil {
@@ -1345,16 +1324,15 @@ func selectVEXProductPURL(product vexProduct) (parsedPURL, error) {
 	if identified != "" && strings.HasPrefix(direct, "pkg:") {
 		directParsed, _, err := parseUbuntuPURL(direct, false)
 		if err != nil || directParsed.Canonical != parsed.Canonical {
-			return parsedPURL{}, errors.New("conflicting VEX product PURLs")
+			return parsedPURL{}, newDiagnostic("conflicting VEX product PURLs")
 		}
 	}
 	return parsed, nil
 }
 
-//nolint:err113 // Product collision and version diagnostics are internal projection invariants.
 func (builder *projectionBuilder) addProduct(input productInput) (normalizedProduct, error) {
 	if input.PURL.Version == "" {
-		return normalizedProduct{}, errors.New("normalized product requires exact version")
+		return normalizedProduct{}, newDiagnostic("normalized product requires exact version")
 	}
 	qualifierBlob, err := encodeStringMap(input.PURL.Qualifiers)
 	if err != nil {
@@ -1412,7 +1390,7 @@ func (builder *projectionBuilder) addProduct(input productInput) (normalizedProd
 	product := normalizedProduct{DTO: dto, Digest: digest, IDBytes: idBytes}
 	if prior, exists := builder.products[id]; exists {
 		if prior.DTO.Digest != dto.Digest {
-			return normalizedProduct{}, errors.New("local product UUID collision")
+			return normalizedProduct{}, newDiagnostic("local product UUID collision")
 		}
 		return prior, nil
 	}
@@ -1420,7 +1398,6 @@ func (builder *projectionBuilder) addProduct(input productInput) (normalizedProd
 	return product, nil
 }
 
-//nolint:err113 // Product-set collision and cap diagnostics are internal projection invariants.
 func (builder *projectionBuilder) addSet(products []normalizedProduct) (*productSetDTO, error) {
 	if len(products) == 0 {
 		return nil, nil
@@ -1433,12 +1410,12 @@ func (builder *projectionBuilder) addSet(products []normalizedProduct) (*product
 	for _, product := range products {
 		if prior, exists := byID[product.DTO.ID]; exists {
 			if prior.DTO.Digest != product.DTO.Digest {
-				return nil, errors.New("product UUID collision in set")
+				return nil, newDiagnostic("product UUID collision in set")
 			}
 			continue
 		}
 		if len(byID) >= maxProductSetMembers {
-			return nil, errors.New("product-set member cap exceeded")
+			return nil, newDiagnostic("product-set member cap exceeded")
 		}
 		byID[product.DTO.ID] = product
 	}
@@ -1457,7 +1434,7 @@ func (builder *projectionBuilder) addSet(products []normalizedProduct) (*product
 	}
 	digest, canonical := digestTuple(productSetDomain, fields...)
 	if len(canonical) > maxProductSetCanonicalSize {
-		return nil, errors.New("product-set canonical size cap exceeded")
+		return nil, newDiagnostic("product-set canonical size cap exceeded")
 	}
 	dto := productSetDTO{
 		ID:                   formatUUID(uuidBytes(digest)),
@@ -1469,7 +1446,7 @@ func (builder *projectionBuilder) addSet(products []normalizedProduct) (*product
 	}
 	if prior, exists := builder.sets[dto.ID]; exists {
 		if prior.Digest != dto.Digest {
-			return nil, errors.New("local product-set UUID collision")
+			return nil, newDiagnostic("local product-set UUID collision")
 		}
 		return &prior, nil
 	}
@@ -1477,25 +1454,23 @@ func (builder *projectionBuilder) addSet(products []normalizedProduct) (*product
 	return &dto, nil
 }
 
-//nolint:err113 // Repair validation diagnostics are consumed as text by the internal parser.
 func repairUbuntuPURL(raw string, allowRepair bool) (string, bool, error) {
 	if raw == "" || len(raw) > maxPURLBytes {
-		return "", false, errors.New("invalid PURL length")
+		return "", false, newDiagnostic("invalid PURL length")
 	}
 	if !strings.Contains(raw, "?arch=src?distro=") {
 		return raw, false, nil
 	}
 	pathPart := strings.SplitN(raw, "?", 2)[0]
 	if !allowRepair || strings.Contains(pathPart, "@") || strings.Count(raw, "?") != 2 || strings.Count(raw, "?arch=src?distro=") != 1 {
-		return "", false, errors.New("ambiguous malformed PURL")
+		return "", false, newDiagnostic("ambiguous malformed PURL")
 	}
 	return strings.Replace(raw, "?arch=src?distro=", "?arch=src&distro=", 1), true, nil
 }
 
-//nolint:err113 // PURL shape diagnostics are consumed as text by the internal parser.
 func splitUbuntuPURL(raw string, repaired bool) (string, string, string, error) {
 	if strings.Contains(raw, "#") || !strings.HasPrefix(raw, "pkg:") {
-		return "", "", "", errors.New("unsupported PURL form")
+		return "", "", "", newDiagnostic("unsupported PURL form")
 	}
 	parts := strings.SplitN(strings.TrimPrefix(raw, "pkg:"), "?", 2)
 	pathPart := parts[0]
@@ -1508,64 +1483,62 @@ func splitUbuntuPURL(raw string, repaired bool) (string, string, string, error) 
 	rawVersion := ""
 	if at >= 0 {
 		if at == 0 || at == len(pathPart)-1 {
-			return "", "", "", errors.New("PURL requires exact version")
+			return "", "", "", newDiagnostic("PURL requires exact version")
 		}
 		identity, rawVersion = pathPart[:at], pathPart[at+1:]
 	} else if !repaired {
-		return "", "", "", errors.New("PURL requires exact version")
+		return "", "", "", newDiagnostic("PURL requires exact version")
 	}
 	return identity, rawVersion, queryPart, nil
 }
 
-//nolint:err113 // PURL identity diagnostics are consumed as text by the internal parser.
 func parseUbuntuPURLIdentity(identity, rawVersion string) (string, string, string, error) {
 	segments := strings.Split(identity, "/")
 	if len(segments) != 3 || segments[0] != "deb" {
-		return "", "", "", errors.New("PURL is not deb/ubuntu")
+		return "", "", "", newDiagnostic("PURL is not deb/ubuntu")
 	}
 	namespace, err := url.PathUnescape(segments[1])
 	if err != nil || namespace != "ubuntu" {
-		return "", "", "", errors.New("PURL namespace is not ubuntu")
+		return "", "", "", newDiagnostic("PURL namespace is not ubuntu")
 	}
 	name, err := url.PathUnescape(segments[2])
 	if err != nil || !validPURLComponent(name) || len(name) > maxPURLBytes || strings.Contains(name, "/") {
-		return "", "", "", errors.New("invalid PURL name")
+		return "", "", "", newDiagnostic("invalid PURL name")
 	}
 	version := ""
 	if rawVersion != "" {
 		version, err = url.PathUnescape(rawVersion)
 		if err != nil || !validPURLComponent(version) || len(version) > maxPURLBytes {
-			return "", "", "", errors.New("invalid PURL version")
+			return "", "", "", newDiagnostic("invalid PURL version")
 		}
 	}
 	return namespace, name, version, nil
 }
 
-//nolint:err113 // PURL qualifier diagnostics are consumed as text by the internal parser.
 func parseUbuntuPURLQualifiers(queryPart string) (map[string]string, error) {
 	qualifiers := make(map[string]string)
 	if queryPart != "" {
 		for _, pair := range strings.Split(queryPart, "&") {
 			pieces := strings.SplitN(pair, "=", 2)
 			if len(pieces) != 2 {
-				return nil, errors.New("invalid PURL qualifier")
+				return nil, newDiagnostic("invalid PURL qualifier")
 			}
 			key, err := url.PathUnescape(pieces[0])
 			if err != nil || key == "" || strings.ToLower(key) != key || !validPURLComponent(key) || len(key) > maxPURLBytes {
-				return nil, errors.New("invalid PURL qualifier key")
+				return nil, newDiagnostic("invalid PURL qualifier key")
 			}
 			value, err := url.PathUnescape(pieces[1])
 			if err != nil || !validPURLComponent(value) || len(value) > maxPURLBytes {
-				return nil, errors.New("invalid PURL qualifier value")
+				return nil, newDiagnostic("invalid PURL qualifier value")
 			}
 			if _, exists := qualifiers[key]; exists {
-				return nil, errors.New("duplicate PURL qualifier")
+				return nil, newDiagnostic("duplicate PURL qualifier")
 			}
 			qualifiers[key] = value
 		}
 	}
 	if len(qualifiers) > maxQualifiers {
-		return nil, errors.New("PURL qualifier cap exceeded")
+		return nil, newDiagnostic("PURL qualifier cap exceeded")
 	}
 	return qualifiers, nil
 }
@@ -1601,10 +1574,9 @@ func parseUbuntuPURL(raw string, allowRepair bool) (parsedPURL, bool, error) {
 	return out, repaired, nil
 }
 
-//nolint:err113 // Nil PURL validation is an internal parser diagnostic and is not matched.
 func canonicalizePURL(purl *parsedPURL) error {
 	if purl == nil {
-		return errors.New("nil PURL")
+		return newDiagnostic("nil PURL")
 	}
 	if err := ensureCanonicalPURLSize(*purl); err != nil {
 		return err
@@ -1613,12 +1585,11 @@ func canonicalizePURL(purl *parsedPURL) error {
 	return nil
 }
 
-//nolint:err113 // Canonical-size validation is an internal parser diagnostic and is not matched.
 func ensureCanonicalPURLSize(purl parsedPURL) error {
 	size := len("pkg:")
 	add := func(value string, delimiterBytes int) error {
 		if delimiterBytes < 0 || size > maxPURLBytes-delimiterBytes {
-			return errors.New("PURL canonical size cap exceeded")
+			return newDiagnostic("PURL canonical size cap exceeded")
 		}
 		size += delimiterBytes
 		for i := 0; i < len(value); i++ {
@@ -1628,7 +1599,7 @@ func ensureCanonicalPURLSize(purl parsedPURL) error {
 				componentBytes = 1
 			}
 			if size > maxPURLBytes-componentBytes {
-				return errors.New("PURL canonical size cap exceeded")
+				return newDiagnostic("PURL canonical size cap exceeded")
 			}
 			size += componentBytes
 		}
@@ -1709,12 +1680,11 @@ func escapePURLComponent(value string) string {
 	return b.String()
 }
 
-//nolint:err113 // Empty canonical-map entries are internal projection invariants and are not matched.
 func encodeStringMap(values map[string]string) ([]byte, error) {
 	keys := make([]string, 0, len(values))
 	for key, value := range values {
 		if key == "" || value == "" {
-			return nil, errors.New("canonical map contains empty key or value")
+			return nil, newDiagnostic("canonical map contains empty key or value")
 		}
 		keys = append(keys, key)
 	}
@@ -1852,7 +1822,6 @@ func projectionDigest(record projectedRecord) (string, error) {
 	), nil
 }
 
-//nolint:err113 // Negative counters are internal projection invariants and are not matched.
 func advisoryDigestBasis(advisory advisorySummary) ([]byte, error) {
 	provenance := advisory.Provenance
 	for name, count := range map[string]int{
@@ -1861,7 +1830,7 @@ func advisoryDigestBasis(advisory advisorySummary) ([]byte, error) {
 		"repaired source PURL": provenance.RepairedSourcePURLCount,
 	} {
 		if count < 0 {
-			return nil, fmt.Errorf("negative %s count", name)
+			return nil, diagnosticf("negative %s count", name)
 		}
 	}
 	references := sortedUniqueStrings(advisory.References)
@@ -1944,33 +1913,31 @@ func assertionRefsDigestBasis(assertions []assertionDTO) ([]byte, error) {
 	return canonical, nil
 }
 
-//nolint:err113 // Digest validation diagnostics are local to canonical projection encoding.
 func decodeHexDigest(value string, optional bool) ([]byte, error) {
 	if value == "" && optional {
 		return nil, nil
 	}
 	if len(value) != sha256.Size*2 {
-		return nil, errors.New("invalid SHA256 digest")
+		return nil, newDiagnostic("invalid SHA256 digest")
 	}
 	decoded, err := hex.DecodeString(value)
 	if err != nil {
-		return nil, errors.New("invalid SHA256 digest")
+		return nil, newDiagnostic("invalid SHA256 digest")
 	}
 	return decoded, nil
 }
 
-//nolint:err113 // UUID validation diagnostics are local to canonical projection encoding.
 func decodeUUID(value string, optional bool) ([]byte, error) {
 	if value == "" && optional {
 		return nil, nil
 	}
 	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
-		return nil, errors.New("invalid UUID")
+		return nil, newDiagnostic("invalid UUID")
 	}
 	compact := strings.ReplaceAll(value, "-", "")
 	decoded, err := hex.DecodeString(compact)
 	if err != nil || len(decoded) != 16 {
-		return nil, errors.New("invalid UUID")
+		return nil, newDiagnostic("invalid UUID")
 	}
 	return decoded, nil
 }
@@ -2061,7 +2028,6 @@ func optionalInt64(value *int64) any {
 	return *value
 }
 
-//nolint:err113 // Assertion-size diagnostics are internal projection invariants and are not matched.
 func validateAssertionObjects(assertion assertionDTO) error {
 	for name, object := range map[string]map[string]any{
 		"validation": assertion.Validation,
@@ -2073,7 +2039,7 @@ func validateAssertionObjects(assertion assertionDTO) error {
 			return fmt.Errorf("encode assertion %s: %w", name, err)
 		}
 		if len(encoded) > maxAssertionObjectBytes {
-			return fmt.Errorf("assertion %s exceeds 8 KiB projection cap", name)
+			return diagnosticf("assertion %s exceeds 8 KiB projection cap", name)
 		}
 	}
 	return nil

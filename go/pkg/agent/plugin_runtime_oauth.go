@@ -60,23 +60,23 @@ type oauth2GrantShape struct {
 	requiredFields []string
 }
 
-//nolint:gochecknoglobals // closed lookup table, read-only after init
-var oauth2GrantShapes = map[string]oauth2GrantShape{
-	injectTypeOAuth2PasswordBearer: {
-		grantType:      oauth2GrantTypePassword,
-		requiredFields: []string{credentialFormFieldUsername, credentialFormFieldPassword},
-	},
-	injectTypeOAuth2ClientCredentials: {
-		grantType:      oauth2GrantTypeClientCredentials,
-		requiredFields: []string{credentialFormFieldClientID, credentialFormFieldClientSecret},
-	},
-}
-
 // oauth2GrantShapeFor reports the grant an inject type performs, and whether the
 // type is an OAuth2 token-exchange type at all.
 func oauth2GrantShapeFor(injectType string) (oauth2GrantShape, bool) {
-	shape, ok := oauth2GrantShapes[strings.ToLower(strings.TrimSpace(injectType))]
-	return shape, ok
+	switch strings.ToLower(strings.TrimSpace(injectType)) {
+	case injectTypeOAuth2PasswordBearer:
+		return oauth2GrantShape{
+			grantType:      oauth2GrantTypePassword,
+			requiredFields: []string{credentialFormFieldUsername, credentialFormFieldPassword},
+		}, true
+	case injectTypeOAuth2ClientCredentials:
+		return oauth2GrantShape{
+			grantType:      oauth2GrantTypeClientCredentials,
+			requiredFields: []string{credentialFormFieldClientID, credentialFormFieldClientSecret},
+		}, true
+	default:
+		return oauth2GrantShape{}, false
+	}
 }
 
 type credentialBrokerOAuth2TokenResponse struct {
@@ -136,7 +136,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	tokenReq.Header.Set("Accept", "application/json")
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := pluginHTTPClient(e.manager.httpClient, insecureSkipVerify, oauth2TokenExchangeTimeout(ctx))
+	client := e.manager.httpTransports.client(e.manager.httpClient, insecureSkipVerify, oauth2TokenExchangeTimeout(ctx))
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}

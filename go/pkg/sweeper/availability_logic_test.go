@@ -341,46 +341,19 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 		// Simulate scan results where only the last IP (10.0.0.1) responds to ICMP
 		deviceMeta := map[string]interface{}{"armis_device_id": "123"}
-		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
+		mockResults := []*models.Result{
 			// IP1: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("192.168.1.1", models.ModeICMP, 0, deviceMeta, false),
+			probeResult("192.168.1.1", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("192.168.1.1", models.ModeTCP, 443, deviceMeta, false),
 			// IP2: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeICMP, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("192.168.1.2", models.ModeICMP, 0, deviceMeta, false),
+			probeResult("192.168.1.2", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("192.168.1.2", models.ModeTCP, 443, deviceMeta, false),
 			// IP3: Only ICMP succeeds
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeICMP, Metadata: deviceMeta},
-				Available: true,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("10.0.0.1", models.ModeICMP, 0, deviceMeta, true),
+			probeResult("10.0.0.1", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("10.0.0.1", models.ModeTCP, 443, deviceMeta, false),
 		}
 
 		// Set up expectations for regular result processing
@@ -435,46 +408,19 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 
 		// Simulate scan results where NO IPs respond to anything
 		deviceMeta2 := map[string]interface{}{"armis_device_id": "123"}
-		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
+		mockResults := []*models.Result{
 			// IP1: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeICMP, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2},
-				Available: false,
-			},
+			probeResult("192.168.1.1", models.ModeICMP, 0, deviceMeta2, false),
+			probeResult("192.168.1.1", models.ModeTCP, 80, deviceMeta2, false),
+			probeResult("192.168.1.1", models.ModeTCP, 443, deviceMeta2, false),
 			// IP2: All fail
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeICMP, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.2", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2},
-				Available: false,
-			},
+			probeResult("192.168.1.2", models.ModeICMP, 0, deviceMeta2, false),
+			probeResult("192.168.1.2", models.ModeTCP, 80, deviceMeta2, false),
+			probeResult("192.168.1.2", models.ModeTCP, 443, deviceMeta2, false),
 			// IP3: All fail
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeICMP, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta2},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.0.0.1", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta2},
-				Available: false,
-			},
+			probeResult("10.0.0.1", models.ModeICMP, 0, deviceMeta2, false),
+			probeResult("10.0.0.1", models.ModeTCP, 80, deviceMeta2, false),
+			probeResult("10.0.0.1", models.ModeTCP, 443, deviceMeta2, false),
 		}
 
 		// Set up expectations for regular result processing
@@ -569,33 +515,15 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 		// Simulate TCP scan results where only port 22 on IP1 succeeds
 		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
-		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
+		mockResults := []*models.Result{
 			// IP1: Port 22 succeeds, others fail
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
-				Available: true, // SSH port is open
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false, // HTTP port closed
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false, // HTTPS port closed
-			},
+			probeResult("192.168.1.100", models.ModeTCP, 22, deviceMeta, true),   // SSH port is open
+			probeResult("192.168.1.100", models.ModeTCP, 80, deviceMeta, false),  // HTTP port closed
+			probeResult("192.168.1.100", models.ModeTCP, 443, deviceMeta, false), // HTTPS port closed
 			// IP2: All TCP ports fail
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("10.1.1.100", models.ModeTCP, 22, deviceMeta, false),
+			probeResult("10.1.1.100", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("10.1.1.100", models.ModeTCP, 443, deviceMeta, false),
 		}
 
 		// Set up expectations for regular result processing
@@ -646,33 +574,15 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 		// Simulate TCP scan results where ALL TCP ports fail on all IPs
 		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
-		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
+		mockResults := []*models.Result{
 			// IP1: All TCP ports fail
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("192.168.1.100", models.ModeTCP, 22, deviceMeta, false),
+			probeResult("192.168.1.100", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("192.168.1.100", models.ModeTCP, 443, deviceMeta, false),
 			// IP2: All TCP ports fail
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("10.1.1.100", models.ModeTCP, 22, deviceMeta, false),
+			probeResult("10.1.1.100", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("10.1.1.100", models.ModeTCP, 443, deviceMeta, false),
 		}
 
 		// Set up expectations for regular result processing
@@ -720,33 +630,15 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 
 		// Simulate scenario where IP1 has all TCP ports closed but IP2 has one open
 		deviceMeta := map[string]interface{}{"armis_device_id": "tcp-test-device-456"}
-		mockResults := []*models.Result{ //nolint:dupl // test data intentionally similar
+		mockResults := []*models.Result{
 			// IP1: All TCP ports fail (device might be blocking TCP as expected)
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "192.168.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: false,
-			},
+			probeResult("192.168.1.100", models.ModeTCP, 22, deviceMeta, false),
+			probeResult("192.168.1.100", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("192.168.1.100", models.ModeTCP, 443, deviceMeta, false),
 			// IP2: HTTPS port is open (compliance violation - should be blocked)
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 22, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 80, Metadata: deviceMeta},
-				Available: false,
-			},
-			{
-				Target:    models.Target{Host: "10.1.1.100", Mode: models.ModeTCP, Port: 443, Metadata: deviceMeta},
-				Available: true, // Non-compliant: HTTPS should be blocked but isn't
-			},
+			probeResult("10.1.1.100", models.ModeTCP, 22, deviceMeta, false),
+			probeResult("10.1.1.100", models.ModeTCP, 80, deviceMeta, false),
+			probeResult("10.1.1.100", models.ModeTCP, 443, deviceMeta, true), // Non-compliant: HTTPS should be blocked but isn't
 		}
 
 		// Set up expectations for regular result processing
@@ -784,4 +676,13 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		// Finalize aggregators to trigger device update
 		sweeper.finalizeDeviceAggregators(context.Background())
 	})
+}
+
+// probeResult is the result of one sweep probe of host: ICMP when mode is
+// ModeICMP, else TCP to port.
+func probeResult(host string, mode models.SweepMode, port int, meta map[string]interface{}, available bool) *models.Result {
+	return &models.Result{
+		Target:    models.Target{Host: host, Mode: mode, Port: port, Metadata: meta},
+		Available: available,
+	}
 }

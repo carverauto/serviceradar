@@ -32,6 +32,9 @@ import (
 // connectPollSlice bounds each poll so a closing flow is noticed promptly.
 const connectPollSlice = 100 * time.Millisecond
 
+// connectReplyQueueSize bounds the connect() outcomes queued for Receive.
+const connectReplyQueueSize = 64
+
 // errLinkLocalTCPTarget rejects a TCP flow toward an IPv6 link-local address.
 // Such an address is only usable together with an interface zone, and a trace
 // target carries none, so the kernel refuses every socket toward it (the raw
@@ -89,7 +92,7 @@ func newConnectTCPFlow(
 		dst:     append(net.IP(nil), dst...),
 		dstPort: dstPort,
 		timeout: timeout,
-		replies: make(chan *TCPReply, 64), //nolint:mnd
+		replies: make(chan *TCPReply, connectReplyQueueSize),
 		closed:  make(chan struct{}),
 	}, nil
 }
@@ -221,7 +224,7 @@ func (f *connectTCPFlow) await(fd, seq int) {
 		// ICMP error or nothing; the ICMP receiver accounts for it.
 		if soErr == 0 {
 			f.emit(seq, true, false)
-		} else if syscall.Errno(soErr) == syscall.ECONNREFUSED { //nolint:gosec
+		} else if soErr == int(syscall.ECONNREFUSED) {
 			f.emit(seq, false, true)
 		}
 

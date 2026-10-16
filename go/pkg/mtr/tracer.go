@@ -72,6 +72,8 @@ type Tracer struct {
 	sock       RawSocket
 	ownsDNS    bool
 	ownsSocket bool
+	// openSocket opens the probe socket when the tracer was not given one.
+	openSocket func(ipv6 bool) (RawSocket, error)
 
 	// resolved target address
 	targetIP  net.IP
@@ -106,9 +108,13 @@ type Tracer struct {
 	targetReached atomic.Bool
 }
 
-// openProbeSocket opens the probe socket for a tracer that was not given one.
-// It is a variable so tests can substitute a fake socket.
-var openProbeSocket = NewRawSocket //nolint:gochecknoglobals // test seam
+const (
+	// udpProbeSrcPortSpan is how many source ports above MinPort UDP probes
+	// cycle through; the probe sequence itself rides in the destination port.
+	udpProbeSrcPortSpan = 1000
+	// icmpIDMask keeps an ICMP echo identifier within its 16-bit field.
+	icmpIDMask = 0xFFFF
+)
 
 var (
 	errMissingTargetInfo       = errors.New("missing target info")
@@ -191,6 +197,7 @@ func NewTracerWithResources(
 		logger:        log,
 		dns:           resources.DNS,
 		sock:          resources.Socket,
+		openSocket:    NewRawSocket,
 		targetIP:      append(net.IP(nil), target.IP...),
 		ipVersion:     target.IPVersion,
 		hops:          make([]*HopResult, opts.MaxHops),
@@ -224,7 +231,7 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	isIPv6 := t.ipVersion == 6
 
 	if t.sock == nil {
-		sock, err := openProbeSocket(isIPv6)
+		sock, err := t.openSocket(isIPv6)
 		if err != nil {
 			return nil, fmt.Errorf("create socket: %w", err)
 		}
@@ -422,7 +429,7 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			case ProtocolUDP:
 				// UDP correlation uses the quoted destination port from ICMP errors.
 				// Encode the full probe sequence into destination port to avoid key mismatch.
-				srcPort := MinPort + seq%1000 //nolint:mnd
+				srcPort := MinPort + seq%udpProbeSrcPortSpan
 				dstPort := seq
 				probeKey = dstPort
 				sendErr = t.sock.SendUDP(t.targetIP, ttl, srcPort, dstPort, t.makePayload())
@@ -1025,8 +1032,8 @@ func (t *Tracer) allocateSeq() int {
 func nextICMPID() int {
 	// Derive a per-instance identifier from pid + current time without globals.
 	now := uint64(time.Now().UnixNano())
-	pid := uint64(os.Getpid() & 0xFFFF) //nolint:mnd
-	id := int((now ^ (pid << 16)) & 0xFFFF)
+	pid := uint64(os.Getpid() & icmpIDMask)
+	id := int((now ^ (pid << 16)) & icmpIDMask)
 	if id == 0 {
 		id = 1
 	}
@@ -1088,11 +1095,9 @@ func receiveDeadline(ctx context.Context, timeout time.Duration) time.Time {
 }
 
 func isTimeoutError(err error) bool {
-	if netErr, ok := err.(net.Error); ok { //nolint:errorlint
-		return netErr.Timeout()
-	}
+	var netErr net.Error
 
-	return false
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func (t *Tracer) isTargetReached() bool {
