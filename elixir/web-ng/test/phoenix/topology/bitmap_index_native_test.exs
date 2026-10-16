@@ -168,6 +168,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndexNativeTest do
 
     assert counts == <<0::little-32, 1::little-32, 0::little-32, 1::little-32>>
 
+    assert {:ok, {<<0, 1, 0, 1>>, <<3, 3, 3, 3>>, <<2, 2, 2, 2>>, counts}} =
+             Native.bitmap_query_row_overlay(
+               query,
+               authority,
+               dictionary,
+               epoch,
+               :device,
+               [{:leaf, 7}, {:leaf, 4_294_967_295}, {:leaf, 0}, {:aggregate, portable}],
+               1000
+             )
+
+    assert counts == <<0::little-32, 1::little-32, 0::little-32, 1::little-32>>
+
     assert {:error, "list_budget"} =
              Native.bitmap_index_publish(index, 1, source, List.duplicate({7, false, []}, 501), true)
 
