@@ -431,7 +431,7 @@ impl Index {
         let end = deadline(1000)?;
         let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
         let pins = self.reap()?;
-        let pending = self.pending.try_lock().map_err(|_| "busy")?.status();
+        let pending_bitmap_bytes = self.pending.try_lock().map_err(|_| "busy")?.bitmap_bytes();
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
@@ -578,6 +578,7 @@ impl Index {
                     &self.budget,
                     MAX_BYTES.saturating_sub(
                         self._charge.bytes
+                            + pending_bitmap_bytes
                             + live.charge.bytes
                             + facets.values().map(|set| set.charge.bytes).sum::<usize>()
                             + presence
@@ -617,16 +618,23 @@ impl Index {
         };
         // Disable only an intrinsically oversized address index. Old request
         // pins or transient scratch pressure remain retryable admission errors.
+        // The dirty queue can change during construction. Hold its final bitmap
+        // charge stable through admission and swap; struct metadata is already
+        // included in the fixed index charge.
+        drop(scratch);
+        check_time(end)?;
+        let pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
+        let pending = pending_guard.status();
         if next.addresses.is_some()
-            && next.charges().map(|charge| charge.bytes).sum::<usize>() + self._charge.bytes
+            && next.charges().map(|charge| charge.bytes).sum::<usize>()
+                + self._charge.bytes
+                + pending_guard.bitmap_bytes()
                 > MAX_BYTES
         {
             next.addresses = None;
             next.ip_unavailable = Some("native_cap");
         }
         let next = Arc::new(next);
-        drop(scratch);
-        check_time(end)?;
         let mut published = self.revision.try_lock().map_err(|_| "busy")?;
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
@@ -640,6 +648,7 @@ impl Index {
         )?;
         *published = next;
         drop(published);
+        drop(pending_guard);
         self.active.store(ready, Ordering::Release);
         if !ready {
             self.fence.fetch_add(1, Ordering::AcqRel);
@@ -2054,6 +2063,115 @@ mod tests {
                 .facets(b"allow", &[(supported[0].clone(), "a".into())], 1000)
                 .unwrap(),
             vec![total]
+        );
+    }
+
+    #[test]
+    fn pending_queue_latches_native_cap_and_scalar_publication_continues() {
+        let supported: Vec<_> = (0..32).map(|n| format!("tag:synthetic-{n}")).collect();
+        let index = Index::new([9; 16], [8; 16], Kind::Device, supported.clone()).unwrap();
+        let rows = |start: u32, count: u32, value: &str| -> Vec<Row> {
+            (start..start + count)
+                .map(|n| {
+                    (
+                        (n << 16) | 1,
+                        true,
+                        supported
+                            .iter()
+                            .map(|key| (key.clone(), value.into()))
+                            .collect(),
+                    )
+                })
+                .collect()
+        };
+        let publish = |revision, source: &[u8], rows: Vec<Row>| {
+            let completed: Vec<_> = rows.iter().map(|(id, _, _)| *id).collect();
+            let addresses: Vec<_> = rows
+                .iter()
+                .filter(|(_, live, _)| *live)
+                .map(|(id, _, _)| (*id, vec![192, 0, 2, 1]))
+                .collect();
+            let stage = index.begin_publish(revision, source, rows, true).unwrap();
+            assert!(stage.add(&addresses, &completed).unwrap());
+            index.finish_publish(&stage).unwrap_or_else(|error| {
+                panic!("publication {source:?} failed: {error}; {:?}", index.status());
+            });
+            // finish_publish's receipt can include the source stage's charges;
+            // after it returns those allocations have been released.
+            index.status().unwrap()
+        };
+        let mut status = index.status().unwrap();
+        let mut count = 0u32;
+        // Separate values per batch share old postings instead of first exhausting
+        // transient COW capacity. Every retained byte is real shipping index data.
+        while status.native_bytes < MAX_BYTES - 3_000_000 {
+            assert!(count < 65_000, "fixture must reach the production cap");
+            status = publish(
+                status.revision,
+                b"seed",
+                rows(count, 500, &count.to_string()),
+            );
+            assert!(status.ip_available);
+            assert!(status.unavailable.is_empty());
+            count += 500;
+        }
+        let probe = rows(count, 100, "probe");
+        let probe_ids: Vec<_> = probe.iter().map(|(id, _, _)| *id).collect();
+        // The exact growth succeeds without a queue. Removing it restores the
+        // fixture before the same source batch is retried with retained hints.
+        status = publish(status.revision, b"control", probe.clone());
+        assert!(status.ip_available);
+        status = publish(
+            status.revision,
+            b"restore",
+            probe_ids.iter().map(|id| (*id, false, vec![])).collect(),
+        );
+        assert!(status.ip_available);
+        assert_eq!(status.cardinality, u64::from(count));
+        let mut dirty = 0u32;
+        while index.status().unwrap().native_bytes < MAX_BYTES - 100_000 {
+            assert!(
+                dirty + 500 <= count,
+                "retained live hints must fill the remaining budget"
+            );
+            let ids: Vec<_> = (dirty..dirty + 500).map(|n| (n << 16) | 1).collect();
+            index.mark_dirty(&ids, false).unwrap();
+            dirty += 500;
+        }
+        let before = index.status().unwrap();
+        assert_eq!(before.pending.pending_count, u64::from(dirty));
+        assert!(!before.pending.rescan_needed);
+        assert!(before.native_bytes <= MAX_BYTES);
+        assert!(before.ip_available);
+        let status = publish(before.revision, b"probe", probe);
+        assert_eq!(status.ip_unavailable_reason, Some("native_cap"));
+        assert_eq!(status.revision, before.revision + 1);
+        assert_eq!(status.cardinality, u64::from(count) + 100);
+        assert_eq!(status.pending, before.pending);
+        assert!(status.unavailable.is_empty());
+        assert!(status.native_bytes <= MAX_BYTES);
+        assert!(!status.ip_available);
+        let (query, _, _, total) = index
+            .query(b"allow", &[predicate(&supported[0], "probe")], 1000)
+            .unwrap();
+        assert_eq!(total, 100);
+        assert_eq!(query.page(b"allow", 0, 128, 1000).unwrap(), probe_ids);
+        query.close().unwrap();
+        let scalar = index
+            .publish(
+                status.revision,
+                b"scalar",
+                vec![(probe_ids[0], false, vec![])],
+                true,
+            )
+            .unwrap();
+        assert_eq!(scalar.revision, status.revision + 1);
+        assert_eq!(scalar.cardinality, u64::from(count) + 99);
+        assert_eq!(scalar.ip_unavailable_reason, Some("native_cap"));
+        assert_eq!(scalar.pending, before.pending);
+        assert_eq!(
+            index.take_dirty(500).unwrap().0,
+            (0..500).map(|n| (n << 16) | 1).collect::<Vec<_>>()
         );
     }
 }

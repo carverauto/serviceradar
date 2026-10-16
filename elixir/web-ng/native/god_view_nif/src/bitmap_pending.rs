@@ -32,6 +32,10 @@ impl Pending {
         })
     }
 
+    pub(super) fn bitmap_bytes(&self) -> usize {
+        self.bitmap.charge.bytes
+    }
+
     pub(super) fn status(&self) -> PendingStatus {
         PendingStatus {
             pending_count: self.bitmap.set.len(),
