@@ -14,7 +14,7 @@ This manual Linux acceptance target starts a test-only Phoenix endpoint on a
 Bandit loopback listener. Gun clients perform actual HTTP upgrades, channel
 joins, binary receives and normal code-1000 close handshakes. The production
 SRMO encoder prepares 64 tiles of 128 rows; the actual Phoenix serializer and
-Bandit transport deliver each 60,373-byte message. All column values and identity receipts
+Bandit transport deliver each 60,374-byte message. All column values and identity receipts
 are invented; the query total equals the sum of the fixture's row counts. There are no new dependencies or production configuration hooks.
 
 The paired matrix covers compression off/on, 1/10/100 concurrent clients,
@@ -32,12 +32,14 @@ comparison; this socket run does not claim to measure that variant.
 
 ## Results
 
-Final RBE invocation
-[55358647-2884-44ac-8b58-e35c14d39148](https://carverauto.buildbuddy.io/invocation/55358647-2884-44ac-8b58-e35c14d39148):
-the transport test passed in 23.7 seconds, web-ng formatting/Credo passed, and
-all four lane-routing contract tests passed. Runtime versions were OTP 28,
-Phoenix 1.8.15, Bandit 1.12.5 and Gun 2.6.0. Each fresh server VM used four
-schedulers; debug logging was disabled in that VM.
+RBE invocation
+[4351adc8-3276-4019-9f4f-3010c400b3d4](https://carverauto.buildbuddy.io/invocation/4351adc8-3276-4019-9f4f-3010c400b3d4):
+the transport test passed in 25.0 seconds after the prefix-freshness count
+byte. Runtime versions were OTP 28, Phoenix 1.8.15, Bandit 1.12.5 and Gun
+2.6.0. Each fresh server VM used four schedulers; debug logging was disabled
+in that VM. An earlier run,
+[55358647-2884-44ac-8b58-e35c14d39148](https://carverauto.buildbuddy.io/invocation/55358647-2884-44ac-8b58-e35c14d39148),
+measured the frame before that count byte.
 
 CPU is total server-process user plus kernel CPU for the measured interval.
 Roundtrip includes client decompression; throughput is aggregate deliveries per
@@ -46,22 +48,22 @@ before measurement, in MiB.
 
 | Rows | Clients | Compression | Server CPU ms | Roundtrip p95 ms | Frames/s | Connected RSS MiB |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| uniform | 1 | off | 30 | 0.546 | 1,681 | 110.5 |
-| uniform | 1 | on | 30 | 0.810 | 1,138 | 118.7 |
-| uniform | 10 | off | 50 | 0.666 | 16,811 | 126.8 |
-| uniform | 10 | on | 180 | 1.960 | 6,666 | 124.8 |
-| uniform | 100 | off | 400 | 7.456 | 22,986 | 136.6 |
-| uniform | 100 | on | 1870 | 23.415 | 6,529 | 167.8 |
-| mixed | 1 | off | 30 | 0.452 | 2,232 | 118.6 |
-| mixed | 1 | on | 220 | 8.590 | 126 | 120.7 |
-| mixed | 10 | off | 40 | 0.533 | 19,160 | 116.6 |
-| mixed | 10 | on | 2170 | 24.239 | 545 | 118.8 |
-| mixed | 100 | off | 390 | 6.118 | 25,148 | 141.7 |
-| mixed | 100 | on | 22490 | 255.980 | 535 | 174.4 |
+| uniform | 1 | off | 10 | 0.318 | 2,565 | 119.6 |
+| uniform | 1 | on | 40 | 0.997 | 987 | 115.3 |
+| uniform | 10 | off | 70 | 1.139 | 12,388 | 123.2 |
+| uniform | 10 | on | 180 | 1.829 | 6,641 | 121.5 |
+| uniform | 100 | off | 380 | 6.102 | 25,565 | 140.0 |
+| uniform | 100 | on | 2040 | 20.000 | 6,005 | 166.3 |
+| mixed | 1 | off | 20 | 0.301 | 2,646 | 112.2 |
+| mixed | 1 | on | 210 | 7.928 | 128 | 109.4 |
+| mixed | 10 | off | 60 | 0.642 | 17,899 | 119.9 |
+| mixed | 10 | on | 2120 | 21.891 | 568 | 119.1 |
+| mixed | 100 | off | 450 | 6.278 | 25,624 | 141.4 |
+| mixed | 100 | on | 22500 | 284.874 | 534 | 174.8 |
 
 At 100 clients, including warmup, uncompressed binary payload totals
-211,305,500 bytes. Compression reduces uniform payload to 2,884,300 bytes
-(98.6% reduction) and mixed payload to 93,483,200 bytes (55.8% reduction).
+211,309,000 bytes. Compression reduces uniform payload to 2,884,900 bytes
+(98.6% reduction) and mixed payload to 93,486,200 bytes (55.8% reduction).
 These are Bandit's actual post-deflate binary payload counters, excluding
 WebSocket framing, control frames, TCP and TLS overhead.
 

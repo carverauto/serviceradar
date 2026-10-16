@@ -15477,7 +15477,7 @@ No unmeasured carrier-grade or end-to-end zero-copy claim is made.</p>
 <li>[ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.</li>
 <li>[ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.</li>
 <li>[ ] 4.6 Capture the production Atlas map/filter UI before and after the requested expression using only synthetic inventory; add images, figures, hero metadata and show-test coverage to the website blog branch, run <code>mix precommit</code> and push with an explicit refspec without opening a website PR.</li>
-<li>[ ] 4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it.</li>
+<li>[ ] 4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it. Real negotiated 1/10/100-client probe passed; keep compression disabled. See <code>docs/topology-bitmap-websocket-measurements.md</code> for scope and results. Status awaits final integration.</li>
 </ul>
 <p>Deferred: interface identities/queries, durable dirty replication, owner-routed
 frozen pages, result caching and browser Roaring. Add them only for a demonstrated
@@ -15488,7 +15488,7 @@ receipts, field semantics and bounded cached bytes; compare encoding, decoding,
 retained memory and wire size before replacing the current fixed codec. This is
 not a release-one blocker. Omission of unchanged tiles also remains measurement
 driven; full replacements stay the current protocol.</p>
-<div class="checksum">Source SHA-256: 8ba4dc89f969c1eda5ff9a8665ba060a90122c56143d2323141f632a05ba43cc</div></section>
+<div class="checksum">Source SHA-256: 42888f8c19ec4a83bfec18ff5115d79a26fe51e05856c9421ee3d3d9cfce551b</div></section>
 <section id="review-response" class="source"><div class="section-label">Complete source document · review-response.md</div><h1>Review response</h1>
 <p>This responds to every finding in <code>review.md</code> without changing that independent
 append-only review. The user confirmed current membership on each page on

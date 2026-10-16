@@ -1007,7 +1007,8 @@ ex_unit_test(
 test_suite(
     name = "topology_bitmap_scale_acceptance",
     tests = [":topology_bitmap_scale_compact_acceptance", ":topology_bitmap_scale_sparse_acceptance"],
-    tags = ["manual"],)
+    tags = ["manual"],
+)
 
 # Real loopback HTTP upgrades and concurrent WebSockets; isolated peer VM owns
 # server CPU/RSS accounting. No database, browser, or production feature toggle.
@@ -1020,7 +1021,7 @@ ex_unit_test(
     tags = ["acceptance_test", "manual", "no-remote-cache"],
     target_compatible_with = ["@platforms//os:linux"],
     deps = [":erlang_app"],
-
+)
 # Last, so existing_rules() sees every ex_unit_test above. manual: bazel test
 # //... must not execute the suite.
 web_ng_lane_scope(name = "web_ng_lane_scope")

@@ -5,7 +5,15 @@ export const BINDING_FIELDS = Object.freeze([
 export const FRAME_FIELDS = Object.freeze([
   "dictionary_epoch", "index_epoch", "query_digest", "authority_fingerprint", "view_digest", "source_revision", "index_revision",
 ])
-const decoder = new TextDecoder("utf-8", {fatal: true})
+const decoder = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true})
+
+function compareBytes(left, right) {
+  const length = Math.min(left.length, right.length)
+  for (let index = 0; index < length; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index]
+  }
+  return left.length - right.length
+}
 
 function valid(condition, field) {
   if (!condition) throw new Error(`Invalid topology membership: ${field}`)
@@ -62,11 +70,15 @@ export function decodeBitmapFrame(input) {
   const sourceCount = reader.number(1)
   valid(sourceCount <= 32, "prefix source count")
   frame.prefix_sources = []
-  let previousSource = ""
+  let previousSource = new Uint8Array(0)
   for (let index = 0; index < sourceCount; index += 1) {
-    const source = reader.text()
-    valid(source > previousSource, "prefix source order")
-    previousSource = source
+    const length = reader.number(2)
+    valid(length > 0 && length <= 128, "string length")
+    const sourceBytes = reader.take(length).slice()
+    valid(compareBytes(sourceBytes, previousSource) > 0, "prefix source order")
+    previousSource = sourceBytes
+    const source = decoder.decode(sourceBytes)
+    valid(!source.includes("\0"), "string encoding")
     frame.prefix_sources.push({source, version: reader.sequence()})
   }
   frame.tiles = new Map()

@@ -285,6 +285,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
       end)
 
     digest = Enum.at(fields, 4)
+    tail = take_prefix_freshness(tail)
 
     case kind do
       1 ->
@@ -333,5 +334,16 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
           binding: binding
         }
     end
+  end
+
+  defp take_prefix_freshness(<<count, rest::binary>>) when count <= 32, do: skip_prefix_sources(rest, count, "")
+
+  defp skip_prefix_sources(rest, 0, _previous), do: rest
+
+  defp skip_prefix_sources(<<length::little-16, rest::binary>>, count, previous)
+       when count in 1..32 and length in 1..128 do
+    <<source::binary-size(length), _version::little-64, rest::binary>> = rest
+    true = source > previous and String.valid?(source) and :binary.match(source, <<0>>) == :nomatch
+    skip_prefix_sources(rest, count - 1, source)
   end
 end

@@ -480,8 +480,27 @@ impl Index {
             }
         }
         let scratch = self.budget.reserve(8 * 1024 * 1024)?;
-        let mut keys: BTreeSet<Facet> = old.facets.keys().cloned().collect();
-        keys.extend(additions.keys().cloned());
+        let mut candidates: Vec<Facet> = old.facets.keys().cloned().collect();
+        for key in additions.keys() {
+            if !old.facets.contains_key(key) {
+                candidates.push(key.clone());
+            }
+        }
+        let mut keys = BTreeSet::new();
+        for key in candidates {
+            check_time(end)?;
+            if unavailable.contains(&key.0) {
+                continue;
+            }
+            let nonempty = match (old.facets.get(&key), additions.get(&key)) {
+                (_, Some(_)) => true,
+                (Some(before), None) => !before.set.is_subset(&changed),
+                (None, None) => false,
+            };
+            if nonempty {
+                keys.insert(key);
+            }
+        }
         let mut counts = BTreeMap::new();
         for (facet, _) in &keys {
             *counts.entry(facet.clone()).or_insert(0usize) += 1;
@@ -1555,6 +1574,153 @@ mod tests {
             index.publish(0, b"closed", vec![], true).unwrap_err(),
             "closed"
         );
+    }
+
+    #[test]
+    fn facet_caps_follow_nonempty_postings_and_stay_latched() {
+        let vendor_only = || {
+            Index::new([1; 16], [2; 16], Kind::Device, vec!["vendor".into()]).unwrap()
+        };
+        let row = |id: u32, vendor: &str| -> Row {
+            (id, true, vec![("vendor".into(), vendor.into())])
+        };
+        let publish_all = |index: &Index, rows: Vec<Row>| {
+            let mut revision = 0;
+            for chunk in rows.chunks(BATCH_LIMIT) {
+                revision = index
+                    .publish(revision, b"cap", chunk.to_vec(), true)
+                    .unwrap()
+                    .revision;
+            }
+            revision
+        };
+        let page = |index: &Index, value: &str| {
+            let (query, _, _, count) = index
+                .query(b"allow", &[predicate("vendor", value)], 1000)
+                .unwrap();
+            (count, query.page(b"allow", 0, 8, 1000).unwrap())
+        };
+
+        let index = vendor_only();
+        let revision = publish_all(
+            &index,
+            (1..=1024).map(|id| row(id, &format!("v{id}"))).collect(),
+        );
+        assert!(index.status().unwrap().unavailable.is_empty());
+        index
+            .publish(revision, b"move-1024", vec![row(1024, "moved")], true)
+            .unwrap();
+        assert!(index.status().unwrap().unavailable.is_empty());
+        assert_eq!(page(&index, "moved"), (1, vec![1024]));
+        assert_eq!(page(&index, "v1024"), (0, vec![]));
+        let revision = index.status().unwrap().revision;
+        index
+            .publish(revision, b"over-1024", vec![row(1025, "extra")], true)
+            .unwrap();
+        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert!(matches!(
+            index.query(b"allow", &[predicate("vendor", "moved")], 1000),
+            Err("facet_unavailable")
+        ));
+        let revision = index.status().unwrap().revision;
+        index
+            .publish(revision, b"drop-extra", vec![(1025, false, vec![])], true)
+            .unwrap();
+        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert!(matches!(
+            index.query(b"allow", &[predicate("vendor", "moved")], 1000),
+            Err("facet_unavailable")
+        ));
+
+        let names = ["vendor", "region", "vlan", "device_class", "os_name"];
+        let index = Index::new(
+            [1; 16],
+            [2; 16],
+            Kind::Device,
+            names.iter().map(|name| (*name).to_string()).collect(),
+        )
+        .unwrap();
+        let filled = |id: u32, vendor: &str, class: &str, os: &str| -> Row {
+            (
+                id,
+                true,
+                vec![
+                    ("vendor".into(), vendor.into()),
+                    ("region".into(), format!("region-{id}").into()),
+                    ("vlan".into(), format!("vlan-{id}").into()),
+                    ("device_class".into(), class.into()),
+                    ("os_name".into(), os.into()),
+                ],
+            )
+        };
+        let mut rows: Vec<Row> = (1..=1023)
+            .map(|id| filled(id, &format!("vendor-{id}"), &format!("class-{id}"), "base"))
+            .collect();
+        rows.push(filled(1024, "vendor-1024", "class-1", "base"));
+        let revision = publish_all(&index, rows);
+        assert!(index.status().unwrap().unavailable.is_empty());
+        index
+            .publish(
+                revision,
+                b"move-4096",
+                vec![filled(1024, "moved", "class-1", "base")],
+                true,
+            )
+            .unwrap();
+        assert!(index.status().unwrap().unavailable.is_empty());
+        let (query, _, _, count) = index
+            .query(b"allow", &[predicate("vendor", "moved")], 1000)
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(query.page(b"allow", 0, 8, 1000).unwrap(), vec![1024]);
+        let revision = index.status().unwrap().revision;
+        index
+            .publish(
+                revision,
+                b"over-4096",
+                vec![(
+                    1025,
+                    true,
+                    vec![
+                        ("vendor".into(), "vendor-1".into()),
+                        ("region".into(), "region-1".into()),
+                        ("vlan".into(), "vlan-1".into()),
+                        ("device_class".into(), "class-1".into()),
+                        ("os_name".into(), "extra".into()),
+                    ],
+                )],
+                true,
+            )
+            .unwrap();
+        let mut expected: Vec<String> = names.iter().map(|name| (*name).to_string()).collect();
+        expected.sort();
+        assert_eq!(index.status().unwrap().unavailable, expected);
+        assert!(matches!(
+            index.query(b"allow", &[predicate("vendor", "moved")], 1000),
+            Err("facet_unavailable")
+        ));
+        let revision = index.status().unwrap().revision;
+        index
+            .publish(revision, b"drop-global", vec![(1025, false, vec![])], true)
+            .unwrap();
+        assert!(matches!(
+            index.query(b"allow", &[predicate("os_name", "base")], 1000),
+            Err("facet_unavailable")
+        ));
+
+        let index = vendor_only();
+        index
+            .publish(0, b"overlength", vec![row(1, &"x".repeat(257))], true)
+            .unwrap();
+        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        index
+            .publish(1, b"short-after-loss", vec![row(1, "short")], true)
+            .unwrap();
+        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert!(matches!(
+            index.query(b"allow", &[predicate("vendor", "short")], 1000),
+            Err("facet_unavailable")
+        ));
     }
 
     #[test]

@@ -62,6 +62,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   end
 
   test "typed source projects canonical fields and configured scalar tags without retaining arbitrary device payloads" do
+    tag_keys = ["rack", "maintenance", "flag", "count", "ratio", "label", "nested", "list", "empty"]
+    Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, tag_keys)
+    on_exit(fn -> Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, ["rack"]) end)
+
+    scalar_tags = %{
+      "rack" => "example-rack",
+      "unconfigured" => String.duplicate("q", 100_000),
+      "maintenance" => true,
+      "flag" => false,
+      "count" => 0,
+      "ratio" => 1.5,
+      "label" => "true",
+      "nested" => %{"child" => true},
+      "list" => ["true"],
+      "empty" => nil
+    }
+
     device =
       create("sr:bitmap-source", %{
         vendor_name: " ExampleVendor ",
@@ -69,7 +86,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         vlan_uid: "example-vlan",
         type_id: 10,
         os: %{"name" => "ExampleOS", "version" => "2", "unused" => String.duplicate("z", 100_000)},
-        tags: %{"rack" => "example-rack", "unconfigured" => String.duplicate("q", 100_000)},
+        tags: scalar_tags,
         is_available: false
       })
 
@@ -85,8 +102,93 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
              "os_name" => "ExampleOS",
              "os_version" => "2",
              "availability" => "unavailable",
-             "tag:rack" => "example-rack"
+             "tag:rack" => "example-rack",
+             "tag:maintenance" => "true",
+             "tag:flag" => "false",
+             "tag:count" => "0",
+             "tag:ratio" => "1.5",
+             "tag:label" => "true"
            }
+
+    twin =
+      create("sr:bitmap-source-text", %{
+        tags: %{
+          "maintenance" => "true",
+          "flag" => "false",
+          "count" => "0",
+          "ratio" => "1.5",
+          "label" => "true"
+        },
+        is_available: true
+      })
+
+    retained =
+      create("sr:bitmap-source-retained", %{
+        tags: %{"rack" => "other", "nested" => %{"child" => true}, "list" => ["true"], "empty" => nil},
+        is_available: true
+      })
+
+    twin_ordinal = FleetIdentity.device_ordinal(twin.uid)
+    retained_ordinal = FleetIdentity.device_ordinal(retained.uid)
+    assert {:ok, [{^retained_ordinal, true, retained_values}]} = BitmapSource.fetch([retained_ordinal], facets)
+    retained_values = Map.new(retained_values)
+    assert retained_values["tag:rack"] == "other"
+    refute Map.has_key?(retained_values, "tag:nested")
+    refute Map.has_key?(retained_values, "tag:list")
+    refute Map.has_key?(retained_values, "tag:empty")
+    refute Map.has_key?(retained_values, "tag:maintenance")
+
+    user =
+      User
+      |> Ash.Changeset.for_create(:create, %{email: "bitmap-scalar-tags@example.com", role: :viewer}, actor: @actor)
+      |> Ash.create!()
+
+    scope = Scope.for_user(user)
+    start_supervised!({Endpoint, []})
+    tasks = start_supervised!({Task.Supervisor, max_children: 1})
+    owner = start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    start_supervised!(BitmapQueries)
+    await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
+
+    assert_ordinals = fn expression, expected ->
+      params = %{"expression" => expression, "limit" => 16}
+
+      await(fn -> BitmapQueries.run(scope, params) end, fn
+        {:ok, %{ordinals: ordinals, total: total}} ->
+          total == length(expected) and Enum.sort(ordinals) == Enum.sort(expected)
+
+        _ ->
+          false
+      end)
+    end
+
+    assert_ordinals.(%{"facet" => "tag:maintenance", "value" => "true"}, [ordinal, twin_ordinal])
+    assert_ordinals.(%{"facet" => "tag:flag", "value" => "false"}, [ordinal, twin_ordinal])
+    assert_ordinals.(%{"facet" => "tag:count", "value" => "0"}, [ordinal, twin_ordinal])
+    assert_ordinals.(%{"facet" => "tag:ratio", "value" => "1.5"}, [ordinal, twin_ordinal])
+    assert_ordinals.(%{"facet" => "tag:label", "value" => "true"}, [ordinal, twin_ordinal])
+    assert_ordinals.(%{"facet" => "tag:count", "prefix" => "0"}, [ordinal, twin_ordinal])
+    assert_ordinals.(%{"facet" => "tag:ratio", "prefix" => "1"}, [ordinal, twin_ordinal])
+
+    assert_ordinals.(
+      %{"except" => %{"facet" => "tag:maintenance", "value" => "true"}},
+      [retained_ordinal]
+    )
+
+    Repo.update_all(
+      from(d in Device, where: d.uid == ^device.uid),
+      set: [tags: Map.delete(scalar_tags, "maintenance")]
+    )
+
+    send(owner, :devices_rescan)
+    assert_ordinals.(%{"facet" => "tag:maintenance", "value" => "true"}, [twin_ordinal])
+
+    assert_ordinals.(
+      %{"except" => %{"facet" => "tag:maintenance", "value" => "true"}},
+      [ordinal, retained_ordinal]
+    )
+
+    Repo.update_all(from(d in Device, where: d.uid == ^device.uid), set: [tags: scalar_tags])
 
     Repo.update_all(from(d in Device, where: d.uid == ^device.uid), set: [source_retired_at: DateTime.utc_now()])
     assert {:ok, [{^ordinal, false, []}]} = BitmapSource.fetch([ordinal], facets)

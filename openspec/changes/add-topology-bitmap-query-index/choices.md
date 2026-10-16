@@ -255,7 +255,7 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 
 - When: task 4.7 final remote run.
 - Choice: at 100 simultaneous viewers, compressing mixed synthetic frames saves
-  about 56% of payload bytes but spends 22.49 CPU seconds instead of 0.39 for
+  about 56% of payload bytes but spends 22.50 CPU seconds instead of 0.45 for
   3,000 deliveries. Keep the existing disabled production setting. The manual
   probe uses 30 deliveries after five warmups, four server schedulers and the
   client's naturally negotiated context takeover; it does not guess a safe
