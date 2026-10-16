@@ -98,7 +98,8 @@
       }
     },
     "patchedDependencies": {
-      "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch"
+      "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch",
+      "@luma.gl/webgpu@9.4.2": "patches/luma.gl-webgpu-9.4.2.patch"
     }
   },
   "overrides": {
@@ -127,6 +128,7 @@
     "@deck.gl/geo-layers": "9.4.0"
   },
   "patchedDependencies": {
-    "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch"
+    "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch",
+    "@luma.gl/webgpu@9.4.2": "patches/luma.gl-webgpu-9.4.2.patch"
   }
 }

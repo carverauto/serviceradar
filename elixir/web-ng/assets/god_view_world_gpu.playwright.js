@@ -4,6 +4,53 @@ import {transportTile, transportDetail} from "./js/lib/god_view/fixtures/world_t
 
 const html = resolve(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE, process.env.GOD_VIEW_WORLD_GPU_PAGE)
 
+test("compute pipelines retain their own bindings after another pipeline retires its input", async ({page}) => {
+  await page.route("http://localhost:4774/", route => route.fulfill({path: html, contentType: "text/html"}))
+  await page.goto("http://localhost:4774/")
+  await expect(page.locator("#status")).toContainText("decoded tiles=4")
+  const result = await page.evaluate(async () => {
+    const {device} = window.__SR_WORLD_GPU_SMOKE__.deck
+    const input = device.createBuffer({data: new Uint32Array([7]), usage: GPUBufferUsage.STORAGE})
+    const nextInput = device.createBuffer({data: new Uint32Array([19]), usage: GPUBufferUsage.STORAGE})
+    const output = device.createBuffer({byteLength: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC})
+    const makePipeline = increment => {
+      const shader = device.createShader({stage: "compute", source: `
+        @group(0) @binding(0) var<storage, read> source: array<u32>;
+        @group(0) @binding(1) var<storage, read_write> result: array<u32>;
+        @compute @workgroup_size(1) fn main() { result[0] = source[0] + ${increment}u; }
+      `})
+      return {shader, pipeline: device.createComputePipeline({shader, shaderLayout: {bindings: [
+        {name: "source", type: "storage", group: 0, location: 0},
+        {name: "result", type: "storage", group: 0, location: 1},
+      ]}})}
+    }
+    const first = makePipeline(0)
+    const second = makePipeline(1)
+    const dispatch = pipeline => {
+      const pass = device.beginComputePass({})
+      pass.setPipeline(pipeline)
+      pass.dispatch(1)
+      pass.end()
+      device.submit()
+    }
+    device.handle.pushErrorScope("validation")
+    first.pipeline.setBindings({source: input, result: output})
+    dispatch(first.pipeline)
+    second.pipeline.setBindings({source: nextInput, result: output})
+    dispatch(second.pipeline)
+    await device.handle.queue.onSubmittedWorkDone()
+    input.destroy()
+    first.pipeline.setBindings({source: nextInput, result: output})
+    dispatch(first.pipeline)
+    const error = (await device.handle.popErrorScope())?.message ?? null
+    const bytes = error ? null : await output.readAsync()
+    const value = bytes ? new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true) : null
+    for (const resource of [first.pipeline, first.shader, second.pipeline, second.shader, nextInput, output]) resource.destroy()
+    return {error, value}
+  })
+  expect(result).toEqual({error: null, value: 19})
+})
+
 test("HTTP bootstrap recovers and search, picking, detail return and invalidation share retained tiles", async ({page}) => {
   const version = "00000000-0000-4000-8000-000000000478"
   const revision = "a".repeat(64)

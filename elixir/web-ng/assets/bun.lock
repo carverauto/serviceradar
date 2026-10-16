@@ -55,6 +55,7 @@
     },
   },
   "patchedDependencies": {
+    "@luma.gl/webgpu@9.4.2": "patches/luma.gl-webgpu-9.4.2.patch",
     "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch",
   },
   "overrides": {

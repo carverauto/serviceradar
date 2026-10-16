@@ -154,3 +154,23 @@ passed all three WebGPU cases after first reproducing the failure: Fit in an ope
 detail scene used to discard that scene because the overview also handled the
 reset event. The overview now leaves fitting to the active detail renderer; Fit
 on the map restores the fixed world extent.
+
+### Compute binding isolation during zoom
+
+ServiceRadar Atlas also requires isolated WebGPU compute bindings. Luma 9.4.2
+shares a mutable binding dictionary between compute pipelines while keeping
+their bind-group cache keys separate. After zoom refinement replaces a label
+buffer, another pipeline can reuse a cached binding to that destroyed buffer.
+Submitting pending commands before label finalization does not prevent this
+later reuse. The pinned dependency patch gives each pipeline its own dictionary
+in the source, ESM and CommonJS distributions; Bun, pnpm and Bazel declare it.
+
+The executable regression dispatches two real compute pipelines, destroys the
+first input, then rebinds the first pipeline to the surviving input. It checks
+both the GPU validation result and the independently expected output integer.
+The unpatched code failed with a destroyed-buffer error in
+[the regression run](https://carverauto.buildbuddy.io/invocation/8ff748af-5fab-43cf-a55d-7f3c8e74b499).
+With the patch, [the GPU and JavaScript suites](https://carverauto.buildbuddy.io/invocation/6d0f4854-e293-44fc-804a-d04703237715)
+passed, including label lifetime, zoom, picking and detail navigation. These
+checks use synthetic inputs and remote SwiftShader; they do not establish
+physical GPU timing or deployment acceptance.
