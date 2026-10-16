@@ -1532,6 +1532,100 @@ func TestMismatchedVisibilityFailureBlocksNetprobeOnAddonRetry(t *testing.T) {
 	}
 }
 
+// An escalated systemd netprobe delivery stays recorded when a later visibility
+// failure blocks activation. The blocked add-on is not applied, and the section
+// does not succeed over that record.
+func TestBlockedNetprobeKeepsEscalatedAddonFailure(t *testing.T) {
+	srv, hits := statusServer(t, http.StatusServiceUnavailable)
+	dir := t.TempDir()
+	lifecycle := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: filepath.Join(dir, "netprobe.json"),
+		}},
+	}
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{AgentID: "agent-test"},
+		addonManager: agentaddon.NewManager(agentaddon.Config{
+			RuntimeDir: filepath.Join(dir, "addons"),
+		}),
+		netprobeSidecar: agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()}),
+		sidecarManager:  lifecycle,
+		sidecarStatus:   lifecycle,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+	pl.setConfigVersion(testOldConfigVersion)
+
+	assignment := sidecar404Assignment(agentnetprobe.DefaultSidecarName, srv.URL)
+	assignment.Supervision = addonSupervisionSystemdService
+	assignment.ArtifactSignature = "test-signature"
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion:    "cfg-v1",
+		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
+		Addons:           []*proto.AddonAssignmentConfig{assignment},
+	}
+
+	for range transientSectionEscalationAttempts {
+		if pl.applyConfigResponse(t.Context(), cloneConfig(v1), "poll") {
+			t.Fatal("netprobe delivery must defer the version before the escalation bound")
+		}
+	}
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	if !pl.applyConfigResponse(t.Context(), cloneConfig(v1), "poll") {
+		t.Fatal("escalated netprobe delivery must commit the version")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	escalated := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if !escalated.escalated || escalated.disposition != addonDeliveryPermanentFailure || escalated.attempts < transientSectionEscalationAttempts {
+		t.Fatalf("addons failure = %+v, want an escalated netprobe delivery", escalated)
+	}
+	if len(escalated.addonIDs) != 1 || escalated.addonIDs[0] != agentnetprobe.DefaultSidecarName {
+		t.Fatalf("addons failure addonIDs = %q, want [%s]", escalated.addonIDs, agentnetprobe.DefaultSidecarName)
+	}
+	hitsAtEscalation := atomic.LoadInt64(hits)
+
+	lifecycle.statuses[0].ConfigPath = dir
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		VisibilityConfig: &proto.VisibilityConfig{
+			Enabled:           true,
+			CaptureInterfaces: []string{"eth0"},
+		},
+		Addons: []*proto.AddonAssignmentConfig{assignment},
+	}
+	if pl.applyConfigResponse(t.Context(), cloneConfig(v2), "poll") {
+		t.Fatal("a transient visibility failure must defer cfg-v2")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	if got := atomic.LoadInt64(hits); got != hitsAtEscalation {
+		t.Fatalf("artifact downloads = %d, want %d: activation-blocked netprobe must not be downloaded", got, hitsAtEscalation)
+	}
+	got := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if got.payloadHash != escalated.payloadHash || got.attempts != escalated.attempts || got.version != escalated.version ||
+		got.disposition != escalated.disposition || !got.escalated || !got.since.Equal(escalated.since) || got.reason != escalated.reason ||
+		len(got.addonIDs) != 1 || got.addonIDs[0] != agentnetprobe.DefaultSidecarName {
+		t.Fatalf("addons failure = %+v, want the escalated record unchanged (%+v)", got, escalated)
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionPermanent || !strings.Contains(helloAddons.GetError(), agentnetprobe.DefaultSidecarName) ||
+		helloAddons.GetSince() != escalated.since.Unix() {
+		t.Fatalf("hello addons status = %+v, want the escalated netprobe failure", helloAddons)
+	}
+	statuses := pl.configApplyFailureStatuses(nil)
+	if len(statuses) != 1 || statuses[0].GetName() != "addon:"+agentnetprobe.DefaultSidecarName ||
+		statuses[0].GetState() != string(agentaddon.StateUnhealthy) {
+		t.Fatalf("add-on statuses = %v, want netprobe unhealthy", statuses)
+	}
+	visibility := pl.configSectionFailureSnapshot()[configSectionVisibility]
+	if visibility.disposition != addonDeliveryTransientFailure || visibility.escalated || visibility.attempts != 1 {
+		t.Fatalf("visibility failure = %+v, want one transient attempt", visibility)
+	}
+}
+
 // openPostCommitAddonTransient escalates visibility, then recovers it on a
 // NotModified poll whose add-on supervisor fails. The add-on section is left
 // transient on the committed version.

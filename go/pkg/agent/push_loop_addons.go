@@ -213,6 +213,11 @@ func gatewayArtifactDownloadRequiresMTLS(downloadURL string) bool {
 // It is wrapped in an addonAssignmentsDeferredError naming the add-ons.
 var errAddonAssignmentsDeferred = errors.New("one or more add-on assignments did not apply yet")
 
+// errAddonActivationHeld is the section-level error for an activation-blocked add-on
+// that already has a recorded section failure. The record stays as it is: this pass
+// did not attempt the add-on, so it is not a success and not another attempt.
+var errAddonActivationHeld = errors.New("add-on activation blocked until startup config applies")
+
 // errAddonAssignmentsPermanent is the section-level error wrapped around the aggregated
 // per-add-on permanent delivery failures reported on the config ack.
 var errAddonAssignmentsPermanent = errors.New("one or more add-on assignments failed permanently")
@@ -361,6 +366,7 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	// wedging the whole config apply would only freeze every other config section behind
 	// a permanently-404ing artifact.
 	var deferredAddons []string
+	activationHeld := make(map[string]struct{})
 	now := time.Now()
 
 	for _, a := range assignments {
@@ -401,6 +407,10 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 				p.logger.Debug().
 					Str("addon", a.GetAddonId()).
 					Msg("Systemd add-on activation blocked until startup config applies")
+				if p.configSectionFailureNamesAddon(configSectionAddons, a.GetAddonId()) {
+					deferredAddons = append(deferredAddons, a.GetAddonId())
+					activationHeld[a.GetAddonId()] = struct{}{}
+				}
 				continue
 			}
 			if p.applySystemdAddon(ctx, a, delivery, supervision, now) == addonDeliveryTransientFailure {
@@ -481,6 +491,12 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	// Only transient delivery failures defer the config-version ack. Permanent ones were
 	// recorded as per-add-on failure status and backed off above, so the agent acks the
 	// config version and stops re-applying the whole config every poll.
+	if activationHeldOnly(deferredAddons, activationHeld) {
+		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
+			addonIDs: deferredAddons,
+			err:      errAddonActivationHeld,
+		}
+	}
 	if len(deferredAddons) > 0 {
 		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
 			addonIDs: deferredAddons,
@@ -495,6 +511,21 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	}
 
 	return addonDeliverySucceeded, nil
+}
+
+// activationHeldOnly reports whether every deferred add-on was skipped by an activation
+// block and is already named by the recorded add-on section failure.
+func activationHeldOnly(deferred []string, held map[string]struct{}) bool {
+	if len(deferred) == 0 || len(held) == 0 {
+		return false
+	}
+	for _, id := range deferred {
+		if _, ok := held[id]; !ok {
+			return false
+		}
+	}
+
+	return true
 }
 
 // assignedAddonPermanentFailureSummary aggregates the recorded permanent delivery

@@ -198,6 +198,11 @@ func (p *PushLoop) applyConfigSection(
 	case addonDeliveryPermanentFailure:
 		p.recordConfigSectionFailure(section, payloadHash, version, err, disposition)
 	case addonDeliveryTransientFailure:
+		if errors.Is(err, errAddonActivationHeld) {
+			if recorded, ok := p.recordedConfigSectionDisposition(section); ok {
+				return recorded
+			}
+		}
 		disposition = p.recordTransientConfigSectionFailure(section, payloadHash, version, err, time.Now())
 	}
 
@@ -263,6 +268,43 @@ func (p *PushLoop) retainedPayloadMismatch(section, payloadHash string) bool {
 	failure, ok := p.configSectionFailures[section]
 
 	return ok && failure.payloadHash != payloadHash
+}
+
+// configSectionFailureNamesAddon reports whether this section's recorded failure is
+// attributed to addonID.
+func (p *PushLoop) configSectionFailureNamesAddon(section, addonID string) bool {
+	if addonID == "" {
+		return false
+	}
+
+	p.configSectionMu.Lock()
+	defer p.configSectionMu.Unlock()
+
+	failure, ok := p.configSectionFailures[section]
+	if !ok {
+		return false
+	}
+	for _, id := range failure.addonIDs {
+		if id == addonID {
+			return true
+		}
+	}
+
+	return false
+}
+
+// recordedConfigSectionDisposition returns the disposition of the current section
+// failure without changing it.
+func (p *PushLoop) recordedConfigSectionDisposition(section string) (addonDeliveryDisposition, bool) {
+	p.configSectionMu.Lock()
+	defer p.configSectionMu.Unlock()
+
+	failure, ok := p.configSectionFailures[section]
+	if !ok {
+		return 0, false
+	}
+
+	return failure.disposition, true
 }
 
 // recordedVisibilityApplyFailed reports whether the visibility section's last apply
