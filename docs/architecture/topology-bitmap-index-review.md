@@ -1,4 +1,4 @@
-# Topology bitmap proposal review evidence
+# ServiceRadar Atlas proposal review evidence
 
 This documents the reduced `add-topology-bitmap-query-index` design. It is
 artifact validation, not proof that the implementation or rollout is complete.
@@ -7,9 +7,9 @@ artifact validation, not proof that the implementation or rollout is complete.
 
 | Artifact | SHA-256 | Bytes |
 | --- | --- | ---: |
-| [Architecture source](topology-bitmap-index.architecture.json) | `20168c80d349825d3196bdda94e9916eb4366606fc60e0c505917baae425b015` | 3691 |
-| [Architecture HTML](topology-bitmap-index.html) | `157054a378951020735a11e2d43fccd9803aacf686d13c2d49756b888eb8aad8` | 707951 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `9e245455d001a83a7d968424c2060b52c213295d589855bbe436e49c0a2f8477` | 811445 |
+| [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
+| [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `4ba374582a9db7da312daa5974386f066308436acca78fb962875c1625fc3f1f` | 861474 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -18,6 +18,12 @@ current-membership query pages, admitted-row SRMO replacements and binary SRTO
 health/flow. It removes the discarded browser Roaring/WASM, XOR/chunks, outbox,
 interface dictionary, owner routing and result cache designs. Source documents
 remain authoritative as implementation proceeds.
+
+The Atlas naming refresh includes the approved visible filter builder, literal
+tag prefixes, current device/interface IP CIDR matching, named Prefix Tags and
+the third review response. The source snapshot retains explicit unfinished
+acceptance tasks, compression measurement and the deferred Arrow telemetry
+follow-up. Code identifiers and protocol names remain unchanged.
 
 Colors and typography follow existing ServiceRadar styles. All viewer assets
 are embedded; no external assets are required. This refresh reuses the portable

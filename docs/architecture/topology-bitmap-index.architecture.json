@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "ServiceRadar topology query index",
+    "title": "ServiceRadar Atlas query index",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [
