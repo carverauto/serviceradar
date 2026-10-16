@@ -115,8 +115,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
         binary_part(rest, size, byte_size(rest) - size)
       end)
 
-    assert <<3, ^bmp_size::little-16, ^bmp::binary, 1::little-64, ^nonbmp_size::little-16, ^nonbmp::binary, 2::little-64,
-             ^bom_size::little-16, ^bom::binary, 3::little-64, _tiles::binary>> = ordered_rest
+    assert <<
+             3,
+             ^bmp_size::little-16,
+             ^bmp::binary,
+             1::little-64,
+             ^nonbmp_size::little-16,
+             ^nonbmp::binary,
+             2::little-64,
+             ^bom_size::little-16,
+             ^bom::binary,
+             3::little-64,
+             _tiles::binary
+           >> = ordered_rest
 
     bom_only = <<0xEF, 0xBB, 0xBF>>
 

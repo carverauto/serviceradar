@@ -155,6 +155,9 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
         {:ok, {:unchanged, manifest}}
       end
     else
+      {:error, reason} when reason in [:index_not_ready, :index_unavailable] ->
+        {:ok, {:unchanged, manifest}}
+
       {:error, :bitmap_disabled} ->
         WorldCache.clear_ordinals(cache)
         {:ok, {:unchanged, manifest}}

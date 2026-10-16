@@ -1,10 +1,11 @@
 defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.Topology.BitmapAddress
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNGWeb.TopologyQueryController
 
   @moduletag :db_free
 
@@ -179,13 +180,68 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
                @facets
              )
 
-    deep = Enum.reduce(1..9, predicate("vendor", "example-a"), fn _, child -> %{"except" => child} end)
-    assert {:error, :expression_budget} = BitmapExpression.parse(%{"expression" => deep}, @facets)
-
     assert {:error, :query_budget} =
              BitmapExpression.parse(%{"expression" => predicate("vendor", String.duplicate("x", 16_384))}, @facets)
 
     assert {:error, :invalid_page_limit} = BitmapExpression.parse(%{"limit" => 129}, @facets)
+  end
+
+  test "multipart uploads receive HTTP 400 before query admission" do
+    flags = [:god_view_enabled, :topology_bitmap_enabled]
+    previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
+    Enum.each(flags, &Application.put_env(:serviceradar_web_ng, &1, true))
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
+      end)
+    end)
+
+    upload = %Plug.Upload{path: "/unused/synthetic-upload", filename: "example.txt", content_type: "text/plain"}
+
+    for params <- [
+          %{"expression" => upload},
+          %{"expression" => %{"facet" => "vendor", "value" => upload}},
+          %{"expression" => %{"all" => [upload]}},
+          %{"cursor" => upload}
+        ] do
+      conn = TopologyQueryController.create(Plug.Test.conn(:post, "/topology/query"), params)
+      assert conn.status == 400
+      assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_query"}
+    end
+  end
+
+  test "the eight-level parser boundary agrees with native evaluation including EXCEPT wrappers" do
+    index = index([{3, true, [{"vendor", "example-a"}]}, {7, true, [{"vendor", "example-b"}]}])
+
+    for {operator, expected} <- [{"all", [3]}, {"except", [7]}] do
+      expression =
+        Enum.reduce(1..7, predicate("vendor", "example-a"), fn _, child ->
+          if operator == "except", do: %{"except" => child}, else: %{"all" => [child]}
+        end)
+
+      assert {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, @facets)
+      assert {:ok, {query, 1, "initial", 1}} = query(index, parsed)
+      assert {:ok, ^expected} = Native.bitmap_query_page(query, @authority, 0, 128, 1000)
+      Native.bitmap_query_close(query)
+
+      assert {:error, :expression_budget} =
+               BitmapExpression.parse(%{"expression" => %{"except" => expression}}, @facets)
+    end
+  end
+
+  test "a root EXCEPT counts against the complete native program budget" do
+    index = index([{3, true, [{"vendor", "example-a"}]}])
+    children = Enum.map(1..32, &%{"except" => predicate("vendor", "other-#{&1}")})
+    expression = %{"all" => children}
+    assert {:ok, parsed} = BitmapExpression.parse(%{"expression" => expression}, @facets)
+    assert {:ok, {query, 1, "initial", 1}} = query(index, parsed)
+    assert {:ok, [3]} = Native.bitmap_query_page(query, @authority, 0, 128, 1000)
+    Native.bitmap_query_close(query)
+
+    assert {:error, :expression_budget} =
+             BitmapExpression.parse(%{"expression" => %{"except" => expression}}, @facets)
   end
 
   defp index(rows) do
