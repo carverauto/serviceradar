@@ -95,7 +95,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
             %{"type" => "sdp_offer", "data" => %{"type" => "offer", "sdp" => "v=0\r\nstub-offer"}}
           )
 
-        forward_signals(test_pid)
+        send(test_pid, {:sink_peer, self()})
+        forward_signals(test_pid, signaling)
       end)
 
       :ok
@@ -107,11 +108,20 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
       :ok
     end
 
-    defp forward_signals(test_pid) do
+    defp forward_signals(test_pid, signaling) do
       receive do
         {:membrane_webrtc_signaling, _pid, message, _metadata} ->
           send(test_pid, {:sink_received, message})
-          forward_signals(test_pid)
+          forward_signals(test_pid, signaling)
+
+        # Trickles candidates the way the real sink does after its offer. The
+        # :sys round trip returns once Signaling has forwarded them, so the
+        # manager holds them before the test's next call.
+        {:trickle, candidates} ->
+          Enum.each(candidates, &Signaling.signal(signaling, %{"type" => "ice_candidate", "data" => &1}))
+          _ = :sys.get_state(signaling.pid)
+          send(test_pid, :trickled)
+          forward_signals(test_pid, signaling)
       end
     end
   end
@@ -404,6 +414,47 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
              WebRTCSignalingManager.add_ice_candidate(relay_session_id, viewer_session_id, third, server: server_name)
 
     assert_receive {:sink_received, %{"type" => "ice_candidate", "data" => ^third}}
+  end
+
+  test "returns every ICE candidate the sink trickles after the offer, not only the latest" do
+    relay_session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name,
+       session_tracker: SessionTrackerStub,
+       pipeline_manager: SinkPeerPipelineManagerStub,
+       session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id, remote_ice_candidates: []}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
+
+    assert_receive {:sink_peer, sink}
+
+    host = %{"candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", "sdpMid" => "0"}
+
+    relay = %{
+      "candidate" => "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay raddr 192.0.2.20 rport 40000",
+      "sdpMid" => "0"
+    }
+
+    send(sink, {:trickle, [host, relay]})
+    assert_receive :trickled
+
+    # A browser behind TURN can only reach the relay candidate, so losing it to
+    # a later candidate leaves the viewer unable to connect.
+    assert {:ok, %{remote_ice_candidates: [^host, ^relay]}} =
+             WebRTCSignalingManager.get_session(relay_session_id, viewer_session_id, server: server_name)
+
+    assert {:ok, %{remote_ice_candidates: [^host, ^relay]}} =
+             WebRTCSignalingManager.submit_answer(relay_session_id, viewer_session_id, "v=0\r\nanswer",
+               server: server_name
+             )
+
+    assert {:error, :viewer_session_not_found} =
+             WebRTCSignalingManager.get_session(relay_session_id, Ecto.UUID.generate(), server: server_name)
   end
 
   test "releases a viewer whose sink crashed inside the relay pipeline" do

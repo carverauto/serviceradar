@@ -16,6 +16,9 @@ import {
 } from "./player"
 
 const WEBRTC_MEDIA_DEADLINE_MS = 8000
+// core-elx trickles its ICE candidates after returning the offer. Poll for
+// them until the connection settles; the media deadline bounds the loop.
+const WEBRTC_REMOTE_CANDIDATE_POLL_MS = 250
 const WEBRTC_CREATE_RETRY_DELAY_MS = 1000
 const WEBRTC_CREATE_MAX_ATTEMPTS = 60
 const STREAM_RECONNECT_DELAY_MS = 1000
@@ -158,6 +161,8 @@ export class CameraRelayViewer {
     this.peerConnection = null
     this.webrtcViewerSessionId = null
     this.webrtcMediaTimer = null
+    this.webrtcCandidatePollTimer = null
+    this.webrtcRemoteCandidates = new Set()
     this.webrtcVideo = null
     this.webrtcPlayingHandler = null
     this.chunkCount = 0
@@ -389,6 +394,7 @@ export class CameraRelayViewer {
       }
 
       this.webrtcViewerSessionId = viewerSessionId
+      this.webrtcRemoteCandidates = new Set()
       this.peerConnection = new window.RTCPeerConnection({
         iceServers: session.ice_servers || this.webrtcIceServers || [],
       })
@@ -398,6 +404,7 @@ export class CameraRelayViewer {
 
       await peerConnection.setRemoteDescription({type: "offer", sdp: offerSdp})
       if (!isCurrentViewer()) return
+      this.addRemoteCandidates(peerConnection, session.remote_ice_candidates)
       const answer = await peerConnection.createAnswer()
       if (!isCurrentViewer()) return
       await peerConnection.setLocalDescription(answer)
@@ -417,6 +424,8 @@ export class CameraRelayViewer {
         throw new Error(answerBody?.message || "WebRTC answer was rejected")
       }
 
+      this.addRemoteCandidates(peerConnection, answerBody?.data?.remote_ice_candidates)
+      this.pollRemoteCandidates(peerConnection, isCurrentViewer)
       this.report("transport-status", "WebRTC answer applied")
       this.report("player-status", "Waiting for WebRTC media...")
     } catch (error) {
@@ -467,6 +476,54 @@ export class CameraRelayViewer {
       })
     })
     return isCurrentViewer
+  }
+
+  // Without core-elx's candidates the browser cannot reach a relay-only peer:
+  // TURN drops the peer's packets until the browser installs a permission for
+  // the peer's relay address, which it only does for a candidate it was given.
+  addRemoteCandidates(peerConnection, candidates) {
+    if (!Array.isArray(candidates)) return
+
+    for (const candidate of candidates) {
+      const key = candidate?.candidate
+      if (typeof key !== "string" || key === "" || this.webrtcRemoteCandidates.has(key)) continue
+      this.webrtcRemoteCandidates.add(key)
+      void Promise.resolve(peerConnection.addIceCandidate(candidate)).catch(() => {})
+    }
+  }
+
+  pollRemoteCandidates(peerConnection, isCurrentViewer) {
+    const viewerSessionId = this.webrtcViewerSessionId
+    const settled = () =>
+      ["connected", "failed", "closed"].includes(peerConnection.connectionState)
+
+    const poll = async () => {
+      this.webrtcCandidatePollTimer = null
+      if (!isCurrentViewer() || settled()) return
+
+      try {
+        const response = await fetch(`${this.webrtcSignalingPath}/${viewerSessionId}`, {
+          method: "GET",
+          headers: jsonHeaders(),
+          credentials: "same-origin",
+        })
+        if (!isCurrentViewer()) return
+        // The viewer session is gone (closed or expired); nothing more will come.
+        if (!response.ok) return
+
+        const body = await response.json()
+        if (!isCurrentViewer()) return
+        this.addRemoteCandidates(peerConnection, body?.data?.remote_ice_candidates)
+      } catch (_error) {
+        if (!isCurrentViewer()) return
+      }
+
+      if (!settled()) {
+        this.webrtcCandidatePollTimer = setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_POLL_MS)
+      }
+    }
+
+    this.webrtcCandidatePollTimer = setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_POLL_MS)
   }
 
   attachWebRtcTrack(peerConnection, event) {
@@ -540,6 +597,8 @@ export class CameraRelayViewer {
     const peerConnection = this.peerConnection
     clearTimeout(this.webrtcMediaTimer)
     this.webrtcMediaTimer = null
+    clearTimeout(this.webrtcCandidatePollTimer)
+    this.webrtcCandidatePollTimer = null
     this.peerConnection = null
     this.webrtcViewerSessionId = null
 
