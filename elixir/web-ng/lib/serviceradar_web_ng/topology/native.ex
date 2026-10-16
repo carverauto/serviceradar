@@ -90,6 +90,46 @@ defmodule ServiceRadarWebNG.Topology.Native do
   """
   def runtime_graph_encode_snapshot(_payload), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Create an unpublished index. Epochs are 16-byte binaries; kind is :device or :interface."
+  def bitmap_index_new(_dictionary_epoch, _index_epoch, _kind, _supported_facets), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Atomically replace up to 500 current rows {ordinal, live?, [{facet, value}]} at the expected revision."
+  def bitmap_index_publish(_index, _expected_revision, _source_revision, _rows, _ready),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Read admission/memory/freshness diagnostics and reap expired query pins."
+  def bitmap_index_status(_index), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Evaluate a typed postfix expression and pin its exact revision for 30 seconds.
+  Instructions are {opcode, facet, value, arity}: predicate=0, all=1, any=2,
+  except=3 (one child). Operator strings are empty. Current RBAC admission and
+  delivery checks remain the caller's responsibility; authority is its fingerprint.
+  """
+  def bitmap_index_query(_index, _dictionary_epoch, _index_epoch, _kind, _authority, _program, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def bitmap_query_page(_query, _authority, _after, _limit, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
+  def bitmap_query_facets(_query, _authority, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
+  def bitmap_query_view(_query, _authority, _ordinals, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  def bitmap_query_intersection_count(
+        _query,
+        _authority,
+        _dictionary_epoch,
+        _index_epoch,
+        _kind,
+        _portable_bitmap,
+        _timeout_ms
+      ), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Return portable member bytes followed by each requested facet subset, from one pinned revision."
+  def bitmap_query_view_sets(_query, _authority, _ordinals, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  def bitmap_index_close(_index), do: :erlang.nif_error(:nif_not_loaded)
+
+  def bitmap_query_close(_query), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Decode Apache Arrow IPC frames into Elixir maps.
   """
