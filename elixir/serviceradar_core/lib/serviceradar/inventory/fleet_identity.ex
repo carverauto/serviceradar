@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceFleetOrdinal
   alias ServiceRadar.Inventory.FleetDictionaryEpoch
   alias ServiceRadar.Repo
@@ -30,7 +31,12 @@ defmodule ServiceRadar.Inventory.FleetIdentity do
 
     repo.one(
       from(o in DeviceFleetOrdinal,
-        where: o.uid == ^uid and not like(o.uid, "serviceradar:%") and not o.tombstoned,
+        join: d in Device,
+        on: d.uid == o.uid,
+        where:
+          o.uid == ^uid and not like(o.uid, "serviceradar:%") and is_nil(d.deleted_at) and
+            fragment("? IS NOT FALSE", d.is_active) and
+            fragment("? IS DISTINCT FROM 'merged'", d.deleted_reason),
         select: o.ordinal
       )
     )

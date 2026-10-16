@@ -64,6 +64,93 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
              ])
   end
 
+  test "canonical liveness governs lookup even when historical dictionary flags are stale" do
+    uid = "sr:dictionary-live-#{Ecto.UUID.generate()}"
+    Repo.query!("INSERT INTO platform.ocsf_devices (uid) VALUES ($1)", [uid])
+    ordinal = FleetIdentity.device_ordinal(uid)
+    assert is_integer(ordinal)
+
+    Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1", [
+      uid
+    ])
+
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = 'test' WHERE uid = $1",
+      [uid]
+    )
+
+    Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = false WHERE uid = $1", [
+      uid
+    ])
+
+    assert FleetIdentity.device_ordinal(uid) == nil
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = NULL, deleted_reason = NULL, is_active = false WHERE uid = $1",
+      [uid]
+    )
+
+    Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = false WHERE uid = $1", [
+      uid
+    ])
+
+    assert FleetIdentity.device_ordinal(uid) == nil
+    Repo.query!("UPDATE platform.ocsf_devices SET is_active = true WHERE uid = $1", [uid])
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+  end
+
+  test "committing fixture cleanup deletes only owned identities and restores protection on failure" do
+    owned = "sr:cleanup-owned-#{Ecto.UUID.generate()}"
+    unrelated = "sr:cleanup-unrelated-#{Ecto.UUID.generate()}"
+
+    for uid <- [owned, unrelated],
+        do: Repo.query!("INSERT INTO platform.ocsf_devices (uid) VALUES ($1)", [uid])
+
+    unrelated_ordinal = FleetIdentity.device_ordinal(unrelated)
+
+    # A fixture-local trigger fails after dictionary deletion, proving that the cleanup's
+    # DDL and partial deletes roll back together. No production injection seam is needed.
+    Repo.query!("""
+    CREATE FUNCTION pg_temp.reject_fixture_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'synthetic cleanup failure'; END $$
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER reject_fixture_delete BEFORE DELETE ON platform.ocsf_devices
+    FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_fixture_delete()
+    """)
+
+    error =
+      rejected("failed_fixture_cleanup", fn ->
+        ServiceRadar.TestSupport.delete_device_fixtures!([owned])
+      end)
+
+    assert error.postgres.message == "synthetic cleanup failure"
+    assert is_integer(FleetIdentity.device_ordinal(owned))
+    Repo.query!("DROP TRIGGER reject_fixture_delete ON platform.ocsf_devices")
+
+    rejected("delete_guard_restored", fn ->
+      Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [owned])
+    end)
+
+    assert :ok = ServiceRadar.TestSupport.delete_device_fixtures!([owned])
+    assert :ok = ServiceRadar.TestSupport.delete_device_fixtures!([owned])
+
+    assert %{rows: []} =
+             Repo.query!("SELECT uid FROM platform.ocsf_devices WHERE uid = $1", [owned])
+
+    assert %{rows: []} =
+             Repo.query!("SELECT uid FROM platform.device_fleet_ordinals WHERE uid = $1", [owned])
+
+    assert FleetIdentity.device_ordinal(unrelated) == unrelated_ordinal
+
+    rejected("delete_guard_preserved", fn ->
+      Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [unrelated])
+    end)
+  end
+
   test "the last unsigned ordinal, exhausted allocation, and rejected bounds roll back with migration down" do
     suffix = System.unique_integer([:positive])
     last_uid = "sr:dictionary-last-#{suffix}"

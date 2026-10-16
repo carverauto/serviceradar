@@ -1,7 +1,15 @@
 defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
   @moduledoc """
   Expand-only identity storage: rollback disables lifecycle hooks but retains
-  assigned numbers, epochs and the widened sequence. Reusing an ID is unsafe.
+  assigned numbers, epochs, the widened sequence, and DELETE/TRUNCATE protection.
+  Reusing an ID is unsafe. A compatible rollback needs a retention-aware cleanup
+  worker, or cleanup paused. Older cleanup binaries that delete or truncate
+  device_fleet_ordinals are unsupported.
+
+  up requests platform.ocsf_devices and platform.device_fleet_ordinals with NOWAIT,
+  failing immediately for retry if either lock is unavailable. It never waits
+  while holding only one of those tables. lock_timeout still bounds later locks in this transaction;
+  NOWAIT itself fails immediately. statement_timeout stays 30 seconds.
   Sequence-backed dictionaries and lifecycle triggers are managed explicitly;
   their Ash resources use migrate? false.
   """
@@ -12,6 +20,11 @@ defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
   def up do
     execute("SET LOCAL lock_timeout = '5s'")
     execute("SET LOCAL statement_timeout = '30s'")
+
+    execute(
+      "LOCK TABLE platform.ocsf_devices, platform.device_fleet_ordinals IN ACCESS EXCLUSIVE MODE NOWAIT"
+    )
+
     execute("ALTER TABLE platform.ocsf_devices ADD COLUMN IF NOT EXISTS identity_purged_at timestamp without time zone")
 
     execute("""
@@ -135,7 +148,6 @@ defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
     END;
     $$
     """)
-
   end
 
   def down do

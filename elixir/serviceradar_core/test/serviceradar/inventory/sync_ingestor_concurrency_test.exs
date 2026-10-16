@@ -63,7 +63,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
         [expected_id]
       )
 
-      TestSupport.purge_devices!([expected_id])
+      TestSupport.delete_device_fixtures!([expected_id])
     end)
 
     tasks =
