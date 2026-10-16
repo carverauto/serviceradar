@@ -1535,6 +1535,168 @@ func TestMismatchedVisibilityFailureBlocksNetprobeOnAddonRetry(t *testing.T) {
 // An escalated systemd netprobe delivery stays recorded when a later visibility
 // failure blocks activation. The blocked add-on is not applied, and the section
 // does not succeed over that record.
+func TestActivationHeldAddonDecision(t *testing.T) {
+	transient := &configSectionFailure{
+		payloadHash: "hash-a",
+		disposition: addonDeliveryTransientFailure,
+		attempts:    1,
+		reason:      "download failed",
+	}
+	permanent := &configSectionFailure{
+		payloadHash: "hash-a",
+		disposition: addonDeliveryPermanentFailure,
+		reason:      "classified",
+	}
+	escalated := &configSectionFailure{
+		payloadHash: "hash-a",
+		disposition: addonDeliveryPermanentFailure,
+		escalated:   true,
+		attempts:    transientSectionEscalationAttempts,
+		reason:      "escalated",
+	}
+
+	tests := []struct {
+		name         string
+		recorded     *configSectionFailure
+		recordedHash string
+		payloadHash  string
+		visibility   addonDeliveryDisposition
+		want         addonDeliveryDisposition
+		wantTouch    bool
+	}{
+		{
+			name:       "no record visibility transient",
+			visibility: addonDeliveryTransientFailure,
+			want:       addonDeliverySucceeded,
+		},
+		{
+			name:       "no record visibility permanent",
+			visibility: addonDeliveryPermanentFailure,
+			want:       addonDeliverySucceeded,
+		},
+		{
+			name:         "matching transient defers while visibility is transient",
+			recorded:     transient,
+			recordedHash: transient.payloadHash,
+			payloadHash:  transient.payloadHash,
+			visibility:   addonDeliveryTransientFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+		{
+			name:         "matching transient does not defer once visibility is permanent",
+			recorded:     transient,
+			recordedHash: transient.payloadHash,
+			payloadHash:  transient.payloadHash,
+			visibility:   addonDeliveryPermanentFailure,
+			want:         addonDeliverySucceeded,
+		},
+		{
+			name:         "matching classified permanent",
+			recorded:     permanent,
+			recordedHash: permanent.payloadHash,
+			payloadHash:  permanent.payloadHash,
+			visibility:   addonDeliveryTransientFailure,
+			want:         addonDeliveryPermanentFailure,
+		},
+		{
+			name:         "matching classified permanent with permanent visibility",
+			recorded:     permanent,
+			recordedHash: permanent.payloadHash,
+			payloadHash:  permanent.payloadHash,
+			visibility:   addonDeliveryPermanentFailure,
+			want:         addonDeliveryPermanentFailure,
+		},
+		{
+			name:         "matching escalated",
+			recorded:     escalated,
+			recordedHash: escalated.payloadHash,
+			payloadHash:  escalated.payloadHash,
+			visibility:   addonDeliveryTransientFailure,
+			want:         addonDeliveryPermanentFailure,
+		},
+		{
+			name:         "matching escalated with permanent visibility",
+			recorded:     escalated,
+			recordedHash: escalated.payloadHash,
+			payloadHash:  escalated.payloadHash,
+			visibility:   addonDeliveryPermanentFailure,
+			want:         addonDeliveryPermanentFailure,
+		},
+		{
+			name:         "different hash transient record defers while visibility is transient",
+			recorded:     transient,
+			recordedHash: transient.payloadHash,
+			payloadHash:  "hash-b",
+			visibility:   addonDeliveryTransientFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+		{
+			name:         "different hash permanent record defers while visibility is transient",
+			recorded:     permanent,
+			recordedHash: permanent.payloadHash,
+			payloadHash:  "hash-b",
+			visibility:   addonDeliveryTransientFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+		{
+			name:         "different hash escalated record defers while visibility is transient",
+			recorded:     escalated,
+			recordedHash: escalated.payloadHash,
+			payloadHash:  "hash-b",
+			visibility:   addonDeliveryTransientFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+		{
+			name:         "different hash transient record stays unapplied once visibility is permanent",
+			recorded:     transient,
+			recordedHash: transient.payloadHash,
+			payloadHash:  "hash-b",
+			visibility:   addonDeliveryPermanentFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+		{
+			name:         "different hash permanent record stays unapplied once visibility is permanent",
+			recorded:     permanent,
+			recordedHash: permanent.payloadHash,
+			payloadHash:  "hash-b",
+			visibility:   addonDeliveryPermanentFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+		{
+			name:         "different hash escalated record stays unapplied once visibility is permanent",
+			recorded:     escalated,
+			recordedHash: escalated.payloadHash,
+			payloadHash:  "hash-b",
+			visibility:   addonDeliveryPermanentFailure,
+			want:         addonDeliveryTransientFailure,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var before configSectionFailure
+			if tt.recorded != nil {
+				before = *tt.recorded
+			}
+			got, touch := activationHeldAddonDecision(tt.recorded, tt.recordedHash, tt.payloadHash, tt.visibility)
+			if got != tt.want || touch != tt.wantTouch {
+				t.Fatalf("activationHeldAddonDecision() = (%v, touch %v), want (%v, touch %v)", got, touch, tt.want, tt.wantTouch)
+			}
+			if tt.recorded != nil && (tt.recorded.payloadHash != before.payloadHash ||
+				tt.recorded.disposition != before.disposition || tt.recorded.attempts != before.attempts ||
+				tt.recorded.escalated != before.escalated || tt.recorded.reason != before.reason) {
+				t.Fatalf("recorded failure = %+v, want unchanged %+v", *tt.recorded, before)
+			}
+			if tt.recordedHash != tt.payloadHash && tt.recorded != nil && got == tt.recorded.disposition && tt.recorded.disposition == addonDeliveryPermanentFailure {
+				t.Fatal("a different payload reused the recorded permanent disposition")
+			}
+			if tt.recordedHash != tt.payloadHash && tt.recorded != nil && tt.visibility == addonDeliveryPermanentFailure && got == addonDeliverySucceeded {
+				t.Fatal("a different payload was reported as applied")
+			}
+		})
+	}
+}
+
 func TestBlockedNetprobeKeepsEscalatedAddonFailure(t *testing.T) {
 	srv, hits := statusServer(t, http.StatusServiceUnavailable)
 	dir := t.TempDir()

@@ -247,10 +247,17 @@ func (p *PushLoop) applyAddonAssignmentsWithActivationBlocks(
 	assignments []*proto.AddonAssignmentConfig,
 	activationBlocks map[string]bool,
 ) (addonDeliveryDisposition, error) {
+	assignments = p.effectiveAddonAssignments(assignments)
+	visibility := addonDeliverySucceeded
+	if len(activationBlocks) > 0 {
+		visibility = addonDeliveryTransientFailure
+	}
 	return p.applyEffectiveAddonAssignmentsWithActivationBlocks(
 		ctx,
-		p.effectiveAddonAssignments(assignments),
+		assignments,
 		activationBlocks,
+		addonSectionPayloadHash(assignments),
+		visibility,
 	)
 }
 
@@ -320,6 +327,8 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	ctx context.Context,
 	assignments []*proto.AddonAssignmentConfig,
 	activationBlocks map[string]bool,
+	payloadHash string,
+	visibilityDisposition addonDeliveryDisposition,
 ) (addonDeliveryDisposition, error) {
 	assignments = p.filterUnsupportedHostVisibilityAssignments(assignments)
 	if p.server == nil {
@@ -407,7 +416,12 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 				p.logger.Debug().
 					Str("addon", a.GetAddonId()).
 					Msg("Systemd add-on activation blocked until startup config applies")
-				if p.configSectionFailureNamesAddon(configSectionAddons, a.GetAddonId()) {
+				recorded, recordedHash := p.configSectionFailureRecord(configSectionAddons)
+				contribution, touchRecord := activationHeldAddonDecision(
+					recorded, recordedHash, payloadHash, visibilityDisposition,
+				)
+				if p.configSectionFailureNamesAddon(configSectionAddons, a.GetAddonId()) &&
+					((recorded != nil && !touchRecord) || contribution != addonDeliverySucceeded) {
 					deferredAddons = append(deferredAddons, a.GetAddonId())
 					activationHeld[a.GetAddonId()] = struct{}{}
 				}
@@ -492,9 +506,17 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	// recorded as per-add-on failure status and backed off above, so the agent acks the
 	// config version and stops re-applying the whole config every poll.
 	if activationHeldOnly(deferredAddons, activationHeld) {
-		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
+		recorded, recordedHash := p.configSectionFailureRecord(configSectionAddons)
+		contribution, touchRecord := activationHeldAddonDecision(
+			recorded, recordedHash, payloadHash, visibilityDisposition,
+		)
+		heldErr := errAddonActivationHeld
+		if touchRecord {
+			heldErr = errAddonAssignmentsDeferred
+		}
+		return contribution, &addonAssignmentsDeferredError{
 			addonIDs: deferredAddons,
-			err:      errAddonActivationHeld,
+			err:      heldErr,
 		}
 	}
 	if len(deferredAddons) > 0 {

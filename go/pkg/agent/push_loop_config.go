@@ -425,8 +425,11 @@ func (p *PushLoop) applyAddonConfigSection(
 			activationBlocks[netprobe.GetAddonId()] = true
 		}
 	}
-	return p.applyConfigSection(configSectionAddons, version, addonSectionPayloadHash(effectiveAddons), func() (addonDeliveryDisposition, error) {
-		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(ctx, effectiveAddons, activationBlocks)
+	payloadHash := addonSectionPayloadHash(effectiveAddons)
+	return p.applyConfigSection(configSectionAddons, version, payloadHash, func() (addonDeliveryDisposition, error) {
+		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(
+			ctx, effectiveAddons, activationBlocks, payloadHash, visibilityDisposition,
+		)
 	})
 }
 

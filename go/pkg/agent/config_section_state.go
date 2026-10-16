@@ -192,17 +192,15 @@ func (p *PushLoop) applyConfigSection(
 	}
 
 	disposition, err := apply()
+	if errors.Is(err, errAddonActivationHeld) {
+		return disposition
+	}
 	switch disposition {
 	case addonDeliverySucceeded:
 		p.clearConfigSectionFailure(section)
 	case addonDeliveryPermanentFailure:
 		p.recordConfigSectionFailure(section, payloadHash, version, err, disposition)
 	case addonDeliveryTransientFailure:
-		if errors.Is(err, errAddonActivationHeld) {
-			if recorded, ok := p.activationHeldDisposition(section, payloadHash); ok {
-				return recorded
-			}
-		}
 		disposition = p.recordTransientConfigSectionFailure(section, payloadHash, version, err, time.Now())
 	}
 
@@ -293,25 +291,42 @@ func (p *PushLoop) configSectionFailureNamesAddon(section, addonID string) bool 
 	return false
 }
 
-func (p *PushLoop) activationHeldDisposition(section, payloadHash string) (addonDeliveryDisposition, bool) {
+// activationHeldAddonDecision reports the section disposition an activation-blocked
+// add-on contributes and whether this pass may write the section record.
+// visibility is the disposition of this apply. A nil recorded failure contributes
+// nothing. touchRecord is false when the record must be left as it is.
+func activationHeldAddonDecision(
+	recorded *configSectionFailure,
+	recordedHash, payloadHash string,
+	visibility addonDeliveryDisposition,
+) (contribution addonDeliveryDisposition, touchRecord bool) {
+	if recorded == nil {
+		return addonDeliverySucceeded, false
+	}
+	if recordedHash != payloadHash {
+		return addonDeliveryTransientFailure, false
+	}
+	if recorded.escalated || recorded.disposition == addonDeliveryPermanentFailure {
+		return addonDeliveryPermanentFailure, false
+	}
+	if recorded.disposition == addonDeliveryTransientFailure && visibility != addonDeliveryPermanentFailure {
+		return addonDeliveryTransientFailure, false
+	}
+
+	return addonDeliverySucceeded, false
+}
+
+// configSectionFailureRecord returns a copy of the section's recorded failure.
+func (p *PushLoop) configSectionFailureRecord(section string) (*configSectionFailure, string) {
 	p.configSectionMu.Lock()
 	defer p.configSectionMu.Unlock()
 
 	failure, ok := p.configSectionFailures[section]
 	if !ok {
-		return 0, false
-	}
-	if failure.payloadHash != payloadHash {
-		return addonDeliveryTransientFailure, true
-	}
-	if failure.disposition == addonDeliveryTransientFailure {
-		if visibility, recorded := p.configSectionFailures[configSectionVisibility]; recorded &&
-			visibility.disposition == addonDeliveryPermanentFailure {
-			return addonDeliveryPermanentFailure, true
-		}
+		return nil, ""
 	}
 
-	return failure.disposition, true
+	return &failure, failure.payloadHash
 }
 
 // recordedVisibilityApplyFailed reports whether the visibility section's last apply
