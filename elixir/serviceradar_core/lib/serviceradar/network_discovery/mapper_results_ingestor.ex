@@ -84,6 +84,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           # handle_bulk_result/3 but must not stop the surviving interface
           # evidence from reaching the AGE projection.
           {:ok, _summary} ->
+            classified_records
+            |> Stream.map(& &1.device_id)
+            |> DevicePubSub.broadcast_invalidated()
+
             TopologyGraph.upsert_interfaces(classified_records)
             record_job_runs(updates, status: :success, include_interface_counts: true)
             :ok
