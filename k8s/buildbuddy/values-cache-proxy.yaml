@@ -77,19 +77,14 @@ service:
 # purpose -- see the header. Everything else under `config` is a faithful capture.
 config:
   cache:
-    # 100 GB per proxy, and this shares a disk with the executor fleets' filecaches.
+    # 100 GB per proxy, and this shares a disk with whichever executor pod lands on the same node.
     #
     # The anti-affinity below puts one proxy on each of three nodes, and those nodes also run
-    # build executors, so the budgets stack on one filesystem. Against ./README.md's measured
-    # node figures (589 GB total, ~170-230 GB non-cache baseline):
-    #
-    #   baseline 230 + executor filecache 150 + this 100        = 480 GB  (~109 GB free)
-    #   ... and if the workflow executor lands there too, + 50  = 530 GB  (~59 GB free)
-    #
-    # The kubelet DiskPressure threshold is 10% free, i.e. ~59 GB. The second case sits ON it,
-    # and neither figure counts `root_directory`, which shares the same filesystem and spikes
-    # outside every one of these budgets. Watch `kubectl get nodes` for DiskPressure before
-    # raising any of the three, and prefer raising the one whose eviction is cheapest to refill.
+    # executors, so the budgets stack on the worker root/cache filesystem. Each executor pod now
+    # mounts a per-pod 120Gi emptyDir at /cache (130Gi/140Gi ephemeral-storage request/limit)
+    # plus its /mnt/buildbuddy/bazel-caches* hostPath (up to ~27 GB on workflow nodes). Watch
+    # `kubectl get nodes` for DiskPressure before raising any of the cache budgets, and prefer
+    # raising the one whose eviction is cheapest to refill.
     max_size_bytes: 100000000000
     distributed_cache:
       # Matches `replicas` above. The three proxies form one distributed cache rather than three
@@ -116,17 +111,18 @@ affinity:
                 - buildbuddy-enterprise-cache-proxy
         topologyKey: kubernetes.io/hostname
 
-# A THIRD distinct hostPath, and the reason is the one ./values-workflows.yaml spells out: a
-# cache implementation assumes it owns its directory and evicts against its own size budget, so
-# two of them sharing a path means two eviction loops deleting each other's entries while both
-# believe they are under budget. The three in this namespace must stay distinct:
+# Dedicated hostPath for the cache proxy. A cache implementation assumes it owns its directory
+# and evicts against its own size budget, so two of them sharing a path means two eviction loops
+# deleting each other's entries while both believe they are under budget. Executor /cache now
+# uses per-pod 120Gi emptyDir volumes (./values.yaml, ./values-workflows.yaml,
+# ./values-workflows-lig.yaml) after hostPath /mnt/buildbuddy/cache* leaked per-instance <uuid>
+# directories across reschedules; the remaining hostPaths in this namespace stay distinct:
 #
-#   /mnt/buildbuddy/cache             build executors   (./values.yaml)
-#   /mnt/buildbuddy/cache-workflows   workflow executor (./values-workflows.yaml)
+#   /mnt/buildbuddy/bazel-caches*     Bazel repo caches (./values*.yaml)
 #   /mnt/buildbuddy/cache-proxy       this release
 #
-# Without this key the chart uses an emptyDir and the entire cache is lost on every pod restart
-# -- which reads as a proxy that never warms up rather than as a misconfiguration.
+# Without this key the chart uses an emptyDir and the entire proxy cache is lost on every pod
+# restart -- which reads as a proxy that never warms up rather than as a misconfiguration.
 cacheProxyDataVolumeHostPath: /mnt/buildbuddy/cache-proxy
 
 resources:

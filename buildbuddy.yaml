@@ -475,9 +475,10 @@ actions:
     # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
     # 40GB: at 36GB the runner VM ran at ~37.95/38.65GB (~98% of 36GiB,
-    # BuildBuddy low-memory warning). GB here means GiB and the workflows
-    # executors advertise the full 80Gi limit with max_runner_count 2, so two
-    # concurrent 40GB runs exactly fill 80GiB while each run gains ~4GiB headroom.
+    # BuildBuddy low-memory warning), so 40GB is ~4GiB of headroom. GB here
+    # means GiB. The workflows executors advertise the full 56Gi limit
+    # (//k8s/buildbuddy/values-workflows.yaml, max_runner_count 1), so one
+    # 40GB run fits and a second does not.
     resource_requests:
       memory: "40GB"
       disk: "40GB"

@@ -143,10 +143,10 @@ build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.
 # writable by the runner user; CI-only -- these paths exist on the workflow executors and
 # nowhere else.
 #
-# The DISK cache is deliberately NOT on that volume, and NOT under `~`. One workflow-executor
-# pod hosts several Bazel servers at once: two concurrent 36GB runs fit its memory limits, and
-# every parked recycled runner keeps a resident server alive (startup --max_idle_secs=0 from the
-# ci_runner). With --experimental_disk_cache_gc_max_size set, EACH server runs its own disk-cache
+# The DISK cache is deliberately NOT on that volume, and NOT under `~`. A paused runner keeps
+# a resident Bazel server beside the in-flight one (startup --max_idle_secs=0 from the
+# ci_runner). The workflows pod limit is 56Gi, which fits one 40GB run and not two.
+# With --experimental_disk_cache_gc_max_size set, EACH server runs its own disk-cache
 # GC as an idle task once it has been idle for --experimental_disk_cache_gc_idle_delay (default
 # 5m). That GC only locks out other GC passes (<cache>/gc/lock); readers and writers take no
 # lock, so one server's background deletions raced another server's reads on the shared directory
@@ -159,9 +159,10 @@ build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.
 # PATH and HOSTNAME). ci_runner ensureHomeDir() then sets HOME to {workspace}/.home, which is
 # /buildbuddy-execroot/.home. Bazel expands `~` from user.home, so ~/.cache/... lands inside the
 # workspace bind. That bind is the only tree Workspace.DiskUsageBytes walks for
-# max_runner_disk_size_bytes (100GB in //k8s/buildbuddy/values-workflows.yaml). Checkout +
+# max_runner_disk_size_bytes (60GB in //k8s/buildbuddy/values-workflows.yaml). Checkout +
 # output-base + a cache that GC will not trim until the server has been idle for 5 minutes
-# (cap 50G) can cross 100GB, and the runner is rejected with max_disk_usage_exceeded -- which
+# (idle target 6G; the in-flight cache measured ~22G) can cross 60GB, and the runner is
+# rejected with max_disk_usage_exceeded -- which
 # drops the warm cache this profile exists to keep. build:remote below still uses `~`: a
 # workstation HOME is the real home, and nothing there measures the workspace against a recycle
 # budget.
@@ -175,15 +176,18 @@ build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.
 # upperdir (/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper), so the same absolute
 # path is a private directory per runner. A recycled runner keeps that container, so the cache
 # stays warm across its own runs; removing the runner deletes the bundle and the cache with it.
-# The path is outside /buildbuddy-execroot, so it does not count against the 100GB workspace
-# recycle limit. It does sit on the cache-workflows xfs (the overlay's disk). The GC cap is
-# that bound, PER RUNNER: 50G x the two concurrent runners an 80Gi executor hosts is 100G on
-# that disk, separate from the workspace measurement. Action outputs missing from a fresh
-# runner's cache come from the remote cache instead -- that is what it is for.
+# The path is outside /buildbuddy-execroot, so it does not count against the 60GB workspace
+# recycle limit. The overlay upperdir is on the executor's 120Gi /cache emptyDir, next to the
+# 40GB filecache and the workspace. The 6G GC cap is the idle target, not a write limit:
+# GC waits until the server has been idle for 5 minutes, and the cache measured on this
+# pool was ~22G. Both workflow pools keep one paused runner (max_runner_count 1). 40GB +
+# 60GB leaves ~28.8GB of the 120Gi emptyDir, which holds that one in-flight cache. Action
+# outputs missing from a fresh runner's cache come from the remote cache instead -- that
+# is what it is for.
 build:ci --disk_cache=/home/buildbuddy/bazel-disk-cache
 build:ci --repository_cache=/bazel-cache/repo
 build:ci --repo_contents_cache=/bazel-cache/repo-contents
-build:ci --experimental_disk_cache_gc_max_size=50G
+build:ci --experimental_disk_cache_gc_max_size=6G
 build:ci --keep_going
 build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI

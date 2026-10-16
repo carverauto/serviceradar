@@ -4,7 +4,8 @@
 # THE RELEASE NAME AND THE `-f` MUST MATCH, AND NOTHING ENFORCES IT.
 # `helm upgrade buildbuddy-workflows ... -f values.yaml` is accepted silently and turns this
 # release into a second copy of the build fleet: no poolName (so it registers into the DEFAULT
-# pool and `workflows` goes empty), replicas 3, and the shared cache hostPath. No error at any
+# pool and `workflows` goes empty), replicas 3, and the build fleet's bazel-caches hostPath and
+# cache budgets. No error at any
 # layer -- the next staging push just fails with `no registered executors in pool "workflows"`,
 # which reads like the fleet was never deployed. This has happened once. Check what is actually
 # deployed rather than what the file says:
@@ -59,29 +60,30 @@ replicas: 1
 autoscaler:
   enabled: false
 
-# Sized for TWO concurrent runs of BazelCI in //buildbuddy.yaml (40GB each; the unmeasured
-# benchmark actions still request 50GB).
+# Sized for ONE 40GB BazelCI run (//buildbuddy.yaml). limits.memory is 56Gi, matching farm01,
+# which advertises that full limit (60,129,542,144 bytes, no 10 GB reserve). One 40GB task
+# fits. Two 40GB tasks are 80GB and do not, so a second run is not placed on this pod while
+# the first still holds its runner. A 50GB benchmark still fits alone. requests 40Gi reserves
+# that one run. The 120Gi emptyDir holds one in-flight ~22G disk cache; a second runner here
+# would put another beside it.
 #
 # 2026-09-27: a run's non-reclaimable memory (cgroup `anon` of this pod, which includes the runner
 # containers) peaked at 31.2 GiB (~33.5 GB) over an hour of BazelCI/LargeIngestionGate runs; the
 # rest is reclaimable page cache. Prometheus/cAdvisor cannot see it (the runner containers sit
-# outside the executor process and it reports ~0.4 GiB). 40GB covers that peak with headroom
-# while two runs exactly fill the 80GiB advertisement.
+# outside the executor process and it reports ~0.4 GiB).
 #
-# MEASURED 2026-09-27, and it contradicts the "minus 10 GB" rule below: at limits 80Gi the
-# startup line reads "Memory: 0 of 85,899,345,920 bytes allocated" -- the FULL limit, no
-# reserve (farm01's 56Gi executors likewise advertise 60,129,542,144). So two 40GB runs exactly
-# fill the 80GiB advertisement here,
-# and a 50GB benchmark run still fits alone. requests 72Gi reserves two runs honestly on the node.
+# MEASURED 2026-09-27 at the previous 80Gi limit: the startup line read
+# "Memory: 0 of 85,899,345,920 bytes allocated" -- the FULL limit, no reserve. That is why two
+# 40GB runs fit an 80Gi pod and do not fit this 56Gi one.
 # Re-check the startup line after any chart or image change rather than trusting either rule.
 #
 # THE TWO FIELDS DO DIFFERENT JOBS, AND IT IS `limits` THAT SIZES TASKS.
 #
 #   requests -> what the kube scheduler reserves on a node. Governs whether the POD schedules.
-#   limits   -> what BuildBuddy advertises as assignable, MINUS a flat 10 GB reserve.
+#   limits   -> what this fleet advertises as assignable, in full (no 10 GB reserve).
 #               Governs whether a TASK can be placed on it.
 #
-# Confirmed from this executor's own startup line at the settings below:
+# An earlier chart, at a 64Gi limit, did subtract a flat 10 GB:
 #
 #   Initialized task scheduler: CPU: 0 of 16,000 milliCPU allocated,
 #   Memory: 0 of 58,719,476,736 bytes allocated
@@ -90,15 +92,17 @@ autoscaler:
 #   advertised         = 58,719,476,736   <- exactly 10,000,000,000 less
 #   limits.cpu "16"   -> 16,000 milliCPU  <- CPU is the limit, not reduced
 #
-# The rule also explains ./values.yaml: limits 32Gi - 10e9 = 22.7 GiB assignable, which is why
-# a 24 GiB task was rejected by the build fleet while 14 GiB fit.
+# That subtraction is still what ./values.yaml's build fleet shows (32Gi - 10e9 = 22.7 GiB),
+# which is why a 24 GiB task was rejected there while 14 GiB fit. This fleet does not: the
+# 2026-09-27 line at 80Gi was the full limit, and the 56Gi limit above is advertised whole.
+# Do not subtract 10 GB from it.
 #
 # SIZING HISTORY -- every step measured, none guessed. Each quoted line is BuildBuddy's own
 # low-memory notice, whose "total" is the ASSIGNABLE figure, not the cgroup limit:
 #   14 GiB action, 24Gi limits -> "31.24GB used of 15.03GB total", survived, far too tight
 #   28 GiB action, 40Gi limits -> "35.31GB used of 30.06GB total", survived, still short
 #   32 GiB action, 48Gi limits -> 38.7 GiB assignable, only ~6 GB over that 35.31GB peak
-#   32 GiB action, 64Gi limits -> this configuration, 54.7 GiB assignable
+#   32 GiB action, 64Gi limits -> that 64Gi configuration, 54.7 GiB assignable
 #
 # Surviving well over the cgroup limit each time means most of that usage is reclaimable page
 # cache -- disk-cache writes and --jobs=100 input uploads -- rather than resident demand. That
@@ -112,7 +116,7 @@ autoscaler:
 #     | grep "Initialized task scheduler"
 #
 # `requests` schedules comfortably at the value below: each cp2/cp3 worker has ~168 GiB
-# allocatable and was 13-24% requested back when 56Gi was the figure (now 72Gi, not
+# allocatable and was 13-24% requested back when the request was 56Gi (now 40Gi, not
 # re-measured). requests < limits makes this Burstable rather than
 # Guaranteed QoS: if the kubelet ever evicts the runner under node pressure, raising requests
 # is the fix -- but check node allocatable first, because a request nothing satisfies leaves
@@ -121,35 +125,31 @@ autoscaler:
 resources:
   requests:
     cpu: "12"
-    memory: "72Gi"
-    ephemeral-storage: "45Gi"
+    memory: "40Gi"
+    ephemeral-storage: "130Gi"
   limits:
     cpu: "16"
-    memory: "80Gi"
-    ephemeral-storage: "50Gi"
+    memory: "56Gi"
+    ephemeral-storage: "140Gi"
 
 # k8s-cp3-worker3 is eligible again. Same story as ./values.yaml: the 2026-08-09
 # DiskPressure pin was leftover after the cache moved to /mnt/buildbuddy. A second
 # workflow replica still needs hostname anti-affinity against other workflow pods
-# (shared hostPath), not an exclusion of this node.
+# (shared bazel-caches-workflows hostPath), not an exclusion of this node.
 
 extraVolumes:
-  # A DIFFERENT hostPath from ./values.yaml, and this is not cosmetic.
-  #
-  # hostPath is per node, and nothing stops this pod being scheduled onto a node that already
-  # runs a build executor. BuildBuddy's filecache assumes it owns its directory: it tracks
-  # size and evicts against local_cache_size_bytes. Two executors sharing one directory means
-  # two independent eviction loops deleting each other's entries while both believe they are
-  # under budget -- cache thrash at best, and each one's accounting is wrong.
+  # Per-pod bounded emptyDir instead of a node-shared hostPath (/mnt/buildbuddy/cache-workflows).
+  # Every executor pod instance creates its own <uuid> directory under /cache and never reclaims
+  # prior pods' UUID directories when rescheduled (see ./values.yaml). Kubelet enforces sizeLimit
+  # and deletes the volume when the pod leaves, and each pod has an isolated filecache directory
+  # even if two executors ever share a node.
   - name: cache-volume
-    hostPath:
-      # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
-      path: /mnt/buildbuddy/cache-workflows
-      type: DirectoryOrCreate
+    emptyDir:
+      sizeLimit: 120Gi
   # Bazel client REPO caches (repository, repo contents). Its own volume so a fresh runner
   # starts warm, and so the small files are not walked by the filecache startup scan. The
-  # client DISK cache is deliberately NOT here: several Bazel servers share one executor pod
-  # (two concurrent runs plus every parked recycled runner's resident server), and Bazel's
+  # client DISK cache is deliberately NOT here: a paused runner keeps a resident Bazel server
+  # beside the in-flight one, and Bazel's
   # per-server disk-cache GC races readers on a shared directory (Exit 34). It is also not
   # inside the runner workspace. `~` expands to /buildbuddy-execroot/.home, and that bind is
   # what max_runner_disk_size_bytes measures. build:ci --disk_cache is
@@ -306,20 +306,18 @@ config:
       # container that bind is /buildbuddy-execroot: the repo checkout, the sibling output-base,
       # and .home. A single real build clears the old 16GB default on checkout + output-base
       # alone. /home/buildbuddy/bazel-disk-cache is not under that bind (it is on the runner
-      # rootfs, in the home directory uid 1001 already owns), so this 100GB does not include
-      # the disk cache. The cache's own bound
-      # is build:ci --experimental_disk_cache_gc_max_size=50G per runner, on the cache-workflows
-      # xfs via the overlay. Capped rather than -1 because the workspace itself lands on the
-      # node's /mnt/buildbuddy volume; DiskPressure on that disk is what originally cost a node,
-      # not the OS root.
-      max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind; disk cache is outside it
-      # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
-      # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
-      # 2, not 1: with one slot, BazelCI and every other workflow on this pool evict each other's
-      # warm runner, and a cold `bazel build //...` costs up to ~36 min against 1-5 warm. A paused
-      # runner holds ~20 GB, so two idle plus one active build fit the 80Gi limit; farm01's 56Gi
-      # pods do not (see README).
-      max_runner_count: 2
+      # rootfs, in the home directory uid 1001 already owns), so this 60GB does not include
+      # the disk cache. That cache still sits on this volume: the runner rootfs overlay is
+      # /cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper inside the 120Gi emptyDir.
+      # Its idle target is build:ci --experimental_disk_cache_gc_max_size=6G. GC does not
+      # run until the server has been idle for 5 minutes, so the in-flight cache is larger.
+      # The one retired off the shared hostPath was ~22G. 40GB filecache + 60GB workspace
+      # leaves ~28.8GB of the 120Gi emptyDir, which holds that one cache and not a second.
+      max_runner_disk_size_bytes: 60000000000 # 60 GB workspace bind; disk cache is outside it, on this volume
+      # One paused slot, as on farm01 and in ./values-workflows-lig.yaml. BuildBuddy counts
+      # this against paused runners, and the in-flight runner is extra. A second paused
+      # runner would keep another disk cache on this emptyDir beside the ~22G in-flight one.
+      max_runner_count: 1
 
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
@@ -357,8 +355,9 @@ config:
             - rw
     local_cache_directory: /cache
 
-    # Read-through cache OF the remote CAS
-    # Plain int64 byte count: "100Gi" does not parse.
-    local_cache_size_bytes: 100000000000
+    # Read-through cache OF the remote CAS. On the 120Gi /cache emptyDir this shares with
+    # the workspace: 40GB + 60GB leaves ~28.8GB for the one in-flight runner disk cache.
+    # Plain int64 byte count: "40Gi" does not parse.
+    local_cache_size_bytes: 40000000000
     root_directory: /cache/remotebuilds/
     api_key: ""
