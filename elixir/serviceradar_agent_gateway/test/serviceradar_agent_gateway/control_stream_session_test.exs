@@ -1114,8 +1114,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
       assert [%{"disposition" => "permanent_failure"}] = hello_attrs.section_statuses
 
-      assert_receive {:committed, :record_config_ack,
-                      ["agent-ack", %{section_statuses: [%{"disposition" => "success"}]}]}
+      assert_receive {:committed, :record_config_ack, ["agent-ack", %{section_statuses: [%{"disposition" => "success"}]}]}
     end
 
     test "an unregistered session does not forward acks" do

@@ -468,6 +468,22 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	// them (the staged binary stays on disk; there is nothing system-level to tear down).
 	p.reconcileEphemeralHelpers(desiredEphemeral)
 
+	return p.finishEffectiveAddonAssignments(
+		ctx, manager, specs, deferredAddons, activationHeld, payloadHash, visibilityDisposition,
+	)
+}
+
+// finishEffectiveAddonAssignments applies the staged specs and reports the section
+// disposition once activation-held and delivery-deferred add-ons are known.
+func (p *PushLoop) finishEffectiveAddonAssignments(
+	ctx context.Context,
+	manager agentaddon.AddonManager,
+	specs []agentaddon.Spec,
+	deferredAddons []string,
+	activationHeld map[string]struct{},
+	payloadHash string,
+	visibilityDisposition addonDeliveryDisposition,
+) (addonDeliveryDisposition, error) {
 	if err := manager.Apply(ctx, specs); err != nil {
 		// A supervisor apply failure is environmental (an exec/launch race, a busy
 		// supervisor), not a structurally-broken assignment, so classify it TRANSIENT:

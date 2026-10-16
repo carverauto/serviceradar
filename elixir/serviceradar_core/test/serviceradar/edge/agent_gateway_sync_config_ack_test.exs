@@ -138,7 +138,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
       agent = reload!(uid, actor)
       assert agent.acked_config_version == "v1"
       assert agent.config_acked_at == acked_at
-      assert [%{"section" => "addons", "disposition" => "success"}] = agent.config_section_statuses
+
+      assert [%{"section" => "addons", "disposition" => "success"}] =
+               agent.config_section_statuses
 
       deferring = [
         %{
