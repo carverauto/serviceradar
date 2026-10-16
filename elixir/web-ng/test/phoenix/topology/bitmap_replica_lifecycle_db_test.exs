@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.VirtualizationHost
@@ -24,11 +23,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   @actor SystemActor.system(:bitmap_replica_lifecycle_test)
   @authority <<23::256>>
 
-  setup do
-    # Separate connections and real commits are essential: a shared sandbox
-    # transaction would make the supposedly invisible insertion visible to readers.
-    :ok = Sandbox.mode(Repo, :auto)
-    :ok = Sandbox.checkout(Repo, sandbox: false, ownership_timeout: 240_000)
+  setup context do
+    # Only the replica/late-commit case needs independent committed connections.
+    ServiceRadar.TestSupport.checkout_repo!(context)
+    if context[:sandbox] != :unboxed, do: Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
     suffix = Ecto.UUID.generate()
     ids = Enum.map(~w(first second late higher restarted), &("sr:bitmap-replica-#{suffix}-" <> &1))
     vendor = "bitmap-replica-#{suffix}"
@@ -45,19 +43,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     on_exit(fn ->
       try do
-        Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
-
-        Repo.update_all(from(d in Device, where: d.uid in ^ids),
-          set: [deleted_at: DateTime.utc_now(), deleted_reason: "synthetic replica fixture cleanup"]
-        )
-
-        records = Repo.all(from(d in Device, where: d.uid in ^ids, select: %{uid: d.uid}))
-        count = length(records)
-        assert {%{errors: 0}, ^count} = DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, records)
-        assert [] == Repo.all(from(d in Device, where: d.uid in ^ids and is_nil(d.identity_purged_at), select: d.uid))
+        if context[:sandbox] == :unboxed do
+          Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
+          ServiceRadar.TestSupport.delete_device_fixtures!(ids)
+        end
       after
-        Sandbox.mode(Repo, :manual)
-
         Enum.each(previous, fn
           {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
           {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
@@ -121,11 +111,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
         address: "203.0.113.7/24",
         ip_addresses: []
       })
-
-    on_exit(fn ->
-      Repo.delete_all(from(n in VirtualizationNetworkInterface, where: n.host_id == ^host.id))
-      Repo.delete_all(from(h in VirtualizationHost, where: h.id == ^host.id))
-    end)
 
     {:ok, info} = BitmapSource.initialize()
     epoch = <<42::128>>
@@ -198,6 +183,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     assert {:ok, %{ready: true, ip_available: false}} = Native.bitmap_index_status(index)
   end
 
+  @tag sandbox: :unboxed
   test "independent publishers recover missed notifications, late commits behind the cursor, and a cold restart", %{
     ids: [first_id, second_id, late_id, higher_id, restarted_id],
     vendor: vendor

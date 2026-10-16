@@ -1109,7 +1109,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       ids
     ])
 
-    ServiceRadar.TestSupport.purge_devices!(ids)
+    ServiceRadar.TestSupport.delete_device_fixtures!(ids)
 
     assert %{rows: [[0]]} =
              Repo.query!(

@@ -154,12 +154,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorActiveIpCrossHandoffTest do
   end
 
   defp cleanup_devices!(uids) do
-    uids
-    |> Enum.uniq()
-    |> Enum.each(fn uid ->
-      Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [uid])
-      TestSupport.purge_devices!([uid])
-    end)
+    uids = Enum.uniq(uids)
+
+    Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = ANY($1::text[])", [
+      uids
+    ])
+
+    TestSupport.delete_device_fixtures!(uids)
   end
 
   # Actually unique, which the hash-of-a-UUID version only claimed to be: it was a random

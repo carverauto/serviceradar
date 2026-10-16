@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias ExUnit.CaptureLog
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
@@ -1013,7 +1014,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
     assert [current] = devices_at(actor, ip)
     assert current.uid == successor.uid
-    assert row_state(actor, seed.uid) == retained
+
+    assert Map.drop(row_state(actor, seed.uid), [:metadata, :identity_revision, :version]) ==
+             Map.drop(retained, [:metadata, :identity_revision, :version])
+
+    assert include_deleted_device!(actor, seed.uid).metadata["_seed_successor"] == successor.uid
     assert include_deleted_device!(actor, seed.uid).deleted_reason == "seed_released"
 
     assert %{rows: [[^ordinal, true]]} =
@@ -1087,6 +1092,179 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     assert log =~ "Could not resolve seed uid #{uid} for #{ip}"
     assert devices_with_uids(actor, [uid, Ids.reseeded_device_id(uid)]) == []
+  end
+
+  test "a sweep keeps creating new identities after more than eight purge cycles", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    ip = unique_ip("long-seed-#{Ash.UUID.generate()}")
+    group = seed_sweep_group!(actor, "Sweep Long Seed #{Ash.UUID.generate()}")
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    root = seed.uid
+    root_ordinal = FleetIdentity.device_ordinal(root)
+    retire_and_purge!(actor, seed)
+    root_revision = identity_revision!(root)
+
+    {current, ordinals} =
+      Enum.reduce(1..9, {root, [root_ordinal]}, fn _cycle, {previous, ordinals} ->
+        created = sweep_seed!(actor, group, agent_id, ip)
+        assert created.uid == Ids.reseeded_device_id(previous)
+        ordinal = FleetIdentity.device_ordinal(created.uid)
+        refute ordinal in ordinals
+        retire_and_purge!(actor, created)
+        {created.uid, [ordinal | ordinals]}
+      end)
+
+    successor = sweep_seed!(actor, group, agent_id, ip)
+    assert successor.uid == Ids.reseeded_device_id(current)
+    refute FleetIdentity.device_ordinal(successor.uid) in ordinals
+    root_row = include_deleted_device!(actor, root)
+    assert root_row.metadata["_seed_successor"] == successor.uid
+    assert root_row.identity_purged_at
+    assert root_row.deleted_reason == "seed_released"
+    assert identity_revision!(root) > root_revision
+
+    assert %{rows: [[^root_ordinal, true]]} =
+             Repo.query!(
+               "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+               [root]
+             )
+
+    assert revival_audit_rows(root) == []
+  end
+
+  test "a sweep stores progress when one attempt examines eight reserved uids", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    ip = unique_ip("deferred-seed-#{Ash.UUID.generate()}")
+    group = seed_sweep_group!(actor, "Sweep Deferred Seed #{Ash.UUID.generate()}")
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    root = seed.uid
+    retire_and_purge!(actor, seed)
+
+    last =
+      Enum.reduce(1..8, root, fn _cycle, previous ->
+        created = sweep_seed!(actor, group, agent_id, ip)
+        assert created.uid == Ids.reseeded_device_id(previous)
+        retire_and_purge!(actor, created)
+        created.uid
+      end)
+
+    # Simulate a retained chain from before durable heads were introduced.
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET metadata = metadata - '_seed_successor', identity_revision = identity_revision + 1 WHERE uid = $1",
+      [root]
+    )
+
+    revision = identity_revision!(root)
+    chain = root |> Stream.iterate(&Ids.reseeded_device_id/1) |> Enum.take(9)
+
+    log =
+      CaptureLog.capture_log(fn ->
+        assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+      end)
+
+    assert log =~ "No free seed uid for #{ip} within 8 uids, the last #{Enum.at(chain, 7)} "
+    assert include_deleted_device!(actor, root).metadata["_seed_successor"] == last
+    assert identity_revision!(root) > revision
+    assert sweep_seed!(actor, group, agent_id, ip).uid == Ids.reseeded_device_id(last)
+  end
+
+  @tag sandbox: :unboxed
+  test "competing sweeps cannot rewind heads or advance them on a conflicting IP owner", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    ip = TestSupport.unique_device_ip()
+    group = seed_sweep_group!(actor, "Sweep Concurrent Seed #{Ash.UUID.generate()}", false)
+    root = address_seed_uid(ip)
+    second = Ids.reseeded_device_id(root)
+    third = Ids.reseeded_device_id(second)
+    fourth = Ids.reseeded_device_id(third)
+    other = "sr:concurrent-owner-#{Ash.UUID.generate()}"
+
+    on_exit(fn ->
+      TestSupport.delete_device_fixtures!([root, second, third, fourth, other])
+      Repo.query!("DELETE FROM platform.sweep_groups WHERE id = $1::text::uuid", [group.id])
+      IdentityCache.delete(ip)
+    end)
+
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    retire_and_purge!(actor, seed)
+    writers = for _ <- 1..2, do: start_sweep_writer!(actor, group, agent_id, ip)
+    tasks = Enum.map(writers, &elem(&1, 0))
+    backends = Enum.map(writers, &elem(&1, 1))
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Repo.query!(
+                 "SELECT uid FROM platform.ocsf_devices WHERE uid = $1 FOR NO KEY UPDATE",
+                 [root]
+               )
+
+               Enum.each(tasks, &send(&1.pid, :go))
+               await_blocked_sweeps!(backends, System.monotonic_time(:millisecond) + 10_000)
+               winner = sweep_seed!(actor, group, agent_id, ip)
+               assert winner.uid == second
+               retire_and_purge!(actor, winner)
+               assert sweep_seed!(actor, group, agent_id, ip).uid == third
+               :ok
+             end)
+
+    for task <- tasks, do: assert({:ok, _} = Task.await(task, 60_000))
+    assert [device] = devices_at(actor, ip)
+    assert device.uid == third
+    assert include_deleted_device!(actor, root).metadata["_seed_successor"] == third
+
+    ordinals =
+      for uid <- [root, second, third] do
+        %{rows: [[ordinal]]} =
+          Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [uid])
+
+        ordinal
+      end
+
+    assert ordinals |> Enum.uniq() |> length() == 3
+    assert revival_audit_rows(root) == []
+
+    retire_and_purge!(actor, device)
+    revision = identity_revision!(root)
+    {loser, backend} = start_sweep_writer!(actor, group, agent_id, ip)
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Repo.query!(
+                 "SELECT uid FROM platform.ocsf_devices WHERE uid = $1 FOR NO KEY UPDATE",
+                 [root]
+               )
+
+               send(loser.pid, :go)
+               await_blocked_sweeps!([backend], System.monotonic_time(:millisecond) + 10_000)
+
+               Device
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{uid: other, ip: ip, discovery_sources: ["netbox"]},
+                 actor: actor
+               )
+               |> Ash.create!()
+
+               :ok
+             end)
+
+    assert {:ok, _} = Task.await(loser, 60_000)
+    assert [winner] = devices_at(actor, ip)
+    assert winner.uid == other
+    assert include_deleted_device!(actor, root).metadata["_seed_successor"] == third
+    assert identity_revision!(root) == revision
+    assert devices_with_uids(actor, [fourth]) == []
+
+    assert %{rows: []} =
+             Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [
+               fourth
+             ])
   end
 
   test "ingest results resolves active device when cache contains stale duplicate IP record", %{
@@ -4271,12 +4449,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   defp single_result([result]), do: result
   defp single_result(result), do: result
 
-  defp seed_sweep_group!(actor, name) do
+  defp seed_sweep_group!(actor, name, enabled \\ true) do
     assert {:ok, group} =
              SweepGroup
              |> Ash.Changeset.for_create(
                :create,
-               %{name: name, partition: "default", agent_ids: []},
+               %{name: name, partition: "default", agent_ids: [], enabled: enabled},
                actor: actor
              )
              |> Ash.create()
@@ -4301,6 +4479,67 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     [seed] = results_from(page)
     assert seed.discovery_sources == ["sweep"]
     seed
+  end
+
+  defp retire_and_purge!(actor, seed) do
+    assert {:ok, _} =
+             Device.soft_delete(seed, "seed_released", "system:seed_release", actor: actor)
+
+    purge!(seed.uid)
+  end
+
+  defp start_sweep_writer!(actor, group, agent_id, ip) do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        :ok = Sandbox.checkout(Repo, sandbox: false)
+
+        try do
+          %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:sweep_backend, self(), backend})
+
+          receive do
+            :go -> ingest_seed(actor, group, agent_id, ip)
+          end
+        after
+          Sandbox.checkin(Repo)
+        end
+      end)
+
+    on_exit(fn ->
+      ref = Process.monitor(task.pid)
+      Process.exit(task.pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, _, _}, 5_000
+    end)
+
+    pid = task.pid
+    assert_receive {:sweep_backend, ^pid, backend}, 5_000
+    {task, backend}
+  end
+
+  defp await_blocked_sweeps!(backends, deadline) do
+    %{rows: [[blocked]]} =
+      Repo.query!(
+        "SELECT count(*) = cardinality($1::int[]) FROM pg_stat_activity " <>
+          "WHERE pid = ANY($1::int[]) AND pg_backend_pid() = ANY(pg_blocking_pids(pid))",
+        [backends]
+      )
+
+    if !blocked do
+      assert System.monotonic_time(:millisecond) < deadline,
+             "sweep writers never reached the held identity fence"
+
+      Process.sleep(10)
+      await_blocked_sweeps!(backends, deadline)
+    end
+  end
+
+  defp identity_revision!(uid) do
+    %{rows: [[revision]]} =
+      Repo.query!("SELECT identity_revision FROM platform.ocsf_devices WHERE uid = $1", [uid])
+
+    revision
   end
 
   defp address_seed_uid(ip) do

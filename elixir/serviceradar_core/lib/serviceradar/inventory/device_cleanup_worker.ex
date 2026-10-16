@@ -530,7 +530,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
 
     "UPDATE platform.ocsf_devices SET " <>
       cleared <>
-      ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at']::text[])), " <>
+      ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at', '_seed_successor']::text[])), " <>
       "partition = 'default', created_time = timezone('utc', now()), modified_time = timezone('utc', now()), " <>
       "identity_purged_at = now(), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end

@@ -159,5 +159,5 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
     |> Ash.create(actor: actor)
   end
 
-  defp destroy(uid), do: TestSupport.purge_devices!([uid])
+  defp destroy(uid), do: TestSupport.delete_device_fixtures!([uid])
 end

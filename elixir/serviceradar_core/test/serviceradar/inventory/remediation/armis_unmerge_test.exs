@@ -1811,7 +1811,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       [device_uids]
     )
 
-    TestSupport.purge_devices!(device_uids)
+    TestSupport.delete_device_fixtures!(device_uids)
 
     Repo.query!(
       "DELETE FROM platform.integration_sources WHERE id::text = ANY($1::text[])",

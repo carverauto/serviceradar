@@ -2204,7 +2204,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                    ])
                  end)
 
-                 ServiceRadar.TestSupport.purge_devices!([device_uid])
+                 ServiceRadar.TestSupport.delete_device_fixtures!([device_uid])
                  :ok
                end)
     end)

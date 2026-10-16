@@ -10,6 +10,10 @@ defmodule ServiceRadar.TestSupport do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.ProcessRegistry
 
+  @database_guard_path Path.expand("../../config/test_database_guard.exs", __DIR__)
+  @external_resource @database_guard_path
+  Code.require_file(@database_guard_path)
+
   @doc "Purges synthetic inventory payloads through retention while preserving permanent identities."
   def purge_devices!(uids) when is_list(uids) do
     uids
@@ -35,6 +39,104 @@ defmodule ServiceRadar.TestSupport do
         result -> raise "synthetic device payload cleanup failed: #{inspect(result)}"
       end
     end)
+
+    :ok
+  end
+
+  @doc """
+  Removes exact test-owned device identities from a disposable fixture database.
+
+  Only serial committing tests need this teardown; boxed tests roll back. Stop the
+  test's writers first. Production retention remains `purge_devices!/1`. The named
+  delete guard is suspended only inside this locked transaction, then restored before
+  commit; an error rolls back both the DDL and deletes. Ordinals are never reset/reused.
+  """
+  def delete_device_fixtures!([]), do: :ok
+
+  def delete_device_fixtures!(uids) when is_list(uids) do
+    validate_fixture_database!()
+    uids = Enum.uniq(uids)
+
+    {:ok, :ok} =
+      ServiceRadar.Repo.transaction(fn ->
+        ServiceRadar.Repo.query!("SET LOCAL lock_timeout = '1s'")
+        ServiceRadar.Repo.query!("SET LOCAL statement_timeout = '10s'")
+
+        ServiceRadar.Repo.query!(
+          "LOCK TABLE platform.ocsf_devices, platform.device_fleet_ordinals IN ACCESS EXCLUSIVE MODE NOWAIT"
+        )
+
+        assert_identity_delete_guard!()
+        purge_devices!(uids)
+
+        ServiceRadar.Repo.query!(
+          "ALTER TABLE platform.device_fleet_ordinals DISABLE TRIGGER trg_protect_fleet_identity_delete"
+        )
+
+        Enum.each(Enum.chunk_every(uids, 100), fn batch ->
+          ServiceRadar.Repo.query!(
+            "DELETE FROM platform.device_fleet_ordinals WHERE uid = ANY($1::text[])",
+            [batch]
+          )
+
+          ServiceRadar.Repo.query!(
+            "DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])",
+            [batch]
+          )
+        end)
+
+        ServiceRadar.Repo.query!(
+          "ALTER TABLE platform.device_fleet_ordinals ENABLE TRIGGER trg_protect_fleet_identity_delete"
+        )
+
+        assert_identity_delete_guard!()
+
+        %{rows: [[0]]} =
+          ServiceRadar.Repo.query!(
+            "SELECT (SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[])) + " <>
+              "(SELECT count(*) FROM platform.device_fleet_ordinals WHERE uid = ANY($1::text[]))",
+            [uids]
+          )
+
+        :ok
+      end)
+
+    :ok
+  end
+
+  defp validate_fixture_database! do
+    options = ServiceRadar.Repo.config()
+    database = Keyword.get(options, :database)
+    hostname = Keyword.get(options, :hostname)
+
+    if !(is_binary(database) and is_binary(hostname)),
+      do: raise("resolved fixture database destination is required")
+
+    ssl = Keyword.get(options, :ssl, [])
+    true = is_list(ssl) and Keyword.get(ssl, :verify) == :verify_peer
+
+    # Ecto consumes :url during configuration. Validate the resolved destination without
+    # reconstructing credentials, then check the actual checked-out connection as well.
+    url = URI.to_string(%URI{scheme: "postgresql", host: hostname, path: "/" <> database})
+
+    ServiceRadar.DB.TestDatabaseGuard.validate!(url,
+      tls_server_name: Keyword.get(ssl, :server_name_indication),
+      ssl_mode: "verify-full",
+      ca_configured?: Keyword.has_key?(ssl, :cacerts) or Keyword.has_key?(ssl, :cacertfile)
+    )
+
+    case ServiceRadar.Repo.query!("SELECT current_database()") do
+      %{rows: [[^database]]} -> :ok
+      _ -> raise "fixture connection database differs from validated configuration"
+    end
+  end
+
+  defp assert_identity_delete_guard! do
+    %{rows: [["O"]]} =
+      ServiceRadar.Repo.query!(
+        "SELECT tgenabled::text FROM pg_trigger WHERE tgrelid = 'platform.device_fleet_ordinals'::regclass " <>
+          "AND tgname = 'trg_protect_fleet_identity_delete' AND NOT tgisinternal"
+      )
 
     :ok
   end
