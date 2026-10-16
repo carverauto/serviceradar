@@ -86,11 +86,16 @@ Posting sets are immutable and shared across revisions; only changed postings
 are replaced. Conservative native accounting includes bitmap container
 capacities, map/string metadata, retained revisions and query results. The
 steady admission cap is 64,000,000 bytes and transient reservations are capped
-at 160,000,000 bytes per resource. Publication subtracts only a provably
-unretained retiring revision when checking steady admission; old and new
-allocations always remain charged against the transient limit. Full current
+at 160,000,000 bytes per resource. Allocation ownership distinguishes steady
+published revisions, accepted query pins and the dirty queue from transient
+expression/decode work. A shared admission lock atomically promotes new retained
+allocations and retires only provably unshared old allocations. All allocations
+remain charged against the transient limit until they are actually dropped. Full current
 rows reuse unchanged facet/live sets instead of duplicating them under readers.
 An allocation rejection leaves the published revision and membership unchanged.
+Portable decoding reserves bounded scratch from input size, including the
+checked decoder's allocation-before-EOF cases. Row intersection separately
+reserves from both decoded operands, so run compression cannot hide expansion.
 
 The serving owner must admit at most two index resources, including any awaiting
 reclamation, and at most two 32 MiB Atlas mappings. Those allocations sum to at
@@ -156,3 +161,47 @@ deletion, and query fencing while close waits for active work. The actual BEAM
 ABI passed in
 [3b243767](https://carverauto.buildbuddy.io/invocation/3b243767-6004-443d-adb9-ac3c65373d61);
 its only failing test was the subsequently corrected capacity-recovery assertion.
+
+The complete native view experiment is a separate declared target:
+
+```
+bazel test -c opt --config=remote \
+  //elixir/web-ng/native/god_view_nif:bitmap_view_scale_benchmark \
+  --test_output=all --flaky_test_attempts=1 --runs_per_test=3
+```
+
+It builds an actual Atlas world and canonical projection for the same synthetic
+1.1M-device inventory, then traverses 64 tiles per view. This fixture emits two
+leaves and one aggregate per tile. A saturation probe retains the first eight
+native query pins and verifies that the other 92 attempts reject admission.
+A second phase processes 100 complete views using eight native worker threads,
+one deadline per request and ten warmups. Each view exports its actual aggregate
+membership, projects all tile rows against one pinned query and checks exact
+total counts against the arithmetic fixture oracle. A harness gate models two
+Atlas export slots; its transient retries use a 100-microsecond backoff and are
+included in reported latency. This is not the BEAM/NIF gate, an HTTP/channel
+load test, or evidence that production callers implement those retries.
+
+An initial run was flaky; three subsequent runs in
+[1e02f956](https://carverauto.buildbuddy.io/invocation/1e02f956-4192-4217-b2f8-f479dbb1cc1b)
+all rejected most sparse views. That exposed a steady admission check counting
+other workers' transient allocations. Ownership-based accounting fixed it
+without raising either limit. In
+[6137b80f](https://carverauto.buildbuddy.io/invocation/6137b80f-5c80-4380-a498-8304fdc68ed1),
+all three independent runs completed every compact and sparse view; the native
+unit and sustained-churn targets also passed all three runs. Xeon Gold 6258R
+executors reported sparse request p95 of 393.8-415.8 ms and p99 of 456.0-507.8 ms;
+row projection p95 was 8.59-8.98 ms. Sparse native peak reservations reached
+159.85 MB with 13-14 explicit memory-admission retries. Atlas admission dominated
+latency, with approximately 76,000 retry attempts per 100-view wave.
+
+Each sparse view exported 2,260,672 portable bytes and produced 1,344 typed
+column bytes. Peak retained portable buffers across workers were 12.72 MB;
+these are separate from index accounting. The canonical mapping was 4,400,144
+bytes. The harness's two export slots can additionally retain up to 64 MiB
+of Atlas scratch. Process RSS was approximately 446,184 KiB, including world
+geometry and fixture scaffolding; neither that RSS nor the index accounting
+is a complete replica peak estimate including BEAM/browser memory.
+
+The actual BEAM boundary passed after the accounting change in
+[f107f2a7](https://carverauto.buildbuddy.io/invocation/f107f2a7-3e5e-4ca6-ba94-ea505294db24).

@@ -65,12 +65,15 @@ pub enum Kind {
 #[derive(Default)]
 struct Budget {
     used: AtomicUsize,
+    retained: AtomicUsize,
+    admission: Mutex<()>,
     peak: AtomicUsize,
     readers: AtomicUsize,
 }
 struct Charge {
     budget: Arc<Budget>,
     bytes: usize,
+    retained: AtomicBool,
 }
 impl Budget {
     fn reserve(self: &Arc<Self>, bytes: usize) -> Result<Charge, Error> {
@@ -84,7 +87,43 @@ impl Budget {
         Ok(Charge {
             budget: self.clone(),
             bytes,
+            retained: AtomicBool::new(false),
         })
+    }
+    // Only published revisions, accepted pins and the pending queue are steady
+    // allocations. Scratch and unfinished expressions remain transient. Serialize
+    // ownership transitions so concurrent admissions cannot oversubscribe steady
+    // memory; retirement is allowed only with the owner's lock and sole ownership.
+    fn admit<'a>(
+        &self,
+        additions: impl Iterator<Item = &'a Charge> + Clone,
+        retired: impl Iterator<Item = &'a Charge> + Clone,
+    ) -> Result<(), Error> {
+        let _admission = self.admission.try_lock().map_err(|_| "busy")?;
+        let added: usize = additions
+            .clone()
+            .filter(|charge| !charge.retained.load(Ordering::Acquire))
+            .map(|charge| charge.bytes)
+            .sum();
+        let removed: usize = retired
+            .clone()
+            .filter(|charge| charge.retained.load(Ordering::Acquire))
+            .map(|charge| charge.bytes)
+            .sum();
+        if self.retained.load(Ordering::Acquire) + added - removed > MAX_BYTES {
+            return Err("native_memory_budget");
+        }
+        for charge in retired {
+            if charge.retained.swap(false, Ordering::AcqRel) {
+                self.retained.fetch_sub(charge.bytes, Ordering::AcqRel);
+            }
+        }
+        for charge in additions {
+            if !charge.retained.swap(true, Ordering::AcqRel) {
+                self.retained.fetch_add(charge.bytes, Ordering::AcqRel);
+            }
+        }
+        Ok(())
     }
     fn reader(self: &Arc<Self>) -> Result<Reader, Error> {
         self.readers
@@ -97,6 +136,9 @@ impl Budget {
 }
 impl Drop for Charge {
     fn drop(&mut self) {
+        if self.retained.load(Ordering::Acquire) {
+            self.budget.retained.fetch_sub(self.bytes, Ordering::AcqRel);
+        }
         self.budget.used.fetch_sub(self.bytes, Ordering::AcqRel);
     }
 }
@@ -147,6 +189,23 @@ struct Revision {
     facets: BTreeMap<Facet, Arc<Bitmap>>,
     unavailable: BTreeSet<String>,
     _charge: Charge,
+}
+impl Revision {
+    fn charges(&self) -> impl Iterator<Item = &Charge> + Clone {
+        std::iter::once(&self._charge)
+            .chain(std::iter::once(&self.live.charge))
+            .chain(self.facets.values().map(|bitmap| &bitmap.charge))
+    }
+    fn retiring_charges(&self, sole_revision: bool) -> impl Iterator<Item = &Charge> + Clone {
+        std::iter::once(&self._charge)
+            .filter(move |_| sole_revision)
+            .chain(
+                std::iter::once(&self.live)
+                    .chain(self.facets.values())
+                    .filter(move |bitmap| sole_revision && Arc::strong_count(bitmap) == 1)
+                    .map(|bitmap| &bitmap.charge),
+            )
+    }
 }
 struct Pin {
     revision: Arc<Revision>,
@@ -245,6 +304,10 @@ impl Index {
             unavailable: BTreeSet::new(),
             _charge: budget.reserve(1024)?,
         });
+        budget.admit(
+            revision.charges().chain(std::iter::once(&charge)),
+            std::iter::empty(),
+        )?;
         Ok(Self {
             dictionary_epoch,
             index_epoch,
@@ -438,22 +501,13 @@ impl Index {
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
-        // While the revision lock is held no new reader can retain the old
-        // revision. Subtract only allocations that this swap provably retires;
-        // both revisions already passed transient admission on every allocation.
-        let retired = if Arc::strong_count(&old) == 2 {
-            old._charge.bytes
-                + std::iter::once(&old.live)
-                    .chain(old.facets.values())
-                    .filter(|bitmap| Arc::strong_count(bitmap) == 1)
-                    .map(|bitmap| bitmap.charge.bytes)
-                    .sum::<usize>()
-        } else {
-            0
-        };
-        if self.budget.used.load(Ordering::Acquire) - retired > MAX_BYTES {
-            return Err("native_memory_budget");
-        }
+        // The revision lock prevents a new reader retaining the old revision.
+        // Both versions have passed transient admission; only allocations proven
+        // to retire at this swap can offset the incoming steady ownership.
+        self.budget.admit(
+            next.charges(),
+            old.retiring_charges(Arc::strong_count(&old) == 2),
+        )?;
         *published = next;
         drop(published);
         self.active.store(ready, Ordering::Release);
@@ -506,7 +560,12 @@ impl Index {
             unavailable: BTreeSet::new(),
             _charge: self.budget.reserve(1024)?,
         };
-        *self.revision.try_lock().map_err(|_| "busy")? = Arc::new(empty);
+        let mut published = self.revision.try_lock().map_err(|_| "busy")?;
+        self.budget.admit(
+            empty.charges(),
+            published.retiring_charges(Arc::strong_count(&published) == 1),
+        )?;
+        *published = Arc::new(empty);
         Ok(())
     }
     pub fn query(
@@ -564,9 +623,6 @@ impl Index {
         let result = Bitmap::combine(&revision.live, &expression, 1, &self.budget)?;
         let pin_charge = self.budget.reserve(512)?;
         check_time(end)?;
-        if self.budget.used.load(Ordering::Acquire) > MAX_BYTES {
-            return Err("native_memory_budget");
-        }
         if !self.active.load(Ordering::Acquire)
             || self.fence.load(Ordering::Acquire) != accepted_fence
         {
@@ -586,6 +642,16 @@ impl Index {
         let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
         if pins.len() >= MAX_PINS {
             return Err("pin_budget");
+        }
+        // No other thread can see the new slot yet. Charge only the accepted
+        // result and pin; the expression stack is temporary and drops below.
+        {
+            let pin = slot.lock().map_err(|_| "poisoned")?;
+            let pin = pin.as_ref().ok_or("restart_required")?;
+            self.budget.admit(
+                [&pin.result.charge, &pin._charge].into_iter(),
+                std::iter::empty(),
+            )?;
         }
         pins.push(Arc::downgrade(&slot));
         Ok((
@@ -749,9 +815,7 @@ impl Query {
             return Err("bitmap_budget");
         }
         self.with_pin(authority, timeout_ms, |pin, end| {
-            // Checked portable decoding can hold container descriptions plus input
-            // and output buffers. Reserve worst-case bounded scratch before decoding.
-            let _scratch = self.budget.reserve(64 * 1024 * 1024)?;
+            let _scratch = self.budget.reserve(decode_reservation(bytes.len()))?;
             let bitmap = deserialize_bitmap(bytes)?;
             check_time(end)?;
             Ok(pin.result.set.intersection_len(&bitmap))
@@ -788,11 +852,7 @@ impl Query {
             return Err("bitmap_budget");
         }
         self.with_pin(authority, timeout_ms, |pin, end| {
-            let _scratch = self.budget.reserve(if input_bytes == 0 {
-                4096
-            } else {
-                64 * 1024 * 1024
-            })?;
+            let _columns = self.budget.reserve(4096)?;
             let mut mask = Vec::with_capacity(rows.len());
             let mut availability = Vec::with_capacity(rows.len());
             let mut counts = Vec::with_capacity(rows.len() * 4);
@@ -819,7 +879,14 @@ impl Query {
                         )
                     }
                     ViewRow::Aggregate(bytes) => {
-                        let members = deserialize_bitmap(bytes)? & &pin.result.set;
+                        let _decode = self.budget.reserve(decode_reservation(bytes.len()))?;
+                        let decoded = deserialize_bitmap(bytes)?;
+                        // Intersection may expand a run container; charge from both
+                        // decoded operands rather than compressed input length.
+                        let _intersection = self.budget.reserve(
+                            2 * (bitmap_bytes(&decoded) + pin.result.charge.bytes) + 4096,
+                        )?;
+                        let members = decoded & &pin.result.set;
                         check_time(end)?;
                         (
                             members.len(),
@@ -852,6 +919,19 @@ impl Query {
         *self.slot.try_lock().map_err(|_| "busy")? = None;
         Ok(())
     }
+}
+
+fn decode_reservation(input_bytes: usize) -> usize {
+    // roaring 0.11.4 keeps runs compressed. Checked decoding retains at most
+    // 65,536 container descriptors plus payload, with temporary descriptions,
+    // offsets and run validation. Sixteen times input bounds that storage;
+    // 1 MiB also covers allocations before a truncated payload fails (notably
+    // the u16 run count can allocate 262,140 bytes before read_exact). The full
+    // 8 MiB accepted input still fits the independent 64 MiB decoder ceiling.
+    input_bytes
+        .saturating_mul(16)
+        .saturating_add(1024 * 1024)
+        .min(64 * 1024 * 1024)
 }
 
 fn deserialize_bitmap(bytes: &[u8]) -> Result<RoaringBitmap, Error> {
@@ -1204,16 +1284,51 @@ mod tests {
             )
             .unwrap();
         let query = all(&index);
-        let members: RoaringBitmap = [2, u32::MAX].into_iter().collect();
-        let mut bytes = Vec::new();
-        members.serialize_into(&mut bytes).unwrap();
+        let mut runs: RoaringBitmap = (1..=1_000_000).collect();
+        runs.optimize();
+        assert!(runs.statistics().n_run_containers > 0);
+        let sparse: RoaringBitmap = (0..=u16::MAX as u32)
+            .map(|key| (key << 16) | u16::MAX as u32)
+            .collect();
+        for members in [runs, sparse] {
+            let mut bytes = Vec::new();
+            members.serialize_into(&mut bytes).unwrap();
+            assert_eq!(
+                query.count_serialized(b"allow", &[1; 16], &[2; 16], Kind::Device, &bytes, 1000),
+                Ok(1)
+            );
+            let (mask, causal, availability, counts) = query
+                .row_overlay(
+                    b"allow",
+                    &[1; 16],
+                    &[2; 16],
+                    Kind::Device,
+                    &[ViewRow::Aggregate(&bytes)],
+                    1000,
+                )
+                .unwrap();
+            assert_eq!(mask, [1]);
+            assert_eq!(causal, [3]);
+            assert_eq!(availability, [if members.contains(1) { 0 } else { 2 }]);
+            assert_eq!(counts, 1u32.to_le_bytes());
+            bytes.push(0);
+            assert_eq!(
+                query.count_serialized(b"allow", &[1; 16], &[2; 16], Kind::Device, &bytes, 1000),
+                Err("invalid_bitmap")
+            );
+        }
+        // Valid one-container run header followed by a maximum run count and
+        // missing payload exercises the decoder's allocation-before-EOF path.
+        let truncated_run = [0x3b, 0x30, 0, 0, 1, 0, 0, 0xff, 0xff, 0xff, 0xff];
         assert_eq!(
-            query.count_serialized(b"allow", &[1; 16], &[2; 16], Kind::Device, &bytes, 1000),
-            Ok(1)
-        );
-        bytes.push(0);
-        assert_eq!(
-            query.count_serialized(b"allow", &[1; 16], &[2; 16], Kind::Device, &bytes, 1000),
+            query.count_serialized(
+                b"allow",
+                &[1; 16],
+                &[2; 16],
+                Kind::Device,
+                &truncated_run,
+                1000
+            ),
             Err("invalid_bitmap")
         );
         query.close().unwrap();

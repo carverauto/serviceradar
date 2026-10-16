@@ -75,6 +75,7 @@ rust_test(
     name = "bitmap_scale_benchmark",
     srcs = [
         "fixtures/bitmap_benchmark.rs",
+        "fixtures/bitmap_fixture.rs",
         "src/bitmap_index.rs",
         "src/bitmap_pending.rs",
     ],
@@ -84,4 +85,20 @@ rust_test(
     tags = ["manual", "benchmark"],
     timeout = "long",
     deps = ["@crates//:roaring"],
+)
+
+rust_test(
+    name = "bitmap_view_scale_benchmark",
+    srcs = [
+        "fixtures/bitmap_fixture.rs",
+        "fixtures/bitmap_view_benchmark.rs",
+        "src/bitmap_index.rs",
+        "src/bitmap_pending.rs",
+    ],
+    crate_root = "fixtures/bitmap_view_benchmark.rs",
+    edition = "2021",
+    args = ["synthetic_native_views", "--nocapture"],
+    tags = ["manual", "benchmark"],
+    timeout = "long",
+    deps = ["//rust/topology-atlas:topology_atlas", "@crates//:roaring"],
 )
