@@ -961,6 +961,7 @@ ex_unit_test(
         "-r", "../../build/elixir_test_config_loader.exs",
         "-r", "test/integration/topology_bitmap_scale/harness_helper.exs",
     ],
+    target_compatible_with = ["@platforms//os:linux"],
     deps = [":erlang_app", "@hexpm//:gun"],
 )
 

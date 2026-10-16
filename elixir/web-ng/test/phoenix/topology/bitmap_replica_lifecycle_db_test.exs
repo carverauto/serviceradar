@@ -80,9 +80,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
        } do
     first = create(first_id, vendor, true)
     second = create(second_id, vendor, true)
-    Repo.update_all(from(d in Device, where: d.uid in ^[first.uid, second.uid]), set: [ip: "192.0.2.7"])
+    Repo.update_all(from(d in Device, where: d.uid == ^first.uid), set: [ip: "192.0.2.7"])
+    Repo.update_all(from(d in Device, where: d.uid == ^second.uid), set: [ip: "192.0.2.8"])
     first_ordinal = FleetIdentity.device_ordinal(first.uid)
     second_ordinal = FleetIdentity.device_ordinal(second.uid)
+
+    create_resource(Interface, %{
+      device_id: second.uid,
+      interface_uid: "example-shared",
+      timestamp: DateTime.utc_now(),
+      ip_addresses: ["192.0.2.7"]
+    })
 
     active_alias =
       DeviceAliasState
@@ -130,6 +138,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     for {cidr, expected} <- [
           {"192.0.2.7", Enum.sort(ordinals)},
+          {"192.0.2.8", [second_ordinal]},
           {"192.0.2.9", [first_ordinal]},
           {"198.51.100.7", [first_ordinal]},
           {"2001:db8::/64", [first_ordinal]},
