@@ -60,6 +60,25 @@ fn canonical_membership_excludes_promoted_and_unmapped_geometry_without_relayout
         Err(Error::OrdinalMappingNotReady)
     );
     let info = mapping.seal(&world).unwrap();
+    let mut replay = CanonicalOrdinals::new(&world, [0xFF; 16]).unwrap();
+    let reversed: Vec<_> = rows.iter().rev().cloned().collect();
+    for page in reversed.chunks(500) {
+        replay.apply(&world, page).unwrap();
+    }
+    let replayed = replay.seal(&world).unwrap();
+    assert_eq!(info.assignment, replayed.assignment);
+    assert_ne!(info.assignment, [0; 32]);
+    let mut changed_rows = rows.clone();
+    let first = changed_rows[0].1;
+    changed_rows[0].1 = changed_rows[1].1;
+    changed_rows[1].1 = first;
+    let mut changed = CanonicalOrdinals::new(&world, [0xFF; 16]).unwrap();
+    for page in changed_rows.chunks(500) {
+        changed.apply(&world, page).unwrap();
+    }
+    let changed_info = changed.seal(&world).unwrap();
+    assert_eq!(changed_info.mapped, info.mapped);
+    assert_ne!(changed_info.assignment, info.assignment);
     assert_eq!(info.dictionary_epoch, [0xFF; 16]);
     assert_eq!(
         (info.mapped, info.total, info.ready),

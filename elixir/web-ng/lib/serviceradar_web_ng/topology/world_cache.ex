@@ -33,9 +33,9 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
   def world(server \\ __MODULE__), do: call(server, :world)
 
   @doc "Install a sealed canonical mapping only while its exact native world is current."
-  def install_ordinals(world, ordinals, server \\ __MODULE__) do
+  def install_ordinals(world, ordinals, server \\ __MODULE__, progress \\ nil) do
     with {:ok, info} <- TopologyAtlas.ordinal_info(world, ordinals) do
-      call(server, {:install_ordinals, world, ordinals, info})
+      call(server, {:install_ordinals, world, ordinals, info, progress})
     end
   end
 
@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
 
         state = %{
           state
-          | current: %{world: world, manifest: manifest, ordinals: nil},
+          | current: %{world: world, manifest: manifest, ordinals: nil, dictionary_ordinal: nil},
             pinned: MapSet.new(Map.keys(prepared)),
             entries: entries,
             bytes: bytes,
@@ -128,19 +128,33 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
 
   def handle_call(:world, _from, state), do: {:reply, {:ok, state.current}, state}
 
-  def handle_call({:install_ordinals, world, ordinals, %{ready: true} = info}, _from, state) do
+  def handle_call({:install_ordinals, world, ordinals, %{ready: true} = info, progress}, _from, state) do
     if world == state.current.world do
-      projection = %{mapping: ordinals, info: info, completed_at: DateTime.utc_now()}
-      current = %{state.current | ordinals: projection}
+      recorded = if progress_tuple?(progress), do: progress
+
+      current =
+        case state.current.ordinals do
+          %{mapping: _mapping, info: %{dictionary_epoch: epoch, assignment: assignment}}
+          when epoch == info.dictionary_epoch and assignment == info.assignment and
+                 is_binary(assignment) and byte_size(assignment) == 32 ->
+            %{state.current | dictionary_ordinal: recorded || Map.get(state.current, :dictionary_ordinal)}
+
+          _ ->
+            projection = %{mapping: ordinals, info: info, completed_at: DateTime.utc_now()}
+            %{state.current | ordinals: projection, dictionary_ordinal: recorded}
+        end
+
       {:reply, :ok, %{state | current: current}}
     else
       {:reply, {:error, :source_changed}, state}
     end
   end
 
-  def handle_call({:install_ordinals, _world, _ordinals, _info}, _from, state), do: {:reply, {:error, :not_ready}, state}
+  def handle_call({:install_ordinals, _world, _ordinals, _info, _progress}, _from, state),
+    do: {:reply, {:error, :not_ready}, state}
 
-  def handle_call(:clear_ordinals, _from, state), do: {:reply, :ok, %{state | current: %{state.current | ordinals: nil}}}
+  def handle_call(:clear_ordinals, _from, state),
+    do: {:reply, :ok, %{state | current: %{state.current | ordinals: nil, dictionary_ordinal: nil}}}
 
   def handle_call({:fetch, key, priority}, from, state) do
     manifest = state.current.manifest
@@ -209,6 +223,9 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
         {:noreply, state}
     end
   end
+
+  defp progress_tuple?({high_water, rows}) when is_integer(high_water) and is_integer(rows), do: true
+  defp progress_tuple?(_progress), do: false
 
   defp admit(key, priority, from, state) do
     limit = if priority == :foreground, do: @max_builds, else: @max_builds - 1

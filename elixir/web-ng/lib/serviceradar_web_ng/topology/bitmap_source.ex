@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceFleetOrdinal
   alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.BitmapPrefixTags
 
   require Ash.Query
@@ -63,6 +64,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
   end
 
   def backfill(cursor), do: FleetIdentity.backfill_devices(cursor, limit: @page_size)
+
+  @doc "Highest allocated ordinal and exact row count; detects late commits below the high-water mark."
+  def dictionary_progress do
+    case Repo.query(
+           "SELECT COALESCE(MAX(ordinal), 0)::bigint, COUNT(*)::bigint FROM platform.device_fleet_ordinals",
+           [],
+           timeout: 5_000
+         ) do
+      {:ok, %{rows: [[high_water, rows]]}} when is_integer(high_water) and is_integer(rows) ->
+        {:ok, {high_water, rows}}
+
+      _ ->
+        {:error, :dictionary_unavailable}
+    end
+  end
 
   @doc "Stable canonical identities for a bounded Atlas ordinal projection, including tombstones."
   def identity_page(after_ordinal) do

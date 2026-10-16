@@ -43,7 +43,38 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
     assert {:ok, _info} = TopologyAtlas.apply_ordinals(world, mapping, [{"invented-device-a", 4_000_000_001}])
     assert {:ok, _info} = TopologyAtlas.seal_ordinals(world, mapping)
     assert :ok = WorldCache.install_ordinals(world, mapping, cache)
-    assert {:ok, %{ordinals: %{info: %{mapped: 1, total: 2}}}} = WorldCache.world(cache)
+
+    assert {:ok, %{ordinals: %{info: %{mapped: 1, total: 2, assignment: installed_assignment}, mapping: installed}}} =
+             WorldCache.world(cache)
+
+    assignment =
+      fn ->
+        assert {:ok, again} = TopologyAtlas.new_ordinals(world, <<17::128>>)
+        assert {:ok, _} = TopologyAtlas.apply_ordinals(world, again, [{"invented-device-a", 4_000_000_001}])
+        assert {:ok, %{assignment: assignment}} = TopologyAtlas.seal_ordinals(world, again)
+        assert byte_size(assignment) == 32
+        assert assignment == installed_assignment
+        assert :ok = WorldCache.install_ordinals(world, again, cache, {4_000_000_001, 1})
+        assert {:ok, %{ordinals: stable, dictionary_ordinal: {4_000_000_001, 1}}} = WorldCache.world(cache)
+        assert stable.mapping == installed
+        assignment
+      end
+      |> Task.async()
+      |> Task.await()
+
+    # The discarded request term can survive on the cache heap until collection;
+    # resource destruction then goes through the native bounded reclaimer.
+    :erlang.garbage_collect(cache)
+
+    assert {:ok, changed} =
+             await_ordinal(world, <<17::128>>, System.monotonic_time(:millisecond) + 1_000)
+
+    assert {:ok, _} = TopologyAtlas.apply_ordinals(world, changed, [{"invented-device-a", 4_000_000_002}])
+    assert {:ok, %{assignment: other}} = TopologyAtlas.seal_ordinals(world, changed)
+    refute other == assignment
+    assert :ok = WorldCache.install_ordinals(world, changed, cache, {4_000_000_002, 1})
+    assert {:ok, %{ordinals: replaced}} = WorldCache.world(cache)
+    refute replaced.mapping == installed
     assert {:ok, health} = TopologyAtlas.new_health(world, 1)
     assert {:ok, %{glyphs: health_rows}} = TopologyAtlas.tile_health(world, health, first.selection)
     assert Enum.map(first.glyphs, & &1.id) == Enum.map(health_rows, & &1.id)
@@ -259,6 +290,23 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
 
     {:ok, world} = TopologyAtlas.finish_world(builder)
     world
+  end
+
+  defp await_ordinal(world, epoch, deadline) do
+    case TopologyAtlas.new_ordinals(world, epoch) do
+      {:error, :busy} = error ->
+        if System.monotonic_time(:millisecond) < deadline do
+          receive do
+          after
+            1 -> await_ordinal(world, epoch, deadline)
+          end
+        else
+          error
+        end
+
+      result ->
+        result
+    end
   end
 
   defp position(id, coordinate) do

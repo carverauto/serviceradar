@@ -794,6 +794,9 @@ impl Index {
         };
         let slot = Arc::new(Mutex::new(Some(pin)));
         let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err("not_ready");
+        }
         if pins.len() >= MAX_PINS {
             return Err("pin_budget");
         }
