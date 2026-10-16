@@ -34,6 +34,13 @@ if !Process.whereis(ServiceRadar.PubSub) do
   Process.unlink(pubsub)
 end
 
+# Core's application starts the relay-host :pg scope; the relay pipeline manager
+# advertises into it, so it has to exist before the supervision tree.
+if !Process.whereis(:serviceradar_camera_relay_hosts) do
+  {:ok, relay_hosts} = :pg.start_link(:serviceradar_camera_relay_hosts)
+  Process.unlink(relay_hosts)
+end
+
 if !Process.whereis(ServiceRadarCoreElx.Supervisor) do
   case ServiceRadarCoreElx.Application.start(:normal, []) do
     {:ok, supervisor} ->
