@@ -288,8 +288,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   #     acknowledged within `config_ack_timeout` while remaining connected. The
   #     rule is anchored on the PUSHED version (not on ack staleness alone), so a
   #     quiet fleet with no config changes never false-positives. It also requires
-  #     the push to still be OUTSTANDING — the agent must not have committed any
-  #     version since the push was recorded (see `push_still_outstanding?/1`), so a
+  #     the push to still be OUTSTANDING (see `push_still_outstanding?/1`). A
   #     stale proactive-push snapshot the agent skipped past by converging on a
   #     newer version via the poll path does not false-wedge (and flap) a healthy
   #     agent that is already running the version core currently generates.
@@ -385,32 +384,37 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
   defp unacked_push?(agent, threshold) do
     is_binary(agent.pushed_config_version) and agent.pushed_config_version != "" and
-      agent.pushed_config_version != agent.acked_config_version and
       not is_nil(agent.config_pushed_at) and
       DateTime.before?(agent.config_pushed_at, threshold) and
       push_still_outstanding?(agent)
   end
 
-  # A pushed version only counts as un-acked while it is still OUTSTANDING: the
-  # agent must not have committed any config version since the push was recorded.
-  #
-  # `config_pushed_at` is anchored to a version's FIRST proactive control-stream
-  # push. `config_acked_at` advances (debounced on the version) whenever the agent
-  # reports a newly-committed version — including versions it converged on via the
-  # config POLL path, which delivers the latest config but never updates
-  # `pushed_config_version`. So `pushed_config_version` can freeze on a proactive-push
-  # snapshot while the agent moves on to a newer version via poll, leaving
-  # `pushed != acked` forever even though the agent runs exactly what core generates.
-  #
-  # If the agent acked at or after the push, it has committed a version more recent
-  # than the pushed snapshot: the push is obsolete (superseded), not wedged. A
-  # genuinely stuck agent never commits past the push — its committed version stays
-  # frozen, so the debounced ack timestamp predates the push (or is absent).
-  defp push_still_outstanding?(%{config_acked_at: nil}), do: true
+  @doc """
+  Whether the recorded config push is still outstanding.
 
-  defp push_still_outstanding?(agent) do
-    DateTime.before?(agent.config_acked_at, agent.config_pushed_at)
+  Outstanding requires the pushed version to differ from the acked version, and
+  the agent not to have acked at or after `config_pushed_at`. A matching acked
+  version is not outstanding even when that ack's timestamp precedes the push
+  stamp. When the versions differ, an ack at or after the push means the agent
+  committed a newer version — including via config poll, which does not update
+  `pushed_config_version` — and the push snapshot is obsolete. A stuck agent
+  never commits past the push, so its ack timestamp predates the push or is
+  absent.
+
+  `AgentGatewaySync.record_config_push/2` keeps `config_pushed_at` on the oldest
+  push for which this returns true.
+  """
+  @spec push_still_outstanding?(map()) :: boolean()
+  def push_still_outstanding?(%{
+        config_pushed_at: %DateTime{} = pushed_at,
+        pushed_config_version: pushed,
+        acked_config_version: acked,
+        config_acked_at: acked_at
+      }) do
+    pushed != acked and (is_nil(acked_at) or DateTime.before?(acked_at, pushed_at))
   end
+
+  def push_still_outstanding?(_agent), do: false
 
   defp maybe_mark_config_unhealthy(%Agent{config_health: :unhealthy}, _reason, _metadata, _actor),
     do: :ok

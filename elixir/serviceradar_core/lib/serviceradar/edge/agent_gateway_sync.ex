@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadar.Infrastructure.StateMonitor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -142,9 +143,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @doc """
   Records the config version most recently pushed to an agent over the control
-  stream. The first-push timestamp of a version anchors wedge detection (an agent
-  that never acks a pushed version becomes config-unhealthy after the window), so a
-  re-push of the same version does not refresh it.
+  stream.
+
+  `config_pushed_at` is the no-ack wedge anchor. A same-version re-push leaves it
+  unchanged. A newer version keeps the recorded anchor while
+  `StateMonitor.push_still_outstanding?/1` is true, and otherwise takes this
+  push's timestamp. Re-anchoring on every superseding version would restart the
+  no-ack window and report a still-wedged agent as recovered.
   """
   @spec record_config_push(String.t(), map()) :: :ok | {:error, term()}
   def record_config_push(agent_id, attrs) do
@@ -159,10 +164,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ok
 
       {:ok, %Agent{} = agent} ->
+        pushed_at = Map.get(attrs, :pushed_at) || DateTime.utc_now()
+
         agent
         |> Ash.Changeset.for_update(:record_config_push, %{
           pushed_config_version: version,
-          config_pushed_at: Map.get(attrs, :pushed_at) || DateTime.utc_now()
+          config_pushed_at: push_anchor(agent, pushed_at)
         })
         |> Ash.update(actor: actor)
         |> case do
@@ -173,6 +180,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp push_anchor(%Agent{} = agent, pushed_at) do
+    if StateMonitor.push_still_outstanding?(agent), do: agent.config_pushed_at, else: pushed_at
   end
 
   defp maybe_put_section_statuses(attrs, statuses) when is_list(statuses),

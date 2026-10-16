@@ -55,8 +55,10 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   end
 
   @doc """
-  Persists the config version pushed to an agent over the control stream. The
-  first-push timestamp of a version anchors the no-ack wedge window on core.
+  Persists the config version pushed to an agent over the control stream.
+
+  Core decides whether this push moves `config_pushed_at`. See
+  `ServiceRadar.Edge.AgentGatewaySync.record_config_push/2`.
   """
   @spec record_config_push(String.t(), String.t()) :: :ok | {:error, term()}
   def record_config_push(agent_id, config_version) do

@@ -835,7 +835,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     attribute :config_pushed_at, :utc_datetime do
       public? true
-      description "When the currently-pushed config version was first pushed"
+
+      description "Anchor of the oldest outstanding config push. A matching acked " <>
+                    "version, or an ack at or after this time, lets the next push replace it"
     end
 
     attribute :config_health, :atom do
