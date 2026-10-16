@@ -52,6 +52,52 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
     end
   end
 
+  @doc "Bounds the final delivery authorization read by the response's original deadline."
+  def confirm_delivery(scope, expected_authority, deadline) do
+    with :ok <- enabled(),
+         {:ok, :authorized} <-
+           bounded(
+             fn ->
+               with {:ok, authority} <- BitmapAuthority.current(scope),
+                    true <- authority == expected_authority do
+                 {:ok, :authorized}
+               else
+                 false -> {:error, :forbidden}
+                 error -> error
+               end
+             end,
+             deadline
+           ) do
+      :ok
+    end
+  end
+
+  @doc "Shared retry and authorization errors for HTTP queries and streamed Atlas overlays."
+  def normalize({:ok, _} = result), do: result
+
+  def normalize({:error, reason})
+      when reason in [
+             "pin_budget",
+             "reader_budget",
+             "native_memory_budget",
+             "publisher_busy",
+             "reader_busy",
+             "busy",
+             :busy
+           ], do: {:error, :query_busy}
+
+  def normalize({:error, reason}) when reason in ["deadline_exceeded", :timeout], do: {:error, :query_timeout}
+
+  def normalize({:error, reason}) when reason in ["not_ready", "closed", :index_unavailable],
+    do: {:error, :index_not_ready}
+
+  def normalize({:error, reason}) when reason in ["restart_required", "identity_mismatch", "revision_conflict"],
+    do: {:error, :source_changed}
+
+  def normalize({:error, reason}) when reason in ["authority_mismatch", "invalid_authority"], do: {:error, :forbidden}
+  def normalize({:error, reason} = result) when is_atom(reason) or is_binary(reason), do: result
+  def normalize(_), do: {:error, :query_unavailable}
+
   defp dispatch(scope, params, fun, opts) do
     with :ok <- enabled(), :ok <- BitmapExpression.request_budget(params) do
       deadline = min(Keyword.get(opts, :deadline, now() + @deadline_ms), now() + @deadline_ms)
@@ -173,7 +219,4 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   defp enabled, do: if(enabled?(), do: :ok, else: {:error, :bitmap_disabled})
   defp now, do: System.monotonic_time(:millisecond)
-  defp normalize({:ok, _} = result), do: result
-  defp normalize({:error, reason} = result) when is_atom(reason) or is_binary(reason), do: result
-  defp normalize(_), do: {:error, :query_unavailable}
 end
