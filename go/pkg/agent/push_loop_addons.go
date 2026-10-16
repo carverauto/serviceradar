@@ -210,7 +210,8 @@ func gatewayArtifactDownloadRequiresMTLS(downloadURL string) bool {
 
 // errAddonAssignmentsDeferred is the section-level error reported when one or more
 // add-on assignments failed transiently this cycle (the version defers and retries).
-var errAddonAssignmentsDeferred = errors.New("one or more add-on assignments had transient delivery failures")
+// It is wrapped in an addonAssignmentsDeferredError naming the add-ons.
+var errAddonAssignmentsDeferred = errors.New("one or more add-on assignments did not apply yet")
 
 // errAddonAssignmentsPermanent is the section-level error wrapped around the aggregated
 // per-add-on permanent delivery failures reported on the config ack.
@@ -352,14 +353,14 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	specs := make([]agentaddon.Spec, 0, len(assignments))
 	desiredSystemd := make(map[string]bool)
 	desiredEphemeral := make(map[string]bool)
-	// blockAck stays true only while every assignment either succeeded or failed in a
-	// way that may clear on its own (transient). A PERMANENT artifact-delivery failure
-	// (404 not-found, sha mismatch, invalid signature, incomplete reference, …) is
-	// recorded as per-add-on failure status and backed off, but does NOT block the
-	// config-version ack: the assignment is broken upstream, so wedging the whole config
-	// apply would only freeze every other config section behind a permanently-404ing
-	// artifact (the live ns05 bug).
-	blockAck := false
+	// deferredAddons lists the assignments that failed in a way that may clear on its
+	// own (transient); any entry blocks the config-version ack. A PERMANENT
+	// artifact-delivery failure (404 not-found, sha mismatch, invalid signature,
+	// incomplete reference, …) is recorded as per-add-on failure status and backed off,
+	// but does NOT block the config-version ack: the assignment is broken upstream, so
+	// wedging the whole config apply would only freeze every other config section behind
+	// a permanently-404ing artifact.
+	var deferredAddons []string
 	now := time.Now()
 
 	for _, a := range assignments {
@@ -379,13 +380,12 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 
 		switch classifyAddonSupervision(supervision) {
 		case addonDispatchSidecar:
-			if spec, ok, disposition := p.buildSidecarAddonSpec(ctx, a, delivery, now); ok {
+			spec, ok, disposition := p.buildSidecarAddonSpec(ctx, a, delivery, now)
+			if ok {
 				specs = append(specs, spec)
-				if disposition == addonDeliveryTransientFailure {
-					blockAck = true
-				}
-			} else if disposition == addonDeliveryTransientFailure {
-				blockAck = true
+			}
+			if disposition == addonDeliveryTransientFailure {
+				deferredAddons = append(deferredAddons, a.GetAddonId())
 			}
 		case addonDispatchConfigToggle:
 			// Compiled-in capability selected by this assignment; it self-configures
@@ -404,14 +404,14 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 				continue
 			}
 			if p.applySystemdAddon(ctx, a, delivery, supervision, now) == addonDeliveryTransientFailure {
-				blockAck = true
+				deferredAddons = append(deferredAddons, a.GetAddonId())
 			}
 		case addonDispatchEphemeral:
 			// Mark desired regardless of this round's outcome so a transient delivery
 			// failure does not deregister a still-desired helper.
 			desiredEphemeral[a.GetAddonId()] = true
 			if p.applyEphemeralAddon(ctx, a, delivery, now) == addonDeliveryTransientFailure {
-				blockAck = true
+				deferredAddons = append(deferredAddons, a.GetAddonId())
 			}
 		case addonDispatchUnsupported:
 			// An unsupported supervision model is permanent (the agent will never grow
@@ -450,7 +450,14 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 		// the version defers and the reconcile retries next cycle. It must not wedge the
 		// apply pipeline — the caller keeps evaluating the remaining config sections.
 		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
-		return addonDeliveryTransientFailure, fmt.Errorf("apply add-on assignments via supervisor: %w", err)
+		supervised := make([]string, 0, len(specs))
+		for _, spec := range specs {
+			supervised = append(supervised, spec.ID)
+		}
+		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
+			addonIDs: supervised,
+			err:      fmt.Errorf("apply add-on assignments via supervisor: %w", err),
+		}
 	}
 
 	if len(specs) > 0 {
@@ -460,8 +467,11 @@ func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
 	// Only transient delivery failures defer the config-version ack. Permanent ones were
 	// recorded as per-add-on failure status and backed off above, so the agent acks the
 	// config version and stops re-applying the whole config every poll.
-	if blockAck {
-		return addonDeliveryTransientFailure, errAddonAssignmentsDeferred
+	if len(deferredAddons) > 0 {
+		return addonDeliveryTransientFailure, &addonAssignmentsDeferredError{
+			addonIDs: deferredAddons,
+			err:      errAddonAssignmentsDeferred,
+		}
 	}
 
 	// Surface still-standing permanent per-add-on failures as the section status carried

@@ -34,6 +34,9 @@ import (
 
 var errTestSectionBoom = errors.New("section boom")
 
+// testNetprobeAddonStatusName is the AddonStatus entry name of the netprobe add-on.
+const testNetprobeAddonStatusName = "addon:" + testNetprobeAddonID
+
 // icmpCheckCount reports how many ICMP checks the config apply installed — the
 // observable proof that the check section (which runs AFTER the add-on and visibility
 // sections) was still evaluated in the same cycle.
@@ -157,9 +160,11 @@ func TestApplyConfigResponseBumblebeeTransientDefersWithoutSkippingLaterSections
 	if got := icmpCheckCount(pl); got != 1 {
 		t.Fatalf("icmp checks applied = %d, want 1: later sections must still apply in the same cycle", got)
 	}
-	// Transient failures are not persisted as section failure state.
-	if failures := pl.configSectionFailureSnapshot(); len(failures) != 0 {
-		t.Fatalf("transient failure must not be recorded as section state, got %v", failures)
+	// One transient attempt is recorded as transient (reported on the hello) and stays
+	// below the escalation bound, so it defers rather than committing.
+	failure, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]
+	if !ok || failure.disposition != addonDeliveryTransientFailure || failure.attempts != 1 {
+		t.Fatalf("bumblebee failure = %+v (recorded=%v), want one transient attempt", failure, ok)
 	}
 }
 
@@ -248,15 +253,15 @@ func TestApplyConfigResponseNetprobeParseErrorCommitsAndReportsSection(t *testin
 	if !strings.Contains(failure.reason, "capture_interfaces") {
 		t.Fatalf("visibility failure reason = %q, want the decoder error verbatim", failure.reason)
 	}
-	if failure.addonID != agentnetprobe.DefaultSidecarName {
-		t.Fatalf("visibility failure addonID = %q, want %q", failure.addonID, agentnetprobe.DefaultSidecarName)
+	if len(failure.addonIDs) != 1 || failure.addonIDs[0] != agentnetprobe.DefaultSidecarName {
+		t.Fatalf("visibility failure addonIDs = %q, want [%q]", failure.addonIDs, agentnetprobe.DefaultSidecarName)
 	}
 	if failure.since.IsZero() {
 		t.Fatal("visibility failure must carry a since timestamp")
 	}
 
 	// The ack carries the failed section status; the other sections read success.
-	statuses := pl.configSectionAckStatuses()
+	statuses := pl.configSectionStatuses()
 	bySection := make(map[string]*proto.ConfigSectionStatus, len(statuses))
 	for _, status := range statuses {
 		bySection[status.GetSection()] = status
@@ -376,7 +381,7 @@ func TestConfigApplyFailureStatusesOverridesRunningAddon(t *testing.T) {
 	if len(statuses) != 1 {
 		t.Fatalf("synthesized statuses = %d, want 1 (%v)", len(statuses), statuses)
 	}
-	if statuses[0].GetName() != "addon:netprobe" ||
+	if statuses[0].GetName() != testNetprobeAddonStatusName ||
 		statuses[0].GetState() != string(agentaddon.StateUnhealthy) ||
 		!strings.Contains(statuses[0].GetLastError(), "section boom") {
 		t.Fatalf("synthesized status = %v, want unhealthy addon:netprobe with the failure reason", statuses[0])
@@ -384,7 +389,7 @@ func TestConfigApplyFailureStatusesOverridesRunningAddon(t *testing.T) {
 
 	// A RUNNING entry for the same add-on is overridden in place (config-broken must not
 	// read as healthy), and no duplicate entry is appended.
-	existing := []*proto.SidecarStatus{{Name: "addon:netprobe", State: string(agentaddon.StateRunning)}}
+	existing := []*proto.SidecarStatus{{Name: testNetprobeAddonStatusName, State: string(agentaddon.StateRunning)}}
 	extra := pl.configApplyFailureStatuses(existing)
 	if len(extra) != 0 {
 		t.Fatalf("expected no synthesized duplicates, got %v", extra)
@@ -442,7 +447,7 @@ func TestApplyConfigResponseAddonPermanentFailureReportedOnAckSection(t *testing
 		t.Fatal("a permanent add-on delivery failure must not defer the version")
 	}
 
-	statuses := pl.configSectionAckStatuses()
+	statuses := pl.configSectionStatuses()
 	for _, status := range statuses {
 		if status.GetSection() != configSectionAddons {
 			continue
@@ -456,4 +461,186 @@ func TestApplyConfigResponseAddonPermanentFailureReportedOnAckSection(t *testing
 		return
 	}
 	t.Fatal("no addons section status found on the ack")
+}
+
+// backdateConfigSectionFailure moves a recorded section failure's first-seen time into
+// the past, standing in for the wall-clock time that passes between config resends.
+func backdateConfigSectionFailure(t *testing.T, pl *PushLoop, section string, by time.Duration) {
+	t.Helper()
+
+	pl.configSectionMu.Lock()
+	defer pl.configSectionMu.Unlock()
+
+	failure, ok := pl.configSectionFailures[section]
+	if !ok {
+		t.Fatalf("no recorded %s failure to backdate", section)
+	}
+	failure.since = failure.since.Add(-by)
+	pl.configSectionFailures[section] = failure
+}
+
+// sentConfigAcks returns the config acks the agent sent on the control stream.
+func sentConfigAcks(stream *fakeControlStreamClient) []*proto.ConfigAck {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+
+	var acks []*proto.ConfigAck
+	for _, req := range stream.sent {
+		if ack := req.GetConfigAck(); ack != nil {
+			acks = append(acks, ack)
+		}
+	}
+
+	return acks
+}
+
+func sectionStatus(statuses []*proto.ConfigSectionStatus, section string) *proto.ConfigSectionStatus {
+	for _, status := range statuses {
+		if status.GetSection() == section {
+			return status
+		}
+	}
+
+	return nil
+}
+
+// An add-on assignment that never stops failing transiently (here a 5xx artifact
+// download; in the field, a native add-on whose new version never passes health) used
+// to defer the version commit forever. Once the escalation bound is reached for the
+// same payload, the version commits and the ack reports the add-on section as a
+// permanent failure naming the add-on, which also reads unhealthy rather than applied.
+func TestControlConfigTransientAddonFailureEscalatesAfterBound(t *testing.T) {
+	srv, _ := statusServer(t, http.StatusServiceUnavailable)
+	pl := newDeliveryTestPushLoop(t)
+	pl.setConfigVersion(testOldConfigVersion)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	cfg := &proto.AgentConfigResponse{
+		ConfigVersion: testNewConfigVersion,
+		Addons:        []*proto.AddonAssignmentConfig{sidecar404Assignment("netprobe", srv.URL)},
+	}
+
+	// Reaching the attempt count quickly (a burst of resends) is not enough on its own.
+	for range transientSectionEscalationAttempts {
+		pl.applyControlConfig(t.Context(), cfg, sender)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 0 {
+		t.Fatalf("sent %d config acks before the escalation age, want 0", len(acks))
+	}
+	if got := pl.getConfigVersion(); got != testOldConfigVersion {
+		t.Fatalf("config version = %q, want %s while the bound is not reached", got, testOldConfigVersion)
+	}
+
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	firstSeen := pl.configSectionFailureSnapshot()[configSectionAddons].since
+
+	pl.applyControlConfig(t.Context(), cfg, sender)
+
+	acks := sentConfigAcks(stream)
+	if len(acks) != 1 {
+		t.Fatalf("sent %d config acks after the bound, want 1", len(acks))
+	}
+	if got := acks[0].GetConfigVersion(); got != testNewConfigVersion {
+		t.Fatalf("acked version = %q, want %s", got, testNewConfigVersion)
+	}
+	if got := pl.getConfigVersion(); got != testNewConfigVersion {
+		t.Fatalf("committed version = %q, want %s", got, testNewConfigVersion)
+	}
+
+	addons := sectionStatus(acks[0].GetSectionStatuses(), configSectionAddons)
+	if addons.GetDisposition() != configSectionDispositionPermanent {
+		t.Fatalf("ack addons disposition = %q, want %q", addons.GetDisposition(), configSectionDispositionPermanent)
+	}
+	if !strings.Contains(addons.GetError(), "netprobe") {
+		t.Fatalf("ack addons error = %q, want it to name the add-on", addons.GetError())
+	}
+	if addons.GetSince() != firstSeen.Unix() {
+		t.Fatalf("ack addons since = %d, want the first transient observation %d", addons.GetSince(), firstSeen.Unix())
+	}
+
+	statuses := pl.configApplyFailureStatuses(nil)
+	if len(statuses) != 1 || statuses[0].GetName() != testNetprobeAddonStatusName ||
+		statuses[0].GetState() != string(agentaddon.StateUnhealthy) {
+		t.Fatalf("add-on statuses = %v, want addon:netprobe unhealthy", statuses)
+	}
+}
+
+// The escalation is per payload: an escalated section is still re-attempted (the
+// condition may clear), a changed payload starts a fresh count, and a success clears the
+// state so the same payload failing again starts over as transient.
+func TestApplyConfigSectionTransientEscalationReArms(t *testing.T) {
+	pl := newDeliveryTestPushLoop(t)
+
+	calls := 0
+	transient := func() (addonDeliveryDisposition, error) {
+		calls++
+		return addonDeliveryTransientFailure, errTestSectionBoom
+	}
+	succeeded := func() (addonDeliveryDisposition, error) { return addonDeliverySucceeded, nil }
+
+	for range transientSectionEscalationAttempts {
+		if got := pl.applyConfigSection(configSectionBumblebee, "v1", "hash-a", transient); got != addonDeliveryTransientFailure {
+			t.Fatalf("disposition before the bound = %v, want transient", got)
+		}
+	}
+	backdateConfigSectionFailure(t, pl, configSectionBumblebee, transientSectionEscalationAge)
+
+	if got := pl.applyConfigSection(configSectionBumblebee, "v2", "hash-a", transient); got != addonDeliveryPermanentFailure {
+		t.Fatalf("disposition at the bound = %v, want permanent", got)
+	}
+	callsAtEscalation := calls
+	if got := pl.applyConfigSection(configSectionBumblebee, "v3", "hash-a", transient); got != addonDeliveryPermanentFailure {
+		t.Fatalf("disposition after escalation = %v, want permanent", got)
+	}
+	if calls != callsAtEscalation+1 {
+		t.Fatal("an escalated transient section must still be re-attempted, not skipped")
+	}
+
+	if got := pl.applyConfigSection(configSectionBumblebee, "v4", "hash-b", transient); got != addonDeliveryTransientFailure {
+		t.Fatalf("disposition after a payload change = %v, want transient", got)
+	}
+	if got := pl.configSectionFailureSnapshot()[configSectionBumblebee]; got.attempts != 1 || got.version != "v4" {
+		t.Fatalf("failure after a payload change = %+v, want a fresh count from v4", got)
+	}
+
+	backdateConfigSectionFailure(t, pl, configSectionBumblebee, transientSectionEscalationAge)
+	if got := pl.applyConfigSection(configSectionBumblebee, "v5", "hash-b", succeeded); got != addonDeliverySucceeded {
+		t.Fatalf("disposition on success = %v, want success", got)
+	}
+	if got := pl.applyConfigSection(configSectionBumblebee, "v6", "hash-b", transient); got != addonDeliveryTransientFailure {
+		t.Fatalf("disposition after a success = %v, want transient", got)
+	}
+}
+
+// While a section defers the commit no ack is sent, so the hello carries the current
+// section state, transient failures included. Before the first apply attempt there is
+// no state to report and the field is omitted.
+func TestControlHelloReportsTransientSectionStatuses(t *testing.T) {
+	srv, _ := statusServer(t, http.StatusServiceUnavailable)
+	pl := newDeliveryTestPushLoop(t)
+	pl.setConfigVersion(testOldConfigVersion)
+
+	if got := pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(); got != nil {
+		t.Fatalf("hello section statuses before any apply = %v, want none", got)
+	}
+
+	if pl.applyConfigResponse(t.Context(), &proto.AgentConfigResponse{
+		ConfigVersion: testNewConfigVersion,
+		Addons:        []*proto.AddonAssignmentConfig{sidecar404Assignment("netprobe", srv.URL)},
+	}, "poll") {
+		t.Fatal("a transient add-on failure must defer the version")
+	}
+
+	hello := pl.buildControlHelloRequest().GetHello()
+	if got := hello.GetConfigVersion(); got != testOldConfigVersion {
+		t.Fatalf("hello config version = %q, want the committed %s", got, testOldConfigVersion)
+	}
+	addons := sectionStatus(hello.GetConfigSectionStatuses(), configSectionAddons)
+	if addons.GetDisposition() != configSectionDispositionTransient ||
+		!strings.Contains(addons.GetError(), "netprobe") || addons.GetSince() == 0 {
+		t.Fatalf("hello addons status = %v, want transient_failure naming netprobe with a since time", addons)
+	}
+	if got := sectionStatus(hello.GetConfigSectionStatuses(), configSectionBumblebee).GetDisposition(); got != configSectionDispositionSuccess {
+		t.Fatalf("hello bumblebee disposition = %q, want success", got)
+	}
 }

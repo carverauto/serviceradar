@@ -218,7 +218,10 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// version commit on it would freeze the whole config apply and make the gateway re-stream
 	// the same version on every poll forever (fj #4301). Only a TRANSIENT failure (one that
 	// may clear on its own) defers — and it defers WITHOUT skipping the remaining sections,
-	// so one flaky section can never starve the others in the same cycle.
+	// so one flaky section can never starve the others in the same cycle. A transient
+	// failure that persists past the escalation bound for the same payload is reported as
+	// permanent by applyConfigSection, so it stops deferring (see
+	// transientSectionEscalationAttempts).
 	deferred := false
 	version := configResp.ConfigVersion
 
@@ -283,16 +286,18 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// deferred because section failures do not short-circuit the rest of this apply cycle.
 	// A transient assignment failure defers the version like every other section — it no
 	// longer early-returns, so the sysmon/SNMP/plugin/check sections below still
-	// apply in the same cycle. The payload hash is empty on purpose: assignments carry
-	// their own per-add-on failure state + backoff and must always reconcile
-	// systemd/ephemeral desired state.
+	// apply in the same cycle. The section is never skipped for an identical payload
+	// (assignments carry their own per-add-on failure state + backoff and must always
+	// reconcile systemd/ephemeral desired state); the payload hash only keys the bounded
+	// escalation of a transient failure, so a changed assignment set re-arms it.
 	activationBlocks := make(map[string]bool)
 	if visibilityDisposition != addonDeliverySucceeded {
 		if netprobe := netprobeSystemdAssignment(effectiveAddons); netprobe != nil {
 			activationBlocks[netprobe.GetAddonId()] = true
 		}
 	}
-	if p.applyConfigSection(configSectionAddons, version, "", func() (addonDeliveryDisposition, error) {
+	addonsHash := hashConfigSectionPayload(marshalAddonAssignmentsForHash(effectiveAddons)...)
+	if p.applyConfigSection(configSectionAddons, version, addonsHash, func() (addonDeliveryDisposition, error) {
 		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(ctx, effectiveAddons, activationBlocks)
 	}) == addonDeliveryTransientFailure {
 		p.logger.Warn().

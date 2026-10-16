@@ -368,11 +368,25 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 				// Report the agent's own host IP so the gateway links it to the
 				// correct device even when the TCP peer IP is NAT'd (external agents).
 				// Mirrors getSourceIP() used for PushStatus so the two agree.
-				HostIp:   hostIP,
-				HostMacs: hostMACs,
+				HostIp:                hostIP,
+				HostMacs:              hostMACs,
+				ConfigSectionStatuses: p.helloConfigSectionStatuses(),
 			},
 		},
 	}
+}
+
+// helloConfigSectionStatuses reports the current per-section config apply state on the
+// hello, including a transient_failure that is deferring the commit (and so has no ack
+// to ride on). It is omitted until this process has attempted a config apply: before
+// that the agent has no section state, and reporting every section as succeeded would
+// overwrite the failure core recorded from the previous run.
+func (p *PushLoop) helloConfigSectionStatuses() []*proto.ConfigSectionStatus {
+	if p.getLastAttemptedConfigVersion() == "" {
+		return nil
+	}
+
+	return p.configSectionStatuses()
 }
 
 func normalizeConfigSourceLabel(cfg *ServerConfig) string {
@@ -498,7 +512,7 @@ func (p *PushLoop) buildConfigAck(configVersion string) *proto.ConfigAck {
 		Timestamp:     time.Now().Unix(),
 		// Per-section apply status: sections that failed permanently still
 		// commit + ack, and this is where core learns about them.
-		SectionStatuses:          p.configSectionAckStatuses(),
+		SectionStatuses:          p.configSectionStatuses(),
 		AppliedPluginAssignments: p.appliedPluginAssignmentPolicyAcks(),
 	}
 }
