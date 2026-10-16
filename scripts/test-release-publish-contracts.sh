@@ -529,7 +529,8 @@ publish_job = workflow[workflow.index("  publish:"):finalizer_job]
 finalize_job = workflow[finalizer_job:]
 if "runs-on: serviceradar-signing" not in publish_job:
     raise SystemExit("release publication must remain on the signing runner")
-if "runs-on: ubuntu-24.04" not in finalize_job or "needs: publish" not in finalize_job:
+if "runs-on: ubuntu-24.04" not in finalize_job or \
+   "needs: [publish, image-security-dispatch]" not in finalize_job:
     raise SystemExit("release finalization must run after publication on a generic runner")
 if "timeout-minutes: 95" not in finalize_job or "environment: release" not in finalize_job:
     raise SystemExit("release finalizer must have a bounded wait and release credentials")
@@ -675,6 +676,39 @@ for worker_name, worker in (
             raise SystemExit(
                 f"{worker_name} catalog publisher is not tolerant of concurrent draft creation: {fragment}"
             )
+
+# The OpenBao token lives 20 minutes. Compile before the first login and log in
+# again before each Transit phase; one login at the top of the step expired
+# mid-signing after a cold bundle build (v1.4.95).
+wasm_publish_step = wasm_plugins_workflow[
+    wasm_plugins_workflow.index("- name: Publish Wasm plugin OCI artifacts"):
+    wasm_plugins_workflow.index("- name: Generate import index")
+]
+openbao_login = "source ./scripts/ci/prepare-openbao-cosign-env.sh"
+wasm_phases = [
+    "./scripts/push_all_wasm_plugins.sh --build-only",
+    openbao_login,
+    './scripts/push_all_wasm_plugins.sh "${push_args[@]}"',
+    openbao_login,
+    "./scripts/sign-wasm-plugin-publish.sh",
+    openbao_login,
+    "./scripts/verify-wasm-plugin-publish.sh",
+]
+cursor = 0
+for phase in wasm_phases:
+    found = wasm_publish_step.find(phase, cursor)
+    if found < 0:
+        raise SystemExit(
+            f"Wasm publish must build before OpenBao login and log in before each Transit phase: {phase}"
+        )
+    cursor = found + len(phase)
+
+# The catalog step already holds the draft it created; re-resolving it by tag
+# misses a draft the list API has not caught up with yet (v1.4.95).
+if 'RELEASE_ID="${release_id}" ./scripts/upload-forgejo-release-asset.sh' not in native_upload_step:
+    raise SystemExit("native add-on catalog upload does not bind to the release id it resolved")
+if 'release_id="${RELEASE_ID:-}"' not in upload_release_asset:
+    raise SystemExit("release asset upload helper ignores the caller's release id")
 
 native_source_gate = native_addons_workflow[
     native_addons_workflow.index("- name: Enforce release tag source"):

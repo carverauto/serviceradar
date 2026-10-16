@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "usage: $0 <tag> <file> [asset-name]" >&2
+  echo "usage: [RELEASE_ID=<id>] $0 <tag> <file> [asset-name]" >&2
   exit 1
 fi
 
@@ -52,8 +52,14 @@ else
   github_upload=false
 fi
 
-release_json="$(curl -fsSL -H "${accept_header}" -H "${auth_header}" "${release_url}" 2>/dev/null || true)"
-release_id="$(jq -r '.id // empty' <<<"${release_json}" 2>/dev/null || true)"
+# A caller that just created (or already resolved) the release passes its id.
+# Re-resolving by tag is not safe then: the tags endpoint hides drafts, and a
+# draft created seconds earlier can be missing from the list endpoint too.
+release_id="${RELEASE_ID:-}"
+if [[ -z "${release_id}" ]]; then
+  release_json="$(curl -fsSL -H "${accept_header}" -H "${auth_header}" "${release_url}" 2>/dev/null || true)"
+  release_id="$(jq -r '.id // empty' <<<"${release_json}" 2>/dev/null || true)"
+fi
 if [[ -z "${release_id}" ]]; then
   releases_json="$(curl -fsSL -H "${accept_header}" -H "${auth_header}" "${releases_url}")"
   release_json="$(jq -c --arg tag "${tag}" 'first(.[] | select(.tag_name == $tag)) // empty' <<<"${releases_json}")"
@@ -68,6 +74,11 @@ release_json="$(curl -fsSL -H "${accept_header}" -H "${auth_header}" "$(release_
 resolved_release_id="$(jq -r '.id // empty' <<<"${release_json}")"
 if [[ "${resolved_release_id}" != "${release_id}" ]]; then
   echo "Release API returned an unexpected release while resolving tag ${tag}" >&2
+  exit 1
+fi
+resolved_release_tag="$(jq -r '.tag_name // empty' <<<"${release_json}")"
+if [[ "${resolved_release_tag}" != "${tag}" ]]; then
+  echo "Release ${release_id} belongs to tag '${resolved_release_tag}', not ${tag}" >&2
   exit 1
 fi
 

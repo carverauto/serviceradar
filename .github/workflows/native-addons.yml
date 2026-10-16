@@ -377,7 +377,7 @@ jobs:
             exit 1
           fi
 
-          ./scripts/upload-forgejo-release-asset.sh \
+          RELEASE_ID="${release_id}" ./scripts/upload-forgejo-release-asset.sh \
             "${release_tag}" \
             "${index_path}" \
             serviceradar-native-addon-index.json

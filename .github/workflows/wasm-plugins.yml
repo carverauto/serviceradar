@@ -163,9 +163,22 @@ jobs:
           COSIGN_DOCKER_MEDIA_TYPES: "1"
         run: |
           set -euo pipefail
+          push_args=()
+          verify_tags=("sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG:-}" ]]; then
+            push_args+=(--tag "${EXTRA_TAG}")
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+
+          # Compile before authenticating. The OpenBao token is short-lived
+          # (20 minutes); a cold build of every bundle once took 15 of them and
+          # the token expired mid-signing (v1.4.95).
+          ./scripts/push_all_wasm_plugins.sh --build-only
+
           # Exchange the signing-runner SA for a short-lived OpenBao token
-          # before Wasm publish so the upload signature is minted by Transit
-          # instead of a long-lived private key in CI secrets.
+          # right before each phase that uses Transit (upload signatures,
+          # cosign signing, cosign verification), so no phase inherits a token
+          # an earlier phase has already aged.
           source ./scripts/ci/prepare-openbao-cosign-env.sh
           if [[ -z "${PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY:-}" && -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
             echo "Missing Wasm upload signing: set PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY or PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
@@ -176,15 +189,10 @@ jobs:
             exit 1
           fi
 
-          push_args=()
-          verify_tags=("sha-${GITHUB_SHA}")
-          if [[ -n "${EXTRA_TAG:-}" ]]; then
-            push_args+=(--tag "${EXTRA_TAG}")
-            verify_tags+=("${EXTRA_TAG}")
-          fi
-
           ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
           ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
           ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY
 
