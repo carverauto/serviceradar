@@ -214,6 +214,9 @@ fn prefixes_are_canonical_and_invalid_masks_are_rejected() {
         ("192.0.2.7", "192.0.2.7/32"),
         ("2001:db8::7", "2001:db8::7/128"),
         ("::ffff:192.0.2.7/24", "192.0.2.0/24"),
+        ("::ffff:192.0.2.7/120", "192.0.2.0/24"),
+        ("::ffff:192.0.2.7/128", "192.0.2.7/32"),
+        ("::ffff:192.0.2.7/96", "0.0.0.0/0"),
         ("ffff::1/0", "::/0"),
     ] {
         assert_eq!(Prefix::parse(input).unwrap().to_string(), expected);
@@ -225,7 +228,7 @@ fn prefixes_are_canonical_and_invalid_masks_are_rejected() {
         "2001:db8::/129",
         "192.0.2.0/-1",
         "192.0.2.0/24/1",
-        "::ffff:192.0.2.0/120",
+        "::ffff:192.0.2.0/95",
     ] {
         assert!(Prefix::parse(invalid).is_none(), "accepted {invalid}");
     }
