@@ -1,4 +1,5 @@
 import {worldJson} from "./world_http"
+import {capabilityIdentity} from "./bitmap_capability"
 
 const CONTROL = "rounded-sr-control border border-sr-line bg-sr-control px-2 py-1.5 text-sm text-sr-ink outline-none focus-visible:ring-2 focus-visible:ring-sr-focus"
 const BUTTON = `${CONTROL} font-semibold hover:border-sr-line-hover disabled:opacity-50`
@@ -116,7 +117,7 @@ export class WorldFilterPanel {
   update(state) {
     Object.assign(this.state, state)
     const descriptor = this.state.capability?.query
-    const descriptorKey = JSON.stringify(descriptor ?? null)
+    const descriptorKey = JSON.stringify(capabilityIdentity(descriptor))
     const queryKey = JSON.stringify(this.state.query ?? null)
     let redraw = this.descriptorKey !== descriptorKey
     this.descriptor = descriptor
@@ -298,13 +299,15 @@ export class WorldFilterPanel {
       if (!term.children.length) throw new Error("Add a condition to each group, or clear filters.")
       return {[term.mode]: term.children.map(child => this.expression(child))}
     }
-    const value = term.field === "$prefix_tag" ? term.value || "" : (term.value || "").trim()
+    const value = term.value || ""
+    if (term.field !== "$prefix_tag" && value !== value.trim()) throw new Error("Remove surrounding whitespace from the condition value.")
     if (!value || new TextEncoder().encode(value).length > 256) throw new Error("Each condition needs a value of at most 256 bytes.")
     if (term.field === "$ip" && this.descriptor?.operators?.ip_cidr) return {ip_cidr: value}
     if (term.field === "$prefix_tag" && this.descriptor?.prefix_tags?.available && this.descriptor.prefix_tags.sources.some(source => source.source === term.source && source.available)) return {prefix_tag: {source: term.source, label: value}}
     if (term.field === "$tag_keys" && this.descriptor?.operators?.tag_key_prefix) {
       if (term.operator === "present") return {tag_key_prefix: value}
-      const tagValue = (term.tagValue || "").trim()
+      const tagValue = term.tagValue || ""
+      if (tagValue !== tagValue.trim()) throw new Error("Remove surrounding whitespace from the tag value.")
       if (!tagValue || new TextEncoder().encode(tagValue).length > 256) throw new Error("Enter a tag value to match.")
       return {tag_key_prefix: value, [term.operator === "prefix" ? "prefix" : "value"]: tagValue}
     }

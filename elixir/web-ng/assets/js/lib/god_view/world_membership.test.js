@@ -323,4 +323,126 @@ describe("binary admitted-row membership", () => {
       vi.useRealTimers()
     }
   })
+
+  it("keeps retry history through channel reconnect and empty reconciliation, resetting only accepted or changed views", async () => {
+    vi.useFakeTimers()
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn()), replies = [], handlers = {}, lifecycle = {}
+    const layout = "00000000-0000-4000-8000-000000000478"
+    const fence = {layout_version: layout, generation: 4}
+    let watchId = 0
+    const channel = {state: "joined", on: (event, callback) => {handlers[event] = callback},
+      onError: callback => {lifecycle.error = callback}, onClose: callback => {lifecycle.close = callback},
+      join: () => ({receive(kind, callback) {if (kind === "ok") lifecycle.join = callback; return this}}),
+      push(name) {
+        const callbacks = {}, push = {receive(kind, callback) {
+          callbacks[kind] = callback
+          if (name === "tiles:watch" && kind === "ok") callback({watch_id: ++watchId})
+          return this
+        }}
+        if (name === "membership:watch") replies.push(callbacks)
+        return push
+      },
+    }
+    vi.stubGlobal("window", {godViewSocket: {channel: () => channel}})
+    renderer.membershipEnabled = true; renderer.bitmapQuery = {facet: "vlan", value: "20"}
+    renderer.cache.manifest = {...fence, node_count: 9002}
+    renderer.cache.entries.set("0/0/0", {geometry})
+    renderer.cache.setVisible([geometry.key])
+    try {
+      renderer.connect(); lifecycle.join(fence)
+      await vi.advanceTimersByTimeAsync(50)
+      for (const delay of [1000, 2000]) {
+        const sent = replies.length
+        replies.at(-1).error({reason: "query_busy"})
+        await vi.advanceTimersByTimeAsync(delay - 1)
+        expect(replies).toHaveLength(sent)
+        await vi.advanceTimersByTimeAsync(51)
+        expect(replies).toHaveLength(sent + 1)
+      }
+      replies.at(-1).error({reason: "query_busy"})
+      channel.state = "errored"; lifecycle.error(); lifecycle.close()
+      await vi.advanceTimersByTimeAsync(1000)
+      channel.state = "joined"; lifecycle.join(fence)
+      await vi.advanceTimersByTimeAsync(50)
+      handlers.topology_invalidated({...fence, watch_id: watchId, dirty_tiles: []})
+      renderer.syncWatch()
+      await vi.advanceTimersByTimeAsync(2949)
+      expect(replies).toHaveLength(3)
+      await vi.advanceTimersByTimeAsync(51)
+      expect(replies).toHaveLength(4)
+      replies[3].error({reason: "membership_replaced"})
+      await vi.advanceTimersByTimeAsync(7999)
+      expect(replies).toHaveLength(4)
+      await vi.advanceTimersByTimeAsync(51)
+      expect(replies).toHaveLength(5)
+      replies[4].ok(bitmapBinding)
+      handlers["membership:frame"](bitmapFrame({tiles: [tile]}))
+      expect(renderer.membership.pending).toBe(false)
+      renderer.invalidateMembership(); renderer.syncWatch()
+      replies.at(-1).error({reason: "query_busy"})
+      await vi.advanceTimersByTimeAsync(999)
+      expect(replies).toHaveLength(6)
+      await vi.advanceTimersByTimeAsync(51)
+      expect(replies).toHaveLength(7)
+      replies.at(-1).error({reason: "query_busy"})
+      renderer.setBitmapQuery({facet: "vlan", value: "21"})
+      renderer.syncWatch()
+      const sent = replies.length
+      replies[6].error({reason: "membership_replaced"}) // Superseded query cannot disturb this watch.
+      expect(renderer.membershipError).toBeNull()
+      replies.at(-1).error({reason: "query_busy"})
+      await vi.advanceTimersByTimeAsync(1050)
+      expect(replies).toHaveLength(sent + 1)
+      replies.at(-1).error({reason: "query_busy"})
+      renderer.cache.entries.set("0/0/0", {geometry: {...geometry, revision: "new-receipt"}})
+      renderer.scheduleWatch(); renderer.syncWatch()
+      const changed = replies.length
+      replies.at(-1).error({reason: "query_busy"})
+      await vi.advanceTimersByTimeAsync(1050)
+      expect(replies).toHaveLength(changed + 1)
+    } finally {
+      renderer.destroyed = true; renderer.clearMembershipRetry(); clearTimeout(renderer.watchTimer)
+      renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals(); vi.useRealTimers()
+    }
+  })
+
+  it("keeps accepted VLAN membership when a Prefix Tags source version is the only manifest change", async () => {
+    const layout = "00000000-0000-4000-8000-000000000478"
+    const query = {entity_kind: "device", facets: [{key: "vlan", operators: ["eq"]}],
+      prefix_tags: {available: true, discovery_url: "/topology/query/prefix-tags", sources: [{source: "synthetic", version: 41, available: true}]}}
+    const manifest = {layout_version: layout, generation: 1, zmax: 1, extent: 2 ** 24, node_count: 2, relation_count: 0,
+      bitmap_membership_protocol: 1, bitmap: {ready: true, query}}
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.channel = {state: "joined", push: vi.fn(() => {
+      const push = {receive: () => push}
+      return push
+    })}
+    renderer.membershipEnabled = true
+    renderer.bitmapQuery = {all: [{facet: "vlan", value: "20"}]}
+    renderer.cache.observe(manifest)
+    renderer.membership.bind(bitmapBinding, [geometry])
+    renderer.membership.receive(bitmapFrame({tiles: [tile]}))
+    const accepted = renderer.membership.entries
+    renderer.membershipSignature = "accepted-vlan"
+    const refreshed = {...manifest, bitmap: {ready: true, query: {...query, prefix_tags: {...query.prefix_tags, sources: [{source: "synthetic", version: 42, available: true}]}}}}
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(refreshed)))
+    try {
+      await renderer.poll()
+      expect(renderer.membershipSignature).toBe("accepted-vlan")
+      expect(renderer.membership.pending).toBe(false)
+      expect(renderer.membership.entries).toBe(accepted)
+      expect(renderer.membership.total).toBe(9002)
+      const removed = {...refreshed, bitmap: {ready: true, query: {...query, prefix_tags: {...query.prefix_tags, available: false, sources: refreshed.bitmap.query.prefix_tags.sources}}}}
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(removed)))
+      await renderer.poll()
+      expect(renderer.membershipSignature).toBe(null)
+    } finally {
+      renderer.destroyed = true
+      clearTimeout(renderer.watchTimer)
+      renderer.clearMembershipRetry()
+      renderer.cache.destroy()
+      renderer.overlays.destroy()
+      vi.unstubAllGlobals()
+    }
+  })
 })

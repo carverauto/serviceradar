@@ -75,6 +75,7 @@ describe("world tile rendering contract", () => {
     for (const [items, index] of [[pending, 0], [excluded, 1], [stale, 0]]) {
       expect(nodes(items).props.getFillColor(null, {index})[3]).toBe(0)
       expect(nodes(items).props.getLineColor(null, {index})[3]).toBe(0)
+      expect(nodes(items).props.getLineWidth(null, {index})).toBe(0)
       expect(items.find(item => item.id.endsWith("-node-glow")).props.getFillColor(null, {index})[3]).toBe(0)
     }
   })

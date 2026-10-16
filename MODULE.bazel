@@ -920,6 +920,18 @@ npm.npm_import(
 )
 use_repo(npm, "cli_yaml", "cli_yaml__links")
 
+# Remote God View pre-commit typecheck; reuse the compiler receipt already
+# pinned by assets/component/package-lock.json, without a bunx runtime fetch.
+npm.npm_import(
+    name = "web_ng_typescript",
+    package = "typescript",
+    version = "5.9.3",
+    integrity = "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
+    link_packages = {"elixir/web-ng/assets": ["typescript"]},
+    root_package = "elixir/web-ng/assets",
+)
+use_repo(npm, "web_ng_typescript", "web_ng_typescript__links")
+
 # --- External binary artifacts ----------------------------------------------
 
 http_file = use_repo_rule(

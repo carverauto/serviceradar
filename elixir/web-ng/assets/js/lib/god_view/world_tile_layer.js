@@ -319,7 +319,9 @@ export default class WorldTileLayer extends TileLayer {
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
-        radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
+        radiusUnits: "pixels", radiusMinPixels: 0, stroked: true, lineWidthUnits: "pixels", lineWidthMinPixels: 0,
+        // A zero-radius glyph still has a pickable stroke unless its width is zero too.
+        getLineWidth: (_, info) => shown(node(info)) ? 1.5 : 0,
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
         getFillColor: (_, info) => {
           if (!shown(node(info))) return [0, 0, 0, 0]
@@ -331,7 +333,7 @@ export default class WorldTileLayer extends TileLayer {
           if (node(info).kind !== "device") return [210, 226, 240, 230]
           return healthColor(node(info))
         },
-        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending], getLineColor: [overlay, filters, membership, this.props.membershipPending], getRadius: [overlay, filters, membership, this.props.membershipPending]},
+        updateTriggers: {getLineWidth: [overlay, filters, membership, this.props.membershipPending], getFillColor: [overlay, filters, membership, this.props.membershipPending], getLineColor: [overlay, filters, membership, this.props.membershipPending], getRadius: [overlay, filters, membership, this.props.membershipPending]},
       }),
     ]
   }
