@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNG.Topology.WorldHealth do
     case WorldCache.world(state.cache) do
       {:ok, target} ->
         if is_nil(state.current) or target.manifest.generation != state.current.manifest.generation do
-          launch(state, {:install, target})
+          launch(state, {:install, Map.take(target, [:world, :manifest])})
         else
           next_read(state)
         end

@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSelection
   alias ServiceRadarWebNG.Topology.BitmapSource
+  alias ServiceRadarWebNG.Topology.BitmapView
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
@@ -237,8 +238,25 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_reply ref, :error, %{reason: "source_changed"}, 5_000
     refute_push "membership:frame", _frame, 100
 
+    # A completed response can wait in the channel mailbox while the optional
+    # canonical mapping changes without a new geometry or dictionary epoch.
+    {:ok, pending} = BitmapView.build(scope, params, sequence + 1)
+    assert :ok = BitmapView.confirm_delivery(scope, pending)
+    {:ok, replacement} = TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch)
+
+    {:ok, _} =
+      TopologyAtlas.apply_ordinals(world, replacement, [
+        {included.uid, FleetIdentity.device_ordinal(included.uid)},
+        {excluded.uid, FleetIdentity.device_ordinal(excluded.uid)}
+      ])
+
+    {:ok, _} = TopologyAtlas.seal_ordinals(world, replacement)
+    :ok = WorldCache.install_ordinals(world, replacement)
+    assert {:error, :source_changed} = BitmapView.confirm_delivery(scope, pending)
+
     health = start_supervised!({WorldHealth, cache: WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
-    await(fn -> WorldHealth.snapshot(health) end, &match?({:ok, _}, &1))
+    {:ok, health_snapshot} = await(fn -> WorldHealth.snapshot(health) end, &match?({:ok, _}, &1))
+    refute Map.has_key?(health_snapshot, :ordinals)
 
     start_supervised!(
       {WorldOverlay,

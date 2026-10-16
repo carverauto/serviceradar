@@ -72,13 +72,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
     end
   end
 
-  @doc "Bounds the final delivery authorization read by the response's original deadline."
-  def confirm_delivery(scope, expected_authority, deadline, prefix_sources \\ %{}) do
+  @doc "Bounds final receipt checks and fresh authorization by the response's original deadline."
+  def confirm_delivery(scope, expected_authority, deadline, prefix_sources \\ %{}, check \\ fn -> :ok end) do
     with :ok <- enabled(),
          {:ok, :authorized} <-
            bounded(
              fn ->
-               with :ok <- authorize_delivery(scope, expected_authority, prefix_sources) do
+               with :ok <- check.(),
+                    :ok <- authorize_delivery(scope, expected_authority, prefix_sources) do
                  {:ok, :authorized}
                end
              end,
@@ -103,7 +104,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
              :busy
            ], do: {:error, :query_busy}
 
-  def normalize({:error, reason}) when reason in ["deadline_exceeded", :timeout], do: {:error, :query_timeout}
+  def normalize({:error, reason}) when reason in ["deadline_exceeded", :deadline_exceeded, :timeout],
+    do: {:error, :query_timeout}
 
   def normalize({:error, reason}) when reason in ["not_ready", "closed", :index_unavailable],
     do: {:error, :index_not_ready}

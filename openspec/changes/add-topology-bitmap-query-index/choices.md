@@ -42,6 +42,34 @@ Intermediate ledger; consolidate against final shipped code before handoff.
 - Verdict: sound; preserve correctness while measuring cost.
 - Confidence: medium.
 
+### Keep map sharing limited to its existing camera contract
+
+- When: filter-builder integration.
+- Choice: Share map keeps its existing layout/camera URL. Filter expressions are
+  not encoded in that URL. Named Prefix Tag discovery keeps one page of 50 labels
+  plus the selected label, without downloading or searching the full catalog.
+- Gap: the approved filter UI did not define persisted queries, share links or
+  catalog search.
+- Reach: a recipient must recreate the filter, and large label catalogs require
+  paging. These are public limitations, not completed sharing/search features.
+- Verdict: sound for the approved scope; keep the limitations explicit.
+- Confidence: medium.
+
+### Count canonical mapping lifetime through actual native reclamation
+
+- When: final delivery and memory review.
+- Choice: at most two native canonical mappings may exist, including mappings
+  pinned by in-flight responses or waiting for native reclamation. New builders
+  receive backpressure until an older allocation drops. Health retains only
+  its world and manifest; it does not retain the separate canonical mapping.
+- Gap: per-mapping caps alone did not bound overlap between builders, cache
+  replacement and delayed channel responses.
+- Reach: mapping retries can delay newly available filters, while accepted
+  projections remain usable through transient index-owner failures. Final
+  delivery compares the exact mapping, not only its dictionary epoch.
+- Verdict: sound; memory and receipt coherence follow actual resource lifetime.
+- Confidence: high.
+
 ### Preserve existing source-prefix spellings while accepting mapped IPv6 masks
 
 - When: named Prefix Tags normalization review.
