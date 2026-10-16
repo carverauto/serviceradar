@@ -80,4 +80,53 @@ describe("binary admitted-row membership", () => {
     expect(() => renderer.queryParams(params)).toThrow("query changed")
     expect(renderer.queryParams({id: "synthetic-device"})).toEqual({id: "synthetic-device"})
   })
+
+  it("backs off transient watch errors and stops retrying unsupported queries", async () => {
+    vi.useFakeTimers()
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    const replies = []
+    const payload = {layout_version: "synthetic-layout", tiles: [{z: 0, x: 0, y: 0, revision: geometry.revision}]}
+    renderer.membershipEnabled = true
+    renderer.cache.manifest = {node_count: 2}
+    renderer.cache.entries.set("0/0/0", {geometry})
+    renderer.cache.watchPayload = () => payload
+    renderer.watchSignature = JSON.stringify(payload)
+    renderer.channel = {state: "joined", push: vi.fn(name => {
+      const callbacks = {}
+      if (name === "membership:watch") replies.push(callbacks)
+      const push = {receive: (kind, callback) => {callbacks[kind] = callback; return push}}
+      return push
+    })}
+    try {
+      renderer.syncWatch()
+      replies[0].error({reason: "membership_not_ready"})
+      renderer.syncWatch()
+      expect(renderer.channel.push).toHaveBeenCalledTimes(1)
+      expect(renderer.membership.pending).toBe(true)
+      await vi.advanceTimersByTimeAsync(1050)
+      expect(renderer.channel.push).toHaveBeenCalledTimes(2)
+      replies[1].error({reason: "query_busy"})
+      await vi.advanceTimersByTimeAsync(1050)
+      expect(renderer.channel.push).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(renderer.channel.push).toHaveBeenCalledTimes(3)
+      replies[2].ok({...bitmapBinding, projection: {mapped: 1, total: 2}})
+      renderer.membership.receive(bitmapFrame({tiles: [tile]}))
+      expect(renderer.membership.pending).toBe(false)
+      expect(renderer.mapSummary(1)).toContain("Some geometry has no canonical device identity")
+      renderer.invalidateMembership()
+      renderer.syncWatch()
+      replies[3].error({reason: "unsupported_predicate"})
+      const sent = renderer.channel.push.mock.calls.length
+      await vi.advanceTimersByTimeAsync(30000)
+      renderer.syncWatch()
+      expect(renderer.channel.push).toHaveBeenCalledTimes(sent)
+    } finally {
+      renderer.destroyed = true
+      renderer.clearMembershipRetry()
+      clearTimeout(renderer.watchTimer)
+      renderer.membership.clear()
+      vi.useRealTimers()
+    }
+  })
 })

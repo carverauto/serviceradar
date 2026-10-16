@@ -74,7 +74,7 @@ export default class WorldMapRenderer {
         this.membershipRevision += 1
         this.render()
         if (!this.membership.pending && this.cache.manifest) {
-          this.status(`${this.cache.manifest.node_count.toLocaleString()} devices · ${this.visibleTileCount ?? 0} visible tiles`)
+          this.status(this.mapSummary(this.visibleTileCount ?? 0))
         }
       },
       onAck: payload => this.channel?.push("membership:ack", payload),
@@ -372,6 +372,7 @@ export default class WorldMapRenderer {
       const changed = this.cache.observe(manifest)
       const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
       this.membershipEnabled = manifest.bitmap_membership_protocol === 1
+      this.overlays.setBinary(manifest.world_overlay_protocol === 1)
       if (!changed) {
         if (membershipChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
         return
@@ -444,8 +445,29 @@ export default class WorldMapRenderer {
   }
 
   invalidateMembership() {
+    this.clearMembershipRetry()
     this.membershipSignature = null
     this.membership?.clear(this.membershipEnabled || this.bitmapQuery !== null)
+  }
+
+  clearMembershipRetry() {
+    clearTimeout(this.membershipRetryTimer)
+    this.membershipRetryTimer = null
+    this.membershipRetrySignature = null
+    this.membershipRetryAttempt = 0
+  }
+
+  retryMembership(signature) {
+    if (this.destroyed || signature !== this.membershipSignature) return
+    this.membershipSignature = null
+    this.membership.clear(true)
+    this.membershipRetrySignature = signature
+    const delay = Math.min(10000, 1000 * 2 ** Math.min(this.membershipRetryAttempt || 0, 4))
+    this.membershipRetryAttempt = (this.membershipRetryAttempt || 0) + 1
+    this.membershipRetryTimer = setTimeout(() => {
+      this.membershipRetryTimer = null
+      if (!this.destroyed) this.scheduleWatch()
+    }, delay)
   }
 
   syncMembership(payload) {
@@ -453,22 +475,28 @@ export default class WorldMapRenderer {
     const tiles = payload.tiles.filter(tile => typeof tile.revision === "string")
     const request = {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery || {all: []}}
     const signature = JSON.stringify(request)
+    if (signature === this.membershipRetrySignature && this.membershipRetryTimer) return
+    if (signature !== this.membershipRetrySignature) this.clearMembershipRetry()
     if (signature === this.membershipSignature) return
     this.membershipSignature = signature
     this.membership.clear(true)
     this.channel.push("membership:watch", request).receive("ok", binding => {
       if (this.destroyed || signature !== this.membershipSignature) return
+      this.clearMembershipRetry()
       const geometries = tiles.map(tile => this.cache.entries.get(`${tile.z}/${tile.x}/${tile.y}`)?.geometry)
       if (geometries.some((geometry, index) => !geometry || geometry.revision !== tiles[index].revision)) {
         this.invalidateMembership()
         this.scheduleWatch()
         return
       }
+      this.membershipProjectionIncomplete = binding.projection?.mapped < binding.projection?.total
       try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
-      if (signature === this.membershipSignature) this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
+      if (signature !== this.membershipSignature) return
+      this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
+      if (["membership_not_ready", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
-      if (signature === this.membershipSignature) {this.invalidateMembership(); this.scheduleWatch()}
+      this.retryMembership(signature)
     })
   }
 
@@ -487,7 +515,7 @@ export default class WorldMapRenderer {
       this.cache.prefetch()
     }
     const manifest = this.cache.manifest
-    this.status(this.membership.pending ? "Topology filter pending…" : `${manifest.node_count.toLocaleString()} devices · ${tiles.length} visible tiles`)
+    this.status(this.membership.pending ? "Topology filter pending…" : this.mapSummary(tiles.length))
     const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
@@ -723,6 +751,11 @@ export default class WorldMapRenderer {
     this.render()
   }
 
+  mapSummary(tiles) {
+    const summary = `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles`
+    return this.membershipEnabled && this.membershipProjectionIncomplete ? `${summary} · Some geometry has no canonical device identity` : summary
+  }
+
   status(message) {if (this.summary) this.summary.textContent = message}
 
   failRenderer(error) {
@@ -742,6 +775,7 @@ export default class WorldMapRenderer {
     this.returnToMap()
     clearInterval(this.timer)
     clearTimeout(this.watchTimer)
+    this.clearMembershipRetry()
     clearTimeout(this.locationTimer)
     window.removeEventListener("popstate", this.onLocationHistory)
     this.channel?.leave()
