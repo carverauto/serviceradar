@@ -75,6 +75,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
              "tag:rack" => "example-rack"
            }
 
+    Repo.update_all(from(d in Device, where: d.uid == ^device.uid), set: [source_retired_at: DateTime.utc_now()])
+    assert {:ok, [{^ordinal, false, []}]} = BitmapSource.fetch([ordinal], facets)
+    assert FleetIdentity.device_ordinal(device.uid) == ordinal
+    Repo.update_all(from(d in Device, where: d.uid == ^device.uid), set: [source_retired_at: nil])
+    assert {:ok, [{^ordinal, true, ^values}]} = BitmapSource.fetch([ordinal], facets)
+
     device
     |> Ash.Changeset.for_update(:soft_delete, %{deleted_reason: "synthetic bitmap lifecycle"}, actor: @actor)
     |> Ash.update!()
