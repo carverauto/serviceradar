@@ -112,7 +112,7 @@ export function mountBitmapGpuHarness() {
       return {...receipt, mask: counts.map(count => Number(count > 0)), counts,
         causal: counts.map(() => 3), availability: counts.map(() => unavailable ? 1 : 0)}
     })
-    const frame = bitmapFrame({sequence: ++sequence, binding: watch.binding, tiles})
+    const frame = bitmapFrame({sequence: ++sequence, total: 4096, binding: watch.binding, tiles})
     samples.membershipFrames += 1; samples.membershipBytes += frame.byteLength
     const before = samples.arrayBufferSliceBytes
     broadcast(connection, "membership:frame", frame)

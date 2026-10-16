@@ -38,10 +38,14 @@ nonempty, at most 128 bytes, and contain no NUL. The whole frame is at most
 | Reserved | uint16 `0` |
 | Whole frame length | uint32 |
 | Sequence | uint64 |
+| Exact authorized query total | uint32; meaningful only for full replacements |
 | Metadata | Seven strings in order below |
 
 Metadata order is dictionary epoch, index epoch, query digest, authority
-fingerprint, view digest, source revision, index revision. Reset has no payload.
+fingerprint, view digest, source revision, index revision. The fixed header is
+24 bytes. Reset has no payload. Query totals come from the same captured index
+revision as the complete replacement, never from summing tile counts. Pending,
+stale, rejected and cleared views do not expose an old total.
 A replacement contains a uint8 tile count, at most 64, followed by each tile:
 
 | Tile field | Encoding |

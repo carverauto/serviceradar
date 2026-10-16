@@ -15,14 +15,20 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
     kind = Map.get(metadata, :kind, :baseline)
     fields = Enum.map(@fields, &Map.get(metadata, &1))
     sequence = Map.get(metadata, :sequence)
+    total = Map.get(metadata, :total, if(kind == :reset, do: 0))
 
     with true <- kind in [:baseline, :reset],
          true <- Enum.all?(fields, &valid_text?/1),
+         true <- is_integer(total) and total in 0..4_294_967_295,
          true <- is_integer(sequence) and sequence in 0..18_446_744_073_709_551_615,
          {:ok, payload} <- payload(kind, tiles) do
       tail = [Enum.map(fields, &text/1), payload]
-      size = 20 + IO.iodata_length(tail)
-      header = <<"SRMO", 1, if(kind == :baseline, do: 0, else: 1), 0::little-16, size::little-32, sequence::little-64>>
+      size = 24 + IO.iodata_length(tail)
+
+      header =
+        <<"SRMO", 1, if(kind == :baseline, do: 0, else: 1), 0::little-16, size::little-32, sequence::little-64,
+          total::little-32>>
+
       if size <= @max_frame, do: {:ok, IO.iodata_to_binary([header, tail])}, else: {:error, :frame_budget}
     else
       _ -> {:error, :invalid_membership_frame}

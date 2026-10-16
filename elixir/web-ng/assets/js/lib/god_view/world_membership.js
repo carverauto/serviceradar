@@ -9,6 +9,7 @@ export class WorldMembership {
     this.receipts = new Map()
     this.pending = false
     this.sequence = null
+    this.total = null
   }
 
   bind(binding, geometries) {
@@ -47,6 +48,7 @@ export class WorldMembership {
       // The old view remains untouched until the entire replacement validates.
       this.entries = frame.tiles
       this.sequence = frame.sequence
+      this.total = frame.total
       this.pending = false
       this.retainedBufferBytes = frame.byteLength + [...frame.tiles.values()].reduce((sum, tile) => sum + tile.counts.byteLength, 0)
       this.onAck({sequence: frame.sequence.toString(), view_digest: this.binding.view_digest})
@@ -63,6 +65,7 @@ export class WorldMembership {
   clear(pending = false) {
     this.binding = null
     this.sequence = null
+    this.total = null
     this.entries.clear()
     this.receipts.clear()
     this.retainedBufferBytes = 0
