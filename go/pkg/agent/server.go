@@ -34,6 +34,7 @@ import (
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
@@ -58,7 +59,14 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	s := initializeServer(configDir, cfg, log)
 
 	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig) (Service, error) {
-		return createSweepService(ctx, sweepConfig, cfg, log, sweeper.WithBannerObservationHandler(s.handleBannerObservations))
+		return createSweepService(
+			ctx,
+			sweepConfig,
+			cfg,
+			log,
+			sweeper.WithBannerObservationHandler(s.handleBannerObservations),
+			sweeper.WithSYNScanGate(s.synScanGate),
+		)
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -86,13 +94,14 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 // initializeServer creates a new Server struct with default values.
 func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *Server {
 	return &Server{
-		configDir: configDir,
-		services:  make([]Service, 0),
-		errChan:   make(chan error, defaultErrChansize),
-		done:      make(chan struct{}),
-		config:    cfg,
-		logger:    log,
-		sockets:   probeHostSockets(),
+		configDir:   configDir,
+		services:    make([]Service, 0),
+		errChan:     make(chan error, defaultErrChansize),
+		done:        make(chan struct{}),
+		config:      cfg,
+		logger:      log,
+		sockets:     probeHostSockets(),
+		synScanGate: scan.NewSYNScanGate(),
 	}
 }
 
@@ -495,8 +504,8 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 		{"sweep_banner_grab_connection_reset_total", "counter", stats.ConnectionResetTotal},
 		{"sweep_banner_grab_timeout_total", "counter", stats.TimeoutTotal},
 		{"sweep_banner_grab_errors_total", "counter", stats.ErrorsTotal},
-		{"agent_flow_attribution_events_forwarded_total", "counter", AgentFlowAttributionEventsForwardedTotal()},
-		{"agent_flow_attribution_events_quarantined_total", "counter", AgentFlowAttributionEventsQuarantinedTotal()},
+		{"agent_flow_attribution_events_forwarded_total", "counter", s.deliveryTelemetry.flowAttributionForwarded.Load()},
+		{"agent_flow_attribution_events_quarantined_total", "counter", s.deliveryTelemetry.flowAttributionQuarantined.Load()},
 	}
 
 	for _, metric := range metrics {
@@ -511,14 +520,14 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 	if _, err := fmt.Fprintln(w, "# TYPE agent_retained_poison_dropped_bytes_total counter"); err != nil {
 		return fmt.Errorf("write agent retained poison byte metric type: %w", err)
 	}
-	for _, source := range retainedPoisonSourceNames {
-		for _, reason := range retainedPoisonReasonNames {
-			items, bytes := AgentRetainedPoisonDropTotals(source, reason)
+	for source := range retainedSourceCount {
+		for reason := range poisonReasonCount {
+			items, bytes := s.deliveryTelemetry.poisonDropTotals(source, reason)
 			if _, err := fmt.Fprintf(
 				w,
 				"agent_retained_poison_dropped_items_total{source=%q,reason=%q} %d\n",
-				source,
-				reason,
+				source.label(),
+				reason.label(),
 				items,
 			); err != nil {
 				return fmt.Errorf("write agent retained poison item metric: %w", err)
@@ -526,8 +535,8 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 			if _, err := fmt.Fprintf(
 				w,
 				"agent_retained_poison_dropped_bytes_total{source=%q,reason=%q} %d\n",
-				source,
-				reason,
+				source.label(),
+				reason.label(),
 				bytes,
 			); err != nil {
 				return fmt.Errorf("write agent retained poison byte metric: %w", err)
@@ -560,6 +569,7 @@ func (s *Server) initPluginManager(ctx context.Context) {
 		ArtifactHTTPClient: s.gatewayArtifactHTTPClient(),
 		CredentialBroker:   s.credentialBroker,
 		ArtifactUploader:   s.artifactUploader,
+		KnownHosts:         &s.knownHosts,
 	})
 }
 

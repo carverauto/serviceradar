@@ -43,7 +43,7 @@ func loopbackScanTarget() []models.Target {
 	return []models.Target{{Host: "127.0.0.1", Port: 1, Mode: models.ModeTCP}}
 }
 
-func newGatedTestScanner(gate *scanGate) *SYNScanner {
+func newGatedTestScanner(gate *SYNScanGate) *SYNScanner {
 	scanner := &SYNScanner{
 		// The teardown waits timeout/4 (at most 200ms) for late replies, which
 		// is the window in which a scan is still listening.
@@ -63,7 +63,7 @@ func newGatedTestScanner(gate *scanGate) *SYNScanner {
 func TestScanGateAdmitsOneScanAtATime(t *testing.T) {
 	t.Parallel()
 
-	gate := newScanGate()
+	gate := NewSYNScanGate()
 	require.NoError(t, gate.acquire(context.Background()))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -78,7 +78,7 @@ func TestScanGateAdmitsOneScanAtATime(t *testing.T) {
 func TestScanGateRefusesACancelledContextEvenWhenFree(t *testing.T) {
 	t.Parallel()
 
-	gate := newScanGate()
+	gate := NewSYNScanGate()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -94,7 +94,7 @@ func TestScanGateRefusesACancelledContextEvenWhenFree(t *testing.T) {
 func TestSYNScannerScanWaitsForTheScanAheadOfIt(t *testing.T) {
 	t.Parallel()
 
-	gate := newScanGate()
+	gate := NewSYNScanGate()
 	scanner := newGatedTestScanner(gate)
 
 	// Another scanner's scan holds the gate.
@@ -135,7 +135,7 @@ func TestSYNScannerScanWaitsForTheScanAheadOfIt(t *testing.T) {
 func TestSYNScannerScanCancelledWhileWaitingTakesNoGate(t *testing.T) {
 	t.Parallel()
 
-	gate := newScanGate()
+	gate := NewSYNScanGate()
 	scanner := newGatedTestScanner(gate)
 	require.NoError(t, gate.acquire(context.Background()))
 
@@ -174,7 +174,7 @@ func TestSYNScannerRingsListenOnlyWhileScanning(t *testing.T) {
 
 	// UDP sockets stand in for the packet sockets: they take the same socket
 	// filters without needing raw-socket privileges.
-	scanner := newGatedTestScanner(newScanGate())
+	scanner := newGatedTestScanner(NewSYNScanGate())
 	scanner.replyFilter = replyFilter
 	scanner.ringPollTimeoutMs = 1
 

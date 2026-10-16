@@ -65,6 +65,10 @@ type SYNScannerOptions struct {
 	// Ring tuning (not used in stub but kept for API compatibility)
 	RingReaders       int
 	RingPollTimeoutMs int
+
+	// Gate admits one raw SYN scan at a time (not used in stub but kept for
+	// API compatibility).
+	Gate *SYNScanGate
 }
 
 var _ Scanner = (*SYNScanner)(nil)

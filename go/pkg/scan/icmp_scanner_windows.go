@@ -76,8 +76,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 	// You might need a more robust solution for listening on Windows if this doesn't work reliably.
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
-		syscall.Close(fd) // Use syscall.Close for Windows
-		return nil, fmt.Errorf("failed to create ICMP listener: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to create ICMP listener: %w", err), syscall.Close(fd))
 	}
 
 	s := &ICMPSweeper{

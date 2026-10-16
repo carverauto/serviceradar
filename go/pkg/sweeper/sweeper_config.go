@@ -43,6 +43,15 @@ func WithBannerObservationHandler(handler BannerObservationHandler) Option {
 	}
 }
 
+// WithSYNScanGate shares gate with every raw SYN scanner this sweeper builds,
+// so its scans take turns with those of every other sweeper holding the same
+// gate. Without it, the sweeper's SYN scanner gets a gate of its own.
+func WithSYNScanGate(gate *scan.SYNScanGate) Option {
+	return func(s *NetworkSweeper) {
+		s.synScanGate = gate
+	}
+}
+
 const (
 	defaultInterval      = 5 * time.Minute
 	defaultScanTimeout   = 20 * time.Minute // Fallback when no MaxLifetime is configured
@@ -110,10 +119,6 @@ func NewNetworkSweeper(
 		return nil, errNilConfig
 	}
 
-	icmpScanner := initializeICMPScanner(config, log)
-	tcpScanner := initializeTCPScanner(config, log)
-	tcpConnectScanner := initializeTCPConnectScanner(config, log)
-
 	// Default interval if not set
 	if config.Interval == 0 {
 		config.Interval = defaultInterval
@@ -122,24 +127,24 @@ func NewNetworkSweeper(
 	log.Info().Dur("interval", config.Interval).Msg("Creating NetworkSweeper")
 
 	ns := &NetworkSweeper{
-		config:            config,
-		icmpScanner:       icmpScanner,
-		tcpScanner:        tcpScanner,
-		tcpConnectScanner: tcpConnectScanner,
-		store:             store,
-		processor:         processor,
-		deviceRegistry:    deviceRegistry,
-		logger:            log,
-		done:              nil,
-		deviceResults:     make(map[string]*DeviceResultAggregator),
-		tickerReset:       make(chan struct{}, 1),
+		config:         config,
+		store:          store,
+		processor:      processor,
+		deviceRegistry: deviceRegistry,
+		logger:         log,
+		done:           nil,
+		deviceResults:  make(map[string]*DeviceResultAggregator),
+		tickerReset:    make(chan struct{}, 1),
 	}
 
 	ns.ensureControlChannels()
 
+	// Options first: the SYN scanner is built with the gate an option supplies.
 	for _, opt := range opts {
 		opt(ns)
 	}
+
+	ns.ensureScannersInitialized()
 
 	return ns, nil
 }
@@ -308,7 +313,7 @@ func configureRingBufferSettings(config *models.Config, opts *scan.SYNScannerOpt
 }
 
 // initializeTCPScanner creates and configures the TCP scanner with graceful fallback
-func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+func initializeTCPScanner(config *models.Config, gate *scan.SYNScanGate, log logger.Logger) scan.Scanner {
 	if !needsTCPScanning(config) {
 		return nil
 	}
@@ -329,6 +334,7 @@ func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner
 
 	// Try SYN scanner first for optimal performance
 	opts := configureSYNScannerOptions(config, log)
+	opts.Gate = gate
 
 	// Apply SYN concurrency upper bound
 	synConcurrency := baseConcurrency

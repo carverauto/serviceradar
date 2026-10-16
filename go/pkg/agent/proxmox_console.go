@@ -175,6 +175,7 @@ func (m *proxmoxConsoleManager) openRemoteAccessPTY(
 		}
 
 		cfg.KnownHostsPath = m.sshOptions.KnownHostsPath
+		cfg.KnownHosts = m.sshOptions.KnownHosts
 
 		pty, err := remoteaccess.OpenSSHPTY(ctx, cfg, m.sshOptions.Dial)
 		if err != nil {

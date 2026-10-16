@@ -26,6 +26,7 @@ import (
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
@@ -68,6 +69,15 @@ type Server struct {
 	// sockets is the ICMP sweep and MTR socket probe taken when the server is
 	// built. The startup log and every capability report read it.
 	sockets socketProbe
+	// synScanGate is shared by the raw SYN scanner of every sweep group, so the
+	// agent runs one raw SYN scan at a time.
+	synScanGate *scan.SYNScanGate
+	// knownHosts serializes trust-on-first-use host-key pins from remote access
+	// sessions, file transfers and the Proxmox console.
+	knownHosts remoteaccess.KnownHostsStore
+	// deliveryTelemetry counts retained-delivery outcomes for the Prometheus
+	// exporter.
+	deliveryTelemetry retainedDeliveryTelemetry
 }
 
 type sidecarStatusProvider interface {

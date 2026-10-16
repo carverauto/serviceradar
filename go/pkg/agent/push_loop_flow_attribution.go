@@ -196,7 +196,6 @@ func (q *flowAttributionDeliveryQueue) quarantineFirst(
 	if remaining == 0 {
 		q.pending = nil
 	}
-	agentFlowAttributionEventsQuarantinedTotal.Add(1)
 
 	return quarantined, remaining, true
 }
@@ -222,41 +221,6 @@ func (q *flowAttributionDeliveryQueue) dropPrefix(
 	}
 
 	return remaining, true
-}
-
-// agentFlowAttributionEventsForwardedTotal counts the number of
-// FlowAttributionEvent records the agent has successfully forwarded
-// to the gateway, surfaced as
-// `agent_flow_attribution_events_forwarded_total` by the Prometheus
-// exporter.
-//
-//nolint:gochecknoglobals // process-global Prometheus counter
-var agentFlowAttributionEventsForwardedTotal atomic.Uint64
-
-// agentFlowAttributionEventsQuarantinedTotal counts individual events that
-// cannot fit in an otherwise empty delivery window. Quarantining the poison
-// event allows later attribution records to continue in order.
-//
-//nolint:gochecknoglobals // process-global Prometheus counter
-var agentFlowAttributionEventsQuarantinedTotal atomic.Uint64
-
-// AgentFlowAttributionEventsForwardedTotal returns the current value
-// of the agent-side forwarded-events counter. Exposed for the
-// Prometheus exporter and tests.
-func AgentFlowAttributionEventsForwardedTotal() uint64 {
-	return agentFlowAttributionEventsForwardedTotal.Load()
-}
-
-// AgentFlowAttributionEventsQuarantinedTotal returns the current value of the
-// agent-side permanently-oversized-events counter.
-func AgentFlowAttributionEventsQuarantinedTotal() uint64 {
-	return agentFlowAttributionEventsQuarantinedTotal.Load()
-}
-
-// resetAgentFlowAttributionEventCounters is exposed for tests.
-func resetAgentFlowAttributionEventCounters() {
-	agentFlowAttributionEventsForwardedTotal.Store(0)
-	agentFlowAttributionEventsQuarantinedTotal.Store(0)
 }
 
 // pushFlowAttribution drains buffered FlowAttributionEvents from the netprobe
@@ -309,6 +273,7 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()
 	sourceIP := p.getSourceIP()
+	telemetry := &p.server.deliveryTelemetry
 	sentAny := false
 
 	for range flowAttributionMaxDeliveryStepsPerPush {
@@ -346,12 +311,8 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 				break
 			}
 
-			recordAgentRetainedPoisonDrop(
-				"flow-attribution",
-				retainedPoisonReasonNames[poisonReasonPayloadTooLarge],
-				1,
-				poisonBytes,
-			)
+			telemetry.flowAttributionQuarantined.Add(1)
+			telemetry.recordPoisonDrop(retainedSourceFlow, poisonReasonPayloadTooLarge, 1, poisonBytes)
 			p.logger.Error().Err(err).
 				Uint32("pid", quarantined.GetPid()).
 				Str("comm", quarantined.GetComm()).
@@ -378,9 +339,9 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 					break
 				}
 
-				recordAgentRetainedPoisonDrop("flow-attribution", reason, window.eventCount, window.streamBytes)
+				telemetry.recordPoisonDrop(retainedSourceFlow, reason, window.eventCount, window.streamBytes)
 				p.logger.Error().Err(streamErr).
-					Str("reason", reason).
+					Str("reason", reason.label()).
 					Int("event_count", window.eventCount).
 					Int("remaining_events", remaining).
 					Msg("Poison-dropped terminally invalid flow attribution window")
@@ -410,7 +371,7 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 			break
 		}
 
-		agentFlowAttributionEventsForwardedTotal.Add(uint64(window.eventCount))
+		telemetry.flowAttributionForwarded.Add(uint64(window.eventCount))
 		if commitDropBaseline {
 			p.flowAttributionDelivery.commitDropped(cumulativeDropped)
 		}

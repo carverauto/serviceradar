@@ -132,9 +132,9 @@ type SYNScanner struct {
 	// idleCaptureFilter() otherwise.
 	replyFilter []unix.SockFilter
 
-	// gate admits one raw SYN scan at a time; nil means the process-wide
-	// rawSYNScanGate. Tests substitute their own.
-	gate *scanGate
+	// gate admits one raw SYN scan at a time across every scanner that
+	// shares it; see SYNScannerOptions.Gate.
+	gate *SYNScanGate
 }
 
 var _ Scanner = (*SYNScanner)(nil)
@@ -192,6 +192,11 @@ type SYNScannerOptions struct {
 	// If 0, defaults to max(TPACKET_RETIRE_TOV_MS, 50). Raising this reduces
 	// wakeups when traffic is sparse, cutting CPU in listenForReplies.
 	RingPollTimeoutMs int
+
+	// Gate admits one raw SYN scan at a time across every scanner built with
+	// it. Pass the same gate to every scanner on the host; nil gives this
+	// scanner a gate of its own.
+	Gate *SYNScanGate
 }
 
 func (s *SYNScanner) Capabilities() ScannerCapabilities {

@@ -57,7 +57,6 @@ var errReleaseCurrentLinkMissing = errors.New("release current symlink is missin
 var errReleaseActivationPreviousTargetMissing = errors.New("release activation state missing previous target")
 var errReleaseSymlinkTargetInvalid = errors.New("release symlink target is invalid")
 var errReleaseUpdaterOwnershipUnknown = errors.New("release updater ownership could not be determined")
-var errReleaseUpdaterOwnershipInvalid = errors.New("release updater must be owned by root")
 var errReleaseUpdaterModeInvalid = errors.New("release updater must not be group or world writable")
 var errReleaseUpdaterNotRegular = errors.New("release updater must be a regular file")
 var errReleaseUpdaterPrivilegedModeInvalid = errors.New("release updater must be setuid root for privileged add-on operations")

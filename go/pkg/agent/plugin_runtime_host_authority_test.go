@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/gorilla/websocket"
@@ -1250,7 +1251,8 @@ func TestProxmoxSSHConfigUsesOnlyImmutableSessionAndBrokerMaterial(t *testing.T)
 		"username": "root",
 		"password": "host-resolved-password",
 	}}}
-	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	knownHosts := new(remoteaccess.KnownHostsStore)
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver, KnownHosts: knownHosts})
 	t.Cleanup(manager.Stop)
 	exec := newPluginExecution(manager, assignment)
 	exec.mode = pluginExecutionModeStreaming
@@ -1268,6 +1270,9 @@ func TestProxmoxSSHConfigUsesOnlyImmutableSessionAndBrokerMaterial(t *testing.T)
 	}
 	if cfg.SSHHostKeyPolicy != proxmoxSSHHostKeyPolicyTrustFirstUse || cfg.TimeoutMS != 15000 {
 		t.Fatalf("trusted SSH settings = policy %q timeout %d", cfg.SSHHostKeyPolicy, cfg.TimeoutMS)
+	}
+	if cfg.knownHosts != knownHosts {
+		t.Fatal("trust_on_first_use pins must go through the agent's known-hosts store")
 	}
 	if _, err := validateProxmoxPublicParams([]byte(`{
 		"policy_id":"network-credential-rule:proxmox-rule-1:console_access",

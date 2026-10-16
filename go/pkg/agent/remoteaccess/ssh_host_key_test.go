@@ -60,7 +60,7 @@ func TestKnownHostsPolicyReportsUnknownHostKeyWithFingerprint(t *testing.T) {
 	signer := hostKeyTestSigner(t)
 	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
 
-	callback, err := sshHostKeyCallback("known_hosts", knownHostsPath)
+	callback, err := new(KnownHostsStore).HostKeyCallback("known_hosts", knownHostsPath)
 	if err != nil {
 		t.Fatalf("known_hosts callback: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestKnownHostsPolicyReportsChangedHostKeyAsMismatch(t *testing.T) {
 		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	callback, err := sshHostKeyCallback("known_hosts", knownHostsPath)
+	callback, err := new(KnownHostsStore).HostKeyCallback("known_hosts", knownHostsPath)
 	if err != nil {
 		t.Fatalf("known_hosts callback: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestTrustOnFirstUsePolicyReportsChangedHostKeyAsMismatch(t *testing.T) {
 		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	callback, err := sshHostKeyCallback("trust_on_first_use", knownHostsPath)
+	callback, err := new(KnownHostsStore).HostKeyCallback("trust_on_first_use", knownHostsPath)
 	if err != nil {
 		t.Fatalf("trust_on_first_use callback: %v", err)
 	}
@@ -197,6 +197,7 @@ func TestSSHReviewedHostKeyApproval(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg.KnownHostsPath = path
+			cfg.KnownHosts = new(KnownHostsStore)
 			callback, err := sshSessionHostKeyCallback(cfg)
 			if err != nil {
 				t.Fatal(err)

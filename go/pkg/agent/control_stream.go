@@ -544,7 +544,7 @@ func (p *PushLoop) handleConsoleFrame(ctx context.Context, frame *proto.ConsoleF
 			gatewayIDFromClient(p.gateway),
 			p.logger,
 		)
-		p.remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(p.server)
+		p.remoteConsoleManager.sshOptions = remoteAccessSSHOptions(p.server)
 	}
 
 	p.remoteConsoleManager.HandleFrame(ctx, frame, sender)

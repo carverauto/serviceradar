@@ -32,28 +32,9 @@ import (
 // it before the wait is logged.
 const scanGateWaitLogThreshold = time.Second
 
-// scanGate admits one raw SYN scan at a time.
-type scanGate struct {
-	slot chan struct{}
-}
-
-func newScanGate() *scanGate {
-	return &scanGate{slot: make(chan struct{}, 1)}
-}
-
-// rawSYNScanGate is shared by every SYNScanner in the process. Each sweep
-// group has its own scanner, and they all capture replies for the same
-// source-port range, so two scans running together each receive the other's
-// replies. That doubles the capture load, and groups that start on the same
-// schedule tick pushed the rings into kernel drops. A scan waits here for the
-// one ahead of it instead, keeping its full port window and send rate.
-//
-//nolint:gochecknoglobals // the gate only works if every scanner in the process shares it
-var rawSYNScanGate = newScanGate()
-
 // acquire takes the gate, or returns the context's error if it ends first.
 // An already cancelled context never takes the gate.
-func (g *scanGate) acquire(ctx context.Context) error {
+func (g *SYNScanGate) acquire(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -66,19 +47,11 @@ func (g *scanGate) acquire(ctx context.Context) error {
 	}
 }
 
-func (g *scanGate) release() {
+func (g *SYNScanGate) release() {
 	<-g.slot
 }
 
-func (s *SYNScanner) scanGate() *scanGate {
-	if s.gate != nil {
-		return s.gate
-	}
-
-	return rawSYNScanGate
-}
-
-func (s *SYNScanner) waitForScanGate(ctx context.Context, gate *scanGate) error {
+func (s *SYNScanner) waitForScanGate(ctx context.Context, gate *SYNScanGate) error {
 	start := time.Now()
 
 	if err := gate.acquire(ctx); err != nil {
