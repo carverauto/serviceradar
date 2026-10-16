@@ -91,7 +91,7 @@ rust_test(
     name = "ordinal_scale_benchmark",
     srcs = ["tests/ordinals.rs"],
     crate_root = "tests/ordinals.rs",
-    args = ["--ignored", "synthetic_aggregate_scale", "--nocapture"],
+    args = ["--ignored", "synthetic_", "--nocapture"],
     tags = ["manual", "benchmark"],
     timeout = "long",
     deps = [":topology_atlas", "@crates//:roaring"],

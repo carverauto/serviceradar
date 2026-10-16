@@ -204,6 +204,67 @@ fn seed_failures_are_atomic_and_world_generations_are_fenced() {
 
 #[test]
 #[ignore = "declared synthetic scale target"]
+fn synthetic_dense_aggregate_budget_uses_bitset_bytes_not_bits() {
+    // 512 minimally dense containers fit in roughly 4 MiB, but the pinned
+    // library's mislabeled bit-capacity statistic would charge over 32 MiB.
+    const COUNT: u32 = 512 * 4097;
+    let positions = (0..COUNT)
+        .map(|n| Position {
+            x: n % 500_000 + 1,
+            y: n / 500_000 + 1,
+            min_zoom: 24,
+            ..position(n)
+        })
+        .collect();
+    let world = World::new(
+        "synthetic-dense-ordinal-budget".into(),
+        24,
+        positions,
+        vec![],
+    )
+    .unwrap();
+    let mut mapping = CanonicalOrdinals::new(&world, [4; 16]).unwrap();
+    for start in (0..COUNT).step_by(500) {
+        let rows: Vec<_> = (start..(start + 500).min(COUNT))
+            .map(|n| (position(n).id, (n / 4097) * 65_536 + n % 4097 + 1))
+            .collect();
+        mapping.apply(&world, &rows).unwrap();
+    }
+    mapping.seal(&world).unwrap();
+    let tile = world
+        .tile(
+            Cell::new(0, 0, 0).unwrap(),
+            Budget {
+                nodes: 9,
+                edges: 72,
+            },
+        )
+        .unwrap();
+    let glyph = tile
+        .glyphs
+        .iter()
+        .find(|glyph| glyph.kind == GlyphKind::Aggregate)
+        .unwrap();
+    let aggregate = world
+        .aggregate_selection(&tile.selection, &glyph.id)
+        .unwrap();
+    assert_eq!(aggregate.member_count(), COUNT as usize);
+    let portable = mapping
+        .aggregate(&world, &aggregate, ORDINAL_PORTABLE_BYTES, 1000)
+        .unwrap();
+    let decoded = RoaringBitmap::deserialize_from(portable.as_slice()).unwrap();
+    assert_eq!(decoded.statistics().n_bitset_containers, 512);
+    assert_eq!(decoded.len(), u64::from(COUNT));
+    assert!(decoded.contains(1) && decoded.contains(511 * 65_536 + 4097));
+    assert!(!decoded.contains(4098));
+    assert_eq!(
+        mapping.aggregate(&world, &aggregate, portable.len() - 1, 1000),
+        Err(Error::OrdinalBudgetExceeded)
+    );
+}
+
+#[test]
+#[ignore = "declared synthetic scale target"]
 fn synthetic_aggregate_scale() {
     const COUNT: u32 = 1_100_000;
     let positions = (0..COUNT)

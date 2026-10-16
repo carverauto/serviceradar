@@ -288,7 +288,10 @@ The complete pass in
 [49a2c6f0](https://carverauto.buildbuddy.io/invocation/49a2c6f0-de5c-4c6c-9315-6f3bc99f0c4d)
 passed 35 native tests, 778 web tests, both scalar benchmarks and the address
 benchmark on a Xeon Platinum 8176 executor. Corrected scalar-only seed
-accounting was 7.67/17.40 MB compact/sparse. All 100 native Atlas views completed
+accounting was 7.67/17.40 MB compact/sparse; after 100 churn ticks it was
+7.94/19.21 MB, with peak retained overlap of 8.67/22.78 MB across eight pins.
+Four-term query p95 was 0.262/1.248 ms; query plus 50 facet counts was
+3.203/4.320 ms. All 100 native Atlas views completed
 without memory-admission retries; sparse request p95 was 395.74 ms and index
 peak reservations were 47.10 MB. Atlas admission still required harness retries.
 

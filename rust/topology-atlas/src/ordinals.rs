@@ -195,10 +195,13 @@ fn check_time(deadline: Instant) -> Result<(), Error> {
 
 fn check_bitmap(bitmap: &RoaringBitmap, max_bytes: usize) -> Result<(), Error> {
     let stats = bitmap.statistics();
+    // roaring 0.11.4 reports bit capacity in n_bytes_bitset_containers;
+    // each allocated Box<[u64; 1024]> occupies 8192 bytes. Keep the array
+    // statistic's conservative allowance and the outer-container metadata.
     let allocated = 128 * stats.n_containers as usize
-        + (stats.n_bytes_array_containers
-            + stats.n_bytes_bitset_containers
-            + stats.n_bytes_run_containers) as usize;
+        + stats.n_bytes_array_containers as usize
+        + 8192 * stats.n_bitset_containers as usize
+        + stats.n_bytes_run_containers as usize;
     if bitmap.serialized_size() > max_bytes
         || allocated + bitmap.serialized_size() > 32 * 1024 * 1024
     {
