@@ -84,8 +84,8 @@ defmodule ServiceRadar.TopologyAtlas do
   defdelegate ordinal_info(world, mapping), to: Native
   defdelegate device_ordinals(world, mapping, ids), to: Native
 
-  @doc "Return portable canonical aggregate membership without enumerating it on the BEAM."
-  defdelegate aggregate_ordinals(world, mapping, aggregate, timeout_ms), to: Native
+  @doc "Export canonical aggregate membership within the caller's remaining view-byte budget."
+  defdelegate aggregate_ordinals(world, mapping, aggregate, max_bytes, timeout_ms), to: Native
 
   @doc """
   Read the topology view directly into a native resource from one paged Dgraph snapshot.

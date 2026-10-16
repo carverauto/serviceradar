@@ -223,7 +223,7 @@ fn project(
                         let _slot = ExportSlot::take(exports)?;
                         scene
                             .mapping
-                            .aggregate(scene.world, selection, ms)
+                            .aggregate(scene.world, selection, VIEW_BYTES - portable_bytes, ms)
                             .map_err(|e| match e {
                                 serviceradar_topology_atlas::Error::DeadlineExceeded => {
                                     "deadline_exceeded"

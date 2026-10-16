@@ -16,7 +16,10 @@ Bounded device lookup returns ordinals in input order, including zero for
 unmapped positions. Native aggregate traversal excludes promoted devices and
 exports portable Roaring membership directly, without a BEAM list or JSON
 conversion. This traversal is O(member count), with a maximum one-second
-deadline and an 8 MiB portable output limit. The mapping is capped at 32 MiB;
+deadline and an 8 MiB portable output limit. `aggregate_ordinals/5` takes the
+caller's remaining whole-view byte budget before the timeout. It checks this
+limit during traversal and before allocating serialized bytes, so an over-budget
+view cannot first materialize another full 8 MiB payload. The mapping is capped at 32 MiB;
 the native boundary admits two aggregate reads, each with bounded bitmap/output
 scratch. The owner includes retained mapping bytes in its replica memory
 budget and validates the mapping epoch before querying a bitmap resource.
@@ -40,3 +43,7 @@ measured compact/sparse aggregate traversal p95 of 15.56/33.98 ms for 1,099,999
 members, 4,400,144 retained mapping bytes, and 139,408/967,608 portable bytes.
 This is one native reader on a Xeon Gold 6258R at 2.70 GHz; it does not prove
 concurrent endpoint latency. The serialization buffer is server-only.
+
+The remaining-byte export contract, exact-size acceptance, undersized rejection,
+actual core/web BEAM boundaries and complete 100-view native workload passed in
+[af2acf21](https://carverauto.buildbuddy.io/invocation/af2acf21-1ca0-4d63-b90a-76c3da8ad317).

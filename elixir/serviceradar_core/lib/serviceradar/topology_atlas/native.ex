@@ -47,7 +47,7 @@ defmodule ServiceRadar.TopologyAtlas.Native do
   def ordinal_info(_world, _mapping), do: :erlang.nif_error(:nif_not_loaded)
   def device_ordinals(_world, _mapping, _ids), do: :erlang.nif_error(:nif_not_loaded)
 
-  def aggregate_ordinals(_world, _mapping, _aggregate, _timeout_ms),
+  def aggregate_ordinals(_world, _mapping, _aggregate, _max_bytes, _timeout_ms),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def search(_world, _id), do: :erlang.nif_error(:nif_not_loaded)

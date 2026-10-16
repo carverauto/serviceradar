@@ -188,6 +188,7 @@ fn aggregate_ordinals(
     world: ResourceArc<WorldResource>,
     mapping: ResourceArc<OrdinalResource>,
     aggregate: ResourceArc<AggregateResource>,
+    max_bytes: usize,
     timeout_ms: u64,
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::ORDINAL_READ, || {
@@ -196,7 +197,7 @@ fn aggregate_ordinals(
                 .0
                 .try_read()
                 .map_err(|_| atoms::busy())?
-                .aggregate(&world.0.geometry, &aggregate.0, timeout_ms)
+                .aggregate(&world.0.geometry, &aggregate.0, max_bytes, timeout_ms)
                 .map_err(engine_error)?;
             binary(env, &bytes)
         })
