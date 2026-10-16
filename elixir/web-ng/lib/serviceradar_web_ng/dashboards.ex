@@ -144,6 +144,12 @@ defmodule ServiceRadarWebNG.Dashboards do
   def authored_dashboard_route_ref(%{id: id}), do: to_string(id)
   def authored_dashboard_route_ref(_), do: ""
 
+  @spec authored_dashboard_canonical_id(map()) :: String.t()
+  def authored_dashboard_canonical_id(%{dashboard_ref: ref}) when is_integer(ref), do: Integer.to_string(ref)
+
+  def authored_dashboard_canonical_id(%{id: id}) when not is_nil(id), do: to_string(id)
+  def authored_dashboard_canonical_id(_), do: ""
+
   defp authored_dashboard_row(dashboard) do
     route_ref = authored_dashboard_route_ref(dashboard)
 
