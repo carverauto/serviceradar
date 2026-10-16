@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -17,12 +18,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/metadata"
@@ -1086,49 +1089,70 @@ func TestHandleConsoleFrameClosesTCPSessionAfterWriteQuotaError(t *testing.T) {
 
 // Core withholds ICMP and MTR sweep work only from an agent reporting the
 // unavailable marker, so a failed probe must report it rather than just omit
-// the capability.
-func TestAgentCapabilitiesReportICMPAndMTRSocketProbe(t *testing.T) {
-	t.Parallel()
+// the capability. Both reports, the control-stream hello and the agent
+// capability status, advertise the probe the Server took when it was built.
+func TestCapabilityReportsAdvertiseTheServerSocketProbe(t *testing.T) {
+	errDenied := syscall.EPERM
 
 	for _, tc := range []struct {
 		name    string
-		options agentCapabilityOptions
+		sockets socketProbe
 		want    []string
 		notWant []string
 	}{
 		{
-			name:    "no sockets",
-			options: agentCapabilityOptions{},
+			name: "no sockets",
+			sockets: socketProbe{
+				icmp:   scan.ICMPSocketProbe{IPv4Err: errDenied, IPv6Err: errDenied},
+				mtrErr: errDenied,
+			},
 			want:    []string{"icmp.unavailable", "mtr.unavailable"},
-			notWant: []string{"icmp", "mtr"},
+			notWant: []string{"icmp", "mtr", "mtr_protocol_set", "mtr_tcp_syn"},
 		},
 		{
 			// Linux without CAP_NET_RAW: MTR falls back to unprivileged ICMP,
 			// the sweep scanner has no fallback.
-			name:    "mtr through the unprivileged fallback",
-			options: agentCapabilityOptions{mtrAvailable: true},
-			want:    []string{"icmp.unavailable", "mtr"},
-			notWant: []string{"icmp", "mtr.unavailable"},
+			name: "mtr through the unprivileged fallback",
+			sockets: socketProbe{
+				icmp: scan.ICMPSocketProbe{IPv4Err: errDenied, IPv6Err: errDenied},
+				mtr:  true,
+			},
+			want:    []string{"icmp.unavailable", "mtr", "mtr_protocol_set"},
+			notWant: []string{"icmp", "mtr.unavailable", "mtr_tcp_syn"},
 		},
 		{
-			name:    "raw sockets",
-			options: agentCapabilityOptions{icmpAvailable: true, mtrAvailable: true},
-			want:    []string{"icmp", "mtr"},
+			name: "raw sockets on one address family",
+			sockets: socketProbe{
+				icmp:      scan.ICMPSocketProbe{IPv4: true, IPv6Err: errDenied},
+				mtr:       true,
+				mtrTCPSyn: true,
+			},
+			want:    []string{"icmp", "mtr", "mtr_protocol_set", "mtr_tcp_syn"},
 			notWant: []string{"icmp.unavailable", "mtr.unavailable"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			cfg := &ServerConfig{AgentID: "agent-1", Partition: "default"}
+			pl := NewPushLoop(&Server{config: cfg, sockets: tc.sockets}, nil, 30*time.Second, logger.NewTestLogger())
 
-			capabilities := agentCapabilities(tc.options)
-			for _, capability := range tc.want {
-				if !slices.Contains(capabilities, capability) {
-					t.Errorf("capabilities missing %q: %#v", capability, capabilities)
-				}
+			var status agentCapabilityStatusPayload
+			if err := json.Unmarshal(pl.buildAgentCapabilityGatewayStatus(cfg, nil, nil).GetMessage(), &status); err != nil {
+				t.Fatalf("failed to decode capability payload: %v", err)
 			}
-			for _, capability := range tc.notWant {
-				if slices.Contains(capabilities, capability) {
-					t.Errorf("capabilities must not contain %q: %#v", capability, capabilities)
+
+			for report, capabilities := range map[string][]string{
+				"hello":  pl.getAgentCapabilities(cfg),
+				"status": status.Capabilities,
+			} {
+				for _, capability := range tc.want {
+					if !slices.Contains(capabilities, capability) {
+						t.Errorf("%s capabilities missing %q: %#v", report, capability, capabilities)
+					}
+				}
+				for _, capability := range tc.notWant {
+					if slices.Contains(capabilities, capability) {
+						t.Errorf("%s capabilities must not contain %q: %#v", report, capability, capabilities)
+					}
 				}
 			}
 		})
@@ -1145,65 +1169,63 @@ func (l socketEventLogger) Info() *zerolog.Event { return l.output.Info() }
 
 func (l socketEventLogger) Warn() *zerolog.Event { return l.output.Warn() }
 
-// The capability list core reads is the process socket probe, not a flag
-// passed in by the caller. This host may or may not be allowed to open the
-// sockets; the advertisement has to follow whichever result the probe got.
-func TestThisProcessAdvertisesItsSocketProbe(t *testing.T) {
-	probe := probeSockets()
-	capabilities := getAgentCapabilitiesForSidecars(nil, nil, false)
-	t.Logf("icmp=%v ipv4=%v ipv6=%v mtr=%v capabilities=%v",
-		probe.icmp.Available(), probe.icmp.IPv4, probe.icmp.IPv6, probe.mtr, capabilities)
+// Startup logs the probe once, including the marker core will withhold on and
+// the socket error that explains it.
+func TestLogSocketProbeStatesTheProbeResult(t *testing.T) {
+	t.Parallel()
 
-	if probe.icmp.Available() {
-		if !slices.Contains(capabilities, "icmp") || slices.Contains(capabilities, "icmp.unavailable") {
-			t.Fatalf("ICMP probe succeeded but capabilities are %#v", capabilities)
-		}
-	} else if slices.Contains(capabilities, "icmp") || !slices.Contains(capabilities, "icmp.unavailable") {
-		t.Fatalf("ICMP probe failed (%v, %v) but capabilities are %#v",
-			probe.icmp.IPv4Err, probe.icmp.IPv6Err, capabilities)
-	}
+	errICMPDenied := fmt.Errorf("ICMPv4 raw socket: %w", syscall.EPERM)
+	errMTRDenied := fmt.Errorf("MTR ICMP socket: %w", syscall.EACCES)
 
-	if probe.mtr {
-		if !slices.Contains(capabilities, "mtr") || slices.Contains(capabilities, "mtr.unavailable") {
-			t.Fatalf("MTR probe succeeded but capabilities are %#v", capabilities)
-		}
-	} else if slices.Contains(capabilities, "mtr") || !slices.Contains(capabilities, "mtr.unavailable") {
-		t.Fatalf("MTR probe failed (%v) but capabilities are %#v", probe.mtrErr, capabilities)
-	}
-}
+	for _, tc := range []struct {
+		name    string
+		sockets socketProbe
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "sockets available",
+			sockets: socketProbe{icmp: scan.ICMPSocketProbe{IPv4: true, IPv6: true}, mtr: true},
+			want:    []string{"ICMP sweep capability available", "MTR capability available"},
+			notWant: []string{"unavailable"},
+		},
+		{
+			name: "sockets denied",
+			sockets: socketProbe{
+				icmp:   scan.ICMPSocketProbe{IPv4Err: errICMPDenied},
+				mtrErr: errMTRDenied,
+			},
+			want: []string{
+				"advertising icmp.unavailable", errICMPDenied.Error(),
+				"advertising mtr.unavailable", errMTRDenied.Error(),
+			},
+			notWant: []string{"capability available"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-// Startup logs the probe once, including the marker core will withhold on.
-func TestLogSocketProbeStatesThisProcessResult(t *testing.T) {
-	var output bytes.Buffer
-	log := socketEventLogger{
-		Logger: logger.NewTestLogger(),
-		output: zerolog.New(&output),
-	}
-	probe := probeSockets()
+			var output bytes.Buffer
+			logSocketProbe(socketEventLogger{
+				Logger: logger.NewTestLogger(),
+				output: zerolog.New(&output),
+			}, tc.sockets)
 
-	logSocketProbe(log, probe)
-
-	text := output.String()
-	t.Log(text)
-
-	if probe.icmp.Available() {
-		if !strings.Contains(text, "ICMP sweep capability available") {
-			t.Fatalf("available ICMP probe was not logged: %s", text)
-		}
-	} else if !strings.Contains(text, "advertising icmp.unavailable") {
-		t.Fatalf("unavailable ICMP probe was not logged: %s", text)
-	}
-
-	if probe.mtr {
-		if !strings.Contains(text, "MTR capability available") {
-			t.Fatalf("available MTR probe was not logged: %s", text)
-		}
-	} else if !strings.Contains(text, "advertising mtr.unavailable") {
-		t.Fatalf("unavailable MTR probe was not logged: %s", text)
-	}
-
-	if strings.Count(text, "ICMP sweep capability") != 1 || strings.Count(text, "MTR capability") != 1 {
-		t.Fatalf("probe log should be one ICMP line and one MTR line: %s", text)
+			text := output.String()
+			for _, line := range tc.want {
+				if !strings.Contains(text, line) {
+					t.Errorf("probe log missing %q: %s", line, text)
+				}
+			}
+			for _, line := range tc.notWant {
+				if strings.Contains(text, line) {
+					t.Errorf("probe log must not contain %q: %s", line, text)
+				}
+			}
+			if strings.Count(text, "ICMP sweep capability") != 1 || strings.Count(text, "MTR capability") != 1 {
+				t.Errorf("probe log should be one ICMP line and one MTR line: %s", text)
+			}
+		})
 	}
 }
 

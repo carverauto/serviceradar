@@ -65,6 +65,9 @@ type Server struct {
 	addonTelemetry     *addonTelemetryBuffer
 	addonOtlpRelay     *addonOtlpRelayDeps
 	objectStore        ObjectStore
+	// sockets is the ICMP sweep and MTR socket probe taken when the server is
+	// built. The startup log and every capability report read it.
+	sockets socketProbe
 }
 
 type sidecarStatusProvider interface {

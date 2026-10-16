@@ -429,7 +429,7 @@ func TestSweepBannerGrabCapabilityAdvertisementTransitionsUnavailableWhenNetprob
 	runningSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateRunning)}}
 	availableStatus := pl.sweepBannerGrabCapabilityStatus(runningSidecars, loadedCorpus)
 	availablePayload := decodeAgentCapabilityPayload(t, buildAgentCapabilityStatusResponse(
-		agentCapabilitiesForStatusWithBannerGrab(cfg, runningSidecars, availableStatus.Status == capabilityStatusAvailable),
+		getAgentCapabilitiesForSidecars(cfg, runningSidecars, availableStatus.Status == capabilityStatusAvailable, socketProbe{}),
 		runningSidecars,
 		false,
 		loadedCorpus,
@@ -447,7 +447,7 @@ func TestSweepBannerGrabCapabilityAdvertisementTransitionsUnavailableWhenNetprob
 	stoppedSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateStopped)}}
 	unavailableStatus := pl.sweepBannerGrabCapabilityStatus(stoppedSidecars, loadedCorpus)
 	unavailablePayload := decodeAgentCapabilityPayload(t, buildAgentCapabilityStatusResponse(
-		agentCapabilitiesForStatusWithBannerGrab(cfg, stoppedSidecars, unavailableStatus.Status == capabilityStatusAvailable),
+		getAgentCapabilitiesForSidecars(cfg, stoppedSidecars, unavailableStatus.Status == capabilityStatusAvailable, socketProbe{}),
 		stoppedSidecars,
 		false,
 		loadedCorpus,

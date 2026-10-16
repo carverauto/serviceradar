@@ -26,7 +26,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
@@ -152,6 +151,7 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 		sidecars,
 		sweepBannerGrab.Status == capabilityStatusAvailable,
 		p.remoteAccessRDPAdapterPath(),
+		p.socketProbe(),
 	)
 	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
 
@@ -210,14 +210,6 @@ func buildAgentCapabilityStatusResponse(
 	}
 }
 
-func agentCapabilitiesForStatusWithBannerGrab(
-	cfg *ServerConfig,
-	sidecars []*proto.SidecarStatus,
-	sweepBannerGrabAvailable bool,
-) []string {
-	return getAgentCapabilitiesForSidecars(cfg, sidecars, sweepBannerGrabAvailable)
-}
-
 func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
 	if provider == nil {
 		return nil
@@ -240,20 +232,26 @@ type agentCapabilityOptions struct {
 	mtrTCPSyn                               bool
 }
 
-func getAgentCapabilities(cfg *ServerConfig) []string {
-	return getAgentCapabilitiesForSidecars(cfg, nil, false)
-}
-
 func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
 	if p == nil || p.server == nil {
-		return getAgentCapabilities(cfg)
+		return getAgentCapabilitiesForSidecars(cfg, nil, false, socketProbe{})
 	}
 
 	p.server.mu.RLock()
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
 
-	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false)
+	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false, p.server.sockets)
+}
+
+// socketProbe is the socket probe the Server took when it was built. Without a
+// Server nothing was probed, so ICMP and MTR report unavailable.
+func (p *PushLoop) socketProbe() socketProbe {
+	if p == nil || p.server == nil {
+		return socketProbe{}
+	}
+
+	return p.server.sockets
 }
 
 func (p *PushLoop) netprobeRunningAsRoot() bool {
@@ -331,12 +329,14 @@ func getAgentCapabilitiesForSidecars(
 	cfg *ServerConfig,
 	sidecars []*proto.SidecarStatus,
 	sweepBannerGrabAvailable bool,
+	sockets socketProbe,
 ) []string {
 	return getAgentCapabilitiesForSidecarsWithRDPPath(
 		cfg,
 		sidecars,
 		sweepBannerGrabAvailable,
 		remoteAccessRDPAdapterPathFromConfig(cfg),
+		sockets,
 	)
 }
 
@@ -345,8 +345,8 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 	sidecars []*proto.SidecarStatus,
 	sweepBannerGrabAvailable bool,
 	rdpAdapterPath string,
+	sockets socketProbe,
 ) []string {
-	sockets := probeSockets()
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
@@ -472,14 +472,13 @@ type socketProbe struct {
 	mtrTCPSyn bool
 }
 
-// probeSockets runs once per process. Socket permission does not change while
-// the agent runs, so every capability report reuses the startup result.
+// probeHostSockets opens and closes the sockets the ICMP sweep scanner and MTR
+// need. Socket permission does not change while the agent runs, so the Server
+// probes once when it is built and every capability report reads that result.
 //
 // The ICMP sweep scanner needs raw sockets, while MTR on Linux falls back to
 // unprivileged ICMP, so an agent can trace without being able to sweep.
-//
-//nolint:gochecknoglobals // one process-wide probe; the startup log and every capability report must agree
-var probeSockets = sync.OnceValue(func() socketProbe {
+func probeHostSockets() socketProbe {
 	probe := socketProbe{icmp: scan.ProbeICMPSockets()}
 
 	sock, err := mtr.NewRawSocket(false)
@@ -492,7 +491,7 @@ var probeSockets = sync.OnceValue(func() socketProbe {
 	probe.mtrTCPSyn = probe.mtr && mtr.RawTCPProbeAvailable()
 
 	return probe
-})
+}
 
 // logSocketProbe reports the startup socket probe once, with the reason for
 // each unavailable capability, so an agent that receives no ICMP sweep work
