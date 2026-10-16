@@ -43,3 +43,17 @@ algebra. Full typed overlays avoid the runtime/heap and have a predictable cost
 regardless of dictionary sparsity. Roaring remains valuable server-side for
 query intersections and exact aggregate counts. Geometry stays independently
 cached; membership updates do not relayout or rebuild it.
+
+## Binary telemetry replacement
+
+The synthetic SRTO maximum-population tile (128 nodes, 512 edges) is 118,004
+bytes. It preserves source progress, health counts, full flow coverage,
+eligibility, nullable rates and microsecond observation intervals. The client
+retains the buffer with lazy row access, with no persistent expanded edge array.
+Its conservative retention charge is 191,732 bytes, including metadata and
+CPU/GPU packet-attribute allowances.
+
+A local Bun 1.3.9 warm run of 100 decode-and-validate iterations measured a p95
+of 0.556 ms. This is a synthetic codec result, not physical-browser or GPU
+acceptance. The browser and Elixir tests assert the same independent wire
+digest; native producer tests separately verify row-order alignment.

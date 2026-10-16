@@ -34,6 +34,12 @@ class BoundedWorldTileset extends Tileset2D {
 const geometryFrames = new WeakMap()
 const flowFrames = new WeakMap()
 
+function healthLookup(overlay) {
+  if (overlay?.healthAt) return node => overlay.healthAt(node.index)
+  const byId = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
+  return node => byId.get(node.id)
+}
+
 // Tile completion and viewport refinement also update text outside Deck's
 // draw callbacks. Submit references to the old character buffers before the
 // owning layer reallocates or finalizes them, including rowIndexes.
@@ -104,9 +110,10 @@ function flowFrame(geometry, overlay, membership) {
   const key = membership || overlay
   if (overlayFrames.has(key)) return overlayFrames.get(key)
   const byId = new Map((overlay.flow?.edges || []).map(edge => [edge.id, edge]))
+  const completeMember = row => membership.mask[row] === 1 && membership.counts[row] === geometry.nodes[row].count
   const edges = geometry.edges.flatMap(edge => {
-    if (edge.stale || (membership && (!membership.mask[edge.source] || !membership.mask[edge.target]))) return []
-    const flow = byId.get(edge.id)
+    if (edge.stale || (membership && (!completeMember(edge.source) || !completeMember(edge.target)))) return []
+    const flow = overlay.flowAt ? overlay.flowAt(edge.index) : byId.get(edge.id)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
     const ba = packetRate(flow.reverse)
@@ -165,9 +172,9 @@ export default class WorldTileLayer extends TileLayer {
     for (const tile of tileset.tiles) {
       if (!tile.content || !tileset.isTileVisible(tile)) continue
       const geometry = tile.content
-      const health = new Map((this.tileOverlay(geometry)?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
+      const health = healthLookup(this.tileOverlay(geometry))
       for (const node of geometryFrame(geometry).nodes) {
-        if (!this.memberShown(geometry, node.index) || !this.nodeShown(health.get(node.id), this.tileMembership(geometry), node.index) || nodes.has(node.id)) continue
+        if (!this.memberShown(geometry, node.index) || !this.nodeShown(health(node), this.tileMembership(geometry), node.index) || nodes.has(node.id)) continue
         const point = viewport.project(node.position)
         const radius = node.kind === "aggregate" ? 9 : 4
         if (point[0] + radius < 0 || point[0] - radius > viewport.width ||
@@ -255,14 +262,14 @@ export default class WorldTileLayer extends TileLayer {
     const membership = this.tileMembership(geometry)
     const shownEdge = index => this.memberShown(geometry, geometry.edges[index].source) &&
       this.memberShown(geometry, geometry.edges[index].target) && (edgeClass(index) !== "inferred" || this.props.inferred === true)
-    const health = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
+    const health = healthLookup(overlay)
     const filters = this.props.filters || {}
-    const shown = item => this.memberShown(geometry, item.index) && this.nodeShown(health.get(item.id), membership, item.index)
+    const shown = item => this.memberShown(geometry, item.index) && this.nodeShown(health(item), membership, item.index)
     const common = {coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND}
     const node = ({index}) => frame.nodes[index]
     const healthColor = item => {
       if (membership) return [[65, 195, 156, 240], [245, 117, 88, 240], [120, 132, 151, 230]][membership.availability[item.index]]
-      const counts = health.get(item.id)
+      const counts = health(item)
       if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
       return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
     }

@@ -32,6 +32,7 @@ function layers(geometry, telemetry) {
 describe("world tile rendering contract", () => {
   it("keeps admitted geometry while hiding pending, excluded and expired membership", () => {
     const geometry = tile()
+    geometry.nodes[1] = {...geometry.nodes[1], kind: "device", count: 1}
     const telemetry = overlay(geometry)
     const entry = {revision: geometry.revision, mask: new Uint8Array([1, 1]), counts: new Uint32Array([7, 1]), availability: new Uint8Array([1, 2])}
     const layer = new WorldTileLayer({id: "filtered-world", membershipEnabled: true,
@@ -43,6 +44,10 @@ describe("world tile rendering contract", () => {
     const edges = items => items.find(item => item.id.endsWith("-edges"))
     expect(nodes(selected).props.getRadius(null, {index: 0})).toBe(9)
     expect(nodes(selected).props.getFillColor(null, {index: 0})).toEqual([245, 117, 88, 240])
+    expect(selected.some(item => item.id.endsWith("-packets"))).toBe(false)
+    const complete = draw(layer.clone({membership: new Map([["1/1/0", {...entry,
+      counts: Uint32Array.from(geometry.nodes.map(node => node.count))}]])}))
+    expect(complete.some(item => item.id.endsWith("-packets"))).toBe(true)
     expect(nodes(pending).props.getRadius(null, {index: 0})).toBe(0)
     expect(edges(pending).props.getWidth(null, {index: 0})).toBe(0)
     expect(pending.some(item => item.id.endsWith("-packets"))).toBe(false)

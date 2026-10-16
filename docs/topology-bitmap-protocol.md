@@ -16,6 +16,9 @@ Older sequences and evicted views are ignored. A missing or mismatched receipt,
 invalid state or changed authority clears membership and requests a baseline;
 new tiles stay hidden until their entire admitted view validates. A sequence
 jump is safe because every frame is a complete replacement.
+Transient warmup/source/query failures retry with a one-second exponential
+backoff capped at ten seconds. Unsupported predicates remain explicit errors;
+they do not retry until the query changes. Disable and teardown cancel retries.
 
 ## Binary format
 
@@ -68,6 +71,73 @@ Each request evaluates current membership; page cursors bind query, authority
 and dictionary continuity. The browser discards responses from older local
 query generations and does not reuse filtered scene cache entries. Unsupported
 filtered scenes report an error instead of opening an unfiltered scene.
+Packet animation requires full represented membership at both endpoints. A
+partially matched aggregate has no filtered traffic estimate until the server
+can evaluate the exact relation intersection. Its full-bundle traffic is never
+presented as the query's traffic. Unmapped geometry remains excluded, and the
+watch projection receipt reports incomplete canonical identity coverage.
+
+## Binary health and traffic
+
+The manifest field `world_overlay_protocol: 1` also switches each existing
+`/topology/overlays/:layout/:z/:x/:y` request to
+`Accept: application/vnd.serviceradar.world-overlay`. The server returns that
+content type and an SRTO version-1 frame. JSON is supported only when the
+capability is disabled; an enabled client rejects a JSON response.
+
+All SRTO fields are little endian. Its 12-byte header contains `SRTO`, version
+uint8 `1`, flags uint8 `0`, reserved uint16 `0`, and whole frame size uint32.
+The following fields appear in this order:
+
+| Fields | Encoding |
+| --- | --- |
+| Layout, tile ID, tile revision, health world revision, health tile revision | Five bounded strings, as above |
+| Generation, health epoch, health revision, observation sequence | Four uint64 values |
+| Response and health sample timestamps | Two nullable timestamps |
+| Source status, reconciling, pending | uint8 enum (stale 0, seeding 1, refreshing 2, current 3), uint8 boolean, uint32 |
+| Last read, reconciled since | Two nullable timestamps |
+| Source observed and total | Each uint8 present flag followed by uint64 (zero when absent) |
+| Rendered relations, selected relations, candidates examined, requested pairs, queried pairs, omitted pairs | Six uint32 counts |
+| Scan complete | uint8 boolean |
+| Query since, until, fresh after | Three nullable timestamps |
+| Window seconds, freshness seconds, timeout ms | Three uint32 values |
+| Node and edge count | Two uint16 values, at most 128 and 512 |
+| Health rows | Five uint64 counts: healthy, unavailable, unknown, observed, total |
+| Flow rows | Fixed 220-byte records below |
+
+Each flow record starts with uint32 total and selected relation counts, then
+seven uint32 eligibility counts in this order: physical, ineligible,
+not_physical_evidence, excluded_role, missing_interface_binding,
+shared_interface, unselected. Forward and reverse each contain 92 bytes:
+
+| Direction fields | Encoding |
+| --- | --- |
+| Status, animate, reserved | uint8 (unknown 0, partial 1, measured 2), uint8 boolean, uint16 zero |
+| Packet total, observed packets, observed octets, octet total rates | Four float64 values |
+| Packet and octet observed relation counts | Two uint32 values |
+| Packet interval, octet interval | Each three nullable timestamps: previous, earliest, latest observation |
+
+Unknown rates use exactly the quiet-NaN bits `0x7ff8000000000000`; a measured
+zero remains zero. Other nonfinite or negative rates are invalid. Timestamps
+are signed int64 Unix microseconds; `INT64_MIN` means absent. An interval is
+either wholly absent or has all three timestamps. The browser retains exact
+timestamps as BigInt and health epochs/sequences as decimal strings. Counts
+must remain exactly representable in JavaScript.
+
+Native health selections and flow summaries preserve the Arrow node/edge row
+order. IDs are omitted from the row records. The decoder validates the exact
+layout, generation, tile revision, row counts, and represented edge counts
+before publishing. It retains a DataView and reads row fields on demand,
+without expanding every tile into persistent nested edge/interval objects.
+
+Frames are limited to 256 KiB; the maximum row population with 128-byte metadata
+strings is below 128 KiB. Four requests may be active. The enabled client caps
+retained telemetry at 5 MiB, accounting for actual backing buffers, 8 KiB per
+tile for metadata, and 128 bytes per edge for existing CPU/GPU packet attributes.
+Another 3 MiB is reserved for bounded HTTP assembly, membership and temporary
+decoding/packing. Older telemetry is evicted to unknown at the cap. Geometry
+has its own cache budget. Disabling, eviction and failed samples release
+telemetry, while generation changes discard late replies.
 
 The browser-codec experiment and its tradeoffs are recorded in
 [topology bitmap measurements](topology-bitmap-measurements.md).
