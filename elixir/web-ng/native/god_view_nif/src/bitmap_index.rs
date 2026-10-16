@@ -312,7 +312,9 @@ fn valid_facet(name: &str) -> bool {
     matches!(
         name,
         "vendor" | "region" | "vlan" | "device_class" | "os_name" | "os_version" | "availability"
-    ) || name.strip_prefix("tag:").is_some_and(|key| (1..=60).contains(&key.len()))
+    ) || name
+        .strip_prefix("tag:")
+        .is_some_and(|key| (1..=60).contains(&key.len()))
 }
 
 impl Index {
@@ -458,7 +460,9 @@ impl Index {
                 if !self.supported.contains(&facet) {
                     return Err("invalid_facet_value");
                 }
-                seen.insert(facet.clone());
+                if !seen.insert(facet.clone()) {
+                    return Err("invalid_row");
+                }
                 match value {
                     Value::Exact(value) if value.is_empty() => return Err("invalid_facet_value"),
                     Value::Exact(value) if value.len() <= 256 => {
@@ -1579,12 +1583,10 @@ mod tests {
 
     #[test]
     fn facet_caps_follow_nonempty_postings_and_stay_latched() {
-        let vendor_only = || {
-            Index::new([1; 16], [2; 16], Kind::Device, vec!["vendor".into()]).unwrap()
-        };
-        let row = |id: u32, vendor: &str| -> Row {
-            (id, true, vec![("vendor".into(), vendor.into())])
-        };
+        let vendor_only =
+            || Index::new([1; 16], [2; 16], Kind::Device, vec!["vendor".into()]).unwrap();
+        let row =
+            |id: u32, vendor: &str| -> Row { (id, true, vec![("vendor".into(), vendor.into())]) };
         let publish_all = |index: &Index, rows: Vec<Row>| {
             let mut revision = 0;
             for chunk in rows.chunks(BATCH_LIMIT) {
@@ -1618,7 +1620,10 @@ mod tests {
         index
             .publish(revision, b"over-1024", vec![row(1025, "extra")], true)
             .unwrap();
-        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert_eq!(
+            index.status().unwrap().unavailable,
+            vec!["vendor".to_string()]
+        );
         assert!(matches!(
             index.query(b"allow", &[predicate("vendor", "moved")], 1000),
             Err("facet_unavailable")
@@ -1627,7 +1632,10 @@ mod tests {
         index
             .publish(revision, b"drop-extra", vec![(1025, false, vec![])], true)
             .unwrap();
-        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert_eq!(
+            index.status().unwrap().unavailable,
+            vec!["vendor".to_string()]
+        );
         assert!(matches!(
             index.query(b"allow", &[predicate("vendor", "moved")], 1000),
             Err("facet_unavailable")
@@ -1638,7 +1646,10 @@ mod tests {
             [1; 16],
             [2; 16],
             Kind::Device,
-            simultaneous.iter().map(|name| (*name).to_string()).collect(),
+            simultaneous
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect(),
         )
         .unwrap();
         let distinct = |id: u32| -> Row {
@@ -1672,7 +1683,10 @@ mod tests {
                 true,
             )
             .unwrap();
-        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert_eq!(
+            index.status().unwrap().unavailable,
+            vec!["vendor".to_string()]
+        );
         let (query, _, _, count) = index
             .query(b"allow", &[predicate("region", "region-1")], 1000)
             .unwrap();
@@ -1684,9 +1698,17 @@ mod tests {
         ));
         let revision = index.status().unwrap().revision;
         index
-            .publish(revision, b"drop-vendor-over", vec![(1025, false, vec![])], true)
+            .publish(
+                revision,
+                b"drop-vendor-over",
+                vec![(1025, false, vec![])],
+                true,
+            )
             .unwrap();
-        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert_eq!(
+            index.status().unwrap().unavailable,
+            vec!["vendor".to_string()]
+        );
         let (query, _, _, count) = index
             .query(b"allow", &[predicate("region", "region-1")], 1000)
             .unwrap();
@@ -1773,11 +1795,17 @@ mod tests {
         index
             .publish(0, b"overlength", vec![row(1, &"x".repeat(257))], true)
             .unwrap();
-        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert_eq!(
+            index.status().unwrap().unavailable,
+            vec!["vendor".to_string()]
+        );
         index
             .publish(1, b"short-after-loss", vec![row(1, "short")], true)
             .unwrap();
-        assert_eq!(index.status().unwrap().unavailable, vec!["vendor".to_string()]);
+        assert_eq!(
+            index.status().unwrap().unavailable,
+            vec!["vendor".to_string()]
+        );
         assert!(matches!(
             index.query(b"allow", &[predicate("vendor", "short")], 1000),
             Err("facet_unavailable")
@@ -1883,6 +1911,22 @@ mod tests {
             "invalid_row"
         );
         assert_eq!(index.status().unwrap().revision, 0);
+        for duplicate in ["A", "B"] {
+            let rows = vec![(
+                1,
+                true,
+                vec![
+                    ("vendor".into(), "A".into()),
+                    ("vendor".into(), duplicate.into()),
+                ],
+            )];
+            assert_eq!(
+                index.publish(0, b"duplicate", rows, true).unwrap_err(),
+                "invalid_row"
+            );
+            assert_eq!(index.status().unwrap().revision, 0);
+            assert_eq!(index.status().unwrap().cardinality, 0);
+        }
         index
             .publish(0, b"seed", vec![row(1, "A", "healthy")], true)
             .unwrap();
