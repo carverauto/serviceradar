@@ -99,6 +99,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        gateway_node: Atom.to_string(node()),
        last_pushed_config_version: nil,
        last_synced_config_version: nil,
+       last_synced_section_statuses: [],
        pending_config_version: nil,
        pending_config_acknowledged: false,
        pending_config_persisted: false,
@@ -127,7 +128,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       case register_session(key, metadata) do
         :ok ->
           state = state |> Map.put(:registry_key, key) |> sync_delivery_capabilities()
-          state = forward_reported_config_version(state, control_hello)
+
+          state =
+            state
+            |> forward_reported_config_version(control_hello)
+            |> forward_reported_section_statuses(control_hello)
 
           ControlStreamTelemetry.connected(self(), %{
             gateway_id: Config.gateway_id(),
@@ -376,7 +381,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
         state = sync_delivery_capabilities(state)
         {:noreply, state} = refresh_control_registration(state)
-        {:noreply, forward_reported_config_version(state, hello)}
+
+        {:noreply,
+         state
+         |> forward_reported_config_version(hello)
+         |> forward_reported_section_statuses(hello)}
 
       nil ->
         {:noreply, state}
@@ -797,16 +806,24 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   # Persist the acked version + per-section statuses on core (wedge detection).
   # Fire-and-forget: a core outage must not stall the agent's control stream.
+  # A sectioned ack replaces the stored statuses, so it also becomes the baseline
+  # the hello debounce compares against.
   defp forward_config_ack(state, ack) do
     if registered_agent?(state) do
       agent_id = state.agent_id
       {:ok, _pid} = Task.start(fn -> ConfigSyncForwarder.record_config_ack(agent_id, ack) end)
 
-      %{state | last_synced_config_version: ack.config_version}
+      state
+      |> Map.put(:last_synced_config_version, ack.config_version)
+      |> put_synced_section_statuses(ack.section_statuses)
     else
       state
     end
   end
+
+  defp put_synced_section_statuses(state, [_ | _] = statuses), do: %{state | last_synced_section_statuses: statuses}
+
+  defp put_synced_section_statuses(state, _statuses), do: state
 
   # A heartbeat hello reports the agent's committed config version (set only after a
   # fully-successful apply) — forward it as a whole-version ack so versions applied
@@ -828,6 +845,29 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp forward_reported_config_version(state, _hello), do: state
+
+  # A hello from a current agent carries its per-section config apply state,
+  # including a section that is deferring the commit (no ack is sent then).
+  # Forward it so core can name the section in a config_ack_timeout wedge.
+  # Debounced on the reported statuses so the 60s heartbeat does not spam core;
+  # a hello without statuses (older agents) forwards nothing.
+  defp forward_reported_section_statuses(
+         state,
+         %Monitoring.ControlStreamHello{config_section_statuses: [_ | _] = statuses} = hello
+       ) do
+    if registered_agent?(state) and statuses != state.last_synced_section_statuses do
+      agent_id = state.agent_id
+
+      {:ok, _pid} =
+        Task.start(fn -> ConfigSyncForwarder.record_section_statuses(agent_id, hello) end)
+
+      put_synced_section_statuses(state, statuses)
+    else
+      state
+    end
+  end
+
+  defp forward_reported_section_statuses(state, _hello), do: state
 
   # Record the pushed config version on core
   # (`ConfigSyncForwarder.record_config_push/2`). Core keeps the no-ack anchor

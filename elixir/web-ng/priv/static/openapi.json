@@ -31098,7 +31098,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Per-section config apply statuses from the last sectioned ack (empty for legacy whole-version acks). Field included by default."
+                "description": "Per-section config apply statuses from the last sectioned ack or agent hello (empty for legacy whole-version acks). Field included by default."
               },
               "acked_config_version": {
                 "anyOf": [

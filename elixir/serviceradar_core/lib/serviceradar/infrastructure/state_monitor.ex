@@ -292,6 +292,9 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   #     stale proactive-push snapshot the agent skipped past by converging on a
   #     newer version via the poll path does not false-wedge (and flap) a healthy
   #     agent that is already running the version core currently generates.
+  #     When the agent reports a section that is deferring the commit
+  #     (`transient_failure`, carried on its hello), the wedge metadata names that
+  #     section and its error.
   #   - rule 2 (permanent section): the agent's last sectioned ack reports a
   #     permanently failing config section.
   defp check_agent_config_health(state, actor) do
@@ -338,38 +341,59 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   end
 
   defp permanent_section_wedge(agent) do
-    case permanent_section_failure(agent) do
+    case section_with_disposition(agent, "permanent_failure") do
       nil ->
         nil
 
       failure ->
         {:config_section_permanent_failure,
-         %{
-           section: section_field(failure, "section"),
-           error: section_field(failure, "error"),
-           failing_since: section_field(failure, "since"),
-           acked_config_version: agent.acked_config_version
-         }}
+         Map.put(
+           section_failure_metadata(failure),
+           :acked_config_version,
+           agent.acked_config_version
+         )}
     end
   end
 
   defp unacked_push_wedge(agent, threshold) do
     if unacked_push?(agent, threshold) do
       {:config_ack_timeout,
-       %{
-         pushed_config_version: agent.pushed_config_version,
-         pushed_at: agent.config_pushed_at,
-         acked_config_version: agent.acked_config_version,
-         acked_at: agent.config_acked_at
-       }}
+       Map.merge(
+         %{
+           pushed_config_version: agent.pushed_config_version,
+           pushed_at: agent.config_pushed_at,
+           acked_config_version: agent.acked_config_version,
+           acked_at: agent.config_acked_at
+         },
+         deferring_section_metadata(agent)
+       )}
     end
   end
 
-  defp permanent_section_failure(agent) do
+  # A section the agent reports as transient_failure is the one deferring the
+  # commit, so it is why the push is unacked. Agents that do not report section
+  # state on their hello never store a transient status, and keep the
+  # version-only metadata.
+  defp deferring_section_metadata(agent) do
+    case section_with_disposition(agent, "transient_failure") do
+      nil -> %{}
+      failure -> section_failure_metadata(failure)
+    end
+  end
+
+  defp section_failure_metadata(failure) do
+    %{
+      section: section_field(failure, "section"),
+      error: section_field(failure, "error"),
+      failing_since: section_field(failure, "since")
+    }
+  end
+
+  defp section_with_disposition(agent, disposition) do
     agent.config_section_statuses
     |> List.wrap()
     |> Enum.find(fn status ->
-      is_map(status) and section_field(status, "disposition") == "permanent_failure"
+      is_map(status) and section_field(status, "disposition") == disposition
     end)
   end
 

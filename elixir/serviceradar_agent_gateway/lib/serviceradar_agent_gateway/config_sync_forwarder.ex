@@ -31,7 +31,7 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     attrs = %{
       config_version: ack.config_version,
       acked_at: unix_datetime(ack.timestamp),
-      section_statuses: section_statuses(ack)
+      section_statuses: section_statuses(ack.section_statuses)
     }
 
     core_call(:record_config_ack, [agent_id, attrs])
@@ -55,6 +55,28 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   end
 
   @doc """
+  Persists the per-section config apply statuses an agent reported on a
+  control-stream hello.
+
+  The hello carries the agent's current section state between commits,
+  including a section that is deferring the commit (`transient_failure`), which
+  has no ack to ride on. Core stores the statuses without treating them as an
+  ack. A hello without statuses (agents that predate the field) forwards
+  nothing.
+  """
+  @spec record_section_statuses(String.t(), Monitoring.ControlStreamHello.t()) ::
+          :ok | {:error, term()}
+  def record_section_statuses(agent_id, %Monitoring.ControlStreamHello{} = hello) do
+    case section_statuses(hello.config_section_statuses) do
+      nil ->
+        :ok
+
+      statuses ->
+        core_call(:record_config_section_statuses, [agent_id, %{section_statuses: statuses}])
+    end
+  end
+
+  @doc """
   Persists the config version pushed to an agent over the control stream.
 
   Core decides whether this push moves `config_pushed_at`. See
@@ -68,7 +90,7 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     ])
   end
 
-  defp section_statuses(%Monitoring.ConfigAck{section_statuses: [_ | _] = statuses}) do
+  defp section_statuses([_ | _] = statuses) do
     Enum.map(statuses, fn status ->
       %{
         "section" => status.section,
@@ -79,7 +101,7 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     end)
   end
 
-  defp section_statuses(_ack), do: nil
+  defp section_statuses(_statuses), do: nil
 
   defp since_iso8601(since) when is_integer(since) and since > 0 do
     case DateTime.from_unix(since) do

@@ -6,6 +6,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
   - `record_config_ack/2` persists the acked version + per-section statuses;
     legacy acks (no section statuses) update the version without touching the
     previously recorded section detail.
+  - `record_config_section_statuses/2` stores hello-reported section statuses
+    without changing the acked version or timestamp.
   - `record_config_push/2` anchors `config_pushed_at` at the oldest outstanding
     push: a same-version re-push or a superseding version keeps it while that
     push is outstanding, and the next new version re-anchors once the pushed
@@ -112,6 +114,45 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
                  acked_at: DateTime.utc_now(),
                  section_statuses: nil
                })
+    end
+  end
+
+  describe "record_config_section_statuses/2" do
+    test "stores hello-reported statuses without acknowledging a version", %{
+      uid: uid,
+      actor: actor
+    } do
+      acked_at = ~U[2026-07-04 09:00:00Z]
+
+      :ok =
+        AgentGatewaySync.record_config_ack(uid, %{
+          config_version: "v1",
+          acked_at: acked_at,
+          section_statuses: nil
+        })
+
+      deferring = [
+        %{
+          "section" => "addons",
+          "disposition" => "transient_failure",
+          "error" => "one or more add-on assignments did not apply yet: addon-a",
+          "since" => "2026-07-04T09:30:00Z"
+        }
+      ]
+
+      assert :ok =
+               AgentGatewaySync.record_config_section_statuses(uid, %{section_statuses: deferring})
+
+      agent = reload!(uid, actor)
+      assert agent.acked_config_version == "v1"
+      assert agent.config_acked_at == acked_at
+
+      assert [%{"section" => "addons", "disposition" => "transient_failure"}] =
+               agent.config_section_statuses
+
+      # A hello without statuses (older agent) leaves the stored set alone.
+      assert :ok = AgentGatewaySync.record_config_section_statuses(uid, %{section_statuses: nil})
+      assert [%{"section" => "addons"}] = reload!(uid, actor).config_section_statuses
     end
   end
 

@@ -6,6 +6,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
     past the window marks the agent config-wedged; a quiet fleet (pushed == acked, or
     nothing pushed) never does, and neither does an agent that acked *after* the push
     (it skipped past a stale push snapshot by converging on a newer version via poll).
+    When the agent reports a transient section on its hello, the ack-timeout
+    metadata names it.
   - rule 2 (permanent section): a permanently failing section from the last
     sectioned ack marks the agent config-wedged regardless of ack recency.
   - acks without section statuses (legacy agents) are whole-version acks: they never
@@ -86,6 +88,43 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
       assert metadata.pushed_config_version == "v2"
       assert metadata.acked_config_version == "v1"
       assert metadata.pushed_at == before_threshold()
+      # No reported section state (an agent that predates hello section statuses):
+      # the metadata stays version-only.
+      refute Map.has_key?(metadata, :section)
+    end
+
+    test "a section the agent reports as deferring the commit is named in the metadata" do
+      # A current agent reports its section state on the hello while a transient
+      # section holds the commit back, so the wedge says which section and why.
+      wedged =
+        agent(
+          pushed_config_version: "v2",
+          config_pushed_at: before_threshold(),
+          acked_config_version: "v1",
+          config_acked_at: well_before_threshold(),
+          config_section_statuses: [
+            %{
+              "section" => "bumblebee",
+              "disposition" => "success",
+              "error" => "",
+              "since" => nil
+            },
+            %{
+              "section" => "addons",
+              "disposition" => "transient_failure",
+              "error" => "one or more add-on assignments did not apply yet: addon-a",
+              "since" => "2026-07-04T11:00:00Z"
+            }
+          ]
+        )
+
+      assert {:config_ack_timeout, metadata} =
+               StateMonitor.config_wedge_reason(wedged, @threshold)
+
+      assert metadata.pushed_config_version == "v2"
+      assert metadata.section == "addons"
+      assert metadata.error =~ "addon-a"
+      assert metadata.failing_since == "2026-07-04T11:00:00Z"
     end
 
     test "agent that never acked any version is wedged once a push ages out" do

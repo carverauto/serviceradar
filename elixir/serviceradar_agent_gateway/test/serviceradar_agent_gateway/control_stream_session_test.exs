@@ -1000,6 +1000,67 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       refute_receive {:config_sync, _function, _args}, 100
     end
 
+    test "hello section statuses are persisted without an ack, debounced against the last stored set",
+         %{pid: pid} do
+      deferring = [
+        %Monitoring.ConfigSectionStatus{section: "bumblebee", disposition: "success"},
+        %Monitoring.ConfigSectionStatus{
+          section: "addons",
+          disposition: "transient_failure",
+          error: "one or more add-on assignments did not apply yet: addon-a",
+          since: 1_782_000_000
+        }
+      ]
+
+      hello = %Monitoring.ControlStreamHello{
+        agent_id: "agent-ack",
+        config_version: "v1",
+        config_section_statuses: deferring
+      }
+
+      send_hello = fn ->
+        ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{payload: {:hello, hello}})
+      end
+
+      send_hello.()
+
+      assert_receive {:config_sync, :record_config_section_statuses, ["agent-ack", attrs]}
+
+      assert [
+               %{"section" => "bumblebee", "disposition" => "success"},
+               %{"section" => "addons", "disposition" => "transient_failure"} = failing
+             ] = attrs.section_statuses
+
+      assert failing["error"] =~ "addon-a"
+      assert failing["since"] == 1_782_000_000 |> DateTime.from_unix!() |> DateTime.to_iso8601()
+
+      # The 60s heartbeat repeats the same state: not re-sent.
+      send_hello.()
+      refute_receive {:config_sync, :record_config_section_statuses, _args}, 100
+
+      # A sectioned ack replaces the stored statuses, so the same hello state after
+      # it must be persisted again rather than debounced against the older hello.
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload:
+          {:config_ack,
+           %Monitoring.ConfigAck{
+             config_version: "v2",
+             timestamp: 1_782_000_100,
+             section_statuses: [
+               %Monitoring.ConfigSectionStatus{
+                 section: "addons",
+                 disposition: "permanent_failure",
+                 error: "addon-a: not found",
+                 since: 1_782_000_050
+               }
+             ]
+           }}
+      })
+
+      send_hello.()
+      assert_receive {:config_sync, :record_config_section_statuses, ["agent-ack", _attrs]}
+    end
+
     test "an unregistered session does not forward acks" do
       pid = start_supervised!({ControlStreamSession, stream: nil}, id: :unregistered_session)
 

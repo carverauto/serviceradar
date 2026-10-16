@@ -142,6 +142,32 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @doc """
+  Persists the per-section config apply statuses an agent reported on its
+  control-stream hello.
+
+  Only `config_section_statuses` changes. The hello reports the agent's current
+  apply state between commits, including a `transient_failure` section that is
+  deferring the commit and therefore has no ack to ride on; it acknowledges no
+  version, so the acked version and timestamp are left untouched. An empty list
+  (an agent that predates the field, or one that has not applied a config yet)
+  leaves the stored statuses unchanged.
+  """
+  @spec record_config_section_statuses(String.t(), map()) :: :ok | {:error, term()}
+  def record_config_section_statuses(agent_id, %{section_statuses: [_ | _] = statuses}) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
+
+    update_agent_config_state(
+      agent_id,
+      :record_config_section_statuses,
+      %{config_section_statuses: statuses},
+      actor
+    )
+  end
+
+  def record_config_section_statuses(_agent_id, _attrs), do: :ok
+
+  @doc """
   Records the config version most recently pushed to an agent over the control
   stream.
 
