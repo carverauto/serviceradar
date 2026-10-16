@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapFrame
+  alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.TileKey
@@ -34,6 +35,31 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
     end
   end
 
+  @doc "Recheck geometry, canonical mapping and current authority inside the original request budget."
+  def confirm_delivery(scope, result) do
+    BitmapQueries.confirm_delivery(
+      scope,
+      result.authority,
+      result.deadline,
+      result.prefix_sources,
+      fn -> current_projection(result) end
+    )
+  end
+
+  defp current_projection(result) do
+    with {:ok, %{ordinals: %{mapping: mapping}} = current} <- WorldCache.world(),
+         true <- current.manifest.generation == result.generation and mapping == result.mapping,
+         {:ok, snapshot} <- BitmapIndex.snapshot(),
+         true <- Ecto.UUID.load!(snapshot.dictionary_epoch) == result.metadata.dictionary_epoch,
+         true <- Ecto.UUID.load!(snapshot.index_epoch) == result.metadata.index_epoch do
+      :ok
+    else
+      false -> {:error, :source_changed}
+      {:ok, _unmapped_world} -> {:error, :membership_not_ready}
+      error -> error
+    end
+  end
+
   defp project(context, watch, sequence) do
     with {:ok, %{ordinals: %{mapping: mapping, info: info}} = current} <- WorldCache.world(),
          true <- current.manifest.layout_version == watch.layout_version,
@@ -59,6 +85,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
            metadata: metadata,
            frame: frame,
            authority: context.authority,
+           prefix_sources: context.prefix_sources,
+           mapping: mapping,
            generation: current.manifest.generation
          }}
       end

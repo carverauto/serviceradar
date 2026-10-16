@@ -5,10 +5,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   import Phoenix.Socket, only: [assign: 3]
 
   alias ServiceRadarWebNG.Topology.BitmapFrame
-  alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapView
-  alias ServiceRadarWebNG.Topology.WorldCache
 
   @ack_timeout 15_000
   @task_timeout 1_500
@@ -74,7 +72,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       %{token: ^token} ->
         state = release(state)
 
-        with {:ok, result} <- BitmapQueries.normalize(result), :ok <- current(result, socket) do
+        with {:ok, result} <- BitmapQueries.normalize(result),
+             :ok <- BitmapView.confirm_delivery(socket.assigns.current_scope, result) do
           deliver(result, state, socket)
         else
           {:error, reason} -> failed(state, reason, socket)
@@ -82,22 +81,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
       _ ->
         socket
-    end
-  end
-
-  defp current(result, socket) do
-    with true <- BitmapQueries.enabled?(),
-         :ok <- BitmapQueries.confirm_delivery(socket.assigns.current_scope, result.authority, result.deadline),
-         {:ok, manifest} <- WorldCache.manifest(),
-         true <- manifest.generation == result.generation,
-         {:ok, snapshot} <- BitmapIndex.snapshot(),
-         true <- Ecto.UUID.load!(snapshot.dictionary_epoch) == result.metadata.dictionary_epoch,
-         true <- Ecto.UUID.load!(snapshot.index_epoch) == result.metadata.index_epoch,
-         {:ok, _budget} <- BitmapQueries.remaining(result.deadline) do
-      :ok
-    else
-      false -> {:error, :source_changed}
-      error -> error
     end
   end
 

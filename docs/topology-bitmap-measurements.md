@@ -5,11 +5,12 @@ row overlays before choosing the latter. No deployment data was used. These
 numbers are local Node measurements on a development Mac, not browser or GPU
 acceptance results.
 
-The final typed decoder, tested separately over 100 iterations with 64 tiles
+An earlier typed decoder, tested separately over 100 iterations with 64 tiles
 of 128 rows, produced a 59,469-byte complete frame and 32,768 bytes of aligned
 count buffers. Decoding and validating the whole frame measured 1.24 ms p95.
 This is different work from the bitmap XOR/lookup probe below; neither timing
-includes browser rendering or GPU upload.
+includes browser rendering or GPU upload. That frame predates the current
+four-byte exact-global-total field; its size is historical codec evidence.
 
 The test used 8192 admitted rows. Dense IDs were 1..8192. Sparse IDs were
 `(row + 1) * 524287`, spread across the unsigned 32-bit space. Baselines had

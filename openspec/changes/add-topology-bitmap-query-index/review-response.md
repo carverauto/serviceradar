@@ -3,7 +3,8 @@
 This responds to every finding in `review.md` without changing that independent
 append-only review. The user confirmed current membership on each page on
 2026-10-16. Proposal, design, requirements and tasks now describe the reduced
-implementation. Architecture HTML artifacts remain explicitly pending refresh.
+implementation. Refreshed architecture HTML artifacts and their review receipts
+are committed alongside this change.
 
 ## Confirmed findings and changes
 
@@ -74,12 +75,14 @@ implementation. Architecture HTML artifacts remain explicitly pending refresh.
   zero failures: BuildBuddy invocation
   `55eb5a47-81a7-4d3d-ba5e-2bb090062e43`. Database cases were excluded.
 - The earlier native 1.1-million-device experiment retained 100 query pins
-  and reached 64.0/90.2 MB after compact/sparse churn (invocation
+  and reported 64.0/90.2 MB after compact/sparse churn (invocation
   `02c8f8ee-e0e7-44c2-b7e9-2fe3193f7136`). That lifecycle was rejected; it is
-  not current admission or memory acceptance. The eight-pin implementation
-  passed native tests and sustained churn under unchanged 64 MB retained /
-  160 MB transient index caps. Its tuple baseline is independent Rust, not
-  the old JavaScript renderer.
+  not current admission or memory acceptance. Later verification found that
+  Roaring's bitset statistic reports bits despite its byte-oriented name, so
+  those old charged figures overstated actual bitset storage eightfold. Current
+  scalar and address results use the corrected counter. The address-capable
+  index enforces 125 MB retained and 160 MB total reservation caps, with eight
+  query pins. Its tuple baseline is independent Rust.
 - Synthetic 8,192-row codec experiment: eight baseline portable sets used
   24,664 bytes for dense IDs and 245,824 for sparse IDs; seven-byte typed row
   columns use 57,344 bytes regardless of ID distribution. Source-built codec
@@ -89,7 +92,8 @@ implementation. Architecture HTML artifacts remain explicitly pending refresh.
 - The replacement codec produced a 59,469-byte full frame for 8,192 synthetic
   rows, including its receipts and envelope. Aligned count copies add 32,768
   bytes; Node decode and validation measured 1.24 ms p95 over 100 iterations.
-  Actual-browser and GPU measurement remains pending.
+  This earlier Node-only measurement predates the exact-total header field;
+  physical-browser and GPU evidence is recorded separately below.
 
 The actual native Atlas-to-index 100-view workload passed three independent
 runs with automatic flaky retries disabled: invocation
@@ -122,11 +126,41 @@ prefixes and IPv4/IPv6 containment over any current device/interface address.
 Those additions are now explicit proposal/design/requirement tasks. They do not
 restore the rejected browser Roaring, frozen-page routing, interface identities
 or durable hint replication. Address-index memory and prefix/CIDR performance
-need their own declared proof before acceptance.
+have separate declared proof.
 Existing named Prefix Tags are also approved. Their local immutable snapshots
-will supply bounded native network ranges, preserving the existing full matching
+now supply bounded native network ranges, preserving the existing full matching
 chain and live pagination. This adds no interface identities, query-owner routing
-or per-device BEAM lookup; catalog and range costs are explicit acceptance work.
+or per-device BEAM lookup; catalog and range costs are explicitly bounded.
+
+Native invocation `49a2c6f0-de5c-4c6c-9315-6f3bc99f0c4d` passed 35 native tests,
+778 web tests and scalar, Atlas-view and address benchmarks. Corrected scalar
+memory after 100 churn ticks was 7.94/19.21 MB compact/sparse. The separate
+2.2-million-association address benchmark retained 71.00/83.15 MB after 100
+one-percent mixed churn ticks; sparse total reservations peaked at 140.68 MB.
+All 100 concurrent native address queries completed with bounded harness retries,
+at 64.47 ms sparse request p95. The native README records pin-release retries,
+monotonic synthetic IPv6 assignment and excluded database/transport costs.
+These experiments do not prove a combined address-plus-Atlas-view peak.
+
+Source/parser/catalog integration passed 787 web tests with zero failures
+(212 database exclusions), plus quality in
+`b3a57067-4654-49e5-a4fc-ae01acb8189e`. The production filter and capture fixture
+passed 635 scene tests and seven WebGPU checks in
+`56545d47-fc2d-4d3a-939f-a8143c12fe0a`. Two real 1600x1000 browser captures
+show the requested expression returning 160 matches from 1,024 invented devices,
+with identical camera and decoded geometry. They use synthetic transport and
+do not replace the hosted database/channel acceptance lane.
+
+Final delivery checks now run geometry, canonical mapping and fresh authority
+checks inside the original one-second request budget. A suspended geometry owner
+reproduced the unbounded-call failure in `028c8130-a5da-40d5-a5f1-ca2645329aaf`;
+the fixed deadline regression and web quality passed in
+`f21041bc-d8a0-4971-8bd7-b8f5eb271138`. Canonical mappings retain their two-slot
+native admission permits through actual reclamation, and health snapshots no
+longer retain those separate mappings. The full remote `make test` gate passed
+414 targets with two Swift platform skips in
+`2acf322c-fbc1-4bba-8257-2a137605223e`. Database-backed acceptance remains a
+separate hosted gate.
 
 ## Pass 3 response
 

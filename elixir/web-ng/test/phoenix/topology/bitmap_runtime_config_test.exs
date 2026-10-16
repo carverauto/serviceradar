@@ -3,8 +3,46 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
 
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSource
+  alias ServiceRadarWebNG.Topology.WorldCache
 
   @moduletag :db_free
+
+  @tag timeout: 2_000
+  test "a suspended geometry owner cannot extend the original delivery deadline" do
+    keys = [:god_view_enabled, :topology_bitmap_enabled]
+    previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
+    for key <- keys, do: Application.put_env(:serviceradar_web_ng, key, true)
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
+      end)
+    end)
+
+    start_supervised!(BitmapQueries)
+    tasks = start_supervised!({Task.Supervisor, []})
+    cache = start_supervised!({WorldCache, task_supervisor: tasks, pubsub: __MODULE__.PubSub})
+    :ok = :sys.suspend(cache)
+    owner = self()
+    started = System.monotonic_time(:millisecond)
+
+    try do
+      assert {:error, :query_timeout} =
+               BitmapQueries.confirm_delivery(nil, <<0::256>>, started + 100, %{}, fn ->
+                 send(owner, {:delivery_check, self()})
+                 WorldCache.world(cache)
+               end)
+
+      assert System.monotonic_time(:millisecond) - started < 1_000
+      assert_receive {:delivery_check, worker}
+      refute worker == self()
+      refute Process.alive?(worker)
+      assert {:error, :query_timeout} = BitmapQueries.normalize({:error, :deadline_exceeded})
+    after
+      :sys.resume(cache)
+    end
+  end
 
   test "release configuration drives enabled state and the bounded filter-builder allowlist" do
     names = ~w(SERVICERADAR_GOD_VIEW_ENABLED SERVICERADAR_TOPOLOGY_BITMAP_ENABLED SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS)

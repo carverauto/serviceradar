@@ -155,9 +155,12 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
         {:ok, {:unchanged, manifest}}
       end
     else
-      {:error, _reason} ->
+      {:error, :bitmap_disabled} ->
         WorldCache.clear_ordinals(cache)
         {:ok, {:unchanged, manifest}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

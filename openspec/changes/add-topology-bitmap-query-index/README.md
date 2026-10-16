@@ -7,13 +7,18 @@ Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
 
 ## Next agent prompt
 
-Integrate current-address CIDRs and named Prefix Tags with the visible map
-builder, then finish scale and database acceptance. Binary delivery, scalar
-set algebra, literal prefixes, rollout configuration and the public-GPU
-dependency repair are integrated and their focused checks passed. The existing
-Prefix Tags trie now provides bounded native label discovery and merged ranges;
-its topology adapter and background catalog lifecycle are the next integration.
-Actual database lifecycle/channel tests and end-to-end scale remain open.
+Finish hosted database acceptance and concurrent transport measurements. Current-address
+CIDRs, named Prefix Tags and the visible map builder are integrated, alongside
+binary delivery, scalar set algebra, literal prefixes, rollout configuration
+and the public-GPU dependency repair. The existing Prefix Tags trie supplies
+bounded native label discovery and merged ranges through the topology adapter;
+the publisher owns background catalog preparation and release. Focused source,
+parser, catalog-to-address and browser checks passed. Actual database
+lifecycle/channel tests and concurrent HTTP/WebSocket scale remain open. The
+integrated full remote unit gate passed 414 targets with two platform skips
+in invocation `2acf322c-fbc1-4bba-8257-2a137605223e`; the Helm migration guard
+now requires the latest shipped identity migration. Final delivery checks use
+the original request deadline and compare the exact canonical mapping.
 Use `tasks.md`; unchecked work is not shipped or verified. Preserve automatic
 ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
 
@@ -63,5 +68,14 @@ The Prefix Tags catalog passed nine Rust tests and the core unit shard (1,285
 tests, zero failures, one skipped, 521 excluded), plus core formatting/Credo,
 in BuildBuddy invocation `d4c90a7d-e3f8-4b8c-85c5-34048b6f9211`. Catalog memory
 is capped globally at four MiB, including retained old catalogs; this is separate
-from existing trie storage. IP scale acceptance remains pending after sparse
-identity publication exposed a transient memory-budget failure.
+from existing trie storage. Numeric address scale passed with 1.1 million
+invented devices and 2.2 million address associations. Corrected sparse index
+accounting was 83.15 MB after 100 mixed churn ticks, with 140.68 MB peak total
+reservations. These native results exclude database and transport costs; see
+the native README for admission retries and the synthetic address distribution.
+
+Current public limitations: Share map preserves camera state but not the filter
+expression. Zero-match glyphs are masked; partial aggregate links are hidden when
+exact matching endpoints cannot be established. Named Prefix Tag labels are
+paged, without full-catalog download or label search. Compression remains off
+pending concurrent transport measurement.
