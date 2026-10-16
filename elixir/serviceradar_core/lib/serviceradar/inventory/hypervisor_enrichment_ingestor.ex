@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.MergeAudit
@@ -334,6 +335,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
          :ok <- VirtualizationIdentityAliases.reconcile(records),
          :ok <- reconcile_saved_guest_ids(Map.values(guest_ids), actor) do
+      if !Repo.in_transaction?() do
+        nics |> Stream.map(& &1[:device_uid]) |> DevicePubSub.broadcast_invalidated()
+      end
+
       enqueue_world_reconcile()
     end
   end

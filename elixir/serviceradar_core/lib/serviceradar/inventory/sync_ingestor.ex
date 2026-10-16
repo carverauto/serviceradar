@@ -334,7 +334,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     if !defer_state_events? do
       StateEvents.publish_device_state_transitions(device_records, previous_device_states, remap)
       StateEvents.invalidate_identity_cache_for_device_records(device_records)
-      invalidate_written_devices(device_records, remap)
     end
 
     interface_records = apply_uid_remap_to_interface_records(interface_records, remap)
@@ -349,6 +348,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
     alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
     _ = SourceFactReconciler.ingest_resolved(resolved_updates)
+
+    # Address selection includes interface and alias state written after devices.
+    # Deferred callers emit this same hint after their outer transaction commits.
+    if !defer_state_events?, do: invalidate_written_devices(device_records, remap)
 
     :ok
     |> finalize_ingest_results(risk_result, identifier_result, interface_result, alias_result)
