@@ -29,6 +29,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "package-lock.json",
     "patches/deck.gl-core-9.4.0.patch",
+    "patches/luma.gl-webgpu-9.4.2.patch",
     "css/app.css",
 ])
 

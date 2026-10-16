@@ -14,3 +14,13 @@ Reproduced on Chrome with Apple Metal WebGPU: a node at canvas y=129 could only
 be picked at y=491 in a 620-pixel canvas. The RBE-built `world_gpu_smoke` target
 now supports node clicks, edge picks and rectangle picks at the visible
 coordinates with packet flow enabled. Empty-space picks remain empty.
+
+# luma.gl 9.4.2 WebGPU compute bindings
+
+`luma.gl-webgpu-9.4.2.patch` gives each WebGPU compute pipeline its own mutable
+binding dictionary. The patch covers the TypeScript source and the published
+ESM and CommonJS modules. Bun, pnpm, and Bazel apply the same patch to
+`@luma.gl/webgpu@9.4.2`. Remove it when an upstream release isolates those
+dictionaries and the compute regression in
+[God View world acceptance](../../../../docs/god-view-world-acceptance.md)
+passes.

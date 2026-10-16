@@ -1,0 +1,63 @@
+--- a/src/adapter/resources/webgpu-compute-pipeline.ts
++++ b/src/adapter/resources/webgpu-compute-pipeline.ts
+@@ -13,8 +13,6 @@
+ } from '@luma.gl/core';
+ import {WebGPUDevice} from '../webgpu-device';
+ import {WebGPUShader} from './webgpu-shader';
+-
+-const EMPTY_BIND_GROUPS: BindingsByGroup = {};
+ 
+ // COMPUTE PIPELINE
+ 
+@@ -54,7 +52,7 @@
+         layout: 'auto'
+       });
+ 
+-    this._bindingsByGroup = EMPTY_BIND_GROUPS;
++    this._bindingsByGroup = {};
+     this._bindGroupCacheKeysByGroup = {};
+   }
+ 
+--- a/dist/adapter/resources/webgpu-compute-pipeline.js
++++ b/dist/adapter/resources/webgpu-compute-pipeline.js
+@@ -2,7 +2,6 @@
+ // SPDX-License-Identifier: MIT
+ // SPDX-FileCopyrightText: Copyright (c) vis.gl contributors
+ import { ComputePipeline, _getDefaultBindGroupFactory, assert, normalizeBindingsByGroup } from '@luma.gl/core';
+-const EMPTY_BIND_GROUPS = {};
+ // COMPUTE PIPELINE
+ /** Creates a new compute pipeline when parameters change */
+ export class WebGPUComputePipeline extends ComputePipeline {
+@@ -34,7 +33,7 @@
+                     },
+                     layout: 'auto'
+                 });
+-        this._bindingsByGroup = EMPTY_BIND_GROUPS;
++        this._bindingsByGroup = {};
+         this._bindGroupCacheKeysByGroup = {};
+     }
+     /**
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1557,11 +1557,10 @@
+ });
+ 
+ // dist/adapter/resources/webgpu-compute-pipeline.js
+-var import_core12, EMPTY_BIND_GROUPS, WebGPUComputePipeline;
++var import_core12, WebGPUComputePipeline;
+ var init_webgpu_compute_pipeline = __esm({
+   "dist/adapter/resources/webgpu-compute-pipeline.js"() {
+     import_core12 = require("@luma.gl/core");
+-    EMPTY_BIND_GROUPS = {};
+     WebGPUComputePipeline = class extends import_core12.ComputePipeline {
+       device;
+       handle;
+@@ -1588,7 +1587,7 @@
+           },
+           layout: "auto"
+         });
+-        this._bindingsByGroup = EMPTY_BIND_GROUPS;
++        this._bindingsByGroup = {};
+         this._bindGroupCacheKeysByGroup = {};
+       }
+       /**
