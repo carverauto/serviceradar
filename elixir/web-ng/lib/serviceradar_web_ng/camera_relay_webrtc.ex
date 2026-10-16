@@ -89,6 +89,20 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTC do
     end
   end
 
+  @doc """
+  Returns the viewer's signaling state, including every ICE candidate core-elx
+  has gathered so far (`remote_ice_candidates`). The browser polls this until
+  it connects, because the sink keeps gathering after the offer is returned.
+  """
+  def get_session(relay_session_id, viewer_session_id, opts)
+      when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    if enabled?() do
+      manager().get_session(relay_session_id, viewer_session_id, opts)
+    else
+      {:error, "camera relay webrtc playback is unavailable"}
+    end
+  end
+
   def close_session(relay_session_id, viewer_session_id, opts)
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
     if enabled?() do
