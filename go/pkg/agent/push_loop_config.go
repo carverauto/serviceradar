@@ -188,13 +188,6 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 		p.latestConfigSequence = sequence
 	}
 
-	// Keep the payload that was actually applied. A later NotModified poll has empty
-	// section fields, and the gateway also marks a same-version body NotModified
-	// without clearing those fields. Neither message may replace this copy or be applied.
-	if !configResp.NotModified {
-		p.rememberFullConfig(configResp)
-	}
-
 	// The control stream pushes a fresh (not_modified:false) config on every dependency
 	// write on the gateway side, even when the agent's compiled config is unchanged. The
 	// config version hash is deterministic, so a version equal to the one we already
@@ -372,6 +365,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
+	p.rememberFullConfig(configResp)
 	p.logger.Info().
 		Str("version", p.getConfigVersion()).
 		Str("source", source).
@@ -453,8 +447,8 @@ func (p *PushLoop) applyAddonConfigSection(
 	})
 }
 
-// rememberFullConfig retains a full config response for later escalated-section
-// retries. Caller holds configApplyMu.
+// rememberFullConfig retains the full response of a version that just committed.
+// Caller holds configApplyMu. A NotModified body is not a committed payload.
 func (p *PushLoop) rememberFullConfig(configResp *proto.AgentConfigResponse) {
 	if configResp == nil || configResp.NotModified {
 		return

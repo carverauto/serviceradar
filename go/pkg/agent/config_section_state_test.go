@@ -1110,6 +1110,118 @@ func TestEscalatedSectionRetriesAfterLaterConfigHash(t *testing.T) {
 	}
 }
 
+// A later version that fails transiently must not replace the retained body of the
+// version that is still committed. NotModified polls keep retrying the escalated
+// add-on from that committed body.
+func TestNotModifiedRetriesCommittedBodyAfterDeferredVersion(t *testing.T) {
+	dir := t.TempDir()
+	manager := &gateAddonManager{fail: true}
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{
+			AgentID: "agent-test",
+			Bumblebee: &BumblebeeStatusConfig{
+				CatalogPath: filepath.Join(dir, "catalog", "current"),
+				ProfilePath: filepath.Join(dir, "profile", "runtime.json"),
+				TmpDir:      filepath.Join(dir, "tmp"),
+			},
+		},
+		addonManager: manager,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	addon := osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon")
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v1",
+		Addons:        []*proto.AddonAssignmentConfig{addon},
+	}
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		Addons:        []*proto.AddonAssignmentConfig{addon},
+		BumblebeeConfig: &proto.BumblebeeConfig{
+			Enabled: true,
+			Catalog: &proto.BumblebeeCatalogAssignment{
+				SnapshotRef: "snapshot-1",
+				ObjectKey:   "bumblebee/catalogs/snapshot-1/catalog.json",
+				Sha256:      strings.Repeat("0", 64),
+			},
+		},
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		switch phase.Load() {
+		case 0:
+			return cloneConfig(v1)
+		case 1:
+			return cloneConfig(v2)
+		default:
+			return notModifiedDecoy()
+		}
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated {
+		t.Fatalf("addons failure = %+v, want escalated", failure)
+	}
+
+	phase.Store(1)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1 after the deferred version", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated {
+		t.Fatalf("addons failure = %+v, want the escalated record kept for the unchanged payload", failure)
+	}
+	bumblebee := pl.configSectionFailureSnapshot()[configSectionBumblebee]
+	if bumblebee.disposition != addonDeliveryTransientFailure || bumblebee.attempts != 1 {
+		t.Fatalf("bumblebee failure = %+v, want one transient attempt deferring cfg-v2", bumblebee)
+	}
+	callsAfterDeferral := manager.applyCalls
+
+	phase.Store(2)
+	stream := &fakeControlStreamClient{}
+	pl.setControlStreamSender(newControlStreamSender(stream))
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAfterDeferral+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: NotModified must retry the committed add-on", manager.applyCalls, callsAfterDeferral+1)
+	}
+	if len(manager.applied) != 1 || manager.applied[0].ID != testPowerDNSAddonID {
+		t.Fatalf("applied specs = %#v, want the retained %s assignment", manager.applied, testPowerDNSAddonID)
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated {
+		t.Fatalf("addons failure = %+v, want it to stay escalated", failure)
+	}
+
+	manager.fail = false
+	pl.fetchAndApplyConfig(t.Context())
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionAddons]; ok {
+		t.Fatal("recovered add-on section failure record was not cleared")
+	}
+	acks := sentConfigAcks(stream)
+	if len(acks) == 0 {
+		t.Fatal("sent no config ack after the committed add-on recovered")
+	}
+	if got := acks[len(acks)-1].GetConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("recovery ack version = %q, want cfg-v1", got)
+	}
+	recovered := sectionStatus(acks[len(acks)-1].GetSectionStatuses(), configSectionAddons)
+	if recovered.GetDisposition() != configSectionDispositionSuccess || recovered.GetError() != "" {
+		t.Fatalf("recovery ack addons status = %+v, want success with an empty error", recovered)
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+}
+
 func systemdNetprobeAssignment() *proto.AddonAssignmentConfig {
 	return &proto.AddonAssignmentConfig{
 		AddonId:     agentnetprobe.DefaultSidecarName,
