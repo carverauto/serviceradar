@@ -204,10 +204,10 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	// fully-successful apply, so a deferred/partial apply (which leaves the old version)
 	// will not be short-circuited and is still retried.
 	//
-	// A transient or escalated failure for the committed version is the exception,
-	// including a NotModified poll after the version has been acked. Re-apply each
-	// such section from the retained full response, in apply order. Ack when their
-	// status changes; an unchanged failure is not acked again.
+	// A transient or escalated failure is the exception once a version is committed,
+	// including a NotModified poll after a later hash of the same payload. Re-apply
+	// each such section from the retained full response, in apply order. Ack when
+	// their status changes; an unchanged failure is not acked again.
 	v := configResp.GetConfigVersion()
 	sameVersion := v != "" && v == p.getConfigVersion()
 	if configResp.NotModified || sameVersion {
@@ -482,8 +482,8 @@ func (p *PushLoop) retryFailedFromRetained(ctx context.Context) bool {
 	return p.retryFailedConfigSections(ctx, cloned)
 }
 
-// retryFailedConfigSections re-applies every section with a transient or escalated
-// failure for this response's version. Visibility runs before add-ons. When a
+// retryFailedConfigSections re-applies every transient or escalated section.
+// Visibility runs before add-ons. When a
 // visibility retry newly succeeds, the add-on section runs in the same cycle so a
 // systemd netprobe that was blocked on that failure can activate. It reports
 // whether any section status changed.

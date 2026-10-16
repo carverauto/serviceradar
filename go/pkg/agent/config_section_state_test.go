@@ -1009,6 +1009,107 @@ func TestEscalatedSectionRetriesOnNotModifiedPoll(t *testing.T) {
 	}
 }
 
+// An escalated section keeps the config version of its first observation when the
+// same payload fails again under a later hash. NotModified polls of that later
+// hash still retry it from the retained response until it succeeds.
+func TestEscalatedSectionRetriesAfterLaterConfigHash(t *testing.T) {
+	manager := &gateAddonManager{fail: true}
+	pl := newAddonManagerPushLoop(t, manager)
+	addon := osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon")
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v1",
+		Addons:        []*proto.AddonAssignmentConfig{addon},
+	}
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		Addons:        []*proto.AddonAssignmentConfig{addon},
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		switch phase.Load() {
+		case 0:
+			return cloneConfig(v1)
+		case 1:
+			return cloneConfig(v2)
+		default:
+			return notModifiedDecoy()
+		}
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; !failure.escalated || failure.version != "cfg-v1" {
+		t.Fatalf("addons failure = %+v, want escalated at cfg-v1", failure)
+	}
+
+	phase.Store(1)
+	pl.fetchAndApplyConfig(t.Context())
+	failure := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if got := pl.getConfigVersion(); got != "cfg-v2" {
+		t.Fatalf("committed version = %q, want cfg-v2", got)
+	}
+	if !failure.escalated || failure.version != "cfg-v1" {
+		t.Fatalf("addons failure = %+v, want escalated and still first-seen cfg-v1", failure)
+	}
+	callsAfterV2 := manager.applyCalls
+
+	phase.Store(2)
+	stream := &fakeControlStreamClient{}
+	pl.setControlStreamSender(newControlStreamSender(stream))
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAfterV2+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: a later hash must keep retrying the escalated section", manager.applyCalls, callsAfterV2+1)
+	}
+	if len(manager.applied) != 1 || manager.applied[0].ID != testPowerDNSAddonID {
+		t.Fatalf("applied specs = %#v, want the retained %s assignment", manager.applied, testPowerDNSAddonID)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 0 {
+		t.Fatalf("sent %d config acks while the escalated failure was unchanged, want 0", len(acks))
+	}
+	if got := pl.configSectionFailureSnapshot()[configSectionAddons].version; got != "cfg-v1" {
+		t.Fatalf("addons failure version = %q, want the first observation cfg-v1", got)
+	}
+
+	manager.fail = false
+	pl.fetchAndApplyConfig(t.Context())
+	if _, ok := pl.configSectionFailureSnapshot()[configSectionAddons]; ok {
+		t.Fatal("recovered add-on section failure record was not cleared")
+	}
+	acks := sentConfigAcks(stream)
+	if len(acks) != 1 {
+		t.Fatalf("sent %d config acks after the later hash recovered, want 1", len(acks))
+	}
+	if got := acks[0].GetConfigVersion(); got != "cfg-v2" {
+		t.Fatalf("recovery ack version = %q, want cfg-v2", got)
+	}
+	recovered := sectionStatus(acks[0].GetSectionStatuses(), configSectionAddons)
+	if recovered.GetDisposition() != configSectionDispositionSuccess || recovered.GetError() != "" {
+		t.Fatalf("recovery ack addons status = %+v, want success with an empty error", recovered)
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionSuccess {
+		t.Fatalf("hello addons disposition = %q, want success", helloAddons.GetDisposition())
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v2" {
+		t.Fatalf("committed version = %q, want cfg-v2", got)
+	}
+
+	callsAfterSuccess := manager.applyCalls
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAfterSuccess {
+		t.Fatalf("supervisor Apply calls = %d, want %d: a cleared section must not be retried on the next poll", manager.applyCalls, callsAfterSuccess)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 1 {
+		t.Fatalf("sent %d config acks when the poll changed nothing, want 1", len(acks))
+	}
+}
+
 func systemdNetprobeAssignment() *proto.AddonAssignmentConfig {
 	return &proto.AddonAssignmentConfig{
 		AddonId:     agentnetprobe.DefaultSidecarName,

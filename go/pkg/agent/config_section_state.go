@@ -214,16 +214,17 @@ func configSectionReconcilesEveryApply(section string) bool {
 
 // configSectionFailureRetriesOnCommittedVersion reports whether this failure must be
 // re-applied on a same-version or NotModified delivery. That is a transient or
-// escalated failure recorded for the committed config version. A classified
-// permanent failure is not retried, and a failure for some other version belongs
-// to a payload this delivery is not applying.
+// escalated failure once some config version is committed. failure.version is the
+// config version at first observation and stays there when the same payload keeps
+// failing under a later hash, so it does not select the retry. A classified
+// permanent failure is not retried.
 func configSectionFailureRetriesOnCommittedVersion(failure configSectionFailure, version string) bool {
-	return version != "" && failure.version == version &&
+	return version != "" &&
 		(failure.escalated || failure.disposition == addonDeliveryTransientFailure)
 }
 
-// hasRetryableConfigSectionFailure reports whether any section failure for the
-// committed version must be re-applied from the retained response.
+// hasRetryableConfigSectionFailure reports whether any transient or escalated
+// section failure must be re-applied from the retained response.
 func (p *PushLoop) hasRetryableConfigSectionFailure() bool {
 	version := p.getConfigVersion()
 	p.configSectionMu.Lock()
@@ -238,8 +239,8 @@ func (p *PushLoop) hasRetryableConfigSectionFailure() bool {
 	return false
 }
 
-// configSectionFailureNeedsRetry reports whether this section's recorded failure
-// for the committed version must be re-applied.
+// configSectionFailureNeedsRetry reports whether this section's transient or
+// escalated failure must be re-applied.
 func (p *PushLoop) configSectionFailureNeedsRetry(section string) bool {
 	version := p.getConfigVersion()
 	p.configSectionMu.Lock()
