@@ -150,6 +150,7 @@ rust_test(
     srcs = [
         "fixtures/bitmap_benchmark.rs",
         "src/bitmap_index.rs",
+        "src/bitmap_pending.rs",
     ],
     crate_root = "fixtures/bitmap_benchmark.rs",
     edition = "2021",
