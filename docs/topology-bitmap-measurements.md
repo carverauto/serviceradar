@@ -1,4 +1,4 @@
-# Admitted-row overlay comparison
+# ServiceRadar Atlas admitted-row overlay comparison
 
 A synthetic experiment compared a browser Roaring runtime with direct typed
 row overlays before choosing the latter. No deployment data was used. These
@@ -57,3 +57,31 @@ A local Bun 1.3.9 warm run of 100 decode-and-validate iterations measured a p95
 of 0.556 ms. This is a synthetic codec result, not physical-browser or GPU
 acceptance. The browser and Elixir tests assert the same independent wire
 digest; native producer tests separately verify row-order alignment.
+
+## WebSocket compression probe
+
+The production SRMO encoder and Phoenix binary serializer produced 60,405-byte
+messages for 64 synthetic tiles of 128 rows. Bandit's negotiated
+`permessage-deflate` implementation compressed 100 successive messages, changing
+the sequence each time. An independent raw zlib inflater recovered every complete
+Phoenix message byte for byte, with and without server context takeover.
+
+| Synthetic row distribution | Context takeover | Compressed bytes, min-max | Deflate p95 |
+| --- | --- | ---: | ---: |
+| Uniform counts and states | No | 913-918 | 0.635 ms |
+| Uniform counts and states | Yes | 844-915 | 0.817 ms |
+| Mixed counts and availability | No | 26,933-26,936 | 5.278 ms |
+| Mixed counts and availability | Yes | 26,723-26,933 | 6.412 ms |
+
+Timing excludes the first ten samples and measures compression alone. This was
+BuildBuddy invocation `9a498c5c-4e73-4125-8f0b-bc80174973c5`; the app-domain shard
+passed 479 tests with zero failures (413 excluded), and formatting/Credo passed.
+The experiment invokes the real extension negotiation and serializer, but does
+not perform an HTTP upgrade, browser decompression, or concurrent socket load.
+
+Compression substantially reduces these synthetic messages. Context takeover
+adds little savings for the mixed distribution, which exceeds the deflate
+history window. Keep compression disabled pending the concurrent transport
+measurement: these results alone do not establish the CPU or connection-memory
+cost of enabling it on the shared application socket. Full replacement frames
+remain the protocol; unchanged-tile omission is a separate measured follow-up.

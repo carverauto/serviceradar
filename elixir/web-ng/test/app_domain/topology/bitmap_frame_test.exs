@@ -1,6 +1,9 @@
 defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
   use ExUnit.Case, async: true
 
+  alias Bandit.WebSocket.PerMessageDeflate
+  alias Phoenix.Socket.Message
+  alias Phoenix.Socket.V2.JSONSerializer
   alias ServiceRadarWebNG.Topology.BitmapFrame
 
   @moduletag :db_free
@@ -84,5 +87,78 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
     assert byte_size(frame) < 65_536
     assert {:ok, <<"SRMO", 1, 1, _::binary>>} = BitmapFrame.encode(%{metadata() | kind: :reset})
     assert {:error, _} = BitmapFrame.encode(%{metadata() | kind: :reset}, [tile()])
+  end
+
+  test "Phoenix binary membership survives negotiated deflate with and without context takeover" do
+    for distribution <- [:uniform, :mixed], takeover <- [false, true] do
+      params = if takeover, do: [], else: [{"server_no_context_takeover", true}]
+      {context, extensions} = PerMessageDeflate.negotiate([{"permessage-deflate", params}], [])
+      assert [{:"permessage-deflate", _}] = extensions
+      inflater = :zlib.open()
+      :ok = :zlib.inflateInit(inflater, -15)
+
+      try do
+        tiles = compression_tiles(distribution)
+
+        samples =
+          for sequence <- 1..100 do
+            assert {:ok, frame} = BitmapFrame.encode(%{metadata() | sequence: sequence}, tiles)
+
+            assert {:socket_push, :binary, wire} =
+                     JSONSerializer.encode!(%Message{
+                       topic: "topology:tiles",
+                       event: "membership:frame",
+                       join_ref: "1",
+                       payload: {:binary, frame}
+                     })
+
+            assert <<0, 1, 14, 16, "1topology:tilesmembership:frame", ^frame::binary>> = wire
+            {micros, {:ok, compressed, _context}} = :timer.tc(fn -> PerMessageDeflate.deflate(wire, context) end)
+            assert IO.iodata_to_binary(:zlib.inflate(inflater, <<compressed::binary, 0, 0, 255, 255>>)) == wire
+            if !takeover, do: :zlib.inflateReset(inflater)
+            {micros, byte_size(compressed), byte_size(wire)}
+          end
+
+        times = samples |> Enum.drop(10) |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+        sizes = Enum.map(samples, &elem(&1, 1))
+
+        IO.puts(
+          "ATLAS_MEMBERSHIP_DEFLATE " <>
+            Jason.encode!(%{
+              distribution: distribution,
+              context_takeover: takeover,
+              samples: length(samples),
+              wire_bytes: elem(hd(samples), 2),
+              first_bytes: hd(sizes),
+              maximum_bytes: Enum.max(sizes),
+              minimum_bytes: Enum.min(sizes),
+              deflate_p95_us: Enum.at(times, 85)
+            })
+        )
+      after
+        :zlib.close(inflater)
+        PerMessageDeflate.close(context)
+      end
+    end
+  end
+
+  defp compression_tiles(distribution) do
+    for x <- 0..63 do
+      counts =
+        for row <- 0..127 do
+          if distribution == :uniform, do: 1, else: :erlang.phash2({x, row}, 65_536)
+        end
+
+      %{
+        z: 6,
+        x: x,
+        y: 0,
+        revision: "synthetic-compression-receipt-#{x}",
+        mask: :erlang.list_to_binary(Enum.map(counts, &if(&1 > 0, do: 1, else: 0))),
+        causal: :binary.copy(<<3>>, 128),
+        availability: :erlang.list_to_binary(Enum.map(counts, &rem(&1, 3))),
+        counts: IO.iodata_to_binary(Enum.map(counts, &<<&1::little-32>>))
+      }
+    end
   end
 end

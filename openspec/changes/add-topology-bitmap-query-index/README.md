@@ -1,4 +1,4 @@
-# Implementation handoff
+# ServiceRadar Atlas implementation handoff
 
 Approved proposal, implementation in progress, no rollout authorized. The user
 accepted current membership on each page. `review-response.md` reconciles every
@@ -47,6 +47,17 @@ The shared-bucket experiment was rejected after a real deadlock, and its source
 and tests were removed. It is not a foundation to restore. HTML architecture
 artifacts now reflect binary row overlays; keep new UI/prefix scope synchronized
 before delivery. Do not deploy or archive this change.
+
+Task 3.7 also supplies genuine production-map captures over synthetic inventory
+for the website branch `blog/set-algebra-over-device-groups` in
+`carverauto/serviceradar-web`: one unchanged viewport, the expression
+`(VLAN 20 OR VLAN 30) AND unavailable EXCEPT tag maintenance=true`, before and
+after PNGs at 1600x1000, dark scheme and DPR 2 downsampled. Add the images under
+`priv/static/images/blog/atlas-filter-{before,after}.png`, figures after the
+bit-row diagram, the post hero image and show-test assertions. Run
+`mix precommit`, then publish through no-mistakes with an explicit refspec and
+without opening a PR. Never composite or mock the UI.
+Document synthetic transport honestly; captures do not prove backend acceptance.
 
 The Prefix Tags catalog passed nine Rust tests and the core unit shard (1,285
 tests, zero failures, one skipped, 521 excluded), plus core formatting/Credo,

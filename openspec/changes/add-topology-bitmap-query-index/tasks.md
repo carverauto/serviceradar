@@ -1,3 +1,5 @@
+# ServiceRadar Atlas implementation tasks
+
 ## 0. Approved direction
 
 - [x] 0.1 Obtain proposal approval before implementation.
@@ -41,7 +43,16 @@
 - [ ] 4.3 Complete required remote checks and actual-hardware acceptance; identify each unrun check honestly.
 - [ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.
 - [ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.
+- [ ] 4.6 Capture the production Atlas map/filter UI before and after the requested expression using only synthetic inventory; add images, figures, hero metadata and show-test coverage to the website blog branch, run `mix precommit` and push with an explicit refspec without opening a website PR.
+- [ ] 4.7 Measure WebSocket compression on actual membership frames, including CPU cost and negotiated transport behavior, before deciding whether to enable it.
 
 Deferred: interface identities/queries, durable dirty replication, owner-routed
 frozen pages, result caching and browser Roaring. Add them only for a demonstrated
 requirement; they are not unfinished release-one implementation tasks.
+
+Follow-up from review pass 3: move SRTO health/flow encoding to native Arrow IPC
+to reuse the existing Arrow decoder and nullable columns. Preserve exact tile
+receipts, field semantics and bounded cached bytes; compare encoding, decoding,
+retained memory and wire size before replacing the current fixed codec. This is
+not a release-one blocker. Omission of unchanged tiles also remains measurement
+driven; full replacements stay the current protocol.
