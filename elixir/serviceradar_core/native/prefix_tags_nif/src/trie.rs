@@ -58,6 +58,20 @@ impl Trie {
         self.stats
     }
 
+    pub(crate) fn entries(&self) -> impl Iterator<Item = (usize, usize, &Entry)> {
+        self.nodes.iter().enumerate().flat_map(|(node, value)| {
+            value
+                .entries
+                .iter()
+                .enumerate()
+                .map(move |(entry, value)| (node, entry, value))
+        })
+    }
+
+    pub(crate) fn entry(&self, node: usize, entry: usize) -> &Entry {
+        &self.nodes[node].entries[entry]
+    }
+
     /// Returns borrowed entries, deepest prefix first and newest VRF first
     /// within a prefix. No snapshot copy is needed to serve a lookup.
     pub fn lookup(&self, address: &str) -> Vec<&Entry> {

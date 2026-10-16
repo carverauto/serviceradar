@@ -3,6 +3,7 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
 
   alias ServiceRadar.PrefixTags.Native
   alias ServiceRadar.PrefixTags.NativeEngine
+  alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.PrefixTags.Trie
 
@@ -99,6 +100,56 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
 
     assert NativeEngine.lookup(NativeEngine.build(rows), "192.0.2.1") ==
              Trie.lookup(Trie.build(rows), "192.0.2.1")
+  end
+
+  test "captured source catalogs page labels, export typed ranges and release independently of lookup" do
+    start_supervised!(Registry)
+    version = Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["office", "zone"]}])
+    assert {:ok, %{version: ^version, trie: snapshot}} = Store.capture("manual")
+    assert {:ok, ["manual"]} = Store.sources(1)
+    assert {:ok, %{available: false, native_bytes: 0}} = Native.catalog_status(snapshot)
+    assert {:error, "catalog_not_ready"} = Native.label_page(snapshot, nil, 1, 1_000)
+
+    assert {:ok, %{available: true, label_count: 2, native_bytes: bytes}} =
+             Native.prepare_catalog(snapshot, 1_000)
+
+    assert bytes > 0
+
+    assert {:ok, %{labels: ["office"], next_after: "office"}} =
+             Native.label_page(snapshot, nil, 1, 1_000)
+
+    assert {:ok, %{labels: ["zone"], next_after: nil}} =
+             Native.label_page(snapshot, "office", 1, 1_000)
+
+    assert {:ok, <<4, 0xC0000200::128, 0xC00002FF::128>>} =
+             Native.label_ranges(snapshot, "office", 1, 33, 1_000)
+
+    assert {:error, "range_budget"} = Native.label_ranges(snapshot, "office", 1, 32, 1_000)
+    assert {:error, "invalid_selector"} = Native.label_page(snapshot, nil, 51, 1_000)
+
+    Store.put_rows("second", [])
+    assert {:error, :source_budget} = Store.sources(1)
+    assert {:ok, sources} = Store.sources(2)
+    assert Enum.sort(sources) == ["manual", "second"]
+
+    assert Store.put_rows("manual", [%{prefix: "198.51.100.0/24", tags: ["replacement"]}]) ==
+             version + 1
+
+    assert {:ok, %{labels: ["office", "zone"]}} = Native.label_page(snapshot, nil, 50, 1_000)
+    assert {:ok, true} = Native.release_catalog(snapshot)
+    assert {:ok, %{available: false, native_bytes: 0}} = Native.catalog_status(snapshot)
+    assert [%{tags: ["office", "zone"]}] = NativeEngine.lookup(snapshot, "192.0.2.1")
+    Store.clear("manual")
+    assert {:error, :prefix_source_unavailable} = Store.capture("manual")
+
+    oversized =
+      NativeEngine.build([
+        %{prefix: "203.0.113.0/24", tags: ["valid", String.duplicate("x", 257)]}
+      ])
+
+    assert {:error, "label_budget"} = Native.prepare_catalog(oversized, 1_000)
+    assert {:ok, %{available: false, native_bytes: 0}} = Native.catalog_status(oversized)
+    assert [%{tags: ["valid", _long_label]}] = NativeEngine.lookup(oversized, "203.0.113.1")
   end
 
   test "fingerprint skip calls no builder and swaps preserve old resources" do

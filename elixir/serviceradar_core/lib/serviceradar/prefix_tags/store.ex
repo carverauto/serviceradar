@@ -303,6 +303,18 @@ defmodule ServiceRadar.PrefixTags.Store do
   @spec sources() :: [source()]
   def sources, do: Registry.sources()
 
+  @doc "Bounded source discovery; unavailable during a registry restart rather than a full-VM fallback."
+  defdelegate sources(limit), to: Registry
+
+  @doc "Capture one source's version and immutable trie in the same atomic read."
+  def capture(source) when is_binary(source) do
+    case active_handle(source) do
+      {version, trie, :registered} -> {:ok, %{version: version, trie: trie}}
+      {version, trie} -> {:ok, %{version: version, trie: trie}}
+      _ -> {:error, :prefix_source_unavailable}
+    end
+  end
+
   @doc "Current active version for a source, or nil."
   @spec active_version(source()) :: version() | nil
   def active_version(source) when is_binary(source) do

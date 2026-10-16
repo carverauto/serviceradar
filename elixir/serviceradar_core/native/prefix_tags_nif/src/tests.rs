@@ -1,7 +1,136 @@
 // Copyright 2026 Carver Automation Corporation.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::Catalog;
 use crate::{Entry, Indicator, Prefix, Stats, Trie};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+static CATALOG_TESTS: Mutex<()> = Mutex::new(());
+
+fn catalog_deadline() -> Instant {
+    Instant::now() + Duration::from_secs(5)
+}
+
+fn decoded_ranges(bytes: &[u8]) -> Vec<(u8, u128, u128)> {
+    assert_eq!(bytes.len() % 33, 0);
+    bytes
+        .chunks_exact(33)
+        .map(|row| {
+            (
+                row[0],
+                u128::from_be_bytes(row[1..17].try_into().unwrap()),
+                u128::from_be_bytes(row[17..33].try_into().unwrap()),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn catalog_returns_full_chain_network_unions_and_live_lexical_pages() {
+    let _serial = CATALOG_TESTS.lock().unwrap();
+    let mut trie = Trie::new();
+    for (prefix, label) in [
+        ("192.0.2.0/25", "office"),
+        ("192.0.2.128/25", "office"),
+        ("192.0.2.17/32", "office"),
+        ("2001:db8::/126", "office"),
+        ("2001:db8::4/126", "office"),
+        ("2001:db8::1/128", "host"),
+        ("0.0.0.0/0", "all"),
+        ("::/0", "all"),
+        ("198.51.100.1/32", "other"),
+    ] {
+        trie.insert(row(prefix, label));
+    }
+    let mut variant = row("192.0.2.0/25", "office");
+    variant.vrf = Some("synthetic-isolated".into());
+    trie.insert(variant);
+    let catalog = Catalog::build(&trie, catalog_deadline()).unwrap();
+    assert_eq!(catalog.label_count(), 4);
+    let first = catalog.page(&trie, None, 2, catalog_deadline()).unwrap();
+    assert_eq!(first.labels, ["all", "host"]);
+    assert_eq!(first.next_after.as_deref(), Some("host"));
+    let second = catalog
+        .page(&trie, Some("missing"), 2, catalog_deadline())
+        .unwrap();
+    assert_eq!(second.labels, ["office", "other"]);
+    assert!(second.next_after.is_none());
+    let bytes = catalog
+        .ranges(&trie, "office", 2, 66, catalog_deadline())
+        .unwrap();
+    assert_eq!(
+        decoded_ranges(&bytes),
+        [
+            (4, 0xc0000200, 0xc00002ff),
+            (
+                6,
+                0x20010db8000000000000000000000000,
+                0x20010db8000000000000000000000007
+            ),
+        ]
+    );
+    assert_eq!(
+        decoded_ranges(
+            &catalog
+                .ranges(&trie, "all", 2, 66, catalog_deadline())
+                .unwrap()
+        ),
+        [(4, 0, u32::MAX as u128), (6, 0, u128::MAX),]
+    );
+    assert!(catalog
+        .ranges(&trie, "absent", 2, 66, catalog_deadline())
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        catalog.ranges(&trie, "office", 1, 66, catalog_deadline()),
+        Err("range_budget")
+    );
+    assert_eq!(
+        catalog.ranges(&trie, "office", 2, 65, catalog_deadline()),
+        Err("range_budget")
+    );
+    assert_eq!(
+        catalog.ranges(&trie, "office", 2, 66, Instant::now()),
+        Err("deadline_exceeded")
+    );
+    assert_eq!(
+        catalog.ranges(&trie, &"x".repeat(257), 2, 66, catalog_deadline()),
+        Err("label_budget")
+    );
+}
+
+#[test]
+fn catalogs_share_a_reservation_across_sources_and_release_it_before_retry() {
+    let _serial = CATALOG_TESTS.lock().unwrap();
+    let baseline = Catalog::total_native_bytes();
+    let mut trie = Trie::new();
+    trie.insert(Entry::new(
+        Prefix::parse("192.0.2.0/24").unwrap(),
+        vec!["synthetic".into(); 262_144],
+    ));
+    let retained = Catalog::build(&trie, catalog_deadline()).unwrap();
+    assert!(retained.native_bytes() > 3_000_000);
+    assert_eq!(
+        Catalog::build(&trie, catalog_deadline()).unwrap_err(),
+        "catalog_budget"
+    );
+    assert_eq!(
+        Catalog::total_native_bytes(),
+        baseline + retained.native_bytes()
+    );
+    drop(retained);
+    assert_eq!(Catalog::total_native_bytes(), baseline);
+    let replacement = Catalog::build(&trie, catalog_deadline()).unwrap();
+    assert_eq!(replacement.label_count(), 1);
+    drop(replacement);
+    assert_eq!(Catalog::total_native_bytes(), baseline);
+    assert_eq!(
+        Catalog::build(&trie, Instant::now()).unwrap_err(),
+        "deadline_exceeded"
+    );
+    assert_eq!(Catalog::total_native_bytes(), baseline);
+}
 
 fn row(prefix: &str, tag: &str) -> Entry {
     Entry::new(Prefix::parse(prefix).unwrap(), vec![tag.to_owned()])

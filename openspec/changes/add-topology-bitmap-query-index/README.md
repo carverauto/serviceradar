@@ -7,11 +7,13 @@ Treehouse and no-mistakes remain mandatory. Agentboard is temporarily waived.
 
 ## Next agent prompt
 
-Finish the integrated binary delivery checkpoint, then the visible map builder,
-text prefixes, current-address CIDRs and existing named Prefix Tags. Native
-scalar set algebra, both binary codecs, rollout configuration and a public-GPU
-dependency repair are integrated. Parent integration checks are being rerun;
-actual database lifecycle/channel tests and end-to-end scale remain open.
+Integrate current-address CIDRs and named Prefix Tags with the visible map
+builder, then finish scale and database acceptance. Binary delivery, scalar
+set algebra, literal prefixes, rollout configuration and the public-GPU
+dependency repair are integrated and their focused checks passed. The existing
+Prefix Tags trie now provides bounded native label discovery and merged ranges;
+its topology adapter and background catalog lifecycle are the next integration.
+Actual database lifecycle/channel tests and end-to-end scale remain open.
 Use `tasks.md`; unchecked work is not shipped or verified. Preserve automatic
 ELK rebuilds on trusted parent changes and the verified GPU resource lifecycle.
 
@@ -45,3 +47,10 @@ The shared-bucket experiment was rejected after a real deadlock, and its source
 and tests were removed. It is not a foundation to restore. HTML architecture
 artifacts now reflect binary row overlays; keep new UI/prefix scope synchronized
 before delivery. Do not deploy or archive this change.
+
+The Prefix Tags catalog passed nine Rust tests and the core unit shard (1,285
+tests, zero failures, one skipped, 521 excluded), plus core formatting/Credo,
+in BuildBuddy invocation `d4c90a7d-e3f8-4b8c-85c5-34048b6f9211`. Catalog memory
+is capped globally at four MiB, including retained old catalogs; this is separate
+from existing trie storage. IP scale acceptance remains pending after sparse
+identity publication exposed a transient memory-budget failure.
