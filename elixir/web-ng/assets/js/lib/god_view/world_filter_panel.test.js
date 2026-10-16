@@ -179,4 +179,50 @@ describe("topology device filter controls", () => {
     panel.destroy()
     expect(requests[4].options.signal.aborted).toBe(true)
   })
+
+  it("keeps draft focus and label discovery through source freshness, but cancels on capability changes", async () => {
+    const requests = []
+    vi.stubGlobal("fetch", vi.fn((url, options) => new Promise(resolve => requests.push({options, resolve}))))
+    edit("Value", "320")
+    click("Add condition")
+    edit("Filter field", "$prefix_tag", 1)
+    click("Load labels")
+    const input = controls("Value")[0]
+    input.focus()
+    expect(document.activeElement).toBe(input)
+    const next = structuredClone(capability)
+    next.query.prefix_tags.sources.forEach(source => {source.version += 1})
+    panel.update({capability: next})
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe("320")
+    expect(requests[0].options.signal.aborted).toBe(false)
+    requests[0].resolve(Response.json({source: "synthetic-east", version: 2, labels: ["Synthetic Access"], cursor: null}))
+    await vi.waitFor(() => expect(controls("Prefix Tag label")[0].textContent).toContain("Synthetic Access"))
+    click("Load labels")
+    next.query.prefix_tags.available = false
+    panel.update({capability: next})
+    expect(document.activeElement).not.toBe(input)
+    expect(requests[1].options.signal.aborted).toBe(true)
+  })
+
+  it.each([
+    ["tag:owner", "eq", "Value"], ["tag:owner", "prefix", "Value"],
+    ["$tag_keys", "present", "Tag name prefix"], ["$tag_keys", "eq", "Tag value"],
+    ["$tag_keys", "prefix", "Tag value"],
+  ])("rejects surrounding whitespace in %s %s without rewriting the draft", (field, operator, label) => {
+    edit("Filter field", field)
+    edit("Match", operator)
+    if (label === "Tag value") edit("Tag name prefix", "role.")
+    for (const value of [" Invented Vendor", "Invented Vendor "]) {
+      edit(label, value)
+      click("Apply filters")
+      expect(onApply).not.toHaveBeenCalled()
+      expect(controls(label)[0].value).toBe(value)
+      expect(panel.error.textContent).toContain("surrounding whitespace")
+    }
+    edit(label, "Invented Vendor")
+    click("Apply filters")
+    expect(onApply).toHaveBeenCalledOnce()
+    expect(panel.error.textContent).toBe("")
+  })
 })

@@ -9,6 +9,7 @@ import {WorldTileCache} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
 import {WorldMembership} from "./world_membership"
 import {WorldFilterPanel} from "./world_filter_panel"
+import {capabilityIdentity} from "./bitmap_capability"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
 import {readBoundedBody, worldJson} from "./world_http"
@@ -74,7 +75,7 @@ export default class WorldMapRenderer {
       onChange: () => {
         if (this.destroyed) return
         this.membershipRevision += 1
-        if (!this.membership.pending) {this.membershipError = null; this.clearMembershipRetry()}
+        if (!this.membership.pending && this.membership.sequence !== null) {this.membershipError = null; this.clearMembershipRetry()}
         this.updateFilterPanel()
         this.render()
         if (!this.membership.pending && this.cache.manifest) {
@@ -219,6 +220,7 @@ export default class WorldMapRenderer {
     this.sceneCache.clear()
     this.queryGeneration = (this.queryGeneration || 0) + 1
     this.bitmapQuery = query
+    this.clearMembershipRetry()
     this.invalidateMembership()
     if (!this.membershipEnabled && query) this.status("Topology query filters are unavailable on this server.")
     this.scheduleWatch()
@@ -384,7 +386,7 @@ export default class WorldMapRenderer {
       const previous = this.cache.manifest
       if (this.destroyed) return
       const changed = this.cache.observe(manifest)
-      const capability = value => [value?.bitmap?.ready, value?.bitmap?.reason, value?.bitmap?.query]
+      const capability = value => [value?.bitmap?.ready, value?.bitmap?.reason, capabilityIdentity(value?.bitmap?.query)]
       const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(manifest))
       const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
       this.membershipEnabled = manifest.bitmap_membership_protocol === 1
@@ -392,10 +394,11 @@ export default class WorldMapRenderer {
       this.updateFilterPanel()
       if (!this.membershipEnabled && this.bitmapQuery !== null) this.status("Topology query unavailable: filtering is disabled")
       if (!changed) {
-        if (membershipChanged || capabilityChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
+        if (membershipChanged || capabilityChanged) {this.clearMembershipRetry(); this.invalidateMembership(); this.render(); this.scheduleWatch()}
         return
       }
       this.watchSignature = null
+      this.clearMembershipRetry()
       this.invalidateMembership()
       this.geometryRevision += 1
       this.sceneCache.clear()
@@ -469,7 +472,9 @@ export default class WorldMapRenderer {
     if ((!this.membershipEnabled || this.bitmapQuery === null) && (this.membershipSignature || this.membership.binding) && this.channel?.state === "joined") {
       this.channel.push("membership:unwatch", {})
     }
-    this.clearMembershipRetry()
+    // Disconnect/reconciliation may clear a binding without changing the query
+    // or displayed receipts. Keep its retry deadline and history in that case.
+    if (!this.membershipEnabled || this.bitmapQuery === null) this.clearMembershipRetry()
     this.membershipError = null
     this.membershipSignature = null
     this.membership?.clear(this.bitmapQuery !== null)
@@ -528,7 +533,7 @@ export default class WorldMapRenderer {
       this.membershipError = error.reason || "unsupported filter"
       this.updateFilterPanel()
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
-      if (["membership_not_ready", "index_not_ready", "index_unavailable", "prefix_source_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
+      if (["membership_not_ready", "membership_replaced", "index_not_ready", "index_unavailable", "prefix_source_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
       this.retryMembership(signature)
     })

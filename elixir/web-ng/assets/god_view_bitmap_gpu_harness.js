@@ -10,7 +10,7 @@ import {atlasCaptureHealth, atlasCaptureInventory, atlasCaptureMatches, atlasCap
 // decoder and WebGPU execute unchanged. This is not a running Phoenix server.
 export function mountBitmapGpuHarness() {
   const capture = new URLSearchParams(location.search).has("capture")
-  let enabled = true, unavailable = false, authority = 0, sequence = 0n, connection, watch, pan = 0
+  let enabled = true, unavailable = false, authority = 0, sequence = 0n, watchId = 0, connection, watch, pan = 0
   const version = worldTileKey.layout_version
   const geometries = new Map()
   const samples = {tileRequests: 0, overlayRequests: 0, membershipFrames: 0, acknowledgements: 0,
@@ -51,7 +51,7 @@ export function mountBitmapGpuHarness() {
     samples.gpuUploadBytes += size === undefined ? data.byteLength - dataOffset * (data.BYTES_PER_ELEMENT || 1) : size * (data.BYTES_PER_ELEMENT || 1)
     return writeBuffer.call(this, buffer, offset, data, dataOffset, size)
   }
-  window.addEventListener("error", event => samples.errors.push(event.message))
+  window.addEventListener("error", event => samples.errors.push(event.error?.stack || event.message))
   window.addEventListener("unhandledrejection", event => samples.errors.push(String(event.reason)))
 
   function tile(z, x, y) {
@@ -143,7 +143,7 @@ export function mountBitmapGpuHarness() {
       const [join, ref, topic, event, payload] = JSON.parse(raw)
       let response = {}, status = "ok"
       if (event === "phx_join") response = {layout_version: version, generation: 1}
-      if (event === "tiles:watch") response = {watch_id: ++sequence + ""}
+      if (event === "tiles:watch") response = {watch_id: ++watchId}
       if (event === "membership:ack") samples.acknowledgements += 1
       if (event === "membership:unwatch") watch = null
       if (event === "membership:watch") {
