@@ -1222,6 +1222,79 @@ func TestNotModifiedRetriesCommittedBodyAfterDeferredVersion(t *testing.T) {
 	}
 }
 
+// A NotModified poll is also how a core blip is reported. It retries the retained
+// body, but a failure recorded for a different payload must stay deferred.
+func TestNotModifiedDoesNotClearNewerAddonDeferral(t *testing.T) {
+	manager := &gateAddonManager{fail: true}
+	pl := newAddonManagerPushLoop(t, manager)
+	v1Addon := osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon")
+	v2Addon := osPackageSidecarAssignment("snmp-checker", "/usr/local/lib/serviceradar/bin/serviceradar-snmp-checker")
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v1",
+		Addons:        []*proto.AddonAssignmentConfig{v1Addon},
+	}
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		Addons:        []*proto.AddonAssignmentConfig{v2Addon},
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		switch phase.Load() {
+		case 0:
+			return cloneConfig(v1)
+		case 1:
+			return cloneConfig(v2)
+		default:
+			return notModifiedDecoy()
+		}
+	})
+
+	for range transientSectionEscalationAttempts {
+		pl.fetchAndApplyConfig(t.Context())
+	}
+	backdateConfigSectionFailure(t, pl, configSectionAddons, transientSectionEscalationAge)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+
+	phase.Store(1)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1 while cfg-v2 is deferred", got)
+	}
+	deferred := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if deferred.disposition != addonDeliveryTransientFailure || deferred.escalated || deferred.attempts != 1 || deferred.version != "cfg-v2" || deferred.payloadHash == "" {
+		t.Fatalf("addons failure = %+v, want a new transient for cfg-v2", deferred)
+	}
+	callsAfterDeferral := manager.applyCalls
+
+	manager.fail = false
+	phase.Store(2)
+	stream := &fakeControlStreamClient{}
+	pl.setControlStreamSender(newControlStreamSender(stream))
+	pl.fetchAndApplyConfig(t.Context())
+
+	if manager.applyCalls != callsAfterDeferral {
+		t.Fatalf("supervisor Apply calls = %d, want %d: a NotModified poll must not apply a different payload", manager.applyCalls, callsAfterDeferral)
+	}
+	got := pl.configSectionFailureSnapshot()[configSectionAddons]
+	if got.payloadHash != deferred.payloadHash || got.attempts != deferred.attempts || got.version != deferred.version ||
+		got.disposition != deferred.disposition || got.escalated != deferred.escalated || !got.since.Equal(deferred.since) || got.reason != deferred.reason {
+		t.Fatalf("addons failure = %+v, want the cfg-v2 record unchanged (%+v)", got, deferred)
+	}
+	if version := pl.getConfigVersion(); version != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", version)
+	}
+	if acks := sentConfigAcks(stream); len(acks) != 0 {
+		t.Fatalf("sent %d config acks for a NotModified blip, want 0", len(acks))
+	}
+	helloAddons := sectionStatus(pl.buildControlHelloRequest().GetHello().GetConfigSectionStatuses(), configSectionAddons)
+	if helloAddons.GetDisposition() != configSectionDispositionTransient || helloAddons.GetError() == "" {
+		t.Fatalf("hello addons status = %+v, want the cfg-v2 transient failure", helloAddons)
+	}
+}
+
 func systemdNetprobeAssignment() *proto.AddonAssignmentConfig {
 	return &proto.AddonAssignmentConfig{
 		AddonId:     agentnetprobe.DefaultSidecarName,
@@ -1435,24 +1508,80 @@ func openPostCommitAddonTransient(t *testing.T) (*PushLoop, *gateAddonManager, *
 }
 
 func TestPostCommitAddonTransientRetriesUntilSuccess(t *testing.T) {
-	pl, manager, stream, _ := openPostCommitAddonTransient(t)
-	callsAfterRecovery := manager.applyCalls
+	dir := t.TempDir()
+	manager := &gateAddonManager{}
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{
+			AgentID: "agent-test",
+			Bumblebee: &BumblebeeStatusConfig{
+				CatalogPath: filepath.Join(dir, "catalog", "current"),
+				ProfilePath: filepath.Join(dir, "profile", "runtime.json"),
+				TmpDir:      filepath.Join(dir, "tmp"),
+			},
+		},
+		addonManager: manager,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	addon := osPackageSidecarAssignment(testPowerDNSAddonID, "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon")
+	v1 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v1",
+		Addons:        []*proto.AddonAssignmentConfig{addon},
+	}
+	v2 := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v2",
+		Addons:        []*proto.AddonAssignmentConfig{addon},
+		BumblebeeConfig: &proto.BumblebeeConfig{
+			Enabled: true,
+			Catalog: &proto.BumblebeeCatalogAssignment{
+				SnapshotRef: "snapshot-1",
+				ObjectKey:   "bumblebee/catalogs/snapshot-1/catalog.json",
+				Sha256:      strings.Repeat("0", 64),
+			},
+		},
+	}
+	var phase atomic.Int32
+	attachPollGateway(t, pl, func(*proto.AgentConfigRequest) *proto.AgentConfigResponse {
+		switch phase.Load() {
+		case 0:
+			return cloneConfig(v1)
+		case 1:
+			return cloneConfig(v2)
+		default:
+			return notModifiedDecoy()
+		}
+	})
 
 	pl.fetchAndApplyConfig(t.Context())
-	if manager.applyCalls != callsAfterRecovery+1 {
-		t.Fatalf("supervisor Apply calls = %d, want %d: the transient add-on section must be retried", manager.applyCalls, callsAfterRecovery+1)
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
+	}
+
+	manager.fail = true
+	phase.Store(1)
+	pl.fetchAndApplyConfig(t.Context())
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1 while cfg-v2 is deferred", got)
+	}
+	if failure := pl.configSectionFailureSnapshot()[configSectionAddons]; failure.disposition != addonDeliveryTransientFailure || failure.attempts != 1 {
+		t.Fatalf("addons failure = %+v, want one transient attempt", failure)
+	}
+	callsAfterDeferral := manager.applyCalls
+	stream := &fakeControlStreamClient{}
+	pl.setControlStreamSender(newControlStreamSender(stream))
+
+	phase.Store(2)
+	pl.fetchAndApplyConfig(t.Context())
+	if manager.applyCalls != callsAfterDeferral+1 {
+		t.Fatalf("supervisor Apply calls = %d, want %d: the transient add-on section must be retried", manager.applyCalls, callsAfterDeferral+1)
 	}
 	if got := pl.configSectionFailureSnapshot()[configSectionAddons].attempts; got != 2 {
 		t.Fatalf("addon attempts = %d, want 2", got)
 	}
-	if acks := sentConfigAcks(stream); len(acks) != 1 {
-		t.Fatalf("sent %d config acks while the transient failure was unchanged, want 1", len(acks))
+	if acks := sentConfigAcks(stream); len(acks) != 0 {
+		t.Fatalf("sent %d config acks while the transient failure was unchanged, want 0", len(acks))
 	}
 
-	// The unsigned netprobe records a permanent delivery failure once activation
-	// runs. Dropping host visibility support removes that assignment so the
-	// supervisor success can clear the section.
-	setHostNetworkVisibilitySupportForTest(pl, false)
 	manager.fail = false
 	pl.fetchAndApplyConfig(t.Context())
 
@@ -1460,16 +1589,16 @@ func TestPostCommitAddonTransientRetriesUntilSuccess(t *testing.T) {
 		t.Fatal("recovered add-on section failure record was not cleared")
 	}
 	if _, ok := pl.configSectionFailureSnapshot()[configSectionBumblebee]; !ok {
-		t.Fatal("success retry re-ran a section recorded for another version")
+		t.Fatal("add-on recovery cleared the newer bumblebee deferral")
 	}
 	acks := sentConfigAcks(stream)
-	if len(acks) != 2 {
-		t.Fatalf("sent %d config acks after the add-on section recovered, want 2", len(acks))
+	if len(acks) != 1 {
+		t.Fatalf("sent %d config acks after the add-on section recovered, want 1", len(acks))
 	}
-	if got := acks[1].GetConfigVersion(); got != "cfg-visibility" {
-		t.Fatalf("recovery ack version = %q, want cfg-visibility", got)
+	if got := acks[0].GetConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("recovery ack version = %q, want cfg-v1", got)
 	}
-	recovered := sectionStatus(acks[1].GetSectionStatuses(), configSectionAddons)
+	recovered := sectionStatus(acks[0].GetSectionStatuses(), configSectionAddons)
 	if recovered.GetDisposition() != configSectionDispositionSuccess || recovered.GetError() != "" {
 		t.Fatalf("recovery ack addons status = %+v, want success", recovered)
 	}
@@ -1477,8 +1606,8 @@ func TestPostCommitAddonTransientRetriesUntilSuccess(t *testing.T) {
 	if helloAddons.GetDisposition() != configSectionDispositionSuccess {
 		t.Fatalf("hello addons disposition = %q, want success", helloAddons.GetDisposition())
 	}
-	if got := pl.getConfigVersion(); got != "cfg-visibility" {
-		t.Fatalf("committed version = %q, want cfg-visibility", got)
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("committed version = %q, want cfg-v1", got)
 	}
 
 	callsAfterSuccess := manager.applyCalls
@@ -1486,8 +1615,8 @@ func TestPostCommitAddonTransientRetriesUntilSuccess(t *testing.T) {
 	if manager.applyCalls != callsAfterSuccess {
 		t.Fatalf("supervisor Apply calls = %d, want %d after the section cleared", manager.applyCalls, callsAfterSuccess)
 	}
-	if acks := sentConfigAcks(stream); len(acks) != 2 {
-		t.Fatalf("sent %d config acks when the poll changed nothing, want 2", len(acks))
+	if acks := sentConfigAcks(stream); len(acks) != 1 {
+		t.Fatalf("sent %d config acks when the poll changed nothing, want 1", len(acks))
 	}
 }
 

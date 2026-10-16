@@ -240,15 +240,29 @@ func (p *PushLoop) hasRetryableConfigSectionFailure() bool {
 }
 
 // configSectionFailureNeedsRetry reports whether this section's transient or
-// escalated failure must be re-applied.
-func (p *PushLoop) configSectionFailureNeedsRetry(section string) bool {
+// escalated failure is for payloadHash and must be re-applied. A record for a
+// different payload is left untouched.
+func (p *PushLoop) configSectionFailureNeedsRetry(section, payloadHash string) bool {
 	version := p.getConfigVersion()
 	p.configSectionMu.Lock()
 	defer p.configSectionMu.Unlock()
 
 	failure, ok := p.configSectionFailures[section]
 
-	return ok && configSectionFailureRetriesOnCommittedVersion(failure, version)
+	return ok && failure.payloadHash == payloadHash &&
+		configSectionFailureRetriesOnCommittedVersion(failure, version)
+}
+
+// retainedPayloadMismatch reports whether this section has a failure record for
+// some payload other than payloadHash. A retained-body retry must not apply that
+// section, because success would clear the other payload's deferral.
+func (p *PushLoop) retainedPayloadMismatch(section, payloadHash string) bool {
+	p.configSectionMu.Lock()
+	defer p.configSectionMu.Unlock()
+
+	failure, ok := p.configSectionFailures[section]
+
+	return ok && failure.payloadHash != payloadHash
 }
 
 // recordedVisibilityApplyFailed reports whether the visibility section's last apply

@@ -380,12 +380,7 @@ func (p *PushLoop) applyBumblebeeConfigSection(
 	configResp *proto.AgentConfigResponse,
 	version string,
 ) addonDeliveryDisposition {
-	bumblebeeHash := hashConfigSectionPayload(
-		marshalConfigSectionMessage(configResp.BumblebeeConfig),
-		configResp.ConfigJson,
-	)
-
-	return p.applyConfigSection(configSectionBumblebee, version, bumblebeeHash, func() (addonDeliveryDisposition, error) {
+	return p.applyConfigSection(configSectionBumblebee, version, bumblebeeSectionPayloadHash(configResp), func() (addonDeliveryDisposition, error) {
 		return p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson)
 	})
 }
@@ -397,12 +392,7 @@ func (p *PushLoop) applyEndpointInventoryConfigSection(
 	configResp *proto.AgentConfigResponse,
 	version string,
 ) addonDeliveryDisposition {
-	endpointInventoryHash := hashConfigSectionPayload(
-		marshalConfigSectionMessage(configResp.EndpointInventoryConfig),
-		configResp.ConfigJson,
-	)
-
-	return p.applyConfigSection(configSectionEndpointInventory, version, endpointInventoryHash, func() (addonDeliveryDisposition, error) {
+	return p.applyConfigSection(configSectionEndpointInventory, version, endpointInventorySectionPayloadHash(configResp), func() (addonDeliveryDisposition, error) {
 		return p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson)
 	})
 }
@@ -416,12 +406,7 @@ func (p *PushLoop) applyVisibilityConfigSection(
 	version string,
 	effectiveAddons []*proto.AddonAssignmentConfig,
 ) addonDeliveryDisposition {
-	visibilityHashParts := append(
-		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
-		marshalAddonAssignmentsForHash(effectiveAddons)...,
-	)
-
-	return p.applyConfigSection(configSectionVisibility, version, hashConfigSectionPayload(visibilityHashParts...), func() (addonDeliveryDisposition, error) {
+	return p.applyConfigSection(configSectionVisibility, version, visibilitySectionPayloadHash(configResp, effectiveAddons), func() (addonDeliveryDisposition, error) {
 		return p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, effectiveAddons)
 	})
 }
@@ -440,9 +425,7 @@ func (p *PushLoop) applyAddonConfigSection(
 			activationBlocks[netprobe.GetAddonId()] = true
 		}
 	}
-	addonsHash := hashConfigSectionPayload(marshalAddonAssignmentsForHash(effectiveAddons)...)
-
-	return p.applyConfigSection(configSectionAddons, version, addonsHash, func() (addonDeliveryDisposition, error) {
+	return p.applyConfigSection(configSectionAddons, version, addonSectionPayloadHash(effectiveAddons), func() (addonDeliveryDisposition, error) {
 		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(ctx, effectiveAddons, activationBlocks)
 	})
 }
@@ -476,36 +459,68 @@ func (p *PushLoop) retryFailedFromRetained(ctx context.Context) bool {
 	return p.retryFailedConfigSections(ctx, cloned)
 }
 
-// retryFailedConfigSections re-applies every transient or escalated section.
-// Visibility runs before add-ons. When a
-// visibility retry newly succeeds, the add-on section runs in the same cycle so a
-// systemd netprobe that was blocked on that failure can activate. It reports
-// whether any section status changed.
+func bumblebeeSectionPayloadHash(configResp *proto.AgentConfigResponse) string {
+	return hashConfigSectionPayload(
+		marshalConfigSectionMessage(configResp.BumblebeeConfig),
+		configResp.ConfigJson,
+	)
+}
+
+func endpointInventorySectionPayloadHash(configResp *proto.AgentConfigResponse) string {
+	return hashConfigSectionPayload(
+		marshalConfigSectionMessage(configResp.EndpointInventoryConfig),
+		configResp.ConfigJson,
+	)
+}
+
+func visibilitySectionPayloadHash(
+	configResp *proto.AgentConfigResponse,
+	effectiveAddons []*proto.AddonAssignmentConfig,
+) string {
+	parts := append(
+		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
+		marshalAddonAssignmentsForHash(effectiveAddons)...,
+	)
+
+	return hashConfigSectionPayload(parts...)
+}
+
+func addonSectionPayloadHash(effectiveAddons []*proto.AddonAssignmentConfig) string {
+	return hashConfigSectionPayload(marshalAddonAssignmentsForHash(effectiveAddons)...)
+}
+
+// retryFailedConfigSections re-applies every transient or escalated section whose
+// recorded payload is the retained body's payload. Visibility runs before add-ons.
+// When a visibility retry newly succeeds, the add-on section runs in the same cycle
+// unless that section's record is for a different payload. It reports whether any
+// section status changed.
 func (p *PushLoop) retryFailedConfigSections(ctx context.Context, configResp *proto.AgentConfigResponse) bool {
 	before := p.configSectionStatuses()
 	version := configResp.ConfigVersion
+	effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
+	visibilityHash := visibilitySectionPayloadHash(configResp, effectiveAddons)
+	addonsHash := addonSectionPayloadHash(effectiveAddons)
 
-	if p.configSectionFailureNeedsRetry(configSectionBumblebee) {
+	if p.configSectionFailureNeedsRetry(configSectionBumblebee, bumblebeeSectionPayloadHash(configResp)) {
 		p.applyBumblebeeConfigSection(ctx, configResp, version)
 	}
-	if p.configSectionFailureNeedsRetry(configSectionEndpointInventory) {
+	if p.configSectionFailureNeedsRetry(configSectionEndpointInventory, endpointInventorySectionPayloadHash(configResp)) {
 		p.applyEndpointInventoryConfigSection(ctx, configResp, version)
 	}
 
-	retryVisibility := p.configSectionFailureNeedsRetry(configSectionVisibility)
-	retryAddons := p.configSectionFailureNeedsRetry(configSectionAddons)
+	retryVisibility := p.configSectionFailureNeedsRetry(configSectionVisibility, visibilityHash)
+	retryAddons := p.configSectionFailureNeedsRetry(configSectionAddons, addonsHash)
 	if retryVisibility || retryAddons {
-		effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
 		visibilityDisposition := addonDeliverySucceeded
 		visibilityRecovered := false
 		switch {
 		case retryVisibility:
 			visibilityDisposition = p.applyVisibilityConfigSection(ctx, configResp, version, effectiveAddons)
 			visibilityRecovered = visibilityDisposition == addonDeliverySucceeded
-		case p.recordedVisibilityApplyFailed():
+		case p.recordedVisibilityApplyFailed() && !p.retainedPayloadMismatch(configSectionVisibility, visibilityHash):
 			visibilityDisposition = addonDeliveryPermanentFailure
 		}
-		if retryAddons || visibilityRecovered {
+		if retryAddons || (visibilityRecovered && !p.retainedPayloadMismatch(configSectionAddons, addonsHash)) {
 			p.applyAddonConfigSection(ctx, version, effectiveAddons, visibilityDisposition)
 		}
 	}
