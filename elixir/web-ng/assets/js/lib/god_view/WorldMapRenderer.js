@@ -8,6 +8,7 @@ import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
 import {WorldTileCache} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
 import {WorldMembership} from "./world_membership"
+import {WorldFilterPanel} from "./world_filter_panel"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
 import {readBoundedBody, worldJson} from "./world_http"
@@ -73,6 +74,8 @@ export default class WorldMapRenderer {
       onChange: () => {
         if (this.destroyed) return
         this.membershipRevision += 1
+        if (!this.membership.pending) this.membershipError = null
+        this.updateFilterPanel()
         this.render()
         if (!this.membership.pending && this.cache.manifest) {
           this.status(this.mapSummary(this.visibleTileCount ?? 0))
@@ -104,8 +107,10 @@ export default class WorldMapRenderer {
     this.measureText = createTopologyLabelMeasureText()
     this.summary = element("div", "absolute bottom-2 left-3 right-3 pointer-events-none text-xs text-sr-muted", "Loading topology…")
     this.summary.setAttribute("role", "status")
-    this.toolbar = element("form", "absolute left-3 top-3 z-20 flex gap-2")
+    this.toolbar = element("form", "absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-2")
     const input = element("input", "input input-sm bg-sr-surface")
+    input.style.width = "13rem"
+    input.style.maxWidth = "100%"
     input.placeholder = "Find device by ID"
     input.setAttribute("aria-label", "Find device by ID")
     const find = element("button", MAP_BUTTON_CLASS, "Find")
@@ -122,6 +127,7 @@ export default class WorldMapRenderer {
     this.panel = element("div", "absolute left-3 top-14 z-20 max-w-xs rounded-lg border border-sr-line bg-sr-surface p-3 text-sm")
     this.panel.hidden = true
     this.el.append(this.canvas, this.summary, this.toolbar, this.panel)
+    this.filterPanel = new WorldFilterPanel({parent: this.el, toolbar: this.toolbar, onApply: query => this.setBitmapQuery(query)})
     window.addEventListener("keydown", event => {
       if (event.key === "Escape" && !this.panel.hidden) this.dismissPanel(true)
     }, {signal: this.lifetime.signal})
@@ -185,15 +191,7 @@ export default class WorldMapRenderer {
       this.links = layers?.mantle !== false
       this.render()
     })
-    this.handleEvent("god_view:set_bitmap_query", ({query}) => {
-      this.returnToMap()
-      this.sceneCache.clear()
-      this.queryGeneration = (this.queryGeneration || 0) + 1
-      this.bitmapQuery = query
-      this.invalidateMembership()
-      if (!this.membershipEnabled && query) this.status("Topology query filters are unavailable on this server.")
-      this.scheduleWatch()
-    })
+    this.handleEvent("god_view:set_bitmap_query", ({query}) => this.setBitmapQuery(query))
     this.handleEvent("god_view:set_filters", ({filters}) => {
       this.setSceneControl("god_view:set_filters", {filters})
       this.filters = {...filters}
@@ -217,6 +215,21 @@ export default class WorldMapRenderer {
     this.zoomMode = mode
   }
 
+  setBitmapQuery(query) {
+    this.returnToMap()
+    this.sceneCache.clear()
+    this.queryGeneration = (this.queryGeneration || 0) + 1
+    this.bitmapQuery = query
+    this.invalidateMembership()
+    if (!this.membershipEnabled && query) this.status("Topology query filters are unavailable on this server.")
+    this.scheduleWatch()
+  }
+
+  updateFilterPanel() {
+    this.filterPanel?.update({enabled: this.membershipEnabled, capability: this.cache.manifest?.bitmap,
+      query: this.bitmapQuery, pending: this.membership.pending, total: this.membership.total, error: this.membershipError})
+  }
+
   setSceneControl(name, payload) {
     this.sceneControls.set(name, payload)
     this.detailHandlers?.get(name)?.(payload)
@@ -231,7 +244,7 @@ export default class WorldMapRenderer {
     if (this.destroyed || this.polling) return
     this.polling = true
     try {
-      if (this.channel?.state !== "joined") await this.refreshManifest()
+      if (this.channel?.state !== "joined" || this.cache.manifest?.bitmap?.ready === false) await this.refreshManifest()
       if (this.destroyed) return
       if (!this.channel) this.connect()
       if (this.retryTiles) {
@@ -374,6 +387,7 @@ export default class WorldMapRenderer {
       const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
       this.membershipEnabled = manifest.bitmap_membership_protocol === 1
       this.overlays.setBinary(manifest.world_overlay_protocol === 1)
+      this.updateFilterPanel()
       if (!this.membershipEnabled && this.bitmapQuery !== null) this.status("Topology query unavailable: filtering is disabled")
       if (!changed) {
         if (membershipChanged) {this.invalidateMembership(); this.render(); this.scheduleWatch()}
@@ -451,6 +465,7 @@ export default class WorldMapRenderer {
       this.channel.push("membership:unwatch", {})
     }
     this.clearMembershipRetry()
+    this.membershipError = null
     this.membershipSignature = null
     this.membership?.clear(this.bitmapQuery !== null)
   }
@@ -498,6 +513,8 @@ export default class WorldMapRenderer {
       try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
       if (signature !== this.membershipSignature) return
+      this.membershipError = error.reason || "unsupported filter"
+      this.updateFilterPanel()
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
       if (["membership_not_ready", "index_not_ready", "index_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
@@ -520,8 +537,7 @@ export default class WorldMapRenderer {
       this.cache.prefetch()
     }
     const manifest = this.cache.manifest
-    this.status(this.bitmapQuery !== null && !this.membershipEnabled ? "Topology query unavailable: filtering is disabled" :
-      this.membership.pending ? "Topology filter pending…" : this.mapSummary(tiles.length))
+    this.status(this.bitmapQuery !== null && !this.membershipEnabled ? "Topology query unavailable: filtering is disabled" : this.mapSummary(tiles.length))
     const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
@@ -758,7 +774,10 @@ export default class WorldMapRenderer {
   }
 
   mapSummary(tiles) {
-    const summary = `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles`
+    if (this.bitmapQuery !== null && this.membershipError) return `Topology query unavailable: ${this.membershipError}`
+    if (this.bitmapQuery !== null && (this.membership.pending || this.membership.total === null)) return "Topology filter pending…"
+    const summary = this.bitmapQuery === null ? `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles` :
+      `${new Intl.NumberFormat().format(this.membership.total)} matching devices · ${tiles} visible tiles`
     return this.bitmapQuery !== null && this.membershipProjectionIncomplete ? `${summary} · Some geometry has no canonical device identity` : summary
   }
 
@@ -778,6 +797,7 @@ export default class WorldMapRenderer {
   destroy() {
     this.destroyed = true
     this.lifetime.abort()
+    this.filterPanel?.destroy()
     this.selection?.abort()
     this.returnToMap()
     clearInterval(this.timer)

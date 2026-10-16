@@ -155,7 +155,7 @@
     "path": "assets/js/lib/god_view/WorldMapRenderer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 3,
-    "fingerprint": "f5e3dfac7700d57716dfc6c909a0a07c738d70c009e1d338ad196ba6db03006a",
+    "fingerprint": "5a81037b9d1fec848afacdf6f6c8e001ee8a85214d78f2f921f21be51882489b",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },
