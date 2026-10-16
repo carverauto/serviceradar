@@ -907,7 +907,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
                config: %{fe_http: "http://127.0.0.1:1", database: "serviceradar"}
              )
 
-    refute reason == :starrocks_http_not_configured
+    assert {:connect_failed, _cause} = reason
     assert is_binary(label)
     assert String.starts_with?(label, "sr-")
   end
@@ -1003,6 +1003,60 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert_received {:wire_request, ["flow-alpha", "flow-bravo"]}
     assert_received {:fe_early_body_bytes, 0}
     refute_received {:fe_early_body_bytes, _}
+  end
+
+  # RFC 9110 lets the client send the body when 100 Continue never arrives.
+  # The body must still wait out that interval: writing it immediately is the
+  # race this transport exists to avoid, and giving up when no 100 arrives
+  # would drop loads against a coordinator that only reads the body.
+  test "a silent server receives the body only after the continue wait" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_silent_then_body(listener, parent) end})
+
+    assert {:ok, %{loaded: 2}} =
+             StreamLoad.persist("otel_traces", @rows,
+               config: %{fe_http: "http://127.0.0.1:#{port}"},
+               http_timeout: 10_000
+             )
+
+    assert_received {:early_body_bytes, 0}
+    assert_received {:wire_request, ["flow-alpha", "flow-bravo"]}
+  end
+
+  # Label-state polls have no body, so they stay on Req. A publish-timeout
+  # answer from the headers must not be followed by a second load, and the
+  # poll itself must not advertise Expect or a body.
+  test "a header-only publish timeout is reconciled by a body-less state poll" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+    label = StreamLoad.load_label("otel_traces", @rows)
+
+    start_supervised!({Task, fn -> serve_publish_timeout_then_state(listener, parent) end})
+
+    assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
+             StreamLoad.persist("otel_traces", @rows,
+               config: %{fe_http: "http://127.0.0.1:#{port}"},
+               label: label,
+               http_timeout: 8_000
+             )
+
+    assert_received {:load_early_body_bytes, 0}
+    assert_received {:state_poll, :get, path, headers}
+    assert path =~ "/api/serviceradar/get_load_state?label=#{label}"
+    refute Map.has_key?(headers, "expect")
+    refute Map.has_key?(headers, "content-length")
+    refute_received {:load_early_body_bytes, _}
+    refute_received {:state_poll, _, _, _}
   end
 
   test "a coordinator 400 is terminal and is not retried on the wire" do
@@ -1200,6 +1254,95 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       {:error, :timeout} ->
         serve_header_redirecting_fe(listener, parent, port)
     end
+  end
+
+  # Reads headers, proves nothing arrived during the continue wait, then
+  # reads the body the client sends on its own and acknowledges the load.
+  defp serve_silent_then_body(listener, parent) do
+    {:ok, socket} = :gen_tcp.accept(listener, 5_000)
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 5_000)
+    headers = receive_headers(socket, %{})
+    :ok = :inet.setopts(socket, packet: :raw)
+
+    early =
+      case :gen_tcp.recv(socket, 0, 1_500) do
+        {:ok, data} -> data
+        {:error, :timeout} -> <<>>
+      end
+
+    send(parent, {:early_body_bytes, byte_size(early)})
+    remaining = String.to_integer(headers["content-length"]) - byte_size(early)
+
+    rest =
+      if remaining > 0 do
+        {:ok, data} = :gen_tcp.recv(socket, remaining, 8_000)
+        data
+      else
+        <<>>
+      end
+
+    rows = Jason.decode!(early <> rest)
+    send(parent, {:wire_request, Enum.map(rows, & &1["id"])})
+
+    response =
+      Jason.encode!(%{
+        "Status" => "Success",
+        "NumberLoadedRows" => length(rows),
+        "NumberFilteredRows" => 0
+      })
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+        Integer.to_string(byte_size(response)),
+        "\r\n\r\n",
+        response
+      ])
+
+    :gen_tcp.close(socket)
+  end
+
+  defp serve_publish_timeout_then_state(listener, parent) do
+    {:ok, socket} = :gen_tcp.accept(listener, 5_000)
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 5_000)
+    _headers = receive_headers(socket, %{})
+    :ok = :inet.setopts(socket, packet: :raw)
+
+    early =
+      case :gen_tcp.recv(socket, 0, 300) do
+        {:ok, data} -> byte_size(data)
+        {:error, _timeout_or_closed} -> 0
+      end
+
+    send(parent, {:load_early_body_bytes, early})
+    response = Jason.encode!(%{"Status" => "Publish Timeout"})
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+        Integer.to_string(byte_size(response)),
+        "\r\n\r\n",
+        response
+      ])
+
+    :gen_tcp.close(socket)
+
+    {:ok, state} = :gen_tcp.accept(listener, 5_000)
+    {:ok, {:http_request, method, {:abs_path, path}, _}} = :gen_tcp.recv(state, 0, 5_000)
+    headers = receive_headers(state, %{})
+    method = method |> to_string() |> String.downcase() |> String.to_atom()
+    send(parent, {:state_poll, method, path, headers})
+    body = load_state_body("VISIBLE")
+
+    :ok =
+      :gen_tcp.send(state, [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+        Integer.to_string(byte_size(body)),
+        "\r\n\r\n",
+        body
+      ])
+
+    :gen_tcp.close(state)
   end
 
   defp read_wire_request(socket, parent) do
