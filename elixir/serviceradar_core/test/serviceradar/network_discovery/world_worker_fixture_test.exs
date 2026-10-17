@@ -1006,12 +1006,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
         assert [%{"target" => [%{"id" => ^host}], "observed_at" => "2030-02-03T04:05:06Z"}] =
                  hosted_projection(source)
       after
-        Repo.delete_all(
-          from(audit in MergeAudit,
-            where:
-              audit.source == "synthetic-hosted-ancestry" and
-                audit.to_device_id in ^[source, first, second]
-          )
+        # MergeAudit is an Ash resource, not an Ecto schema. Remove only this
+        # case's invented events; leave every other audit row in the clone.
+        Repo.query!(
+          "DELETE FROM platform.merge_audit WHERE source = $1",
+          ["synthetic-hosted-ancestry"]
         )
       end
     end
