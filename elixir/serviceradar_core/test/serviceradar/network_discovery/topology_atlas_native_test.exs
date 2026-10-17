@@ -63,20 +63,67 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, second} = TopologyAtlas.new_ordinals(world, <<2::128>>)
     assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
 
-    observed =
-      Task.async(fn ->
-        Enum.reduce_while(1..400, :ok, fn _, :ok ->
-          case TopologyAtlas.ordinal_info(world, first) do
-            {:ok, %{ready: true}} -> {:cont, :ok}
-            {:error, reason} when reason in [:not_ready, :busy] -> {:halt, reason}
-            other -> {:halt, other}
+    reader =
+      spawn(fn ->
+        Stream.repeatedly(fn ->
+          send(parent, {:read_progress, TopologyAtlas.ordinal_info(world, first)})
+
+          receive do
+            :stop -> :stop
+          after
+            0 -> :continue
           end
+        end)
+        |> Enum.reduce_while(0, fn
+          :stop, _count -> {:halt, :stopped}
+          :continue, count when count < 400 -> {:cont, count + 1}
+          :continue, _count -> {:halt, :bound}
         end)
       end)
 
-    assert {:ok, true} = TopologyAtlas.release_ordinals(first)
+    released =
+      Enum.reduce_while(1..400, :pending, fn _, _pending ->
+        receive do
+          {:read_progress, {:ok, %{ready: true}}} ->
+            case TopologyAtlas.release_ordinals(first) do
+              {:ok, true} -> {:halt, :released}
+              {:error, :busy} -> {:cont, :pending}
+              other -> {:halt, other}
+            end
+
+          {:read_progress, {:error, reason}} when reason in [:not_ready, :busy] ->
+            {:halt, {:observed, reason}}
+
+          other ->
+            {:halt, other}
+        after
+          2_000 ->
+            {:halt, :no_progress}
+        end
+      end)
+
+    assert released == :released
+
+    post =
+      Enum.reduce_while(1..400, :missing, fn _, _missing ->
+        receive do
+          {:read_progress, {:error, reason}} when reason in [:not_ready, :busy] ->
+            {:halt, reason}
+
+          {:read_progress, {:ok, _info}} ->
+            {:cont, :missing}
+
+          other ->
+            {:halt, other}
+        after
+          2_000 ->
+            {:halt, :no_progress}
+        end
+      end)
+
+    assert post in [:not_ready, :busy]
+    send(reader, :stop)
     assert {:ok, third} = TopologyAtlas.new_ordinals(world, <<3::128>>)
-    assert observed |> Task.await() |> then(&(&1 in [:ok, :not_ready, :busy]))
     send(holder, :read)
     assert_receive {:copied, {:error, :not_ready}}
     assert {:ok, true} = TopologyAtlas.release_ordinals(second)

@@ -20,13 +20,17 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
 
   # Bootstrap invented identities while their new devices are inactive, before
   # starting any index. Existing identities and tombstones are never reassigned.
-  def seed(distribution) do
+  def seed(distribution, tracker) do
     assert_disposable_clone!()
+
+    %{rows: [[previous, called]]} =
+      Repo.query!("SELECT last_value, is_called FROM platform.device_fleet_ordinals_ordinal_seq")
+
+    Agent.update(tracker, fn _ -> %{seeded: true, ordinal_seq: {previous, called}} end)
     [[max_ordinal]] = Repo.query!("SELECT coalesce(max(ordinal), 0) FROM platform.device_fleet_ordinals").rows
     base = if distribution == :sparse, do: max(2_147_483_648, max_ordinal + 1), else: max_ordinal + 1
     stride = if distribution == :sparse, do: 7, else: 1
     true = base + (@population - 1) * stride <= 4_294_967_295
-    Process.put(:atlas_scale_seeded, true)
 
     for first <- 0..(@population - 1)//@batch do
       last = min(first + @batch - 1, @population - 1)
@@ -89,11 +93,6 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
         )
     end
 
-    %{rows: [[previous, called]]} =
-      Repo.query!("SELECT last_value, is_called FROM platform.device_fleet_ordinals_ordinal_seq")
-
-    Process.put(:atlas_scale_ordinal_seq, {previous, called})
-
     Repo.query!(
       "SELECT setval('platform.device_fleet_ordinals_ordinal_seq', (SELECT max(ordinal) FROM platform.device_fleet_ordinals), true)"
     )
@@ -102,34 +101,37 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
     %{distribution: distribution, base: base, stride: stride, devices: @population, addresses: @population * 2}
   end
 
-  def cleanup! do
-    if Process.get(:atlas_scale_seeded) do
-      Enum.each(0..(@population - 1)//200, fn first ->
-        last = min(first + 199, @population - 1)
-        ids = Enum.map(first..last, &uid/1)
+  def cleanup!(%{seeded: false}), do: :ok
 
+  def cleanup!(%{seeded: true, ordinal_seq: sequence}) do
+    Repo.query!(
+      "DELETE FROM platform.discovered_interfaces WHERE device_id LIKE 'sr:atlas-scale-%'",
+      [],
+      timeout: 120_000
+    )
+
+    Enum.each(0..(@population - 1)//200, fn first ->
+      last = min(first + 199, @population - 1)
+      ServiceRadar.TestSupport.delete_device_fixtures!(Enum.map(first..last, &uid/1))
+    end)
+
+    Repo.query!("DELETE FROM platform.ng_users WHERE email = 'atlas-scale@example.com'")
+
+    case sequence do
+      {previous, called} ->
         Repo.query!(
-          "DELETE FROM platform.discovered_interfaces WHERE device_id = ANY($1::text[])",
-          [ids]
+          "SELECT setval('platform.device_fleet_ordinals_ordinal_seq', $1::bigint, $2::boolean)",
+          [previous, called]
         )
 
-        ServiceRadar.TestSupport.delete_device_fixtures!(ids)
-      end)
-
-      Repo.query!("DELETE FROM platform.ng_users WHERE email = 'atlas-scale@example.com'")
-
-      case Process.get(:atlas_scale_ordinal_seq) do
-        {previous, called} ->
-          Repo.query!(
-            "SELECT setval('platform.device_fleet_ordinals_ordinal_seq', $1::bigint, $2::boolean)",
-            [previous, called]
-          )
-
-        _ ->
-          :ok
-      end
+      _ ->
+        :ok
     end
 
+    %{rows: [[remaining]]} =
+      Repo.query!("SELECT count(*)::bigint FROM platform.ocsf_devices WHERE uid LIKE 'sr:atlas-scale-%'")
+
+    if remaining != 0, do: raise "scale cleanup left #{remaining} sr:atlas-scale devices"
     :ok
   end
 

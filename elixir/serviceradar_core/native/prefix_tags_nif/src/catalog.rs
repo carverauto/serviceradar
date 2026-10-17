@@ -4,7 +4,7 @@
 use crate::{Prefix, Trie};
 use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 static RETAINED_BYTES: AtomicUsize = AtomicUsize::new(0);
@@ -178,15 +178,20 @@ impl Catalog {
         output
             .try_reserve_exact(capacity)
             .map_err(|_| "range_budget")?;
+        let now_us = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX))
+            .unwrap_or(0);
         let mut pending: Option<(u8, u128, u128)> = None;
         for (i, reference) in self.references[start..end].iter().enumerate() {
             if i % 256 == 0 {
                 check(deadline)?;
             }
-            let range = numeric_range(
-                trie.entry(reference.node as usize, reference.entry as usize)
-                    .prefix,
-            );
+            let entry = trie.entry(reference.node as usize, reference.entry as usize);
+            if entry.expires_at.is_some_and(|(at, _)| at <= now_us) {
+                continue;
+            }
+            let range = numeric_range(entry.prefix);
             match pending.as_mut() {
                 Some(previous)
                     if previous.0 == range.0 && range.1 <= previous.2.saturating_add(1) =>

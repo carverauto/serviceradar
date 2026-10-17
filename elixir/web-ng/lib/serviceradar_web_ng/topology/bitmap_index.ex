@@ -91,7 +91,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
                 source_error: state.source_error,
                 reconciling: not is_nil(state.cursor) or state.rescan or status.pending.rescan_needed,
                 ip_available: status.ip_available,
-                ip_unavailable_reason: status.ip_unavailable_reason
+                ip_unavailable_reason: status.ip_unavailable_reason,
+                index_revision: status.revision
               }
 
               {:ok, Map.put(state.current, :progress, progress)}

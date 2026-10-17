@@ -1,5 +1,5 @@
 //! Bounded canonical dictionary projection paired with a world generation.
-use std::sync::{Mutex, RwLock};
+use std::sync::RwLock;
 
 use rustler::{
     types::list::ListIterator, Atom, Binary, Env, NifMap, OwnedBinary, Resource, ResourceArc, Term,
@@ -17,9 +17,13 @@ mod atoms {
 // and asynchronous destruction, rather than ending when the builder NIF returns.
 static ORDINAL_RESOURCES: crate::admission::Gate = crate::admission::Gate::new(2);
 
+struct OwnedOrdinals {
+    mapping: Option<CanonicalOrdinals>,
+    permit: Option<crate::admission::Permit<'static>>,
+}
+
 struct OrdinalResource {
-    mapping: RwLock<Option<CanonicalOrdinals>>,
-    permit: Mutex<Option<crate::admission::Permit<'static>>>,
+    slot: RwLock<OwnedOrdinals>,
 }
 #[rustler::resource_impl]
 impl Resource for OrdinalResource {
@@ -32,16 +36,16 @@ fn with_ordinals<T>(
     resource: &OrdinalResource,
     body: impl FnOnce(&CanonicalOrdinals) -> Result<T, Atom>,
 ) -> Result<T, Atom> {
-    let guard = resource.mapping.try_read().map_err(|_| atoms::busy())?;
-    body(guard.as_ref().ok_or_else(atoms::not_ready)?)
+    let guard = resource.slot.try_read().map_err(|_| atoms::busy())?;
+    body(guard.mapping.as_ref().ok_or_else(atoms::not_ready)?)
 }
 
 fn with_ordinals_mut<T>(
     resource: &OrdinalResource,
     body: impl FnOnce(&mut CanonicalOrdinals) -> Result<T, Atom>,
 ) -> Result<T, Atom> {
-    let mut guard = resource.mapping.try_write().map_err(|_| atoms::busy())?;
-    body(guard.as_mut().ok_or_else(atoms::not_ready)?)
+    let mut guard = resource.slot.try_write().map_err(|_| atoms::busy())?;
+    body(guard.mapping.as_mut().ok_or_else(atoms::not_ready)?)
 }
 
 fn engine_error(error: Error) -> Atom {
@@ -125,8 +129,10 @@ fn new_ordinals<'a>(
             let lifetime = ORDINAL_RESOURCES.try_acquire().ok_or_else(atoms::busy)?;
             let mapping = CanonicalOrdinals::new(&world.0.geometry, epoch).map_err(engine_error)?;
             Ok(ResourceArc::new(OrdinalResource {
-                mapping: RwLock::new(Some(mapping)),
-                permit: Mutex::new(Some(lifetime)),
+                slot: RwLock::new(OwnedOrdinals {
+                    mapping: Some(mapping),
+                    permit: Some(lifetime),
+                }),
             }))
         })
     })
@@ -135,16 +141,19 @@ fn new_ordinals<'a>(
 #[rustler::nif(schedule = "DirtyCpu")]
 fn release_ordinals(env: Env<'_>, mapping: ResourceArc<OrdinalResource>) -> Term<'_> {
     read_reply(env, || {
-        let retired = {
-            let mut guard = mapping.mapping.try_write().map_err(|_| atoms::busy())?;
-            guard.take()
-        };
-        drop(retired);
-        let released = {
-            let mut permit = mapping.permit.try_lock().map_err(|_| atoms::busy())?;
-            permit.take()
-        };
-        Ok(released.is_some())
+        let mut guard = mapping.slot.try_write().map_err(|_| atoms::busy())?;
+        let owned = std::mem::replace(
+            &mut *guard,
+            OwnedOrdinals {
+                mapping: None,
+                permit: None,
+            },
+        );
+        let released = owned.permit.is_some();
+        drop(owned.mapping);
+        drop(owned.permit);
+        drop(guard);
+        Ok(released)
     })
 }
 

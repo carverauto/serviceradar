@@ -466,6 +466,8 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp schedule_previous_handle_erase(source, version, previous_handle) do
+    release_native_catalog(previous_handle)
+
     if native_handle?(previous_handle) or large_handle?(previous_handle) do
       :ok
     else
@@ -478,6 +480,32 @@ defmodule ServiceRadar.PrefixTags.Store do
       end
     end
   end
+
+  defp release_native_catalog(handle) do
+    case handle_trie(handle) do
+      trie when is_reference(trie) ->
+        case ServiceRadar.PrefixTags.Native.release_catalog(trie) do
+          {:error, "catalog_busy"} ->
+            delay = erase_delay_ms()
+
+            _ =
+              Task.start(fn ->
+                Process.sleep(delay)
+                ServiceRadar.PrefixTags.Native.release_catalog(trie)
+              end)
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_trie({_version, trie}), do: trie
+  defp handle_trie({_version, trie, _registration}), do: trie
+  defp handle_trie(_other), do: nil
 
   # Native resource references are safe for concurrent readers without parking.
   defp native_handle?({_version, trie, _registration}), do: is_reference(trie)

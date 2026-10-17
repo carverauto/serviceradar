@@ -214,11 +214,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
 
     refute exact.digest == spaced.digest
 
+    assert {:ok, _tagged} =
+             BitmapExpression.parse(
+               %{"expression" => %{"prefix_tag" => %{"source" => "manual", "label" => "edge router"}}},
+               @facets
+             )
+
     for expression <- [
           %{"facet" => "vendor", "prefix" => " "},
           %{"tag_key_prefix" => ""},
           %{"tag_key_prefix" => "role", "prefix" => "edge", "value" => "edge"},
-          %{"prefix_tag" => %{"source" => "manual", "label" => "example", "extra" => true}}
+          %{"prefix_tag" => %{"source" => "manual", "label" => "example", "extra" => true}},
+          %{"prefix_tag" => %{"source" => " manual", "label" => "example"}},
+          %{"prefix_tag" => %{"source" => "manual", "label" => " example"}}
         ] do
       assert {:error, :invalid_predicate} = BitmapExpression.parse(%{"expression" => expression}, @facets)
     end

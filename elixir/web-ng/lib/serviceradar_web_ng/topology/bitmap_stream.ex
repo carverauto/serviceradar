@@ -4,12 +4,25 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   import Phoenix.Channel, only: [push: 3, reply: 2, socket_ref: 1]
   import Phoenix.Socket, only: [assign: 3]
 
+  alias ServiceRadarWebNG.Topology.BitmapAuthority
   alias ServiceRadarWebNG.Topology.BitmapFrame
+  alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapView
+  alias ServiceRadarWebNG.Topology.WorldCache
 
   @ack_timeout 15_000
   @task_timeout 1_500
+  @transient_tick [
+    :query_busy,
+    :query_timeout,
+    :query_unavailable,
+    :index_unavailable,
+    :index_not_ready,
+    :membership_not_ready,
+    :prefix_source_unavailable
+  ]
 
   def init(socket), do: assign(socket, :bitmap_stream, empty())
 
@@ -83,6 +96,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       !BitmapQueries.enabled?() -> reset(socket)
       state.awaiting && now() - state.awaiting >= @ack_timeout -> reset(socket)
       state.awaiting || state.task || is_nil(state.request) -> socket
+      unchanged?(socket, state) -> socket
       true -> launch(socket)
     end
   end
@@ -113,7 +127,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       reset(assign(socket, :bitmap_stream, state))
     else
       reply_to = state.reply
-      state = %{state | reply: nil, metadata: result.metadata, awaiting: now()}
+      state = %{
+        state
+        | reply: nil,
+          metadata: result.metadata,
+          awaiting: now(),
+          identity: fresh_identity(socket, result.metadata)
+      }
       socket = assign(socket, :bitmap_stream, state)
       if reply_to, do: reply(reply_to, {:ok, result.binding})
       push(socket, "membership:frame", {:binary, result.frame})
@@ -172,10 +192,50 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   defp failed(state, reason, socket) do
     if state.reply, do: reply(state.reply, {:error, error(reason)})
-    reset(assign(socket, :bitmap_stream, %{state | reply: nil}))
+    state = %{state | reply: nil}
+
+    if keep_frame?(socket, state, reason) do
+      assign(socket, :bitmap_stream, state)
+    else
+      reset(assign(socket, :bitmap_stream, state))
+    end
   end
 
-  defp empty, do: %{sequence: 0, request: nil, reply: nil, task: nil, metadata: nil, awaiting: nil}
+  defp empty, do: %{sequence: 0, request: nil, reply: nil, task: nil, metadata: nil, awaiting: nil, identity: :stale}
+
+  defp unchanged?(socket, %{identity: {:ok, _identity}, metadata: metadata} = state) when not is_nil(metadata) do
+    fresh_identity(socket, metadata) == state.identity
+  end
+
+  defp unchanged?(_socket, _state), do: false
+
+  defp keep_frame?(socket, %{metadata: metadata} = state, reason)
+       when not is_nil(metadata) and reason in @transient_tick do
+    fresh_identity(socket, metadata) == state.identity and match?({:ok, _identity}, state.identity)
+  end
+
+  defp keep_frame?(_socket, _state, _reason), do: false
+
+  defp fresh_identity(socket, metadata) do
+    with {:ok, %{ordinals: %{info: info}, manifest: manifest}} <- WorldCache.world(),
+         {:ok, snapshot} <- BitmapIndex.snapshot(),
+         {:ok, authority} <- BitmapAuthority.current(socket.assigns.current_scope),
+         :ok <- BitmapPrefixTags.current(metadata.prefix_sources || %{}) do
+      {:ok,
+       {
+         manifest.layout_version,
+         manifest.generation,
+         info.dictionary_epoch,
+         info.assignment,
+         snapshot.dictionary_epoch,
+         snapshot.index_epoch,
+         snapshot.progress.index_revision,
+         authority
+       }}
+    else
+      _ -> :stale
+    end
+  end
 
   defp cancel(state, reason \\ :membership_replaced) do
     if state.reply, do: reply(state.reply, {:error, error(reason)})

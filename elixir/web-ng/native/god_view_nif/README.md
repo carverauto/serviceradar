@@ -101,11 +101,14 @@ allocations and retires only provably unshared old allocations. All allocations
 remain charged against the transient limit until they are actually dropped. Full current
 rows reuse unchanged facet/live sets instead of duplicating them under readers.
 An allocation rejection leaves the published revision and membership unchanged.
-The address capacity calculation includes the retained dirty bitmap. Publication
-rechecks that charge under the queue lock through admission and revision swap.
-If the next revision plus that queue intrinsically exceeds the steady cap, IP
-predicates become explicitly unavailable (`native_cap`) while scalar membership
-keeps publishing. Pressure from old query pins or scratch remains retryable.
+The address capacity calculation includes facet metadata, catalog and address
+overhead, and the retained dirty bitmap. Publication rechecks that charge under
+the queue lock before admission and revision swap. Intrinsic overflow of the
+next revision, without the queue, makes IP explicitly unavailable (`native_cap`)
+while scalar membership keeps publishing. Queue bytes alone over the steady cap
+reject the stage as retryable `pending` and leave the accepted revision, scalar
+membership, and addresses unchanged. Pressure from old query pins or scratch
+remains retryable.
 Completed bitmap calculations transfer their scratch reservation into the
 result allocation, releasing only the unused allowance. Failed transfers
 release their reservation without retiring other readers' allocations.
@@ -249,8 +252,11 @@ remain open for completion or abort. `bitmap_publish_abort/1`, last-resource
 drop, and index close release staged allocations. The index keeps only a weak
 stage reference, so cancellation does not retain a stage until its timeout.
 `bitmap_publish_ip_unavailable/1` records source overflow while allowing scalar
-publication. Status returns `ip_available` and `ip_unavailable_reason`;
-unavailability is sticky until a full index rebuild. A nonempty legacy scalar
+publication. Status returns `ip_available` and `ip_unavailable_reason`.
+`native_cap`, `source_cap`, and `not_seeded` stay sticky across later partial
+stages; a stage of at most 500 rows never rebuilds a dropped address index.
+Restoring IP requires a new index, or the first stage whose changed ordinals
+cover every live device while no sticky reason is set. A nonempty legacy scalar
 publication cannot certify addresses and marks IP unavailable as `not_seeded`.
 An empty legacy publication preserves addresses for readiness changes.
 
