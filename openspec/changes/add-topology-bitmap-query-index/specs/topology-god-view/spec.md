@@ -34,6 +34,14 @@ The system SHALL reuse persisted device fleet ordinals for topology membership a
 - **AND** merged roots SHALL NOT prevent a fresh successor or revive the merge loser
 - **AND** source-retired heads SHALL remain suppressed and old ordinals SHALL NOT be reused
 
+#### Scenario: Purged mapper rediscovery allocates a successor
+- **GIVEN** mapper discovery created a device that an operator, DIRE, or nil actor deleted
+- **AND** retention has purged that identity without freeing its ordinal
+- **WHEN** the same hardware is discovered again
+- **THEN** a fresh successor UID SHALL be created and repeated discovery SHALL keep that successor
+- **AND** the purged tombstone and its ordinal SHALL remain
+- **AND** merged, source-retired, released-seed, and unpurged operator-deleted identities SHALL NOT gain a successor or be revived
+
 #### Scenario: Compatible rollback and migration contention
 - **WHEN** the identity migration is rolled back
 - **THEN** deletion and truncate protection SHALL remain active

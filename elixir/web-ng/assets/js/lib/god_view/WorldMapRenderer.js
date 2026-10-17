@@ -261,17 +261,25 @@ export default class WorldMapRenderer {
   async poll() {
     if (this.destroyed || this.polling) return
     this.polling = true
+    let manifestError = null
     try {
       // Index readiness and source catalogs change without geometry publication.
-      await this.refreshManifest()
+      try {
+        await this.refreshManifest()
+      } catch (error) {
+        manifestError = error
+      }
       if (this.destroyed) return
-      if (!this.channel) this.connect()
-      if (this.retryTiles) {
-        this.retryTiles = false
-        this.geometryRevision += 1
-        this.render()
+      if (!manifestError) {
+        if (!this.channel) this.connect()
+        if (this.retryTiles) {
+          this.retryTiles = false
+          this.geometryRevision += 1
+          this.render()
+        }
       }
       await this.overlays.poll()
+      if (manifestError && !this.destroyed) this.status(manifestError.message)
     } catch (error) {
       if (!this.destroyed) this.status(error.message)
     } finally {this.polling = false}
@@ -410,11 +418,12 @@ export default class WorldMapRenderer {
       const previous = this.cache.manifest
       if (this.destroyed) return
       const changed = this.cache.observe(manifest)
+      const accepted = this.cache.manifest
       const capability = value => [value?.bitmap?.ready, value?.bitmap?.reason, capabilityIdentity(value?.bitmap?.query)]
-      const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(manifest))
-      const membershipChanged = this.membershipEnabled !== (manifest.bitmap_membership_protocol === 1)
-      this.membershipEnabled = manifest.bitmap_membership_protocol === 1
-      this.overlays.setBinary(manifest.world_overlay_protocol === 1)
+      const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(accepted))
+      const membershipChanged = this.membershipEnabled !== (accepted?.bitmap_membership_protocol === 1)
+      this.membershipEnabled = accepted?.bitmap_membership_protocol === 1
+      this.overlays.setBinary(accepted?.world_overlay_protocol === 1)
       this.updateFilterPanel()
       if (!this.membershipEnabled && this.bitmapQuery !== null) this.status("Topology query unavailable: filtering is disabled")
       if (!changed) {
@@ -429,7 +438,7 @@ export default class WorldMapRenderer {
       this.overlays.setVisible([])
       this.returnToMap()
       if (!previous) {this.setView(this.overviewView()); this.restoreLocation()}
-      else if (previous.layout_version !== manifest.layout_version) {
+      else if (previous.layout_version !== accepted.layout_version) {
         this.setView(this.overviewView())
         this.locationNotice("The topology layout changed. Showing the current Home view.")
       }

@@ -50,6 +50,14 @@ creation and head movement commit atomically. Merged roots do not redirect the
 new seed to a merge survivor, and a source-retired head still suppresses seeding.
 No old ordinal is reused. Physical scrub preserves the successor pointer.
 
+Eligible mapper rediscovery of an identity-purged operator, DIRE, or nil-actor
+tombstone allocates a fresh successor UID through the same durable
+`_seed_successor` pointer and eight-read bound. The purged row and its permanent
+ordinal stay. Creation and pointer movement commit together, and the successor
+is not redirected onto another device. Unpurged operator deletes stay
+suppressed. Merged, source-retired, and released-seed lineage stay suppressed
+and are never revived. A restorable system delete still returns as the same UID.
+
 Rollback retains dictionary deletion/truncate protection. It requires a cleanup
 binary with retained-identity support (or that support backported), or cleanup
 must be paused; an arbitrary older cleanup worker is unsupported. Lifecycle DDL

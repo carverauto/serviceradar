@@ -119,9 +119,9 @@ export function mountBitmapGpuHarness() {
     frame.set(payload, 3 + topic.length + name.length)
     socket.onmessage?.({data: frame.buffer})
   }
-  function deliver() {
-    if (!watch || !enabled || connection?.readyState !== 1) return
-    const tiles = watch.tiles.map(receipt => {
+  function membershipTiles() {
+    if (!watch) return null
+    return watch.tiles.map(receipt => {
       const {geometry, populations} = tile(receipt.z, receipt.x, receipt.y)
       const selected = populations?.map(members => members.filter(device => watch.selected.has(device.id)))
       const counts = selected ? selected.map(members => members.length) : geometry.nodes.map(node => node.count)
@@ -129,11 +129,19 @@ export function mountBitmapGpuHarness() {
         causal: counts.map(() => 3), availability: selected ? selected.map(members => !members.length ? 2 :
           members.every(device => device.availability === "healthy") ? 0 : members.every(device => device.availability === "unavailable") ? 1 : 2) : counts.map(() => unavailable ? 1 : 0)}
     })
-    const frame = bitmapFrame({sequence: ++sequence, total: capture ? watch.selected.size : 4096, binding: watch.binding, tiles})
+  }
+  function broadcastMembership(binding, total) {
+    const tiles = membershipTiles()
+    if (!tiles || connection?.readyState !== 1) return
+    const frame = bitmapFrame({sequence: ++sequence, total, binding, tiles})
     samples.membershipFrames += 1; samples.membershipBytes += frame.byteLength
     const before = samples.arrayBufferSliceBytes
     broadcast(connection, "membership:frame", frame)
     samples.membershipDecodeSliceBytes += samples.arrayBufferSliceBytes - before
+  }
+  function deliver() {
+    if (!watch || !enabled || connection?.readyState !== 1) return
+    broadcastMembership(watch.binding, capture ? watch.selected.size : 4096)
   }
   window.WebSocket = class {
     static OPEN = 1
@@ -177,7 +185,11 @@ export function mountBitmapGpuHarness() {
   button("Change membership", () => {unavailable = !unavailable; deliver()})
   button("Toggle query", () => {window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query: renderer.bitmapQuery === null ? {all: []} : null})})
   button("Disconnect socket", () => connection?.close())
-  button("Change authority", () => {authority += 1; renderer.invalidateMembership(); renderer.scheduleWatch()})
+  button("Change authority", () => {
+    if (!watch?.binding) return
+    authority += 1
+    broadcastMembership({...watch.binding, authority_fingerprint: `synthetic-authority-${authority}`}, capture ? watch.selected.size : 4096)
+  })
   button("Toggle binary", async () => {enabled = !enabled; await renderer.refreshManifest(); renderer.scheduleWatch()})
   button("Measure frames", () => {measurements.frames = []; measurements.recordFrames = true; setTimeout(() => {measurements.recordFrames = false}, 3000)})
   button("Teardown renderer", () => {renderer.destroy(); controls.querySelectorAll("button").forEach(item => {item.disabled = item !== remount})})
