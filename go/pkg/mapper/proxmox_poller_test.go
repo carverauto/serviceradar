@@ -166,6 +166,60 @@ func TestProxmoxCandidateSeedsCoverSeedsThenKnownDeviceIPsOnce(t *testing.T) {
 		proxmoxCandidateSeeds(job, []string{"192.0.2.20", " 192.0.2.10 ", ""}))
 }
 
+func TestGroupProxmoxCandidatesByNodeMergesOneNodesAddresses(t *testing.T) {
+	candidate := func(ip, title, sans string) *DiscoveredDevice {
+		device := buildProxmoxCandidateDevice(ip, title)
+		if sans != "" {
+			device.Metadata["proxmox_tls_sans_recorded"] = "true"
+			device.Metadata["proxmox_tls_san_ips"] = sans
+		}
+		return device
+	}
+
+	grouped := groupProxmoxCandidatesByNode([]*DiscoveredDevice{
+		// One node at two addresses; the certificate lists the second.
+		candidate("198.51.100.20", "pve01", "127.0.0.1,::1,192.0.2.20"),
+		candidate("192.0.2.20", "pve01", "127.0.0.1,::1,192.0.2.20"),
+		// Another node with the same name presents a different certificate.
+		candidate("192.0.2.30", "pve01", "127.0.0.1,::1,192.0.2.30"),
+		// Without recorded SANs a candidate is not grouped.
+		candidate("192.0.2.40", "pve01", ""),
+	})
+
+	require.Len(t, grouped, 3)
+	assert.Equal(t, "192.0.2.20", grouped[1].IP)
+	assert.Equal(t, GenerateDeviceIDFromIP("192.0.2.20"), grouped[1].DeviceID)
+	assert.Equal(t, "1", grouped[1].Metadata["alt_ip:198.51.100.20"])
+	assert.Equal(t, "192.0.2.30", grouped[2].IP)
+	assert.NotContains(t, grouped[2].Metadata, "alt_ip:198.51.100.20")
+	assert.Equal(t, "192.0.2.40", grouped[0].IP)
+}
+
+func TestProxmoxNodeCandidatesFoldIntoOneJobDevice(t *testing.T) {
+	sans := "127.0.0.1,::1,192.0.2.21"
+	first := buildProxmoxCandidateDevice("198.51.100.21", "pve02")
+	second := buildProxmoxCandidateDevice("192.0.2.21", "pve02")
+	for _, device := range []*DiscoveredDevice{first, second} {
+		device.Metadata["proxmox_tls_sans_recorded"] = "true"
+		device.Metadata["proxmox_tls_san_ips"] = sans
+	}
+
+	job := &DiscoveryJob{
+		ID:        "job-1",
+		Results:   &DiscoveryResults{},
+		deviceMap: map[string]*DeviceInterfaceMap{},
+	}
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+
+	for _, device := range groupProxmoxCandidatesByNode([]*DiscoveredDevice{first, second}) {
+		engine.addOrUpdateDeviceToResults(job, device)
+	}
+
+	require.Len(t, job.Results.Devices, 1)
+	assert.Equal(t, "192.0.2.21", job.Results.Devices[0].IP)
+	assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_ip:198.51.100.21"])
+}
+
 func TestApplyJobOptionsMetadataSkipsProxmoxCandidateProbeOption(t *testing.T) {
 	job := &DiscoveryJob{
 		Params: &DiscoveryParams{

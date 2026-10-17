@@ -25,7 +25,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -239,7 +241,7 @@ func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
 		return
 	}
 
-	devices := e.probeProxmoxCandidates(ctx, job, seeds)
+	devices := groupProxmoxCandidatesByNode(e.probeProxmoxCandidates(ctx, job, seeds))
 	if len(devices) == 0 {
 		return
 	}
@@ -250,6 +252,94 @@ func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
 	for _, device := range devices {
 		e.addOrUpdateDeviceToResults(job, device)
 	}
+}
+
+// groupProxmoxCandidatesByNode merges candidates that are one node answering at
+// several addresses: the same PVE title and the same recorded certificate IP
+// SANs. Two nodes that share a name present certificates for different
+// addresses, so they stay apart.
+//
+// The merged candidate's IP is an address the certificate lists, or else the
+// lowest address, so the same node yields the same device across runs. Its
+// other addresses become alternate IPs. A candidate without recorded SANs is
+// left as it is.
+func groupProxmoxCandidatesByNode(devices []*DiscoveredDevice) []*DiscoveredDevice {
+	groups := make(map[string][]*DiscoveredDevice)
+	order := make([]string, 0, len(devices))
+	grouped := make([]*DiscoveredDevice, 0, len(devices))
+
+	for _, device := range devices {
+		key := proxmoxCandidateNodeKey(device)
+		if key == "" {
+			grouped = append(grouped, device)
+			continue
+		}
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], device)
+	}
+
+	for _, key := range order {
+		grouped = append(grouped, mergeProxmoxNodeCandidates(groups[key]))
+	}
+
+	return grouped
+}
+
+func proxmoxCandidateNodeKey(device *DiscoveredDevice) string {
+	if device == nil || device.Metadata["proxmox_tls_sans_recorded"] != "true" {
+		return ""
+	}
+
+	title := strings.ToLower(strings.TrimSpace(device.Hostname))
+	sans := strings.TrimSpace(device.Metadata["proxmox_tls_san_ips"])
+	if title == "" || sans == "" {
+		return ""
+	}
+
+	return title + "|" + sans
+}
+
+func mergeProxmoxNodeCandidates(candidates []*DiscoveredDevice) *DiscoveredDevice {
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	listed := make(map[string]struct{})
+	for _, ip := range strings.Split(candidates[0].Metadata["proxmox_tls_san_ips"], ",") {
+		listed[strings.TrimSpace(ip)] = struct{}{}
+	}
+
+	sorted := append([]*DiscoveredDevice(nil), candidates...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		_, iListed := listed[sorted[i].IP]
+		_, jListed := listed[sorted[j].IP]
+		if iListed != jListed {
+			return iListed
+		}
+
+		return compareIPStrings(sorted[i].IP, sorted[j].IP) < 0
+	})
+
+	merged := sorted[0]
+	for _, other := range sorted[1:] {
+		if other.IP != merged.IP {
+			merged.Metadata = addAlternateIP(merged.Metadata, other.IP)
+		}
+	}
+
+	return merged
+}
+
+func compareIPStrings(a, b string) int {
+	addrA, errA := netip.ParseAddr(a)
+	addrB, errB := netip.ParseAddr(b)
+	if errA == nil && errB == nil {
+		return addrA.Compare(addrB)
+	}
+
+	return strings.Compare(a, b)
 }
 
 // proxmoxCandidateSeeds returns the job's seeds followed by the primary IPs of
