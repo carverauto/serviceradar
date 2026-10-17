@@ -139,11 +139,10 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
   # for either "not hosted" answer.
   for {label, results, expected} <- [
         {"skips a node that does not host the relay", [{:error, :not_found}, :hosted], :created},
-        {"reports not found when no node hosts the relay", [{:error, :not_found}, {:error, :not_found}],
-         :not_found},
+        {"reports not found when no node hosts the relay", [{:error, :not_found}, {:error, :not_found}], :not_found},
         {"keeps looking after a node it cannot reach", [{:badrpc, :timeout}, :hosted], :created},
-        {"reports unreachable when another node does not host the relay",
-         [{:badrpc, :timeout}, {:error, :not_found}], :unreachable},
+        {"reports unreachable when another node does not host the relay", [{:badrpc, :timeout}, {:error, :not_found}],
+         :unreachable},
         {"reports unreachable when another node has no viewer session",
          [{:badrpc, :timeout}, {:error, :viewer_session_not_found}], :unreachable},
         {"reports unreachable when a node it cannot reach follows one that does not host the relay",
