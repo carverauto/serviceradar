@@ -14,9 +14,11 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Identity.RBAC
 
   require Logger
 
+  @camera_view_permission "devices.cameras.view"
   @default_lease_ttl_seconds 30
   @live_session_statuses [:requested, :opening, :active]
 
@@ -96,7 +98,8 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
         update_source_gateway(source, gateway_id, actor_or_scope, write_ash_opts)
       end)
 
-    with {:ok, source} <- source_fetcher.(camera_source_id),
+    with :ok <- authorize_requester(requester),
+         {:ok, source} <- source_fetcher.(camera_source_id),
          {:ok, _profile} <- profile_fetcher.(camera_source_id, stream_profile_id),
          :ok <- validate_source_assignment(source),
          {:ok, source, gateway_id} <-
@@ -775,6 +778,17 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
       _ ->
         Keyword.get(opts, :actor, SystemActor.system(:camera_relay_session_manager))
+    end
+  end
+
+  # Opening a relay starts an agent pulling the camera's stream, so every
+  # user-initiated open needs the live-video permission, not just inventory
+  # access. System actors (agent- and lifecycle-driven opens) are exempt.
+  defp authorize_requester(requester) do
+    cond do
+      SystemActor.system_actor?(requester) -> :ok
+      RBAC.has_permission?(requester, @camera_view_permission) -> :ok
+      true -> {:error, :forbidden}
     end
   end
 

@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
     insecure_skip_verify = DeviceFormData.parse_bool(params["insecure_skip_verify"]) == true
 
     cond do
-      not can_view_device?(scope) ->
+      not can_view_camera?(scope) ->
         put_flash(socket, :error, "You are not authorized to start a camera relay")
 
       not is_nil(socket.assigns.active_camera_relay_session) ->
@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
     active_session = socket.assigns.active_camera_relay_session
 
     cond do
-      not can_view_device?(scope) ->
+      not can_view_camera?(scope) ->
         put_flash(socket, :error, "You are not authorized to stop a camera relay")
 
       is_nil(active_session) ->
@@ -311,7 +311,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
     end
   end
 
-  defp can_view_device?(scope), do: RBAC.can?(scope, "devices.view")
+  defp can_view_camera?(scope), do: RBAC.can?(scope, "devices.cameras.view")
 
   defp device_show_path(socket, device_uid) do
     tab =

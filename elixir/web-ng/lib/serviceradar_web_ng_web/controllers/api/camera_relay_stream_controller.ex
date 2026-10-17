@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayStreamController do
   def connect(conn, %{"id" => relay_session_id}) do
     scope = conn.assigns[:current_scope]
 
-    with :ok <- require_permission(scope, "devices.view"),
+    with :ok <- require_permission(scope, "devices.cameras.view"),
          {:ok, normalized_id} <-
            CameraRelaySessionController.normalize_uuid_param(
              relay_session_id,

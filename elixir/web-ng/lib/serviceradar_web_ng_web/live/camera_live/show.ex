@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
   end
 
   defp open_camera_source(socket, camera_source_id) do
-    if RBAC.can?(socket.assigns.current_scope, "devices.view") do
+    if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
       tile = CameraMultiview.open_source_preview(socket.assigns.current_scope, camera_source_id)
       schedule_camera_refresh(tile)
       assign(socket, :camera_tile, tile)
