@@ -256,9 +256,16 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp bootstrap_app_role!(app_user, app_password) do
     if repo_enabled?() do
       if role_exists?(app_user) do
-        ServiceRadar.Repo.query!(
-          "ALTER ROLE #{quote_ident(app_user)} WITH PASSWORD #{quote_literal(app_password)}"
-        )
+        # Re-setting an unchanged password still writes a new SCRAM salt. That
+        # invalidates the verifier PgBouncer cached for this role, so every new
+        # pooler-to-server login fails with "password authentication failed"
+        # until the pooler restarts, and CNPG re-applies its managed password on
+        # top. Only set it when the stored verifier does not already accept it.
+        if !app_role_password_current?(app_user, app_password) do
+          ServiceRadar.Repo.query!(
+            "ALTER ROLE #{quote_ident(app_user)} WITH PASSWORD #{quote_literal(app_password)}"
+          )
+        end
       else
         # A role is CLUSTER-WIDE, so the check above is not atomic with this create: a concurrent
         # bootstrap can take the gap and this raises 42710. Converge on ALTER rather than fail.
@@ -1048,6 +1055,46 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       _ -> true
     end
   end
+
+  # Reading pg_authid needs superuser, which the migration connection has. When it
+  # cannot be read, or the role has no SCRAM verifier, report "not current" so
+  # the caller sets the password exactly as it did before.
+  defp app_role_password_current?(app_user, app_password) do
+    case ServiceRadar.Repo.query("SELECT rolpassword FROM pg_authid WHERE rolname = $1", [
+           app_user
+         ]) do
+      {:ok, %{rows: [[verifier]]}} when is_binary(verifier) ->
+        scram_verifier_matches?(verifier, app_password)
+
+      _ ->
+        false
+    end
+  end
+
+  @doc false
+  # Checks `password` against a PostgreSQL `SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`
+  # verifier (RFC 5802/7677). Anything else, including md5 hashes, does not match.
+  def scram_verifier_matches?(verifier, password)
+      when is_binary(verifier) and is_binary(password) do
+    with ["SCRAM-SHA-256", iterations_and_salt, keys] <- String.split(verifier, "$"),
+         [iterations, salt_b64] <- String.split(iterations_and_salt, ":"),
+         [stored_key_b64, server_key_b64] <- String.split(keys, ":"),
+         {iterations, ""} <- Integer.parse(iterations),
+         {:ok, salt} <- Base.decode64(salt_b64),
+         {:ok, stored_key} <- Base.decode64(stored_key_b64),
+         {:ok, server_key} <- Base.decode64(server_key_b64),
+         true <- byte_size(stored_key) == 32 and byte_size(server_key) == 32 do
+      salted = :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, 32)
+      client_key = :crypto.mac(:hmac, :sha256, salted, "Client Key")
+
+      :crypto.hash_equals(:crypto.hash(:sha256, client_key), stored_key) and
+        :crypto.hash_equals(:crypto.mac(:hmac, :sha256, salted, "Server Key"), server_key)
+    else
+      _ -> false
+    end
+  end
+
+  def scram_verifier_matches?(_verifier, _password), do: false
 
   defp schema_exists?(schema_name) do
     case ServiceRadar.Repo.query!("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema_name]) do
