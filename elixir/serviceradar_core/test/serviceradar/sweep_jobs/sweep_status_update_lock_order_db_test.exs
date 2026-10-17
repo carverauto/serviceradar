@@ -69,8 +69,12 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
     # free between these two inserts is the first place the second row lands, which
     # puts the lower uid ahead of the higher one. Hold the table across both inserts
     # so that slot cannot appear between them.
-    devices =
-      Repo.transaction!(fn ->
+    #
+    # `Repo.transaction!/1` does not open a SQL transaction: AshPostgres runs the
+    # function and matches its result. `LOCK TABLE` is rejected outside a
+    # transaction block, so this has to be `Repo.transaction/1`.
+    {:ok, devices} =
+      Repo.transaction(fn ->
         Repo.query!("SET LOCAL lock_timeout = '#{@wait_ms}ms'")
 
         Repo.query!("LOCK TABLE platform.ocsf_devices IN SHARE ROW EXCLUSIVE MODE")
