@@ -300,9 +300,7 @@ impl SamplerRates {
         {
             return Some(rate);
         }
-        let Some(options) = self.domain_rates.get_mut(source) else {
-            return None;
-        };
+        let options = self.domain_rates.get_mut(source)?;
         if let Some(rate) = options.interfaces.get(&in_if).copied() {
             return Some(rate);
         }
