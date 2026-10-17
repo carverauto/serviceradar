@@ -35,6 +35,7 @@ defmodule ServiceRadar.Inventory.DevicePubSub do
   # mailbox. A small rescan hint repairs the omitted suffix through paged reads.
   defp bounded_hints(ids) do
     ids
+    |> Stream.uniq()
     |> Enum.reduce_while({[], 0, 0, false}, fn
       id, {acc, count, bytes, _rescan?} when is_binary(id) and id != "" ->
         if count < 5_000 and bytes + byte_size(id) <= 524_288 do

@@ -6,6 +6,7 @@ alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadarWebNG.RemoteDesktopWebRTCConfig
+alias ServiceRadarWebNG.Topology.BitmapSource
 alias Swoosh.Adapters.Local
 
 require Logger
@@ -801,6 +802,21 @@ mcp_client_credentials_enabled =
 
 mcp_refresh_ttl_seconds = parse_int_env.("SERVICERADAR_MCP_REFRESH_TTL_SECONDS", 8 * 3600)
 
+# Only bounded control configuration uses JSON; inventory and query membership
+# retain their typed native/binary paths. JSON preserves literal commas in keys.
+bitmap_tag_keys_json = System.get_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", "[]")
+
+bitmap_tag_keys =
+  with true <- byte_size(bitmap_tag_keys_json) <= 16_384,
+       {:ok, keys} <- Jason.decode(bitmap_tag_keys_json),
+       {:ok, keys} <- BitmapSource.tag_keys(keys) do
+    keys
+  else
+    _ ->
+      raise ArgumentError,
+            "SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS must be a JSON array of at most 25 unique UTF-8 keys, each 1..60 bytes"
+  end
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -897,6 +913,10 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_tcp_enabled: remote_access_tcp_enabled
+
+config :serviceradar_web_ng,
+  topology_bitmap_enabled: to_bool.(System.get_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "false")) == true,
+  bitmap_tag_keys: bitmap_tag_keys
 
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do

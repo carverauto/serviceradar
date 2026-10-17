@@ -39,9 +39,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # (devices -> agents -> checkers is depth 2).
   @max_fk_depth 4
 
-  # Automation audit and quarantine history keyed to a device. These RESTRICT
-  # the device delete on purpose: a device they reference is skipped by the
-  # purge rather than stripped of that history.
+  # Identity assignments outlive payload retention; they are never purge children.
+  @identity_children ["platform.device_fleet_ordinals"]
+
+  # Audit/quarantine history keeps its full canonical record, unlike identity-only
+  # retention which permits mutable inventory payloads to be scrubbed.
   @retained_children [
     "platform.ansible_automation_execution_targets",
     "platform.ansible_automation_target_holds"
@@ -276,7 +278,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   defp purge_candidates(cutoff, batch_size, after_uid) do
     query =
       from(d in "ocsf_devices",
-        where: not is_nil(d.deleted_at) and d.deleted_at < ^cutoff,
+        where:
+          not is_nil(d.deleted_at) and d.deleted_at < ^cutoff and is_nil(d.identity_purged_at),
         where:
           is_nil(d.deleted_reason) or
             d.deleted_reason != "armis_source_device_id_ghost_cleanup",
@@ -292,7 +295,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     error -> {:error, error}
   end
 
-  # Hard-delete a batch of soft-deleted devices FK-safely, in ONE transaction
+  # Purge a batch of soft-deleted devices FK-safely, in ONE transaction
   # per batch: every row that blocks the parent delete (a NO ACTION / RESTRICT
   # foreign key to ocsf_devices, or to a row being deleted with it, such as an
   # ocsf_agents row's checkers) is deleted first, deepest first. The blocking
@@ -314,6 +317,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # ONLY those are purged -- so a concurrent restore/gateway_sync that clears
   # deleted_at in the gap can never have its now-LIVE device's child rows wiped.
   #
+  # Every inventory identity receives an ordinal before payload purge, including old
+  # tombstones not yet backfilled. Internal service identities remain excluded.
+  # Retained identities keep a minimal tombstone and their deletion/merge lineage;
+  # identity_purged_at prevents repeatedly processing those rows on later runs.
   # Public (@doc false) so the DIRE lifecycle trace can purge exactly the devices it
   # created; running the worker would purge every expired tombstone in the database.
   @doc false
@@ -369,7 +376,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       locked_uids =
         Repo.all(
           from(d in "ocsf_devices",
-            where: d.uid in ^uids and not is_nil(d.deleted_at),
+            where: d.uid in ^uids and not is_nil(d.deleted_at) and is_nil(d.identity_purged_at),
+            order_by: [asc: d.uid],
             select: d.uid,
             lock: "FOR UPDATE"
           ),
@@ -383,17 +391,39 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       if purge_uids == [] do
         {0, skipped}
       else
+        reserve_tombstone_ordinals(purge_uids)
+
         Enum.each(plan.deletes, fn {table, predicate} ->
           Repo.query!("DELETE FROM #{table} WHERE #{predicate}", [purge_uids])
         end)
 
+        preserved_uids =
+          purge_uids
+          |> retained_uids(plan.identities)
+          |> Enum.map(fn {uid, _constraint} -> uid end)
+          |> Enum.uniq()
+
+        if preserved_uids != [] do
+          # Mark before detaching links: AWX's canonical-device quarantine trigger
+          # treats a purged identity exactly like an absent inventory record.
+          Repo.query!(plan.scrub, [preserved_uids])
+
+          Enum.each(plan.detach, fn {table, column, default} ->
+            Repo.query!("UPDATE #{table} SET #{column} = #{default} WHERE #{column} = ANY($1)", [
+              preserved_uids
+            ])
+          end)
+        end
+
         {deleted_count, _} =
           Repo.delete_all(
-            from(d in "ocsf_devices", where: d.uid in ^purge_uids),
+            from(d in "ocsf_devices",
+              where: d.uid in ^purge_uids and is_nil(d.identity_purged_at)
+            ),
             prefix: "platform"
           )
 
-        {deleted_count, skipped}
+        {deleted_count + length(preserved_uids), skipped}
       end
     end
     |> Repo.transaction()
@@ -403,6 +433,30 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     end
   rescue
     error -> {:error, error}
+  end
+
+  # The canonical rows are already locked and rechecked as deleted. Allocate only
+  # missing identities so repeated retention never consumes another sequence value.
+  # Capacity exhaustion rolls back this batch before any payload or link is removed.
+  defp reserve_tombstone_ordinals(uids) do
+    Repo.query!(
+      """
+      INSERT INTO platform.device_fleet_ordinals (uid, tombstoned)
+      SELECT d.uid, true FROM platform.ocsf_devices d
+      WHERE d.uid = ANY($1::text[]) AND d.uid NOT LIKE 'serviceradar:%'
+        AND NOT EXISTS (SELECT 1 FROM platform.device_fleet_ordinals o WHERE o.uid = d.uid)
+      ORDER BY d.uid
+      """,
+      [uids]
+    )
+
+    Repo.query!(
+      """
+      UPDATE platform.device_fleet_ordinals SET tombstoned = true
+      WHERE uid = ANY($1::text[]) AND NOT tombstoned
+      """,
+      [uids]
+    )
   end
 
   # Devices among `uids` referenced from a retained table, with the constraint.
@@ -438,27 +492,77 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # The delete plan for a purge, derived from the catalog:
   #
   #   * `deletes` -- `{table, predicate}` pairs, deepest first, for every table
-  #     whose rows would block deleting the selected devices. `$1` in the
-  #     predicate is the uid array.
+  #     whose rows would block deleting the selected devices. `$1` is the
+  #     caller's bind value. The default predicate is `uid = ANY($1)`.
   #   * `retained` -- the direct device foreign keys from @retained_children.
   #
-  # CASCADE and SET NULL children are left to the parent delete.
-  @spec purge_plan() :: %{deletes: [{String.t(), String.t()}], retained: [map()]}
-  def purge_plan do
+  # CASCADE children are deleted explicitly so retained identity parents get the
+  # same cleanup. Direct SET NULL/DEFAULT links are detached after scrubbing.
+  @spec purge_plan(String.t()) :: map()
+  def purge_plan(root_predicate \\ "uid = ANY($1)") do
     edges = blocking_foreign_keys()
 
     {retained, followed} =
       Enum.split_with(edges, &(&1.child_unquoted in @retained_children))
 
+    {identities, followed} = Enum.split_with(followed, &(&1.child_unquoted in @identity_children))
+    {detached, followed} = Enum.split_with(followed, &(&1.delete_action in ["n", "d"]))
+
     deletes =
-      collect_deletes(followed, "platform.ocsf_devices", "uid = ANY($1)", MapSet.new(), 0)
+      collect_deletes(followed, "platform.ocsf_devices", root_predicate, MapSet.new(), 0)
 
     retained =
       retained
       |> Enum.filter(&(&1.parent == "platform.ocsf_devices" and &1.parent_column == "uid"))
       |> Enum.map(&%{table: &1.child, column: &1.column, constraint: &1.constraint})
 
-    %{deletes: deletes, retained: retained}
+    identities =
+      Enum.map(identities, &%{table: &1.child, column: &1.column, constraint: &1.constraint})
+
+    detach =
+      detached
+      |> Enum.filter(&(&1.parent == "platform.ocsf_devices" and &1.parent_column == "uid"))
+      |> Enum.map(
+        &{&1.child, &1.column, if(&1.delete_action == "d", do: "DEFAULT", else: "NULL")}
+      )
+
+    %{
+      deletes: deletes,
+      retained: retained,
+      identities: identities,
+      detach: detach,
+      scrub: identity_scrub_sql()
+    }
+  end
+
+  defp identity_scrub_sql do
+    # Reset only structural defaults; an arbitrary future default must not
+    # repopulate redacted identity or source data. first_seen_time and
+    # created_time stay so a revived identity keeps its age. modified_time and
+    # identity_purged_at record the scrub.
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT quote_ident(attname), attname IN (
+        'type_id', 'os', 'hw_info', 'network_interfaces', 'owner', 'org',
+        'groups', 'agent_list', 'discovery_sources', 'tags', 'is_managed', 'is_trusted'
+      ) FROM pg_attribute
+      WHERE attrelid = 'platform.ocsf_devices'::regclass
+        AND attnum > 0 AND NOT attisdropped AND NOT attnotnull
+        AND attname NOT IN ('deleted_at', 'deleted_by', 'deleted_reason', 'metadata',
+          'identity_purged_at', 'created_time', 'first_seen_time', 'modified_time')
+      ORDER BY attnum
+      """)
+
+    cleared =
+      Enum.map_join(rows, ", ", fn [column, reset_default?] ->
+        "#{column} = #{if reset_default?, do: "DEFAULT", else: "NULL"}"
+      end)
+
+    "UPDATE platform.ocsf_devices SET " <>
+      cleared <>
+      ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at', '_seed_successor']::text[])), " <>
+      "modified_time = timezone('utc', now()), " <>
+      "identity_purged_at = timezone('utc', now()), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end
 
   # Post-order walk from `parent`: a child's own blockers are deleted before it.
@@ -484,7 +588,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     end)
   end
 
-  # Single-column NO ACTION / RESTRICT foreign keys between platform tables, as
+  # Single-column foreign keys between platform tables, as
   # %{child, column, parent, parent_column, constraint} with schema-qualified,
   # quoted table names.
   defp blocking_foreign_keys do
@@ -495,6 +599,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
              format('%I.%I', pn.nspname, pc.relname),
              quote_ident(pa.attname),
              c.conname,
+             c.confdeltype::text,
              cn.nspname || '.' || cc.relname
       FROM pg_constraint c
       JOIN pg_class cc ON cc.oid = c.conrelid
@@ -504,20 +609,29 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
       JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = c.confkey[1]
       WHERE c.contype = 'f'
-        AND c.confdeltype IN ('a', 'r')
+        AND c.confdeltype IN ('a', 'r', 'c', 'n', 'd')
         AND cardinality(c.conkey) = 1
         AND pn.nspname = 'platform'
       ORDER BY 1, 2, 5
       """)
 
-    Enum.map(rows, fn [child, column, parent, parent_column, constraint, child_unquoted] ->
+    Enum.map(rows, fn [
+                        child,
+                        column,
+                        parent,
+                        parent_column,
+                        constraint,
+                        delete_action,
+                        child_unquoted
+                      ] ->
       %{
         child: child,
         child_unquoted: child_unquoted,
         column: column,
         parent: parent,
         parent_column: parent_column,
-        constraint: constraint
+        constraint: constraint,
+        delete_action: delete_action
       }
     end)
   end

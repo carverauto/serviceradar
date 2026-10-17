@@ -15,7 +15,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.DecisionLog
+  alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -44,6 +47,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @role_score_threshold 50
   # Bound on the values bound into one batched IN (...) lookup.
   @batch_lookup_chunk_size 500
+  @identity_successor_reads 8
 
   @unifi_interface_metadata_keys ~w(
     unifi_api_urls
@@ -82,6 +86,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           # handle_bulk_result/3 but must not stop the surviving interface
           # evidence from reaching the AGE projection.
           {:ok, _summary} ->
+            classified_records
+            |> Stream.map(& &1.device_id)
+            |> DevicePubSub.broadcast_invalidated()
+
             TopologyGraph.upsert_interfaces(classified_records)
             record_job_runs(updates, status: :success, include_interface_counts: true)
             :ok
@@ -1649,6 +1657,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp resolve_devices_by_address(ip_to_uid, [], _records, _holders, _actor), do: ip_to_uid
 
   defp resolve_devices_by_address(ip_to_uid, device_ips, records, holders, actor) do
+    parent_ips = management_parent_ips(records)
+
     Enum.reduce(device_ips, ip_to_uid, fn device_ip, acc ->
       case Map.get(holders, device_ip) do
         uid when is_binary(uid) ->
@@ -1656,19 +1666,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
         _ ->
           partition = partition_for_device_ip(device_ip, records)
-          put_alias_or_created_uid(acc, device_ip, partition, records, actor)
+          put_alias_or_created_uid(acc, device_ip, partition, records, parent_ips, actor)
       end
     end)
   end
 
-  defp put_alias_or_created_uid(acc, device_ip, partition, records, actor) do
+  defp put_alias_or_created_uid(acc, device_ip, partition, records, parent_ips, actor) do
     case find_device_uid_by_alias(device_ip, partition, actor) do
       {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
         Logger.info("Mapper resolved device #{alias_uid} for IP #{device_ip} via alias state")
         Map.put(acc, device_ip, alias_uid)
 
       _ ->
-        case create_device_for_ip(device_ip, records, acc, actor) do
+        case create_device_for_ip(device_ip, records, acc, parent_ips, actor) do
           {:ok, device_uid} ->
             Map.put(acc, device_ip, device_uid)
 
@@ -1685,21 +1695,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # An address-seeded device for a poll that reported no identity MAC. The UID decision
   # belongs to DIRE: resolution consults alias states and the merge-audit canonical mapping
   # before falling back to the deterministic address seed.
-  defp create_device_for_ip(device_ip, records, ip_to_uid, actor) do
+  defp create_device_for_ip(device_ip, records, ip_to_uid, parent_ips, actor) do
     partition = partition_for_device_ip(device_ip, records)
 
     with {:ok, device_uid} <- resolve_device_uid_via_dire(device_ip, partition, [], actor) do
       if device_exists?(device_uid, actor) do
         {:ok, device_uid}
       else
-        create_address_seeded_device(device_uid, device_ip, records, ip_to_uid, actor)
+        create_address_seeded_device(device_uid, device_ip, parent_ips, ip_to_uid, actor)
       end
     end
   end
 
-  defp create_address_seeded_device(device_uid, device_ip, records, ip_to_uid, actor) do
+  defp create_address_seeded_device(device_uid, device_ip, parent_ips, ip_to_uid, actor) do
     # If this IP appears as an interface address on another device, set management_device_id
-    management_device_id = find_management_device_uid(device_ip, records, ip_to_uid)
+    management_device_id = find_management_device_uid(device_ip, parent_ips, ip_to_uid)
 
     attrs =
       maybe_put(
@@ -1813,42 +1823,110 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp write_polled_devices(polled, records, holders, actor) do
     devices = devices_by_uid(Enum.map(polled, & &1.uid), actor)
 
-    # One state per resolved uid: a router polled at several addresses resolves to one device,
-    # so a tombstone is restored once and every address of that device gets the restored row.
-    states =
-      polled
-      |> Enum.map(& &1.uid)
-      |> Enum.uniq()
-      |> Map.new(&{&1, polled_device_state(Map.get(devices, &1), actor)})
+    # One state per resolved uid, in poll order. A chain restore is reused for every later
+    # address that resolved directly to that same uid; the preload above is from before the
+    # restore and would otherwise still look deleted.
+    states = polled_states(polled, devices, actor)
 
-    {existing, new} =
-      polled
-      |> Enum.flat_map(fn entry ->
+    {existing, restored, identity_purged, new, succeed} =
+      Enum.reduce(polled, {[], [], [], [], []}, fn entry,
+                                                   {existing, restored, identity_purged, new,
+                                                    succeed} ->
         case Map.fetch!(states, entry.uid) do
-          :new -> [{:new, entry}]
-          {:existing, device} -> [{:existing, entry, device}]
-          :skip -> []
+          {:existing, device} ->
+            {[
+               {:existing, %{entry | uid: device.uid}, device}
+               | existing
+             ], restored, identity_purged, new, succeed}
+
+          {:restored, device, purged?} ->
+            {existing, [{%{entry | uid: device.uid}, device, purged?} | restored],
+             identity_purged, new, succeed}
+
+          {:purged, device} ->
+            {existing, restored, [{%{entry | uid: device.uid}, device} | identity_purged], new,
+             succeed}
+
+          {:succeed, root, next, head, action, pins} ->
+            {existing, restored, identity_purged, new,
+             [{entry, root, next, head, action, pins} | succeed]}
+
+          :new ->
+            {existing, restored, identity_purged, [entry | new], succeed}
+
+          :skip ->
+            {existing, restored, identity_purged, new, succeed}
         end
       end)
-      |> Enum.split_with(&match?({:existing, _polled, _device}, &1))
 
     # One observation time for the whole poll: a holder this poll also observed is not older
     # than the device moving onto its address, so it keeps the address.
     observed_at = DateTime.utc_now()
 
-    existing
-    |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
-    |> stamp_identity_observed(observed_at)
+    observed =
+      existing
+      |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
+      |> Kernel.++(Enum.map(restored, fn {_entry, device, _purged?} -> device.uid end))
+
+    stamp_identity_observed(observed, observed_at)
 
     Enum.each(existing, fn {:existing, entry, device} ->
       maybe_move_device_address(entry, device, records, observed_at, actor)
     end)
 
-    context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    new_entries = Enum.map(new, &elem(&1, 1))
-    created = create_polled_devices(new_entries, records, context, observed_at, actor)
-    kept ++ created
+    restored_entries = Enum.map(restored, fn {entry, _device, _purged?} -> entry end)
+
+    context =
+      holders
+      |> Map.merge(Map.new(kept, &{&1.device_ip, &1.uid}))
+      |> Map.merge(Map.new(restored_entries, &{&1.device_ip, &1.uid}))
+
+    Enum.each(restored, fn {entry, device, _purged?} ->
+      maybe_move_device_address(entry, device, records, observed_at, actor)
+    end)
+
+    parent_ips = management_parent_ips(records)
+
+    {written, context} =
+      commit_identity_work(
+        identity_work_items(new, identity_purged, succeed),
+        parent_ips,
+        context,
+        observed_at,
+        actor
+      )
+
+    publish_deferred_management(existing, restored, parent_ips, context)
+
+    kept ++ restored_entries ++ written
+  end
+
+  defp polled_states(polled, devices, actor) do
+    {states, _memo} =
+      polled
+      |> Enum.map(& &1.uid)
+      |> Enum.uniq()
+      |> Enum.reduce({%{}, %{}}, fn uid, {states, memo} ->
+        state =
+          case Map.get(memo, uid) do
+            %Device{} = device ->
+              {:restored, device, not is_nil(device.identity_purged_at)}
+
+            nil ->
+              polled_device_state(Map.get(devices, uid), actor)
+          end
+
+        memo =
+          case state do
+            {:restored, %Device{} = device, _purged?} -> Map.put(memo, device.uid, device)
+            _ -> memo
+          end
+
+        {Map.put(states, uid, state), memo}
+      end)
+
+    states
   end
 
   defp devices_by_uid(uids, actor) do
@@ -1877,26 +1955,50 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     :ok
   end
 
-  # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A poll
-  # never revives a device an operator deleted, one a merge tombstoned (the Resolver has already
-  # followed the merge), one a DIRE remediation removed on purpose, or a retained tombstone
-  # (`Device.retained_reasons/0`: its source retired its ids, or it was a released seed). A
-  # device an automatic process deleted (a reaper or an expiry, identified by a `system:` actor)
-  # came back online, so it is restored through the audited `:restore` action rather than the
-  # raw upsert, which would clear the tombstone without a trace.
+  # What a resolved uid is: a device to write, an existing one to keep, or a tombstone.
+  # Unpurged operator deletes, merge tombstones, and retained tombstones
+  # (`Device.retained_reasons/0`: source retired or released seed) stay deleted. The Resolver
+  # has already followed a merge. A restorable `system:` delete is restored in place, including
+  # a purged one and one reached through the successor pointer. An identity-purged operator,
+  # DIRE, or nil-actor tombstone keeps that row and its ordinal; rediscovery allocates a fresh
+  # successor. The walk continues only past those purged rows.
   defp polled_device_state(nil, _actor), do: :new
 
   defp polled_device_state(%Device{deleted_at: nil} = device, _actor), do: {:existing, device}
 
   defp polled_device_state(%Device{deleted_by: "system:" <> _} = device, actor) do
-    if restorable_system_delete?(device.deleted_reason) do
-      restore_polled_device(device, actor)
+    cond do
+      not restorable_system_delete?(device.deleted_reason) ->
+        purged_successor_state(device, actor)
+
+      is_nil(device.identity_purged_at) ->
+        restore_polled_device(device, actor)
+
+      true ->
+        {:purged, device}
+    end
+  end
+
+  defp polled_device_state(%Device{} = device, actor), do: purged_successor_state(device, actor)
+
+  defp purged_successor_state(%Device{} = device, actor) do
+    if successor_eligible_purge?(device) do
+      case plan_purged_successor(device, actor) do
+        {:existing, successor} -> {:existing, successor}
+        {:succeed, _, _, _, _, _} = planned -> planned
+        {:restored, _, _} = restored -> restored
+        {:purged, row} -> {:purged, row}
+        :skip -> leave_deleted(device)
+      end
     else
       leave_deleted(device)
     end
   end
 
-  defp polled_device_state(%Device{} = device, _actor), do: leave_deleted(device)
+  defp successor_eligible_purge?(%Device{} = device) do
+    not is_nil(device.deleted_at) and not is_nil(device.identity_purged_at) and
+      device.deleted_reason != "merged" and not Device.retained_reason?(device.deleted_reason)
+  end
 
   defp restorable_system_delete?("merged"), do: false
   defp restorable_system_delete?("dire_remediation" <> _), do: false
@@ -1906,6 +2008,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # address was leased again while the device was gone); then the restore clears it in the same
   # audited transition, and the ordinary address move takes the device to the polled address.
   defp restore_polled_device(%Device{} = device, actor) do
+    purged? = not is_nil(device.identity_purged_at)
     attrs = if stale_address_taken?(device), do: %{ip: nil}, else: %{}
 
     # An update built from the primary read cannot see a tombstoned row (StaleRecord); a bulk
@@ -1913,6 +2016,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid == ^device.uid and not is_nil(deleted_at))
+    |> restore_purge_scope(purged?)
     |> Ash.bulk_update(:restore, attrs,
       actor: actor,
       return_records?: true,
@@ -1922,7 +2026,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> case do
       %Ash.BulkResult{status: :success, records: [restored | _]} ->
         Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
-        {:existing, restored}
+        {:restored, restored, purged?}
 
       result ->
         Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(result)}")
@@ -1930,10 +2034,534 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
+  defp restore_purge_scope(query, true),
+    do: Ash.Query.filter(query, not is_nil(identity_purged_at))
+
+  defp restore_purge_scope(query, false), do: Ash.Query.filter(query, is_nil(identity_purged_at))
+
+  defp purged_refill_kept?(uids, remap) do
+    Enum.all?(uids, &(Map.get(remap, &1, &1) == &1)) and
+      refilled_identity_count(uids) == length(uids)
+  end
+
+  defp refilled_identity_count(uids) do
+    Repo.aggregate(
+      from(d in Device,
+        where: d.uid in ^uids and is_nil(d.deleted_at) and "mapper" in d.discovery_sources
+      ),
+      :count,
+      :uid
+    )
+  end
+
   defp stale_address_taken?(%Device{ip: ip} = device) when is_binary(ip) and ip != "",
     do: live_address_holder(ip, device.partition, device.uid) != nil
 
   defp stale_address_taken?(_device), do: false
+
+  defp metadata_successor(%{metadata: metadata}) when is_map(metadata) do
+    case Map.get(metadata, "_seed_successor") || Map.get(metadata, :_seed_successor) do
+      uid when is_binary(uid) and uid != "" -> uid
+      _ -> nil
+    end
+  end
+
+  defp metadata_successor(_row), do: nil
+
+  defp plan_purged_successor(%Device{} = root, actor) do
+    head = metadata_successor(root)
+    chain = successor_chain(root, head)
+
+    case successor_rows(chain, actor) do
+      {:ok, rows} ->
+        {examined, decision} = choose_successor(chain, rows)
+        pins = successor_pins(root, examined, rows)
+        successor_decision(root, head, decision, pins, actor)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Mapper could not read purged identity successors for #{root.uid}: #{inspect(reason)}"
+        )
+
+        :skip
+    end
+  end
+
+  defp successor_chain(root, head) do
+    origin = head || root.uid
+
+    origin
+    |> Stream.iterate(&Ids.reseeded_device_id/1)
+    |> then(fn stream -> if is_nil(head), do: Stream.drop(stream, 1), else: stream end)
+    |> Enum.take(@identity_successor_reads)
+  end
+
+  defp successor_pins(root, examined, rows) do
+    examined
+    |> Map.new(fn uid -> {uid, successor_pin(Map.get(rows, uid))} end)
+    |> Map.put(root.uid, root.identity_revision)
+  end
+
+  defp successor_pin(nil), do: :absent
+  defp successor_pin(%{identity_revision: revision}), do: revision
+
+  defp successor_decision(root, head, {:create, next}, pins, _actor),
+    do: {:succeed, root, next, head, :create, pins}
+
+  defp successor_decision(root, head, {:progress, next}, pins, _actor),
+    do: {:succeed, root, next, head, :progress, pins}
+
+  defp successor_decision(_root, _head, {:existing, live}, _pins, _actor), do: {:existing, live}
+
+  defp successor_decision(_root, _head, {:purged, row}, _pins, _actor), do: {:purged, row}
+
+  defp successor_decision(_root, _head, {:restore, row}, _pins, actor),
+    do: restore_polled_device(row, actor)
+
+  defp successor_decision(_root, _head, :skip, _pins, _actor), do: :skip
+
+  defp successor_rows(uids, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid in ^uids)
+    |> Ash.read(actor: actor, page: [limit: length(uids)])
+    |> Page.unwrap()
+    |> case do
+      {:ok, rows} -> {:ok, Map.new(rows, &{&1.uid, &1})}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp choose_successor(chain, rows) do
+    chain
+    |> Enum.reduce_while({[], :exhausted}, fn uid, {seen, _decision} ->
+      seen = [uid | seen]
+
+      case Map.get(rows, uid) do
+        nil ->
+          {:halt, {seen, {:create, uid}}}
+
+        %Device{deleted_at: nil} = live ->
+          {:halt, {seen, {:existing, live}}}
+
+        %Device{} = row ->
+          cond do
+            restorable_system_row?(row) ->
+              {:halt, {seen, restorable_chain_target(row)}}
+
+            successor_eligible_purge?(row) ->
+              {:cont, {seen, :exhausted}}
+
+            true ->
+              {:halt, {seen, :skip}}
+          end
+      end
+    end)
+    |> case do
+      {seen, :exhausted} ->
+        {Enum.reverse(seen), {:progress, Ids.reseeded_device_id(List.last(chain))}}
+
+      {seen, decision} ->
+        {Enum.reverse(seen), decision}
+    end
+  end
+
+  defp restorable_system_row?(%Device{
+         deleted_at: deleted,
+         deleted_by: "system:" <> _,
+         deleted_reason: reason
+       })
+       when not is_nil(deleted) do
+    restorable_system_delete?(reason)
+  end
+
+  defp restorable_system_row?(_row), do: false
+
+  defp restorable_chain_target(%Device{identity_purged_at: purged} = row) when not is_nil(purged),
+    do: {:purged, row}
+
+  defp restorable_chain_target(%Device{} = row), do: {:restore, row}
+
+  defp identity_work_items(new, identity_purged, succeed) do
+    creates =
+      new
+      |> Enum.reverse()
+      |> Enum.group_by(& &1.uid)
+      |> Enum.map(fn {uid, entries} -> {:create, uid, entries} end)
+
+    rehydrates =
+      identity_purged
+      |> Enum.reverse()
+      |> Enum.group_by(fn {_entry, device} -> device.uid end)
+      |> Enum.map(fn {uid, pairs} -> {:rehydrate, uid, pairs} end)
+
+    successors =
+      succeed
+      |> Enum.reverse()
+      |> Enum.group_by(fn {_entry, root, _next, _head, _action, _pins} -> root.uid end)
+      |> Enum.map(fn {uid, group} -> {:succeed, uid, group} end)
+
+    creates ++ rehydrates ++ successors
+  end
+
+  defp commit_identity_work(items, parent_ips, context, observed_at, actor) do
+    by_id = Map.new(items, &{work_id(&1), &1})
+    owners = work_owner_index(items)
+
+    parents =
+      Map.new(items, fn item ->
+        {work_id(item), work_parent_id(item, parent_ips, owners)}
+      end)
+
+    ordered = Enum.map(topo_uids(Map.keys(by_id), parents), &Map.fetch!(by_id, &1))
+
+    {chunks, context, batch, _pending} =
+      Enum.reduce(ordered, {[], context, [], MapSet.new()}, fn item, acc ->
+        {chunks, context, batch, pending} = acc
+
+        if batch == [] or batchable_work?(item, hd(batch), parents, pending) do
+          {chunks, context, [item | batch], MapSet.put(pending, work_id(item))}
+        else
+          {added, context} =
+            flush_identity_work(Enum.reverse(batch), parent_ips, context, observed_at, actor)
+
+          {[added | chunks], context, [item], MapSet.new([work_id(item)])}
+        end
+      end)
+
+    {added, context} =
+      flush_identity_work(Enum.reverse(batch), parent_ips, context, observed_at, actor)
+
+    {Enum.concat(Enum.reverse([added | chunks])), context}
+  end
+
+  defp batchable_work?(item, current, parents, pending) do
+    parent = Map.get(parents, work_id(item))
+
+    work_kind(item) == work_kind(current) and work_kind(item) != :succeed and
+      (is_nil(parent) or not MapSet.member?(pending, parent))
+  end
+
+  defp flush_identity_work([], _parent_ips, context, _observed_at, _actor), do: {[], context}
+
+  defp flush_identity_work(items, parent_ips, context, observed_at, actor) do
+    case hd(items) do
+      {:create, _, _} ->
+        entries = Enum.flat_map(items, fn {:create, _, entries} -> entries end)
+        created = create_polled_devices(entries, parent_ips, context, observed_at, actor)
+        {created, merge_identity_context(context, created)}
+
+      {:rehydrate, _, _} ->
+        pairs = Enum.flat_map(items, fn {:rehydrate, _, pairs} -> pairs end)
+        rehydrated = rehydrate_purged_devices(pairs, parent_ips, context, observed_at, actor)
+        {rehydrated, merge_identity_context(context, rehydrated)}
+
+      {:succeed, _, group} ->
+        [{_entry, root, next, head, action, pins} | _] = group
+        entries = Enum.map(group, fn {entry, _, _, _, _, _} -> entry end)
+
+        created =
+          commit_identity_successor(
+            entries,
+            root,
+            next,
+            head,
+            action,
+            pins,
+            parent_ips,
+            context,
+            observed_at
+          )
+
+        {created, merge_identity_context(context, created)}
+    end
+  end
+
+  defp merge_identity_context(context, entries),
+    do: Map.merge(context, Map.new(entries, &{&1.device_ip, &1.uid}))
+
+  defp work_id({kind, uid, _payload}), do: {kind, uid}
+  defp work_kind({kind, _uid, _payload}), do: kind
+
+  defp work_ips({:create, _uid, entries}), do: Enum.map(entries, & &1.device_ip)
+
+  defp work_ips({:rehydrate, _uid, pairs}),
+    do: Enum.map(pairs, fn {entry, _device} -> entry.device_ip end)
+
+  defp work_ips({:succeed, _uid, group}),
+    do: Enum.map(group, fn {entry, _, _, _, _, _} -> entry.device_ip end)
+
+  defp work_owner_index(items) do
+    Enum.reduce(items, %{}, fn item, acc ->
+      Enum.reduce(work_ips(item), acc, fn ip, acc -> Map.put_new(acc, ip, work_id(item)) end)
+    end)
+  end
+
+  defp work_parent_id(item, parent_ips, owners) do
+    self_id = work_id(item)
+    owner = Map.get(owners, Map.get(parent_ips, hd(work_ips(item))))
+
+    if is_nil(owner) or owner == self_id, do: nil, else: owner
+  end
+
+  defp topo_uids(uids, parents) do
+    do_topo(MapSet.new(uids), parents, [])
+  end
+
+  defp do_topo(pending, parents, acc) do
+    ready =
+      pending
+      |> Enum.filter(fn uid ->
+        parent = Map.get(parents, uid)
+        is_nil(parent) or not MapSet.member?(pending, parent)
+      end)
+      |> Enum.sort()
+
+    case ready do
+      [] ->
+        Enum.reverse(acc, Enum.sort(pending))
+
+      _ ->
+        do_topo(MapSet.difference(pending, MapSet.new(ready)), parents, Enum.reverse(ready, acc))
+    end
+  end
+
+  defp commit_identity_successor(
+         entries,
+         root,
+         next,
+         head,
+         action,
+         pins,
+         parent_ips,
+         context,
+         observed_at
+       ) do
+    case Fence.fenced_write(pins, :mapper_successor, fn stale ->
+           if MapSet.size(stale) == 0 do
+             with :ok <- reject_reused_successor(root, next),
+                  :ok <- confirm_successor_selection(root, next, head, action),
+                  :ok <- advance_identity_successor(root, next, head) do
+               case action do
+                 :progress ->
+                   {:ok, :progress}
+
+                 :create ->
+                   write_successor_devices(
+                     entries,
+                     next,
+                     root,
+                     parent_ips,
+                     context,
+                     observed_at
+                   )
+               end
+             end
+           else
+             {:ok, :withheld}
+           end
+         end) do
+      {:ok, {:progress, _stale}} ->
+        Logger.warning(
+          "Mapper deferred a successor for #{root.uid} after " <>
+            "#{@identity_successor_reads} identities"
+        )
+
+        []
+
+      {:ok, {:withheld, _stale}} ->
+        []
+
+      {:ok, {batch, _stale}} ->
+        publish_polled_devices(batch)
+        remap_polled_entries(Enum.map(entries, &%{&1 | uid: next}), batch.remap)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Mapper purged identity successor for #{root.uid} rolled back: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp reject_reused_successor(root, next) when next == root.uid, do: {:error, :successor_reused}
+  defp reject_reused_successor(_root, _next), do: :ok
+
+  defp confirm_successor_selection(root, next, head, action) do
+    chain = successor_chain(root, head)
+
+    rows =
+      [root.uid | chain]
+      |> Enum.uniq()
+      |> then(fn uids -> Repo.all(from(d in Device, where: d.uid in ^uids)) end)
+      |> Map.new(&{&1.uid, &1})
+
+    case choose_successor(chain, rows) do
+      {_examined, {^action, ^next}} ->
+        if successor_root_current?(Map.get(rows, root.uid), root, head),
+          do: :ok,
+          else: {:error, :successor_selection_changed}
+
+      _ ->
+        {:error, :successor_selection_changed}
+    end
+  end
+
+  defp successor_root_current?(%Device{} = row, root, head) do
+    row.identity_revision == root.identity_revision and not is_nil(row.deleted_at) and
+      not is_nil(row.identity_purged_at) and metadata_successor(row) == head and
+      row.deleted_reason != "merged" and not Device.retained_reason?(row.deleted_reason)
+  end
+
+  defp successor_root_current?(_row, _root, _head), do: false
+
+  defp write_successor_devices(entries, next, root, parent_ips, context, observed_at) do
+    allowed = provisional_successor_target(entries, next)
+
+    case write_polled_device_rows(
+           Enum.map(entries, &%{&1 | uid: next}),
+           parent_ips,
+           context,
+           observed_at
+         ) do
+      {:ok, %{remap: remap} = batch} ->
+        adopted = Map.get(remap, next, next)
+
+        with :ok <- accept_successor_publication(next, adopted, allowed, root),
+             :ok <- record_adopted_successor(root, next, adopted) do
+          {:ok, batch}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp provisional_successor_target(entries, next) do
+    %{device_ip: ip, partition: partition} = hd(entries)
+
+    DeviceWrites.adoptable_provisional_seed_uid(ip, partition, next) || next
+  end
+
+  defp accept_successor_publication(next, adopted, allowed, root) do
+    cond do
+      adopted != next and adopted != allowed ->
+        {:error, :successor_not_published}
+
+      not successor_tombstone_intact?(root.uid) ->
+        {:error, :successor_not_published}
+
+      adopted == next ->
+        if successor_live_mapper?(next), do: :ok, else: {:error, :successor_not_published}
+
+      live_adopted_successor?(adopted) ->
+        :ok
+
+      true ->
+        {:error, :successor_not_published}
+    end
+  end
+
+  defp live_adopted_successor?(uid) do
+    case Repo.one(
+           from(d in Device,
+             where: d.uid == ^uid,
+             lock: "FOR NO KEY UPDATE",
+             select: %{
+               deleted_at: d.deleted_at,
+               identity_purged_at: d.identity_purged_at,
+               source_retired_at: d.source_retired_at,
+               deleted_reason: d.deleted_reason,
+               discovery_sources: d.discovery_sources
+             }
+           )
+         ) do
+      %{
+        deleted_at: nil,
+        identity_purged_at: nil,
+        source_retired_at: nil,
+        deleted_reason: reason,
+        discovery_sources: sources
+      } ->
+        reason not in ["merged", "source_retired", "seed_released"] and is_list(sources) and
+          "mapper" in sources
+
+      _ ->
+        false
+    end
+  end
+
+  defp record_adopted_successor(_root, next, next), do: :ok
+
+  defp record_adopted_successor(root, next, adopted) do
+    case Repo.query(
+           """
+           UPDATE platform.ocsf_devices
+           SET metadata = jsonb_set(
+                 COALESCE(metadata, '{}'::jsonb),
+                 '{_seed_successor}',
+                 to_jsonb($2::text),
+                 true
+               )
+           WHERE uid = $1 AND identity_revision = $3
+             AND metadata->>'_seed_successor' = $4
+             AND deleted_at IS NOT NULL
+             AND identity_purged_at IS NOT NULL
+             AND deleted_reason IS DISTINCT FROM 'merged'
+             AND deleted_reason IS DISTINCT FROM 'source_retired'
+             AND deleted_reason IS DISTINCT FROM 'seed_released'
+           """,
+           [root.uid, adopted, root.identity_revision + 1, next]
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, %{num_rows: 0}} -> {:error, :successor_not_published}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp successor_live_mapper?(uid) do
+    Repo.exists?(
+      from(d in Device,
+        where: d.uid == ^uid and is_nil(d.deleted_at) and "mapper" in d.discovery_sources
+      )
+    )
+  end
+
+  defp advance_identity_successor(root, next, head) do
+    case Repo.query(
+           """
+           UPDATE platform.ocsf_devices
+           SET metadata = jsonb_set(
+                 COALESCE(metadata, '{}'::jsonb),
+                 '{_seed_successor}',
+                 to_jsonb($2::text),
+                 true
+               ),
+               identity_revision = identity_revision + 1
+           WHERE uid = $1 AND identity_revision = $3
+             AND metadata->>'_seed_successor' IS NOT DISTINCT FROM $4::text
+             AND deleted_at IS NOT NULL
+             AND identity_purged_at IS NOT NULL
+             AND deleted_reason IS DISTINCT FROM 'merged'
+             AND deleted_reason IS DISTINCT FROM 'source_retired'
+             AND deleted_reason IS DISTINCT FROM 'seed_released'
+           """,
+           [root.uid, next, root.identity_revision, head]
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, %{num_rows: 0}} -> {:error, :identity_fence_stale}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp successor_tombstone_intact?(uid) do
+    Repo.exists?(
+      from(d in Device,
+        where: d.uid == ^uid and not is_nil(d.deleted_at) and not is_nil(d.identity_purged_at)
+      )
+    )
+  end
 
   defp leave_deleted(%Device{} = device) do
     Logger.info(
@@ -1944,15 +2572,82 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     :skip
   end
 
+  defp rehydrate_purged_devices([], _parent_ips, _context, _observed_at, _actor), do: []
+
+  defp rehydrate_purged_devices(purged, parent_ips, context, observed_at, actor) do
+    groups = Enum.group_by(purged, fn {_entry, device} -> device.uid end)
+
+    purged
+    |> Enum.uniq_by(fn {_entry, device} -> device.uid end)
+    |> Enum.flat_map(fn {entry, device} ->
+      case rehydrate_purged_device(entry, device, parent_ips, context, observed_at, actor) do
+        {:ok, batch} ->
+          publish_polled_devices(batch)
+
+          groups
+          |> Map.fetch!(device.uid)
+          |> Enum.map(fn {group_entry, _device} -> group_entry end)
+          |> remap_polled_entries(batch.remap)
+
+        :error ->
+          []
+      end
+    end)
+  end
+
+  defp rehydrate_purged_device(entry, device, parent_ips, context, observed_at, actor) do
+    case Repo.transaction(fn ->
+           case restore_polled_device(device, actor) do
+             {:restored, _restored, true} -> :ok
+             _ -> Repo.rollback(:restore_failed)
+           end
+
+           stamp_identity_observed([device.uid], observed_at)
+
+           case write_polled_device_rows([entry], parent_ips, context, observed_at) do
+             {:ok, %{remap: remap} = batch} ->
+               if purged_refill_kept?([device.uid], remap),
+                 do: batch,
+                 else: Repo.rollback(:refill_failed)
+
+             {:error, reason} ->
+               Repo.rollback(reason)
+           end
+         end) do
+      {:ok, batch} ->
+        {:ok, batch}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Mapper purged identity rehydration for #{device.uid} rolled back: #{inspect(reason)}"
+        )
+
+        :error
+    end
+  end
+
   # A new device is written through the same strong-identifier device write the sync path uses
   # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
   # same rules as any other strong write: an anchorless provisional seed holding the address is
   # adopted, and any other live holder is left in place with the conflict recorded.
-  defp create_polled_devices([], _records, _context, _observed_at, _actor), do: []
+  defp create_polled_devices([], _parent_ips, _context, _observed_at, _actor), do: []
 
-  defp create_polled_devices(new, records, context, observed_at, _actor) do
+  defp create_polled_devices(new, parent_ips, context, observed_at, _actor) do
+    case write_polled_device_rows(new, parent_ips, context, observed_at) do
+      {:ok, batch} ->
+        publish_polled_devices(batch)
+        remap_polled_entries(new, batch.remap)
+
+      {:error, reason} ->
+        Logger.warning("Failed to write mapper-discovered devices: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp write_polled_device_rows(entries, parent_ips, context, observed_at) do
+    representatives = Enum.uniq_by(entries, & &1.uid)
     timestamp = DateTime.truncate(observed_at, :second)
-    resolved_updates = Enum.map(new, &{new_device_update(&1), &1.uid})
+    resolved_updates = Enum.map(representatives, &{new_device_update(&1), &1.uid})
 
     # The poll observed each device itself (stamp_identity_observed/2).
     device_records =
@@ -1963,24 +2658,51 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         |> Map.put(:identity_observed_at, observed_at)
         |> maybe_put(
           :management_device_id,
-          find_management_device_uid(record.ip, records, context)
+          find_management_device_uid(record.ip, parent_ips, context)
         )
       end)
 
     previous_states = StateEvents.previous_device_states(device_records)
-    strong_uids = MapSet.new(new, & &1.uid)
+    strong_uids = MapSet.new(representatives, & &1.uid)
 
     case DeviceWrites.bulk_upsert_devices(device_records, strong_uids, resolved_updates) do
       {:ok, remap} ->
-        StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
-        StateEvents.invalidate_identity_cache_for_device_records(device_records)
-        _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
-        Enum.map(new, &created_device(&1, remap, device_records))
+        {:ok, %{records: device_records, previous: previous_states, remap: remap}}
 
       {:error, reason} ->
-        Logger.warning("Failed to write mapper-discovered devices: #{inspect(reason)}")
-        []
+        {:error, reason}
     end
+  end
+
+  defp publish_polled_devices(%{records: device_records, previous: previous_states, remap: remap}) do
+    device_records
+    |> Stream.map(&Map.get(remap, &1.uid, &1.uid))
+    |> DevicePubSub.broadcast_invalidated()
+
+    StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
+    StateEvents.invalidate_identity_cache_for_device_records(device_records)
+    _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
+
+    Enum.each(device_records, fn record ->
+      case record do
+        %{management_device_id: management_device_id} when is_binary(management_device_id) ->
+          TopologyGraph.upsert_managed_by(
+            Map.get(remap, record.uid, record.uid),
+            Map.get(remap, management_device_id, management_device_id)
+          )
+
+        _ ->
+          :ok
+      end
+    end)
+  end
+
+  defp remap_polled_entries(entries, remap) do
+    Enum.map(entries, fn entry ->
+      uid = Map.get(remap, entry.uid, entry.uid)
+      Logger.info("Mapper wrote device #{uid} for IP #{entry.device_ip}")
+      %{entry | uid: uid}
+    end)
   end
 
   defp new_device_update(%{device_ip: device_ip, partition: partition, macs: macs}) do
@@ -1994,21 +2716,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         "identity_source" => "mapper_primary_mac_seed"
       }
     })
-  end
-
-  defp created_device(polled, remap, device_records) do
-    uid = Map.get(remap, polled.uid, polled.uid)
-    Logger.info("Mapper wrote device #{uid} for IP #{polled.device_ip}")
-
-    case Enum.find(device_records, &(&1.uid == polled.uid)) do
-      %{management_device_id: management_device_id} when is_binary(management_device_id) ->
-        TopologyGraph.upsert_managed_by(uid, management_device_id)
-
-      _ ->
-        :ok
-    end
-
-    %{polled | uid: uid}
   end
 
   # An existing device keeps its address while that address is still one of its own: the
@@ -2381,19 +3088,124 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
+  defp management_parent_ips(records) do
+    Enum.reduce(records, %{}, fn record, acc ->
+      addresses = if is_list(record.ip_addresses), do: record.ip_addresses, else: []
+
+      Enum.reduce(addresses, acc, fn address, acc ->
+        case parent_child_ip(address, record.device_ip) do
+          nil -> acc
+          child -> Map.put_new(acc, child, record.device_ip)
+        end
+      end)
+    end)
+  end
+
+  defp parent_child_ip(address, parent_ip) when is_binary(address) do
+    child =
+      case String.split(address, "/", parts: 2) do
+        [ip, _cidr] -> ip
+        [ip] -> ip
+      end
+
+    if child != parent_ip and ip_matches?(address, child), do: child
+  end
+
+  defp parent_child_ip(_address, _parent_ip), do: nil
+
   # Checks if device_ip appears in any interface's ip_addresses belonging to a
   # different device, and returns that parent device's UID if found.
-  defp find_management_device_uid(device_ip, records, ip_to_uid) do
-    records
-    |> Enum.find(fn record ->
-      record.device_ip != device_ip &&
-        is_list(record.ip_addresses) &&
-        Enum.any?(record.ip_addresses, &ip_matches?(&1, device_ip))
-    end)
-    |> case do
+  defp find_management_device_uid(device_ip, parent_ips, ip_to_uid) do
+    case Map.get(parent_ips, device_ip) do
       nil -> nil
-      record -> Map.get(ip_to_uid, record.device_ip)
+      parent_ip -> Map.get(ip_to_uid, parent_ip)
     end
+  end
+
+  defp publish_deferred_management(existing, restored, parent_ips, context) do
+    candidates =
+      Enum.flat_map(existing, fn {:existing, entry, device} ->
+        [{entry, device}]
+      end) ++
+        Enum.map(restored, fn {entry, device, _purged?} -> {entry, device} end)
+
+    live_parents = live_management_parent_uids(candidates)
+
+    pairs =
+      Enum.flat_map(candidates, fn {entry, device} ->
+        deferred_management_pair(entry, device, parent_ips, context, live_parents)
+      end)
+
+    update_management_links(pairs)
+  end
+
+  defp live_management_parent_uids(candidates) do
+    uids =
+      candidates
+      |> Enum.map(fn {_entry, device} -> device.management_device_id end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if uids == [] do
+      MapSet.new()
+    else
+      Device
+      |> where([device], device.uid in ^uids and is_nil(device.deleted_at))
+      |> select([device], device.uid)
+      |> Repo.all()
+      |> MapSet.new()
+    end
+  end
+
+  defp deferred_management_pair(entry, device, parent_ips, context, live_parents) do
+    parent = find_management_device_uid(entry.device_ip, parent_ips, context)
+    stored = device.management_device_id
+    stored_live? = is_binary(stored) and MapSet.member?(live_parents, stored)
+
+    if is_binary(parent) and parent != device.uid and parent != stored and not stored_live? do
+      [{device.uid, parent}]
+    else
+      []
+    end
+  end
+
+  defp update_management_links([]), do: :ok
+
+  defp update_management_links(pairs) do
+    {children, parents} = Enum.unzip(Enum.uniq(pairs))
+
+    %{rows: rows} =
+      Repo.query!(
+        """
+        UPDATE platform.ocsf_devices AS child
+        SET management_device_id = desired.parent_uid,
+            modified_time = timezone('utc', now())
+        FROM unnest($1::text[], $2::text[]) AS desired(child_uid, parent_uid)
+        JOIN platform.ocsf_devices AS parent
+          ON parent.uid = desired.parent_uid AND parent.deleted_at IS NULL
+        WHERE child.uid = desired.child_uid
+          AND child.deleted_at IS NULL
+          AND child.uid <> desired.parent_uid
+          AND child.management_device_id IS DISTINCT FROM desired.parent_uid
+          AND (
+            child.management_device_id IS NULL
+            OR NOT EXISTS (
+              SELECT 1
+              FROM platform.ocsf_devices AS stored_parent
+              WHERE stored_parent.uid = child.management_device_id
+                AND stored_parent.deleted_at IS NULL
+            )
+          )
+        RETURNING child.uid, child.management_device_id
+        """,
+        [children, parents]
+      )
+
+    Enum.each(rows, fn [child, parent] ->
+      TopologyGraph.upsert_managed_by(child, parent)
+    end)
+
+    :ok
   end
 
   # Matches an interface IP (which may include a CIDR suffix like "203.0.113.5/24")

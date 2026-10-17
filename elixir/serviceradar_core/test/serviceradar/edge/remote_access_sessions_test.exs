@@ -882,7 +882,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
   @tag sandbox: :unboxed
   test "approved access request bind rolls back losing concurrent session creates" do
-    suffix = System.unique_integer([:positive])
+    suffix = Ecto.UUID.generate()
     uid = "remote-access-access-request-race-#{suffix}"
     agent_id = "agent-access-request-race-#{suffix}"
     gateway_id = "gateway-access-request-race-#{suffix}"
@@ -2204,7 +2204,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                    ])
                  end)
 
-                 Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [device_uid])
+                 ServiceRadar.TestSupport.delete_device_fixtures!([device_uid])
                  :ok
                end)
     end)
@@ -2354,7 +2354,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     rule
   end
 
-  defp unique_uid(label), do: "remote-access-#{label}-#{System.unique_integer([:positive])}"
+  defp unique_uid(label), do: "remote-access-#{label}-#{Ecto.UUID.generate()}"
 
   defp blank_action_inputs?(nil), do: true
   defp blank_action_inputs?(%{} = inputs), do: map_size(inputs) == 0

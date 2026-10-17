@@ -1,12 +1,15 @@
 defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
   use ServiceRadar.DataCase, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AutomationExecution
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
@@ -21,7 +24,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
   end
 
   setup do
-    {:ok, prefix: "sr:purge-test-#{System.unique_integer([:positive])}"}
+    {:ok, prefix: "sr:purge-test-#{Ecto.UUID.generate()}"}
   end
 
   test "a device that still has source observations is purged", %{prefix: prefix} do
@@ -30,7 +33,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert {%{deleted: 1}, 1} = purge([uid])
 
-    refute device_exists?(uid)
+    assert_purged_identity!(uid)
     assert row_count("device_source_observations", "device_id", uid) == 0
   end
 
@@ -50,7 +53,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert {%{deleted: 1}, 1} = purge([uid])
 
-    refute device_exists?(uid)
+    assert_purged_identity!(uid)
     assert row_count("ocsf_agents", "uid", agent_uid) == 0
     assert row_count("checkers", "agent_uid", agent_uid) == 0
   end
@@ -69,7 +72,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert {%{deleted: 1}, 1} = purge([uid])
 
-    refute device_exists?(uid)
+    assert_purged_identity!(uid)
     assert row_count(table, "device_uid", uid) == 0
   end
 
@@ -83,7 +86,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
     assert {%{deleted: 1, errors: 1}, 1} = purge([failing, purgeable])
 
     assert device_exists?(failing)
-    refute device_exists?(purgeable)
+    assert row_count("device_fleet_ordinals", "uid", failing) == 0
+    assert_purged_identity!(purgeable)
   end
 
   test "a device with automation history is skipped and the rest of its batch purged", %{
@@ -97,11 +101,12 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
     assert {%{deleted: 1, skipped: 1, errors: 0}, 1} = purge([retained, purgeable])
 
     assert device_exists?(retained)
+    assert row_count("device_fleet_ordinals", "uid", retained) == 0
 
     assert row_count("ansible_automation_execution_targets", "id", Ecto.UUID.dump!(target_id)) ==
              1
 
-    refute device_exists?(purgeable)
+    assert_purged_identity!(purgeable)
   end
 
   test "a device with an approved AWX membership is purged and the membership quarantined", %{
@@ -112,7 +117,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert {%{deleted: 1, errors: 0}, 1} = purge([uid])
 
-    refute device_exists?(uid)
+    assert_purged_identity!(uid)
 
     assert %{
              disposition: "quarantined",
@@ -190,12 +195,302 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert :ok = DeviceCleanupWorker.perform(%Oban.Job{args: %{"manual" => true}})
 
-    refute device_exists?(purgeable)
+    assert_purged_identity!(purgeable)
     assert device_exists?(first)
   end
 
-  # A table with a RESTRICT foreign key to ocsf_devices whose rows refuse to be
-  # deleted, so the purge of any device it references fails.
+  test "purging an allocated identity removes mutable state once and keeps its number", %{
+    prefix: prefix
+  } do
+    require Ash.Query
+
+    uid = "#{prefix}-allocated"
+
+    past = ~N[2020-06-01 12:00:00]
+
+    Repo.query!(
+      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, type_id, created_time, first_seen_time, modified_time, tags, discovery_sources, metadata) " <>
+        "VALUES ($1, 'host01.example.com', '192.0.2.12', 42, $2, $2, '2020-01-02', " <>
+        ~s|'{"role":"edge"}', ARRAY['mapper'], $3)|,
+      [uid, past, %{"custom" => "value"}]
+    )
+
+    ordinal = FleetIdentity.device_ordinal(uid)
+    assert ordinal > 0
+    insert_source_observation!(uid)
+    {_controller_id, membership_id} = insert_approved_membership!(uid)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = 'purge_test' WHERE uid = $1",
+      [uid]
+    )
+
+    assert {%{deleted: 1, errors: 0}, 1} = purge([uid])
+
+    assert %{rows: [[nil, nil, %{}, %NaiveDateTime{}, ^ordinal, true]]} =
+             Repo.query!(
+               """
+               SELECT d.hostname, d.ip, d.metadata, d.identity_purged_at, o.ordinal, o.tombstoned
+               FROM platform.ocsf_devices d JOIN platform.device_fleet_ordinals o USING(uid) WHERE d.uid = $1
+               """,
+               [uid]
+             )
+
+    assert row_count("device_source_observations", "device_id", uid) == 0
+
+    assert %{
+             rows: [
+               [
+                 0,
+                 %NaiveDateTime{} = created,
+                 %NaiveDateTime{} = first_seen,
+                 %NaiveDateTime{} = modified,
+                 %{},
+                 [],
+                 []
+               ]
+             ]
+           } =
+             Repo.query!(
+               "SELECT type_id, created_time, first_seen_time, modified_time, tags, discovery_sources, network_interfaces " <>
+                 "FROM platform.ocsf_devices WHERE uid = $1",
+               [uid]
+             )
+
+    assert created == past
+    assert first_seen == past
+    assert NaiveDateTime.after?(modified, past)
+
+    assert %{disposition: "quarantined", device_uid: nil} = membership(membership_id)
+    assert {%{deleted: 0, errors: 0}, 0} = purge([uid])
+
+    assert %Ash.BulkResult{status: :success} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^uid)
+             |> Ash.bulk_update(:restore, %{}, actor: @actor, return_errors?: true)
+
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+
+    assert {:ok,
+            %Device{
+              type_id: 0,
+              created_time: %DateTime{},
+              modified_time: %DateTime{},
+              tags: %{},
+              discovery_sources: []
+            }} =
+             Device.get_by_uid(uid, false, actor: @actor)
+
+    assert %{rows: [[nil]]} =
+             Repo.query!("SELECT identity_purged_at FROM platform.ocsf_devices WHERE uid = $1", [
+               uid
+             ])
+  end
+
+  test "a purged identity keeps its partition and restores into that lookup scope", %{
+    prefix: prefix
+  } do
+    require Ash.Query
+
+    uid = "#{prefix}-site"
+    ip = TestSupport.unique_device_ip()
+
+    Repo.query!(
+      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, partition, type_id, created_time, modified_time) " <>
+        "VALUES ($1, 'site-a.example.com', $2, 'site-a', 42, '2020-01-01', '2020-01-02')",
+      [uid, ip]
+    )
+
+    ordinal = FleetIdentity.device_ordinal(uid)
+    assert ordinal > 0
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = 'purge_test' WHERE uid = $1",
+      [uid]
+    )
+
+    assert {%{deleted: 1, errors: 0}, 1} = purge([uid])
+
+    assert %{rows: [["site-a", purged, nil]]} =
+             Repo.query!(
+               "SELECT partition, identity_purged_at, ip FROM platform.ocsf_devices WHERE uid = $1",
+               [uid]
+             )
+
+    assert purged
+
+    assert %Ash.BulkResult{status: :success} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^uid)
+             |> Ash.bulk_update(:restore, %{ip: ip}, actor: @actor, return_errors?: true)
+
+    assert {:ok, [%Device{uid: ^uid, partition: "site-a"}]} =
+             Device
+             |> Ash.Query.for_read(:by_ip, %{ip: ip, partition: "site-a"})
+             |> Ash.read(actor: @actor)
+
+    assert {:ok, []} =
+             Device
+             |> Ash.Query.for_read(:by_ip, %{ip: ip, partition: "default"})
+             |> Ash.read(actor: @actor)
+
+    assert row_count("ocsf_devices", "ip", ip) == 1
+  end
+
+  test "old tombstones receive permanent ordinals without losing deletion and successor lineage",
+       %{
+         prefix: prefix
+       } do
+    require Ash.Query
+
+    for reason <- ["merged", "seed_released", "source_retired"] do
+      uid = "#{prefix}-#{reason}"
+
+      metadata = %{
+        "_merged_into" => "#{prefix}-canonical",
+        "_merged_at" => "2020-01-01T00:00:00Z",
+        "_seed_successor" => "#{prefix}-successor",
+        "private_payload" => "removed"
+      }
+
+      Repo.query!(
+        "INSERT INTO platform.ocsf_devices(uid, partition, hostname, deleted_at, deleted_reason, metadata) " <>
+          "VALUES ($1, 'site-a', 'old.example.com', '2020-01-01', $2, $3)",
+        [uid, reason, metadata]
+      )
+
+      assert row_count("device_fleet_ordinals", "uid", uid) == 0
+      assert {%{deleted: 1, errors: 0}, 1} = purge([uid])
+      ordinal = assert_purged_identity!(uid)
+      lineage = Map.delete(metadata, "private_payload")
+
+      assert %{rows: [["site-a", ^reason, ~N[2020-01-01 00:00:00], ^lineage, nil]]} =
+               Repo.query!(
+                 "SELECT partition, deleted_reason, deleted_at, metadata, hostname FROM platform.ocsf_devices WHERE uid = $1",
+                 [uid]
+               )
+
+      %{rows: [[last_value]]} =
+        Repo.query!("SELECT currval('platform.device_fleet_ordinals_ordinal_seq')")
+
+      assert {%{deleted: 0, errors: 0}, 0} = purge([uid])
+
+      assert %{rows: [[^last_value]]} =
+               Repo.query!("SELECT currval('platform.device_fleet_ordinals_ordinal_seq')")
+
+      assert assert_purged_identity!(uid) == ordinal
+      assert FleetIdentity.device_ordinal(uid) == nil
+
+      assert %Ash.BulkResult{status: :error, errors: errors} =
+               Device
+               |> Ash.Query.for_read(:read, %{include_deleted: true})
+               |> Ash.Query.filter(uid == ^uid)
+               |> Ash.bulk_update(:restore, %{}, actor: @actor, return_errors?: true)
+
+      assert Enum.any?(errors, &(Exception.message(&1) =~ "is a retained tombstone"))
+    end
+
+    internal = "serviceradar:#{prefix}-internal"
+    insert_expired_device!(internal)
+    assert {%{deleted: 1, errors: 0}, 1} = purge([internal])
+    refute device_exists?(internal)
+    assert row_count("device_fleet_ordinals", "uid", internal) == 0
+  end
+
+  @tag sandbox: :unboxed
+  test "a restore holding the row lock keeps its device and children when stale cleanup resumes",
+       %{
+         prefix: prefix
+       } do
+    require Ash.Query
+
+    uid = insert_expired_device!("#{prefix}-restore-race")
+    insert_source_observation!(uid)
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.device_revival_audit WHERE device_uid = $1", [uid])
+      TestSupport.delete_device_fixtures!([uid])
+    end)
+
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        :ok = Sandbox.checkout(Repo, sandbox: false)
+
+        try do
+          %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:purge_backend, self(), backend})
+
+          receive do
+            :purge -> purge([uid])
+          end
+        after
+          Sandbox.checkin(Repo)
+        end
+      end)
+
+    on_exit(fn ->
+      ref = Process.monitor(task.pid)
+      Process.exit(task.pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, _, _}, 5_000
+    end)
+
+    pid = task.pid
+    assert_receive {:purge_backend, ^pid, backend}, 5_000
+
+    assert {:ok, ordinal} =
+             Repo.transaction(fn ->
+               assert %Ash.BulkResult{status: :success} =
+                        Device
+                        |> Ash.Query.for_read(:read, %{include_deleted: true})
+                        |> Ash.Query.filter(uid == ^uid)
+                        |> Ash.bulk_update(:restore, %{}, actor: @actor, return_errors?: true)
+
+               send(task.pid, :purge)
+               await_blocked_purge!(backend, System.monotonic_time(:millisecond) + 5_000)
+               FleetIdentity.device_ordinal(uid)
+             end)
+
+    assert {%{deleted: 0, errors: 0}, 0} = Task.await(task, 10_000)
+    assert is_integer(ordinal) and ordinal > 0
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+    assert row_count("device_source_observations", "device_id", uid) == 1
+
+    assert %{rows: [[nil, nil]]} =
+             Repo.query!(
+               "SELECT deleted_at, identity_purged_at FROM platform.ocsf_devices WHERE uid = $1",
+               [uid]
+             )
+  end
+
+  defp await_blocked_purge!(backend, deadline) do
+    %{rows: [[blocked]]} =
+      Repo.query!("SELECT pg_backend_pid() = ANY(pg_blocking_pids($1))", [backend])
+
+    if !blocked do
+      assert System.monotonic_time(:millisecond) < deadline,
+             "cleanup never reached the restored device row lock"
+
+      Process.sleep(10)
+      await_blocked_purge!(backend, deadline)
+    end
+  end
+
+  defp assert_purged_identity!(uid) do
+    assert %{rows: [[ordinal, true, %NaiveDateTime{}]]} =
+             Repo.query!(
+               "SELECT o.ordinal, o.tombstoned, d.identity_purged_at " <>
+                 "FROM platform.ocsf_devices d JOIN platform.device_fleet_ordinals o USING (uid) WHERE uid = $1",
+               [uid]
+             )
+
+    assert ordinal in 1..4_294_967_295
+    ordinal
+  end
+
   defp guarded_child_table! do
     table = "purge_test_guarded_#{System.unique_integer([:positive])}"
 

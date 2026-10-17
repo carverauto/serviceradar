@@ -18,7 +18,7 @@ test source. It checks the two routing facts a formatter cannot see:
   * a file is routed when the evaluated Bazel query puts it in any
     ``//elixir/web-ng`` ``ex_unit_test`` target's ``srcs``, or when the
     ``unit_tests`` glob loads it (everything under ``test/`` except
-    ``test/integration`` and ``test/property``) -- unless the file declares
+    ``test/integration``, ``test/property`` and ``test/transport``) -- unless the file declares
     a database-lane tag, which is routed only by database-lane ``srcs``
     membership (see db_selected and db_declared_sources);
   * files excluded from that glob and absent from every such target's
@@ -86,7 +86,7 @@ UNROUTED_TEST_SOURCES = {
         "property suite; exercises SRQL compilation paths that need the SRQL NIF",
 }
 
-GLOB_EXCLUDED_DIRS = ("test/integration/", "test/property/")
+GLOB_EXCLUDED_DIRS = ("test/integration/", "test/property/", "test/transport/")
 
 
 def test_files():

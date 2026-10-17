@@ -218,9 +218,26 @@ actions:
       memory: "40GB"
       disk: "40GB"
     steps:
-      - run: >-
-          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
-          --expected-commit "$(git rev-parse HEAD)"
+      - run: |
+          set -euo pipefail
+          # ci_runner starts its timeout before checkout. Its process start is
+          # a conservative clock origin; the first workflow step is too late.
+          # Ordinary diagnostics do not depend on that capture.
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-}" in
+            compact|sparse)
+              python3 - "$PPID" > "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}" <<'PY'
+          import math, os, pathlib, sys, time
+          parent = pathlib.Path("/proc") / sys.argv[1]
+          if not os.path.samefile(parent / "exe", os.environ["BUILDBUDDY_CI_RUNNER_ABSPATH"]):
+              raise SystemExit("cannot establish the workflow runner clock")
+          ticks = int((parent / "stat").read_text().rsplit(")", 1)[1].split()[19])
+          elapsed = float(pathlib.Path("/proc/uptime").read_text().split()[0]) - ticks / os.sysconf("SC_CLK_TCK")
+          print(math.floor(time.time() - elapsed) - 1)
+          PY
+              ;;
+          esac
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata -- \
+            --expected-commit "$(git rev-parse HEAD)"
       - run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
       - run: |
@@ -268,6 +285,45 @@ actions:
           GENERATION_DIGEST=""
           GENERATION_DATABASE=""
           START_NS=0
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-}" in
+            compact|sparse)
+              ACTION_START_SECONDS="$(cat "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}")"
+              [[ "$ACTION_START_SECONDS" =~ ^[0-9]+$ ]]
+              ;;
+            *)
+              ACTION_START_SECONDS="$(date +%s)"
+              ;;
+          esac
+          SCALE_VARIANT=""
+          CLEANUP_TIMEOUT=()
+          OBSERVER_TIMEOUT=()
+
+          admit_scale() {
+            # The test limit excludes Bazel startup/analysis. Bound the complete
+            # command too, and reserve 30s quiet, two 60s cleanup commands,
+            # the 5s observer kill grace, and the 10s status reserve.
+            local elapsed action_remaining observer_remaining required
+            elapsed="$(date +%s)"
+            action_remaining=$((3600 - elapsed + ACTION_START_SECONDS))
+            observer_remaining=$((OBSERVER_MAX_SECONDS - elapsed + START_NS / 1000000000))
+            required=$((2760 + 30 + 120 + 15))
+            if (( action_remaining < required || observer_remaining < required )); then
+              echo "Scale admission refused: action_remaining=${action_remaining}s observer_remaining=${observer_remaining}s required=${required}s" >&2
+              return 1
+            fi
+          }
+
+          limit_scale_observer() {
+            # Include client startup and the kill grace in the same envelope.
+            # Keep ten seconds outside it for final status and file cleanup.
+            local remaining
+            remaining=$((3600 - $(date +%s) + ACTION_START_SECONDS - 10))
+            if (( remaining < OBSERVER_MAX_SECONDS )); then
+              OBSERVER_MAX_SECONDS=$remaining
+            fi
+            (( OBSERVER_MAX_SECONDS > 5 )) || return 1
+            OBSERVER_TIMEOUT=(timeout --signal=TERM --kill-after=5s "$((OBSERVER_MAX_SECONDS - 5))s")
+          }
 
           validate_cleanup_json() {
             python3 -c 'import json,re,sys
@@ -362,10 +418,10 @@ actions:
                 fi
               fi
             fi
-            bazel test $FLAGS //rust/integration-db:teardown_db
+            "${CLEANUP_TIMEOUT[@]}" bazel test $FLAGS //rust/integration-db:teardown_db
             TEARDOWN_STATUS=$?
             if [ "$GENERATION_LEASED" -eq 1 ]; then
-              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_JSON="$("${CLEANUP_TIMEOUT[@]}" bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
               RELEASE_STATUS=$?
               echo "$RELEASE_JSON"
               if [ "$RELEASE_STATUS" -eq 0 ]; then
@@ -387,7 +443,7 @@ actions:
               LIFECYCLE_NS=$((END_NS - START_NS))
             fi
             echo "SERVICERADAR_WEB_NG_DB_DIAGNOSTIC_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
-            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE" "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}"
             rm -rf "$OBSERVER_DIR"
             if [ "$SUITE_STATUS" -ne 0 ]; then
               exit "$SUITE_STATUS"
@@ -428,8 +484,22 @@ actions:
           validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
+          OBSERVER_MAX_SECONDS=1800
+          OBSERVER_POOL_SLOTS=15
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in
+            0|"") SCALE_VARIANT="" ;;
+            compact|sparse) SCALE_VARIANT="$SERVICERADAR_TOPOLOGY_BITMAP_SCALE" ;;
+            *) echo "Invalid SERVICERADAR_TOPOLOGY_BITMAP_SCALE selector" >&2; exit 1 ;;
+          esac
+          if [[ -n "$SCALE_VARIANT" ]]; then
+            bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //elixir/web-ng:networks_live_db_test //elixir/web-ng:plugin_config_cli_db_test //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance
+            OBSERVER_MAX_SECONDS=3300
+            OBSERVER_POOL_SLOTS=24
+            CLEANUP_TIMEOUT=(timeout --signal=TERM --kill-after=5s 55s)
+          fi
           START_NS="$(date +%s%N)"
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 15 &
+          if [[ -n "$SCALE_VARIANT" ]]; then limit_scale_observer || exit 1; fi
+          "${OBSERVER_TIMEOUT[@]}" bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds "$OBSERVER_MAX_SECONDS" --required-pool-slots "$OBSERVER_POOL_SLOTS" &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
@@ -438,6 +508,17 @@ actions:
           validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           bazel test $FLAGS //elixir/web-ng:networks_live_db_test
           bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test
+          # Run only one scale distribution under the hosted one-hour action cap.
+          # Keep the existing generation, guarded clones, observer and cleanup.
+          if [[ "$SCALE_VARIANT" == sparse ]]; then
+            SCALE_PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_serial_1)"
+            echo "$SCALE_PROVISION_JSON"
+            validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$SCALE_PROVISION_JSON"
+          fi
+          if [[ -n "$SCALE_VARIANT" ]]; then
+            admit_scale || exit 1
+            timeout --signal=TERM --kill-after=5s 2755s bazel test $FLAGS --test_timeout=2700 //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance
+          fi
 
   - name: "BazelCI"
     env:
@@ -740,12 +821,14 @@ actions:
           # serviceradar_integration_db`. //rust/netprobe:loaded_tcp_attribution_test
           # and //rust/dgraph-topology:world_worker_test are manual, so the
           # wildcard does not select them; name them so they stay compiled.
+          # //elixir/web-ng:bitmap_websocket_transport_test is manual too.
+          # This command only compiles it. The measurement stays unexecuted.
           # This runner cannot grant the netprobe target's Linux capabilities,
           # so the suite does not execute that target. The world worker runs
           # in the explicit test below, after serial_0 is free. Leave $FLAGS
           # off this command: those options are test-only and bazel build
           # rejects them.
-          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test //elixir/web-ng:bitmap_websocket_transport_test
 
           START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &

@@ -328,7 +328,8 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     end
   end
 
-  test "cleanup worker purges devices past retention window", %{actor: actor} do
+  test "cleanup worker purges mutable inventory past retention while keeping allocated identity",
+       %{actor: actor} do
     {:ok, _settings} =
       ensure_cleanup_settings(actor, %{
         retention_days: 1,
@@ -357,11 +358,16 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     job = struct(Oban.Job, args: %{"manual" => true})
     assert :ok = DeviceCleanupWorker.perform(job)
 
-    assert {:ok, []} =
+    assert {:ok, [purged]} =
              Device
              |> Ash.Query.for_read(:read, %{include_deleted: true})
              |> Ash.Query.filter(uid == ^old_device.uid)
              |> read_results(actor)
+
+    assert purged.identity_purged_at
+    assert purged.deleted_at
+    assert purged.hostname == nil
+    assert purged.ip == nil
 
     assert {:ok, [remaining]} =
              Device

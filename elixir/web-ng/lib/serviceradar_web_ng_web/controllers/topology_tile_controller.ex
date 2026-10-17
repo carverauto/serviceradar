@@ -7,6 +7,10 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapSelection
+  alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldDetails
@@ -17,33 +21,21 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   plug(:authorize)
 
   def manifest(conn, _params) do
-    with {:ok, manifest} <- WorldCache.manifest(),
+    with {:ok, _scope} <- current_authority(conn),
+         {:ok, manifest} <- WorldCache.manifest(),
+         payload = manifest_payload(manifest),
          {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)
-      |> json(
-        Map.take(manifest, [
-          :layout_version,
-          :generation,
-          :extent,
-          :bounds,
-          :algorithm_version,
-          :zmax,
-          :node_count,
-          :relation_count,
-          :pipeline_stats,
-          :generated_at,
-          :observed_generation,
-          :catching_up
-        ])
-      )
+      |> json(payload)
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def show(conn, params) do
-    with {:ok, key} <- TileKey.parse(params),
+    with {:ok, _scope} <- current_authority(conn),
+         {:ok, key} <- TileKey.parse(params),
          {:ok, tile} <- WorldCache.fetch(key),
          {:ok, _scope} <- current_authority(conn) do
       etag = ~s("#{key.layout_version}:#{tile.revision}")
@@ -63,10 +55,12 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
     end
   end
 
-  def search(conn, %{"device_id" => id}) when is_binary(id) and byte_size(id) > 0 do
-    with {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
+  def search(conn, %{"device_id" => id} = params) when is_binary(id) and byte_size(id) > 0 do
+    with {:ok, scope} <- current_authority(conn),
+         {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
          {:ok, position} <- TopologyAtlas.search(world, id),
-         {:ok, %{} = _position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id),
+         {:ok, %{} = _position} <- World.lookup_device(scope, manifest.layout_version, id),
+         :ok <- BitmapSelection.authorize(scope, params, [id]),
          {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)
@@ -87,7 +81,9 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   def search(conn, _params), do: error(conn, :invalid_search)
 
   def details(conn, params) do
-    with {:ok, result} <- WorldDetails.fetch(conn.assigns.current_scope, params),
+    with {:ok, scope} <- current_authority(conn),
+         {:ok, result} <- WorldDetails.fetch(scope, params),
+         :ok <- BitmapSelection.details(scope, params, result.content),
          {:ok, _scope} <- current_authority(conn) do
       json_payload(conn, result.content, result.payload, result.revision)
     else
@@ -96,7 +92,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   def scene(conn, params) do
-    with {:ok, scope} <- current_authority(conn),
+    with :ok <- BitmapSelection.unfiltered_only(params),
+         {:ok, scope} <- current_authority(conn),
          {:ok, level} <- WorldDetails.scene(scope, params),
          {:ok, encoded} <- WorldScene.encode(level),
          {:ok, _scope} <- current_authority(conn) do
@@ -118,20 +115,98 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   def overlay(conn, %{"revision" => revision} = params) do
-    with {:ok, key} <- TileKey.parse(params),
+    with {:ok, _scope} <- current_authority(conn),
+         {:ok, key} <- TileKey.parse(params),
          {:ok, revision} <- TileKey.content_revision(revision),
          {:ok, content} <- WorldOverlay.fetch(key, revision),
-         {:ok, payload} <- Jason.encode(content),
+         {:ok, payload, content_type} <- overlay_payload(conn, content),
          :ok <- overlay_budget(payload),
          {:ok, _scope} <- current_authority(conn) do
       digest = :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
-      json_payload(conn, content, payload, "overlay:" <> digest)
+
+      conn
+      |> generation_headers(content)
+      |> conditional_payload(payload, ~s("#{content.layout_version}:overlay:#{digest}"), content_type)
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def overlay(conn, _params), do: error(conn, :invalid_tile)
+
+  defp manifest_payload(manifest) do
+    manifest
+    |> Map.take([
+      :layout_version,
+      :generation,
+      :extent,
+      :bounds,
+      :algorithm_version,
+      :zmax,
+      :node_count,
+      :relation_count,
+      :pipeline_stats,
+      :generated_at,
+      :observed_generation,
+      :catching_up
+    ])
+    |> Map.merge(overlay_protocols(manifest))
+  end
+
+  defp overlay_protocols(manifest) do
+    if BitmapQueries.enabled?(),
+      do: %{bitmap_membership_protocol: 1, world_overlay_protocol: 1, bitmap: bitmap_descriptor(manifest)},
+      else: %{}
+  end
+
+  defp bitmap_descriptor(manifest) do
+    case BitmapSource.query_descriptor() do
+      {:ok, query} -> Map.put(bitmap_readiness(manifest), :query, query)
+      {:error, _reason} -> %{ready: false, reason: "invalid_filter_configuration"}
+    end
+  end
+
+  defp bitmap_readiness(manifest) do
+    with {:ok, snapshot} <- BitmapIndex.snapshot(),
+         {:ok, %{manifest: current, ordinals: %{info: info} = projection}} <- WorldCache.world(),
+         true <- current.generation == manifest.generation and info.dictionary_epoch == snapshot.dictionary_epoch do
+      %{
+        ready: true,
+        progress: snapshot.progress,
+        projection: Map.put(Map.take(info, [:mapped, :total]), :completed_at, projection.completed_at)
+      }
+    else
+      {:error, reason} when is_atom(reason) -> %{ready: false, reason: Atom.to_string(reason)}
+      _ -> %{ready: false, reason: "membership_not_ready"}
+    end
+  end
+
+  defp overlay_payload(conn, %{binary: payload}) do
+    if BitmapQueries.enabled?() and accepts_overlay?(conn),
+      do: {:ok, payload, "application/vnd.serviceradar.world-overlay"},
+      else: {:error, :overlay_protocol_changed}
+  end
+
+  defp overlay_payload(_conn, content) do
+    if BitmapQueries.enabled?() do
+      {:error, :overlay_protocol_changed}
+    else
+      with {:ok, payload} <- Jason.encode(content), do: {:ok, payload, "application/json"}
+    end
+  end
+
+  defp accepts_overlay?(conn) do
+    conn
+    |> get_req_header("accept")
+    |> Enum.flat_map(&String.split(&1, ","))
+    |> Enum.any?(fn value ->
+      value
+      |> String.split(";", parts: 2)
+      |> List.first()
+      |> String.trim()
+      |> String.downcase() == "application/vnd.serviceradar.world-overlay"
+    end)
+  end
 
   defp overlay_budget(payload) when byte_size(payload) <= 262_144, do: :ok
   defp overlay_budget(_payload), do: {:error, :payload_too_large}
@@ -165,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   defp authorize_relayout(scope) do
-    case RBAC.authorize_current(scope, ["settings.networks.manage"]) do
+    case authorize_scope(scope, ["settings.networks.manage"]) do
       {:ok, current_scope} -> {:ok, current_scope}
       {:error, _reason} -> {:error, :forbidden}
     end
@@ -183,13 +258,18 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   defp current_authority(conn) do
     with true <- FeatureFlags.god_view_enabled?(),
          %Scope{user: user} = scope when not is_nil(user) <- conn.assigns[:current_scope],
-         {:ok, current_scope} <- RBAC.authorize_current(scope, ["analytics.view", "devices.view"]) do
+         {:ok, current_scope} <- authorize_scope(scope, ["analytics.view", "devices.view"]) do
       {:ok, current_scope}
     else
       false -> {:error, :god_view_disabled}
       {:error, _reason} -> {:error, :forbidden}
       _ -> {:error, :unauthorized}
     end
+  end
+
+  defp authorize_scope(scope, permissions) do
+    module = Application.get_env(:serviceradar_web_ng, :current_user_authorization_module, RBAC)
+    module.authorize_current(scope, permissions)
   end
 
   defp generation_headers(conn, manifest) do
@@ -207,57 +287,58 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
   defp error(conn, reason) do
     {status, code} =
-      case reason do
-        :unauthorized ->
-          {401, "unauthorized"}
-
-        :forbidden ->
-          {403, "forbidden"}
-
-        :god_view_disabled ->
-          {404, "god_view_disabled"}
-
-        :invalid_tile ->
-          {400, "invalid_tile"}
-
-        :invalid_revision ->
-          {400, "invalid_revision"}
-
-        :invalid_search ->
-          {400, "invalid_search"}
-
-        :invalid_detail ->
-          {400, "invalid_detail"}
-
-        :invalid_cursor ->
-          {400, "invalid_cursor"}
-
-        :stale_revision ->
-          {409, "stale_revision"}
-
-        reason when reason in [:payload_too_large, :overlay_budget_exceeded, :tile_budget_exceeded] ->
-          {413, "topology_budget_exceeded"}
-
-        :not_found ->
-          {404, "topology_item_not_found"}
-
-        :layout_changed ->
-          {409, "layout_changed"}
-
-        :busy ->
-          {503, "tile_busy"}
-
-        :not_ready ->
-          {503, "world_not_ready"}
-
-        :source_changed ->
-          {503, "source_changed"}
-
-        _ ->
-          {503, "world_unavailable"}
+      case BitmapQueries.http_status(reason) do
+        {status, code} -> {status, code}
+        nil -> tile_status(reason)
       end
 
     conn = if status == 503, do: put_resp_header(conn, "retry-after", "1"), else: conn
     conn |> put_resp_header("cache-control", "no-store") |> put_status(status) |> json(%{error: code})
+  end
+
+  defp tile_status(reason) do
+    case reason do
+      :god_view_disabled ->
+        {404, "god_view_disabled"}
+
+      :invalid_tile ->
+        {400, "invalid_tile"}
+
+      :invalid_revision ->
+        {400, "invalid_revision"}
+
+      :invalid_search ->
+        {400, "invalid_search"}
+
+      :invalid_detail ->
+        {400, "invalid_detail"}
+
+      :filtered_detail_unavailable ->
+        {422, "filtered_detail_unavailable"}
+
+      :stale_revision ->
+        {409, "stale_revision"}
+
+      :overlay_protocol_changed ->
+        {409, "overlay_protocol_changed"}
+
+      reason when reason in [:payload_too_large, :overlay_budget_exceeded, :tile_budget_exceeded] ->
+        {413, "topology_budget_exceeded"}
+
+      :not_found ->
+        {404, "topology_item_not_found"}
+
+      :layout_changed ->
+        {409, "layout_changed"}
+
+      :busy ->
+        {503, "tile_busy"}
+
+      :not_ready ->
+        {503, "world_not_ready"}
+
+      _ ->
+        {503, "world_unavailable"}
+    end
   end
 end

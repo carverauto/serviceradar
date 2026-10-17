@@ -2,32 +2,189 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "ServiceRadar bitmap query index - proposed",
+    "title": "ServiceRadar Atlas query index",
     "locale": "en",
     "quality_profile": "showcase",
-    "viewBox": [1240, 650]
+    "viewBox": [
+      1240,
+      650
+    ],
+    "subtitle": "Current device membership, stable geometry, bounded binary overlays"
   },
   "components": [
-    {"id": "inventory", "type": "database", "label": "Canonical inventory", "sublabel": "Persistent device ordinals", "pos": [40, 310], "size": [210, 76]},
-    {"id": "index", "type": "backend", "label": "Rust index per pod", "sublabel": "Leased consumer + revision", "pos": [360, 310], "size": [210, 76]},
-    {"id": "query", "type": "backend", "label": "Authorized query", "sublabel": "Sets, facets, bounded pages", "pos": [680, 310], "size": [210, 76]},
-    {"id": "browser", "type": "frontend", "label": "Browser / WASM", "sublabel": "Active-view bitmaps only", "pos": [1000, 310], "size": [210, 76]},
-    {"id": "authority", "type": "security", "label": "Current RBAC", "sublabel": "Recheck before delivery", "pos": [680, 55], "size": [210, 76]},
-    {"id": "tiles", "type": "backend", "label": "World / Arrow tiles", "sublabel": "Stable ELK geometry", "pos": [680, 560], "size": [210, 76]},
-    {"id": "gpu", "type": "frontend", "label": "WebGPU renderer", "sublabel": "Bounded masks and uploads", "pos": [1000, 560], "size": [210, 76]}
+    {
+      "id": "inventory",
+      "type": "database",
+      "label": "Canonical inventory",
+      "sublabel": "Persistent device ordinals",
+      "pos": [
+        40,
+        310
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "index",
+      "type": "backend",
+      "label": "Native query index",
+      "sublabel": "Hints + reconciliation",
+      "pos": [
+        360,
+        310
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "query",
+      "type": "backend",
+      "label": "Authorized query",
+      "sublabel": "Current sets, counts and pages",
+      "pos": [
+        680,
+        310
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "browser",
+      "type": "frontend",
+      "label": "Browser row overlays",
+      "sublabel": "Full admitted-view replacement",
+      "pos": [
+        1000,
+        310
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "authority",
+      "type": "security",
+      "label": "Current RBAC",
+      "sublabel": "Recheck before delivery",
+      "pos": [
+        680,
+        55
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "tiles",
+      "type": "backend",
+      "label": "World / Arrow tiles",
+      "sublabel": "Geometry + health and flow",
+      "pos": [
+        680,
+        560
+      ],
+      "size": [
+        210,
+        76
+      ]
+    },
+    {
+      "id": "gpu",
+      "type": "frontend",
+      "label": "WebGPU renderer",
+      "sublabel": "Bounded masks and uploads",
+      "pos": [
+        1000,
+        560
+      ],
+      "size": [
+        210,
+        76
+      ]
+    }
   ],
   "connections": [
-    {"id": "current-rows", "from": "inventory", "to": "index", "label": "JetStream", "variant": "emphasis"},
-    {"id": "set-algebra", "from": "index", "to": "query", "label": "AND / OR", "variant": "emphasis"},
-    {"id": "binary-membership", "from": "query", "to": "browser", "label": "Roaring", "variant": "emphasis"},
-    {"id": "current-permissions", "from": "authority", "to": "query", "label": "visibility", "variant": "security", "labelDy": 100},
-    {"id": "tile-membership", "from": "tiles", "to": "query", "label": "glyph members"},
-    {"id": "arrow-geometry", "from": "tiles", "to": "gpu", "label": "Arrow IPC"},
-    {"id": "visible-mask", "from": "browser", "to": "gpu", "label": "typed masks", "labelDy": 100}
+    {
+      "id": "current-rows",
+      "from": "inventory",
+      "to": "index",
+      "label": "typed rows",
+      "variant": "emphasis"
+    },
+    {
+      "id": "set-algebra",
+      "from": "index",
+      "to": "query",
+      "label": "set queries",
+      "variant": "emphasis"
+    },
+    {
+      "id": "binary-membership",
+      "from": "query",
+      "to": "browser",
+      "label": "SRMO",
+      "variant": "emphasis"
+    },
+    {
+      "id": "current-permissions",
+      "from": "authority",
+      "to": "query",
+      "label": "visibility",
+      "variant": "security",
+      "labelDy": 100
+    },
+    {
+      "id": "tile-membership",
+      "from": "tiles",
+      "to": "query",
+      "label": "glyph members"
+    },
+    {
+      "id": "arrow-geometry",
+      "from": "tiles",
+      "to": "gpu",
+      "label": "Arrow + SRTO"
+    },
+    {
+      "id": "visible-mask",
+      "from": "browser",
+      "to": "gpu",
+      "label": "typed rows",
+      "labelDy": 100
+    }
   ],
   "cards": [
-    {"dot": "emerald", "title": "Stable identity", "items": ["Reuse device_fleet_ordinals; never recycle IDs.", "Typed ID spaces prevent invalid intersections."]},
-    {"dot": "cyan", "title": "Bounded browser", "items": ["Server evaluates fleet queries and aggregate counts.", "Only admitted tiles and membership reach the client."]},
-    {"dot": "amber", "title": "Explicit recovery", "items": ["Expired replica history requires a complete reseed.", "View gaps reset membership; geometry stays valid."]}
+    {
+      "dot": "emerald",
+      "title": "Current membership",
+      "items": [
+        "Durable device ordinals and dictionary epoch.",
+        "Each page evaluates the current native revision."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Bounded browser",
+      "items": [
+        "64 tiles; at most 8,192 membership rows.",
+        "Binary health and flow retain coverage and unknowns."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Explicit recovery",
+      "items": [
+        "Receipts reject stale query, authority and view data.",
+        "Clear restores the base map; geometry remains stable."
+      ]
+    }
   ]
 }

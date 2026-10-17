@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
 
   use GenServer
 
+  alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.TileControl
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
@@ -72,7 +73,8 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
     with {:ok, manifest} <- WorldCache.manifest(state.cache),
          true <- key.layout_version == manifest.layout_version do
       fence = TileControl.fence(manifest)
-      address = {key, revision, fence.generation}
+      binary? = BitmapQueries.enabled?()
+      address = {key, revision, fence.generation, binary?}
       entry = Map.get(state.entries, address)
 
       cond do
@@ -95,7 +97,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
           cache = state.cache
           health = state.health
           work = fn -> WorldOverlayReader.prepare(key, fence, revision, continuation, cache, health) end
-          pending = %{fence: fence, waiters: [], phase: :prepare, result: nil, cancelled: false}
+          pending = %{fence: fence, binary?: binary?, waiters: [], phase: :prepare, result: nil, cancelled: false}
           state = put_in(state.active[address], pending)
           {:noreply, state |> add_waiter(address, from) |> launch(address, work, @prepare_timeout)}
       end
@@ -146,6 +148,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
   # A durable head may be ahead of this node's coherent installed world. Only
   # installation changes the serving fence; the loader consumes this hint.
   def handle_info({:topology_world_changed, _fence}, state), do: {:noreply, state}
+  def handle_info({:bitmap_index_ready, _epochs}, state), do: {:noreply, state}
 
   defp task_exited(state, address, %{cancelled: true}), do: %{state | active: Map.delete(state.active, address)}
 
@@ -154,7 +157,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
     # has released its world, health and selection references, including its
     # stack; native completion alone would not establish that property.
     if current?(state, pending.fence) do
-      settings = state.settings
+      settings = Map.put(state.settings, :binary?, pending.binary?)
       state = put_in(state.active[address], %{pending | phase: :rates, result: nil})
       launch(state, address, fn -> WorldOverlayReader.read_rates(prepared, settings) end, settings.timeout_ms + 2_000)
     else

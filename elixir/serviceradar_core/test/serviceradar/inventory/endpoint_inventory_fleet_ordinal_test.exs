@@ -4,6 +4,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
+  alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -34,6 +36,117 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
     assert EndpointInventoryFleetOrdinal.ordinal_for("serviceradar:core-elx") == nil
   end
 
+  test "canonical and raw bulk writers allocate once without burning IDs on repeated lookup", %{
+    actor: actor
+  } do
+    uid = "sr:identity-#{System.unique_integer([:positive])}"
+    device = create_device!(actor, uid)
+    ordinal = FleetIdentity.device_ordinal(uid)
+    assert ordinal > 0
+
+    assert %{rows: [[last_value]]} =
+             Repo.query!("SELECT currval('platform.device_fleet_ordinals_ordinal_seq')")
+
+    assert {:ok, ^ordinal} = FleetIdentity.ensure_device(uid)
+    assert {:ok, ^ordinal} = EndpointInventoryFleetOrdinal.ensure_allocated(device.uid)
+
+    assert %{rows: [[^last_value]]} =
+             Repo.query!("SELECT currval('platform.device_fleet_ordinals_ordinal_seq')")
+
+    raw_uid = "sr:raw-#{System.unique_integer([:positive])}"
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid, type_id) VALUES ($1, 0)", [raw_uid])
+    assert {:ok, raw_ordinal} = FleetIdentity.ensure_device(raw_uid)
+    assert raw_ordinal > ordinal
+  end
+
+  test "delete and legitimate restore retain identity while stale merge restores are denied", %{
+    actor: actor
+  } do
+    require Ash.Query
+
+    uid = "sr:lifecycle-#{System.unique_integer([:positive])}"
+    create_device!(actor, uid)
+    ordinal = FleetIdentity.device_ordinal(uid)
+    epoch = FleetIdentity.epoch()
+    assert is_binary(epoch)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = 'manual' WHERE uid = $1",
+      [uid]
+    )
+
+    assert FleetIdentity.device_ordinal(uid) == nil
+    assert {:ok, nil} = FleetIdentity.ensure_device(uid)
+    restore!(uid, actor)
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+    assert FleetIdentity.epoch() == epoch
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now(), deleted_reason = 'merged' WHERE uid = $1",
+      [uid]
+    )
+
+    assert {:ok, nil} = FleetIdentity.ensure_device(uid)
+
+    assert %Ash.BulkResult{status: :error, errors: errors} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^uid)
+             |> Ash.bulk_update(:restore, %{}, actor: actor, return_errors?: true)
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "is a retained tombstone"))
+    assert FleetIdentity.device_ordinal(uid) == nil
+    restore!(uid, actor, allow_retained: true)
+    assert FleetIdentity.device_ordinal(uid) == ordinal
+  end
+
+  test "unsigned high ordinals survive reads and bounded resumable reconciliation", %{
+    actor: actor
+  } do
+    uid = "sr:unsigned-#{System.unique_integer([:positive])}"
+    create_device!(actor, uid)
+    high = 2_147_483_648 + rem(System.unique_integer([:positive]), 1_000_000)
+
+    Repo.query!("UPDATE platform.device_fleet_ordinals SET ordinal = $2 WHERE uid = $1", [
+      uid,
+      high
+    ])
+
+    assert {:ok, ^high} = FleetIdentity.ensure_device(uid)
+    assert FleetIdentity.device_ordinal(uid) == high
+    assert {:error, :invalid_page_limit} = FleetIdentity.backfill_devices(nil, limit: 501)
+
+    %{rows: [[before]]} =
+      Repo.query!(
+        "SELECT max(uid) FROM platform.ocsf_devices WHERE uid < $1 AND uid NOT LIKE 'serviceradar:%'",
+        [uid]
+      )
+
+    assert {:ok, %{cursor: ^uid, count: 1}} = FleetIdentity.backfill_devices(before, limit: 1)
+    assert FleetIdentity.device_ordinal(uid) == high
+  end
+
+  test "permanent dictionary entries reject destructive cleanup", %{actor: actor} do
+    uid = "sr:permanent-#{System.unique_integer([:positive])}"
+    create_device!(actor, uid)
+
+    assert_raise Postgrex.Error, ~r/Persistent fleet identities cannot be deleted/, fn ->
+      Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [uid])
+    end
+  end
+
+  defp restore!(uid, actor, args \\ []) do
+    require Ash.Query
+
+    result =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^uid)
+      |> Ash.bulk_update(:restore, Map.new(args), actor: actor, return_errors?: true)
+
+    assert %Ash.BulkResult{status: :success} = result
+  end
+
   defp create_device!(actor, uid) do
     now = DateTime.utc_now()
 
@@ -42,7 +155,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryFleetOrdinalTest do
       :create,
       %{
         uid: uid,
-        hostname: "#{uid}.local",
+        hostname: "host01.example.com",
         type_id: 0,
         is_available: true,
         first_seen_time: now,

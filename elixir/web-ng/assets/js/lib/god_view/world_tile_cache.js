@@ -39,7 +39,11 @@ export class WorldTileCache {
         manifest.bounds[0].some((value, axis) => value > manifest.bounds[1][axis]))) {
       throw new Error("Invalid topology bounds")
     }
-    if (this.manifest?.layout_version === manifest.layout_version && this.manifest.generation >= manifest.generation) return false
+    if (this.manifest?.layout_version === manifest.layout_version && this.manifest.generation >= manifest.generation) {
+      // Query readiness changes independently of immutable geometry publication.
+      if (this.manifest.generation === manifest.generation) this.manifest = {...manifest}
+      return false
+    }
     const reset = this.manifest?.layout_version !== manifest.layout_version
     this.epoch += 1
     this.abortPending()

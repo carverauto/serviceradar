@@ -43,6 +43,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
@@ -818,8 +819,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_to_create
       |> Map.values()
       |> seed_uids(partition, actor)
-      |> Enum.each(fn {result, uid} ->
-        create_available_unknown_device(result, uid, partition, actor)
+      |> Enum.each(fn
+        {result, plan} when is_map(plan) ->
+          commit_seed_plan(result, plan, partition, actor)
+
+        {result, uid} ->
+          create_available_unknown_device(result, uid, partition, actor)
       end)
 
       DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
@@ -831,29 +836,180 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # A seed is named by its address, so a sweep of the address of a seed that was merged away and
-  # then purged derives the merged-away uid again. Creating it would take the uid out of the
-  # redirect to its survivor (Resolver), and a source still carrying it would land on the new
-  # seed. A uid that a merge names is resolved first, and one that redirects gives way to the
-  # next uid of the chain Ids.reseeded_device_id/1 derives (add-source-id-succession task 9.7).
+  # Address seeds must not reuse a merged identity or revive a deleted seed after payload
+  # retention. Both keep their permanent UID. A durable `_seed_successor` on the address-root
+  # tombstone is the only remembered head, so a later sweep does not reread every predecessor.
+  # Each attempt still examines at most eight uids. The pointer is lineage, not a merge redirect.
   defp seed_uids([], _partition, _actor), do: []
 
   defp seed_uids(results, partition, actor) do
     seeds = Enum.map(results, &{&1, address_seed_uid(&1, partition)})
+    roots = Enum.map(seeds, &elem(&1, 1))
 
-    case merged_away_uids(Enum.map(seeds, &elem(&1, 1)), actor) do
-      {:ok, merged_away} ->
-        Enum.flat_map(seeds, fn {result, uid} = seed ->
-          if MapSet.member?(merged_away, uid), do: free_seed_uid(result, uid, actor), else: [seed]
-        end)
+    with {:ok, rows} <- seed_rows(roots, actor),
+         {:ok, merged_away} <- merged_away_uids(roots, actor) do
+      Enum.flat_map(seeds, fn {result, root} = seed ->
+        row = Map.get(rows, root)
+        head = successor_pointer(row)
 
+        cond do
+          source_retired?(row) ->
+            []
+
+          head || purged_seed?(row) || MapSet.member?(merged_away, root) ->
+            plan = %{root: row, head: head, pins: %{root => seed_pin(row)}}
+            choose_seed(result, head || root, rows, plan, actor)
+
+          true ->
+            [seed]
+        end
+      end)
+    else
       {:error, reason} ->
         Logger.warning(
-          "SweepResultsIngestor: Could not read the merge rows of #{length(seeds)} new sweep " <>
+          "SweepResultsIngestor: Could not read reserved identities for #{length(seeds)} new sweep " <>
             "seeds; seeding none: #{inspect(reason)}"
         )
 
         []
+    end
+  end
+
+  defp seed_rows(uids, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid in ^uids)
+    |> Ash.Query.select([
+      :uid,
+      :metadata,
+      :identity_revision,
+      :identity_purged_at,
+      :deleted_at,
+      :deleted_reason
+    ])
+    |> Ash.read(actor: actor, page: [limit: length(uids)])
+    |> Page.unwrap()
+    |> case do
+      {:ok, rows} -> {:ok, Map.new(rows, &{&1.uid, &1})}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp successor_pointer(%{metadata: %{"_seed_successor" => uid}})
+       when is_binary(uid) and uid != "", do: uid
+
+  defp successor_pointer(_row), do: nil
+
+  defp source_retired?(%{deleted_at: deleted, deleted_reason: "source_retired"}),
+    do: not is_nil(deleted)
+
+  defp source_retired?(_row), do: false
+
+  defp purged_seed?(%{identity_purged_at: purged, deleted_at: deleted} = row),
+    do: not is_nil(purged) and not is_nil(deleted) and not source_retired?(row)
+
+  defp purged_seed?(_row), do: false
+
+  # Numeric pins validate lineage only; they never authorize restoring a retained or merged
+  # row. Capture them with the observed head, before walking, rather than refreshing at commit.
+  defp seed_pin(nil), do: :absent
+  defp seed_pin(%{identity_revision: revision}), do: revision
+
+  defp choose_seed(result, uid, rows, plan, actor) do
+    case walk_seed(uid, rows, plan, actor, @max_seed_uid_attempts) do
+      {:ok, plan} ->
+        [{result, plan}]
+
+      :withheld ->
+        []
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Could not resolve seed uid #{uid} for #{extract_ip(result)}; " <>
+            "not seeding it: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp walk_seed(uid, rows, plan, actor, attempts) do
+    with {:ok, rows} <- seed_candidate_rows(uid, rows, actor),
+         {:ok, canonical} <- IdentityReconciler.resolve_canonical_device_id(uid, actor) do
+      row = Map.get(rows, uid)
+      plan = %{plan | pins: Map.put(plan.pins, uid, seed_pin(row))}
+
+      cond do
+        source_retired?(row) ->
+          :withheld
+
+        canonical != uid or purged_seed?(row) ->
+          next = Ids.reseeded_device_id(uid)
+
+          if attempts > 1 do
+            walk_seed(next, %{}, plan, actor, attempts - 1)
+          else
+            {:ok, Map.merge(plan, %{next: next, action: :progress, last: uid})}
+          end
+
+        is_nil(row) ->
+          {:ok, Map.merge(plan, %{next: uid, action: :create})}
+
+        true ->
+          :withheld
+      end
+    end
+  end
+
+  defp seed_candidate_rows(uid, rows, actor) do
+    if Map.has_key?(rows, uid), do: {:ok, rows}, else: seed_rows([uid], actor)
+  end
+
+  defp commit_seed_plan(result, plan, partition, actor) do
+    if plan.action == :progress do
+      Logger.warning(
+        "SweepResultsIngestor: No free seed uid for #{extract_ip(result)} within " <>
+          "#{@max_seed_uid_attempts} uids, the last #{plan.last} remains reserved; not seeding it"
+      )
+    end
+
+    case Fence.fenced_write(plan.pins, :sweep_seed, fn stale ->
+           if MapSet.size(stale) == 0 do
+             with :ok <- advance_seed_head(plan) do
+               case plan.action do
+                 :progress -> {:ok, :advanced}
+                 :create -> insert_provisional_device(result, plan.next, partition, actor)
+               end
+             end
+           else
+             {:ok, :withheld}
+           end
+         end) do
+      {:ok, _} -> :ok
+      {:error, reason} -> log_provisional_create_error(extract_ip(result), reason)
+    end
+  end
+
+  # Legacy merge audits may outlive a physically removed root. They still fence creation,
+  # but cannot carry a head. New retained roots always provide this durable compare-and-set.
+  defp advance_seed_head(%{root: nil}), do: :ok
+
+  defp advance_seed_head(%{root: root, head: head, next: next}) do
+    case Repo.query(
+           """
+           UPDATE platform.ocsf_devices
+           SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{_seed_successor}', to_jsonb($2::text), true),
+               identity_revision = identity_revision + 1
+           WHERE uid = $1 AND identity_revision = $3
+             AND metadata->>'_seed_successor' IS NOT DISTINCT FROM $4::text
+             AND deleted_at IS NOT NULL
+             AND deleted_reason IS DISTINCT FROM 'source_retired'
+           """,
+           [root.uid, next, root.identity_revision, head]
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, %{num_rows: 0}} -> {:error, :identity_fence_stale}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -881,37 +1037,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # The first uid of the seed's chain that resolves to itself: one an unmerge gave back, or one
-  # no merge names. A host whose chain has none within the bound, or whose uid cannot be
-  # resolved, is not seeded.
-  defp free_seed_uid(result, uid, actor, attempts \\ @max_seed_uid_attempts) do
-    case IdentityReconciler.resolve_canonical_device_id(uid, actor) do
-      {:ok, ^uid} ->
-        [{result, uid}]
+  defp create_available_unknown_device(result, uid, partition, actor) do
+    ip = extract_ip(result)
 
-      {:ok, _survivor} when attempts > 1 ->
-        free_seed_uid(result, Ids.reseeded_device_id(uid), actor, attempts - 1)
-
-      {:ok, survivor} ->
-        Logger.warning(
-          "SweepResultsIngestor: No free seed uid for #{extract_ip(result)} within " <>
-            "#{@max_seed_uid_attempts} uids, the last #{uid} redirecting to #{survivor}; " <>
-            "not seeding it"
-        )
-
-        []
+    case insert_provisional_device(result, uid, partition, actor) do
+      {:ok, _device} ->
+        Logger.info("SweepResultsIngestor: Created provisional sweep device #{uid} for #{ip}")
 
       {:error, reason} ->
-        Logger.warning(
-          "SweepResultsIngestor: Could not resolve seed uid #{uid} for #{extract_ip(result)}; " <>
-            "not seeding it: #{inspect(reason)}"
-        )
-
-        []
+        log_provisional_create_error(ip, reason)
     end
   end
 
-  defp create_available_unknown_device(result, uid, partition, actor) do
+  defp insert_provisional_device(result, uid, partition, actor) do
     ip = extract_ip(result)
     hostname = normalize_hostname(result["hostname"])
 
@@ -933,15 +1071,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       }
     }
 
-    case Device
-         |> Ash.Changeset.for_create(:create, attrs)
-         |> Ash.create(actor: actor) do
-      {:ok, _device} ->
-        Logger.info("SweepResultsIngestor: Created provisional sweep device #{uid} for #{ip}")
-
-      {:error, reason} ->
-        log_provisional_create_error(ip, reason)
-    end
+    Device
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(actor: actor)
   end
 
   defp log_provisional_create_error(ip, reason) do

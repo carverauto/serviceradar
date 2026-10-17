@@ -36,5 +36,8 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayTest do
       )
 
     assert {:error, :not_ready} = WorldOverlay.fetch(key, revision, overlay)
+
+    :ok = Phoenix.PubSub.broadcast(pubsub, "topology:world", {:bitmap_index_ready, %{dictionary_epoch: <<7::128>>}})
+    assert {:error, :not_ready} = WorldOverlay.fetch(key, revision, overlay)
   end
 end

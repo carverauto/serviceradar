@@ -1,6 +1,8 @@
 import {afterEach, describe, expect, it, vi} from "vitest"
 import {WorldOverlays} from "./world_overlays"
 import {worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
+import {telemetryFrame, telemetryGeometry} from "./fixtures/world_overlay_frame"
+import {WORLD_OVERLAY_MIME} from "./world_overlay_frame"
 
 const geometry = {key: worldTileKey, generation: 1, revision: worldTileRevision}
 const sample = healthy => ({layout_version: worldTileKey.layout_version, generation: 1, revision: worldTileRevision,
@@ -62,5 +64,65 @@ describe("world telemetry polling", () => {
     await pending
     expect(overlays.entries.size).toBe(0)
     expect(overlays.onChange).not.toHaveBeenCalled()
+  })
+
+  it("uses binary telemetry without JSON fallback and drops all bytes when disabled or unavailable", async () => {
+    let finish
+    const fetcher = vi.fn().mockResolvedValueOnce(new globalThis.Response(telemetryFrame(), {headers: {"content-type": WORLD_OVERLAY_MIME}}))
+      .mockResolvedValueOnce(globalThis.Response.json({}))
+      .mockImplementationOnce(() => new Promise(resolve => {finish = resolve}))
+    vi.stubGlobal("fetch", fetcher)
+    const overlays = store()
+    overlays.setBinary(true)
+    overlays.setVisible([telemetryGeometry])
+    await overlays.poll()
+    expect(fetcher.mock.calls[0][1].headers.Accept).toBe(WORLD_OVERLAY_MIME)
+    expect(overlays.entries.get("0/0/0").flowAt(0).forward.observed_packets_per_second).toBe(12.5)
+    expect(overlays.retainedBytes).toBeGreaterThan(0)
+    await overlays.poll()
+    expect(overlays.entries.size).toBe(0)
+    const pending = overlays.poll()
+    overlays.setBinary(false)
+    overlays.setVisible([])
+    finish(new globalThis.Response(telemetryFrame(), {headers: {"content-type": WORLD_OVERLAY_MIME}}))
+    await pending
+    expect(overlays.retainedBytes).toBe(0)
+    expect(overlays.entries.size).toBe(0)
+  })
+
+  it("admits a stable dense viewport before fetching, within four requests and the complete overlay budget", async () => {
+    const geometries = Array.from({length: 64}, (_, x) => ({...telemetryGeometry, key: {...telemetryGeometry.key, z: 6, x},
+      nodes: Array.from({length: 128}, (_, index) => ({index})), edges: Array.from({length: 512}, (_, index) => ({index, count: 3}))}))
+    let active = 0, peak = 0
+    vi.stubGlobal("fetch", vi.fn(async url => {
+      active += 1; peak = Math.max(peak, active)
+      await new Promise(resolve => setTimeout(resolve, 0))
+      const x = Number(url.split("/").at(-2))
+      active -= 1
+      return new globalThis.Response(telemetryFrame(geometries[x]), {headers: {"content-type": WORLD_OVERLAY_MIME}})
+    }))
+    const overlays = store()
+    overlays.setBinary(true)
+    overlays.setVisible(geometries)
+    await overlays.poll()
+    expect(peak).toBe(4)
+    expect(overlays.entries.size).toBeGreaterThan(0)
+    expect(overlays.entries.size).toBeLessThan(64)
+    expect(overlays.retainedBytes + 3 * 1024 * 1024).toBeLessThanOrEqual(8 * 1024 * 1024)
+    const admitted = [...overlays.entries.keys()].sort()
+    expect(fetch.mock.calls).toHaveLength(admitted.length)
+    fetch.mockClear()
+    overlays.setVisible([...geometries].reverse())
+    await overlays.poll()
+    expect([...overlays.entries.keys()].sort()).toEqual(admitted)
+    expect(fetch.mock.calls).toHaveLength(admitted.length)
+    expect(fetch.mock.calls.map(([url]) => url.split("/").slice(-3).join("/").split("?")[0]).sort()).toEqual(admitted)
+    // A geometry outside the old admission becomes eligible after panning.
+    const next = geometries.find(item => !admitted.includes(`6/${item.key.x}/0`))
+    overlays.setVisible([next])
+    await overlays.poll()
+    expect([...overlays.entries.keys()]).toEqual([`6/${next.key.x}/0`])
+    overlays.setVisible([])
+    expect(overlays.retainedBytes).toBe(0)
   })
 })

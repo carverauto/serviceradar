@@ -412,7 +412,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     first_uid = device_uid_for_integration!(first_id, actor)
     second_uid = device_uid_for_integration!(second_id, actor)
-    on_exit(fn -> purge_unboxed_devices!([first_uid, second_uid]) end)
+    on_exit(fn -> TestSupport.delete_device_fixtures!([first_uid, second_uid]) end)
     assert first_uid != second_uid
 
     {:ok, first} = Device.get_by_uid(first_uid, false, actor: actor)
@@ -1180,19 +1180,5 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
         :error -> Application.delete_env(:serviceradar_core, key)
       end
     end)
-  end
-
-  # Unboxed rows outlive the test: tombstone them and let the cleanup worker's purge
-  # remove every restricting child row with them.
-  defp purge_unboxed_devices!(uids) do
-    Repo.query!(
-      "UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = ANY($1) AND deleted_at IS NULL",
-      [uids]
-    )
-
-    ServiceRadar.Inventory.DeviceCleanupWorker.hard_delete_records(
-      %{deleted: 0, errors: 0},
-      Enum.map(uids, &%{uid: &1})
-    )
   end
 end

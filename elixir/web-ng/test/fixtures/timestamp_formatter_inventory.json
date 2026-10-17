@@ -147,7 +147,7 @@
     "path": "assets/js/lib/god_view/WorldMapRenderer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 2,
-    "fingerprint": "3cf0c9a23bc89152cc10413fa730913be485dec9fa00f6a3c2560f7e0597fd64",
+    "fingerprint": "d1b90bef87b9acef8f49bdcda9444b9ad8307ec879da239adb8aae6da211d950",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },
@@ -155,7 +155,7 @@
     "path": "assets/js/lib/god_view/WorldMapRenderer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 3,
-    "fingerprint": "d1b90bef87b9acef8f49bdcda9444b9ad8307ec879da239adb8aae6da211d950",
+    "fingerprint": "5a81037b9d1fec848afacdf6f6c8e001ee8a85214d78f2f921f21be51882489b",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },

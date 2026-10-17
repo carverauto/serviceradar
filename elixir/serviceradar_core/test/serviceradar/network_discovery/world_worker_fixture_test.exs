@@ -1109,7 +1109,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       ids
     ])
 
-    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [ids])
+    ServiceRadar.TestSupport.delete_device_fixtures!(ids)
 
     assert %{rows: [[0]]} =
              Repo.query!(

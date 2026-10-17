@@ -1408,7 +1408,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   end
 
   # -- seeding helpers -------------------------------------------------------
-
   defp seed_connected_agent!(agent_uid) do
     Repo.query!(
       """
@@ -1812,7 +1811,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       [device_uids]
     )
 
-    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [device_uids])
+    TestSupport.delete_device_fixtures!(device_uids)
 
     Repo.query!(
       "DELETE FROM platform.integration_sources WHERE id::text = ANY($1::text[])",
@@ -1883,7 +1882,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   end
 
   # -- assertion helpers ------------------------------------------------------
-
   defp owner_of_mac(mac) do
     Repo.one(
       from(di in DeviceIdentifier,
