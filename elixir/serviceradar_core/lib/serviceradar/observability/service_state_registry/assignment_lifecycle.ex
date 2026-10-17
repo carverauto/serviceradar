@@ -368,14 +368,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
           WHEN NULLIF($3, '') IS NOT NULL THEN package.plugin_id = $3
           ELSE package.name = $4
         END
-        AND (
-          package.outputs IN ($5, $6)
-          OR $7 = ANY(package.approved_capabilities)
-          OR (
-            coalesce(array_length(package.approved_capabilities, 1), 0) = 0
-            AND package.manifest->'capabilities' ? $7
-          )
-        )
+        AND #{PluginStateContract.result_reporting_package_sql("$5", "$6", "$7")}
     )
     """
   end

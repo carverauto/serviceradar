@@ -15,7 +15,7 @@ Secret, or a config file. The one remaining exception is the agent's SNMP file
 path, documented under [SNMP](#snmp).
 
 :::note Not everything on this page has shipped yet
-The current release is **1.4.49**. Four mechanisms described below are merged
+The current release is **1.4.49**. Five mechanisms described below are merged
 work that has not appeared in a release yet, and each one is marked in place
 with a `:::caution` box:
 
@@ -27,6 +27,9 @@ with a `:::caution` box:
   ([NetBox](#netbox))
 - removal of the VulnCheck environment-variable fallback
   ([VulnCheck](#vulncheck))
+- retirement of Services cards for action-only packages that do not ingest
+  action results
+  ([AWX api_token is required](#awx-configuration-invalid-api_token-is-required-resolved-from-credential-broker-grant))
 
 Two mechanisms this page originally listed as unreleased have shipped since, in
 **1.4.48**: `allowed_networks` on the UniFi Protect, Axis, OpenText and AWX
@@ -916,6 +919,22 @@ the message survives the upgrade until the assignment is re-materialised.
 Before 1.4.48 the message repeats on the assignment's cadence and is cosmetic:
 dispatched AWX commands still carry their own grant and still work. Judge AWX
 health from `awx.ping` and from an actual dispatch, not from this result.
+:::
+
+:::caution Not in 1.4.49
+An action-only package that does not also declare `action-result-ingest:v1`
+reports no plugin results, so the Services page does not track it as a plugin
+service. The fix retires a card still showing the bridge's last failed result
+from before re-materialisation the next time the Services page loads and
+reconciles plugin service state. A package that also declares
+`action-result-ingest:v1` reports the results of its actions and keeps its card.
+A streaming package keeps its card as well.
+
+On 1.4.48 and 1.4.49, re-materialising the action-only package stops the
+periodic failure, and the last failed card can stay on the Services page. Judge
+AWX health from `awx.ping` and from an actual dispatch, not from that card.
+
+First release containing it: `<first-release>`.
 :::
 
 ### "NetBox inventory_sync has no sources configured"

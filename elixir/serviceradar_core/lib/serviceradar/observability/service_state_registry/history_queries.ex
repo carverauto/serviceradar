@@ -112,6 +112,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.HistoryQueries do
   end
 
   defp eligible_assignment_sql(plugin_result_param, streaming_param, capability_param) do
+    result_reporting_package =
+      PluginStateContract.result_reporting_package_sql(
+        "$#{plugin_result_param}",
+        "$#{streaming_param}",
+        "$#{capability_param}"
+      )
+
     """
     EXISTS (
       SELECT 1
@@ -122,14 +129,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.HistoryQueries do
         AND package.status = 'approved'
         AND assignment.agent_uid = service_status.agent_id
         AND #{PluginStateContract.status_matches_joined_package_sql()}
-        AND (
-          package.outputs IN ($#{plugin_result_param}, $#{streaming_param})
-          OR $#{capability_param} = ANY(package.approved_capabilities)
-          OR (
-            coalesce(array_length(package.approved_capabilities, 1), 0) = 0
-            AND package.manifest->'capabilities' ? $#{capability_param}
-          )
-        )
+        AND #{result_reporting_package}
     )
     """
   end

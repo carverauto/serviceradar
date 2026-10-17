@@ -66,7 +66,7 @@ defmodule ServiceRadar.Observability.PluginResultRepairAssignmentSupport do
       "entrypoint" => "run_check",
       "runtime" => "wasi-preview1",
       "outputs" => "serviceradar.plugin_result.v1",
-      "capabilities" => ["submit_result"],
+      "capabilities" => Keyword.get(opts, :capabilities, ["submit_result"]),
       "resources" => %{
         "requested_memory_mb" => 32,
         "requested_cpu_ms" => 100,
