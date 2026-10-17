@@ -281,6 +281,7 @@ impl FlowHandler for NetflowHandler {
 
                 let before = sampler_rates.rejected_inserts;
                 let clamped_before = sampler_rates.clamped_rates;
+                let learned_before = sampler_rates.options_rates_learned;
                 let converted = Converter::new(
                     packet,
                     peer,
@@ -294,6 +295,10 @@ impl FlowHandler for NetflowHandler {
                     .fetch_add(sampler_rates.rejected_inserts - before, Ordering::Relaxed);
                 self.metrics.sampling_rate_clamped.fetch_add(
                     sampler_rates.clamped_rates - clamped_before,
+                    Ordering::Relaxed,
+                );
+                self.metrics.options_sampling_rates_learned.fetch_add(
+                    sampler_rates.options_rates_learned - learned_before,
                     Ordering::Relaxed,
                 );
                 converted
@@ -675,6 +680,276 @@ mod tests {
     #[test]
     fn ignores_short_datagrams() {
         assert!(!is_sflow_datagram(&[0x00, 0x00, 0x00]));
+    }
+
+    /// An information element ID and its encoded value; the value's length is
+    /// the template field length.
+    type Element = (u16, Vec<u8>);
+
+    fn ie(id: u16, len: usize, value: u64) -> Element {
+        (id, value.to_be_bytes()[8 - len..].to_vec())
+    }
+
+    /// Synthetic IPFIX message (RFC 7011 section 3) from `(set id, body)` pairs.
+    fn ipfix_message(domain: u32, sets: &[(u16, Vec<u8>)]) -> Vec<u8> {
+        let length = 16 + sets.iter().map(|(_, body)| 4 + body.len()).sum::<usize>();
+        let mut message = Vec::new();
+        message.extend_from_slice(&10u16.to_be_bytes());
+        message.extend_from_slice(&(length as u16).to_be_bytes());
+        for value in [1_893_456_000u32, 1, domain] {
+            message.extend_from_slice(&value.to_be_bytes());
+        }
+        for (set_id, body) in sets {
+            message.extend_from_slice(&set_id.to_be_bytes());
+            message.extend_from_slice(&((4 + body.len()) as u16).to_be_bytes());
+            message.extend_from_slice(body);
+        }
+        message
+    }
+
+    /// A template set (id 2) or, with a scope count, an options template set
+    /// (id 3), each followed by one record of that template.
+    fn ipfix_template_and_record(
+        domain: u32,
+        template_id: u16,
+        scope_count: Option<u16>,
+        fields: &[Element],
+    ) -> Vec<u8> {
+        let mut template = Vec::new();
+        template.extend_from_slice(&template_id.to_be_bytes());
+        template.extend_from_slice(&(fields.len() as u16).to_be_bytes());
+        if let Some(scope_count) = scope_count {
+            template.extend_from_slice(&scope_count.to_be_bytes());
+        }
+        for (id, value) in fields {
+            template.extend_from_slice(&id.to_be_bytes());
+            template.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        }
+        let record = fields.iter().flat_map(|(_, value)| value.clone()).collect();
+        let set_id = if scope_count.is_some() { 3 } else { 2 };
+        ipfix_message(domain, &[(set_id, template), (template_id, record)])
+    }
+
+    /// Options record scoped to its observation domain (IE 149).
+    fn ipfix_sampling_options(domain: u32, options: &[Element]) -> Vec<u8> {
+        let mut fields = vec![ie(149, 4, domain.into())];
+        fields.extend_from_slice(options);
+        ipfix_template_and_record(domain, 300, Some(1), &fields)
+    }
+
+    /// One flow record whose template holds only addresses and counters plus
+    /// `extra`. Distinct `extra` shapes must use distinct template ids.
+    fn ipfix_flow(domain: u32, template_id: u16, extra: &[Element]) -> Vec<u8> {
+        let mut fields = vec![
+            ie(8, 4, u64::from(u32::from_be_bytes([192, 0, 2, 10]))),
+            ie(12, 4, u64::from(u32::from_be_bytes([198, 51, 100, 20]))),
+            ie(1, 4, 1500),
+            ie(2, 4, 3),
+        ];
+        fields.extend_from_slice(extra);
+        ipfix_template_and_record(domain, template_id, None, &fields)
+    }
+
+    fn netflow_handler(
+        default_sampling_rate: Option<u64>,
+        max_sampling_rate: Option<u64>,
+        metrics: &Arc<ListenerMetrics>,
+    ) -> NetflowHandler {
+        NetflowHandler::new(
+            128,
+            100,
+            None,
+            default_sampling_rate,
+            max_sampling_rate,
+            HashMap::new(),
+            None,
+            Arc::clone(metrics),
+        )
+    }
+
+    fn decoded_rate(handler: &NetflowHandler, packet: &[u8], peer: SocketAddr) -> u64 {
+        let decoded = handler.parse_datagram(packet, packet.len(), peer);
+        assert_eq!(decoded.len(), 1, "expected exactly one flow");
+        decoded[0].sampling_rate
+    }
+
+    /// An exporter that samples 1-in-N declares N once, in an options record,
+    /// instead of in every flow record.
+    #[test]
+    fn ipfix_options_declared_sampling_applies_to_flows_without_a_rate() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
+        let handler = netflow_handler(Some(5), None, &metrics);
+        let peer: SocketAddr = "192.0.2.1:4739".parse().unwrap();
+
+        assert_eq!(decoded_rate(&handler, &ipfix_flow(7, 256, &[]), peer), 5);
+
+        // selectorId, flowSelectorAlgorithm (3 = random n-out-of-N),
+        // samplingSize 1 of samplingPopulation 512.
+        let options = ipfix_sampling_options(
+            7,
+            &[ie(302, 8, 9), ie(390, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
+        );
+        assert!(
+            handler
+                .parse_datagram(&options, options.len(), peer)
+                .is_empty()
+        );
+
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 256, &[]), peer),
+            512,
+            "options-declared rate beats the configured default"
+        );
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 257, &[ie(34, 4, 10)]), peer),
+            10,
+            "a rate carried by the record itself wins"
+        );
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(8, 256, &[]), peer),
+            5,
+            "another observation domain of the same exporter is unaffected"
+        );
+        assert_eq!(
+            metrics
+                .options_sampling_rates_learned
+                .load(Ordering::Relaxed),
+            1
+        );
+    }
+
+    /// Each RFC 5477 / RFC 7015 way of declaring a sampling rate in options.
+    #[test]
+    fn ipfix_options_sampling_rate_derivation() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
+        let handler = netflow_handler(None, Some(4096), &metrics);
+        let peer: SocketAddr = "192.0.2.2:4739".parse().unwrap();
+        let cases: [(&str, Vec<Element>, u64); 7] = [
+            ("samplingInterval", vec![ie(34, 4, 256)], 256),
+            ("samplerRandomInterval", vec![ie(50, 4, 100)], 100),
+            (
+                "samplingPacketInterval selected, samplingPacketSpace skipped",
+                vec![ie(305, 4, 1), ie(306, 4, 99)],
+                100,
+            ),
+            (
+                "samplingFlowInterval selected, samplingFlowSpacing skipped",
+                vec![ie(396, 4, 2), ie(397, 4, 1998)],
+                1000,
+            ),
+            (
+                "samplingSize out of samplingPopulation",
+                vec![ie(309, 4, 2), ie(310, 4, 2048)],
+                1024,
+            ),
+            (
+                "samplingProbability",
+                vec![(311, (1.0f64 / 512.0).to_be_bytes().to_vec())],
+                512,
+            ),
+            (
+                "rate above max_sampling_rate",
+                vec![ie(34, 4, 1_000_000)],
+                4096,
+            ),
+        ];
+        for (domain, (case, options, expected)) in (1u32..).zip(cases) {
+            let packet = ipfix_sampling_options(domain, &options);
+            handler.parse_datagram(&packet, packet.len(), peer);
+            assert_eq!(
+                decoded_rate(&handler, &ipfix_flow(domain, 256, &[]), peer),
+                expected,
+                "{case}"
+            );
+        }
+        assert_eq!(metrics.sampling_rate_clamped.load(Ordering::Relaxed), 1);
+    }
+
+    /// Several selectors with different rates: a flow naming its selector gets
+    /// that selector's rate, and a flow naming none cannot be attributed.
+    #[test]
+    fn ipfix_options_selectors_resolve_by_selector_id() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
+        let handler = netflow_handler(Some(5), None, &metrics);
+        let peer: SocketAddr = "192.0.2.3:4739".parse().unwrap();
+        for (selector, interval) in [(1, 100), (2, 400)] {
+            let packet = ipfix_sampling_options(7, &[ie(302, 8, selector), ie(34, 4, interval)]);
+            handler.parse_datagram(&packet, packet.len(), peer);
+        }
+
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 256, &[ie(302, 8, 2)]), peer),
+            400
+        );
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 256, &[ie(302, 8, 1)]), peer),
+            100
+        );
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 257, &[]), peer),
+            5,
+            "two declared rates leave a selector-less flow on the fallback"
+        );
+    }
+
+    /// NetFlow v9 (RFC 3954 section 6) declares a random sampler in an
+    /// options record scoped to the system.
+    #[test]
+    fn v9_options_declared_sampling_applies_to_flows_without_a_rate() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        let handler = netflow_handler(Some(5), None, &metrics);
+        let peer: SocketAddr = "192.0.2.4:2055".parse().unwrap();
+        let flowset = |id: u16, words: &[u16], tail: &[u8]| {
+            let mut body: Vec<u8> = words.iter().flat_map(|word| word.to_be_bytes()).collect();
+            body.extend_from_slice(tail);
+            let mut set = id.to_be_bytes().to_vec();
+            set.extend_from_slice(&((4 + body.len()) as u16).to_be_bytes());
+            set.extend_from_slice(&body);
+            set
+        };
+        let message = |records: u16, flowsets: &[Vec<u8>]| {
+            let mut packet = Vec::new();
+            packet.extend_from_slice(&9u16.to_be_bytes());
+            packet.extend_from_slice(&records.to_be_bytes());
+            for value in [1000u32, 1_893_456_000, 1, 3] {
+                packet.extend_from_slice(&value.to_be_bytes());
+            }
+            for set in flowsets {
+                packet.extend_from_slice(set);
+            }
+            packet
+        };
+        // Options template 300: scope System (1) of 4 octets; FLOW_SAMPLER_ID
+        // (48), FLOW_SAMPLER_MODE (49), FLOW_SAMPLER_RANDOM_INTERVAL (50).
+        let options = message(
+            1,
+            &[
+                flowset(1, &[300, 4, 12, 1, 4, 48, 2, 49, 2, 50, 4], &[]),
+                flowset(300, &[0, 3, 4, 2, 0, 512], &[]),
+            ],
+        );
+        assert!(
+            handler
+                .parse_datagram(&options, options.len(), peer)
+                .is_empty()
+        );
+
+        // Template 256: IN_BYTES (1), IN_PKTS (2); 257 adds FLOW_SAMPLER_ID.
+        let mut counters = 1500u32.to_be_bytes().to_vec();
+        counters.extend_from_slice(&3u32.to_be_bytes());
+        let mut with_sampler = counters.clone();
+        with_sampler.extend_from_slice(&4u16.to_be_bytes());
+        let flows = message(
+            4,
+            &[
+                flowset(0, &[256, 2, 1, 4, 2, 4, 257, 3, 1, 4, 2, 4, 48, 2], &[]),
+                flowset(256, &[], &counters),
+                flowset(257, &[], &with_sampler),
+            ],
+        );
+        let decoded = handler.parse_datagram(&flows, flows.len(), peer);
+        let rates: Vec<u64> = decoded.iter().map(|flow| flow.sampling_rate).collect();
+        assert_eq!(rates, [512, 512]);
     }
 
     #[test]

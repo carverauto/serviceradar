@@ -28,14 +28,62 @@ pub const MAX_SAMPLER_RATE_ENTRIES: usize = 65_536;
 /// who need more can raise `max_sampling_rate` per listener.
 pub const DEFAULT_MAX_SAMPLING_RATE: u64 = 1_000_000;
 
+/// Sampling rates exporters declared, per exporter source (address plus IPFIX
+/// observation domain or v9 source ID).
+///
+/// Rates come from flow records that carry both a sampler ID and a rate, and
+/// from options data records (RFC 7011 section 3.4.2.2, RFC 3954 section 6),
+/// which is how many sampling exporters declare their rate instead of
+/// repeating it in every flow record. The state lives only in memory: after a
+/// restart, or when the source is evicted, it is learned again from the
+/// exporter's next options refresh, as its templates are.
 #[derive(Default)]
 pub struct SamplerRates {
     pub(super) entries: HashMap<SourceId, HashMap<u64, u64>>,
     pub(super) entry_count: usize,
+    /// Rates an options record declared for a whole source, for flow records
+    /// that name no sampler. Bounded by `MAX_SAMPLER_RATE_ENTRIES` sources.
+    domain_rates: HashMap<SourceId, DomainRate>,
     pub(super) rejected_inserts: u64,
     /// Rates clamped to the configured ceiling. Drained by the caller into
     /// `ListenerMetrics::sampling_rate_clamped`, mirroring `rejected_inserts`.
     pub(super) clamped_rates: u64,
+    /// Options records that declared a usable sampling rate. Drained by the
+    /// caller into `ListenerMetrics::options_sampling_rates_learned`.
+    pub(super) options_rates_learned: u64,
+}
+
+/// What options records have declared for a source as a whole.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DomainRate {
+    /// An options record that names no sampler declared this rate.
+    Declared(u64),
+    /// Options records named samplers, and the samplers named so far agree on
+    /// this rate (or only `id` was named).
+    Sampler { id: u64, rate: u64 },
+    /// Different samplers declared different rates, so a flow record that
+    /// names none of them cannot be attributed to one.
+    Conflicting,
+}
+
+impl DomainRate {
+    fn rate_for(self, sampler_id: Option<u64>) -> Option<u64> {
+        match self {
+            Self::Declared(rate) => Some(rate),
+            Self::Sampler { id, rate } if sampler_id.is_none_or(|named| named == id) => Some(rate),
+            Self::Sampler { .. } | Self::Conflicting => None,
+        }
+    }
+
+    fn with_sampler(current: Option<Self>, id: u64, rate: u64) -> Self {
+        match current {
+            None => Self::Sampler { id, rate },
+            Some(Self::Sampler { id: known, .. }) if known == id => Self::Sampler { id, rate },
+            Some(Self::Sampler { rate: known, .. }) if known == rate => Self::Sampler { id, rate },
+            Some(declared @ Self::Declared(_)) => declared,
+            Some(Self::Sampler { .. } | Self::Conflicting) => Self::Conflicting,
+        }
+    }
 }
 
 impl SamplerRates {
@@ -43,7 +91,138 @@ impl SamplerRates {
         if let Some(entries) = self.entries.remove(source) {
             self.entry_count -= entries.len();
         }
+        self.domain_rates.remove(source);
     }
+
+    fn remember_sampler(&mut self, source: &SourceId, sampler_id: u64, rate: u64) {
+        if let Some(existing) = self
+            .entries
+            .get_mut(source)
+            .and_then(|entries| entries.get_mut(&sampler_id))
+        {
+            *existing = rate;
+        } else if self.entry_count < MAX_SAMPLER_RATE_ENTRIES {
+            self.entries
+                .entry(source.clone())
+                .or_default()
+                .insert(sampler_id, rate);
+            self.entry_count += 1;
+        } else {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+        }
+    }
+
+    /// Records the rate one options data record declares, if it declares one.
+    fn learn_options(&mut self, source: &SourceId, sampling: &SamplingFields) {
+        let Some(rate) = sampling.rate() else {
+            return;
+        };
+        self.options_rates_learned = self.options_rates_learned.saturating_add(1);
+        if let Some(id) = sampling.sampler_id {
+            self.remember_sampler(source, id, rate);
+        }
+        let current = self.domain_rates.get(source).copied();
+        if current.is_none() && self.domain_rates.len() >= MAX_SAMPLER_RATE_ENTRIES {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return;
+        }
+        let updated = match sampling.sampler_id {
+            Some(id) => DomainRate::with_sampler(current, id, rate),
+            None => DomainRate::Declared(rate),
+        };
+        self.domain_rates.insert(source.clone(), updated);
+    }
+
+    /// The rate a flow record that declares none of its own inherits: that of
+    /// the sampler it names, else the one options declared for its source.
+    fn learned_rate(&self, source: &SourceId, sampler_id: Option<u64>) -> Option<u64> {
+        sampler_id
+            .and_then(|id| self.entries.get(source)?.get(&id).copied())
+            .or_else(|| self.domain_rates.get(source)?.rate_for(sampler_id))
+    }
+}
+
+/// The sampling information elements of one flow or options record.
+///
+/// Exporters express a rate several ways (RFC 5477, RFC 7015): directly as
+/// 1-in-N, as selected/skipped runs of packets or flows, as n out of a
+/// population of N, or as a probability.
+#[derive(Default)]
+struct SamplingFields {
+    sampler_id: Option<u64>,
+    interval: Option<u64>,
+    packet_interval: Option<u64>,
+    packet_space: Option<u64>,
+    flow_interval: Option<u64>,
+    flow_spacing: Option<u64>,
+    size: Option<u64>,
+    population: Option<u64>,
+    probability: Option<f64>,
+}
+
+impl SamplingFields {
+    /// Takes the field if it is a sampling element; reports whether it was.
+    fn observe_ipfix(&mut self, field: &IPFixField, value: &FieldValue) -> bool {
+        let IPFixField::IANA(field) = field else {
+            return false;
+        };
+        let slot = match field {
+            IANAIPFixField::SamplerId | IANAIPFixField::SelectorId => &mut self.sampler_id,
+            IANAIPFixField::SamplingInterval | IANAIPFixField::SamplerRandomInterval => {
+                &mut self.interval
+            }
+            IANAIPFixField::SamplingPacketInterval => &mut self.packet_interval,
+            IANAIPFixField::SamplingPacketSpace => &mut self.packet_space,
+            IANAIPFixField::SamplingFlowInterval => &mut self.flow_interval,
+            IANAIPFixField::SamplingFlowSpacing => &mut self.flow_spacing,
+            IANAIPFixField::SamplingSize => &mut self.size,
+            IANAIPFixField::SamplingPopulation => &mut self.population,
+            IANAIPFixField::SamplingProbability => {
+                self.probability = Some(field_value_to_f64(value));
+                return true;
+            }
+            _ => return false,
+        };
+        *slot = nonzero_u64(field_value_to_u64(value));
+        true
+    }
+
+    /// Takes the field if it is a sampling element; reports whether it was.
+    fn observe_v9(&mut self, field: &V9Field, value: &FieldValue) -> bool {
+        let slot = match field {
+            V9Field::FlowSamplerId => &mut self.sampler_id,
+            V9Field::SamplingInterval | V9Field::FlowSamplerRandomInterval => &mut self.interval,
+            _ => return false,
+        };
+        *slot = nonzero_u64(field_value_to_u64(value));
+        true
+    }
+
+    /// The 1-in-N rate these fields declare, if any.
+    ///
+    /// A lone interval (packet or flow) is read as 1-in-N, as exporters that
+    /// send it without a spacing use it; with a spacing it is the RFC run
+    /// length, and the rate is (selected + skipped) / selected.
+    fn rate(&self) -> Option<u64> {
+        let runs = |selected: Option<u64>, skipped: Option<u64>| match (selected, skipped) {
+            (Some(selected), Some(skipped)) => {
+                rounded_ratio(u128::from(selected) + u128::from(skipped), selected)
+            }
+            (selected, _) => selected,
+        };
+        self.interval
+            .or_else(|| rounded_ratio(u128::from(self.population?), self.size?))
+            .or_else(|| runs(self.packet_interval, self.packet_space))
+            .or_else(|| runs(self.flow_interval, self.flow_spacing))
+            .or_else(|| sampling_rate_from_probability(self.probability?))
+    }
+}
+
+/// `numerator / denominator` rounded to the nearest integer, saturating.
+fn rounded_ratio(numerator: u128, denominator: u64) -> Option<u64> {
+    let denominator = u128::from(denominator);
+    let rounded = (numerator + denominator / 2) / denominator;
+    nonzero_u64(u64::try_from(rounded).unwrap_or(u64::MAX))
 }
 
 pub struct Converter {
@@ -173,10 +352,12 @@ impl Converter {
                             sequence_num: packet.header.sequence_number,
                             ..Default::default()
                         };
-                        let mut sampler_id = None;
-                        let mut record_sampling_rate = None;
+                        let mut sampling = SamplingFields::default();
 
                         for (field_type, field_value) in fields {
+                            if sampling.observe_v9(field_type, field_value) {
+                                continue;
+                            }
                             match field_type {
                                 V9Field::Ipv4SrcAddr => {
                                     if msg.src_addr.is_empty() {
@@ -268,13 +449,6 @@ impl Converter {
                                     msg.tcp_flags = field_value_to_u32(field_value)
                                 }
                                 V9Field::SrcTos => msg.ip_tos = field_value_to_u32(field_value),
-                                V9Field::SamplingInterval | V9Field::FlowSamplerRandomInterval => {
-                                    record_sampling_rate =
-                                        nonzero_u64(field_value_to_u64(field_value));
-                                }
-                                V9Field::FlowSamplerId => {
-                                    sampler_id = nonzero_u64(field_value_to_u64(field_value));
-                                }
                                 V9Field::SrcVlan => msg.src_vlan = field_value_to_u32(field_value),
                                 V9Field::DstVlan => msg.dst_vlan = field_value_to_u32(field_value),
                                 V9Field::Ipv6FlowLabel => {
@@ -291,14 +465,19 @@ impl Converter {
 
                         msg.bytes_out = msg.bytes;
                         msg.packets_out = msg.packets;
-                        self.apply_sampling_rate(
-                            &mut msg,
-                            sampler_id,
-                            record_sampling_rate,
-                            sampler_rates,
-                        );
+                        self.apply_sampling_rate(&mut msg, &sampling, sampler_rates);
 
                         messages.push(msg);
+                    }
+                }
+                FlowSetBody::OptionsData(options) => {
+                    let source = self.source();
+                    for record in &options.fields {
+                        let mut sampling = SamplingFields::default();
+                        for (field, value) in &record.options_fields {
+                            sampling.observe_v9(field, value);
+                        }
+                        sampler_rates.learn_options(&source, &sampling);
                     }
                 }
                 FlowSetBody::NoTemplate(info) => {
@@ -336,10 +515,12 @@ impl Converter {
                             observation_domain_id: packet.header.observation_domain_id,
                             ..Default::default()
                         };
-                        let mut sampler_id = None;
-                        let mut record_sampling_rate = None;
+                        let mut sampling = SamplingFields::default();
 
                         for (field_type, field_value) in fields {
+                            if sampling.observe_ipfix(field_type, field_value) {
+                                continue;
+                            }
                             match field_type {
                                 IPFixField::IANA(IANAIPFixField::SourceIpv4address) => {
                                     if msg.src_addr.is_empty() {
@@ -530,21 +711,6 @@ impl Converter {
                                 IPFixField::IANA(IANAIPFixField::IpClassOfService) => {
                                     msg.ip_tos = field_value_to_u32(field_value)
                                 }
-                                IPFixField::IANA(IANAIPFixField::SamplingInterval)
-                                | IPFixField::IANA(IANAIPFixField::SamplingPacketInterval)
-                                | IPFixField::IANA(IANAIPFixField::SamplingFlowInterval)
-                                | IPFixField::IANA(IANAIPFixField::SamplerRandomInterval) => {
-                                    record_sampling_rate =
-                                        nonzero_u64(field_value_to_u64(field_value));
-                                }
-                                IPFixField::IANA(IANAIPFixField::SamplingProbability) => {
-                                    record_sampling_rate = sampling_rate_from_probability(
-                                        field_value_to_f64(field_value),
-                                    );
-                                }
-                                IPFixField::IANA(IANAIPFixField::SamplerId) => {
-                                    sampler_id = nonzero_u64(field_value_to_u64(field_value));
-                                }
                                 IPFixField::IANA(IANAIPFixField::MinimumTtl) => {
                                     msg.ip_ttl = field_value_to_u32(field_value)
                                 }
@@ -617,14 +783,19 @@ impl Converter {
 
                         // Construct AS path from available BGP AS fields
                         msg.as_path = construct_as_path(msg.src_as, msg.dst_as, msg.next_hop_as);
-                        self.apply_sampling_rate(
-                            &mut msg,
-                            sampler_id,
-                            record_sampling_rate,
-                            sampler_rates,
-                        );
+                        self.apply_sampling_rate(&mut msg, &sampling, sampler_rates);
 
                         messages.push(msg);
+                    }
+                }
+                FlowSetBody::OptionsData(options) => {
+                    let source = self.source();
+                    for record in &options.fields {
+                        let mut sampling = SamplingFields::default();
+                        for (field, value) in record {
+                            sampling.observe_ipfix(field, value);
+                        }
+                        sampler_rates.learn_options(&source, &sampling);
                     }
                 }
                 FlowSetBody::NoTemplate(info) => {
@@ -641,14 +812,8 @@ impl Converter {
         messages
     }
 
-    fn apply_sampling_rate(
-        &self,
-        msg: &mut flowpb::FlowMessage,
-        sampler_id: Option<u64>,
-        record_sampling_rate: Option<u64>,
-        sampler_rates: &mut SamplerRates,
-    ) {
-        let source = match &self.packet {
+    fn source(&self) -> SourceId {
+        match &self.packet {
             NetflowPacket::IPFix(packet) => SourceId::Ipfix(IpfixSourceKey {
                 addr: self.sampler_addr,
                 observation_domain_id: packet.header.observation_domain_id,
@@ -658,37 +823,27 @@ impl Converter {
                 source_id: packet.header.source_id,
             }),
             _ => SourceId::Legacy(self.sampler_addr),
-        };
+        }
+    }
 
-        if let (Some(id), Some(rate)) = (sampler_id, record_sampling_rate) {
-            if let Some(existing) = sampler_rates
-                .entries
-                .get_mut(&source)
-                .and_then(|entries| entries.get_mut(&id))
-            {
-                *existing = rate;
-            } else if sampler_rates.entry_count < MAX_SAMPLER_RATE_ENTRIES {
-                sampler_rates
-                    .entries
-                    .entry(source.clone())
-                    .or_default()
-                    .insert(id, rate);
-                sampler_rates.entry_count += 1;
-            } else {
-                sampler_rates.rejected_inserts = sampler_rates.rejected_inserts.saturating_add(1);
-            }
+    /// Resolves a flow's rate: the record's own sampling fields, then the rate
+    /// learned for the sampler it names or for its source, then the configured
+    /// per-exporter override or default.
+    fn apply_sampling_rate(
+        &self,
+        msg: &mut flowpb::FlowMessage,
+        sampling: &SamplingFields,
+        sampler_rates: &mut SamplerRates,
+    ) {
+        let source = self.source();
+        let record_sampling_rate = sampling.rate();
+
+        if let (Some(id), Some(rate)) = (sampling.sampler_id, record_sampling_rate) {
+            sampler_rates.remember_sampler(&source, id, rate);
         }
 
         let resolved = record_sampling_rate
-            .or_else(|| {
-                sampler_id.and_then(|id| {
-                    sampler_rates
-                        .entries
-                        .get(&source)
-                        .and_then(|entries| entries.get(&id))
-                        .copied()
-                })
-            })
+            .or_else(|| sampler_rates.learned_rate(&source, sampling.sampler_id))
             .unwrap_or(self.fallback_sampling_rate);
 
         let (bounded, was_clamped) = bound_sampling_rate(resolved, self.max_sampling_rate);

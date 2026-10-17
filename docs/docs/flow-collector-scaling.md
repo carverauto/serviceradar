@@ -151,6 +151,7 @@ peer identities or fingerprints.
 | `flow_collector_udp_template_rejections_total` | Default gate rejected template or non-legacy input |
 | `flow_collector_sources` | Live domain parsers across listener sessions |
 | `flow_collector_sampler_rate_rejections_total` | Sampler inserts rejected at capacity |
+| `flow_collector_options_sampling_rates_learned_total` | Sampling rates learned from exporter options records |
 | `flow_collector_sampling_rate_clamped_total` | Exporter-declared rates clamped to `max_sampling_rate` |
 | `flow_collector_channel_full_drops_total` | Publisher overflow |
 | `flow_collector_flows_converted_total` | Valid converted records |
@@ -165,6 +166,18 @@ by this rate, and every v9/IPFIX sampling field is unauthenticated wire input
 that decodes to a full `u64`, an unbounded value would inflate a single flow
 into fabricated volume. Investigate the exporter rather than raising the
 ceiling; 1:1,000,000 is already far past operational practice.
+
+Many sampling exporters declare their rate once, in IPFIX or NetFlow v9
+options data records, instead of in every flow record. The collector learns
+those rates per exporter address and observation domain (v9: source ID), and
+per sampler or selector ID when the record names one. A flow record's rate is
+resolved in this order: its own sampling fields; the learned rate of the
+sampler or selector it names; the rate options declared for its domain; then
+the configured per-exporter override or default. A domain whose options
+declare different rates for different selectors gives flow records that name
+no selector the configured fallback. Learned rates live in memory only and are
+learned again from the exporter's next options refresh after a restart or
+reconnect, as templates are.
 
 Deprecated `template_store_*` metrics remain zero for dashboard compatibility.
 Remove shared-bucket/restoration alerts. Missing templates on reconnect are
