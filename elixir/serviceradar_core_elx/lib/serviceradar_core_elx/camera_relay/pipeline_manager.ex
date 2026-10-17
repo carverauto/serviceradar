@@ -16,6 +16,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
 
   use GenServer
 
+  alias ServiceRadar.Camera.RelayHosts
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
   alias ServiceRadarCoreElx.CameraRelay.Pipeline
 
@@ -154,6 +155,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
             }
 
             true = :ets.insert(@pipelines_table, {relay_session_id, pipeline_pid})
+            # Lets web-ng send this relay's WebRTC signaling straight to this node.
+            :ok = RelayHosts.advertise(relay_session_id, pipeline_pid)
             {:reply, {:ok, session}, put_in(state, [:sessions, relay_session_id], session)}
 
           {:error, reason} ->

@@ -2,6 +2,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   use ExUnit.Case, async: false
 
   alias Membrane.WebRTC.Signaling
+  alias ServiceRadar.Camera.RelayHosts
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager
@@ -20,6 +21,22 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     end)
 
     :ok
+  end
+
+  # web-ng sends a relay's WebRTC signaling to whichever node advertises it, so
+  # the advertisement must exist while the pipeline runs and go away with it.
+  test "advertises this node as the relay's host only while its pipeline runs" do
+    relay_session_id = "relay-host-advertise-1"
+    assert RelayHosts.host_node(relay_session_id) == nil
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+    assert RelayHosts.host_node(relay_session_id) == node()
+
+    assert :ok = PipelineManager.close_session(relay_session_id)
+    # :pg drops a member when it sees the process exit; a call to the scope
+    # flushes that before the lookup.
+    _ = :sys.get_state(:serviceradar_camera_relay_hosts)
+    assert RelayHosts.host_node(relay_session_id) == nil
   end
 
   # Removal used to be acknowledged before the child was gone, so re-adding the
