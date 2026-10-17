@@ -799,7 +799,16 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		return disposition
 	}
 
-	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install) {
+	if err := p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install); err != nil {
+		// The package-owned updater lacks a flag this agent needs, and the agent's
+		// self-update never replaces it; only a host package upgrade does. Retrying
+		// cannot succeed, so record the failure: the rest of the config commits and
+		// acks, and this add-on reports why it is not running.
+		if errors.Is(err, errReleaseUpdaterFlagUnsupported) {
+			p.recordAddonDeliveryFailure(a, err, now)
+			return addonDeliveryPermanentFailure
+		}
+
 		// Install failure restores state inside the updater before it re-enables the
 		// previous unit. A metadata-write failure leaves the new unit enabled, so this
 		// path must not put the previous state file back under it.
@@ -966,7 +975,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	a *proto.AddonAssignmentConfig,
 	supervision, runtimeRoot, priorTarget string,
 	install installUnitsFn,
-) bool {
+) error {
 	root := resolveAddonArtifactRoot(runtimeRoot)
 
 	rollback := func(reason string, err error) {
@@ -980,17 +989,17 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	units, err := discoverStagedAddonUnits(runtimeRoot, a.GetAddonId())
 	if err != nil {
 		rollback("could not enumerate staged systemd units; not applied", err)
-		return false
+		return err
 	}
 	if len(units) == 0 {
 		rollback("no systemd units in staged bundle; not applied", ErrAddonSystemdNoUnitsDiscovered)
-		return false
+		return ErrAddonSystemdNoUnitsDiscovered
 	}
 
 	enable, err := pickPrimarySystemdUnit(units, supervision)
 	if err != nil {
 		rollback("could not select systemd unit to enable; not applied", err)
-		return false
+		return err
 	}
 
 	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
@@ -1014,7 +1023,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	}
 	if err := install(ctx, req); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
-		return false
+		return err
 	}
 	_ = os.Remove(req.StateSnapshotPath)
 
@@ -1035,7 +1044,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 				Err(err).
 				Str("addon", a.GetAddonId()).
 				Msg("Installed systemd add-on but failed to record durable activation metadata; will retry activation")
-			return false
+			return err
 		}
 	}
 
@@ -1058,7 +1067,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		Int("units", len(units)).
 		Msg("Installed systemd add-on")
 
-	return true
+	return nil
 }
 
 // systemdAddonUnits returns the unit names currently tracked as installed for an add-on.

@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -149,6 +150,49 @@ func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
 }
 
 func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		installErr      error
+		wantDisposition addonDeliveryDisposition
+		wantReported    string
+	}{
+		{
+			name:            "updater unavailable is retried",
+			installErr:      errAgentUpdaterUnavailable,
+			wantDisposition: addonDeliveryTransientFailure,
+		},
+		{
+			// The package-owned updater only changes with a host package upgrade, so
+			// retrying cannot succeed. Deferring would hold every config version back.
+			name: "updater missing a required flag is reported, not retried",
+			installErr: fmt.Errorf("locate agent updater for systemd install: %w",
+				fmt.Errorf("%w: --addon-version", errReleaseUpdaterFlagUnsupported)),
+			wantDisposition: addonDeliveryPermanentFailure,
+			wantReported:    "bumblebee: locate agent updater for systemd install: release updater does not support required flag: --addon-version",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pl, disposition, runtimeRoot := applyBumblebeeUpgradeWithInstallError(t, tc.installErr)
+
+			if disposition != tc.wantDisposition {
+				t.Fatalf("disposition = %v, want %v", disposition, tc.wantDisposition)
+			}
+			if got := pl.assignedAddonPermanentFailureSummary(); got != tc.wantReported {
+				t.Fatalf("reported failure = %q, want %q", got, tc.wantReported)
+			}
+			state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
+			if state["mode"] != "v1" {
+				t.Fatalf("failed activation left the new state config in place: %#v", state)
+			}
+		})
+	}
+}
+
+// applyBumblebeeUpgradeWithInstallError stages bumblebee 0.1.0 as the applied version,
+// then applies 0.2.0 through a privileged install that fails with installErr.
+func applyBumblebeeUpgradeWithInstallError(t *testing.T, installErr error) (*PushLoop, addonDeliveryDisposition, string) {
+	t.Helper()
+
 	runtimeRoot := t.TempDir()
 	root := resolveAddonArtifactRoot(runtimeRoot)
 	stage := func(version string, config []byte) {
@@ -171,8 +215,7 @@ func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
 			t.Fatalf("stage %s: %v", version, err)
 		}
 	}
-	v1 := []byte("{\n  \"mode\": \"v1\"\n}\n")
-	stage("0.1.0", v1)
+	stage("0.1.0", []byte("{\n  \"mode\": \"v1\"\n}\n"))
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
 		AddonId: "bumblebee",
 		Version: "0.1.0",
@@ -200,16 +243,11 @@ func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
 			return "", addonDeliverySucceeded, nil
 		},
 		func(context.Context, AddonSystemdInstallRequest) error {
-			return errAgentUpdaterUnavailable
+			return installErr
 		},
 	)
-	if disposition != addonDeliveryTransientFailure {
-		t.Fatalf("disposition = %v, want transient failure", disposition)
-	}
-	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
-	if state["mode"] != "v1" {
-		t.Fatalf("failed activation left the new state config in place: %#v", state)
-	}
+
+	return pl, disposition, runtimeRoot
 }
 
 func TestTimerActivationIsRequestedOnlyForANewVersion(t *testing.T) {
@@ -243,9 +281,9 @@ func TestTimerActivationIsRequestedOnlyForANewVersion(t *testing.T) {
 				}
 				return nil
 			}
-			if !pl.reconcileStagedSystemdUnits(context.Background(), assignment,
-				tc.supervision, root, tc.prior, install) {
-				t.Fatal("candidate systemd activation failed")
+			if err := pl.reconcileStagedSystemdUnits(context.Background(), assignment,
+				tc.supervision, root, tc.prior, install); err != nil {
+				t.Fatalf("candidate systemd activation failed: %v", err)
 			}
 			if !called {
 				t.Fatal("candidate never reached the privileged install boundary")
@@ -284,7 +322,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 		return errAgentUpdaterUnavailable
 	}
 
-	pl.reconcileStagedSystemdUnits(
+	err := pl.reconcileStagedSystemdUnits(
 		context.Background(),
 		&proto.AddonAssignmentConfig{AddonId: id},
 		addonSupervisionSystemdService,
@@ -292,6 +330,9 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 		prior,
 		failingInstall,
 	)
+	if !errors.Is(err, errAgentUpdaterUnavailable) {
+		t.Fatalf("reconcile error = %v, want errAgentUpdaterUnavailable", err)
+	}
 
 	if !installAttempted {
 		t.Fatal("expected an install attempt before the failure")
@@ -321,7 +362,7 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 		return nil
 	}
 
-	pl.reconcileStagedSystemdUnits(
+	err := pl.reconcileStagedSystemdUnits(
 		context.Background(),
 		&proto.AddonAssignmentConfig{AddonId: id},
 		addonSupervisionSystemdService,
@@ -329,6 +370,9 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 		prior,
 		install,
 	)
+	if !errors.Is(err, ErrAddonSystemdNoUnitsDiscovered) {
+		t.Fatalf("reconcile error = %v, want ErrAddonSystemdNoUnitsDiscovered", err)
+	}
 
 	if got := currentAddonTarget(t, runtimeRoot, id); got != prior {
 		t.Fatalf("current = %q, want rollback to %q", got, prior)
@@ -355,7 +399,7 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 		return nil
 	}
 
-	pl.reconcileStagedSystemdUnits(
+	err := pl.reconcileStagedSystemdUnits(
 		context.Background(),
 		&proto.AddonAssignmentConfig{
 			AddonId:        id,
@@ -368,6 +412,9 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 		filepath.Join(addonVersionsDir, "1.0.0"),
 		okInstall,
 	)
+	if err != nil {
+		t.Fatalf("reconcile failed: %v", err)
+	}
 
 	if len(gotUnits) != 1 || gotUnits[0] != netprobeTestUnit {
 		t.Fatalf("install units = %v, want [%s]", gotUnits, netprobeTestUnit)
@@ -611,7 +658,7 @@ func TestReconcileStagedSystemdUnitsPassesArtifactMetadataToUpdater(t *testing.T
 
 	wantSHA := sha256Hex([]byte("netprobe-1.1.0"))
 	wantSig := "test-sig"
-	pl.reconcileStagedSystemdUnits(
+	err := pl.reconcileStagedSystemdUnits(
 		context.Background(),
 		&proto.AddonAssignmentConfig{
 			AddonId:           id,
@@ -624,6 +671,9 @@ func TestReconcileStagedSystemdUnitsPassesArtifactMetadataToUpdater(t *testing.T
 		"",
 		install,
 	)
+	if err != nil {
+		t.Fatalf("reconcile failed: %v", err)
+	}
 
 	if gotReq.AddonID != id {
 		t.Fatalf("got AddonID = %q, want %q", gotReq.AddonID, id)
