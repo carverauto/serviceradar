@@ -103,7 +103,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc "Coalesce at most 500 nonzero ordinals; a rescan request advances the reconciliation fence."
   def bitmap_index_mark_dirty(_index, _ordinals, _request_rescan), do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc "Take up to 500 sorted ordinals before reading their source rows; requeue on failure."
+  @doc """
+  Take up to 500 sorted ordinals before reading their source rows.
+  Requeue them when that publish fails, unless the index already folded the queue into a rescan.
+  """
   def bitmap_index_take_dirty(_index, _limit), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc "Acknowledge a completed full keyset pass only at the generation observed before that pass."

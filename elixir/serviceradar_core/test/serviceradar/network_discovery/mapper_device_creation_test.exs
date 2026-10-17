@@ -661,6 +661,56 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert revival_audit_rows(uid) == []
   end
 
+  test "a poll rehydrates a purged identity and leaves an unpurged tombstone's recorded identity", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    purged_ip = unique_test_ip(198, 51, 80, uniq)
+    unpurged_ip = unique_test_ip(198, 51, 81, uniq + 1)
+    purged_mac = unique_global_test_mac(uniq)
+    unpurged_mac = unique_global_test_mac(uniq + 1)
+    recorded_host = "sr-unpurged-#{uniq}.example.com"
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(purged_ip, [purged_mac]), %{})
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(unpurged_ip, [unpurged_mac]), %{})
+    assert [%Device{uid: purged_uid} = purged] = wait_for_devices_by_ip(actor, purged_ip)
+    assert [%Device{uid: unpurged_uid} = unpurged] = wait_for_devices_by_ip(actor, unpurged_ip)
+
+    assert {:ok, _} = Device.soft_delete(purged, "stale", "system:mapper_test_reaper", actor: actor)
+    assert {:ok, _} = Device.soft_delete(unpurged, "stale", "system:mapper_test_reaper", actor: actor)
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET identity_purged_at = timezone('utc', now()), hostname = NULL, metadata = '{}'::jsonb
+      WHERE uid = $1
+      """,
+      [purged_uid]
+    )
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET hostname = $1, identity_purged_at = NULL, metadata = '{}'::jsonb
+      WHERE uid = $2
+      """,
+      [recorded_host, unpurged_uid]
+    )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(purged_ip, [purged_mac]), %{})
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(unpurged_ip, [unpurged_mac]), %{})
+
+    assert {:ok, revived} = Device.get_by_uid(purged_uid, false, actor: actor)
+    assert revived.deleted_at == nil
+    assert revived.identity_purged_at == nil
+    assert (revived.metadata || %{})["identity_source"] == "mapper_primary_mac_seed"
+
+    assert {:ok, kept} = Device.get_by_uid(unpurged_uid, false, actor: actor)
+    assert kept.deleted_at == nil
+    assert kept.hostname == recorded_host
+    refute (kept.metadata || %{})["identity_source"] == "mapper_primary_mac_seed"
+  end
+
   test "a poll restores a device an automatic process deleted, through the audited restore", %{
     actor: actor
   } do

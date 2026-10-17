@@ -53,6 +53,17 @@ impl Pending {
         Ok(())
     }
 
+    pub(super) fn collapse_to_rescan(&mut self, budget: &Arc<Budget>) -> Result<(), Error> {
+        let generation = self
+            .rescan_generation
+            .checked_add(1)
+            .ok_or("rescan_generation_exhausted")?;
+        self.replace(Bitmap::new(RoaringBitmap::new(), budget)?)?;
+        self.rescan_generation = generation;
+        self.rescan_needed = true;
+        Ok(())
+    }
+
     fn replace(&mut self, next: Arc<Bitmap>) -> Result<(), Error> {
         next.charge.budget.admit(
             std::iter::once(&next.charge),

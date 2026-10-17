@@ -9,10 +9,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadar.PrefixTags.Native, as: PrefixNative
+  alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.BitmapIndex
+  alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapSelection
   alias ServiceRadarWebNG.Topology.BitmapSource
@@ -489,6 +492,155 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     send(socket.channel_pid, :tile_tick)
     assert_push "topology_error", %{reason: "forbidden"}, 5_000
     assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 5_000
+  end
+
+  test "accepted membership follows the built revision and recomputes a named prefix tag without a new publication", %{
+    cohort: cohort
+  } do
+    source = "synthetic-bitmap-" <> String.replace(Ecto.UUID.generate(), "-", "")
+    on_exit(fn -> Store.clear(source) end)
+    included = create("sr:bitmap-fence-#{System.unique_integer([:positive])}", %{region: cohort, is_available: true})
+
+    user =
+      User
+      |> Ash.Changeset.for_create(:create, %{email: "bitmap-fence-#{System.unique_integer([:positive])}@example.com", role: :viewer},
+        actor: @actor
+      )
+      |> Ash.create!()
+
+    scope = Scope.for_user(user)
+    start_supervised!({Endpoint, []})
+    tasks = start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.Topology.TileWatchTasks, max_children: 8})
+    start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    start_supervised!(BitmapQueries)
+    start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    {:ok, snapshot} = await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
+    _world = install_world([included], snapshot.dictionary_epoch)
+    {:ok, key} = TileKey.new(@version, 16, 0, 0)
+    {:ok, tile} = WorldCache.fetch(key)
+
+    {:ok, _fence, socket} =
+      UserSocket
+      |> socket("synthetic-bitmap-fence", %{current_scope: scope})
+      |> subscribe_and_join(TopologyTileChannel, "topology:tiles", %{})
+
+    params = %{
+      "protocol" => 1,
+      "layout_version" => @version,
+      "query" => within_cohort(cohort, %{"facet" => "region", "value" => cohort}),
+      "tiles" => [%{"z" => 16, "x" => 0, "y" => 0, "revision" => tile.revision}]
+    }
+
+    await(fn -> BitmapIndex.snapshot() end, &quiet_index?/1)
+    ref = push(socket, "membership:watch", params)
+    assert_reply ref, :ok, %{view_digest: digest}, 5_000
+    assert_push "membership:frame", {:binary, frame}, 5_000
+    {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(frame)
+    ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
+    assert_reply ref, :ok
+    send(socket.channel_pid, :tile_tick)
+    refute_push "membership:frame", _skipped, 200
+
+    {:ok, before} = BitmapIndex.snapshot()
+
+    assert {:ok, _} =
+             Native.bitmap_index_publish(
+               before.device,
+               before.progress.index_revision,
+               <<9::unsigned-64>>,
+               [],
+               true
+             )
+
+    {:ok, published} = BitmapIndex.snapshot()
+    assert published.progress.index_revision == before.progress.index_revision + 1
+    holders = occupy_watch_tasks()
+
+    try do
+      send(socket.channel_pid, :tile_tick)
+      refute_push "membership:frame", _reset, 200
+    after
+      Enum.each(holders, &Process.exit(&1, :kill))
+    end
+
+    await(fn -> Task.Supervisor.children(ServiceRadarWebNG.Topology.TileWatchTasks) end, &(&1 == []))
+    send(socket.channel_pid, :tile_tick)
+    assert_push "membership:frame", {:binary, refreshed}, 5_000
+    {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(refreshed)
+    {:ok, during} = BitmapIndex.snapshot()
+    assert during.progress.index_revision == published.progress.index_revision
+
+    ref =
+      push(socket, "membership:ack", %{
+        "sequence" => Integer.to_string(sequence),
+        "view_digest" => digest_of(refreshed)
+      })
+
+    assert_reply ref, :ok
+    ref = push(socket, "membership:unwatch", %{})
+    assert_reply ref, :ok
+
+    expires_at = DateTime.add(DateTime.utc_now(), 8, :second)
+
+    Store.put_rows(source, [
+      %{prefix: "192.0.2.0/25", tags: ["office"], expires_at: expires_at}
+    ])
+
+    assert {:ok, nil} = BitmapPrefixTags.prepare([source], System.monotonic_time(:millisecond) + 5_000)
+    {:ok, %{version: version, trie: trie}} = Store.capture(source)
+    assert {:ok, live_ranges} = PrefixNative.label_ranges(trie, "office", 8, 4_096, 1_000)
+    assert byte_size(live_ranges) > 0
+
+    prefix_params =
+      Map.put(params, "query", %{
+        "prefix_tag" => %{"source" => source, "label" => "office"}
+      })
+
+    {:ok, stable} = BitmapIndex.snapshot()
+    ref = push(socket, "membership:watch", prefix_params)
+    assert_reply ref, :ok, %{view_digest: prefix_digest}, 5_000
+    assert_push "membership:frame", {:binary, prefix_frame}, 5_000
+    {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(prefix_frame)
+    ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => prefix_digest})
+    assert_reply ref, :ok
+
+    await(fn ->
+      {:ok, %{trie: current}} = Store.capture(source)
+      PrefixNative.label_ranges(current, "office", 8, 4_096, 1_000)
+    end, &(&1 == {:ok, <<>>}))
+
+    {:ok, %{version: ^version}} = Store.capture(source)
+    {:ok, still} = BitmapIndex.snapshot()
+    assert still.progress.index_revision == stable.progress.index_revision
+    send(socket.channel_pid, :tile_tick)
+    assert_push "membership:frame", {:binary, _expired_refresh}, 5_000
+    {:ok, after_prefix} = BitmapIndex.snapshot()
+    assert after_prefix.progress.index_revision == stable.progress.index_revision
+  end
+
+  defp quiet_index?({:ok, %{progress: %{pending_dirty: 0, reconciling: false, source_error: false}}}), do: true
+  defp quiet_index?(_snapshot), do: false
+
+  defp occupy_watch_tasks do
+    holders =
+      Enum.reduce_while(1..8, [], fn _, acc ->
+        case Task.Supervisor.start_child(ServiceRadarWebNG.Topology.TileWatchTasks, fn ->
+               Process.sleep(30_000)
+             end) do
+          {:ok, pid} -> {:cont, [pid | acc]}
+          {:error, _} -> {:halt, acc}
+        end
+      end)
+
+    assert {:error, _} =
+             Task.Supervisor.start_child(ServiceRadarWebNG.Topology.TileWatchTasks, fn -> :ok end)
+
+    holders
+  end
+
+  defp digest_of(frame) do
+    {_sequence, _total, digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(frame)
+    digest
   end
 
   defp install_world(devices, epoch) do

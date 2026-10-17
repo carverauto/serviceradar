@@ -291,18 +291,10 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     attrs = %{
       hostname: agent.host || agent.name,
       agent_id: agent.uid,
-      last_seen_time: DateTime.utc_now()
+      last_seen_time: DateTime.utc_now(),
+      discovery_sources: ["agent"],
+      metadata: %{"created_by" => "dire_remediation", "step" => @step}
     }
-
-    attrs =
-      if plan.target_device.identity_purged_at do
-        Map.merge(attrs, %{
-          discovery_sources: ["agent"],
-          metadata: %{"created_by" => "dire_remediation", "step" => @step}
-        })
-      else
-        attrs
-      end
 
     if Decisions.valid_ip?(agent.ip), do: Map.put(attrs, :ip, agent.ip), else: attrs
   end
@@ -452,11 +444,36 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   # Atomic updates build their query from the primary read, which filters
   # tombstoned rows — restore must go through an include_deleted query.
+  defp ensure_target_device(%{action: :restore, target_device: %{identity_purged_at: purged_at}} = plan, manifest, actor)
+       when not is_nil(purged_at) do
+    bulk_restore(plan, manifest, actor, :gateway_restore, restore_attrs(plan))
+  end
+
   defp ensure_target_device(%{action: :restore} = plan, manifest, actor) do
+    bulk_restore(plan, manifest, actor, :restore, %{})
+  end
+
+  defp ensure_target_device(%{action: :create} = plan, manifest, actor) do
+    case Device
+         |> Ash.Changeset.for_create(:create, plan.create_attrs)
+         |> Ash.create(actor: actor) do
+      {:ok, device} ->
+        Manifest.record(manifest, @step, :create_device, "platform.ocsf_devices", [device.uid], %{
+          agent_uid: plan.agent_uid
+        })
+
+        {:ok, device.uid}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp bulk_restore(plan, manifest, actor, action, attrs) do
     result =
       Device
       |> Ash.Query.for_read(:by_uid, %{uid: plan.target_device.uid, include_deleted: true})
-      |> Ash.bulk_update(:gateway_restore, restore_attrs(plan),
+      |> Ash.bulk_update(action, attrs,
         actor: actor,
         return_errors?: true,
         strategy: [:atomic, :stream]
@@ -477,22 +494,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
       %Ash.BulkResult{errors: errors} ->
         {:error, errors}
-    end
-  end
-
-  defp ensure_target_device(%{action: :create} = plan, manifest, actor) do
-    case Device
-         |> Ash.Changeset.for_create(:create, plan.create_attrs)
-         |> Ash.create(actor: actor) do
-      {:ok, device} ->
-        Manifest.record(manifest, @step, :create_device, "platform.ocsf_devices", [device.uid], %{
-          agent_uid: plan.agent_uid
-        })
-
-        {:ok, device.uid}
-
-      {:error, _} = error ->
-        error
     end
   end
 
