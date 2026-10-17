@@ -257,10 +257,34 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert %{pid: ^held, abandoned: true} = timed_out.assigns.bitmap_stream.task
     refute_receive {:socket_push, _, _}
 
+    displayed = %{
+      dictionary_epoch: "synthetic-dictionary",
+      index_epoch: "synthetic-index",
+      query_digest: "synthetic-query",
+      authority_fingerprint: "synthetic-authority",
+      view_digest: "current-view",
+      source_revision: "synthetic-source",
+      index_revision: "1",
+      sequence: 1,
+      total: 0
+    }
+
+    kept_request = %{"query" => %{"all" => []}}
+
+    timed_out =
+      Phoenix.Socket.assign(timed_out, :bitmap_stream, %{
+        timed_out.assigns.bitmap_stream
+        | metadata: displayed,
+          request: kept_request
+      })
+
     assert {:reply, {:error, %{reason: "query_busy"}}, busy} =
              TopologyTileChannel.handle_in("membership:watch", params, timed_out)
 
     assert busy.assigns.bitmap_stream.task.pid == held
+    assert busy.assigns.bitmap_stream.metadata == displayed
+    assert busy.assigns.bitmap_stream.request == kept_request
+    refute_receive {:socket_push, _, _}
 
     assert {:noreply, released} =
              TopologyTileChannel.handle_info({:membership_built, token, {:ok, %{frame: "late"}}}, busy)

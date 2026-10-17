@@ -60,10 +60,9 @@ impl Catalog {
                 if index % 256 == 0 {
                     check(deadline)?;
                 }
-                if surrounding_whitespace(tag) {
+                if !queryable_label(tag) {
                     continue;
                 }
-                validate_label(tag)?;
                 count += 1;
                 if count > (MAX_BYTES - size_of::<Self>()) / size_of::<LabelRef>() {
                     return Err("catalog_budget");
@@ -85,7 +84,7 @@ impl Catalog {
                 if tag % 256 == 0 {
                     check(deadline)?;
                 }
-                if surrounding_whitespace(&entry.tags[tag]) {
+                if !queryable_label(&entry.tags[tag]) {
                     continue;
                 }
                 references.push(LabelRef {
@@ -259,6 +258,10 @@ fn append_range(
     output.extend_from_slice(&range.1.to_be_bytes());
     output.extend_from_slice(&range.2.to_be_bytes());
     Ok(())
+}
+
+fn queryable_label(label: &str) -> bool {
+    validate_label(label).is_ok()
 }
 
 fn surrounding_whitespace(label: &str) -> bool {

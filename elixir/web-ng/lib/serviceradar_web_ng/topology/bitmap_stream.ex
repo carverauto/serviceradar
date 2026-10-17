@@ -28,13 +28,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def watch(params, socket) do
     with true <- BitmapQueries.enabled?(), {:ok, _watch} <- BitmapView.validate(params) do
-      socket = reset(socket)
       state = socket.assigns.bitmap_stream
 
       if state.task do
         {:reply, {:error, error(:query_busy)}, socket}
       else
-        state = %{state | request: params, reply: socket_ref(socket)}
+        socket = reset(socket)
+        state = %{socket.assigns.bitmap_stream | request: params, reply: socket_ref(socket)}
         {:noreply, launch(assign(socket, :bitmap_stream, state))}
       end
     else

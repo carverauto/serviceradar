@@ -45,7 +45,7 @@ describe("topology GPU ownership", () => {
     const deck = new TopologyDeck({canvas: {}, deviceProps: {type: "webgpu", adapters: [adapter]}})
     deck.finalize()
     pending.resolve(device)
-    await Promise.resolve()
+    await expect(deck.creation).rejects.toThrow("GPU device closed during creation")
     expect(device.destroy).toHaveBeenCalledOnce()
   })
 })

@@ -81,9 +81,10 @@ Do not run the database targets against a live or developer database. The
 helper requires the existing scratch-database guard and verified TLS. The
 acceptance test refuses to seed unless the connection is this run's disposable
 clone and no `sr:atlas-scale-%` rows are already present. The exit hook closes
-over that seed record, including a seed that stops early, and removes those
-exact rows, their interfaces and the synthetic viewer before the workflow drops
-the clone. Do not
+over that seed record, including a seed that stops early. It is a bounded
+attempt of about one minute between the 2,640-second ExUnit timeout and the
+2,700-second Bazel timeout. The cleanup guarantee is the guarded CI clone drop
+`//rust/integration-db:teardown_db`, which drops the clone after the test. Do not
 rerun a completed variant in a dirty clone: fixture IDs intentionally collide
 and fail rather than silently reuse prior state.
 

@@ -9,7 +9,11 @@ export class TopologyDeck extends Deck {
       async create(deviceProps) {
         const created = await adapter.create(deviceProps)
         lifetime.device = created
-        if (lifetime.disposed) created.destroy()
+        if (lifetime.disposed) {
+          created.destroy()
+          lifetime.device = null
+          throw new Error("GPU device closed during creation")
+        }
         return created
       },
     }))

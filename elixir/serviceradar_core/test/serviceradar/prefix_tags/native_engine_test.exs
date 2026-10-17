@@ -139,10 +139,25 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
     assert Store.put_rows("manual", [%{prefix: "198.51.100.0/24", tags: ["replacement"]}]) ==
              version + 1
 
-    assert {:ok, %{labels: ["office", "zone"]}} = Native.label_page(snapshot, nil, 50, 1_000)
-    assert {:ok, true} = Native.release_catalog(snapshot)
+    assert {:error, "catalog_not_ready"} = Native.label_page(snapshot, nil, 50, 1_000)
     assert {:ok, %{available: false, native_bytes: 0}} = Native.catalog_status(snapshot)
     assert [%{tags: ["office", "zone"]}] = NativeEngine.lookup(snapshot, "192.0.2.1")
+
+    assert {:ok, %{version: current_version, trie: current}} = Store.capture("manual")
+    assert current_version == version + 1
+
+    assert {:ok, %{available: true, label_count: 1}} = Native.prepare_catalog(current, 1_000)
+
+    assert {:ok, %{labels: ["replacement"], next_after: nil}} =
+             Native.label_page(current, nil, 50, 1_000)
+
+    assert {:ok, <<4, 0xC6336400::128, 0xC63364FF::128>>} =
+             Native.label_ranges(current, "replacement", 1, 33, 1_000)
+
+    assert [%{tags: ["replacement"]}] = NativeEngine.lookup(current, "198.51.100.1")
+    assert {:ok, true} = Native.release_catalog(current)
+    assert {:error, "catalog_not_ready"} = Native.label_page(current, nil, 50, 1_000)
+    assert [%{tags: ["replacement"]}] = NativeEngine.lookup(current, "198.51.100.1")
     Store.clear("manual")
     assert {:error, :prefix_source_unavailable} = Store.capture("manual")
 
@@ -151,8 +166,11 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
         %{prefix: "203.0.113.0/24", tags: ["valid", String.duplicate("x", 257)]}
       ])
 
-    assert {:error, "label_budget"} = Native.prepare_catalog(oversized, 1_000)
-    assert {:ok, %{available: false, native_bytes: 0}} = Native.catalog_status(oversized)
+    assert {:ok, %{available: true, label_count: 1}} = Native.prepare_catalog(oversized, 1_000)
+
+    assert {:ok, %{labels: ["valid"], next_after: nil}} =
+             Native.label_page(oversized, nil, 50, 1_000)
+
     assert [%{tags: ["valid", _long_label]}] = NativeEngine.lookup(oversized, "203.0.113.1")
   end
 
