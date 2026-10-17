@@ -327,10 +327,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     alert_id = alert.id
 
     with :ok <- enqueue_routing_result(alert.id, :renotify),
-         {:ok, _alert} <-
+         {:ok, _alert, notifications} <-
            alert
            |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
-           |> Ash.update() do
+           |> Ash.update(return_notifications?: true) do
+      Inbox.notify_after_commit(notifications)
+
       # Bookkeeping advances only after the routing request is durable. If the
       # enqueue fails, the cadence remains due and the continuation scan tries
       # again on its next tick.
@@ -339,11 +341,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       |> Ash.bulk_update(:record_notification, %{last_notification_at: now},
         actor: actor,
         return_errors?: true,
+        return_notifications?: true,
         stop_on_error?: true
       )
       |> case do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> {:error, errors}
+        %Ash.BulkResult{status: :success, notifications: notifications} ->
+          Inbox.notify_after_commit(notifications || [])
+
+        %Ash.BulkResult{errors: errors} ->
+          {:error, errors}
       end
     end
   end
@@ -385,8 +391,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
           case alert
                |> Ash.Changeset.for_update(:update_metadata, %{metadata: metadata}, actor: actor)
-               |> Ash.update() do
-            {:ok, _updated} ->
+               |> Ash.update(return_notifications?: true) do
+            {:ok, _updated, notifications} ->
+              Inbox.notify_after_commit(notifications)
               snapshot
 
             {:error, reason} ->

@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: MetricPublisher
   alias Serviceradar.Metric.V1.MetricBatch
@@ -22,6 +24,17 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
 
   @moduletag :integration
   @time ~U[2026-01-01 00:00:00.000000Z]
+
+  defmodule DeliveredNotifier do
+    @moduledoc false
+    use Ash.Notifier
+
+    @impl Ash.Notifier
+    def notify(%{metadata: %{test_pid: pid, tag: tag}}) do
+      send(pid, {:delivered, tag})
+      :ok
+    end
+  end
 
   setup_all do
     TestSupport.start_core!()
@@ -697,6 +710,68 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
     assert [] = work(rule, actor)
     assert [%{disposition: :completed}] = Ash.read!(AlertEvaluationReceipt, actor: actor)
+  end
+
+  # Admission reserves input positions with an atomic Ash update inside its
+  # transaction. Without collecting the notification Ash logs it as missed on
+  # every admitted batch.
+  @tag sandbox: :unboxed
+  test "admission logs no missed Ash notifications", %{rule: rule, actor: actor} do
+    log = capture_log(fn -> assert {:ok, [_]} = Inbox.admit(:event, [event()]) end)
+
+    refute log =~ "Missed"
+    assert [%{position: 1}] = work(rule, actor)
+  end
+
+  # Notifications handed to notify_after_commit/1 inside transact/2 reach their
+  # notifiers once the outermost transaction commits, and never after a rollback.
+  for {label, outcome} <- [
+        {"commits", :commit},
+        {"rolls back", :rollback},
+        {"commits after a nested one", :nested}
+      ] do
+    @tag sandbox: :unboxed
+    test "notifications queued in a transaction are delivered only when it #{label}" do
+      outcome = unquote(outcome)
+
+      notification = %Ash.Notifier.Notification{
+        resource: AlertEvaluationLane,
+        domain: ServiceRadar.Observability,
+        data: %AlertEvaluationLane{},
+        for: [DeliveredNotifier],
+        metadata: %{test_pid: self(), tag: outcome}
+      }
+
+      result =
+        Inbox.transact(2_000, fn ->
+          case outcome do
+            :commit ->
+              Inbox.notify_after_commit([notification])
+
+            :rollback ->
+              Inbox.notify_after_commit([notification])
+              Repo.rollback(:test)
+
+            :nested ->
+              assert {:ok, :ok} =
+                       Inbox.transact(2_000, fn -> Inbox.notify_after_commit([notification]) end)
+
+              refute_received {:delivered, :nested}
+              :ok
+          end
+        end)
+
+      case outcome do
+        :rollback ->
+          assert result == {:error, :test}
+          refute_receive {:delivered, :rollback}, 100
+
+        _committed ->
+          assert {:ok, :ok} = result
+          assert_received {:delivered, ^outcome}
+          refute_receive {:delivered, ^outcome}, 100
+      end
+    end
   end
 
   test "count overload rejects the entire batch without reserving input positions", %{

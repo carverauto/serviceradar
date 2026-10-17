@@ -36,6 +36,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   }
   @admission_key "alert-evaluation:admission:v1"
   @client_backstop_ms 1_000
+  @pending_notifications {__MODULE__, :pending_notifications}
 
   @doc "Commits every eligible rule occurrence or rejects the entire batch."
   def admit(signal, records) when signal in [:log, :event, :metric] and is_list(records) do
@@ -205,12 +206,54 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
   def evaluation_key(rule_id), do: "alert-evaluation:owner:v1:#{rule_id}"
 
+  @doc """
+  Sends Ash notifications once the enclosing `transact/2` commits, and drops
+  them if it rolls back. Outside one it sends them now.
+
+  An Ash action run inside a plain `Repo.transaction` cannot send its own
+  notifications: Ash holds them back and logs them as missed. Actions here run
+  with `return_notifications?: true` and pass the result to this function.
+  """
+  @spec notify_after_commit([Ash.Notifier.Notification.t()]) :: :ok
+  def notify_after_commit(notifications) when is_list(notifications) do
+    case Process.get(@pending_notifications) do
+      nil -> _ = Ash.Notifier.notify(notifications)
+      pending -> Process.put(@pending_notifications, [notifications | pending])
+    end
+
+    :ok
+  end
+
   # PostgreSQL's lock and statement timeouts enforce `timeout`: an expired
   # statement is cancelled, the transaction rolls back and the connection stays
   # usable. The client deadline only backstops a store PostgreSQL cannot reach.
   # It starts at checkout, before the server budget does, and on expiry it
   # disconnects the connection mid-query, so it must not equal that budget.
+  #
+  # The outermost call owns the notification queue `notify_after_commit/1`
+  # fills, and sends it only when its transaction committed.
   def transact(timeout, work) do
+    if Process.get(@pending_notifications) do
+      run_transaction(timeout, work)
+    else
+      Process.put(@pending_notifications, [])
+
+      try do
+        result = run_transaction(timeout, work)
+        pending = Process.get(@pending_notifications)
+
+        if match?({:ok, _}, result) do
+          _ = pending |> Enum.reverse() |> List.flatten() |> Ash.Notifier.notify()
+        end
+
+        result
+      after
+        Process.delete(@pending_notifications)
+      end
+    end
+  end
+
+  defp run_transaction(timeout, work) do
     Repo.transaction(
       fn ->
         %{rows: [[lock_timeout, statement_timeout]]} =
@@ -379,18 +422,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
       |> Enum.group_by(& &1.rule_id)
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.flat_map(fn {rule_id, records} ->
-        lane =
+        {lane, registered} =
           Lane
           |> Ash.Changeset.for_create(:register, %{rule_id: rule_id}, actor: actor())
-          |> Ash.create!()
+          |> Ash.create!(return_notifications?: true)
 
-        lane
-        |> Ash.Changeset.for_update(
-          :reserve,
-          %{next_position: lane.next_position + length(records)},
-          actor: actor()
-        )
-        |> Ash.update!()
+        {_lane, reserved} =
+          lane
+          |> Ash.Changeset.for_update(
+            :reserve,
+            %{next_position: lane.next_position + length(records)},
+            actor: actor()
+          )
+          |> Ash.update!(return_notifications?: true)
+
+        notify_after_commit(registered ++ reserved)
 
         records
         |> Enum.with_index(lane.next_position + 1)
