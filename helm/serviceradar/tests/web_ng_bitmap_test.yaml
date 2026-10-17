@@ -28,6 +28,10 @@ tests:
       webNg.topologyBitmapTagKeys: [role, "zone,group"]
       webNg.extraEnv.SERVICERADAR_TOPOLOGY_BITMAP_ENABLED: "false"
       webNg.extraEnv.SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS: "[]"
+      webNg.extraEnvValueFrom.SERVICERADAR_TOPOLOGY_BITMAP_ENABLED:
+        secretKeyRef:
+          name: synthetic-secret
+          key: enabled
       webNg.extraEnvValueFrom.SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS:
         configMapKeyRef:
           name: synthetic-config
@@ -64,6 +68,17 @@ tests:
           content:
             name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
             value: "[]"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_ENABLED
+            valueFrom:
+              secretKeyRef:
+                name: synthetic-secret
+                key: enabled
         documentSelector:
           path: kind
           value: Deployment

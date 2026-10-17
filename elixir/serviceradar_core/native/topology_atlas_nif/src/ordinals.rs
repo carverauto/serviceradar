@@ -1,5 +1,5 @@
 //! Bounded canonical dictionary projection paired with a world generation.
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 use rustler::{
     types::list::ListIterator, Atom, Binary, Env, NifMap, OwnedBinary, Resource, ResourceArc, Term,
@@ -18,15 +18,30 @@ mod atoms {
 static ORDINAL_RESOURCES: crate::admission::Gate = crate::admission::Gate::new(2);
 
 struct OrdinalResource {
-    mapping: RwLock<CanonicalOrdinals>,
-    // Fields drop in order: the mapping allocation is freed before its permit.
-    _lifetime: crate::admission::Permit<'static>,
+    mapping: RwLock<Option<CanonicalOrdinals>>,
+    permit: Mutex<Option<crate::admission::Permit<'static>>>,
 }
 #[rustler::resource_impl]
 impl Resource for OrdinalResource {
     fn destructor(self, _env: Env<'_>) {
         crate::reclaim(self);
     }
+}
+
+fn with_ordinals<T>(
+    resource: &OrdinalResource,
+    body: impl FnOnce(&CanonicalOrdinals) -> Result<T, Atom>,
+) -> Result<T, Atom> {
+    let guard = resource.mapping.try_read().map_err(|_| atoms::busy())?;
+    body(guard.as_ref().ok_or_else(atoms::not_ready)?)
+}
+
+fn with_ordinals_mut<T>(
+    resource: &OrdinalResource,
+    body: impl FnOnce(&mut CanonicalOrdinals) -> Result<T, Atom>,
+) -> Result<T, Atom> {
+    let mut guard = resource.mapping.try_write().map_err(|_| atoms::busy())?;
+    body(guard.as_mut().ok_or_else(atoms::not_ready)?)
 }
 
 fn engine_error(error: Error) -> Atom {
@@ -110,10 +125,26 @@ fn new_ordinals<'a>(
             let lifetime = ORDINAL_RESOURCES.try_acquire().ok_or_else(atoms::busy)?;
             let mapping = CanonicalOrdinals::new(&world.0.geometry, epoch).map_err(engine_error)?;
             Ok(ResourceArc::new(OrdinalResource {
-                mapping: RwLock::new(mapping),
-                _lifetime: lifetime,
+                mapping: RwLock::new(Some(mapping)),
+                permit: Mutex::new(Some(lifetime)),
             }))
         })
+    })
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn release_ordinals(env: Env<'_>, mapping: ResourceArc<OrdinalResource>) -> Term<'_> {
+    read_reply(env, || {
+        let retired = {
+            let mut guard = mapping.mapping.try_write().map_err(|_| atoms::busy())?;
+            guard.take()
+        };
+        drop(retired);
+        let released = {
+            let mut permit = mapping.permit.try_lock().map_err(|_| atoms::busy())?;
+            permit.take()
+        };
+        Ok(released.is_some())
     })
 }
 
@@ -131,12 +162,9 @@ fn apply_ordinals<'a>(
                     row.decode().map_err(|_| atoms::invalid_request())?;
                 Ok((uid(id)?, ordinal))
             })?;
-            let result = mapping
-                .mapping
-                .try_write()
-                .map_err(|_| atoms::busy())?
-                .apply(&world.0.geometry, &rows)
-                .map_err(engine_error)?;
+            let result = with_ordinals_mut(&mapping, |ordinals| {
+                ordinals.apply(&world.0.geometry, &rows).map_err(engine_error)
+            })?;
             info(env, result)
         })
     })
@@ -149,12 +177,9 @@ fn seal_ordinals(
     mapping: ResourceArc<OrdinalResource>,
 ) -> Term<'_> {
     read_reply(env, || {
-        let result = mapping
-            .mapping
-            .try_write()
-            .map_err(|_| atoms::busy())?
-            .seal(&world.0.geometry)
-            .map_err(engine_error)?;
+        let result = with_ordinals_mut(&mapping, |ordinals| {
+            ordinals.seal(&world.0.geometry).map_err(engine_error)
+        })?;
         info(env, result)
     })
 }
@@ -166,12 +191,9 @@ fn ordinal_info(
     mapping: ResourceArc<OrdinalResource>,
 ) -> Term<'_> {
     read_reply(env, || {
-        let result = mapping
-            .mapping
-            .try_read()
-            .map_err(|_| atoms::busy())?
-            .info(&world.0.geometry)
-            .map_err(engine_error)?;
+        let result = with_ordinals(&mapping, |ordinals| {
+            ordinals.info(&world.0.geometry).map_err(engine_error)
+        })?;
         info(env, result)
     })
 }
@@ -186,12 +208,11 @@ fn device_ordinals<'a>(
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_reply(env, || {
             let ids = bounded_list(ids, 8192, uid)?;
-            mapping
-                .mapping
-                .try_read()
-                .map_err(|_| atoms::busy())?
-                .device_ordinals(&world.0.geometry, &ids)
-                .map_err(engine_error)
+            with_ordinals(&mapping, |ordinals| {
+                ordinals
+                    .device_ordinals(&world.0.geometry, &ids)
+                    .map_err(engine_error)
+            })
         })
     })
 }
@@ -207,12 +228,11 @@ fn aggregate_ordinals(
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::ORDINAL_READ, || {
         read_reply(env, || {
-            let bytes = mapping
-                .mapping
-                .try_read()
-                .map_err(|_| atoms::busy())?
-                .aggregate(&world.0.geometry, &aggregate.0, max_bytes, timeout_ms)
-                .map_err(engine_error)?;
+            let bytes = with_ordinals(&mapping, |ordinals| {
+                ordinals
+                    .aggregate(&world.0.geometry, &aggregate.0, max_bytes, timeout_ms)
+                    .map_err(engine_error)
+            })?;
             binary(env, &bytes)
         })
     })

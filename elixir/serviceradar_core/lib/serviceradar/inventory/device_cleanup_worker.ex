@@ -561,7 +561,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       cleared <>
       ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at', '_seed_successor']::text[])), " <>
       "created_time = timezone('utc', now()), modified_time = timezone('utc', now()), " <>
-      "identity_purged_at = now(), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
+      "identity_purged_at = timezone('utc', now()), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end
 
   # Post-order walk from `parent`: a child's own blockers are deleted before it.

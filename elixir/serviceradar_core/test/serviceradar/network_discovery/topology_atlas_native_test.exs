@@ -43,6 +43,52 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<4::128>>)
   end
 
+  test "explicit ordinal release frees the permit while the caller and a copied handle stay alive" do
+    world = cold_world([position("sr:released-mapping.example.com", 1, true)])
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        receive do
+          {:hold, mapping} ->
+            receive do
+              :read -> send(parent, {:copied, TopologyAtlas.ordinal_info(world, mapping)})
+            end
+        end
+      end)
+
+    assert {:ok, first} = TopologyAtlas.new_ordinals(world, <<1::128>>)
+    assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, first)
+    send(holder, {:hold, first})
+    assert {:ok, second} = TopologyAtlas.new_ordinals(world, <<2::128>>)
+    assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
+
+    observed =
+      Task.async(fn ->
+        Enum.reduce_while(1..400, :ok, fn _, :ok ->
+          case TopologyAtlas.ordinal_info(world, first) do
+            {:ok, %{ready: true}} -> {:cont, :ok}
+            {:error, reason} when reason in [:not_ready, :busy] -> {:halt, reason}
+            other -> {:halt, other}
+          end
+        end)
+      end)
+
+    assert {:ok, true} = TopologyAtlas.release_ordinals(first)
+    assert {:ok, third} = TopologyAtlas.new_ordinals(world, <<3::128>>)
+    assert observed |> Task.await() |> then(&(&1 in [:ok, :not_ready, :busy]))
+    send(holder, :read)
+    assert_receive {:copied, {:error, :not_ready}}
+    assert {:ok, true} = TopologyAtlas.release_ordinals(second)
+    assert {:ok, true} = TopologyAtlas.release_ordinals(third)
+    assert {:ok, false} = TopologyAtlas.release_ordinals(first)
+
+    Enum.each(1..6, fn epoch ->
+      assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<epoch::128>>)
+      assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
+    end)
+  end
+
   test "canonical mapping ABI preserves unsigned ordinals and seals partial world coverage" do
     nodes =
       for n <- 1..4, do: Map.put(position("sr:ordinal-#{n}.example.com", n, true), :min_zoom, 24)

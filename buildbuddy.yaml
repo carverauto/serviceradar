@@ -222,7 +222,10 @@ actions:
           set -euo pipefail
           # ci_runner starts its timeout before checkout. Its process start is
           # a conservative clock origin; the first workflow step is too late.
-          python3 - "$PPID" > /tmp/serviceradar-web-ng-diagnostic-start <<'PY'
+          # Ordinary diagnostics do not depend on that capture.
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-}" in
+            compact|sparse)
+              python3 - "$PPID" > "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}" <<'PY'
           import math, os, pathlib, sys, time
           parent = pathlib.Path("/proc") / sys.argv[1]
           if not os.path.samefile(parent / "exe", os.environ["BUILDBUDDY_CI_RUNNER_ABSPATH"]):
@@ -231,6 +234,8 @@ actions:
           elapsed = float(pathlib.Path("/proc/uptime").read_text().split()[0]) - ticks / os.sysconf("SC_CLK_TCK")
           print(math.floor(time.time() - elapsed) - 1)
           PY
+              ;;
+          esac
           bazel run -c opt --config=ci //build/ci:verify_git_metadata -- \
             --expected-commit "$(git rev-parse HEAD)"
       - run: >-
@@ -280,8 +285,15 @@ actions:
           GENERATION_DIGEST=""
           GENERATION_DATABASE=""
           START_NS=0
-          ACTION_START_SECONDS="$(cat /tmp/serviceradar-web-ng-diagnostic-start)"
-          [[ "$ACTION_START_SECONDS" =~ ^[0-9]+$ ]]
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-}" in
+            compact|sparse)
+              ACTION_START_SECONDS="$(cat "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}")"
+              [[ "$ACTION_START_SECONDS" =~ ^[0-9]+$ ]]
+              ;;
+            *)
+              ACTION_START_SECONDS="$(date +%s)"
+              ;;
+          esac
           SCALE_VARIANT=""
           CLEANUP_TIMEOUT=()
           OBSERVER_TIMEOUT=()
@@ -430,7 +442,7 @@ actions:
               LIFECYCLE_NS=$((END_NS - START_NS))
             fi
             echo "SERVICERADAR_WEB_NG_DB_DIAGNOSTIC_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
-            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE" /tmp/serviceradar-web-ng-diagnostic-start
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE" "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}"
             rm -rf "$OBSERVER_DIR"
             if [ "$SUITE_STATUS" -ne 0 ]; then
               exit "$SUITE_STATUS"

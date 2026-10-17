@@ -143,6 +143,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
       :source_changed ->
         {503, "source_changed"}
 
+      reason
+      when reason in [
+             :invalid_tiles,
+             :invalid_tile_receipt,
+             :invalid_layout_version,
+             :unsupported_membership_protocol
+           ] ->
+        {400, Atom.to_string(reason)}
+
+      :membership_budget ->
+        {413, "membership_budget"}
+
+      :god_view_disabled ->
+        {404, "god_view_disabled"}
+
       _ ->
         nil
     end

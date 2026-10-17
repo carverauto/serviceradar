@@ -590,7 +590,13 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     destroy :destroy do
-      description "Delete device records (used during merges)"
+      description """
+      Hard-delete a device row. Inventory devices receive a permanent fleet ordinal on
+      insert, and the ordinal foreign key plus the delete-protection trigger reject
+      this action for those rows. It remains for internal service-component records
+      that never receive an ordinal. It is not a JSON:API action and it is not a way
+      to remove protected inventory.
+      """
     end
 
     # Identity reconciliation actions

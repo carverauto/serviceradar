@@ -66,6 +66,8 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
        caller_refs: %{},
        max_entries: max_entries,
        max_bytes: max_bytes,
+       retiring: [],
+       release_timer: false,
        task_supervisor: Keyword.fetch!(opts, :task_supervisor),
        pubsub: Keyword.fetch!(opts, :pubsub)
      }}
@@ -98,6 +100,8 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
         entries = Map.drop(state.entries, Map.keys(prepared))
         bytes = Enum.reduce(entries, 0, fn {_key, entry}, bytes -> bytes + entry.bytes end)
 
+        previous = state.current && state.current.ordinals
+
         state = %{
           state
           | current: %{world: world, manifest: manifest, ordinals: nil, dictionary_ordinal: nil},
@@ -106,6 +110,8 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
             bytes: bytes,
             observed_generation: max(state.observed_generation, manifest.generation)
         }
+
+        state = release_ordinal_mapping(state, previous)
 
         state = Enum.reduce(prepared, state, fn {key, tile}, state -> cache(state, key, tile, manifest.generation) end)
 
@@ -132,19 +138,26 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
     if world == state.current.world do
       recorded = if progress_tuple?(progress), do: progress
 
-      current =
+      state =
         case state.current.ordinals do
-          %{mapping: _mapping, info: %{dictionary_epoch: epoch, assignment: assignment}}
+          %{mapping: existing, info: %{dictionary_epoch: epoch, assignment: assignment}}
           when epoch == info.dictionary_epoch and assignment == info.assignment and
                  is_binary(assignment) and byte_size(assignment) == 32 ->
-            %{state.current | dictionary_ordinal: recorded || Map.get(state.current, :dictionary_ordinal)}
+            current = %{
+              state.current
+              | dictionary_ordinal: recorded || Map.get(state.current, :dictionary_ordinal)
+            }
 
-          _ ->
+            state = %{state | current: current}
+            if existing == ordinals, do: state, else: release_ordinal_mapping(state, ordinals)
+
+          previous ->
             projection = %{mapping: ordinals, info: info, completed_at: DateTime.utc_now()}
-            %{state.current | ordinals: projection, dictionary_ordinal: recorded}
+            state = %{state | current: %{state.current | ordinals: projection, dictionary_ordinal: recorded}}
+            release_ordinal_mapping(state, previous)
         end
 
-      {:reply, :ok, %{state | current: current}}
+      {:reply, :ok, state}
     else
       {:reply, {:error, :source_changed}, state}
     end
@@ -153,8 +166,11 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
   def handle_call({:install_ordinals, _world, _ordinals, _info, _progress}, _from, state),
     do: {:reply, {:error, :not_ready}, state}
 
-  def handle_call(:clear_ordinals, _from, state),
-    do: {:reply, :ok, %{state | current: %{state.current | ordinals: nil, dictionary_ordinal: nil}}}
+  def handle_call(:clear_ordinals, _from, state) do
+    previous = state.current.ordinals
+    state = %{state | current: %{state.current | ordinals: nil, dictionary_ordinal: nil}}
+    {:reply, :ok, release_ordinal_mapping(state, previous)}
+  end
 
   def handle_call({:fetch, key, priority}, from, state) do
     manifest = state.current.manifest
@@ -181,6 +197,12 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
   end
 
   @impl true
+  def handle_info(:release_retired_ordinals, state) do
+    retiring = state.retiring
+    state = Enum.reduce(retiring, %{state | retiring: [], release_timer: false}, &release_ordinal_mapping(&2, &1))
+    {:noreply, state}
+  end
+
   def handle_info({:tile_built, key, token, result}, state) do
     case Map.get(state.pending, key) do
       %{token: ^token, timed_out: false} = pending ->
@@ -409,5 +431,30 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
     GenServer.call(server, request, @build_timeout + 5_000)
   catch
     :exit, _reason -> {:error, :unavailable}
+  end
+
+  defp release_ordinal_mapping(state, nil), do: state
+
+  defp release_ordinal_mapping(state, %{mapping: mapping}), do: release_ordinal_mapping(state, mapping)
+
+  defp release_ordinal_mapping(state, mapping) do
+    case TopologyAtlas.release_ordinals(mapping) do
+      {:ok, _released} ->
+        state
+
+      {:error, :busy} ->
+        state =
+          if state.release_timer do
+            state
+          else
+            Process.send_after(self(), :release_retired_ordinals, 50)
+            %{state | release_timer: true}
+          end
+
+        %{state | retiring: [mapping | state.retiring]}
+
+      {:error, _reason} ->
+        state
+    end
   end
 end

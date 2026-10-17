@@ -21,10 +21,12 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
   # Bootstrap invented identities while their new devices are inactive, before
   # starting any index. Existing identities and tombstones are never reassigned.
   def seed(distribution) do
+    assert_disposable_clone!()
     [[max_ordinal]] = Repo.query!("SELECT coalesce(max(ordinal), 0) FROM platform.device_fleet_ordinals").rows
     base = if distribution == :sparse, do: max(2_147_483_648, max_ordinal + 1), else: max_ordinal + 1
     stride = if distribution == :sparse, do: 7, else: 1
     true = base + (@population - 1) * stride <= 4_294_967_295
+    Process.put(:atlas_scale_seeded, true)
 
     for first <- 0..(@population - 1)//@batch do
       last = min(first + @batch - 1, @population - 1)
@@ -87,12 +89,74 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
         )
     end
 
+    %{rows: [[previous, called]]} =
+      Repo.query!("SELECT last_value, is_called FROM platform.device_fleet_ordinals_ordinal_seq")
+
+    Process.put(:atlas_scale_ordinal_seq, {previous, called})
+
     Repo.query!(
       "SELECT setval('platform.device_fleet_ordinals_ordinal_seq', (SELECT max(ordinal) FROM platform.device_fleet_ordinals), true)"
     )
 
     Repo.query!("SELECT platform.refresh_device_inventory_rollups()", [], timeout: 60_000)
     %{distribution: distribution, base: base, stride: stride, devices: @population, addresses: @population * 2}
+  end
+
+  def cleanup! do
+    if Process.get(:atlas_scale_seeded) do
+      Enum.each(0..(@population - 1)//200, fn first ->
+        last = min(first + 199, @population - 1)
+        ids = Enum.map(first..last, &uid/1)
+
+        Repo.query!(
+          "DELETE FROM platform.discovered_interfaces WHERE device_id = ANY($1::text[])",
+          [ids]
+        )
+
+        ServiceRadar.TestSupport.delete_device_fixtures!(ids)
+      end)
+
+      Repo.query!("DELETE FROM platform.ng_users WHERE email = 'atlas-scale@example.com'")
+
+      case Process.get(:atlas_scale_ordinal_seq) do
+        {previous, called} ->
+          Repo.query!(
+            "SELECT setval('platform.device_fleet_ordinals_ordinal_seq', $1::bigint, $2::boolean)",
+            [previous, called]
+          )
+
+        _ ->
+          :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp assert_disposable_clone! do
+    run_id_path = Path.join(System.fetch_env!("TEST_TMPDIR"), "build/run_id_file.txt")
+    base_name = run_id_path |> File.read!() |> String.trim()
+
+    expected =
+      ServiceRadar.DB.IntegrationEnvConfig.database_name!(
+        base_name,
+        System.get_env("SERVICERADAR_TEST_DB_SHARD")
+      )
+
+    %{rows: [[current]]} = Repo.query!("SELECT current_database()")
+
+    if current != expected do
+      raise "scale seed refused: connected to #{current}, disposable clone is #{expected}"
+    end
+
+    %{rows: [[existing]]} =
+      Repo.query!("SELECT count(*) FROM platform.ocsf_devices WHERE uid LIKE 'sr:atlas-scale-%'")
+
+    if existing != 0 do
+      raise "scale seed refused: #{existing} atlas-scale rows already exist"
+    end
+
+    :ok
   end
 
   def churn(tick, notify) do

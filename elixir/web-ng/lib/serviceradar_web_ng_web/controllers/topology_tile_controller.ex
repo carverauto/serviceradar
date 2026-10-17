@@ -21,7 +21,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   plug(:authorize)
 
   def manifest(conn, _params) do
-    with {:ok, manifest} <- WorldCache.manifest(),
+    with {:ok, _scope} <- current_authority(conn),
+         {:ok, manifest} <- WorldCache.manifest(),
          payload = manifest_payload(manifest),
          {:ok, _scope} <- current_authority(conn) do
       conn
@@ -33,7 +34,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   def show(conn, params) do
-    with {:ok, key} <- TileKey.parse(params),
+    with {:ok, _scope} <- current_authority(conn),
+         {:ok, key} <- TileKey.parse(params),
          {:ok, tile} <- WorldCache.fetch(key),
          {:ok, _scope} <- current_authority(conn) do
       etag = ~s("#{key.layout_version}:#{tile.revision}")
@@ -54,10 +56,11 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   def search(conn, %{"device_id" => id} = params) when is_binary(id) and byte_size(id) > 0 do
-    with {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
+    with {:ok, scope} <- current_authority(conn),
+         {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
          {:ok, position} <- TopologyAtlas.search(world, id),
-         {:ok, %{} = _position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id),
-         :ok <- BitmapSelection.authorize(conn.assigns.current_scope, params, [id]),
+         {:ok, %{} = _position} <- World.lookup_device(scope, manifest.layout_version, id),
+         :ok <- BitmapSelection.authorize(scope, params, [id]),
          {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)
@@ -78,8 +81,9 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   def search(conn, _params), do: error(conn, :invalid_search)
 
   def details(conn, params) do
-    with {:ok, result} <- WorldDetails.fetch(conn.assigns.current_scope, params),
-         :ok <- BitmapSelection.details(conn.assigns.current_scope, params, result.content),
+    with {:ok, scope} <- current_authority(conn),
+         {:ok, result} <- WorldDetails.fetch(scope, params),
+         :ok <- BitmapSelection.details(scope, params, result.content),
          {:ok, _scope} <- current_authority(conn) do
       json_payload(conn, result.content, result.payload, result.revision)
     else
@@ -111,7 +115,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   def overlay(conn, %{"revision" => revision} = params) do
-    with {:ok, key} <- TileKey.parse(params),
+    with {:ok, _scope} <- current_authority(conn),
+         {:ok, key} <- TileKey.parse(params),
          {:ok, revision} <- TileKey.content_revision(revision),
          {:ok, content} <- WorldOverlay.fetch(key, revision),
          {:ok, payload, content_type} <- overlay_payload(conn, content),

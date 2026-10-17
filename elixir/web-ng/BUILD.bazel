@@ -980,6 +980,7 @@ ex_unit_test(
             "//elixir/serviceradar_core:test/db/fixture_config.exs",
             "//elixir/serviceradar_core:test/db/integration_env.exs",
             "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+            "//elixir/serviceradar_core:test/support/test_support.ex",
         ],
         elixir_opts = [
             "-r", "../serviceradar_core/test/db/integration_env.exs",

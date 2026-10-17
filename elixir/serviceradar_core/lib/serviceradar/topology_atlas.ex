@@ -79,6 +79,7 @@ defmodule ServiceRadar.TopologyAtlas do
 
   @doc "Build a generation-bound canonical mapping using bounded dictionary pages, then seal it."
   defdelegate new_ordinals(world, dictionary_epoch), to: Native
+  defdelegate release_ordinals(mapping), to: Native
   defdelegate apply_ordinals(world, mapping, rows), to: Native
   defdelegate seal_ordinals(world, mapping), to: Native
   defdelegate ordinal_info(world, mapping), to: Native

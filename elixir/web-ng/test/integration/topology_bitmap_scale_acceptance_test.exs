@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       end
 
     started = now()
+    on_exit(fn -> Fixture.cleanup!() end)
     fixture = Fixture.seed(distribution)
 
     emit(

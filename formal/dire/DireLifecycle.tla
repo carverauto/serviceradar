@@ -180,7 +180,7 @@ CommitWork(w, S, p) ==
         back  == {i \in S : \E d \in arch[i] : Follow(d) = t}
         newIp == IF status[t] = "tomb" THEN p
                  ELSE IF p = NoIp THEN ipOf[t] ELSE p
-        bump  == CASE status[t] \in {"absent", "purged"} -> {t}  \* a new row
+        bump  == CASE status[t] \in {"absent", "purged"} -> {t}  \* absent is a new row; purged keeps its row
                    [] status[t] = "tomb" -> {t}                  \* a revival
                    [] back # {} -> {t}                           \* a live reactivation
                    [] OTHER -> {}
@@ -355,9 +355,8 @@ Sweep(p, d) ==
 \* the address (IdentityReconciler.generate_deterministic_device_id/1), and a duplicate create is
 \* skipped. A uid that redirects to a merge survivor gives way to the next uid of the chain
 \* Ids.reseeded_device_id/1 derives (task 9.7), so a purged merged-away record is never written
-\* live again, and the model creates only a row that never existed. (The code re-creates under
-\* its own uid a purged record nothing redirects, one never merged away or whose merge an
-\* unmerge reversed; the model seeds a record that never existed instead.)
+\* live again. walk_seed treats a purged seed as reserved and moves on to
+\* Ids.reseeded_device_id. The model creates only a row that never existed.
 SweepCreate(p, d) ==
     /\ ~\E e \in Devices : status[e] \in {"live", "tomb"} /\ ipOf[e] = p
     /\ status[d] = "absent"

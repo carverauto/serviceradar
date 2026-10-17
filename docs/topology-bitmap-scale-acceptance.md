@@ -51,8 +51,9 @@ consume outer time. ExecuteWorkflow cannot override that timeout. A timeout
 is a failed, incomplete measurement, never evidence of acceptance.
 
 The diagnostic reads the parent runner's process-start clock (including checkout
-before the first workflow step), verifies that parent is the declared runner,
-and warms
+before the first workflow step) only for the compact and sparse variants, and
+verifies that parent is the declared runner. Ordinary diagnostics do not read
+that clock. Scale warms
 the database suites and selected scale target before starting the observer.
 Immediately before scale execution it checks both remaining clocks: 2,760
 seconds for the complete Bazel command (including its unchanged 2,700-second
@@ -76,7 +77,11 @@ bazel build -c opt --config=remote --//build:enable_integration_tests \
 ```
 
 Do not run the database targets against a live or developer database. The
-helper requires the existing scratch-database guard and verified TLS. Do not
+helper requires the existing scratch-database guard and verified TLS. The
+acceptance test refuses to seed unless the connection is this run's disposable
+clone and no `sr:atlas-scale-%` rows are already present. Cleanup removes those
+exact rows, their interfaces and the synthetic viewer through the existing
+fixture lifecycle before the workflow drops the clone. Do not
 rerun a completed variant in a dirty clone: fixture IDs intentionally collide
 and fail rather than silently reuse prior state.
 

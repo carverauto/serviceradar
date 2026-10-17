@@ -29,7 +29,7 @@ are committed alongside this change.
 
 ## Findings that need qualification
 
-- **C1:** The integrated commit `07fd3f2158` already contains
+- **C1:** The pre-rebase checkpoint `07fd3f2158`, which is not an ancestor of this branch, already contains
   `20261016040000_generalize_fleet_identity_dictionaries.exs`, including the
   interface table. The outbox migration ran later. Executing both exact
   migrations and raw inventory writes on a disposable fixture database passed;
@@ -292,8 +292,9 @@ Browser scene tests (652), eight SwiftShader GPU cases, declared lint and the
 existing TypeScript scope passed in `73840a94-e01d-4d55-8b25-2869be7a4a2e`.
 The combined remote `make test` then passed 419 targets with two platform skips
 in `c3633e44-7fc4-4e08-b8fa-2a89e5ed5f03`, at pre-rebase local runtime checkpoint
-`2a3032e125`. The same subject is reachable on this branch after rebase as
-`fe8915c30c`; that recorded run was not executed on the rebased commit.
+`2a3032e125`. `2a3032e125` and `fe8915c30c` are pre-rebase checkpoints and are
+not ancestors of this branch. The on-branch subject is `e9116e3ca7`. That
+recorded run was not repeated on this tree.
 Hosted database and compact/sparse scale acceptance remain pending. Fresh physical Apple WebGPU checks passed on
 the integrated browser sources, including empty-filter picking with a visible
 positive control, tile eviction, retry/rejoin, capability refresh and full device
@@ -317,7 +318,8 @@ policy refused local file URLs; the earlier diagram receipts remain historical.
 ## Current review recovery
 
 Run `01M52WPF0MN3F45GSFYS3PN67F` reached its correction-agent timeout before
-committing the remaining fixes. Custody returned at `59adc905f8`; all 74
+committing the remaining fixes. Custody returned at pre-rebase checkpoint
+`59adc905f8`, which is not an ancestor of this branch; all 74
 successful recorded edits and the artifact refresh were reconstructed from the
 durable tool journal. Recovery did not waive any finding or establish acceptance.
 
@@ -376,8 +378,9 @@ loader/receipt database owner cases were loaded and excluded in the unit tier;
 only hosted execution can establish those results.
 
 The integrated remote `make test` passed 419 targets with two platform skips in
-`170c8616-569a-492c-8695-def84af6a4a5` at runtime checkpoint
-`ad967f6d6b9e85e871ab873b5267788bb412423e`. Browser, retention, channel and native
+`170c8616-569a-492c-8695-def84af6a4a5` at pre-rebase runtime checkpoint
+`ad967f6d6b9e85e871ab873b5267788bb412423e`, which is not an ancestor of this
+branch. Browser, retention, channel and native
 corrections are integrated. All three child leases were returned after exact
 content checks and preserving their remaining recovered baseline patches.
 The main feature lease remains held for full no-mistakes review and publication.
@@ -394,7 +397,10 @@ This database case remains unrun in the unit tier. The `ad967f6d6b` unit receipt
 above predates this final fast-path correction.
 
 The final integrated remote `make test` passed 419 targets with two platform
-skips in `afe6cf35-2ec3-4d95-bbed-bee09930704f` at runtime checkpoint
-`18ff6bd6d01a6c45c18624386558f161cae9d9d2`. The command exited zero. Hosted
+skips in `afe6cf35-2ec3-4d95-bbed-bee09930704f` at pre-rebase runtime checkpoint
+`18ff6bd6d01a6c45c18624386558f161cae9d9d2`, which is not an ancestor of this
+branch. The recorded run was not repeated on this tree. Do not treat
+`77eaecceb6` as that same gate. The command exited zero on the historical
+checkpoint. Hosted
 database and combined compact/sparse acceptance remain pending; no new physical
 GPU or portable-document containment result is implied by this unit gate.

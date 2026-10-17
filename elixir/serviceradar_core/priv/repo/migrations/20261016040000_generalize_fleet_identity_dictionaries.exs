@@ -7,7 +7,11 @@ defmodule ServiceRadar.Repo.Migrations.GeneralizeFleetIdentityDictionaries do
   device_fleet_ordinals are unsupported.
 
   up requests platform.ocsf_devices and platform.device_fleet_ordinals with NOWAIT,
-  failing immediately for retry if either lock is unavailable. It never waits
+  failing immediately for retry if either lock is unavailable. Pause old cleanup
+  workers and quiesce writers before that ACCESS EXCLUSIVE NOWAIT lock, then retry.
+  During rollout, old cleanup pods that still delete inventory hit the new RESTRICT
+  foreign key: their batches split and fail, which is log noise and not data loss.
+  It never waits
   while holding only one of those tables. lock_timeout still bounds later locks in this transaction;
   NOWAIT itself fails immediately. statement_timeout stays 30 seconds.
   Sequence-backed dictionaries and lifecycle triggers are managed explicitly;
