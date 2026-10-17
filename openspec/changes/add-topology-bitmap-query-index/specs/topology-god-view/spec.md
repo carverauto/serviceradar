@@ -41,6 +41,9 @@ The system SHALL reuse persisted device fleet ordinals for topology membership a
 - **THEN** a fresh successor UID SHALL be created and repeated discovery SHALL keep that successor
 - **AND** the purged tombstone and its ordinal SHALL remain
 - **AND** merged, source-retired, released-seed, and unpurged operator-deleted identities SHALL NOT gain a successor or be revived
+- **AND** a restorable system delete reached through the successor pointer SHALL return as that same UID, rehydrated when purged and restored when only soft-deleted, and SHALL NOT allocate another successor
+- **AND** the root and every observed candidate or absence SHALL be revalidated under the existing UID-sorted identity fence before pointer movement or creation
+- **AND** a successor SHALL be published only when that row is live and mapper-owned
 
 #### Scenario: Compatible rollback and migration contention
 - **WHEN** the identity migration is rolled back

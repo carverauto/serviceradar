@@ -56,7 +56,13 @@ tombstone allocates a fresh successor UID through the same durable
 ordinal stay. Creation and pointer movement commit together, and the successor
 is not redirected onto another device. Unpurged operator deletes stay
 suppressed. Merged, source-retired, and released-seed lineage stay suppressed
-and are never revived. A restorable system delete still returns as the same UID.
+and are never revived. A restorable system delete still returns as the same UID,
+including one reached through the successor pointer: rehydrate it when
+identity-purged and restore it when it is only soft-deleted. The walk continues
+only past identity-purged operator, DIRE, and nil-actor rows. The existing
+UID-sorted identity fence revalidates the root and every observed candidate or
+absence before pointer movement, and a successor is published only when that
+row is live and mapper-owned.
 
 Rollback retains dictionary deletion/truncate protection. It requires a cleanup
 binary with retained-identity support (or that support backported), or cleanup

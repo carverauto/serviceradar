@@ -760,6 +760,121 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     end
   end
 
+  test "a purged restorable system successor is rehydrated without a further successor", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 53, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    root_ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: successor}] = wait_for_devices_by_ip(actor, ip)
+    assert successor == Ids.reseeded_device_id(root_uid)
+    successor_ordinal = fleet_ordinal!(successor)
+    assert {:ok, %Device{} = successor_row} = Device.get_by_uid(successor, false, actor: actor)
+
+    assert {:ok, _} =
+             Device.soft_delete(successor_row, "stale", "system:mapper_test_reaper", actor: actor)
+
+    hard_purge_deleted!(successor)
+    Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [successor])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, revived} = Device.get_by_uid(successor, false, actor: actor)
+    assert revived.deleted_at == nil
+    assert revived.identity_purged_at == nil
+    assert fleet_ordinal!(successor) == successor_ordinal
+    assert fleet_ordinal!(root_uid) == root_ordinal
+    refute device_row?(Ids.reseeded_device_id(successor))
+
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
+  end
+
+  test "an unpurged restorable system successor reached from the root is restored", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 54, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: successor} = successor_row] = wait_for_devices_by_ip(actor, ip)
+    assert successor == Ids.reseeded_device_id(root_uid)
+    successor_ordinal = fleet_ordinal!(successor)
+
+    assert {:ok, _} =
+             Device.soft_delete(successor_row, "stale", "system:mapper_test_reaper", actor: actor)
+
+    Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [successor])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, restored} = Device.get_by_uid(successor, false, actor: actor)
+    assert restored.deleted_at == nil
+    assert fleet_ordinal!(successor) == successor_ordinal
+    refute device_row?(Ids.reseeded_device_id(successor))
+
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.metadata["_seed_successor"] == successor
+    assert mac_owner(actor, IdentityReconciler.normalize_mac(mac)) == successor
+  end
+
+  test "same-poll rediscovery links a dependent to the controller successor", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 55, uniq)
+    ap_ip = unique_test_ip(198, 51, 56, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+
+    payload = managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac)
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    assert [%Device{uid: controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, controller} = Device.get_by_uid(controller_uid, false, actor: actor)
+    assert {:ok, ap} = Device.get_by_uid(ap_uid, false, actor: actor)
+    hard_purge!(controller, actor, "manual", Ecto.UUID.generate())
+    hard_purge!(ap, actor, "manual", Ecto.UUID.generate())
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    controller_successor = Ids.reseeded_device_id(controller_uid)
+    ap_successor = Ids.reseeded_device_id(ap_uid)
+
+    assert [%Device{uid: ^controller_successor}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ^ap_successor, management_device_id: ^controller_successor}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [%Device{uid: ^controller_successor}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ^ap_successor, management_device_id: ^controller_successor}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, controller_tombstone} = Device.get_by_uid(controller_uid, true, actor: actor)
+    assert controller_tombstone.deleted_at
+    assert controller_tombstone.metadata["_seed_successor"] == controller_successor
+  end
+
   test "a poll rehydrates a purged identity and leaves an unpurged tombstone's recorded identity",
        %{
          actor: actor
@@ -1379,6 +1494,49 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
              Device.get_by_uid(uid, false, actor: actor)
 
     refute DateTime.before?(polled_at, before)
+  end
+
+  defp hard_purge!(%Device{} = device, actor, reason, deleted_by) do
+    assert {:ok, _} = Device.soft_delete(device, reason, deleted_by, actor: actor)
+    hard_purge_deleted!(device.uid)
+  end
+
+  defp hard_purge_deleted!(uid) do
+    assert {%{errors: 0}, _deleted} =
+             DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
+  end
+
+  defp device_row?(uid) do
+    %{rows: [[exists?]]} =
+      Repo.query!("SELECT EXISTS(SELECT 1 FROM platform.ocsf_devices WHERE uid = $1)", [uid])
+
+    exists?
+  end
+
+  defp managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    Jason.encode!([
+      %{
+        "device_id" => "default:#{controller_ip}",
+        "partition" => "default",
+        "device_ip" => controller_ip,
+        "if_index" => 1,
+        "if_name" => "eth1",
+        "if_phys_address" => controller_mac,
+        "ip_addresses" => [ap_ip <> "/24"],
+        "timestamp" => ts
+      },
+      %{
+        "device_id" => "default:#{ap_ip}",
+        "partition" => "default",
+        "device_ip" => ap_ip,
+        "if_index" => 1,
+        "if_name" => "wlan0",
+        "if_phys_address" => ap_mac,
+        "timestamp" => ts
+      }
+    ])
   end
 
   defp wait_for_devices_by_ip(actor, ip, attempts \\ 60)
