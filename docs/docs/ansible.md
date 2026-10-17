@@ -392,14 +392,10 @@ This is not a missing credential, and the repeated failure is cosmetic: dispatch
 AWX commands carry their own grant and still work. Judge controller health from
 `awx.ping` and from an actual dispatch, not from this result.
 
-:::caution Not in 1.4.46
-The fix is `action-only:v1` on the AWX manifest, which stops a periodic runner
-being scheduled at all. It is merged but unreleased; once it ships, republish,
-register, and re-materialise the package -- an existing assignment points at the
-old package version and keeps its runner. First release containing it:
-`<first-release>`. See
+`action-only:v1` on the AWX manifest stops that periodic runner. Which release
+contains it, how to re-materialise an existing assignment, and whether the
+Services page keeps the last failed card are in
 [Credential Management](./credentials.md#awx-configuration-invalid-api_token-is-required-resolved-from-credential-broker-grant).
-:::
 
 ### Status flips to `:unauthorized`
 
