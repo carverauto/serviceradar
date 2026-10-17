@@ -47,19 +47,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
     with {:ok, watch} <- validate(params),
          {:ok, {_fence, result}} <-
            BitmapQueries.with_query(scope, params["query"], &project(&1, watch, sequence), deadline: deadline) do
-      {:ok, Map.put(result, :deadline, deadline)}
+      {:ok, result}
     end
-  end
-
-  @doc "Recheck geometry, canonical mapping and current authority inside the original request budget."
-  def confirm_delivery(scope, result) do
-    BitmapQueries.confirm_delivery(
-      scope,
-      result.authority,
-      result.deadline,
-      result.prefix_sources,
-      fn -> current_projection(result) end
-    )
   end
 
   defp current_projection(result) do

@@ -661,9 +661,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert revival_audit_rows(uid) == []
   end
 
-  test "a poll rehydrates a purged identity and leaves an unpurged tombstone's recorded identity", %{
-    actor: actor
-  } do
+  test "a poll rehydrates a purged identity and leaves an unpurged tombstone's recorded identity",
+       %{
+         actor: actor
+       } do
     uniq = System.unique_integer([:positive, :monotonic])
     purged_ip = reserved_test_ip(uniq)
     unpurged_ip = reserved_test_ip(uniq + 1)
@@ -671,13 +672,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     unpurged_mac = unique_global_test_mac(uniq + 1)
     recorded_host = "sr-unpurged-#{uniq}.example.com"
 
-    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(purged_ip, [purged_mac]), %{})
-    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(unpurged_ip, [unpurged_mac]), %{})
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(purged_ip, [purged_mac]),
+               %{}
+             )
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(unpurged_ip, [unpurged_mac]),
+               %{}
+             )
+
     assert [%Device{uid: purged_uid} = purged] = wait_for_devices_by_ip(actor, purged_ip)
     assert [%Device{uid: unpurged_uid} = unpurged] = wait_for_devices_by_ip(actor, unpurged_ip)
 
-    assert {:ok, _} = Device.soft_delete(purged, "stale", "system:mapper_test_reaper", actor: actor)
-    assert {:ok, _} = Device.soft_delete(unpurged, "stale", "system:mapper_test_reaper", actor: actor)
+    assert {:ok, _} =
+             Device.soft_delete(purged, "stale", "system:mapper_test_reaper", actor: actor)
+
+    assert {:ok, _} =
+             Device.soft_delete(unpurged, "stale", "system:mapper_test_reaper", actor: actor)
 
     Repo.query!(
       """
@@ -697,8 +711,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       [recorded_host, unpurged_uid]
     )
 
-    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(purged_ip, [purged_mac]), %{})
-    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(unpurged_ip, [unpurged_mac]), %{})
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(purged_ip, [purged_mac]),
+               %{}
+             )
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(unpurged_ip, [unpurged_mac]),
+               %{}
+             )
 
     assert {:ok, revived} = Device.get_by_uid(purged_uid, false, actor: actor)
     assert revived.deleted_at == nil

@@ -128,10 +128,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
     case result do
       {:ok, result} ->
-        {:noreply,
-         state |> accept(work, result) |> Map.put(:retry_at, nil) |> schedule(@step_interval)}
-      {:error, :dictionary_changed} -> {:noreply, state |> disable() |> schedule(0)}
-      {:error, _reason} -> {:noreply, retry(state, work)}
+        {:noreply, state |> accept(work, result) |> Map.put(:retry_at, nil) |> schedule(@step_interval)}
+
+      {:error, :dictionary_changed} ->
+        {:noreply, state |> disable() |> schedule(0)}
+
+      {:error, _reason} ->
+        {:noreply, retry(state, work)}
     end
   end
 
@@ -371,6 +374,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp retry(state, {:catalog, _}), do: schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
   defp retry(state, {:hints, ids}), do: state |> remember(ids) |> retry(:read)
+
   defp retry(state, _work) do
     schedule(%{state | source_error: true, rescan: true, retry_at: now() + 1_000}, 1_000)
   end

@@ -1826,14 +1826,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Enum.uniq()
       |> Map.new(&{&1, polled_device_state(Map.get(devices, &1), actor)})
 
-    {existing, restored, purged, new} =
-      Enum.reduce(polled, {[], [], [], []}, fn entry, {existing, restored, purged, new} ->
+    {existing, restored, identity_purged, new} =
+      Enum.reduce(polled, {[], [], [], []}, fn entry,
+                                               {existing, restored, identity_purged, new} ->
         case Map.fetch!(states, entry.uid) do
-          {:existing, device} -> {[{:existing, entry, device} | existing], restored, purged, new}
-          {:restored, device, purged?} -> {existing, [{entry, device, purged?} | restored], purged, new}
-          {:purged, device} -> {existing, restored, [{entry, device} | purged], new}
-          :new -> {existing, restored, purged, [entry | new]}
-          :skip -> {existing, restored, purged, new}
+          {:existing, device} ->
+            {[{:existing, entry, device} | existing], restored, identity_purged, new}
+
+          {:restored, device, purged?} ->
+            {existing, [{entry, device, purged?} | restored], identity_purged, new}
+
+          {:purged, device} ->
+            {existing, restored, [{entry, device} | identity_purged], new}
+
+          :new ->
+            {existing, restored, identity_purged, [entry | new]}
+
+          :skip ->
+            {existing, restored, identity_purged, new}
         end
       end)
 
@@ -1854,19 +1864,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    {purged, unpurged} = Enum.split_with(restored, fn {_entry, _device, purged?} -> purged? end)
 
-    Enum.each(unpurged, fn {entry, device, _purged?} ->
+    Enum.each(restored, fn {entry, device, _purged?} ->
       maybe_move_device_address(entry, device, records, observed_at, actor)
     end)
 
-    unpurged_entries = Enum.map(unpurged, fn {entry, _device, _purged?} -> entry end)
+    restored_entries = Enum.map(restored, fn {entry, _device, _purged?} -> entry end)
     created = create_polled_devices(Enum.reverse(new), records, context, observed_at, actor)
 
     rehydrated =
-      rehydrate_purged_devices(Enum.reverse(purged), records, context, observed_at, actor)
+      rehydrate_purged_devices(
+        Enum.reverse(identity_purged),
+        records,
+        context,
+        observed_at,
+        actor
+      )
 
-    kept ++ unpurged_entries ++ rehydrated ++ created
+    kept ++ restored_entries ++ rehydrated ++ created
   end
 
   defp devices_by_uid(uids, actor) do
@@ -1968,39 +1983,67 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     :skip
   end
 
+  defp rehydrate_purged_devices([], _records, _context, _observed_at, _actor), do: []
+
+  defp rehydrate_purged_devices(purged, records, context, observed_at, actor) do
+    representatives = Enum.uniq_by(purged, fn {_entry, device} -> device.uid end)
+
+    case Repo.transaction(fn ->
+           Enum.each(representatives, fn {_entry, device} ->
+             case restore_polled_device(device, actor) do
+               {:restored, _device, true} -> :ok
+               _ -> Repo.rollback(:restore_failed)
+             end
+           end)
+
+           stamp_identity_observed(
+             Enum.map(representatives, fn {_entry, device} -> device.uid end),
+             observed_at
+           )
+
+           case write_polled_device_rows(
+                  Enum.map(representatives, fn {entry, _} -> entry end),
+                  records,
+                  context,
+                  observed_at
+                ) do
+             {:ok, %{records: written} = batch} when written != [] -> batch
+             {:ok, _empty} -> Repo.rollback(:refill_failed)
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, batch} ->
+        publish_polled_devices(batch)
+        remap_polled_entries(Enum.map(purged, fn {entry, _device} -> entry end), batch.remap)
+
+      {:error, reason} ->
+        Logger.warning("Mapper purged identity rehydration rolled back: #{inspect(reason)}")
+        []
+    end
+  end
+
   # A new device is written through the same strong-identifier device write the sync path uses
   # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
   # same rules as any other strong write: an anchorless provisional seed holding the address is
   # adopted, and any other live holder is left in place with the conflict recorded.
-  defp rehydrate_purged_devices([], _records, _context, _observed_at, _actor), do: []
-
-  defp rehydrate_purged_devices(purged, records, context, observed_at, actor) do
-    case Repo.transaction(fn ->
-           restored =
-             Enum.reduce_while(purged, [], fn {entry, device}, acc ->
-               case restore_polled_device(device, actor) do
-                 {:restored, _device, true} -> {:cont, [entry | acc]}
-                 _ -> Repo.rollback(:restore_failed)
-               end
-             end)
-
-           stamp_identity_observed(Enum.map(restored, & &1.uid), observed_at)
-
-           case create_polled_devices(Enum.reverse(restored), records, context, observed_at, actor) do
-             [] -> Repo.rollback(:refill_failed)
-             written -> written
-           end
-         end) do
-      {:ok, written} -> written
-      {:error, _reason} -> []
-    end
-  end
-
   defp create_polled_devices([], _records, _context, _observed_at, _actor), do: []
 
   defp create_polled_devices(new, records, context, observed_at, _actor) do
+    case write_polled_device_rows(new, records, context, observed_at) do
+      {:ok, batch} ->
+        publish_polled_devices(batch)
+        remap_polled_entries(new, batch.remap)
+
+      {:error, reason} ->
+        Logger.warning("Failed to write mapper-discovered devices: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp write_polled_device_rows(entries, records, context, observed_at) do
+    representatives = Enum.uniq_by(entries, & &1.uid)
     timestamp = DateTime.truncate(observed_at, :second)
-    resolved_updates = Enum.map(new, &{new_device_update(&1), &1.uid})
+    resolved_updates = Enum.map(representatives, &{new_device_update(&1), &1.uid})
 
     # The poll observed each device itself (stamp_identity_observed/2).
     device_records =
@@ -2016,23 +2059,46 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end)
 
     previous_states = StateEvents.previous_device_states(device_records)
-    strong_uids = MapSet.new(new, & &1.uid)
+    strong_uids = MapSet.new(representatives, & &1.uid)
 
     case DeviceWrites.bulk_upsert_devices(device_records, strong_uids, resolved_updates) do
       {:ok, remap} ->
-        device_records
-        |> Stream.map(&Map.get(remap, &1.uid, &1.uid))
-        |> DevicePubSub.broadcast_invalidated()
-
-        StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
-        StateEvents.invalidate_identity_cache_for_device_records(device_records)
-        _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
-        Enum.map(new, &created_device(&1, remap, device_records))
+        {:ok, %{records: device_records, previous: previous_states, remap: remap}}
 
       {:error, reason} ->
-        Logger.warning("Failed to write mapper-discovered devices: #{inspect(reason)}")
-        []
+        {:error, reason}
     end
+  end
+
+  defp publish_polled_devices(%{records: device_records, previous: previous_states, remap: remap}) do
+    device_records
+    |> Stream.map(&Map.get(remap, &1.uid, &1.uid))
+    |> DevicePubSub.broadcast_invalidated()
+
+    StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
+    StateEvents.invalidate_identity_cache_for_device_records(device_records)
+    _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
+
+    Enum.each(device_records, fn record ->
+      case record do
+        %{management_device_id: management_device_id} when is_binary(management_device_id) ->
+          TopologyGraph.upsert_managed_by(
+            Map.get(remap, record.uid, record.uid),
+            management_device_id
+          )
+
+        _ ->
+          :ok
+      end
+    end)
+  end
+
+  defp remap_polled_entries(entries, remap) do
+    Enum.map(entries, fn entry ->
+      uid = Map.get(remap, entry.uid, entry.uid)
+      Logger.info("Mapper wrote device #{uid} for IP #{entry.device_ip}")
+      %{entry | uid: uid}
+    end)
   end
 
   defp new_device_update(%{device_ip: device_ip, partition: partition, macs: macs}) do
@@ -2046,21 +2112,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         "identity_source" => "mapper_primary_mac_seed"
       }
     })
-  end
-
-  defp created_device(polled, remap, device_records) do
-    uid = Map.get(remap, polled.uid, polled.uid)
-    Logger.info("Mapper wrote device #{uid} for IP #{polled.device_ip}")
-
-    case Enum.find(device_records, &(&1.uid == polled.uid)) do
-      %{management_device_id: management_device_id} when is_binary(management_device_id) ->
-        TopologyGraph.upsert_managed_by(uid, management_device_id)
-
-      _ ->
-        :ok
-    end
-
-    %{polled | uid: uid}
   end
 
   # An existing device keeps its address while that address is still one of its own: the

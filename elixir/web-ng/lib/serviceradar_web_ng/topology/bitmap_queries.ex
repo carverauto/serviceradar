@@ -74,24 +74,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
     end
   end
 
-  @doc "Bounds final receipt checks and fresh authorization by the response's original deadline."
-  def confirm_delivery(scope, expected_authority, deadline, prefix_sources \\ %{}, check \\ fn -> :ok end) do
-    with :ok <- require_user(scope),
-         :ok <- enabled(),
-         {:ok, :authorized} <-
-           bounded(
-             fn ->
-               with :ok <- check.(),
-                    :ok <- authorize_delivery(scope, expected_authority, prefix_sources) do
-                 {:ok, :authorized}
-               end
-             end,
-             deadline
-           ) do
-      :ok
-    end
-  end
-
   @doc "HTTP status for a bitmap query reason. Nil leaves tile-only world errors to the tile controller."
   def http_status(reason) do
     case reason do

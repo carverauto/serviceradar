@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.TopologyAtlas
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.TileControl
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
@@ -260,9 +261,30 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
   end
 
   defp http(action, params) do
-    conn = apply(TopologyTileController, action, [Plug.Test.conn(:get, "/"), params])
-    {conn.status, Jason.decode!(conn.resp_body), Plug.Conn.get_resp_header(conn, "retry-after")}
+    previous = %{
+      flag: Application.get_env(:serviceradar_web_ng, :god_view_enabled),
+      authorization: Application.get_env(:serviceradar_web_ng, :current_user_authorization_module)
+    }
+
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+    Application.put_env(:serviceradar_web_ng, :current_user_authorization_module, __MODULE__.Authorization)
+
+    conn =
+      :get
+      |> Plug.Test.conn("/")
+      |> Plug.Conn.assign(:current_scope, %Scope{user: %{id: "synthetic-viewer"}})
+
+    try do
+      conn = apply(TopologyTileController, action, [conn, params])
+      {conn.status, Jason.decode!(conn.resp_body), Plug.Conn.get_resp_header(conn, "retry-after")}
+    after
+      restore_env(:god_view_enabled, previous.flag)
+      restore_env(:current_user_authorization_module, previous.authorization)
+    end
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
   defp tile_params(version, z), do: %{"layout_version" => version, "z" => Integer.to_string(z), "x" => "0", "y" => "0"}
 
@@ -326,6 +348,16 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
       active: true
     }
   end
+end
+
+defmodule ServiceRadarWebNG.Topology.WorldTileTest.Authorization do
+  @moduledoc false
+
+  def authorize_current(%{user: %{id: id}} = scope, permissions) when is_binary(id) and is_list(permissions) do
+    {:ok, scope}
+  end
+
+  def authorize_current(_scope, _permissions), do: {:error, :permission_revoked}
 end
 
 defmodule ServiceRadarWebNG.Topology.WorldTileTest.Upstream do

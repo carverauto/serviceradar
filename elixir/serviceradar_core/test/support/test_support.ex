@@ -8,6 +8,7 @@ defmodule ServiceRadar.TestSupport do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.ProcessRegistry
 
   @database_guard_path Path.expand("../../config/test_database_guard.exs", __DIR__)
@@ -31,7 +32,7 @@ defmodule ServiceRadar.TestSupport do
 
       records = Enum.map(rows, fn [uid] -> %{uid: uid} end)
 
-      case ServiceRadar.Inventory.DeviceCleanupWorker.hard_delete_records(
+      case DeviceCleanupWorker.hard_delete_records(
              %{deleted: 0, errors: 0},
              records
            ) do
@@ -53,7 +54,8 @@ defmodule ServiceRadar.TestSupport do
   """
   def delete_device_fixtures!([]), do: :ok
 
-  def delete_device_fixtures!(uids) when is_list(uids) do
+  def delete_device_fixtures!(uids, fun \\ fn -> :ok end)
+      when is_list(uids) and is_function(fun, 0) do
     validate_fixture_database!()
     uids = Enum.uniq(uids)
 
@@ -67,6 +69,7 @@ defmodule ServiceRadar.TestSupport do
         )
 
         assert_identity_delete_guard!()
+        fun.()
         purge_devices!(uids)
 
         ServiceRadar.Repo.query!(
@@ -131,11 +134,14 @@ defmodule ServiceRadar.TestSupport do
 
           assert_identity_delete_guard!()
 
-          ServiceRadar.Repo.query!(
-            "DELETE FROM platform.discovered_interfaces WHERE device_id LIKE $1",
-            [like],
-            timeout: 150_000
-          )
+          "uid LIKE $1"
+          |> DeviceCleanupWorker.purge_plan()
+          |> Map.fetch!(:deletes)
+          |> Enum.each(fn {table, predicate} ->
+            ServiceRadar.Repo.query!("DELETE FROM #{table} WHERE #{predicate}", [like],
+              timeout: 150_000
+            )
+          end)
 
           ServiceRadar.Repo.query!(
             "ALTER TABLE platform.device_fleet_ordinals DISABLE TRIGGER trg_protect_fleet_identity_delete"
@@ -158,6 +164,15 @@ defmodule ServiceRadar.TestSupport do
           )
 
           assert_identity_delete_guard!()
+
+          %{rows: [[0]]} =
+            ServiceRadar.Repo.query!(
+              "SELECT (SELECT count(*) FROM platform.ocsf_devices WHERE uid LIKE $1) + " <>
+                "(SELECT count(*) FROM platform.device_fleet_ordinals WHERE uid LIKE $1)",
+              [like],
+              timeout: 150_000
+            )
+
           :ok
         end,
         timeout: 150_000

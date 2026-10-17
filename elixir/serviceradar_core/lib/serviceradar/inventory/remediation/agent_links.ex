@@ -447,7 +447,11 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   # Atomic updates build their query from the primary read, which filters
   # tombstoned rows — restore must go through an include_deleted query.
-  defp ensure_target_device(%{action: :restore, target_device: %{identity_purged_at: purged_at}} = plan, manifest, actor)
+  defp ensure_target_device(
+         %{action: :restore, target_device: %{identity_purged_at: purged_at}} = plan,
+         manifest,
+         actor
+       )
        when not is_nil(purged_at) do
     bulk_restore(plan, manifest, actor, :gateway_restore, restore_attrs(plan))
   end

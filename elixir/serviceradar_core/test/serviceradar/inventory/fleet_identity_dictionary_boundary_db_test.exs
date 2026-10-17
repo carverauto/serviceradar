@@ -113,30 +113,23 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
 
     unrelated_ordinal = FleetIdentity.device_ordinal(unrelated)
 
-    # A fixture-local trigger fails after dictionary deletion, proving that the cleanup's
-    # DDL and partial deletes roll back together. The proof transaction rolls back so its
-    # exclusive lock does not outlive the savepoint. No production injection seam is needed.
-    assert {:error, :cleanup_failure_proved} =
-             Repo.transaction(fn ->
-               Repo.query!("""
-               CREATE FUNCTION pg_temp.reject_fixture_delete() RETURNS trigger LANGUAGE plpgsql AS $$
-               BEGIN RAISE EXCEPTION 'synthetic cleanup failure'; END $$
-               """)
+    # The trigger is created inside the cleanup transaction, so a raised delete rolls the
+    # DDL and the partial deletes back together without nesting another transaction.
+    assert_raise Postgrex.Error, ~r/synthetic cleanup failure/, fn ->
+      ServiceRadar.TestSupport.delete_device_fixtures!([owned], fn ->
+        Repo.query!("""
+        CREATE FUNCTION pg_temp.reject_fixture_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'synthetic cleanup failure'; END $$
+        """)
 
-               Repo.query!("""
-               CREATE TRIGGER reject_fixture_delete BEFORE DELETE ON platform.ocsf_devices
-               FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_fixture_delete()
-               """)
+        Repo.query!("""
+        CREATE TRIGGER reject_fixture_delete BEFORE DELETE ON platform.ocsf_devices
+        FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_fixture_delete()
+        """)
+      end)
+    end
 
-               error =
-                 rejected("failed_fixture_cleanup", fn ->
-                   ServiceRadar.TestSupport.delete_device_fixtures!([owned])
-                 end)
-
-               assert error.postgres.message == "synthetic cleanup failure"
-               assert is_integer(FleetIdentity.device_ordinal(owned))
-               Repo.rollback(:cleanup_failure_proved)
-             end)
+    assert is_integer(FleetIdentity.device_ordinal(owned))
 
     assert {:error, :guard_restored} =
              Repo.transaction(fn ->
@@ -161,7 +154,9 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
     assert {:error, :guard_preserved} =
              Repo.transaction(fn ->
                rejected("delete_guard_preserved", fn ->
-                 Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [unrelated])
+                 Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [
+                   unrelated
+                 ])
                end)
 
                Repo.rollback(:guard_preserved)

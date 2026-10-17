@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   use ExUnit.Case, async: false
 
+  alias Phoenix.Socket.V2.JSONSerializer
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Topology.BitmapAddress
   alias ServiceRadarWebNG.Topology.BitmapCursor
@@ -9,6 +10,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   alias ServiceRadarWebNG.Topology.BitmapStream
   alias ServiceRadarWebNG.Topology.BitmapView
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNG.Topology.TileWatchTasks
   alias ServiceRadarWebNGWeb.TopologyQueryController
   alias ServiceRadarWebNGWeb.TopologyTileChannel
   alias ServiceRadarWebNGWeb.TopologyTileController
@@ -178,7 +180,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
         join_ref: "1",
         joined: true,
         transport_pid: self(),
-        serializer: Phoenix.Socket.V2.JSONSerializer
+        serializer: JSONSerializer
       })
 
     state = %{socket.assigns.bitmap_stream | metadata: metadata, request: %{"query" => %{"all" => []}}, awaiting: 10}
@@ -194,6 +196,83 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
 
     assert %{request: nil, metadata: nil, awaiting: nil} = cleared.assigns.bitmap_stream
     assert_receive {:socket_push, :binary, <<0, 1, 14, 16, "1topology:tilesmembership:frame", "SRMO", 1, 1, _::binary>>}
+  end
+
+  test "a timed-out membership task keeps its slot until the task exits" do
+    keys = [:god_view_enabled, :topology_bitmap_enabled]
+    previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
+    for key <- keys, do: Application.put_env(:serviceradar_web_ng, key, true)
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
+      end)
+    end)
+
+    start_supervised!({Task.Supervisor, name: TileWatchTasks, max_children: 8})
+
+    {:ok, held} =
+      Task.Supervisor.start_child(TileWatchTasks, fn ->
+        receive do
+          :release -> :ok
+        end
+      end)
+
+    token = make_ref()
+    version = "00000000-0000-4000-8000-000000000478"
+    revision = String.duplicate("ab", 32)
+
+    params = %{
+      "protocol" => 1,
+      "layout_version" => version,
+      "query" => %{"all" => []},
+      "tiles" => [%{"z" => 6, "x" => 0, "y" => 0, "revision" => revision}]
+    }
+
+    socket =
+      BitmapStream.init(%Phoenix.Socket{
+        topic: "topology:tiles",
+        join_ref: "1",
+        joined: true,
+        transport_pid: self(),
+        ref: "1",
+        serializer: JSONSerializer,
+        assigns: %{current_scope: %Scope{user: %{id: "synthetic-viewer"}}}
+      })
+
+    state = %{
+      socket.assigns.bitmap_stream
+      | task: %{
+          pid: held,
+          ref: Process.monitor(held),
+          token: token,
+          timer: Process.send_after(self(), {:membership_timeout, token}, 60_000)
+        }
+    }
+
+    socket = Phoenix.Socket.assign(socket, :bitmap_stream, state)
+
+    assert {:noreply, timed_out} = TopologyTileChannel.handle_info({:membership_timeout, token}, socket)
+    assert %{pid: ^held, abandoned: true} = timed_out.assigns.bitmap_stream.task
+    refute_receive {:socket_push, _, _}
+
+    assert {:reply, {:error, %{reason: "query_busy"}}, busy} =
+             TopologyTileChannel.handle_in("membership:watch", params, timed_out)
+
+    assert busy.assigns.bitmap_stream.task.pid == held
+
+    assert {:noreply, released} =
+             TopologyTileChannel.handle_info({:membership_built, token, {:ok, %{frame: "late"}}}, busy)
+
+    assert released.assigns.bitmap_stream.task == nil
+    refute_receive {:socket_push, _, _}
+
+    assert {:noreply, launched} = TopologyTileChannel.handle_in("membership:watch", params, released)
+    assert is_pid(launched.assigns.bitmap_stream.task.pid)
+    refute launched.assigns.bitmap_stream.task.pid == held
+    Process.exit(launched.assigns.bitmap_stream.task.pid, :kill)
+    send(held, :release)
   end
 
   test "prefix controls reject surrounding whitespace and keep internal spaces literal" do
@@ -288,13 +367,22 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
 
     flags = [:god_view_enabled, :topology_bitmap_enabled]
     previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
+    previous_authorization = Application.get_env(:serviceradar_web_ng, :current_user_authorization_module)
     Enum.each(flags, &Application.put_env(:serviceradar_web_ng, &1, true))
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :current_user_authorization_module,
+      __MODULE__.TileAuthorization
+    )
 
     on_exit(fn ->
       Enum.each(previous, fn
         {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
         {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
       end)
+
+      restore_env(:current_user_authorization_module, previous_authorization)
     end)
 
     scope = %Scope{user: %{id: "synthetic-user"}}
@@ -309,7 +397,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert Plug.Conn.get_resp_header(budget, "retry-after") == []
 
     missing_world =
-      TopologyTileController.search(Plug.Test.conn(:get, "/topology/tiles/search"), %{"device_id" => "synthetic"})
+      :get
+      |> Plug.Test.conn("/topology/tiles/search")
+      |> Plug.Conn.assign(:current_scope, scope)
+      |> TopologyTileController.search(%{"device_id" => "synthetic"})
 
     assert missing_world.status == 503
     assert Jason.decode!(missing_world.resp_body) == %{"error" => "world_unavailable"}
@@ -390,4 +481,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     do: Native.bitmap_index_query(index, @dictionary, @epoch, :device, @authority, parsed.program, 1000)
 
   defp predicate(facet, value), do: %{"facet" => facet, "value" => value}
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+end
+
+defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest.TileAuthorization do
+  @moduledoc false
+
+  def authorize_current(%{user: %{id: id}} = scope, permissions) when is_binary(id) and is_list(permissions) do
+    {:ok, scope}
+  end
+
+  def authorize_current(_scope, _permissions), do: {:error, :permission_revoked}
 end
