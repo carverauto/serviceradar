@@ -94,8 +94,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   #   once, by the instance's constants, and meets the other side in a set operation or an
   #   aggregate, which never loops.
   # - A correlated lookup, fenced with OFFSET 0 so the planner keeps it as one, goes only to a
-  #   device by its uid alone, or to an identifier by type and value: every index that can
-  #   serve either is bounded by the key.
+  #   device by its uid alone, or to an identifier by type and value. A key does not bound the
+  #   identifier lookup by itself: `device_identifiers_device_type_idx` (device_id,
+  #   identifier_type), which covers the value and the partition, can answer `identifier_type`
+  #   alone by skip scan without reading the table. Once a vacuum has emptied the table's pages
+  #   and marked them all-visible, the table looks empty and that plan cheaper than the keyed
+  #   one, and it reads every identifier of the type once per outer row. A correlated
+  #   identifier lookup therefore either reads a column that index does not hold (`id`), or is
+  #   covered by the unique (identifier_type, identifier_value, partition) index as well. One
+  #   that needs the record (`@held_live`) is neither, so it is a set operation instead.
   # - A statement that deletes a computed set takes the set as a parameter array, read by a
   #   statement of its own.
 
@@ -117,7 +124,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     AND o.collection_id = CAST($4 AS text) AND o.present
   """
 
-  @reset_presence_sql """
+  # Deletes the instance's absence rows of the values $4.
+  @delete_absences_sql """
   DELETE FROM platform.source_identifier_absences AS a
   WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
     AND a.source_instance = CAST($3 AS text)
@@ -164,20 +172,24 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   WHERE NOT (EXCLUDED.collection_ids[1] = ANY (a.collection_ids))
   """
 
-  # An absence row whose identifier no live record of the scope holds any more (merged away,
-  # retired, deleted) proves nothing.
-  @prune_absences_sql """
-  DELETE FROM platform.source_identifier_absences AS a
-  WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
-    AND a.source_instance = CAST($3 AS text)
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.device_identifiers AS di
-      WHERE di.identifier_type = a.identifier_type
-        AND di.identifier_value = a.source_object_id
-        AND right(di.partition, char_length(CAST($4 AS text))) = CAST($4 AS text)
-        AND #{@held_live}
-      OFFSET 0
-    )
+  # The values of the instance's absence rows whose identifier no live record of the scope
+  # holds any more (merged away, retired, deleted): such a row proves nothing. The scope's
+  # identifiers are read once, as the absence count reads them; an absence row of a type other
+  # than the scope's ($4) is never held.
+  @unheld_absences_sql """
+  SELECT unheld.source_object_id
+  FROM (
+    SELECT a.identifier_type, a.source_object_id
+    FROM platform.source_identifier_absences AS a
+    WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+      AND a.source_instance = CAST($3 AS text)
+    EXCEPT
+    SELECT di.identifier_type, di.identifier_value
+    FROM platform.device_identifiers AS di
+    WHERE di.identifier_type = CAST($4 AS text)
+      AND right(di.partition, char_length(CAST($5 AS text))) = CAST($5 AS text)
+      AND #{@held_live}
+  ) AS unheld (identifier_type, source_object_id)
   """
 
   # The identifier rows the rule retires. "Last reported" is the later of the source
@@ -437,7 +449,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
 
   defp count_collection(snapshot, scope) do
     instance = [snapshot.partition, snapshot.source, snapshot.source_instance]
-    reset = reset_presence(instance, snapshot.collection_id)
+    identifier_type = Atom.to_string(scope.identifier_type)
+
+    # A value the collection reported loses its absence row.
+    reset =
+      delete_absences(
+        instance,
+        Repo.query!(@reported_absent_sql, instance ++ [snapshot.collection_id])
+      )
 
     %{num_rows: absent} =
       Repo.query!(
@@ -445,7 +464,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         instance ++
           [
             snapshot.collection_id,
-            Atom.to_string(scope.identifier_type),
+            identifier_type,
             scope.partition_suffix,
             snapshot.query_hash,
             snapshot.observed_at,
@@ -454,23 +473,23 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
           ]
       )
 
-    %{num_rows: pruned} = Repo.query!(@prune_absences_sql, instance ++ [scope.partition_suffix])
+    pruned =
+      delete_absences(
+        instance,
+        Repo.query!(@unheld_absences_sql, instance ++ [identifier_type, scope.partition_suffix])
+      )
 
     %{reset: reset, absent: absent, pruned: pruned}
   end
 
-  # A value the collection reported loses its absence row.
-  defp reset_presence(instance, collection_id) do
-    case Repo.query!(@reported_absent_sql, instance ++ [collection_id]) do
-      %{rows: []} ->
-        0
+  # Deletes the absence rows of the values a statement read, one per row.
+  defp delete_absences(_instance, %{rows: []}), do: 0
 
-      %{rows: rows} ->
-        %{num_rows: reset} =
-          Repo.query!(@reset_presence_sql, instance ++ [Enum.map(rows, &hd/1)])
+  defp delete_absences(instance, %{rows: rows}) do
+    %{num_rows: deleted} =
+      Repo.query!(@delete_absences_sql, instance ++ [Enum.map(rows, &hd/1)])
 
-        reset
-    end
+    deleted
   end
 
   @doc """
