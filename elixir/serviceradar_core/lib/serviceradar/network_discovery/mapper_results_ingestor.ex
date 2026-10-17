@@ -1692,6 +1692,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp resolve_devices_by_address(ip_to_uid, [], _records, _holders, _actor), do: ip_to_uid
 
   defp resolve_devices_by_address(ip_to_uid, device_ips, records, holders, actor) do
+    parent_ips = management_parent_ips(records)
+
     Enum.reduce(device_ips, ip_to_uid, fn device_ip, acc ->
       case Map.get(holders, device_ip) do
         uid when is_binary(uid) ->
@@ -1699,19 +1701,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
         _ ->
           partition = partition_for_device_ip(device_ip, records)
-          put_alias_or_created_uid(acc, device_ip, partition, records, actor)
+          put_alias_or_created_uid(acc, device_ip, partition, records, parent_ips, actor)
       end
     end)
   end
 
-  defp put_alias_or_created_uid(acc, device_ip, partition, records, actor) do
+  defp put_alias_or_created_uid(acc, device_ip, partition, records, parent_ips, actor) do
     case find_device_uid_by_alias(device_ip, partition, actor) do
       {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
         Logger.info("Mapper resolved device #{alias_uid} for IP #{device_ip} via alias state")
         Map.put(acc, device_ip, alias_uid)
 
       _ ->
-        case create_device_for_ip(device_ip, records, acc, actor) do
+        case create_device_for_ip(device_ip, records, acc, parent_ips, actor) do
           {:ok, device_uid} ->
             Map.put(acc, device_ip, device_uid)
 
@@ -1728,21 +1730,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # An address-seeded device for a poll that reported no identity MAC. The UID decision
   # belongs to DIRE: resolution consults alias states and the merge-audit canonical mapping
   # before falling back to the deterministic address seed.
-  defp create_device_for_ip(device_ip, records, ip_to_uid, actor) do
+  defp create_device_for_ip(device_ip, records, ip_to_uid, parent_ips, actor) do
     partition = partition_for_device_ip(device_ip, records)
 
     with {:ok, device_uid} <- resolve_device_uid_via_dire(device_ip, partition, [], actor) do
       if device_exists?(device_uid, actor) do
         {:ok, device_uid}
       else
-        create_address_seeded_device(device_uid, device_ip, records, ip_to_uid, actor)
+        create_address_seeded_device(device_uid, device_ip, parent_ips, ip_to_uid, actor)
       end
     end
   end
 
-  defp create_address_seeded_device(device_uid, device_ip, records, ip_to_uid, actor) do
+  defp create_address_seeded_device(device_uid, device_ip, parent_ips, ip_to_uid, actor) do
     # If this IP appears as an interface address on another device, set management_device_id
-    management_device_id = find_management_device_uid(device_ip, records, ip_to_uid)
+    management_device_id = find_management_device_uid(device_ip, parent_ips, ip_to_uid)
 
     attrs =
       maybe_put(
@@ -1917,32 +1919,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       holders
       |> Map.merge(Map.new(kept, &{&1.device_ip, &1.uid}))
       |> Map.merge(Map.new(restored_entries, &{&1.device_ip, &1.uid}))
-      |> Map.merge(Map.new(new, &{&1.device_ip, &1.uid}))
 
     Enum.each(restored, fn {entry, device, _purged?} ->
       maybe_move_device_address(entry, device, records, observed_at, actor)
     end)
 
-    created = create_polled_devices(Enum.reverse(new), records, context, observed_at, actor)
-    context = Map.merge(context, Map.new(created, &{&1.device_ip, &1.uid}))
-
-    rehydrated =
-      rehydrate_purged_devices(
-        Enum.reverse(identity_purged),
-        records,
+    written =
+      commit_identity_work(
+        identity_work_items(new, identity_purged, succeed),
+        management_parent_ips(records),
         context,
         observed_at,
         actor
       )
 
-    context = Map.merge(context, Map.new(rehydrated, &{&1.device_ip, &1.uid}))
-
-    succeeded =
-      succeed
-      |> Enum.reverse()
-      |> succeed_purged_identities(records, context, observed_at)
-
-    kept ++ restored_entries ++ rehydrated ++ created ++ succeeded
+    kept ++ restored_entries ++ written
   end
 
   defp devices_by_uid(uids, actor) do
@@ -2198,67 +2189,126 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp restorable_chain_target(%Device{} = row), do: {:restore, row}
 
-  defp succeed_purged_identities([], _records, _context, _observed_at), do: []
+  defp identity_work_items(new, identity_purged, succeed) do
+    creates =
+      new
+      |> Enum.reverse()
+      |> Enum.group_by(& &1.uid)
+      |> Enum.map(fn {uid, entries} -> {:create, uid, entries} end)
 
-  defp succeed_purged_identities(entries, records, context, observed_at) do
-    groups =
-      Enum.group_by(entries, fn {_entry, root, _next, _head, _action, _pins} -> root.uid end)
+    rehydrates =
+      identity_purged
+      |> Enum.reverse()
+      |> Enum.group_by(fn {_entry, device} -> device.uid end)
+      |> Enum.map(fn {uid, pairs} -> {:rehydrate, uid, pairs} end)
 
-    {written, _context} =
-      groups
-      |> management_group_order(records)
-      |> Enum.reduce({[], context}, fn {_uid, group}, {written, context} ->
+    successors =
+      succeed
+      |> Enum.reverse()
+      |> Enum.group_by(fn {_entry, root, _next, _head, _action, _pins} -> root.uid end)
+      |> Enum.map(fn {uid, group} -> {:succeed, uid, group} end)
+
+    creates ++ rehydrates ++ successors
+  end
+
+  defp commit_identity_work(items, parent_ips, context, observed_at, actor) do
+    by_id = Map.new(items, &{work_id(&1), &1})
+    owners = work_owner_index(items)
+
+    parents =
+      Map.new(items, fn item ->
+        {work_id(item), work_parent_id(item, parent_ips, owners)}
+      end)
+
+    ordered = Enum.map(topo_uids(Map.keys(by_id), parents), &Map.fetch!(by_id, &1))
+
+    {written, context, batch} =
+      Enum.reduce(ordered, {[], context, []}, fn item, {written, context, batch} ->
+        if batch == [] or batchable_work?(item, batch, parents) do
+          {written, context, [item | batch]}
+        else
+          {added, context} =
+            flush_identity_work(Enum.reverse(batch), parent_ips, context, observed_at, actor)
+
+          {written ++ added, context, [item]}
+        end
+      end)
+
+    {added, _context} =
+      flush_identity_work(Enum.reverse(batch), parent_ips, context, observed_at, actor)
+
+    written ++ added
+  end
+
+  defp batchable_work?(item, [current | _] = batch, parents) do
+    parent = Map.get(parents, work_id(item))
+    pending = Enum.map(batch, &work_id/1)
+
+    work_kind(item) == work_kind(current) and work_kind(item) != :succeed and
+      parent not in pending
+  end
+
+  defp flush_identity_work([], _parent_ips, context, _observed_at, _actor), do: {[], context}
+
+  defp flush_identity_work(items, parent_ips, context, observed_at, actor) do
+    case hd(items) do
+      {:create, _, _} ->
+        entries = Enum.flat_map(items, fn {:create, _, entries} -> entries end)
+        created = create_polled_devices(entries, parent_ips, context, observed_at, actor)
+        {created, merge_identity_context(context, created)}
+
+      {:rehydrate, _, _} ->
+        pairs = Enum.flat_map(items, fn {:rehydrate, _, pairs} -> pairs end)
+        rehydrated = rehydrate_purged_devices(pairs, parent_ips, context, observed_at, actor)
+        {rehydrated, merge_identity_context(context, rehydrated)}
+
+      {:succeed, _, group} ->
         [{_entry, root, next, head, action, pins} | _] = group
-        polled = Enum.map(group, fn {entry, _root, _next, _head, _action, _pins} -> entry end)
+        entries = Enum.map(group, fn {entry, _, _, _, _, _} -> entry end)
 
         created =
           commit_identity_successor(
-            polled,
+            entries,
             root,
             next,
             head,
             action,
             pins,
-            records,
+            parent_ips,
             context,
             observed_at
           )
 
-        {written ++ created, Map.merge(context, Map.new(created, &{&1.device_ip, &1.uid}))}
-      end)
-
-    written
+        {created, merge_identity_context(context, created)}
+    end
   end
 
-  defp management_group_order(groups, records) do
-    ips =
-      Map.new(groups, fn {uid, group} ->
-        {uid, MapSet.new(group, fn {entry, _, _, _, _, _} -> entry.device_ip end)}
-      end)
+  defp merge_identity_context(context, entries),
+    do: Map.merge(context, Map.new(entries, &{&1.device_ip, &1.uid}))
 
-    parents =
-      Map.new(ips, fn {uid, child_ips} ->
-        parent =
-          Enum.find_value(ips, fn {other, parent_ips} ->
-            if other != uid and manages_ips?(parent_ips, child_ips, records), do: other
-          end)
+  defp work_id({kind, uid, _payload}), do: {kind, uid}
+  defp work_kind({kind, _uid, _payload}), do: kind
 
-        {uid, parent}
-      end)
+  defp work_ips({:create, _uid, entries}), do: Enum.map(entries, & &1.device_ip)
 
-    groups
-    |> Map.keys()
-    |> topo_uids(parents)
-    |> Enum.map(&{&1, Map.fetch!(groups, &1)})
-  end
+  defp work_ips({:rehydrate, _uid, pairs}),
+    do: Enum.map(pairs, fn {entry, _device} -> entry.device_ip end)
 
-  defp manages_ips?(parent_ips, child_ips, records) do
-    Enum.any?(child_ips, fn ip ->
-      case management_parent_ip(ip, records) do
-        nil -> false
-        parent_ip -> MapSet.member?(parent_ips, parent_ip)
-      end
+  defp work_ips({:succeed, _uid, group}),
+    do: Enum.map(group, fn {entry, _, _, _, _, _} -> entry.device_ip end)
+
+  defp work_owner_index(items) do
+    Enum.reduce(items, %{}, fn item, acc ->
+      Enum.reduce(work_ips(item), acc, fn ip, acc -> Map.put_new(acc, ip, work_id(item)) end)
     end)
+  end
+
+  defp work_parent_id(item, parent_ips, owners) do
+    case Map.get(owners, Map.get(parent_ips, hd(work_ips(item)))) do
+      nil -> nil
+      owner when owner == work_id(item) -> nil
+      owner -> owner
+    end
   end
 
   defp topo_uids(uids, parents) do
@@ -2287,7 +2337,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          head,
          action,
          pins,
-         records,
+         parent_ips,
          context,
          observed_at
        ) do
@@ -2301,7 +2351,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
                    {:ok, :progress}
 
                  :create ->
-                   write_successor_devices(entries, next, root, records, context, observed_at)
+                   write_successor_devices(
+                     entries,
+                     next,
+                     root,
+                     parent_ips,
+                     context,
+                     observed_at
+                   )
                end
              end
            else
@@ -2363,10 +2420,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp successor_root_current?(_row, _root, _head), do: false
 
-  defp write_successor_devices(entries, next, root, records, context, observed_at) do
+  defp write_successor_devices(entries, next, root, parent_ips, context, observed_at) do
     case write_polled_device_rows(
            Enum.map(entries, &%{&1 | uid: next}),
-           records,
+           parent_ips,
            context,
            observed_at
          ) do
@@ -2434,9 +2491,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     :skip
   end
 
-  defp rehydrate_purged_devices([], _records, _context, _observed_at, _actor), do: []
+  defp rehydrate_purged_devices([], _parent_ips, _context, _observed_at, _actor), do: []
 
-  defp rehydrate_purged_devices(purged, records, context, observed_at, actor) do
+  defp rehydrate_purged_devices(purged, parent_ips, context, observed_at, actor) do
     representatives = Enum.uniq_by(purged, fn {_entry, device} -> device.uid end)
 
     case Repo.transaction(fn ->
@@ -2454,7 +2511,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
            case write_polled_device_rows(
                   Enum.map(representatives, fn {entry, _} -> entry end),
-                  records,
+                  parent_ips,
                   context,
                   observed_at
                 ) do
@@ -2485,10 +2542,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
   # same rules as any other strong write: an anchorless provisional seed holding the address is
   # adopted, and any other live holder is left in place with the conflict recorded.
-  defp create_polled_devices([], _records, _context, _observed_at, _actor), do: []
+  defp create_polled_devices([], _parent_ips, _context, _observed_at, _actor), do: []
 
-  defp create_polled_devices(new, records, context, observed_at, _actor) do
-    case write_polled_device_rows(new, records, context, observed_at) do
+  defp create_polled_devices(new, parent_ips, context, observed_at, _actor) do
+    case write_polled_device_rows(new, parent_ips, context, observed_at) do
       {:ok, batch} ->
         publish_polled_devices(batch)
         remap_polled_entries(new, batch.remap)
@@ -2499,7 +2556,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp write_polled_device_rows(entries, records, context, observed_at) do
+  defp write_polled_device_rows(entries, parent_ips, context, observed_at) do
     representatives = Enum.uniq_by(entries, & &1.uid)
     timestamp = DateTime.truncate(observed_at, :second)
     resolved_updates = Enum.map(representatives, &{new_device_update(&1), &1.uid})
@@ -2513,7 +2570,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         |> Map.put(:identity_observed_at, observed_at)
         |> maybe_put(
           :management_device_id,
-          find_management_device_uid(record.ip, records, context)
+          find_management_device_uid(record.ip, parent_ips, context)
         )
       end)
 
@@ -2943,25 +3000,37 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  # Checks if device_ip appears in any interface's ip_addresses belonging to a
-  # different device, and returns that parent device's UID if found.
-  defp find_management_device_uid(device_ip, records, ip_to_uid) do
-    case management_parent_ip(device_ip, records) do
-      nil -> nil
-      parent_ip -> Map.get(ip_to_uid, parent_ip)
-    end
+  defp management_parent_ips(records) do
+    Enum.reduce(records, %{}, fn record, acc ->
+      addresses = if is_list(record.ip_addresses), do: record.ip_addresses, else: []
+
+      Enum.reduce(addresses, acc, fn address, acc ->
+        case parent_child_ip(address, record.device_ip) do
+          nil -> acc
+          child -> Map.put_new(acc, child, record.device_ip)
+        end
+      end)
+    end)
   end
 
-  defp management_parent_ip(device_ip, records) do
-    records
-    |> Enum.find(fn record ->
-      record.device_ip != device_ip &&
-        is_list(record.ip_addresses) &&
-        Enum.any?(record.ip_addresses, &ip_matches?(&1, device_ip))
-    end)
-    |> case do
+  defp parent_child_ip(address, parent_ip) when is_binary(address) do
+    child =
+      case String.split(address, "/", parts: 2) do
+        [ip, _cidr] -> ip
+        [ip] -> ip
+      end
+
+    if child != parent_ip and ip_matches?(address, child), do: child
+  end
+
+  defp parent_child_ip(_address, _parent_ip), do: nil
+
+  # Checks if device_ip appears in any interface's ip_addresses belonging to a
+  # different device, and returns that parent device's UID if found.
+  defp find_management_device_uid(device_ip, parent_ips, ip_to_uid) do
+    case Map.get(parent_ips, device_ip) do
       nil -> nil
-      record -> record.device_ip
+      parent_ip -> Map.get(ip_to_uid, parent_ip)
     end
   end
 

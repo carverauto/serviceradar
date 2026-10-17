@@ -62,7 +62,10 @@ identity-purged and restore it when it is only soft-deleted. The walk continues
 only past identity-purged operator, DIRE, and nil-actor rows. The existing
 UID-sorted identity fence revalidates the root and every observed candidate or
 absence before pointer movement, and a successor is published only when that
-row is live and mapper-owned.
+row is live and mapper-owned. A same-poll management link resolves each child
+address's parent once, then uses the parent's committed live UID: the rehydrated
+row when that parent is a restorable system delete, or the published successor
+when rediscovery allocates one. A withheld successor records no management parent.
 
 Rollback retains dictionary deletion/truncate protection. It requires a cleanup
 binary with retained-identity support (or that support backported), or cleanup
