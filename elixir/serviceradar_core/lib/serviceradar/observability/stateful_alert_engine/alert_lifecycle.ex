@@ -64,9 +64,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
              alert: alert_config(rule, record),
-             device_uid: device_uid
+             device_uid: device_uid,
+             return_notifications?: true
            ) do
-        {:ok, %Alert{} = alert} ->
+        {:ok, %Alert{} = alert, notifications} ->
+          Inbox.notify_after_commit(notifications)
+
           if !synthetic_liveness_check? do
             record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
 

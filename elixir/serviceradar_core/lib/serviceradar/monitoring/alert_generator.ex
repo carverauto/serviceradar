@@ -269,6 +269,8 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
     - `:alert` - map of overrides (title, description, severity, metadata)
     - `:actor` - Ash actor to use for policy checks (optional)
     - `:device_uid` - canonical `ocsf_devices.uid` this alert is about, or nil
+    - `:return_notifications?` - when true, return `{:ok, alert, notifications}`
+      without sending them. The caller sends them after its transaction commits.
 
   ## `:device_uid` must already be canonical
 
@@ -291,7 +293,10 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   field, so routes and silences written against it begin matching. See the
   `add-alert-device-identity` OpenSpec change.
   """
-  @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}
+  @spec from_event(map(), keyword()) ::
+          {:ok, Alert.t() | :skipped}
+          | {:ok, Alert.t(), [Ash.Notifier.Notification.t()]}
+          | {:error, term()}
   def from_event(event, opts \\ []) when is_map(event) do
     alert_config = Keyword.get(opts, :alert, %{})
 
@@ -432,14 +437,21 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   defp create_alert(attrs, opts) do
     # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor) || SystemActor.system(:alert_generator)
+    return_notifications? = Keyword.get(opts, :return_notifications?, false)
 
-    # Create the alert in the database
-    with {:error, error} <-
-           Alert
-           |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
-           |> Ash.create() do
-      Logger.error("Failed to create alert: #{inspect(error)}")
-      {:error, error}
+    Alert
+    |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
+    |> Ash.create(return_notifications?: return_notifications?)
+    |> case do
+      {:ok, %Alert{} = alert, notifications} ->
+        {:ok, alert, List.wrap(notifications)}
+
+      {:ok, %Alert{} = alert} ->
+        {:ok, alert}
+
+      {:error, error} ->
+        Logger.error("Failed to create alert: #{inspect(error)}")
+        {:error, error}
     end
   end
 
