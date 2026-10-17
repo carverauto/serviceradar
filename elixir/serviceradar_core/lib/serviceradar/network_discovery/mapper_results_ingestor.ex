@@ -2476,55 +2476,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp provisional_successor_target(entries, next) do
     %{device_ip: ip, partition: partition} = hd(entries)
 
-    case Repo.one(
-           from(d in Device,
-             where: d.ip == ^ip and d.partition == ^normalize_partition(partition),
-             where: is_nil(d.deleted_at) and d.uid != ^next and is_nil(d.source_retired_at),
-             limit: 1,
-             select: %{
-               uid: d.uid,
-               hostname: d.hostname,
-               mac: d.mac,
-               metadata: d.metadata
-             }
-           )
-         ) do
-      %{uid: uid} = holder ->
-        if provisional_seed_holder?(holder) and not anchored_identity?(uid), do: uid, else: next
-
-      _ ->
-        next
-    end
-  end
-
-  defp provisional_seed_holder?(holder) do
-    metadata = holder.metadata || %{}
-    state = metadata["identity_state"] || metadata[:identity_state]
-
-    state == "provisional" or
-      (state != "canonical" and blank_holder_attribute?(holder.hostname) and
-         blank_holder_attribute?(holder.mac))
-  end
-
-  defp blank_holder_attribute?(nil), do: true
-  defp blank_holder_attribute?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank_holder_attribute?(_value), do: false
-
-  defp anchored_identity?(uid) do
-    Repo.exists?(
-      from(identifier in DeviceIdentifier,
-        where:
-          identifier.device_id == ^uid and
-            identifier.identifier_type in [
-              :mac,
-              :agent_id,
-              :armis_device_id,
-              :integration_id,
-              :netbox_device_id,
-              :hardware_serial
-            ]
-      )
-    )
+    DeviceWrites.adoptable_provisional_seed_uid(ip, partition, next) || next
   end
 
   defp accept_successor_publication(next, adopted, allowed, root) do
@@ -3206,22 +3158,46 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp publish_deferred_management(existing, restored, parent_ips, context) do
-    pairs =
+    candidates =
       Enum.flat_map(existing, fn {:existing, entry, device} ->
-        deferred_management_pair(entry, device, parent_ips, context)
+        [{entry, device}]
       end) ++
-        Enum.flat_map(restored, fn {entry, device, _purged?} ->
-          deferred_management_pair(entry, device, parent_ips, context)
-        end)
+        Enum.map(restored, fn {entry, device, _purged?} -> {entry, device} end)
+
+    live_parents = live_management_parent_uids(candidates)
+
+    pairs =
+      Enum.flat_map(candidates, fn {entry, device} ->
+        deferred_management_pair(entry, device, parent_ips, context, live_parents)
+      end)
 
     update_management_links(pairs)
   end
 
-  defp deferred_management_pair(entry, device, parent_ips, context) do
+  defp live_management_parent_uids(candidates) do
+    uids =
+      candidates
+      |> Enum.map(fn {_entry, device} -> device.management_device_id end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if uids == [] do
+      MapSet.new()
+    else
+      Device
+      |> where([device], device.uid in ^uids and is_nil(device.deleted_at))
+      |> select([device], device.uid)
+      |> Repo.all()
+      |> MapSet.new()
+    end
+  end
+
+  defp deferred_management_pair(entry, device, parent_ips, context, live_parents) do
     parent = find_management_device_uid(entry.device_ip, parent_ips, context)
     stored = device.management_device_id
+    stored_live? = is_binary(stored) and MapSet.member?(live_parents, stored)
 
-    if is_binary(parent) and parent != device.uid and parent != stored do
+    if is_binary(parent) and parent != device.uid and parent != stored and not stored_live? do
       [{device.uid, parent}]
     else
       []
@@ -3246,6 +3222,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           AND child.deleted_at IS NULL
           AND child.uid <> desired.parent_uid
           AND child.management_device_id IS DISTINCT FROM desired.parent_uid
+          AND (
+            child.management_device_id IS NULL
+            OR NOT EXISTS (
+              SELECT 1
+              FROM platform.ocsf_devices AS stored_parent
+              WHERE stored_parent.uid = child.management_device_id
+                AND stored_parent.deleted_at IS NULL
+            )
+          )
         RETURNING child.uid, child.management_device_id
         """,
         [children, parents]

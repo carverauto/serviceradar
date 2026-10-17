@@ -80,7 +80,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       ip_literal_devices: ip_literal_uids
     }
 
-    # -- planning (read-only) ----------------------------------------------------
     case mode do
       :dry_run ->
         report
@@ -98,6 +97,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
         |> Map.put(:ip_literal_fixed, fixed)
     end
   end
+
+  # -- planning (read-only) ----------------------------------------------------
 
   defp scoped_agents(opts, actor) do
     statuses = Keyword.get(opts, :agent_statuses, @default_statuses)
@@ -393,8 +394,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   defp most_recent([]), do: nil
 
-  # -- execution ----------------------------------------------------------------
-
   defp most_recent(devices) do
     Enum.max_by(devices, fn device ->
       case device.last_seen_time do
@@ -421,6 +420,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       alias_states_to_stale: Enum.map(plan.alias_ids, &"#{&1.alias_type}:#{&1.alias_value}")
     }
   end
+
+  # -- execution ----------------------------------------------------------------
 
   defp apply_plan(%{action: :skip}, _manifest, _actor, stats), do: stats
 
@@ -727,7 +728,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
          })
          |> Ash.create(actor: actor) do
       {:ok, identifier} ->
-        # -- ip literal fix -----------------------------------------------------------
         Manifest.record(
           manifest,
           @step,
@@ -768,6 +768,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       :ok
     end
   end
+
+  # -- ip literal fix -----------------------------------------------------------
 
   defp devices_with_ip_literal(ip_literal) when is_binary(ip_literal) and ip_literal != "" do
     %{rows: rows} =
