@@ -367,6 +367,101 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert to == ~p"/settings/profile"
   end
 
+  # The SNMP rule form used to hide Target Query and supply no default, so every
+  # SNMP rule submitted a blank query and failed with a generic error.
+  @tag :web_ng_shared_fixture_db
+  test "creates an SNMP rule with the descriptor's default target query", %{conn: conn, scope: scope} do
+    secret = snmp_secret_fixture(scope)
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=snmp")
+    assert html =~ "Target Query"
+
+    lv
+    |> form("#credential-rule-form", credential_rule: %{"auth_method" => "v3"})
+    |> render_change()
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: %{
+        "name" => "SNMP monitoring rule",
+        "provider" => "snmp",
+        "auth_method" => "v3",
+        "purposes" => ["snmp_monitoring"],
+        "scope_type" => "agent",
+        "scope_value" => "agent-a",
+        "secret_id" => secret.id,
+        "priority" => "100"
+      }
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+
+    rule = get_rule_by_name!(scope, "SNMP monitoring rule")
+    assert rule.provider == "snmp"
+    assert rule.target_query == "in:devices"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "clearing the SNMP target query names the field and saves no rule", %{conn: conn, scope: scope} do
+    secret = snmp_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=snmp")
+
+    lv
+    |> form("#credential-rule-form", credential_rule: %{"auth_method" => "v3"})
+    |> render_change()
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule: %{
+          "name" => "SNMP blank query rule",
+          "provider" => "snmp",
+          "auth_method" => "v3",
+          "purposes" => ["snmp_monitoring"],
+          "scope_type" => "agent",
+          "scope_value" => "agent-a",
+          "secret_id" => secret.id,
+          "priority" => "100",
+          "target_query" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Target query is required"
+    refute get_rule_by_name!(scope, "SNMP blank query rule")
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "stores an explicit SNMP target query the operator typed", %{conn: conn, scope: scope} do
+    secret = snmp_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=snmp")
+
+    lv
+    |> form("#credential-rule-form", credential_rule: %{"auth_method" => "v3"})
+    |> render_change()
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: %{
+        "name" => "SNMP host rule",
+        "provider" => "snmp",
+        "auth_method" => "v3",
+        "purposes" => ["snmp_monitoring"],
+        "scope_type" => "agent",
+        "scope_value" => "agent-a",
+        "secret_id" => secret.id,
+        "priority" => "100",
+        "target_query" => "in:devices hostname:host01"
+      }
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+
+    rule = get_rule_by_name!(scope, "SNMP host rule")
+    assert rule.target_query == "in:devices hostname:host01"
+  end
+
   @tag :web_ng_shared_fixture_db
   test "creates a rule from package-declared defaults and controls", %{conn: conn, scope: scope} do
     secret = api_token_secret_fixture(scope)

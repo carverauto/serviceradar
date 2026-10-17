@@ -65,7 +65,7 @@ migration and UI/API coverage remain partial. See
 for the proposed runtime integration and the separate runner credential handoff.
 
 Not every provider takes a rule. A provider's descriptor declares
-`supports_rules`, and three of the providers on this page are credential-only:
+`supports_rules`, and two of the providers on this page are credential-only:
 
 | Provider | Rule? | Where the credential is bound instead |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ Not every provider takes a rule. A provider's descriptor declares
 | NetBox | Yes, from `<first-release>` | The rule itself. Through 1.4.49 there is no `netbox` provider on this page and the token is a plugin assignment parameter -- see [NetBox](#netbox) |
 | AWX / AAP | No | **Settings -> Ansible -> Controllers**, per controller and purpose |
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
-| SNMP | No | **Settings -> SNMP Profiles**, per profile or target |
+| SNMP | Yes | The rule itself. A profile can bind the same credential; see [SNMP](#snmp) |
 
 ## Broker grant logs and history
 
@@ -767,12 +767,15 @@ and the feed fails until a credential is selected.
 ### SNMP
 
 SNMP is a protocol ServiceRadar speaks itself, so its descriptor is
-platform-owned rather than package-published. It is credential-only, scoped to
+platform-owned rather than package-published. It supports rules, scoped to
 agents, with one purpose (`snmp_monitoring`) and two auth methods:
 
 - `community` -- a community string, for v1/v2c.
 - `v3` -- username, auth protocol and password, optional privacy protocol and
   password.
+
+The rule form shows **Target Query**, defaulted to `in:devices`. A blank
+target query is refused with `Target query is required`, and no rule is saved.
 
 1. **Create the credential.** **New Credential** ->
    `SNMP - Community string (v1 / v2c)` or `SNMP - SNMPv3 user`.
