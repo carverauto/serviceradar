@@ -47,7 +47,7 @@ The system SHALL reuse persisted device fleet ordinals for topology membership a
 - **AND** an anchorless provisional seed already holding the polled IP may be that published successor, and the tombstone pointer SHALL name the adopted live UID
 - **AND** merged, source-retired, released-seed, and operator tombstones SHALL NOT be adoption targets
 - **AND** a device in that same poll whose interface parent is the rediscovered device SHALL record the parent's committed live UID: the rehydrated row when the parent is a restorable system delete, or the published successor when one is allocated
-- **AND** a later poll SHALL record that committed live parent UID on an existing or restored child when an earlier poll deferred or failed the parent, and SHALL leave an existing link unchanged while the parent is withheld or not yet live
+- **AND** a later poll SHALL record that committed live parent UID on an existing or restored child only when the stored link is missing or its stored parent is no longer live, SHALL keep a still-live stored parent, SHALL apply that same condition on the update, and SHALL leave an existing link unchanged while the parent is withheld or not yet live
 
 #### Scenario: Compatible rollback and migration contention
 - **WHEN** the identity migration is rolled back
