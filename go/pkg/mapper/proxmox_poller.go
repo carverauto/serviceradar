@@ -224,8 +224,17 @@ func (e *DiscoveryEngine) probeProxmoxCandidates(
 	return devices
 }
 
-func (e *DiscoveryEngine) probeProxmoxKnownDeviceCandidates(ctx context.Context, job *DiscoveryJob) {
-	seeds := proxmoxCandidateSeedsFromJob(job)
+// probeProxmoxCandidatesAfterIdentity fingerprints the seeds and the addresses
+// of devices the job found, once identity and enrichment are done.
+//
+// A candidate carries only the probed address and the node's name. Probed
+// before SNMP, a node that answers on several addresses was published once per
+// address, and each address became a device of its own. Probed now, a
+// candidate at an address the job already holds as a device's IP or alternate
+// IP folds onto that device.
+func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
+	ctx context.Context, job *DiscoveryJob, initialSeeds []string) {
+	seeds := proxmoxCandidateSeeds(job, initialSeeds)
 	if len(seeds) == 0 {
 		return
 	}
@@ -238,30 +247,39 @@ func (e *DiscoveryEngine) probeProxmoxKnownDeviceCandidates(ctx context.Context,
 	job.mu.Lock()
 	defer job.mu.Unlock()
 
-	e.processDevicesForSNMPTargets(job, devices, map[string]bool{}, map[string]string{})
+	for _, device := range devices {
+		e.addOrUpdateDeviceToResults(job, device)
+	}
 }
 
-func proxmoxCandidateSeedsFromJob(job *DiscoveryJob) []string {
-	if job == nil || job.Results == nil {
-		return nil
-	}
-
+// proxmoxCandidateSeeds returns the job's seeds followed by the primary IPs of
+// the devices it found, each address once.
+func proxmoxCandidateSeeds(job *DiscoveryJob, initialSeeds []string) []string {
 	seen := make(map[string]struct{})
-	seeds := make([]string, 0, len(job.Results.Devices))
+	seeds := make([]string, 0, len(initialSeeds))
 
-	for _, device := range job.Results.Devices {
-		if device == nil {
-			continue
-		}
-		ip := strings.TrimSpace(device.IP)
+	add := func(ip string) {
+		ip = strings.TrimSpace(ip)
 		if ip == "" {
-			continue
+			return
 		}
 		if _, ok := seen[ip]; ok {
-			continue
+			return
 		}
 		seen[ip] = struct{}{}
 		seeds = append(seeds, ip)
+	}
+
+	for _, seed := range initialSeeds {
+		add(seed)
+	}
+
+	if job != nil && job.Results != nil {
+		for _, device := range job.Results.Devices {
+			if device != nil {
+				add(device.IP)
+			}
+		}
 	}
 
 	return seeds

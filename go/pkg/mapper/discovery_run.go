@@ -35,20 +35,6 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	}
 	recordStageTransition(job, DiscoveryStagePrepare, DiscoveryStageStatusCompleted, "targets prepared")
 
-	if shouldProbeProxmoxCandidates(job) {
-		apiCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
-		devices := e.probeProxmoxCandidates(apiCtx, job, initialSeeds)
-		cancel()
-
-		if len(devices) > 0 {
-			job.mu.Lock()
-			for _, device := range devices {
-				e.addOrUpdateDeviceToResults(job, device)
-			}
-			job.mu.Unlock()
-		}
-	}
-
 	recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusStarted, "identity collection started")
 	allPotentialSNMPTargets := make(map[string]bool)
 	for _, seed := range initialSeeds {
@@ -82,7 +68,7 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	}
 	if shouldProbeProxmoxCandidates(job) {
 		apiCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
-		e.probeProxmoxKnownDeviceCandidates(apiCtx, job)
+		e.probeProxmoxCandidatesAfterIdentity(apiCtx, job, initialSeeds)
 		cancel()
 	}
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusCompleted, "enrichment complete")
