@@ -79,7 +79,6 @@ HEX_PACKAGES = [
     ("ex_sdp", "ex_sdp", "1.3.0", "cbf17d41476e45a60adfccdb44cb99dc9de174420a458e990953daedc4595b22"),
     ("ex_slop", "ex_slop", "0.2.0", "da8ccad55b61eebf7972fee1ab723f5227e58ed052ea09be4f9fe315c5e89cc2"),
     ("ex_stun", "ex_stun", "0.2.1", "df711db3610302d4161ce362321f98862fad858de48a75c135fd0b343f18e817"),
-    ("ex_turn", "ex_turn", "0.2.3", "f94874c6d240a162ba610deca0e3a42a6dbc2721c37310ec1ab6063ac1e677c0"),
     ("ex_webrtc", "ex_webrtc", "0.15.1", "d341ee568a86f2fa56204266c26694d258344852d9f3a97515217f20c7ebd21b"),
     ("expo", "expo", "1.1.1", "5fb308b9cb359ae200b7e23d37c76978673aa1b06e2b3075d814ce12c5811640"),
     ("file_system", "file_system", "1.1.1", "7a15ff97dfe526aeefb090a7a9d3d03aa907e100e262a0f8f7746b78f8f87a5d"),

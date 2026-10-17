@@ -1277,13 +1277,13 @@ func TestCameraRelayTimestampDecoderStartsAtZeroAndAdvancesMonotonically(t *test
 	}
 
 	got := decoder.Decode(4_000)
-	want := int64(3_000) * int64(time.Second) / 90_000
+	want := int64(3_000)
 	if got != want {
 		t.Fatalf("expected pts %d, got %d", want, got)
 	}
 
 	got = decoder.Decode(7_000)
-	want = int64(6_000) * int64(time.Second) / 90_000
+	want = int64(6_000)
 	if got != want {
 		t.Fatalf("expected cumulative pts %d, got %d", want, got)
 	}
@@ -1296,7 +1296,7 @@ func TestCameraRelayTimestampDecoderHandlesRTPWraparound(t *testing.T) {
 	decoder.Decode(^uint32(0) - 100)
 
 	got := decoder.Decode(200)
-	want := int64(301) * int64(time.Second) / 90_000
+	want := int64(301)
 	if got != want {
 		t.Fatalf("expected wraparound pts %d, got %d", want, got)
 	}

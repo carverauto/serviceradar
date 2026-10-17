@@ -140,6 +140,9 @@ async function mountWebRtcViewer({fetchImpl} = {}) {
     RTCPeerConnection: PeerConnection,
     WebSocket: MockWebSocket,
     VideoDecoder: function VideoDecoder() {},
+    MediaStream: class MediaStream {
+      constructor(tracks) { this.tracks = tracks }
+    },
   })
   globalThis.document = {querySelector: () => null}
   globalThis.fetch = vi.fn(fetchImpl || (async (_url, options) => ({
@@ -214,17 +217,24 @@ describe("CameraRelayStatusStream", () => {
     expect(peer.closed).toBe(true)
   })
 
-  it("keeps WebRTC once video starts playing and cancels the deadline on close", async () => {
+  // The core-elx offer declares its track with no stream (`a=msid:- <track>`), so the
+  // browser fires `track` with empty `streams`; the viewer must still play it.
+  it.each(["with_stream", "without_stream"])("keeps WebRTC once video starts playing (%s) and cancels the deadline on close", async (shape) => {
     const {hook, peer, video, sockets} = await mountWebRtcViewer()
     const track = new Event("track")
-    track.streams = [{}]
+    track.track = {kind: "video"}
+    track.streams = shape === "with_stream" ? [{}] : []
     peer.dispatchEvent(track)
     peer.connectionState = "connected"
     peer.dispatchEvent(new Event("connectionstatechange"))
     video.dispatchEvent(new Event("playing"))
     await vi.advanceTimersByTimeAsync(8000)
     expect(sockets).toHaveLength(1)
-    expect(video.srcObject).toBe(track.streams[0])
+    if (shape === "with_stream") {
+      expect(video.srcObject).toBe(track.streams[0])
+    } else {
+      expect(video.srcObject.tracks).toEqual([track.track])
+    }
     CameraRelayStatusStream.destroyed.call(hook)
     await vi.advanceTimersByTimeAsync(8000)
     expect(sockets).toHaveLength(1)

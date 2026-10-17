@@ -26,9 +26,12 @@ MIX_LOCKS = [
     "//elixir/web-ng:mix.lock",
 ]
 
-# Hand-written, because the generator cannot produce it: bundlex is pinned from git rather
-# than resolved from hex.pm, so it is never a mix.lock entry.
-HAND_WRITTEN = ["bundlex.BUILD"]
+# Hand-written, because the generator cannot produce them: bundlex and ex_turn are pinned
+# from git rather than resolved from hex.pm, so neither is a Hex mix.lock entry.
+HAND_WRITTEN = [
+    "bundlex.BUILD",
+    "ex_turn.BUILD",
+]
 
 hex_stubs(
     name = "stubs",
@@ -67,6 +70,8 @@ hex_stubs(
         # git_pkg in :extensions.bzl, which puts it in the same extension as the fetched
         # packages -- that is why a sibling stub can name it directly.
         "bundlex": "@hex_bundlex//:erlang_app",
+        # Pinned from git too (see :extensions.bzl); ex_ice declares the edge to it.
+        "ex_turn": "@hex_ex_turn//:erlang_app",
         # First-party projects that override a Hex dependency via `path:` in mix.exs never
         # appear as lock entries, but Hex packages still declare an edge to them (gnat ->
         # connection). Without this the edge is dropped and the dependent fails with "module

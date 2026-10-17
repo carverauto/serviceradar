@@ -72,5 +72,16 @@ hex = hex_packages_extension(
             ],
             patch_args = ["-p1"],
         ),
+        # Pinned from git for the same reason as bundlex: serviceradar_core_elx overrides
+        # it in mix.exs. ex_turn 0.2.3 drops TURN ChannelData that a server pads to four
+        # bytes, which loses the tail of a browser's DTLS ClientHello on a relayed WebRTC
+        # pair; carverauto/ex_turn carries the fix proposed upstream as
+        # elixir-webrtc/ex_turn#12. Drop this once a Hex release includes it.
+        git_pkg(
+            name = "ex_turn",
+            remote = "https://github.com/carverauto/ex_turn.git",
+            commit = "46f873f6ab420dd3c2c5115dbee601f84f35d82b",
+            build_file = _stub("ex_turn"),
+        ),
     ],
 )
