@@ -48,6 +48,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
@@ -1494,9 +1495,39 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp partition_plugin_host_params(plugin_id, entrypoint, params, assignment_id) do
     if ProxmoxHostAuthority.assignment?(plugin_id, entrypoint) do
-      ProxmoxHostAuthority.partition(plugin_id, entrypoint, params, assignment_id)
+      ProxmoxHostAuthority.partition(plugin_id, entrypoint, params, assignment_id,
+        device_addresses: &device_interface_addresses/1
+      )
     else
       {params, nil}
+    end
+  end
+
+  # The interface addresses each device reports, from which host authority picks
+  # the one a multi-homed Proxmox node's certificate lists. Host authority asks
+  # once per assignment, and only for targets the certificate does not cover. A
+  # failed read selects nothing, so those targets are dropped as before.
+  defp device_interface_addresses(device_uids) do
+    actor = SystemActor.system(:proxmox_host_authority_target)
+
+    Interface
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(device_id in ^device_uids)
+    |> Ash.Query.select([:device_id, :ip_addresses])
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, interfaces} ->
+        interfaces
+        |> Enum.group_by(& &1.device_id, &(&1.ip_addresses || []))
+        |> Map.new(fn {device_uid, addresses} -> {device_uid, List.flatten(addresses)} end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Proxmox host authority: interface addresses unavailable for " <>
+            "#{length(device_uids)} device(s): #{inspect(reason)}"
+        )
+
+        %{}
     end
   end
 

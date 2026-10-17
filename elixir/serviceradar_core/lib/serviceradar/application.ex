@@ -402,6 +402,8 @@ defmodule ServiceRadar.Application do
           ServiceRadar.Identity.IdentityCache,
           # Agent config cache (ETS-based)
           ServiceRadar.AgentConfig.ConfigCache,
+          # Last warning per subject, so a persistent config warning logs once (ETS-based)
+          ServiceRadar.AgentConfig.WarningLedger,
           # Recent catalog-driven agent config diagnostics
           ServiceRadar.AgentConfig.DependencyDiagnostics,
           # Agent config server (compilation orchestration)

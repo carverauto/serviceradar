@@ -68,17 +68,24 @@ Alternative Name list has to contain `IP Address:<the address ServiceRadar dials
 `DNS` SAN never matches an IP literal, so a certificate issued for `pve04.lan` will fail
 against `https://192.168.1.20` no matter who signed it.
 
-**Discovered nodes at an uncovered address are dropped.** A node often answers on more
-than one interface, and auto-discovery may find it at an address its certificate does not
-list. The candidate probe records the IP SANs of the certificate it saw
-(`proxmox_tls_san_ips`), and core leaves out any discovered target whose address is not in
-that list instead of sending it to the agent to fail the handshake. The agent never dials
-a different address than the target names. Core logs `dropping target ... the node
-certificate does not list that address` with the SANs it saw. To collect from that node,
-make sure it is discovered at an address in the list, set `proxmox_base_url` on the device
-to one, or pin `server_cert_fingerprint`. Targets without recorded SAN data are left
-alone. Operator-set URLs are never dropped, and nothing
-is dropped while a fingerprint is pinned.
+**A discovered node is dialled at an address its certificate lists.** A node often answers
+on more than one interface, and auto-discovery may record one NIC as the device's primary
+IP while the certificate lists another, typically the management bridge. The candidate
+probe records the IP SANs of the certificate it saw (`proxmox_tls_san_ips`). When the
+primary IP is not among them, core rewrites the dial address to one that is both an
+interface address the device already owns and an IP SAN, preferring the same address
+family and then the lowest address. Loopback, link-local, unspecified, and broadcast
+addresses are never chosen, and a SAN never supplies an address the device does not
+already own. The agent still dials exactly the address the target carries after that
+choice and verifies the certificate for it.
+
+A target is dropped only when no such address exists. Core logs `dropping target ... the
+node certificate lists neither that address nor another address of the device` with the
+SANs it saw, once per change of that target's address or SAN set. To collect from that
+node, make sure it is discovered at an address in the list, set `proxmox_base_url` on the
+device to one, or pin `server_cert_fingerprint`. Targets without recorded SAN data are
+left alone. Operator-set URLs are never rewritten, and nothing is rewritten or dropped
+while a fingerprint is pinned.
 
 Work the following steps in order.
 
@@ -117,10 +124,12 @@ agent will dial, listed as an `IP Address` entry.
 - Output containing only `DNS:pve04, DNS:pve04.lan` and no `IP Address` entry: the stock
   certificate does **not** work, because ServiceRadar cannot be pointed at `pve04.lan`.
   Go to step 4.
-- Output containing an `IP Address` entry that is not the address you will use -- a node
-  that was re-addressed after its certificate was generated, or a certificate covering a
-  cluster network while the agent reaches a management network: treat this as the second
-  case. Go to step 4.
+- Output containing an `IP Address` entry for an interface this node still owns, even
+  when that is not the address discovery recorded: ServiceRadar dials that listed
+  address. Go to step 3.
+- Output containing an `IP Address` entry the node no longer owns, such as a node
+  re-addressed after its certificate was generated: treat this as the second case. Go to
+  step 4.
 
 If `pveproxy` is serving a custom certificate, it is at `/etc/pve/local/pveproxy-ssl.pem`
 and that file, not `pve-ssl.pem`, is what a client sees. Inspect whichever exists. To read
@@ -233,9 +242,11 @@ curl --cacert /etc/serviceradar/certs/pve-root-ca.pem https://192.168.1.20:8006/
 
 A clean TLS handshake and a `401` are success -- the `401` is the API declining an
 unauthenticated request, which means verification passed. A message naming a certificate
-authority means step 3 is incomplete; a message naming a hostname or IP SAN mismatch means
-step 4 is required. Do not add `-k`, and do not put a Proxmox token on a shell command
-line; the point of the check is the handshake.
+authority means step 3 is incomplete. A message naming a hostname or IP SAN mismatch means
+the address in that URL is not in the certificate. If the node still owns another address
+the certificate lists, ServiceRadar dials that address; if it does not, step 4 is
+required. Do not add `-k`, and do not put a Proxmox token on a shell command line; the
+point of the check is the handshake.
 
 Then confirm through ServiceRadar rather than through curl alone: use the target preview
 on the credential rule, and check the `proxmox-inventory` plugin result for a run

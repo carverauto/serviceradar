@@ -8,6 +8,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   finite set of target identity fields.
   """
 
+  alias ServiceRadar.AgentConfig.WarningLedger
   alias ServiceRadar.Plugins.IdentityUtils
 
   require Logger
@@ -66,11 +67,29 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   def assignment?(@console_plugin_id, @console_entrypoint), do: true
   def assignment?(_plugin_id, _entrypoint), do: false
 
-  @spec partition(String.t(), String.t(), map(), term()) :: {map(), map() | nil}
-  def partition(plugin_id, entrypoint, params, assignment_id)
+  @doc """
+  Splits Proxmox assignment params into the public params the Wasm guest reads
+  and the host authority envelope the agent keeps.
+
+  Options:
+
+    * `:device_addresses` - called once with the uids of the targets whose dial
+      address the node certificate does not list; returns a map of each uid to
+      that device's own interface addresses (bare or CIDR notation). Such a
+      target is redialled at one of them the certificate lists. Without this
+      option it is dropped.
+  """
+  @spec partition(String.t(), String.t(), map(), term(), keyword()) :: {map(), map() | nil}
+  def partition(plugin_id, entrypoint, params, assignment_id, opts \\ [])
+
+  def partition(plugin_id, entrypoint, params, assignment_id, opts)
       when is_map(params) and is_binary(plugin_id) and is_binary(entrypoint) do
     if assignment?(plugin_id, entrypoint) do
-      params = params |> stringify_keys() |> drop_targets_outside_certificate(assignment_id)
+      params =
+        params
+        |> stringify_keys()
+        |> reconcile_targets_with_certificate(assignment_id, opts)
+
       grant = broker_grant(params)
       auth_mode = auth_mode(plugin_id, params, grant)
       public_params = public_params(plugin_id, params, auth_mode)
@@ -122,7 +141,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     end
   end
 
-  def partition(_plugin_id, _entrypoint, params, _assignment_id),
+  def partition(_plugin_id, _entrypoint, params, _assignment_id, _opts),
     do: {if(is_map(params), do: params, else: %{}), nil}
 
   @doc false
@@ -334,63 +353,178 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   end
 
   # The agent verifies a Proxmox certificate against the exact address it dials
-  # and never reroutes, so a target discovered at an address the node
-  # certificate does not list can only fail the handshake (host error -5). Drop
-  # it before the plugin or any binding sees it. The SANs come from an
-  # unverified probe, so they only ever remove a target; an address is never
-  # taken from them. Operator-set URLs and a pinned leaf fingerprint (which
-  # skips address matching) are left alone.
-  defp drop_targets_outside_certificate(params, assignment_id) do
+  # and never reroutes, so a target dialled at an address the node certificate
+  # does not list can only fail the handshake (host error -5). The usual cause
+  # is a multi-homed node: discovery made one NIC's address the device's primary
+  # IP while the certificate lists another NIC's, typically the management
+  # bridge.
+  #
+  # Such a target is redialled at an address that is both one of the device's
+  # own interface addresses and an IP SAN, preferring the dial address's family
+  # and then the lowest address, so every cycle picks the same one. Loopback,
+  # link-local, unspecified and broadcast addresses never qualify. The SANs come
+  # from an unverified probe, so they only choose among addresses the device
+  # already owns and never supply one; the agent still verifies the certificate
+  # at the address it dials. A target with no such address is dropped before the
+  # plugin or any binding sees it, and the warning is logged once per change of
+  # its address or SAN set rather than on every config build. Operator-set URLs
+  # and a pinned leaf fingerprint (which skips address matching) are left alone.
+  defp reconcile_targets_with_certificate(params, assignment_id, opts) do
     if present?(server_cert_fingerprint(params)) do
       params
     else
-      keep? = &target_matches_certificate?(&1, assignment_id)
+      device_addresses = uncovered_device_addresses(params, opts)
+      reconcile = &reconcile_target(&1, assignment_id, device_addresses)
 
       params
-      |> update_list("targets", &Enum.filter(&1, keep?))
-      |> update_list("inputs", fn inputs -> Enum.map(inputs, &filter_input_items(&1, keep?)) end)
+      |> update_list("targets", &Enum.flat_map(&1, reconcile))
+      |> update_list("inputs", fn inputs ->
+        Enum.map(inputs, &reconcile_input_items(&1, reconcile))
+      end)
     end
   end
 
-  defp filter_input_items(%{"items" => items} = input, keep?) when is_list(items) do
-    case Enum.filter(items, keep?) do
+  # One lookup for every target the certificate does not cover, never one per
+  # target and never for a covered one.
+  defp uncovered_device_addresses(params, opts) do
+    loader = Keyword.get(opts, :device_addresses)
+
+    uids =
+      params
+      |> list_value("inputs")
+      |> Enum.flat_map(&list_value(&1, "items"))
+      |> Enum.concat(list_value(params, "targets"))
+      |> Enum.filter(&match?({:uncovered, _key, _ip}, certificate_coverage(&1)))
+      |> Enum.map(&target_device_uid/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if uids != [] and is_function(loader, 1), do: loader.(uids), else: %{}
+  end
+
+  defp reconcile_input_items(%{"items" => items} = input, reconcile) when is_list(items) do
+    case Enum.flat_map(items, reconcile) do
       ^items ->
         input
 
-      kept ->
+      reconciled ->
         input
-        |> Map.put("items", kept)
-        |> Map.put("chunk_hash", IdentityUtils.chunk_hash(kept, &IdentityUtils.item_identity/1))
+        |> Map.put("items", reconciled)
+        |> Map.put(
+          "chunk_hash",
+          IdentityUtils.chunk_hash(reconciled, &IdentityUtils.item_identity/1)
+        )
     end
   end
 
-  defp filter_input_items(input, _keep?), do: input
+  defp reconcile_input_items(input, _reconcile), do: input
 
-  defp target_matches_certificate?(%{} = target, assignment_id) do
+  defp reconcile_target(target, assignment_id, device_addresses) do
+    subject = {__MODULE__, :certificate_mismatch, assignment_id, target_device_uid(target)}
+
+    case certificate_coverage(target) do
+      :unchecked ->
+        [target]
+
+      :covered ->
+        WarningLedger.forget(subject)
+        [target]
+
+      {:uncovered, key, ip} ->
+        own_addresses = Map.get(device_addresses, target_device_uid(target), [])
+
+        case certificate_listed_address(target, ip, own_addresses) do
+          nil ->
+            warn_uncovered_target(target, ip, assignment_id, subject)
+            []
+
+          listed ->
+            WarningLedger.forget(subject)
+            [Map.put(target, key, ip_string(listed))]
+        end
+    end
+  end
+
+  # :unchecked when no recorded certificate applies to the target, :covered
+  # when the certificate lists its dial address, otherwise the key that holds
+  # the dial address and the address.
+  defp certificate_coverage(%{} = target) do
     with "true" <- value(target, "proxmox_tls_sans_recorded"),
          false <- explicit_target_url?(target),
-         address when is_binary(address) <-
-           first_string([value(target, "ip"), value(target, "device_ip")]),
+         {key, address} <- dial_address(target),
          {:ok, ip} <- parse_ip(address) do
-      covered? = Enum.any?(certificate_ips(target), &(&1 == ip))
-
-      if !covered? do
-        Logger.warning(
-          "Proxmox host authority: dropping target #{inspect(value(target, "uid"))} at " <>
-            "#{address} for assignment #{inspect(assignment_id)}: the node certificate does " <>
-            "not list that address (IP SANs: #{inspect(value(target, "proxmox_tls_san_ips"))}); " <>
-            "discover the node at a listed address, set proxmox_base_url, or pin " <>
-            "server_cert_fingerprint"
-        )
-      end
-
-      covered?
+      if ip in certificate_ips(target), do: :covered, else: {:uncovered, key, ip}
     else
-      _ -> true
+      _ -> :unchecked
     end
   end
 
-  defp target_matches_certificate?(_target, _assignment_id), do: true
+  defp certificate_coverage(_target), do: :unchecked
+
+  # The keys the plugin and target_origin/4 read the dial address from, in
+  # their order.
+  defp dial_address(target) do
+    Enum.find_value(~w(ip device_ip), fn key ->
+      case first_string([value(target, key)]) do
+        nil -> nil
+        address -> {key, address}
+      end
+    end)
+  end
+
+  defp certificate_listed_address(target, dial_ip, own_addresses) do
+    listed = certificate_ips(target)
+    family = tuple_size(dial_ip)
+
+    own_addresses
+    |> List.wrap()
+    |> Enum.flat_map(&parse_interface_address/1)
+    |> Enum.filter(&(dialable_address?(&1) and &1 in listed))
+    |> Enum.min_by(&{tuple_size(&1) != family, tuple_size(&1), &1}, &<=/2, fn -> nil end)
+  end
+
+  # Interface addresses are recorded bare or in CIDR notation.
+  defp parse_interface_address(address) when is_binary(address) do
+    case address |> String.split("/", parts: 2) |> hd() |> parse_ip() do
+      {:ok, ip} -> [ip]
+      :error -> []
+    end
+  end
+
+  defp parse_interface_address(_address), do: []
+
+  # Loopback, link-local, unspecified and broadcast addresses name no interface
+  # another host can reach, so a SAN match on one selects nothing.
+  defp dialable_address?({127, _, _, _}), do: false
+  defp dialable_address?({169, 254, _, _}), do: false
+  defp dialable_address?({0, 0, 0, 0}), do: false
+  defp dialable_address?({255, 255, 255, 255}), do: false
+  defp dialable_address?({0, 0, 0, 0, 0, 0, 0, 0}), do: false
+  defp dialable_address?({0, 0, 0, 0, 0, 0, 0, 1}), do: false
+  defp dialable_address?({first, _, _, _, _, _, _, _}) when first in 0xFE80..0xFEBF, do: false
+  defp dialable_address?(_ip), do: true
+
+  defp warn_uncovered_target(target, ip, assignment_id, subject) do
+    san_ips = value(target, "proxmox_tls_san_ips")
+
+    if WarningLedger.changed?(subject, {ip, san_ips}) do
+      Logger.warning(
+        "Proxmox host authority: dropping target #{inspect(target_device_uid(target))} at " <>
+          "#{ip_string(ip)} for assignment #{inspect(assignment_id)}: the node certificate " <>
+          "lists neither that address nor another address of the device " <>
+          "(IP SANs: #{inspect(san_ips)}); discover the node at a listed address, set " <>
+          "proxmox_base_url, or pin server_cert_fingerprint"
+      )
+    end
+  end
+
+  defp target_device_uid(target) when is_map(target) do
+    first_string([value(target, "uid"), value(target, "device_uid"), value(target, "device_id")])
+  end
+
+  defp target_device_uid(_target), do: nil
+
+  defp ip_string(ip), do: ip |> :inet.ntoa() |> to_string()
 
   defp explicit_target_url?(target) do
     Enum.any?(

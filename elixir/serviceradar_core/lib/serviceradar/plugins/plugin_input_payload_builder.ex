@@ -201,8 +201,9 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
             ["proxmox_base_url"]
           ),
         # The node certificate's IP SANs, as the candidate probe saw them. Host
-        # authority uses them to keep a target whose address the certificate
-        # cannot match from reaching the agent.
+        # authority uses them to pick which of the device's own addresses the
+        # agent dials, and to keep a target the certificate cannot match at any
+        # of them from reaching the agent.
         "proxmox_tls_sans_recorded" =>
           ValueUtils.string_value(metadata, ["proxmox_tls_sans_recorded"]),
         "proxmox_tls_san_ips" => ValueUtils.string_value(metadata, ["proxmox_tls_san_ips"])
