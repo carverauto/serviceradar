@@ -500,7 +500,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     do: {:error, :incomplete_hosted_owner_ancestry}
 
   defp hosted_owner_ids(ids, frontier, depth, actor) do
-    query = MergeAudit |> Ash.Query.for_read(:read) |> Ash.Query.filter(to_device_id in ^frontier)
+    # Audit rows are events. Bound unique identities at the source so repeated
+    # events neither re-enter the frontier nor consume the ancestry budget.
+    query =
+      MergeAudit
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(to_device_id in ^frontier)
+      |> Ash.Query.select([:from_device_id])
+      |> Ash.Query.distinct(:from_device_id)
+      |> Ash.Query.limit(@hosted_page_size + 1)
 
     with {:ok, merges} <- complete_hosted_read(query, actor) do
       ancestors = Enum.map(merges, & &1.from_device_id) -- ids
@@ -513,7 +521,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           {:error, :incomplete_hosted_owner_ancestry}
 
         true ->
-          hosted_owner_ids(Enum.uniq(ids ++ ancestors), ancestors, depth - 1, actor)
+          hosted_owner_ids(ids ++ ancestors, ancestors, depth - 1, actor)
       end
     end
   end
