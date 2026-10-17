@@ -131,7 +131,7 @@ impl Index {
             if old.number != expected {
                 return Err("revision_conflict");
             }
-            old.ip_unavailable
+            old.ip_unavailable.filter(|reason| *reason == "native_cap")
         };
         let mut registered = self.stage.try_lock().map_err(|_| "busy")?;
         if let Some(active) = registered.as_ref().and_then(|weak| weak.upgrade()) {

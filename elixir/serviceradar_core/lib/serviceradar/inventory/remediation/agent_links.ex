@@ -285,6 +285,23 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     end)
   end
 
+  defp restore_attrs(plan) do
+    agent = plan.agent
+
+    then(
+      %{
+        hostname: agent.host || agent.name,
+        agent_id: agent.uid,
+        discovery_sources: ["agent"],
+        last_seen_time: DateTime.utc_now(),
+        metadata: %{"created_by" => "dire_remediation", "step" => @step}
+      },
+      fn attrs ->
+        if Decisions.valid_ip?(agent.ip), do: Map.put(attrs, :ip, agent.ip), else: attrs
+      end
+    )
+  end
+
   defp create_attrs(agent) do
     then(
       %{
@@ -434,7 +451,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     result =
       Device
       |> Ash.Query.for_read(:by_uid, %{uid: plan.target_device.uid, include_deleted: true})
-      |> Ash.bulk_update(:restore, %{},
+      |> Ash.bulk_update(:gateway_restore, restore_attrs(plan),
         actor: actor,
         return_errors?: true,
         strategy: [:atomic, :stream]

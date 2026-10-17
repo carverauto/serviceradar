@@ -32,6 +32,11 @@ facet.
 | `Identity.MergeEngine`, `Identity.Reassignments`, `EndpointInventoryMoves` | Existing device transaction locks; survivor ordinal stays, losing ordinal becomes tombstoned |
 | `DeviceCleanupWorker` | Permanent dictionaries are excluded from the recursive delete plan |
 
+Inventory devices receive a permanent fleet ordinal on insert. The ordinal foreign
+key and the delete-protection trigger reject `Device` `:destroy` for those rows.
+The action remains for internal service-component records that never receive an
+ordinal. It is not a JSON:API action and it is not a way to remove protected inventory.
+
 A stale event cannot restore a merged-away device through the ordinary restore
 validation. An explicit operator restore or unmerge uses the existing
 `allow_retained` argument and reuses the original ordinal.
@@ -77,7 +82,12 @@ These limits bound the operation rather than promise an online conversion.
 
 Schema rollback retains dictionary assignments, epoch, widened storage and purge
 markers. It disables lifecycle triggers while permanent DELETE/TRUNCATE guards remain,
-so older cleanup code cannot erase assignments. A subsequent migration reuses the same
+so older cleanup code cannot erase assignments. Before the NOWAIT migration or a
+compatible rollback, pause old cleanup workers and quiesce writers, then retry if
+the exclusive lock is busy. During rollout, old cleanup pods hit the new RESTRICT
+foreign key; their batches split and fail without losing data. A compatible rollback
+also needs a retention-aware cleanup worker, or cleanup kept paused. A subsequent
+migration reuses the same
 identity data. Never delete dictionary rows or renumber IDs as a rollback step.
 Back up the dictionaries and epoch with canonical inventory.
 

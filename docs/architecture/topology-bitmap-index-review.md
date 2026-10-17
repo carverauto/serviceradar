@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `094004852ef9dd512f98690d6f775787b4c7c5c8bfd6c56425bf1f7dabf0d7fe` | 898454 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `faf3f2969a5eb9fdcb972a90e79b385f39d8415be31009adaeb0dfab0d757ef3` | 898999 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -35,19 +35,21 @@ Their exact source checksums are:
 | `design.md` | `ae00b622e1bf4c70cde5684acd0cc256683e8c74272ef453873ec0ae863b9398` |
 | `specs/topology-god-view/spec.md` | `0397314d7879f3327b003657b9fbe52e6fcb534b9703905ddb4292244e88f253` |
 | `tasks.md` | `fd86e2bca9ef259849c2ed19b220b5c1358a5674b61d229a878465e666dc3482` |
-| `review-response.md` | `63bb6d972580d2b5edac7f07e433b03bee13bd4d0b829bcb8df3987542af3dfa` |
+| `review-response.md` | `55512dc38d8ee3446e8c580677e92c643d30d6126ec1fb255a0f7ff047f75ad4` |
 
 The current snapshot includes the final review corrections for bounded retries,
 displayed membership receipts, deterministic telemetry admission, parser/native
 limits, identity retention, catalog readers and schema-valid scale fixtures.
-The current integrated remote unit gate passed 419 targets with two platform
-skips at runtime checkpoint `18ff6bd6d0`, invocation
-`afe6cf35-2ec3-4d95-bbed-bee09930704f`. Hosted database and combined scale
+The integrated remote unit gate passed 419 targets with two platform
+skips at pre-rebase checkpoint `18ff6bd6d0`, invocation
+`afe6cf35-2ec3-4d95-bbed-bee09930704f`. That commit is not an ancestor of this
+branch, and the run was not repeated on this tree. Do not treat `77eaecceb6`
+as that same gate. Hosted database and combined scale
 acceptance remain unchecked; the unit tier excludes those database cases.
 The portable summary retains camera-only sharing, paged labels without search,
 masked zero-match glyphs, hidden unproven aggregate links and disabled compression.
 Its handoff source SHA-256 is
-`38f29e17f7837c6814ab537b764c28a55dfad18219ebe112424641a2cc62d635`.
+`7cf149d2cd56557f0d0a9148741a3470bf18ef1f870f400849f3bb895ed28288`.
 Architecture source and delivered diagram bytes are unchanged since the prior
 artifact refresh on this feature branch; both differ from the PR base.
 The choices ledger and measurement report were reviewed as supporting evidence;

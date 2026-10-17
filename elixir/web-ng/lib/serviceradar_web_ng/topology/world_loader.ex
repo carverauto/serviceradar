@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
   require Logger
 
   @poll_ms 15_000
+  @ordinal_rescan_ms 60_000
   @load_timeout to_timeout(minute: 6)
   @max_backoff 60_000
 
@@ -42,6 +43,7 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
        tasks: Keyword.fetch!(opts, :task_supervisor),
        installed_generation: 0,
        desired_generation: 0,
+       ordinal_scan_at: nil,
        active: nil,
        timer: nil,
        backoff: 1_000
@@ -77,8 +79,12 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
 
       {:ok, {:ordinals, world, mapping, progress}} ->
         case WorldCache.install_ordinals(world, mapping, state.cache, progress) do
-          :ok -> {:noreply, schedule_next(%{state | backoff: 1_000})}
-          {:error, _reason} -> {:noreply, retry(state)}
+          :ok ->
+            {:noreply, schedule_next(%{state | backoff: 1_000, ordinal_scan_at: System.monotonic_time(:millisecond)})}
+
+          {:error, _reason} ->
+            _ = TopologyAtlas.release_ordinals(mapping)
+            {:noreply, retry(state)}
         end
 
       {:ok, %{world: world, manifest: manifest, tiles: tiles}} ->
@@ -127,8 +133,10 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
     installed = state.installed_generation
     cache = state.cache
 
+    ordinal_scan_at = state.ordinal_scan_at
+
     case Task.Supervisor.start_child(state.tasks, fn ->
-           send(owner, {:world_loaded, token, load(installed, cache, owner, token)})
+           send(owner, {:world_loaded, token, load(installed, cache, owner, token, ordinal_scan_at)})
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
@@ -140,32 +148,34 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
     end
   end
 
-  defp load(installed, cache, owner, token) do
+  defp load(installed, cache, owner, token, ordinal_scan_at) do
     with {:ok, manifest} <- World.active_manifest(:system) do
       send(owner, {:world_head_observed, token, manifest})
 
       if manifest.generation <= installed do
-        load_ordinals(cache, manifest, owner, token)
+        load_ordinals(cache, manifest, owner, token, ordinal_scan_at)
       else
         load_snapshot(owner, token)
       end
     end
   end
 
-  defp load_ordinals(cache, manifest, owner, token) do
+  defp load_ordinals(cache, manifest, owner, token, ordinal_scan_at) do
     with :ok <- continue_ordinals(owner, token),
          {:ok, snapshot} <- BitmapIndex.snapshot(),
          {:ok, current} <- WorldCache.world(cache),
          {:ok, progress} <- dictionary_progress(current, snapshot.dictionary_epoch),
          :ok <- continue_ordinals(owner, token) do
-      if ordinals_due?(current, snapshot.dictionary_epoch, progress) do
-        with {:ok, mapping} <- TopologyAtlas.new_ordinals(current.world, snapshot.dictionary_epoch),
-             :ok <- load_identity_pages(current.world, mapping, 0, owner, token),
-             {:ok, _info} <- TopologyAtlas.seal_ordinals(current.world, mapping) do
-          {:ok, {:ordinals, current.world, mapping, progress}}
-        else
-          :deferred -> {:ok, :deferred}
-          error -> error
+      if ordinals_due?(current, snapshot.dictionary_epoch, progress, ordinal_scan_at) do
+        case TopologyAtlas.new_ordinals(current.world, snapshot.dictionary_epoch) do
+          {:ok, mapping} ->
+            case seal_ordinal_projection(current.world, mapping, owner, token) do
+              :ok -> {:ok, {:ordinals, current.world, mapping, progress}}
+              other -> release_unused_ordinals(mapping, other)
+            end
+
+          other ->
+            other
         end
       else
         {:ok, {:unchanged, manifest}}
@@ -192,10 +202,42 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
 
   defp dictionary_progress(_current, _epoch), do: BitmapSource.dictionary_progress()
 
-  defp ordinals_due?(%{ordinals: %{info: info}, dictionary_ordinal: recorded}, epoch, progress),
-    do: info.dictionary_epoch != epoch or recorded != progress
+  defp ordinals_due?(%{ordinals: %{info: info}, dictionary_ordinal: recorded}, epoch, progress, scanned_at) do
+    cond do
+      info.dictionary_epoch != epoch ->
+        true
 
-  defp ordinals_due?(_current, _epoch, _progress), do: true
+      recorded == progress ->
+        false
+
+      is_nil(scanned_at) ->
+        true
+
+      System.monotonic_time(:millisecond) - scanned_at >= @ordinal_rescan_ms ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp ordinals_due?(_current, _epoch, _progress, _scanned_at), do: true
+
+  defp seal_ordinal_projection(world, mapping, owner, token) do
+    with :ok <- load_identity_pages(world, mapping, 0, owner, token),
+         {:ok, _info} <- TopologyAtlas.seal_ordinals(world, mapping) do
+      :ok
+    end
+  end
+
+  defp release_unused_ordinals(mapping, result) do
+    _ = TopologyAtlas.release_ordinals(mapping)
+
+    case result do
+      :deferred -> {:ok, :deferred}
+      other -> other
+    end
+  end
 
   defp continue_ordinals(owner, token) do
     case loader_position(owner, token) do

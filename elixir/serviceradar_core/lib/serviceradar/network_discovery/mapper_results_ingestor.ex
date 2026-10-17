@@ -1826,24 +1826,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Enum.uniq()
       |> Map.new(&{&1, polled_device_state(Map.get(devices, &1), actor)})
 
-    {existing, new} =
-      polled
-      |> Enum.flat_map(fn entry ->
+    {existing, restored, new} =
+      Enum.reduce(polled, {[], [], []}, fn entry, {existing, restored, new} ->
         case Map.fetch!(states, entry.uid) do
-          :new -> [{:new, entry}]
-          {:existing, device} -> [{:existing, entry, device}]
-          :skip -> []
+          {:existing, device} -> {[{:existing, entry, device} | existing], restored, new}
+          {:restored, device} -> {existing, [{entry, device} | restored], new}
+          :new -> {existing, restored, [entry | new]}
+          :skip -> {existing, restored, new}
         end
       end)
-      |> Enum.split_with(&match?({:existing, _polled, _device}, &1))
 
     # One observation time for the whole poll: a holder this poll also observed is not older
     # than the device moving onto its address, so it keeps the address.
     observed_at = DateTime.utc_now()
 
-    existing
-    |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
-    |> stamp_identity_observed(observed_at)
+    observed =
+      existing
+      |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
+      |> Kernel.++(Enum.map(restored, fn {_entry, device} -> device.uid end))
+
+    stamp_identity_observed(observed, observed_at)
 
     Enum.each(existing, fn {:existing, entry, device} ->
       maybe_move_device_address(entry, device, records, observed_at, actor)
@@ -1851,9 +1853,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    new_entries = Enum.map(new, &elem(&1, 1))
-    created = create_polled_devices(new_entries, records, context, observed_at, actor)
-    kept ++ created
+    restored_entries = Enum.map(restored, fn {entry, _device} -> entry end)
+    created = create_polled_devices(Enum.reverse(new), records, context, observed_at, actor)
+    _rehydrated = create_polled_devices(restored_entries, records, context, observed_at, actor)
+    kept ++ restored_entries ++ created
   end
 
   defp devices_by_uid(uids, actor) do
@@ -1927,7 +1930,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> case do
       %Ash.BulkResult{status: :success, records: [restored | _]} ->
         Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
-        {:existing, restored}
+        {:restored, restored}
 
       result ->
         Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(result)}")

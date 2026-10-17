@@ -93,8 +93,13 @@ GPU upload remains a copy.
 
 ## Filtered requests
 
-Search, details and scene requests carry the active expression as the bounded
-`query` URL parameter. This JSON is control metadata, not a bulk ID transport.
+Search, details and the latest scene snapshot carry the active expression as the
+bounded `query` parameter. A request whose encoded target stays within 8,000
+characters uses GET, including every request without a filter. A valid expression
+that would exceed that request line uses POST to the same path, with a JSON body,
+the existing CSRF token and the same authorization. The expression budget stays
+16 KiB. These bodies are not a server query cache, and the filter is not stored
+in the map-share URL. This JSON is control metadata, not a bulk ID transport.
 Each request evaluates current membership; page cursors bind query, authority
 and dictionary continuity. The browser discards responses from older local
 query generations and does not reuse filtered scene cache entries. Unsupported

@@ -10,18 +10,22 @@ The website work is complete and belongs to another repository/agent.
 Restart full no-mistakes with Claude Opus 5.5 medium. Current corrections and
 focused regression proofs are integrated. The complete remote unit gate passed
 419 targets with two platform skips in `afe6cf35-2ec3-4d95-bbed-bee09930704f`
-at runtime checkpoint `18ff6bd6d0`. Run
+at pre-rebase checkpoint `18ff6bd6d0`, which is not an ancestor of this branch.
+That run was not repeated on this tree. Run
 `01M52WPF0MN3F45GSFYS3PN67F` failed at its correction agent's 60-minute limit.
-Custody returned at `59adc905f8`; all 74 successful edits and the documentation
+Custody returned at pre-rebase checkpoint `59adc905f8`, which is not an ancestor
+of this branch; all 74 successful edits and the documentation
 refresh were recovered from the durable journal. Recovery is not a passing
 review. Browser, retention and loader corrections have focused regression evidence.
 Hosted database and scale acceptance remain pending.
 
 Priority order:
 
-1. Complete full review and publish through no-mistakes. The current runtime
-   checkpoint `18ff6bd6d0` passed the complete remote `make test` in
+1. Complete full review and publish through no-mistakes. Pre-rebase checkpoint
+   `18ff6bd6d0` passed the complete remote `make test` in
    `afe6cf35-2ec3-4d95-bbed-bee09930704f`: 419 targets passed, two platform skips.
+   That commit is not an ancestor of this branch, and the run was not repeated
+   on this tree. Do not treat `77eaecceb6` as that same gate.
    Earlier pre-rebase receipts remain historical.
 2. Preserve the current documentation and portable-source receipts. Physical GPU
    acceptance passed on the recorded earlier browser checkpoint; later retained-layer

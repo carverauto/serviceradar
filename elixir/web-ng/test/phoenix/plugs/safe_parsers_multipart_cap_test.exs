@@ -87,6 +87,52 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsersMultipartCapTest do
     |> SafeParsers.call(opts)
   end
 
+  @filter_paths ["/topology/tiles/search", "/topology/details", "/topology/snapshot/latest"]
+
+  test "filtered topology reads keep their GET actions and accept a POST body above the request line" do
+    query = String.duplicate("a", 12_000)
+    body = Jason.encode!(%{"device_id" => "synthetic", "query" => query})
+    assert byte_size(body) > 8_000 and byte_size(body) < 65_536
+
+    opts =
+      SafeParsers.init(
+        parsers: [:urlencoded, :multipart, :json],
+        pass: ["*/*"],
+        json_decoder: Jason,
+        length: @envelope
+      )
+
+    for path <- @filter_paths do
+      get_route = Phoenix.Router.route_info(ServiceRadarWebNGWeb.Router, "GET", path, "localhost")
+      post_route = Phoenix.Router.route_info(ServiceRadarWebNGWeb.Router, "POST", path, "localhost")
+      assert get_route.plug == post_route.plug
+      assert get_route.plug_opts == post_route.plug_opts
+
+      conn =
+        "POST"
+        |> conn(path, body)
+        |> put_req_header("content-type", "application/json")
+        |> SafeParsers.call(opts)
+
+      refute conn.halted
+      assert conn.body_params["query"] == query
+    end
+
+    huge = Jason.encode!(%{"query" => String.duplicate("b", 70_000)})
+
+    for path <- @filter_paths do
+      conn =
+        "POST"
+        |> conn(path, huge)
+        |> put_req_header("content-type", "application/json")
+        |> SafeParsers.call(opts)
+
+      assert conn.halted
+      assert conn.status == 400
+      assert conn.resp_body =~ "malformed_request"
+    end
+  end
+
   defp multipart_body(payload) do
     "--#{@boundary}\r\n" <>
       "Content-Disposition: form-data; name=\"note\"\r\n" <>

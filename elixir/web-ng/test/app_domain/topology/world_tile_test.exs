@@ -62,10 +62,6 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
       |> Task.async()
       |> Task.await()
 
-    # The discarded request term can survive on the cache heap until collection;
-    # resource destruction then goes through the native bounded reclaimer.
-    :erlang.garbage_collect(cache)
-
     assert {:ok, changed} =
              await_ordinal(world, <<17::128>>, System.monotonic_time(:millisecond) + 1_000)
 
@@ -84,12 +80,17 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
     next_world = world()
     assert :ok = WorldCache.install(next_world, %{manifest | generation: 2}, prepared(next_world, manifest), cache)
     assert {:ok, %{ordinals: nil}} = WorldCache.world(cache)
-    assert {:error, :source_changed} = WorldCache.install_ordinals(world, mapping, cache)
+    assert {:ok, foreign} = TopologyAtlas.new_ordinals(world, <<19::128>>)
+    assert {:ok, _} = TopologyAtlas.seal_ordinals(world, foreign)
+    assert {:error, :source_changed} = WorldCache.install_ordinals(world, foreign, cache)
+    assert {:ok, true} = TopologyAtlas.release_ordinals(foreign)
     assert {:ok, second} = WorldCache.fetch(child, :foreground, cache)
     assert second.payload == first.payload
     assert second.revision == first.revision
     assert second.generation == 2
-    assert :ok = WorldCache.install_ordinals(next_world, mapping, cache)
+    assert {:ok, attached} = TopologyAtlas.new_ordinals(next_world, <<18::128>>)
+    assert {:ok, _} = TopologyAtlas.seal_ordinals(next_world, attached)
+    assert :ok = WorldCache.install_ordinals(next_world, attached, cache)
     assert :ok = WorldCache.clear_ordinals(cache)
     assert {:ok, %{ordinals: nil}} = WorldCache.world(cache)
 

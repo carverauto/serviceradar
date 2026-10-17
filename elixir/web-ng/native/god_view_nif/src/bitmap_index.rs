@@ -431,7 +431,6 @@ impl Index {
         let end = deadline(1000)?;
         let _writer = self.publisher.try_lock().map_err(|_| "publisher_busy")?;
         let pins = self.reap()?;
-        let pending_bitmap_bytes = self.pending.try_lock().map_err(|_| "busy")?.bitmap_bytes();
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
@@ -563,10 +562,21 @@ impl Index {
         };
         let presence =
             facets::refresh_presence(&old, &live, &changed, &present, &self.budget, end)?;
+        let retained_budget = MAX_BYTES.saturating_sub(
+            self._charge.bytes
+                + live.charge.bytes
+                + facets.values().map(|set| set.charge.bytes).sum::<usize>()
+                + presence
+                    .values()
+                    .filter_map(Presence::charge)
+                    .map(|charge| charge.bytes)
+                    .sum::<usize>()
+                + 8192,
+        );
         let (addresses, ip_unavailable) = match (old.ip_unavailable, address_update) {
-            (Some(reason), _) => (None, Some(reason)),
-            (None, Some((_, _, Some(reason)))) => (None, Some(reason)),
-            (None, Some((added4, added6, None))) => {
+            (Some("native_cap"), _) => (None, Some("native_cap")),
+            (_, Some((_, _, Some(reason)))) => (None, Some(reason)),
+            (_, Some((added4, added6, None))) => {
                 let before = match &old.addresses {
                     Some(addresses) => addresses.clone(),
                     None => Addresses::empty(&self.budget)?,
@@ -576,18 +586,7 @@ impl Index {
                     added4,
                     added6,
                     &self.budget,
-                    MAX_BYTES.saturating_sub(
-                        self._charge.bytes
-                            + pending_bitmap_bytes
-                            + live.charge.bytes
-                            + facets.values().map(|set| set.charge.bytes).sum::<usize>()
-                            + presence
-                                .values()
-                                .filter_map(Presence::charge)
-                                .map(|charge| charge.bytes)
-                                .sum::<usize>()
-                            + 8192,
-                    ),
+                    retained_budget,
                     end,
                 ) {
                     Ok(addresses) => (Some(addresses), None),
@@ -595,8 +594,8 @@ impl Index {
                     Err(error) => return Err(error),
                 }
             }
-            (None, None) if changed.is_empty() => (old.addresses.clone(), None),
-            (None, None) => (None, Some("not_seeded")),
+            (reason, None) if changed.is_empty() => (old.addresses.clone(), reason),
+            (_, None) => (None, Some("not_seeded")),
         };
         let metadata = 8192
             + facets
@@ -616,11 +615,6 @@ impl Index {
             ip_unavailable,
             _charge: self.budget.reserve(metadata)?,
         };
-        // Disable only an intrinsically oversized address index. Old request
-        // pins or transient scratch pressure remain retryable admission errors.
-        // The dirty queue can change during construction. Hold its final bitmap
-        // charge stable through admission and swap; struct metadata is already
-        // included in the fixed index charge.
         drop(scratch);
         check_time(end)?;
         let pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
@@ -632,7 +626,7 @@ impl Index {
                 > MAX_BYTES
         {
             next.addresses = None;
-            next.ip_unavailable = Some("native_cap");
+            next.ip_unavailable = Some("pending");
         }
         let next = Arc::new(next);
         let mut published = self.revision.try_lock().map_err(|_| "busy")?;
@@ -2070,7 +2064,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_queue_latches_native_cap_and_scalar_publication_continues() {
+    fn pending_queue_omits_ip_without_latching_native_cap() {
         let supported: Vec<_> = (0..32).map(|n| format!("tag:synthetic-{n}")).collect();
         let index = Index::new([9; 16], [8; 16], Kind::Device, supported.clone()).unwrap();
         let rows = |start: u32, count: u32, value: &str| -> Vec<Row> {
@@ -2147,7 +2141,7 @@ mod tests {
         assert!(before.native_bytes <= MAX_BYTES);
         assert!(before.ip_available);
         let status = publish(before.revision, b"probe", probe);
-        assert_eq!(status.ip_unavailable_reason, Some("native_cap"));
+        assert_eq!(status.ip_unavailable_reason, Some("pending"));
         assert_eq!(status.revision, before.revision + 1);
         assert_eq!(status.cardinality, u64::from(count) + 100);
         assert_eq!(status.pending, before.pending);
@@ -2170,11 +2164,28 @@ mod tests {
             .unwrap();
         assert_eq!(scalar.revision, status.revision + 1);
         assert_eq!(scalar.cardinality, u64::from(count) + 99);
-        assert_eq!(scalar.ip_unavailable_reason, Some("native_cap"));
+        assert_eq!(scalar.ip_unavailable_reason, Some("not_seeded"));
         assert_eq!(scalar.pending, before.pending);
         assert_eq!(
             index.take_dirty(500).unwrap().0,
             (0..500).map(|n| (n << 16) | 1).collect::<Vec<_>>()
         );
+        let mut drained = index.status().unwrap();
+        while drained.pending.pending_count > 0 {
+            index.take_dirty(500).unwrap();
+            drained = index.status().unwrap();
+        }
+        let restored = publish(
+            drained.revision,
+            b"restore-addresses",
+            probe_ids
+                .iter()
+                .skip(1)
+                .map(|id| (*id, true, vec![(supported[0].clone(), "probe".into())]))
+                .collect(),
+        );
+        assert!(restored.ip_available);
+        assert_eq!(restored.ip_unavailable_reason, None);
+        assert_eq!(restored.revision, drained.revision + 1);
     }
 }

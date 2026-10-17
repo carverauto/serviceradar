@@ -479,4 +479,67 @@ describe("binary admitted-row membership", () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it("leaves the open detail alone when clear or apply repeats the same filter", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    const returned = vi.spyOn(renderer, "returnToMap").mockImplementation(() => {})
+    const cleared = vi.spyOn(renderer.sceneCache, "clear")
+    renderer.invalidateMembership = vi.fn()
+    renderer.scheduleWatch = vi.fn()
+    renderer.clearMembershipRetry = vi.fn()
+    renderer.setBitmapQuery(null)
+    expect(returned).not.toHaveBeenCalled()
+    expect(renderer.queryGeneration || 0).toBe(0)
+    renderer.setBitmapQuery({facet: "vlan", value: "20"})
+    expect(renderer.queryGeneration).toBe(1)
+    expect(renderer.bitmapQuery).toEqual({facet: "vlan", value: "20"})
+    returned.mockClear()
+    cleared.mockClear()
+    renderer.setBitmapQuery({facet: "vlan", value: "20"})
+    expect(returned).not.toHaveBeenCalled()
+    expect(cleared).not.toHaveBeenCalled()
+    expect(renderer.queryGeneration).toBe(1)
+    renderer.setBitmapQuery(null)
+    expect(renderer.queryGeneration).toBe(2)
+    expect(renderer.bitmapQuery).toBeNull()
+    expect(returned).toHaveBeenCalledOnce()
+    renderer.destroyed = true
+  })
+
+  it("posts a valid filter that would overflow the GET request line and keeps a short filter on GET", async () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn(), {csrfToken: "synthetic-csrf"})
+    renderer.membershipEnabled = true
+    renderer.membership.pending = false
+    renderer.cache.manifest = {layout_version: "synthetic-layout", generation: 1, zmax: 2}
+    const calls = []
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      calls.push({url, init})
+      return Response.json({layout_version: "synthetic-layout", generation: 1, device_id: "synthetic", x: 1, y: 2, zoom: 0})
+    }))
+    renderer.refreshManifest = vi.fn(async () => {})
+    renderer.returnToMap = vi.fn()
+    renderer.setView = vi.fn()
+    renderer.showSelection = vi.fn(async () => {})
+    try {
+      renderer.bitmapQuery = {facet: "tag", value: "a".repeat(8100)}
+      await renderer.search("synthetic")
+      expect(calls[0].url).toBe("/topology/tiles/search")
+      expect(calls[0].init.method).toBe("POST")
+      expect(calls[0].init.headers["x-csrf-token"]).toBe("synthetic-csrf")
+      expect(calls[0].init.headers["content-type"]).toBe("application/json")
+      const posted = JSON.parse(calls[0].init.body)
+      expect(posted.device_id).toBe("synthetic")
+      expect(posted.query).toBe(JSON.stringify(renderer.bitmapQuery))
+      expect(posted.query.length).toBeLessThanOrEqual(16384)
+      renderer.bitmapQuery = {facet: "vlan", value: "20"}
+      await renderer.search("synthetic")
+      expect(calls[1].init.method).toBe("GET")
+      expect(calls[1].url.startsWith("/topology/tiles/search?")).toBe(true)
+      expect(calls[1].url.length).toBeLessThanOrEqual(8000)
+      expect(calls[1].init.body).toBeUndefined()
+    } finally {
+      renderer.destroyed = true
+      vi.unstubAllGlobals()
+    }
+  })
 })

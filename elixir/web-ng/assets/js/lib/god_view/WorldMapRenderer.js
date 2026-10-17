@@ -12,7 +12,7 @@ import {WorldFilterPanel} from "./world_filter_panel"
 import {capabilityIdentity} from "./bitmap_capability"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
-import {readBoundedBody, worldJson} from "./world_http"
+import {readBoundedBody, topologyTarget, worldExchange, worldJson, worldJsonParams} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 
 const QUERY_GENERATION = Symbol("topology query generation")
@@ -67,7 +67,12 @@ export default class WorldMapRenderer {
     this.sceneCache = new Map()
     this.sceneControls = new Map()
     this.cache = new WorldTileCache({
-      onChange: () => {this.geometryRevision += 1; this.invalidateMembership()},
+      onChange: () => {
+        this.geometryRevision += 1
+        const signature = this.cache.manifest ? JSON.stringify(this.membershipRequest(this.cache.watchPayload())) : null
+        if (this.membershipSignature && signature !== this.membershipSignature) this.invalidateMembership()
+        this.render()
+      },
       onRetain: () => this.scheduleWatch(),
     })
     this.overlays = new WorldOverlays(() => {this.overlayRevision += 1; this.render()})
@@ -216,10 +221,12 @@ export default class WorldMapRenderer {
   }
 
   setBitmapQuery(query) {
+    const next = query === undefined ? null : query
+    if (JSON.stringify(next) === JSON.stringify(this.bitmapQuery ?? null)) return
     this.returnToMap()
     this.sceneCache.clear()
     this.queryGeneration = (this.queryGeneration || 0) + 1
-    this.bitmapQuery = query
+    this.bitmapQuery = next
     this.clearMembershipRetry()
     this.invalidateMembership()
     if (!this.membershipEnabled && query) this.status("Topology query filters are unavailable on this server.")
@@ -606,7 +613,7 @@ export default class WorldMapRenderer {
     this.searchRequest = request
     try {
       const params = this.queryParams({device_id: id})
-      const result = await worldJson(`/topology/tiles/search?${new URLSearchParams(params)}`, request.signal, 16384)
+      const result = await worldJsonParams("/topology/tiles/search", params, {signal: request.signal, limit: 16384, csrfToken: this.csrfToken})
       this.assertQuery(params)
       if (this.destroyed || request.signal.aborted) return
       await this.refreshManifest()
@@ -644,7 +651,7 @@ export default class WorldMapRenderer {
       const params = {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id}
       try {
         const bound = this.queryParams(params)
-        const result = await worldJson(`/topology/details?${new URLSearchParams(bound)}`, selection.signal)
+        const result = await worldJsonParams("/topology/details", bound, {signal: selection.signal, csrfToken: this.csrfToken})
         this.assertQuery(bound)
         if (selection.signal.aborted || this.destroyed) return
         await this.openScene({layout_version: params.layout_version, generation: params.generation, ...result.details.scene})
@@ -662,7 +669,7 @@ export default class WorldMapRenderer {
     this.openPanel(title)
     try {
       params = this.queryParams(params)
-      const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
+      const result = await worldJsonParams("/topology/details", params, {signal: selection.signal, csrfToken: this.csrfToken})
       this.assertQuery(params)
       if (selection.signal.aborted || this.destroyed) return
       const details = result.details
@@ -700,14 +707,14 @@ export default class WorldMapRenderer {
     let candidate
     try {
       params = this.queryParams(params)
-      const url = `/topology/snapshot/latest?${new URLSearchParams(params)}`
+      const url = topologyTarget("/topology/snapshot/latest", params).target
       let scene = params.query ? null : this.sceneCache.get(url)
       if (!scene) {
-        const response = await fetch(url, {
-          credentials: "same-origin", signal: globalThis.AbortSignal.any([request.signal, globalThis.AbortSignal.timeout(15000)]), headers: {Accept: "application/vnd.apache.arrow.file"},
+        const exchange = await worldExchange("/topology/snapshot/latest", params, {
+          signal: request.signal, accept: "application/vnd.apache.arrow.file", csrfToken: this.csrfToken,
         })
-        if (!response.ok) throw new Error(`Topology detail HTTP ${response.status}`)
-        scene = {bytes: await readBoundedBody(response, MAX_TILE_BYTES), headers: response.headers}
+        if (!exchange.response.ok) throw new Error(`Topology detail HTTP ${exchange.response.status}`)
+        scene = {bytes: await readBoundedBody(exchange.response, MAX_TILE_BYTES), headers: exchange.response.headers}
       }
       this.assertQuery(params)
       if (request.signal.aborted || this.destroyed) return

@@ -26,7 +26,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
         |> Keyword.put(:length, NotificationCallbackBody.limit())
         |> Keyword.put(:read_length, 65_536)
         |> Plug.Parsers.init(),
-      automation_callback: Plug.Parsers.init(Keyword.put(opts, :length, 4_096))
+      automation_callback: Plug.Parsers.init(Keyword.put(opts, :length, 4_096)),
+      topology_filter: Plug.Parsers.init(Keyword.put(opts, :length, 65_536))
     }
   end
 
@@ -39,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
         cond do
           NotificationCallbackBody.callback?(conn) -> opts.notification_callback
           automation_callback?(conn) -> opts.automation_callback
+          topology_filter_body?(conn) -> opts.topology_filter
           ordinary_multipart?(conn) -> opts.ordinary_multipart
           true -> opts.default
         end
@@ -95,6 +97,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
   end
 
   defp automation_callback?(_conn), do: false
+
+  defp topology_filter_body?(%{method: "POST", request_path: path}) do
+    path in ["/topology/tiles/search", "/topology/details", "/topology/snapshot/latest"]
+  end
+
+  defp topology_filter_body?(_conn), do: false
 
   defp send_malformed_request(conn) do
     if automation_callback?(conn) do
