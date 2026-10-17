@@ -17,7 +17,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle
+  alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -31,6 +33,50 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
 
   setup do
     {:ok, actor: SystemActor.system(:alert_lifecycle_notification_test)}
+  end
+
+  test "an evaluation transaction broadcasts alert creation only after it commits", %{
+    actor: actor
+  } do
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, AlertPubSub.topic())
+    now = DateTime.utc_now()
+    rule = create_rule!(actor)
+
+    assert {:error, :rolled_back} =
+             Inbox.transact(2_000, fn ->
+               assert {:ok, alert_id} =
+                        AlertLifecycle.create_event_and_alert(
+                          rule,
+                          snapshot(rule),
+                          record(now),
+                          now
+                        )
+
+               send(self(), {:created, alert_id})
+               refute_received {:alert_created, %{id: ^alert_id}}
+               Repo.rollback(:rolled_back)
+             end)
+
+    assert_received {:created, rolled_back_id}
+    refute_receive {:alert_created, %{id: ^rolled_back_id}}, 100
+    assert {:error, _} = Alert.get_by_id(rolled_back_id, actor: actor)
+
+    assert {:ok, alert_id} =
+             Inbox.transact(2_000, fn ->
+               assert {:ok, alert_id} =
+                        AlertLifecycle.create_event_and_alert(
+                          rule,
+                          snapshot(rule),
+                          record(DateTime.shift(now, second: 1)),
+                          now
+                        )
+
+               refute_received {:alert_created, %{id: ^alert_id}}
+               alert_id
+             end)
+
+    assert_received {:alert_created, %{id: ^alert_id}}
+    assert {:ok, %{id: ^alert_id}} = Alert.get_by_id(alert_id, actor: actor)
   end
 
   test "firing an incident enqueues exactly one :fire routing request", %{actor: actor} do

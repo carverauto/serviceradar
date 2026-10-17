@@ -64,9 +64,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
              alert: alert_config(rule, record),
-             device_uid: device_uid
+             device_uid: device_uid,
+             return_notifications?: true
            ) do
-        {:ok, %Alert{} = alert} ->
+        {:ok, %Alert{} = alert, notifications} ->
+          Inbox.notify_after_commit(notifications)
+
           if !synthetic_liveness_check? do
             record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
 
@@ -247,34 +250,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   end
 
   def send_renotify(alert_id, rule, _snapshot, now) when is_binary(alert_id) do
-    case Repo.transaction(fn ->
-           actor = SystemActor.system(:alert_engine)
+    case Inbox.with_notification_queue(fn ->
+           Repo.transaction(fn ->
+             actor = SystemActor.system(:alert_engine)
 
-           alert =
-             case Alert.get_by_id(alert_id, actor: actor) do
-               {:ok, alert} -> alert
-               {:error, reason} -> Repo.rollback(reason)
-             end
-
-           rule_id =
-             if is_map(rule), do: rule.id, else: (alert.metadata || %{})["incident_rule_id"]
-
-           case Ecto.UUID.cast(rule_id) do
-             {:ok, id} ->
-               case AdvisoryLocks.acquire_ordered([{:exclusive, Inbox.evaluation_key(id)}]) do
-                 :ok -> :ok
+             alert =
+               case Alert.get_by_id(alert_id, actor: actor) do
+                 {:ok, alert} -> alert
                  {:error, reason} -> Repo.rollback(reason)
                end
 
-             :error ->
-               :ok
-           end
+             rule_id =
+               if is_map(rule), do: rule.id, else: (alert.metadata || %{})["incident_rule_id"]
 
-           case renotify_in_transaction(alert_id, rule, now) do
-             :ok -> :ok
-             :skipped -> :skipped
-             {:error, reason} -> Repo.rollback(reason)
-           end
+             case Ecto.UUID.cast(rule_id) do
+               {:ok, id} ->
+                 case AdvisoryLocks.acquire_ordered([{:exclusive, Inbox.evaluation_key(id)}]) do
+                   :ok -> :ok
+                   {:error, reason} -> Repo.rollback(reason)
+                 end
+
+               :error ->
+                 :ok
+             end
+
+             case renotify_in_transaction(alert_id, rule, now) do
+               :ok -> :ok
+               :skipped -> :skipped
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end)
          end) do
       {:ok, :ok} ->
         :ok
@@ -327,10 +332,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     alert_id = alert.id
 
     with :ok <- enqueue_routing_result(alert.id, :renotify),
-         {:ok, _alert} <-
+         {:ok, _alert, notifications} <-
            alert
            |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
-           |> Ash.update() do
+           |> Ash.update(return_notifications?: true) do
+      Inbox.notify_after_commit(notifications)
+
       # Bookkeeping advances only after the routing request is durable. If the
       # enqueue fails, the cadence remains due and the continuation scan tries
       # again on its next tick.
@@ -339,11 +346,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       |> Ash.bulk_update(:record_notification, %{last_notification_at: now},
         actor: actor,
         return_errors?: true,
+        return_notifications?: true,
         stop_on_error?: true
       )
       |> case do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> {:error, errors}
+        %Ash.BulkResult{status: :success, notifications: notifications} ->
+          Inbox.notify_after_commit(notifications || [])
+
+        %Ash.BulkResult{errors: errors} ->
+          {:error, errors}
       end
     end
   end
@@ -385,8 +396,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
           case alert
                |> Ash.Changeset.for_update(:update_metadata, %{metadata: metadata}, actor: actor)
-               |> Ash.update() do
-            {:ok, _updated} ->
+               |> Ash.update(return_notifications?: true) do
+            {:ok, _updated, notifications} ->
+              Inbox.notify_after_commit(notifications)
               snapshot
 
             {:error, reason} ->

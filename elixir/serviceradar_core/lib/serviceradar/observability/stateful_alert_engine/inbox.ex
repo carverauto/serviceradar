@@ -36,6 +36,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   }
   @admission_key "alert-evaluation:admission:v1"
   @client_backstop_ms 1_000
+  @pending_notifications {__MODULE__, :pending_notifications}
 
   @doc "Commits every eligible rule occurrence or rejects the entire batch."
   def admit(signal, records) when signal in [:log, :event, :metric] and is_list(records) do
@@ -205,12 +206,69 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
   def evaluation_key(rule_id), do: "alert-evaluation:owner:v1:#{rule_id}"
 
+  @doc """
+  Sends Ash notifications once the outermost notification queue commits, and
+  drops them if that transaction rolls back. With no queue open, sends them now.
+
+  `transact/2` owns the queue. A caller that opens its own `Repo.transaction`
+  owns the same queue by wrapping that transaction in `with_notification_queue/1`.
+  A nested call appends to the queue already open, so a savepoint commit does
+  not send before the outermost transaction commits.
+
+  An Ash action run inside a plain `Repo.transaction` cannot send its own
+  notifications: Ash holds them back and logs them as missed. Actions here run
+  with `return_notifications?: true` and pass the result to this function.
+  """
+  @spec notify_after_commit([Ash.Notifier.Notification.t()]) :: :ok
+  def notify_after_commit(notifications) when is_list(notifications) do
+    case Process.get(@pending_notifications) do
+      nil -> _ = Ash.Notifier.notify(notifications)
+      pending -> Process.put(@pending_notifications, [notifications | pending])
+    end
+
+    :ok
+  end
+
+  @doc """
+  Owns the notification queue around one transaction result.
+
+  The outermost call sends what `notify_after_commit/1` queued only when `work`
+  returns `{:ok, _}`. Any other result, including a rollback, drops the queue.
+  A call nested inside an open queue, including `transact/2`, leaves sending to
+  that outer owner.
+  """
+  @spec with_notification_queue((-> result)) :: result when result: term()
+  def with_notification_queue(work) when is_function(work, 0) do
+    if Process.get(@pending_notifications) do
+      work.()
+    else
+      Process.put(@pending_notifications, [])
+
+      try do
+        result = work.()
+        pending = Process.get(@pending_notifications)
+
+        if match?({:ok, _}, result) do
+          _ = pending |> Enum.reverse() |> List.flatten() |> Ash.Notifier.notify()
+        end
+
+        result
+      after
+        Process.delete(@pending_notifications)
+      end
+    end
+  end
+
   # PostgreSQL's lock and statement timeouts enforce `timeout`: an expired
   # statement is cancelled, the transaction rolls back and the connection stays
   # usable. The client deadline only backstops a store PostgreSQL cannot reach.
   # It starts at checkout, before the server budget does, and on expiry it
   # disconnects the connection mid-query, so it must not equal that budget.
   def transact(timeout, work) do
+    with_notification_queue(fn -> run_transaction(timeout, work) end)
+  end
+
+  defp run_transaction(timeout, work) do
     Repo.transaction(
       fn ->
         %{rows: [[lock_timeout, statement_timeout]]} =
@@ -379,18 +437,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
       |> Enum.group_by(& &1.rule_id)
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.flat_map(fn {rule_id, records} ->
-        lane =
+        {lane, registered} =
           Lane
           |> Ash.Changeset.for_create(:register, %{rule_id: rule_id}, actor: actor())
-          |> Ash.create!()
+          |> Ash.create!(return_notifications?: true)
 
-        lane
-        |> Ash.Changeset.for_update(
-          :reserve,
-          %{next_position: lane.next_position + length(records)},
-          actor: actor()
-        )
-        |> Ash.update!()
+        {_lane, reserved} =
+          lane
+          |> Ash.Changeset.for_update(
+            :reserve,
+            %{next_position: lane.next_position + length(records)},
+            actor: actor()
+          )
+          |> Ash.update!(return_notifications?: true)
+
+        notify_after_commit(registered ++ reserved)
 
         records
         |> Enum.with_index(lane.next_position + 1)

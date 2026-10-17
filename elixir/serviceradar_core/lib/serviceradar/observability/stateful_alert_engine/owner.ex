@@ -65,19 +65,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
             {:ok, %{rule_id: ^rule_id} = work} ->
               seconds = min(Integer.pow(2, min(work.attempts + 1, 8)), 300)
 
-              work
-              |> Ash.Changeset.for_update(
-                :retry,
-                %{
-                  attempts: work.attempts + 1,
-                  available_at: DateTime.shift(DateTime.utc_now(), second: seconds),
-                  last_error: String.slice(inspect(reason), 0, 2_048)
-                },
-                actor: Inbox.actor()
-              )
-              |> Ash.update!()
+              {_work, notifications} =
+                work
+                |> Ash.Changeset.for_update(
+                  :retry,
+                  %{
+                    attempts: work.attempts + 1,
+                    available_at: DateTime.shift(DateTime.utc_now(), second: seconds),
+                    last_error: String.slice(inspect(reason), 0, 2_048)
+                  },
+                  actor: Inbox.actor()
+                )
+                |> Ash.update!(return_notifications?: true)
 
-              :ok
+              Inbox.notify_after_commit(notifications)
 
             _ ->
               :ok
