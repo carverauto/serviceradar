@@ -17,12 +17,12 @@ filegroup(
 
 mix_app(
     name = "erlang_app",
-    app_name = "ex_turn",
     srcs = [":sources"],
     hdrs = glob(
         ["include/**/*.hrl"],
         allow_empty = True,
     ),
+    app_name = "ex_turn",
     extra_config = HEX_COMPILE_ENV_CONFIG,
     deps = [
         "@hex_ex_stun//:erlang_app",

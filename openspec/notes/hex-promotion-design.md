@@ -18,7 +18,7 @@ else is this repository's dependency policy and has to stay.
 | `extensions.bzl` | **STAYS** | see "repo mapping" below -- this one is not a preference |
 | `hex_packages.bzl` | **STAYS**, and stays a source file | see "why it cannot be generated at build time" |
 | `*.BUILD` (269) | **STAYS** | generated data |
-| `bundlex.BUILD` + the `git_pkg` block | **STAYS** | a Membrane git pin, a commit SHA, three patch labels |
+| hand-written git pins (`bundlex.BUILD`, `ex_turn.BUILD`) and their `git_pkg` blocks | **STAYS** | not Hex lock entries; the list is `HAND_WRITTEN` in `third_party/hex/BUILD.bazel` |
 | the mix_app stub template | **STAYS for now** | see "the Mix template blocker" |
 
 ### Repo mapping is why `extensions.bzl` cannot move
@@ -93,9 +93,10 @@ rather than an actionable message.
 ### The comparison is driven by labels, never by walking the directory
 
 `third_party/hex/` also holds `BUILD.bazel`, `extensions.bzl`, the generator and the
-hand-written `bundlex.BUILD`. A `diff -r` against it is therefore wrong. The test takes an
-explicit `checked_in` label list, which also makes the one hand-written exemption visible in
-BUILD.bazel instead of implied by grepping files for a marker string.
+hand-written stubs. The list is `HAND_WRITTEN` in `third_party/hex/BUILD.bazel`
+(`bundlex.BUILD`, `ex_turn.BUILD`). A `diff -r` against the directory is therefore wrong.
+The test takes an explicit `checked_in` label list, which also makes those exemptions
+visible in BUILD.bazel instead of implied by grepping files for a marker string.
 
 ## Constraints that are easy to get wrong
 

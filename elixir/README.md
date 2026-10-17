@@ -202,10 +202,11 @@ Three consequences that bite:
   longer resolve, and `gen_test` fails if one is still checked in. Hand-written stubs are
   recognised by the absence of the generated marker and left alone.
 
-`bundlex` is pinned from git rather than Hex, so it is declared by hand as a `git_pkg` in
-`//third_party/hex:extensions.bzl` — in the same extension as the fetched packages, which is
-what lets sibling stubs resolve `@hex_bundlex` — with a hand-written stub, and it appears in
-`@path_deps` for the same reason.
+`bundlex` and `ex_turn` are pinned from git rather than Hex. Each is a `git_pkg` in
+`//third_party/hex:extensions.bzl`, in the same extension as the fetched packages, so sibling
+stubs can name `@hex_bundlex` and `@hex_ex_turn`. Each has a hand-written stub listed in
+`HAND_WRITTEN` in `third_party/hex/BUILD.bazel`, and an entry in that file's `path_deps`
+map so edges to it are not dropped. Why `ex_turn` is pinned is next to its `git_pkg`.
 
 ### Compile-time config a dependency reads
 
@@ -601,10 +602,11 @@ found` at compile time, not as a Bazel error.
 ### If the package is not on Hex
 
 Add a `git_pkg(...)` to `//third_party/hex:extensions.bzl` with a `build_file` pointing at a
-stub you write in `//third_party/hex`, and add the package name to `@path_deps` in
-`third_party/hex/gen_hex_bazel.exs` so edges to it resolve. Keep the stub free of the
+stub you write in `//third_party/hex`, add the stub name to `HAND_WRITTEN` in
+`third_party/hex/BUILD.bazel`, and add the package to the `path_deps` map on
+`//third_party/hex:stubs` so edges to it resolve. Keep the stub free of the
 `do not edit by hand` marker, or `gen` will prune it as a package that left the closure.
-`bundlex` is the worked example.
+`bundlex` and `ex_turn` are the worked examples.
 
 ### If the package will not build
 

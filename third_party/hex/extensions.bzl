@@ -41,7 +41,7 @@ hex = hex_packages_extension(
         _hex_package(app, hex_name, version, sha256)
         for (app, hex_name, version, sha256) in HEX_PACKAGES
     ] + [
-        # bundlex is the one entry that is not a Hex package -- serviceradar_core_elx pins it
+        # bundlex is not a Hex package -- serviceradar_core_elx pins it
         # from git (membraneframework/bundlex v1.5.4). It ships a Mix compiler that
         # bunch_native and the rest of the Membrane stack invoke as `compile.bundlex`, so
         # without it those packages fail with `The task "compile.bundlex" could not be found`.
