@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
 
   import ExUnit.CaptureLog
 
+  alias Ash.Notifier.Notification
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: MetricPublisher
   alias Serviceradar.Metric.V1.MetricBatch
@@ -734,7 +735,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     test "notifications queued in a transaction are delivered only when it #{label}" do
       outcome = unquote(outcome)
 
-      notification = %Ash.Notifier.Notification{
+      notification = %Notification{
         resource: AlertEvaluationLane,
         domain: ServiceRadar.Observability,
         data: %AlertEvaluationLane{},
@@ -779,7 +780,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   @tag sandbox: :unboxed
   test "a plain transaction delivers queued notifications only after it commits" do
     delivered = fn tag ->
-      %Ash.Notifier.Notification{
+      %Notification{
         resource: AlertEvaluationLane,
         domain: ServiceRadar.Observability,
         data: %AlertEvaluationLane{},
