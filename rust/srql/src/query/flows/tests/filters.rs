@@ -725,12 +725,79 @@ fn flow_endpoint_and_catalog_filters_compile_for_both_backends() {
     }
 }
 
+// The NetFlow page charts its top ports as one keyed series query that lists
+// the ports; a backend that refuses the list leaves every series empty.
+#[test]
+fn flow_port_lists_compile_for_both_backends() {
+    let series = "bucket:1m agg:sum value_field:bytes_total series:dst_endpoint_port";
+    for mode in [Some("starrocks"), Some("starrocks_raw"), None] {
+        for (field, column) in [
+            ("src_port", "src_endpoint_port"),
+            ("src_endpoint_port", "src_endpoint_port"),
+            ("dst_port", "dst_endpoint_port"),
+            ("dst_endpoint_port", "dst_endpoint_port"),
+        ] {
+            for suffix in ["", series] {
+                for negated in [false, true] {
+                    let bang = if negated { "!" } else { "" };
+                    let filters = format!("{bang}{field}:(443,8443) {suffix}");
+                    let response = compile_filter_request(&filters, mode);
+                    let predicate = response.sql.split_once("WHERE ").expect("WHERE").1;
+                    if mode.is_some() {
+                        let op = if negated { "NOT IN" } else { "IN" };
+                        assert!(
+                            predicate.contains(&format!("{column} {op} (443, 8443)")),
+                            "{mode:?} {filters}: {predicate}"
+                        );
+                        assert_eq!(
+                            predicate.contains("NOT IN"),
+                            negated,
+                            "{mode:?} {filters}: {predicate}"
+                        );
+                    } else {
+                        assert!(predicate.contains(column), "{filters}: {predicate}");
+                        assert_eq!(
+                            predicate.contains("ALL("),
+                            negated,
+                            "{filters}: {predicate}"
+                        );
+                        assert!(
+                            response.params.iter().any(|param| matches!(
+                                param,
+                                crate::query::BindParam::IntArray(values) if values == &[443, 8443]
+                            )),
+                            "{filters}: {:?}",
+                            response.params
+                        );
+                    }
+                }
+            }
+        }
+        for suffix in ["", series] {
+            let filters = format!("dst_port:(443,https) {suffix}");
+            let error = try_compile_filter_request(&filters, mode)
+                .expect_err("a non-integer port list item must be rejected");
+            assert!(
+                error.to_string().contains("integer"),
+                "{mode:?} {filters}: {error}"
+            );
+        }
+    }
+}
+
 fn compile_filter_request(filters: &str, mode: Option<&str>) -> crate::query::TranslateResponse {
+    try_compile_filter_request(filters, mode)
+        .unwrap_or_else(|error| panic!("{mode:?} {filters}: {error}"))
+}
+
+fn try_compile_filter_request(
+    filters: &str,
+    mode: Option<&str>,
+) -> crate::error::Result<crate::query::TranslateResponse> {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".into());
     let request = serde_json::from_value(serde_json::json!({
         "query": format!("in:flows time:[2000-01-01T00:00:00Z,2000-01-02T00:00:00Z] {filters} sort:time:desc limit:5"),
         "mode": mode,
     })).expect("request");
     crate::query::translate_request(&config, request)
-        .unwrap_or_else(|error| panic!("{mode:?} {filters}: {error}"))
 }

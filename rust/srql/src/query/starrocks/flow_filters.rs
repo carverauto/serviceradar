@@ -87,7 +87,10 @@ pub(super) fn predicate(plan: &QueryPlan, filter: &Filter) -> Result<Option<Stri
                 text_predicate_on(&format!("CAST({column} AS STRING)"), filter, false)?
                     .unwrap_or_else(|| "TRUE".into())
             } else {
-                require_op(filter, &[FilterOp::Eq, FilterOp::NotEq])?;
+                require_op(
+                    filter,
+                    &[FilterOp::Eq, FilterOp::NotEq, FilterOp::In, FilterOp::NotIn],
+                )?;
                 integer_predicate(&column, filter, false)?
             }
         }
