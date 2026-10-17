@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   PubSub identities are hints, never a commit watermark. A capped UID inbox
   resolves hints into the native Roaring dirty queue. One supervised worker
   alternates hint resolution, dirty reads and full ordinal keyset reconciliation.
+  The owner retains one drained batch of at most 500 ordinals until publication
+  succeeds, including while native contention prevents a queue write.
   Ordinary reconciliation retains the ready snapshot; failures report stale
   progress while retrying. No database work runs in the owner process.
   """
@@ -56,6 +58,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
        timer: nil,
        hints: MapSet.new(),
        hint_bytes: 0,
+       dirty: [],
        rescan: true,
        scan_due: 0,
        catalog_due: 0,
@@ -88,7 +91,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
               progress = %{
                 seeded_at: state.seeded_at,
                 last_reconciled_at: state.last_reconciled_at,
-                pending_dirty: status.pending.pending_count + MapSet.size(state.hints),
+                pending_dirty: status.pending.pending_count + MapSet.size(state.hints) + length(state.dirty),
                 source_error: state.source_error,
                 reconciling: not is_nil(state.cursor) or state.rescan or status.pending.rescan_needed,
                 ip_available: status.ip_available,
@@ -133,8 +136,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
       {:error, :dictionary_changed} ->
         {:noreply, state |> disable() |> schedule(0)}
 
-      {:error, _reason} ->
-        {:noreply, retry(state, work)}
+      {:error, reason} ->
+        {:noreply, retry(state, work, reason)}
     end
   end
 
@@ -170,8 +173,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         state = start_scan(state, status.pending)
         choose_read(state, status.pending, 0)
 
-      {:error, _} ->
-        retry(state, :status)
+      {:error, reason} ->
+        retry(state, :status, reason)
     end
   end
 
@@ -207,8 +210,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
           {:hints, ids}
         )
 
-      turn == 1 and status.pending_count > 0 ->
-        launch(next, {:dirty, state.mode == :ready})
+      turn == 1 and (state.dirty != [] or status.pending_count > 0) ->
+        read_dirty(next, status, checked)
 
       turn == 2 and not is_nil(state.cursor) ->
         launch(next, {:scan, state.cursor, state.mode, state.scan_generation})
@@ -219,6 +222,20 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
       true ->
         choose_read(next, status, checked + 1)
     end
+  end
+
+  defp read_dirty(%{dirty: []} = state, status, checked) do
+    case Native.bitmap_index_take_dirty(state.current.device, @batch_size) do
+      {:ok, {[], _status}} -> choose_read(state, status, checked + 1)
+      {:ok, {ordinals, _status}} -> read_dirty(%{state | dirty: ordinals}, status, checked)
+      {:error, reason} -> retry(state, :dirty, reason)
+    end
+  end
+
+  defp read_dirty(state, _status, _checked) do
+    # Keep the one bounded batch until its worker succeeds. Requeueing it into
+    # the native index can fail on the same lock that prevented publication.
+    launch(state, {:dirty, state.mode == :ready, state.dirty})
   end
 
   defp catalog_work(state) do
@@ -298,37 +315,32 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
              fn page -> mode == :ready or page.done? end,
              sequence
            ) do
-      if page.done?, do: Native.bitmap_index_acknowledge_reconcile(current.device, generation)
-      {:ok, page}
+      acknowledge_reconcile(page, current.device, generation)
     end
   end
 
-  defp perform({:dirty, ready}, current, sequence) do
-    with {:ok, {ordinals, _status}} <- Native.bitmap_index_take_dirty(current.device, @batch_size) do
-      result =
-        with {:ok, _} <-
-               BitmapPublisher.publish(
-                 current,
-                 fn ->
-                   with {:ok, rows} <- BitmapSource.fetch(ordinals, current.supported_facets),
-                        do: {:ok, %{rows: rows}}
-                 end,
-                 fn _ -> ready end,
-                 sequence
-               ),
-             do: {:ok, nil}
-
-      if match?({:error, _}, result), do: requeue_dirty(current.device, ordinals, result)
-
-      result
+  defp acknowledge_reconcile(%{done?: true} = page, device, generation) do
+    case Native.bitmap_index_acknowledge_reconcile(device, generation) do
+      {:ok, _status} -> {:ok, page}
+      {:error, reason} when reason in ["stale_reconcile", :stale_reconcile] -> {:ok, page}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp requeue_dirty(device, ordinals, _result) do
-    case Native.bitmap_index_mark_dirty(device, ordinals, false) do
-      {:ok, _} -> :ok
-      {:error, _} -> Native.bitmap_index_mark_dirty(device, [], true)
-    end
+  defp acknowledge_reconcile(page, _device, _generation), do: {:ok, page}
+
+  defp perform({:dirty, ready, ordinals}, current, sequence) do
+    with {:ok, _} <-
+           BitmapPublisher.publish(
+             current,
+             fn ->
+               with {:ok, rows} <- BitmapSource.fetch(ordinals, current.supported_facets),
+                    do: {:ok, %{rows: rows}}
+             end,
+             fn _ -> ready end,
+             sequence
+           ),
+         do: {:ok, nil}
   end
 
   defp source_identity(current, 0) do
@@ -370,14 +382,41 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   defp accept(state, {:scan, _, _, _}, %{cursor: cursor}), do: %{state | cursor: cursor, source_error: false}
   defp accept(state, {:catalog, _}, _result), do: %{state | catalog_due: now() + @scan_interval}
   defp accept(state, {:hints, _}, _result), do: state
+  defp accept(state, {:dirty, _, _}, _result), do: %{state | dirty: [], source_error: false}
   defp accept(state, _work, _result), do: %{state | source_error: false}
 
-  defp retry(state, {:catalog, _}), do: schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
-  defp retry(state, {:hints, ids}), do: state |> remember(ids) |> retry(:read)
+  defp retry(state, work), do: retry(state, work, :down)
 
-  defp retry(state, _work) do
+  defp retry(state, {:catalog, _sources}, reason) do
+    if contention?(reason) do
+      schedule(state, @step_interval)
+    else
+      schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
+    end
+  end
+
+  defp retry(state, {:hints, ids}, reason) do
+    state = remember(state, ids)
+
+    if contention?(reason) do
+      schedule(state, @step_interval)
+    else
+      escalate(state)
+    end
+  end
+
+  defp retry(state, _work, reason) do
+    if contention?(reason), do: schedule(state, @step_interval), else: escalate(state)
+  end
+
+  defp escalate(state) do
     schedule(%{state | source_error: true, rescan: true, retry_at: now() + 1_000}, 1_000)
   end
+
+  defp contention?(reason) when reason in ["busy", "publisher_busy", "reader_busy", :busy, :publisher_busy, :reader_busy],
+    do: true
+
+  defp contention?(_reason), do: false
 
   defp remember(state, ids) do
     Enum.reduce(ids, state, fn id, state ->
@@ -419,6 +458,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         cursor: nil,
         hints: MapSet.new(),
         hint_bytes: 0,
+        dirty: [],
         rescan: true,
         seeded_at: nil,
         last_reconciled_at: nil,

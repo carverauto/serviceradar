@@ -7,6 +7,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
   test "canonical mapping lifetime admission survives publication and releases after owner exit" do
     world = cold_world([position("sr:bounded-mapping.example.com", 1, true)])
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
     owner = self()
 
     holders =
@@ -22,6 +23,9 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
                receive do
                  :release ->
                    assert {:ok, %{ready: true}} = TopologyAtlas.ordinal_info(world, mapping)
+
+                 :cleanup ->
+                   assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
                end
              end},
             id: {:mapping_holder, epoch}
@@ -32,19 +36,24 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
       end
 
     assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
-    [{retiring, monitor}, {_retained, _monitor}] = holders
+    [{retiring, retiring_monitor}, {retained, retained_monitor}] = holders
     send(retiring, :release)
-    assert_receive {:DOWN, ^monitor, :process, ^retiring, :normal}
+    assert_receive {:DOWN, ^retiring_monitor, :process, ^retiring, :normal}
 
     assert {:ok, replacement} =
              await_mapping_reclamation(world, System.monotonic_time(:millisecond) + 1_000)
 
     assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, replacement)
     assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<4::128>>)
+    send(retained, :cleanup)
+    assert_receive {:DOWN, ^retained_monitor, :process, ^retained, :normal}
+    assert {:ok, true} = TopologyAtlas.release_ordinals(replacement)
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
   end
 
   test "explicit ordinal release frees the permit while the caller and a copied handle stay alive" do
     world = cold_world([position("sr:released-mapping.example.com", 1, true)])
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
     parent = self()
 
     holder =
@@ -129,6 +138,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
       for n <- 1..4, do: Map.put(position("sr:ordinal-#{n}.example.com", n, true), :min_zoom, 24)
 
     world = cold_world(nodes)
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
     dictionary = <<255::128>>
     assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, dictionary)
     assert {:error, :not_ready} = TopologyAtlas.device_ordinals(world, mapping, [])
@@ -183,6 +193,8 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     other = cold_world([])
     assert {:error, :stale_revision} = TopologyAtlas.ordinal_info(other, mapping)
+
+    assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
   end
 
   test "packaged native world consumes a bounded builder and excludes inactive reservations" do
@@ -628,6 +640,43 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
       :read ->
         send(parent, {:read_progress, TopologyAtlas.ordinal_info(world, mapping)})
         paced_ordinal_reader(parent, world, mapping)
+    end
+  end
+
+  defp await_two_mapping_permits(world, deadline) do
+    case TopologyAtlas.new_ordinals(world, <<9::128>>) do
+      {:ok, first} ->
+        case TopologyAtlas.new_ordinals(world, <<10::128>>) do
+          {:ok, second} ->
+            assert {:ok, true} = TopologyAtlas.release_ordinals(first)
+            assert {:ok, true} = TopologyAtlas.release_ordinals(second)
+            :ok
+
+          {:error, :busy} ->
+            assert {:ok, true} = TopologyAtlas.release_ordinals(first)
+            retry_mapping_permits(world, deadline)
+
+          other ->
+            TopologyAtlas.release_ordinals(first)
+            flunk("mapping permit probe failed: #{inspect(other)}")
+        end
+
+      {:error, :busy} ->
+        retry_mapping_permits(world, deadline)
+
+      other ->
+        flunk("mapping permit probe failed: #{inspect(other)}")
+    end
+  end
+
+  defp retry_mapping_permits(world, deadline) do
+    if System.monotonic_time(:millisecond) < deadline do
+      receive do
+      after
+        1 -> await_two_mapping_permits(world, deadline)
+      end
+    else
+      flunk("ordinal mapping permits stayed busy")
     end
   end
 

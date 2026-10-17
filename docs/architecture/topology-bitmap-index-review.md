@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `1b4489e5e8c2a3f442dc1bb5b9c0d53e40f35ebb97a2d9d28666152d860fd628` | 901737 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `538c531047929b753b2365d08f82ffaba646d601598598d3366e59230f9f37cc` | 902900 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -32,8 +32,8 @@ Their exact source checksums are:
 | Source | SHA-256 |
 | --- | --- |
 | `proposal.md` | `35408df2d8f7b72f926b87ced8c293ee8035ab8d8a5c220d18325c68f2c04ecc` |
-| `design.md` | `1f04df01940d7888367d4110bccac8275084065a457081df7b7bd906f46f7365` |
-| `specs/topology-god-view/spec.md` | `91f274e5ec800d5200970e767ecc95cc1e90ce78addb91d24d69212dd8a3a613` |
+| `design.md` | `75026f2900005940ec01d058245a8b534845a32cb66ed101b70f8a6767982fae` |
+| `specs/topology-god-view/spec.md` | `0d1c7cd54b21d0f2a87e19dcc5e66153858d7b0b06e0b41fe54ce2992c3d2b80` |
 | `tasks.md` | `fd86e2bca9ef259849c2ed19b220b5c1358a5674b61d229a878465e666dc3482` |
 | `review-response.md` | `55512dc38d8ee3446e8c580677e92c643d30d6126ec1fb255a0f7ff047f75ad4` |
 

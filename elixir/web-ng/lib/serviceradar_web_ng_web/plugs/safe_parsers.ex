@@ -98,8 +98,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
 
   defp automation_callback?(_conn), do: false
 
-  defp topology_filter_body?(%{method: "POST", request_path: path}) do
-    path in ["/topology/tiles/search", "/topology/details", "/topology/snapshot/latest", "/topology/query"]
+  defp topology_filter_body?(%{method: "POST", path_info: path_info}) do
+    path_info in [
+      ["topology", "tiles", "search"],
+      ["topology", "details"],
+      ["topology", "snapshot", "latest"],
+      ["topology", "query"]
+    ]
   end
 
   defp topology_filter_body?(_conn), do: false

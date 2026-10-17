@@ -1999,11 +1999,13 @@ print(open(sys.argv[2]).read().strip())
             in (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
         }
         agent_link_source = "test/serviceradar/inventory/agent_link_repair_worker_test.exs"
+        agent_links_restore_source = "test/serviceradar/inventory/remediation/agent_links_test.exs"
         fact_writer_source = "test/serviceradar/inventory/device_snmp_fact_writer_test.exs"
         expiry_source = "test/serviceradar/inventory/ephemeral_device_expiry_test.exs"
 
         self.assertEqual(
-            {agent_link_source, fact_writer_source, expiry_source}, telemetry_sources
+            {agent_link_source, agent_links_restore_source, fact_writer_source, expiry_source},
+            telemetry_sources,
         )
 
         source = (CORE_TEST_ROOT.parent / agent_link_source).read_text(encoding="utf-8")

@@ -137,6 +137,45 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsersMultipartCapTest do
     end
   end
 
+  test "a trailing slash keeps the topology body cap" do
+    query = String.duplicate("a", 12_000)
+    body = Jason.encode!(%{"device_id" => "synthetic", "query" => query})
+    assert byte_size(body) > 8_192 and byte_size(body) < 65_536
+
+    opts =
+      SafeParsers.init(
+        parsers: [:urlencoded, :multipart, :json],
+        pass: ["*/*"],
+        json_decoder: Jason,
+        length: 8_192
+      )
+
+    for path <- ["/topology/query", "/topology/query/"] do
+      conn =
+        "POST"
+        |> conn(path, body)
+        |> put_req_header("content-type", "application/json")
+        |> SafeParsers.call(opts)
+
+      refute conn.halted
+      assert conn.body_params["query"] == query
+    end
+
+    huge = Jason.encode!(%{"query" => String.duplicate("b", 70_000)})
+
+    for path <- ["/topology/query", "/topology/query/"] do
+      conn =
+        "POST"
+        |> conn(path, huge)
+        |> put_req_header("content-type", "application/json")
+        |> SafeParsers.call(opts)
+
+      assert conn.halted
+      assert conn.status == 400
+      assert conn.resp_body =~ "malformed_request"
+    end
+  end
+
   defp multipart_body(payload) do
     "--#{@boundary}\r\n" <>
       "Content-Disposition: form-data; name=\"note\"\r\n" <>
