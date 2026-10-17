@@ -359,8 +359,10 @@ func compareIPStrings(a, b string) int {
 	return strings.Compare(a, b)
 }
 
-// proxmoxCandidateSeeds returns the job's seeds followed by the primary IPs of
-// the devices it found, each address once.
+// proxmoxCandidateSeeds returns the primary IPs of the devices the job found,
+// then its seeds, each address once. The probes share one deadline and run in
+// turn, so the job's known devices go first: a seed range full of unreachable
+// addresses must not use up the budget before them.
 func proxmoxCandidateSeeds(job *DiscoveryJob, initialSeeds []string) []string {
 	seen := make(map[string]struct{})
 	seeds := make([]string, 0, len(initialSeeds))
@@ -377,16 +379,16 @@ func proxmoxCandidateSeeds(job *DiscoveryJob, initialSeeds []string) []string {
 		seeds = append(seeds, ip)
 	}
 
-	for _, seed := range initialSeeds {
-		add(seed)
-	}
-
 	if job != nil && job.Results != nil {
 		for _, device := range job.Results.Devices {
 			if device != nil {
 				add(device.IP)
 			}
 		}
+	}
+
+	for _, seed := range initialSeeds {
+		add(seed)
 	}
 
 	return seeds

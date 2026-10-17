@@ -148,7 +148,7 @@ func TestBuildProxmoxCandidateDevice(t *testing.T) {
 	assert.Equal(t, "false", device.Metadata["snmp_target_eligible"])
 }
 
-func TestProxmoxCandidateSeedsCoverSeedsThenKnownDeviceIPsOnce(t *testing.T) {
+func TestProxmoxCandidateSeedsPutKnownDeviceIPsFirstAndListEachOnce(t *testing.T) {
 	job := &DiscoveryJob{
 		Results: &DiscoveryResults{
 			Devices: []*DiscoveredDevice{
@@ -162,7 +162,7 @@ func TestProxmoxCandidateSeedsCoverSeedsThenKnownDeviceIPsOnce(t *testing.T) {
 	}
 
 	assert.Equal(t,
-		[]string{"192.0.2.20", "192.0.2.10", "192.0.2.11"},
+		[]string{"192.0.2.10", "192.0.2.11", "192.0.2.20"},
 		proxmoxCandidateSeeds(job, []string{"192.0.2.20", " 192.0.2.10 ", ""}))
 }
 
