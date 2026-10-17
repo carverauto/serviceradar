@@ -206,11 +206,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     uid = "#{prefix}-allocated"
 
+    past = ~N[2020-06-01 12:00:00]
+
     Repo.query!(
-      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, type_id, created_time, modified_time, tags, discovery_sources, metadata) " <>
-        "VALUES ($1, 'host01.example.com', '192.0.2.12', 42, '2020-01-01', '2020-01-02', " <>
-        ~s|'{"role":"edge"}', ARRAY['mapper'], $2)|,
-      [uid, %{"custom" => "value"}]
+      "INSERT INTO platform.ocsf_devices(uid, hostname, ip, type_id, created_time, first_seen_time, modified_time, tags, discovery_sources, metadata) " <>
+        "VALUES ($1, 'host01.example.com', '192.0.2.12', 42, $2, $2, '2020-01-02', " <>
+        ~s|'{"role":"edge"}', ARRAY['mapper'], $3)|,
+      [uid, past, %{"custom" => "value"}]
     )
 
     ordinal = FleetIdentity.device_ordinal(uid)
@@ -236,15 +238,28 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
 
     assert row_count("device_source_observations", "device_id", uid) == 0
 
-    assert %{rows: [[0, %NaiveDateTime{} = created, %NaiveDateTime{} = modified, %{}, [], []]]} =
+    assert %{
+             rows: [
+               [
+                 0,
+                 %NaiveDateTime{} = created,
+                 %NaiveDateTime{} = first_seen,
+                 %NaiveDateTime{} = modified,
+                 %{},
+                 [],
+                 []
+               ]
+             ]
+           } =
              Repo.query!(
-               "SELECT type_id, created_time, modified_time, tags, discovery_sources, network_interfaces " <>
+               "SELECT type_id, created_time, first_seen_time, modified_time, tags, discovery_sources, network_interfaces " <>
                  "FROM platform.ocsf_devices WHERE uid = $1",
                [uid]
              )
 
-    assert created == modified
-    assert NaiveDateTime.after?(created, ~N[2020-01-02 00:00:00])
+    assert created == past
+    assert first_seen == past
+    assert NaiveDateTime.after?(modified, past)
 
     assert %{disposition: "quarantined", device_uid: nil} = membership(membership_id)
     assert {%{deleted: 0, errors: 0}, 0} = purge([uid])

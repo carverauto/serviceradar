@@ -118,6 +118,54 @@ describe("binary admitted-row membership", () => {
     }
   })
 
+  it("updates a live membership error and ignores error and timeout callbacks after destroy", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.membershipEnabled = true
+    renderer.bitmapQuery = {all: []}
+    renderer.cache.manifest = {layout_version: "synthetic-layout", node_count: 2, zmax: 16}
+    renderer.cache.visible.set("0/0/0", geometry.key)
+    renderer.cache.entries.set("0/0/0", {geometry})
+    const replies = []
+    renderer.channel = {leave() {}, push() {
+      const callbacks = {}
+      const push = {receive(kind, callback) {callbacks[kind] = callback; return push}}
+      replies.push(callbacks)
+      return push
+    }}
+    const status = vi.spyOn(renderer, "status")
+    const updateFilterPanel = vi.spyOn(renderer, "updateFilterPanel")
+    const payload = {layout_version: "synthetic-layout", tiles: [{z: 0, x: 0, y: 0, revision: geometry.revision}]}
+    try {
+      renderer.syncMembership(payload)
+      replies[0].error({reason: "query_timeout"})
+      expect(renderer.membershipError).toBe("query_timeout")
+      expect(updateFilterPanel).toHaveBeenCalled()
+      expect(status).toHaveBeenCalledWith("Topology query unavailable: query_timeout")
+      expect(renderer.membershipRetryTimer).not.toBeNull()
+      renderer.clearMembershipRetry()
+      status.mockClear()
+      updateFilterPanel.mockClear()
+      renderer.membershipError = null
+      renderer.syncMembership(payload)
+      const late = replies.at(-1)
+      vi.stubGlobal("window", {removeEventListener() {}})
+      renderer.onLocationHistory = () => {}
+      renderer.destroy()
+      status.mockClear()
+      updateFilterPanel.mockClear()
+      late.error({reason: "query_unavailable"})
+      late.timeout()
+      expect(renderer.membershipError).toBeNull()
+      expect(updateFilterPanel).not.toHaveBeenCalled()
+      expect(status).not.toHaveBeenCalled()
+      expect(renderer.membershipRetryTimer).toBeNull()
+    } finally {
+      if (!renderer.destroyed) renderer.destroy()
+      clearTimeout(renderer.membershipRetryTimer)
+      clearTimeout(renderer.watchTimer)
+    }
+  })
+
   it.each(["aggregate", "boundary"])("rejects an oversized %s population before publishing any rows", kind => {
     const state = session()
     const nodes = [geometry.nodes[0], {kind, count: kind === "aggregate" ? 2 : 0}]

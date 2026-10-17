@@ -555,13 +555,13 @@ export default class WorldMapRenderer {
       this.membershipProjectionIncomplete = binding.projection?.mapped < binding.projection?.total
       try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
-      if (pushId !== this.membershipPush || signature !== this.membershipSignature) return
+      if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
       this.membershipError = error.reason || "unsupported filter"
       this.updateFilterPanel()
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
       if (["membership_not_ready", "membership_replaced", "index_not_ready", "index_unavailable", "prefix_source_unavailable", "source_changed", "query_busy", "query_timeout", "query_unavailable"].includes(error.reason)) this.retryMembership(signature)
     }).receive("timeout", () => {
-      if (pushId !== this.membershipPush || signature !== this.membershipSignature) return
+      if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
       this.retryMembership(signature)
     })
   }

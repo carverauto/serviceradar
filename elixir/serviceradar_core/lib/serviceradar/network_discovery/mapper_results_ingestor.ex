@@ -1952,6 +1952,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid == ^device.uid and not is_nil(deleted_at))
+    |> restore_purge_scope(purged?)
     |> Ash.bulk_update(:restore, attrs,
       actor: actor,
       return_records?: true,
@@ -1967,6 +1968,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(result)}")
         :skip
     end
+  end
+
+  defp restore_purge_scope(query, true),
+    do: Ash.Query.filter(query, not is_nil(identity_purged_at))
+
+  defp restore_purge_scope(query, false), do: Ash.Query.filter(query, is_nil(identity_purged_at))
+
+  defp purged_refill_kept?(uids, remap) do
+    Enum.all?(uids, &(Map.get(remap, &1, &1) == &1)) and
+      refilled_identity_count(uids) == length(uids)
+  end
+
+  defp refilled_identity_count(uids) do
+    Repo.aggregate(
+      from(d in Device,
+        where: d.uid in ^uids and is_nil(d.deleted_at) and "mapper" in d.discovery_sources
+      ),
+      :count,
+      :uid
+    )
   end
 
   defp stale_address_taken?(%Device{ip: ip} = device) when is_binary(ip) and ip != "",
@@ -2007,9 +2028,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
                   context,
                   observed_at
                 ) do
-             {:ok, %{records: written} = batch} when written != [] -> batch
-             {:ok, _empty} -> Repo.rollback(:refill_failed)
-             {:error, reason} -> Repo.rollback(reason)
+             {:ok, %{remap: remap} = batch} ->
+               uids = Enum.map(representatives, fn {_entry, device} -> device.uid end)
+
+               if purged_refill_kept?(uids, remap) do
+                 batch
+               else
+                 Repo.rollback(:refill_failed)
+               end
+
+             {:error, reason} ->
+               Repo.rollback(reason)
            end
          end) do
       {:ok, batch} ->
