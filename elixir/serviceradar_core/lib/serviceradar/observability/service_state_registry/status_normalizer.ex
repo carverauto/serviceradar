@@ -137,7 +137,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
 
   @doc false
   def plugin_result_package?(%PluginPackage{} = package) do
-    package.outputs == @plugin_result_output
+    package.outputs == @plugin_result_output and
+      PluginStateContract.submits_plugin_results?(effective_capabilities(package))
   end
 
   defp resolve_partition(status) do

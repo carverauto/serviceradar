@@ -913,6 +913,12 @@ Republish, register, and re-materialise the package after upgrading -- an
 existing assignment points at the old package version and keeps its runner, so
 the message survives the upgrade until the assignment is re-materialised.
 
+An action-only package reports no plugin results, so the Services page does not
+track it as a plugin service. A card still showing the bridge's last failed
+result from before re-materialisation is retired when the Services page next
+loads and reconciles plugin service state. A package that also declares
+`action-result-ingest:v1` reports the results of its actions and keeps its card.
+
 Before 1.4.48 the message repeats on the assignment's cadence and is cosmetic:
 dispatched AWX commands still carry their own grant and still work. Judge AWX
 health from `awx.ping` and from an actual dispatch, not from this result.

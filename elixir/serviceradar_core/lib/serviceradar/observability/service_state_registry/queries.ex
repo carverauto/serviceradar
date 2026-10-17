@@ -140,14 +140,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.Queries do
           AND package.status = 'approved'
           AND assignment.agent_uid = service_state.agent_id
           AND #{PluginStateContract.state_matches_joined_package_sql()}
-          AND (
-            package.outputs IN ($3, $4)
-            OR $5 = ANY(package.approved_capabilities)
-            OR (
-              coalesce(array_length(package.approved_capabilities, 1), 0) = 0
-              AND package.manifest->'capabilities' ? $5
-            )
-          )
+          AND #{PluginStateContract.result_reporting_package_sql("$3", "$4", "$5")}
       )
     ORDER BY
       service_state.agent_id,
@@ -223,6 +216,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.Queries do
         ""
       end
 
+    result_reporting_package =
+      PluginStateContract.result_reporting_package_sql(
+        plugin_result_output,
+        streaming_output,
+        streaming_capability
+      )
+
     """
     EXISTS (
       SELECT 1
@@ -234,14 +234,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.Queries do
         AND assignment.agent_uid = service_state.agent_id
         #{assignment_exclusion}
         AND #{PluginStateContract.state_matches_joined_package_sql()}
-        AND (
-          package.outputs IN (#{plugin_result_output}, #{streaming_output})
-          OR #{streaming_capability} = ANY(package.approved_capabilities)
-          OR (
-            coalesce(array_length(package.approved_capabilities, 1), 0) = 0
-            AND package.manifest->'capabilities' ? #{streaming_capability}
-          )
-        )
+        AND #{result_reporting_package}
     )
     """
   end

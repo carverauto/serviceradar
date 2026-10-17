@@ -7,6 +7,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
   @pending_message "plugin assignment pending result"
   @streaming_ready_message "streaming plugin ready"
   @reported_marker "_serviceradar_plugin_result"
+  @action_only_capability "action-only:v1"
+  @action_result_ingest_capability "action-result-ingest:v1"
 
   @doc false
   def logical_identity(identity) when is_map(identity) do
@@ -147,6 +149,33 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
       "package.name",
       "package.plugin_id"
     )
+  end
+
+  @doc false
+  # The agent gives an `action-only:v1` assignment no periodic runner, so it
+  # submits plugin results only when it also ingests action results.
+  def submits_plugin_results?(capabilities) when is_list(capabilities) do
+    @action_only_capability not in capabilities or
+      @action_result_ingest_capability in capabilities
+  end
+
+  @doc false
+  # SQL twin of the assignment eligibility rule for the joined `package`: a
+  # streaming package, or a plugin-result package that submits results.
+  def result_reporting_package_sql(plugin_result_output, streaming_output, streaming_capability) do
+    """
+    (
+      package.outputs = #{streaming_output}
+      OR #{package_capability_sql(streaming_capability)}
+      OR (
+        package.outputs = #{plugin_result_output}
+        AND (
+          NOT #{package_capability_sql("'#{@action_only_capability}'")}
+          OR #{package_capability_sql("'#{@action_result_ingest_capability}'")}
+        )
+      )
+    )
+    """
   end
 
   @doc false
@@ -349,6 +378,21 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
       AND NULLIF(#{details}::jsonb #>> '{downstream_ingest,handler_set,id}', '') IS NOT NULL
       AND #{details}::jsonb #>> '{downstream_ingest,observation_timestamp}'
         ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
+    )
+    """
+  end
+
+  # The capability set the agent receives: the operator-approved subset when
+  # set, otherwise the manifest's list.
+  defp package_capability_sql(capability) do
+    """
+    coalesce(
+      CASE
+        WHEN coalesce(array_length(package.approved_capabilities, 1), 0) > 0
+        THEN #{capability} = ANY(package.approved_capabilities)
+        ELSE package.manifest->'capabilities' ? #{capability}
+      END,
+      false
     )
     """
   end

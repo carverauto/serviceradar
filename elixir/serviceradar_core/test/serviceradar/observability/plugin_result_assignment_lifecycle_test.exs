@@ -165,5 +165,27 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
              current_state_rows_with_state(status)
   end
 
+  test "reconcile keeps a plugin state active only while its package still submits results" do
+    for {capabilities, expected_state} <- [
+          {["submit_result", "action-only:v1"], "inactive"},
+          {["submit_result", "action-only:v1", "action-result-ingest:v1"], "active"}
+        ] do
+      {_payload, status, observed_at} = plugin_result_fixture(assignment?: false)
+      package = create_repair_package!(status.service_name, capabilities: capabilities)
+      _assignment = create_repair_assignment_for_package!(status, package)
+
+      seed_service_state(status, observed_at,
+        available: false,
+        message: "result from before the package became action-only",
+        state: "active"
+      )
+
+      assert {:ok, _count} = ServiceStateRegistry.reconcile_plugin_assignments()
+
+      assert {^capabilities, [[false, _message, ^observed_at, ^expected_state]]} =
+               {capabilities, current_state_rows_with_state(status)}
+    end
+  end
+
   defp system_actor, do: SystemActor.system(:plugin_result_assignment_lifecycle_test)
 end
