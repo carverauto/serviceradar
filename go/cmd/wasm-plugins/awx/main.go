@@ -38,10 +38,18 @@ import (
 // awxHTTP is package-level so tests can swap it for a fake.
 var awxHTTP httpClient = &sdk.HTTPClient{MaxResponseBytes: sdk.MaxHTTPResponseBytes}
 
+// awxRequestError is string-kinded so errAWXRequestFailed can be a constant.
+// The agent calls exported TinyGo entrypoints without WASI _start, so a
+// package-level error built by a function call stays nil, and every
+// `return nil, errAWXRequestFailed` would then report success with no response.
+type awxRequestError string
+
+func (e awxRequestError) Error() string { return string(e) }
+
 // errAWXRequestFailed is the only error allowed to cross the controller HTTP
 // boundary. The underlying client error and response text are never retained
 // in a plugin result.
-var errAWXRequestFailed = fmt.Errorf("AWX request failed")
+const errAWXRequestFailed awxRequestError = "AWX request failed"
 
 type httpClient interface {
 	Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
