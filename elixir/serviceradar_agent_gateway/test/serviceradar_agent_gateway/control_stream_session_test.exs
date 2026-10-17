@@ -327,6 +327,31 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                    50
   end
 
+  test "a config version already pushed on the stream is not sent again until it changes" do
+    ensure_process_registry!()
+
+    agent_id = "agent-repush-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, [])
+
+    push = fn version ->
+      ControlStreamSession.push_config(pid, %Monitoring.AgentConfigResponse{config_version: version})
+    end
+
+    assert :ok = push.("config-v1")
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v1"}}}}
+
+    # The agent has not acknowledged config-v1; a dependency write regenerates it.
+    assert :ok = push.("config-v1")
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}}, 50
+
+    assert :ok = push.("config-v2")
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v2"}}}}
+
+    # Changing back is a change.
+    assert :ok = push.("config-v1")
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v1"}}}}
+  end
+
   test "config push to a config_push_chunks agent arrives as ordered chunks that reassemble to the config" do
     ensure_process_registry!()
 

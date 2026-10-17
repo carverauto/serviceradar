@@ -171,6 +171,34 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   def handle_call({:push_config, config}, _from, state) do
+    if already_pushed_on_stream?(state, config) do
+      # Core skips a push only when the agent has acknowledged that version, so
+      # an agent that has not acknowledged a pushed version is sent the same
+      # full config again on every dependency write. Resending it on the same
+      # stream gives the agent nothing new; a reconnected agent opens a new
+      # session, and its config poll still fetches the version it lacks.
+      {:reply, :ok, state}
+    else
+      deliver_config_push(config, state)
+    end
+  end
+
+  def handle_call({:send_console_frame, frame}, _from, state) do
+    dispatch_console_frame(frame, nil, state)
+  end
+
+  def handle_call({:send_console_frame, frame, expected_control_evidence}, _from, state) do
+    dispatch_console_frame(frame, expected_control_evidence, state)
+  end
+
+  defp already_pushed_on_stream?(state, %Monitoring.AgentConfigResponse{not_modified: false} = config) do
+    version = normalize_config_version(config.config_version)
+    version != nil and version == state.last_pushed_config_version
+  end
+
+  defp already_pushed_on_stream?(_state, _config), do: false
+
+  defp deliver_config_push(config, state) do
     with :ok <- validate_config_push(config),
          {:ok, responses} <- config_push_responses(config, state) do
       previous_pending = pending_config_state(state)
@@ -192,14 +220,6 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
-  end
-
-  def handle_call({:send_console_frame, frame}, _from, state) do
-    dispatch_console_frame(frame, nil, state)
-  end
-
-  def handle_call({:send_console_frame, frame, expected_control_evidence}, _from, state) do
-    dispatch_console_frame(frame, expected_control_evidence, state)
   end
 
   defp dispatch_console_frame(frame, expected_control_evidence, state) do
