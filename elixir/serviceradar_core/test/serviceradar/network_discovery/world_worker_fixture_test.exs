@@ -7,6 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.NetworkDiscovery.World
@@ -694,6 +695,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     original_host = Enum.at(ids, 1)
     assert [%{"observed_at" => "2030-02-03T04:05:06Z"}] = hosted_projection(source)
 
+    verify_hosted_audit_ancestry(source, original_host, Enum.slice(ids, 4, 2))
+
     # Aging is retained by an unchanged owner; repair must not manufacture a
     # fresh observation. This is the production NIF/Dgraph boundary.
     assert {:ok, _} = Dgraph.prune_stale("2031-01-01T00:00:00Z", ["HOSTED_ON"])
@@ -966,6 +969,51 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert_drain_success()
     assert Repo.get!(Oban.Job, repair.id, prefix: "platform").state == "completed"
     assert reconcile_job!().id != repair.id
+  end
+
+  defp verify_hosted_audit_ancestry(source, host, [first, second]) do
+    # Repeated historical events must neither consume the unique-identity cap
+    # nor keep a previously visited identity in the next ancestry frontier.
+    histories = [
+      {List.duplicate({first, source}, 501), :complete},
+      {List.duplicate({first, source}, 2) ++
+         List.duplicate({second, first}, 2) ++ List.duplicate({source, second}, 2), :complete},
+      {Enum.map(1..500, &{"#{source}-ancestor-#{&1}", source}), :over_budget}
+    ]
+
+    for {history, expected} <- histories do
+      try do
+        rows =
+          Enum.map(history, fn {from, to} ->
+            %{
+              from_device_id: from,
+              to_device_id: to,
+              reason: "manual_merge",
+              source: "synthetic-hosted-ancestry"
+            }
+          end)
+
+        assert %Ash.BulkResult{status: :success} =
+                 Ash.bulk_create(rows, MergeAudit, :record, actor: actor(), return_errors?: true)
+
+        result = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+        case expected do
+          :complete -> assert {:ok, %{"guests_done" => true, "edges_done" => true}} = result
+          :over_budget -> assert {:error, :incomplete_hosted_owner_ancestry} = result
+        end
+
+        assert [%{"target" => [%{"id" => ^host}], "observed_at" => "2030-02-03T04:05:06Z"}] =
+                 hosted_projection(source)
+      after
+        # MergeAudit is an Ash resource, not an Ecto schema. Remove only this
+        # case's invented events; leave every other audit row in the clone.
+        Repo.query!(
+          "DELETE FROM platform.merge_audit WHERE source = $1",
+          ["synthetic-hosted-ancestry"]
+        )
+      end
+    end
   end
 
   defp guest_host!(uid) do
