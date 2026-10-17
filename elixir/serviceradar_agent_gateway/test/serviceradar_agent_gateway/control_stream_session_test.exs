@@ -331,7 +331,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     ensure_process_registry!()
 
     agent_id = "agent-repush-#{System.unique_integer([:positive])}"
-    pid = start_push_session!(agent_id, [])
+    pid = start_push_session!(agent_id, [], start: :linked)
 
     push = fn version ->
       ControlStreamSession.push_config(pid, %Monitoring.AgentConfigResponse{config_version: version})
@@ -349,6 +349,24 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     # Changing back is a change.
     assert :ok = push.("config-v1")
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v1"}}}}
+
+    # The stream identity is the trimmed version, so padding is not a new push.
+    assert :ok = push.("  config-v1  ")
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}}, 50
+
+    # A reconnect opens a new session for the same agent. The previous stream's
+    # push does not carry over, so the agent receives the version again.
+    GenServer.stop(pid)
+
+    reconnected = start_push_session!(agent_id, [], start: :linked)
+
+    assert :ok =
+             ControlStreamSession.push_config(
+               reconnected,
+               %Monitoring.AgentConfigResponse{config_version: "config-v1"}
+             )
+
     assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v1"}}}}
   end
 
@@ -1171,7 +1189,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
   # A registered session whose stream replies and config-sync writes are
   # captured, for exercising config push delivery.
-  defp start_push_session!(agent_id, capabilities) do
+  defp start_push_session!(agent_id, capabilities, opts \\ []) do
     test_pid = self()
 
     Application.put_env(:serviceradar_agent_gateway, :control_stream_reply, fn stream, response ->
@@ -1188,7 +1206,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       Application.delete_env(:serviceradar_agent_gateway, :config_sync_rpc)
     end)
 
-    pid = start_supervised!({ControlStreamSession, stream: nil})
+    pid =
+      case Keyword.get(opts, :start, :supervised) do
+        :linked ->
+          {:ok, pid} = ControlStreamSession.start_link(stream: nil)
+          on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+          pid
+
+        :supervised ->
+          start_supervised!({ControlStreamSession, stream: nil})
+      end
 
     assert :ok =
              ControlStreamSession.register(
