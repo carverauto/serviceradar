@@ -101,8 +101,11 @@ func (e *DiscoveryEngine) GetDiscoveryStatus(_ context.Context, discoveryID stri
 	defer e.mu.RUnlock()
 
 	if job, ok := e.activeJobs[discoveryID]; ok {
-		// Return a copy to prevent modification
+		// Status is updated under job.mu while the job runs. The engine lock
+		// alone does not cover those writes.
+		job.mu.RLock()
 		statusCopy := *job.Status
+		job.mu.RUnlock()
 
 		return &statusCopy, nil
 	}
@@ -139,7 +142,11 @@ func (e *DiscoveryEngine) GetDiscoveryResults(
 	}
 
 	if job, ok := e.activeJobs[discoveryID]; ok {
-		return nil, fmt.Errorf("%w: %s, status: %s", ErrDiscoveryJobStillActive, discoveryID, job.Status.Status)
+		job.mu.RLock()
+		status := job.Status.Status
+		job.mu.RUnlock()
+
+		return nil, fmt.Errorf("%w: %s, status: %s", ErrDiscoveryJobStillActive, discoveryID, status)
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrDiscoveryJobNotCompleted, discoveryID)
@@ -215,8 +222,10 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 			e.logger.Info().Int("worker_id", workerID).Str("job_id", job.ID).
 				Msg("Worker picked up job")
 
+			job.mu.Lock()
 			job.Status.Status = DiscoveryStatusRunning
 			job.Status.Progress = 5 // Indicate it's started
+			job.mu.Unlock()
 
 			// Placeholder for actual discovery logic
 			e.runDiscoveryJob(ctx, job) // Pass job.ctx here

@@ -25,7 +25,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -224,8 +226,17 @@ func (e *DiscoveryEngine) probeProxmoxCandidates(
 	return devices
 }
 
-func (e *DiscoveryEngine) probeProxmoxKnownDeviceCandidates(ctx context.Context, job *DiscoveryJob) {
-	seeds := proxmoxCandidateSeedsFromJob(job)
+// probeProxmoxCandidatesAfterIdentity fingerprints the seeds and the addresses
+// of devices the job found, once identity and enrichment are done.
+//
+// A candidate carries only the probed address and the node's name. Probed
+// before SNMP, a node that answers on several addresses was published once per
+// address, and each address became a device of its own. Probed now, a
+// candidate at an address the job already holds as a device's IP or alternate
+// IP folds onto that device.
+func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
+	ctx context.Context, job *DiscoveryJob, initialSeeds []string) {
+	seeds := proxmoxCandidateSeeds(job, initialSeeds)
 	if len(seeds) == 0 {
 		return
 	}
@@ -238,30 +249,146 @@ func (e *DiscoveryEngine) probeProxmoxKnownDeviceCandidates(ctx context.Context,
 	job.mu.Lock()
 	defer job.mu.Unlock()
 
-	e.processDevicesForSNMPTargets(job, devices, map[string]bool{}, map[string]string{})
+	e.addProxmoxCandidatesUnlocked(job, devices)
 }
 
-func proxmoxCandidateSeedsFromJob(job *DiscoveryJob) []string {
-	if job == nil || job.Results == nil {
-		return nil
+// addProxmoxCandidatesUnlocked groups the candidates per node and adds them to
+// the job's results. The caller holds job.mu.
+func (e *DiscoveryEngine) addProxmoxCandidatesUnlocked(job *DiscoveryJob, devices []*DiscoveredDevice) {
+	known := func(ip string) bool {
+		existingID, _ := e.resolveExistingDeviceIdentityByIPUnlocked(job, ip)
+		return existingID != ""
 	}
 
-	seen := make(map[string]struct{})
-	seeds := make([]string, 0, len(job.Results.Devices))
+	for _, device := range groupProxmoxCandidatesByNode(devices, known) {
+		e.addOrUpdateDeviceToResults(job, device)
+	}
+}
 
-	for _, device := range job.Results.Devices {
-		if device == nil {
+// groupProxmoxCandidatesByNode merges candidates that are one node answering at
+// several addresses: the same PVE title and the same recorded certificate IP
+// SANs. Two nodes that share a name present certificates for different
+// addresses, so they stay apart.
+//
+// The merged candidate's IP is the address the job already resolves to a
+// device, so it folds onto that device; otherwise an address the certificate
+// lists, or else the lowest, so the same node yields the same device across
+// runs. Its other addresses become alternate IPs. A candidate without recorded
+// SANs is left as it is.
+func groupProxmoxCandidatesByNode(devices []*DiscoveredDevice, known func(ip string) bool) []*DiscoveredDevice {
+	groups := make(map[string][]*DiscoveredDevice)
+	order := make([]string, 0, len(devices))
+	grouped := make([]*DiscoveredDevice, 0, len(devices))
+
+	for _, device := range devices {
+		key := proxmoxCandidateNodeKey(device)
+		if key == "" {
+			grouped = append(grouped, device)
 			continue
 		}
-		ip := strings.TrimSpace(device.IP)
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], device)
+	}
+
+	for _, key := range order {
+		grouped = append(grouped, mergeProxmoxNodeCandidates(groups[key], known))
+	}
+
+	return grouped
+}
+
+func proxmoxCandidateNodeKey(device *DiscoveredDevice) string {
+	if device == nil || device.Metadata["proxmox_tls_sans_recorded"] != stringTrueValue {
+		return ""
+	}
+
+	title := strings.ToLower(strings.TrimSpace(device.Hostname))
+	sans := strings.TrimSpace(device.Metadata["proxmox_tls_san_ips"])
+	if title == "" || sans == "" {
+		return ""
+	}
+
+	return title + "|" + sans
+}
+
+func mergeProxmoxNodeCandidates(candidates []*DiscoveredDevice, known func(ip string) bool) *DiscoveredDevice {
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	listed := make(map[string]struct{})
+	for _, ip := range strings.Split(candidates[0].Metadata["proxmox_tls_san_ips"], ",") {
+		listed[strings.TrimSpace(ip)] = struct{}{}
+	}
+
+	sorted := append([]*DiscoveredDevice(nil), candidates...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		iKnown, jKnown := known(sorted[i].IP), known(sorted[j].IP)
+		if iKnown != jKnown {
+			return iKnown
+		}
+
+		_, iListed := listed[sorted[i].IP]
+		_, jListed := listed[sorted[j].IP]
+		if iListed != jListed {
+			return iListed
+		}
+
+		return compareIPStrings(sorted[i].IP, sorted[j].IP) < 0
+	})
+
+	merged := sorted[0]
+	for _, other := range sorted[1:] {
+		if other.IP != merged.IP {
+			merged.Metadata = addAlternateIP(merged.Metadata, other.IP)
+		}
+	}
+
+	return merged
+}
+
+func compareIPStrings(a, b string) int {
+	addrA, errA := netip.ParseAddr(a)
+	addrB, errB := netip.ParseAddr(b)
+	if errA == nil && errB == nil {
+		return addrA.Compare(addrB)
+	}
+
+	return strings.Compare(a, b)
+}
+
+// proxmoxCandidateSeeds returns the primary IPs of the devices the job found,
+// then its seeds, each address once. The probes share one deadline and run in
+// turn, so the job's known devices go first: a seed range full of unreachable
+// addresses must not use up the budget before them.
+func proxmoxCandidateSeeds(job *DiscoveryJob, initialSeeds []string) []string {
+	seen := make(map[string]struct{})
+	seeds := make([]string, 0, len(initialSeeds))
+
+	add := func(ip string) {
+		ip = strings.TrimSpace(ip)
 		if ip == "" {
-			continue
+			return
 		}
 		if _, ok := seen[ip]; ok {
-			continue
+			return
 		}
 		seen[ip] = struct{}{}
 		seeds = append(seeds, ip)
+	}
+
+	if job != nil && job.Results != nil {
+		for _, device := range job.Results.Devices {
+			if device != nil {
+				add(device.IP)
+			}
+		}
+	}
+
+	for _, seed := range initialSeeds {
+		add(seed)
 	}
 
 	return seeds
@@ -337,7 +464,7 @@ func recordProxmoxCertificateSANs(device *DiscoveredDevice, cert *x509.Certifica
 
 	// Recorded even when empty: a certificate with no IP SANs can match no IP
 	// origin, which is different from a probe that saw no certificate at all.
-	device.Metadata["proxmox_tls_sans_recorded"] = "true"
+	device.Metadata["proxmox_tls_sans_recorded"] = stringTrueValue
 	device.Metadata["proxmox_tls_san_ips"] = strings.Join(ips, ",")
 	device.Metadata["proxmox_tls_san_dns"] = strings.Join(names, ",")
 }
