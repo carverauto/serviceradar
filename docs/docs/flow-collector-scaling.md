@@ -184,7 +184,11 @@ Selector declarations count toward the domain rate only while they have been
 seen in the last 60 minutes. Selectors that agree supply that rate. Selectors
 that disagree leave a flow naming no selector on the next fallback. A selector
 that is not refreshed inside the window ages out, and a later selector then
-becomes the domain rate. `flow_collector_options_sampling_rates_learned_total`
+becomes the domain rate. Each source keeps at most 256 selector declarations;
+further selectors from that source increment
+`flow_collector_sampler_rate_rejections_total` and do not vote, while a flow
+that names one still uses the sampler rate stored for it.
+`flow_collector_options_sampling_rates_learned_total`
 increments only when a rate is newly stored or its stored value changes. A
 repeated refresh of the same rate, and a rate rejected because the table is
 full, do not increment it. Learned rates live in memory only, share the

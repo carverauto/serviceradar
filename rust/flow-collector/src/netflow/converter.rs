@@ -25,6 +25,12 @@ pub const MAX_SAMPLER_RATE_ENTRIES: usize = 65_536;
 /// no selector; the selectors refreshed inside the window do.
 pub const OPTIONS_REFRESH_WINDOW: Duration = Duration::from_secs(60 * 60);
 
+/// Selector declarations kept per source when computing the domain rate.
+///
+/// Further selectors from that source are rejected and do not vote. A flow
+/// that names one still uses the sampler rate stored for it.
+const MAX_SELECTORS_PER_SOURCE: usize = 256;
+
 /// Ceiling applied to any exporter-declared sampling rate before publication.
 ///
 /// Exporter-declared sampling fields are unauthenticated wire input, and every
@@ -76,11 +82,22 @@ struct SourceOptions {
     interfaces: HashMap<u32, u64>,
     /// Selector id to the rate and receive time of its last options declaration.
     selectors: HashMap<u64, SelectorDecl>,
+    /// Agreement of the selectors inside the refresh window.
+    consensus: SelectorConsensus,
 }
 
 struct SelectorDecl {
     rate: u64,
     seen_at_ns: u64,
+}
+
+/// Domain rate implied by selectors, valid while `oldest_seen_at_ns` is still
+/// inside the refresh window. `oldest_seen_at_ns` is `None` when no selector
+/// is live, which does not expire.
+#[derive(Default)]
+struct SelectorConsensus {
+    rate: Option<u64>,
+    oldest_seen_at_ns: Option<u64>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -182,24 +199,52 @@ impl SamplerRates {
         Store::New
     }
 
-    fn note_selector(&mut self, source: &SourceId, id: u64, rate: u64, now_ns: u64) {
+    /// Records one selector declaration and refreshes the cached domain rate.
+    ///
+    /// Returns whether the declaration is stored. A new id past
+    /// `MAX_SELECTORS_PER_SOURCE` is rejected; expired declarations are dropped
+    /// first, so they do not hold a slot.
+    fn note_selector(&mut self, source: &SourceId, id: u64, rate: u64, now_ns: u64) -> bool {
         if !self.domain_rates.contains_key(source)
             && self.domain_rates.len() >= MAX_SAMPLER_RATE_ENTRIES
         {
             self.rejected_inserts = self.rejected_inserts.saturating_add(1);
-            return;
+            return false;
         }
-        self.domain_rates
-            .entry(source.clone())
-            .or_default()
-            .selectors
-            .insert(
-                id,
-                SelectorDecl {
-                    rate,
-                    seen_at_ns: now_ns,
-                },
-            );
+        let accepted = {
+            let options = self.domain_rates.entry(source.clone()).or_default();
+            if !options.selectors.contains_key(&id)
+                && options.selectors.len() >= MAX_SELECTORS_PER_SOURCE
+            {
+                rebuild_selector_consensus(options, now_ns);
+            }
+            let updated = if let Some(decl) = options.selectors.get_mut(&id) {
+                decl.rate = rate;
+                decl.seen_at_ns = now_ns;
+                true
+            } else {
+                false
+            };
+            if updated || options.selectors.len() < MAX_SELECTORS_PER_SOURCE {
+                if !updated {
+                    options.selectors.insert(
+                        id,
+                        SelectorDecl {
+                            rate,
+                            seen_at_ns: now_ns,
+                        },
+                    );
+                }
+                rebuild_selector_consensus(options, now_ns);
+                true
+            } else {
+                false
+            }
+        };
+        if !accepted {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+        }
+        accepted
     }
 
     /// Records the rate one options data record declares, if it declares one.
@@ -235,10 +280,11 @@ impl SamplerRates {
     /// The rate a flow record that declares none of its own inherits.
     ///
     /// Order: the sampler it names, the interface rate for `in_if` (or `out_if`
-    /// when that input has no entry), the domain rate, then the rate selectors
-    /// declared inside `OPTIONS_REFRESH_WINDOW` when they agree.
+    /// when that input has no entry), the domain rate, then the cached selector
+    /// agreement. That cache is rebuilt only when a selector is stored or its
+    /// oldest contributor has left the refresh window.
     fn learned_rate(
-        &self,
+        &mut self,
         source: &SourceId,
         sampler_id: Option<u64>,
         in_if: u32,
@@ -250,42 +296,69 @@ impl SamplerRates {
                 .entries
                 .get(source)
                 .and_then(|entries| entries.get(&id))
+                .copied()
         {
-            return Some(*rate);
+            return Some(rate);
         }
-        let Some(options) = self.domain_rates.get(source) else {
+        let Some(options) = self.domain_rates.get_mut(source) else {
             return None;
         };
-        if let Some(rate) = options.interfaces.get(&in_if) {
-            return Some(*rate);
+        if let Some(rate) = options.interfaces.get(&in_if).copied() {
+            return Some(rate);
         }
-        if let Some(rate) = options.interfaces.get(&out_if) {
-            return Some(*rate);
+        if let Some(rate) = options.interfaces.get(&out_if).copied() {
+            return Some(rate);
         }
         if let Some(rate) = options.domain {
             return Some(rate);
         }
-        if sampler_id.is_none() {
-            return selector_domain_rate(options, now_ns);
+        if sampler_id.is_some() {
+            return None;
         }
-        None
+        if !selector_consensus_fresh(&options.consensus, now_ns) {
+            rebuild_selector_consensus(options, now_ns);
+        }
+        options.consensus.rate
     }
 }
 
-fn selector_domain_rate(options: &SourceOptions, now_ns: u64) -> Option<u64> {
-    let mut agreed = None;
+fn selector_consensus_fresh(consensus: &SelectorConsensus, now_ns: u64) -> bool {
+    match consensus.oldest_seen_at_ns {
+        Some(oldest) => {
+            Duration::from_nanos(now_ns.saturating_sub(oldest)) < OPTIONS_REFRESH_WINDOW
+        }
+        None => true,
+    }
+}
+
+fn rebuild_selector_consensus(options: &mut SourceOptions, now_ns: u64) {
+    options.selectors.retain(|_, decl| {
+        Duration::from_nanos(now_ns.saturating_sub(decl.seen_at_ns)) < OPTIONS_REFRESH_WINDOW
+    });
+    let mut rate = None;
+    let mut oldest: Option<u64> = None;
+    let mut conflict = false;
     for decl in options.selectors.values() {
-        let age = Duration::from_nanos(now_ns.saturating_sub(decl.seen_at_ns));
-        if age >= OPTIONS_REFRESH_WINDOW {
+        oldest = Some(match oldest {
+            Some(seen) => seen.min(decl.seen_at_ns),
+            None => decl.seen_at_ns,
+        });
+        if conflict {
             continue;
         }
-        match agreed {
-            None => agreed = Some(decl.rate),
-            Some(rate) if rate == decl.rate => {}
-            Some(_) => return None,
+        match rate {
+            None => rate = Some(decl.rate),
+            Some(current) if current == decl.rate => {}
+            Some(_) => {
+                rate = None;
+                conflict = true;
+            }
         }
     }
-    agreed
+    options.consensus = SelectorConsensus {
+        rate: if conflict { None } else { rate },
+        oldest_seen_at_ns: oldest,
+    };
 }
 
 fn ipfix_scope_interface(record: &[IPFixFieldPair]) -> Option<u32> {
@@ -1686,6 +1759,56 @@ mod tests {
             rate_of(&mut rates, t0 + window, named),
             100,
             "a flow that names selector 1 still uses that selector"
+        );
+    }
+
+    /// Selectors past the per-source cap do not vote. After the window they
+    /// no longer occupy a slot, so a new declaration can.
+    #[test]
+    fn selector_cap_rejects_extra_votes_until_they_age_out() {
+        use std::net::Ipv4Addr;
+
+        let source = SourceId::Legacy(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 9)), 9));
+        let sampling = |id: u64, rate: u64| SamplingFields {
+            sampler_id: Some(id),
+            interval: Some(rate),
+            ..SamplingFields::default()
+        };
+        let mut rates = SamplerRates::default();
+        let t0 = 1_000_000_000_000u64;
+        for id in 1..=MAX_SELECTORS_PER_SOURCE as u64 {
+            rates.learn_options(&source, &sampling(id, 100), None, t0);
+        }
+        assert_eq!(rates.learned_rate(&source, None, 0, 0, t0), Some(100));
+        assert_eq!(rates.rejected_inserts, 0);
+
+        let overflow = MAX_SELECTORS_PER_SOURCE as u64 + 1;
+        rates.learn_options(&source, &sampling(overflow, 512), None, t0);
+        assert_eq!(rates.rejected_inserts, 1);
+        assert_eq!(
+            rates.learned_rate(&source, None, 0, 0, t0),
+            Some(100),
+            "a selector past the cap does not vote on the domain rate"
+        );
+        assert_eq!(
+            rates.learned_rate(&source, Some(overflow), 0, 0, t0),
+            Some(512),
+            "a flow that names the extra selector still uses its stored rate"
+        );
+        rates.learn_options(&source, &sampling(1, 100), None, t0);
+        assert_eq!(
+            rates.rejected_inserts, 1,
+            "refreshing a stored selector is not another rejection"
+        );
+
+        let window = u64::try_from(OPTIONS_REFRESH_WINDOW.as_nanos()).unwrap();
+        let later = overflow + 1;
+        rates.learn_options(&source, &sampling(later, 512), None, t0 + window);
+        assert_eq!(rates.rejected_inserts, 1);
+        assert_eq!(
+            rates.learned_rate(&source, None, 0, 0, t0 + window),
+            Some(512),
+            "expired selectors free a slot and the new declaration wins"
         );
     }
 
