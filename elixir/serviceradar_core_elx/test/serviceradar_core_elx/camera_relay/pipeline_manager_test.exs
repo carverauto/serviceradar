@@ -234,6 +234,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     assert branch.branch_id == branch_id
     assert branch.policy.sample_interval_ms == 2_000
 
+    # RFC 6184: H264 chunk pts are 90 kHz ticks. One second is 90_000 ticks;
+    # 2.5 seconds is 225_000. A 2_000 ms policy is 180_000 ticks.
     assert :ok =
              PipelineManager.record_chunk(relay_session_id, %{
                media_ingest_id: "core-media-analysis",
@@ -251,8 +253,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
              PipelineManager.record_chunk(relay_session_id, %{
                media_ingest_id: "core-media-analysis",
                sequence: 2,
-               pts: 1_000_000_000,
-               dts: 1_000_000_000,
+               pts: 90_000,
+               dts: 90_000,
                codec: "h264",
                payload_format: "annexb",
                track_id: "video",
@@ -264,8 +266,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
              PipelineManager.record_chunk(relay_session_id, %{
                media_ingest_id: "core-media-analysis",
                sequence: 3,
-               pts: 2_500_000_000,
-               dts: 2_500_000_000,
+               pts: 225_000,
+               dts: 225_000,
                codec: "h264",
                payload_format: "annexb",
                track_id: "video",
@@ -279,6 +281,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
                       relay_session_id: ^relay_session_id,
                       branch_id: ^branch_id,
                       sequence: 1,
+                      pts: 0,
+                      dts: 0,
                       policy: %{sample_interval_ms: 2_000, max_queue_len: 32}
                     }},
                    1_000
@@ -291,6 +295,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
                       relay_session_id: ^relay_session_id,
                       branch_id: ^branch_id,
                       sequence: 3,
+                      pts: 225_000,
+                      dts: 225_000,
                       policy: %{sample_interval_ms: 2_000, max_queue_len: 32}
                     }},
                    1_000

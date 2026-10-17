@@ -23,7 +23,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
@@ -54,6 +53,11 @@ type rtspCameraRelayStream struct {
 	closed     bool
 }
 
+// cameraRelayTimestampDecoder is the fallback for packets gortsplib cannot
+// timestamp yet (PacketPTS returns !ok until the track's PTS is established). It
+// emits PTS in the track's RTP clock units, like PacketPTS, so a relay's chunks
+// share one timebase from the first packet on; core-elx reads them as 90 kHz H264
+// ticks.
 type cameraRelayTimestampDecoder struct {
 	mu        sync.Mutex
 	clockRate int64
@@ -304,7 +308,7 @@ func (d *cameraRelayTimestampDecoder) Decode(timestamp uint32) int64 {
 
 	delta := int64(int32(timestamp - d.prev))
 	d.prev = timestamp
-	d.pts += delta * int64(time.Second) / d.clockRate
+	d.pts += delta
 	if d.pts < 0 {
 		d.pts = 0
 	}

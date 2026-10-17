@@ -5227,6 +5227,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   object-fit: contain;
 }
 
+.sr-camera-relay-canvas.hidden,
 .sr-camera-relay-video.hidden {
   display: none;
 }

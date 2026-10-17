@@ -8,6 +8,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisSink do
   alias ServiceRadar.Camera.AnalysisContract
   alias ServiceRadar.Telemetry
 
+  # RFC 6184 fixes the H264 RTP clock at 90 kHz. Relay chunk pts are those ticks.
+  @h264_rtp_clock_hz 90_000
   @default_policy %{sample_interval_ms: 0, max_queue_len: 32}
 
   def_options(
@@ -107,8 +109,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisSink do
   defp emit_sample?(nil, _state), do: false
 
   defp emit_sample?(pts, state) do
-    interval_ns = state.policy.sample_interval_ms * 1_000_000
-    interval_ns <= 0 or pts - state.last_emitted_pts >= interval_ns
+    interval_ticks = div(state.policy.sample_interval_ms * @h264_rtp_clock_hz, 1_000)
+    interval_ticks <= 0 or pts - state.last_emitted_pts >= interval_ticks
   end
 
   defp normalize_policy(policy) when is_map(policy) do

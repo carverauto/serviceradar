@@ -1,12 +1,21 @@
 defmodule ServiceRadarCoreElx.CameraRelay.AnnexBToNALU do
   @moduledoc """
   Converts Annex B H264 access units into NALU-aligned buffers for WebRTC payloading.
+
+  Each relay chunk is one access unit. `Membrane.RTP.H264.Payloader` sets the
+  RTP marker from `metadata.h264.end_access_unit`, so the last NALU of a chunk
+  carries it. Chunk timestamps arrive in the 90 kHz H264 RTP clock (the agent
+  forwards the RTSP packet PTS, and RFC 6184 fixes H264 at 90 kHz), while the
+  WebRTC sink reads buffer timestamps as `Membrane.Time`, so they are converted
+  here.
   """
 
   use Membrane.Filter
 
   alias Membrane.Buffer
   alias Membrane.H264
+
+  @h264_clock_rate 90_000
 
   def_input_pad(:input,
     accepted_format: _any,
@@ -31,22 +40,27 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnnexBToNALU do
   @impl true
   def handle_buffer(:input, %Buffer{} = buffer, _ctx, state) do
     nalus = split_annexb_nalus(buffer.payload)
+    last_index = length(nalus) - 1
+    pts = to_membrane_time(buffer.pts)
+    dts = to_membrane_time(buffer.dts)
 
     actions =
       stream_format_actions(state) ++
-        Enum.map(nalus, fn nalu ->
-          {:buffer,
-           {:output,
-            %Buffer{
-              payload: prefixed_annexb_nalu(nalu),
-              pts: buffer.pts,
-              dts: buffer.dts,
-              metadata: Map.put(buffer.metadata || %{}, :payload_format, "nalu")
-            }}}
+        Enum.map(Enum.with_index(nalus), fn {nalu, index} ->
+          metadata =
+            Map.merge(buffer.metadata || %{}, %{
+              payload_format: "nalu",
+              h264: %{end_access_unit: index == last_index}
+            })
+
+          {:buffer, {:output, %Buffer{payload: prefixed_annexb_nalu(nalu), pts: pts, dts: dts, metadata: metadata}}}
         end)
 
     {actions, %{state | stream_format_sent?: true}}
   end
+
+  defp to_membrane_time(nil), do: nil
+  defp to_membrane_time(ticks) when is_integer(ticks), do: div(ticks * Membrane.Time.second(), @h264_clock_rate)
 
   defp stream_format_actions(%{stream_format_sent?: true}), do: []
 
