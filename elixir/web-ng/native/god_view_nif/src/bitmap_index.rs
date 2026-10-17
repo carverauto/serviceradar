@@ -620,18 +620,14 @@ impl Index {
         };
         drop(scratch);
         check_time(end)?;
-        let mut pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
+        let pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
         let intrinsic =
             next.charges().map(|charge| charge.bytes).sum::<usize>() + self._charge.bytes;
-        let queued = pending_guard.bitmap_bytes();
-        if next.addresses.is_some() && intrinsic + queued > MAX_BYTES {
-            if intrinsic > MAX_BYTES {
-                next.addresses = None;
-                next.ip_unavailable = Some("native_cap");
-            } else {
-                pending_guard.collapse_to_rescan(&self.budget)?;
-                return Err("pending");
-            }
+        if next.addresses.is_some()
+            && intrinsic.saturating_add(pending::PENDING_QUEUE_HEADROOM) > MAX_BYTES
+        {
+            next.addresses = None;
+            next.ip_unavailable = Some("native_cap");
         }
         let pending = pending_guard.status();
         let next = Arc::new(next);
@@ -2087,39 +2083,30 @@ mod tests {
                 })
                 .collect()
         };
-        let ipv4 = |ordinal: u32| {
-            let host = (ordinal >> 16) + 1;
-            vec![10, (host >> 16) as u8, (host >> 8) as u8, host as u8]
-        };
-        let address_page = |ordinal: u32| {
-            let (query, _, _, total) = index
-                .query(b"allow", &[(8, String::new(), ipv4(ordinal), 32)], 1000)
-                .unwrap();
-            let page = query.page(b"allow", 0, 4, 1000).unwrap();
-            query.close().unwrap();
-            (total, page)
+        // 2001:db8::/32 documentation prefix. The ordinal occupies the last four bytes.
+        let ipv6 = |ordinal: u32| {
+            let mut bytes = vec![0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            bytes[12..].copy_from_slice(&ordinal.to_be_bytes());
+            bytes
         };
         let publish = |revision, source: &[u8], rows: Vec<Row>| {
             let completed: Vec<_> = rows.iter().map(|(id, _, _)| *id).collect();
             let addresses: Vec<_> = rows
                 .iter()
                 .filter(|(_, live, _)| *live)
-                .map(|(id, _, _)| (*id, ipv4(*id)))
+                .map(|(id, _, _)| (*id, ipv6(*id)))
                 .collect();
             let stage = index.begin_publish(revision, source, rows, true).unwrap();
             assert!(stage.add(&addresses, &completed).unwrap());
             index.finish_publish(&stage).unwrap_or_else(|error| {
                 panic!("publication {source:?} failed: {error}; {:?}", index.status());
             });
-            // finish_publish's receipt can include the source stage's charges;
-            // after it returns those allocations have been released.
             index.status().unwrap()
         };
         let mut status = index.status().unwrap();
         let mut count = 0u32;
-        // Separate values per batch share old postings instead of first exhausting
-        // transient COW capacity. Every retained byte is real shipping index data.
-        while status.native_bytes < MAX_BYTES - 3_000_000 {
+        let headroom = pending::PENDING_QUEUE_HEADROOM;
+        while status.native_bytes + headroom + 8_000_000 < MAX_BYTES {
             assert!(count < 65_000, "fixture must reach the production cap");
             status = publish(
                 status.revision,
@@ -2128,83 +2115,68 @@ mod tests {
             );
             assert!(status.ip_available);
             assert!(status.unavailable.is_empty());
+            assert_eq!(status.pending.rescan_generation, 0);
             count += 500;
         }
-        let probe = rows(count, 100, "probe");
-        let probe_ids: Vec<_> = probe.iter().map(|(id, _, _)| *id).collect();
-        // The exact growth succeeds without a queue. Removing it restores the
-        // fixture before the same source batch is retried with retained hints.
-        status = publish(status.revision, b"control", probe.clone());
-        assert!(status.ip_available);
-        status = publish(
-            status.revision,
-            b"restore",
-            probe_ids.iter().map(|id| (*id, false, vec![])).collect(),
-        );
-        assert!(status.ip_available);
-        assert_eq!(status.cardinality, u64::from(count));
-        let mut dirty = 0u32;
-        while index.status().unwrap().native_bytes < MAX_BYTES - 100_000 {
-            assert!(
-                dirty + 500 <= count,
-                "retained live hints must fill the remaining budget"
-            );
-            let ids: Vec<_> = (dirty..dirty + 500).map(|n| (n << 16) | 1).collect();
-            index.mark_dirty(&ids, false).unwrap();
-            dirty += 500;
-        }
-        let before = index.status().unwrap();
-        assert_eq!(before.pending.pending_count, u64::from(dirty));
-        assert!(!before.pending.rescan_needed);
-        assert!(before.native_bytes <= MAX_BYTES);
-        assert!(before.ip_available);
-        let completed: Vec<_> = probe.iter().map(|(id, _, _)| *id).collect();
-        let addresses: Vec<_> = probe
-            .iter()
-            .filter(|(_, live, _)| *live)
-            .map(|(id, _, _)| (*id, ipv4(*id)))
-            .collect();
-        let stage = index
-            .begin_publish(before.revision, b"probe", probe.clone(), true)
-            .unwrap();
-        assert!(stage.add(&addresses, &completed).unwrap());
-        assert_eq!(index.finish_publish(&stage).unwrap_err(), "pending");
-        let during = index.status().unwrap();
-        assert_eq!(during.revision, before.revision);
-        assert_eq!(during.cardinality, u64::from(count));
-        assert!(during.ip_available);
-        assert_eq!(during.ip_unavailable_reason, None);
-        assert_eq!(during.pending.pending_count, 0);
-        assert!(during.pending.rescan_needed);
+        assert_eq!(status.pending.pending_count, 0);
+        let generation = status.pending.rescan_generation;
+        let repeated = publish(status.revision, b"repeat", rows(0, 100, "0"));
+        assert!(repeated.ip_available);
+        assert_eq!(repeated.pending.rescan_generation, generation);
+        let opened = index.mark_dirty(&[], true).unwrap();
+        assert!(opened.rescan_needed);
+        assert_eq!(opened.rescan_generation, generation + 1);
+        let hinted: Vec<_> = (0..500).map(|n| (n << 16) | 1).collect();
+        let hints = index.mark_dirty(&hinted, false).unwrap();
+        assert_eq!(hints.rescan_generation, opened.rescan_generation);
+        assert_eq!(hints.pending_count, 500);
+        let during_hints = publish(repeated.revision, b"hints", rows(0, 100, "0"));
+        assert!(during_hints.ip_available);
         assert_eq!(
-            during.pending.rescan_generation,
-            before.pending.rescan_generation + 1
+            during_hints.pending.rescan_generation,
+            opened.rescan_generation
         );
-        assert!(during.native_bytes <= MAX_BYTES);
-        drop(stage);
+        let acked = index
+            .acknowledge_reconcile(opened.rescan_generation)
+            .unwrap();
+        assert!(!acked.rescan_needed);
+        assert_eq!(acked.rescan_generation, opened.rescan_generation);
+        while index.status().unwrap().pending.pending_count > 0 {
+            index.take_dirty(500).unwrap();
+        }
+        let mut latched = None;
+        let mut status = index.status().unwrap();
+        while latched.is_none() {
+            assert!(count < 65_000, "fixture must reach the production cap");
+            assert!(status.pending.native_bytes < 4_096);
+            assert!(status.native_bytes + 128 < MAX_BYTES);
+            let generation = status.pending.rescan_generation;
+            status = publish(
+                status.revision,
+                b"fill",
+                rows(count, 500, &count.to_string()),
+            );
+            assert_eq!(status.pending.rescan_generation, generation);
+            if status.ip_unavailable_reason == Some("native_cap") {
+                assert!(!status.ip_available);
+                latched = Some(status);
+                break;
+            }
+            assert!(status.ip_available);
+            count += 500;
+        }
+        let latched = latched.expect("reserved headroom must omit addresses");
         let first = 1u32;
-        let last = ((count - 1) << 16) | 1;
-        let probe_ordinal = (count << 16) | 1;
-        assert_eq!(address_page(first), (1, vec![first]));
-        assert_eq!(address_page(last), (1, vec![last]));
-        assert_eq!(address_page(probe_ordinal), (0, vec![]));
-        let (facet, _, _, probe_total) = index
-            .query(b"allow", &[predicate(&supported[0], "probe")], 1000)
+        assert!(matches!(
+            index.query(b"allow", &[(8, String::new(), ipv6(first), 128)], 1000),
+            Err("ip_unavailable")
+        ));
+        let (facet, _, _, total) = index
+            .query(b"allow", &[predicate(&supported[0], "0")], 1000)
             .unwrap();
-        assert_eq!(probe_total, 0);
+        assert!(total > 0);
         facet.close().unwrap();
-        let restored = publish(during.revision, b"retry", probe);
-        assert!(restored.ip_available);
-        assert_eq!(restored.ip_unavailable_reason, None);
-        assert_eq!(restored.cardinality, u64::from(count) + 100);
-        assert_eq!(address_page(first), (1, vec![first]));
-        assert_eq!(address_page(last), (1, vec![last]));
-        assert_eq!(address_page(probe_ordinal), (1, vec![probe_ordinal]));
-        let (facet, _, _, probe_total) = index
-            .query(b"allow", &[predicate(&supported[0], "probe")], 1000)
-            .unwrap();
-        assert_eq!(probe_total, 100);
-        assert_eq!(facet.page(b"allow", 0, 128, 1000).unwrap(), probe_ids);
-        facet.close().unwrap();
+        assert_eq!(latched.ip_unavailable_reason, Some("native_cap"));
+        assert!(!latched.ip_available);
     }
 }

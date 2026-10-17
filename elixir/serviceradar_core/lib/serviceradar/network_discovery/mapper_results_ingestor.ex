@@ -1861,13 +1861,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Enum.uniq()
       |> Map.new(&{&1, polled_device_state(Map.get(devices, &1), actor)})
 
-    {existing, restored, new} =
-      Enum.reduce(polled, {[], [], []}, fn entry, {existing, restored, new} ->
+    {existing, restored, purged, new} =
+      Enum.reduce(polled, {[], [], [], []}, fn entry, {existing, restored, purged, new} ->
         case Map.fetch!(states, entry.uid) do
-          {:existing, device} -> {[{:existing, entry, device} | existing], restored, new}
-          {:restored, device, purged?} -> {existing, [{entry, device, purged?} | restored], new}
-          :new -> {existing, restored, [entry | new]}
-          :skip -> {existing, restored, new}
+          {:existing, device} -> {[{:existing, entry, device} | existing], restored, purged, new}
+          {:restored, device, purged?} -> {existing, [{entry, device, purged?} | restored], purged, new}
+          {:purged, device} -> {existing, restored, [{entry, device} | purged], new}
+          :new -> {existing, restored, purged, [entry | new]}
+          :skip -> {existing, restored, purged, new}
         end
       end)
 
@@ -1895,9 +1896,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
 
     unpurged_entries = Enum.map(unpurged, fn {entry, _device, _purged?} -> entry end)
-    purged_entries = Enum.map(purged, fn {entry, _device, _purged?} -> entry end)
     created = create_polled_devices(Enum.reverse(new), records, context, observed_at, actor)
-    rehydrated = create_polled_devices(purged_entries, records, context, observed_at, actor)
+
+    rehydrated =
+      rehydrate_purged_devices(Enum.reverse(purged), records, context, observed_at, actor)
+
     kept ++ unpurged_entries ++ rehydrated ++ created
   end
 
@@ -1939,10 +1942,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp polled_device_state(%Device{deleted_at: nil} = device, _actor), do: {:existing, device}
 
   defp polled_device_state(%Device{deleted_by: "system:" <> _} = device, actor) do
-    if restorable_system_delete?(device.deleted_reason) do
-      restore_polled_device(device, actor)
-    else
-      leave_deleted(device)
+    cond do
+      not restorable_system_delete?(device.deleted_reason) ->
+        leave_deleted(device)
+
+      is_nil(device.identity_purged_at) ->
+        restore_polled_device(device, actor)
+
+      true ->
+        {:purged, device}
     end
   end
 
@@ -1999,6 +2007,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
   # same rules as any other strong write: an anchorless provisional seed holding the address is
   # adopted, and any other live holder is left in place with the conflict recorded.
+  defp rehydrate_purged_devices([], _records, _context, _observed_at, _actor), do: []
+
+  defp rehydrate_purged_devices(purged, records, context, observed_at, actor) do
+    case Repo.transaction(fn ->
+           restored =
+             Enum.reduce_while(purged, [], fn {entry, device}, acc ->
+               case restore_polled_device(device, actor) do
+                 {:restored, _device, true} -> {:cont, [entry | acc]}
+                 _ -> Repo.rollback(:restore_failed)
+               end
+             end)
+
+           stamp_identity_observed(Enum.map(restored, & &1.uid), observed_at)
+
+           case create_polled_devices(Enum.reverse(restored), records, context, observed_at, actor) do
+             [] -> Repo.rollback(:refill_failed)
+             written -> written
+           end
+         end) do
+      {:ok, written} -> written
+      {:error, _reason} -> []
+    end
+  end
+
   defp create_polled_devices([], _records, _context, _observed_at, _actor), do: []
 
   defp create_polled_devices(new, records, context, observed_at, _actor) do

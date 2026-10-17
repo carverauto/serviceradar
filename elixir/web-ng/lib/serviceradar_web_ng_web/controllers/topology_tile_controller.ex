@@ -182,9 +182,22 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   defp overlay_payload(conn, %{binary: payload}) do
-    if BitmapQueries.enabled?() and "application/vnd.serviceradar.world-overlay" in get_req_header(conn, "accept"),
+    if BitmapQueries.enabled?() and accepts_overlay?(conn),
       do: {:ok, payload, "application/vnd.serviceradar.world-overlay"},
       else: {:error, :overlay_protocol_changed}
+  end
+
+  defp accepts_overlay?(conn) do
+    conn
+    |> get_req_header("accept")
+    |> Enum.flat_map(&String.split(&1, ","))
+    |> Enum.any?(fn value ->
+      value
+      |> String.split(";", parts: 2)
+      |> List.first()
+      |> String.trim()
+      |> String.downcase() == "application/vnd.serviceradar.world-overlay"
+    end)
   end
 
   defp overlay_payload(_conn, content) do
@@ -320,7 +333,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
         {503, "world_not_ready"}
 
       _ ->
-        {503, "world_unavailable"}
+        {503, BitmapQueries.public_reason(reason)}
     end
   end
 end

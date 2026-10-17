@@ -531,10 +531,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       "tiles" => [%{"z" => 16, "x" => 0, "y" => 0, "revision" => tile.revision}]
     }
 
-    await(fn -> BitmapIndex.snapshot() end, &quiet_index?/1)
+    {:ok, built} = await(fn -> BitmapIndex.snapshot() end, &quiet_index?/1)
     ref = push(socket, "membership:watch", params)
     assert_reply ref, :ok, %{view_digest: digest}, 5_000
     assert_push "membership:frame", {:binary, frame}, 5_000
+    assert stream_identity(socket).index_revision == built.progress.index_revision
     {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(frame)
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
     assert_reply ref, :ok
@@ -554,6 +555,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     {:ok, published} = BitmapIndex.snapshot()
     assert published.progress.index_revision == before.progress.index_revision + 1
+    assert stream_identity(socket).index_revision == built.progress.index_revision
     holders = occupy_watch_tasks()
 
     try do
@@ -564,8 +566,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     end
 
     await(fn -> Task.Supervisor.children(ServiceRadarWebNG.Topology.TileWatchTasks) end, &(&1 == []))
+    assert stream_identity(socket).index_revision == built.progress.index_revision
     send(socket.channel_pid, :tile_tick)
     assert_push "membership:frame", {:binary, refreshed}, 5_000
+    assert stream_identity(socket).index_revision == published.progress.index_revision
     {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(refreshed)
     {:ok, during} = BitmapIndex.snapshot()
     assert during.progress.index_revision == published.progress.index_revision
@@ -616,6 +620,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_push "membership:frame", {:binary, _expired_refresh}, 5_000
     {:ok, after_prefix} = BitmapIndex.snapshot()
     assert after_prefix.progress.index_revision == stable.progress.index_revision
+  end
+
+  defp stream_identity(socket) do
+    %{assigns: %{bitmap_stream: %{identity: {:ok, identity}}}} = :sys.get_state(socket.channel_pid)
+    identity
   end
 
   defp quiet_index?({:ok, %{progress: %{pending_dirty: 0, reconciling: false, source_error: false}}}), do: true

@@ -6,7 +6,7 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Volumes/Build/.treehouse/serviceradar-6faf2f/16/serviceradar/docs/architecture/topology-bitmap-index.html",
+    "path": "docs/architecture/topology-bitmap-index.html",
     "sha256": "64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209",
     "bytes": 707942
   },

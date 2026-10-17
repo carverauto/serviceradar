@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 const SERIALIZED_LIMIT: usize = 512 * 1024;
+// A 512 KiB portable pending set of one-value containers accounts for under 16 MiB.
+pub(super) const PENDING_QUEUE_HEADROOM: usize = 16 * 1024 * 1024;
 
 pub(super) struct Pending {
     bitmap: Arc<Bitmap>,
@@ -32,10 +34,6 @@ impl Pending {
         })
     }
 
-    pub(super) fn bitmap_bytes(&self) -> usize {
-        self.bitmap.charge.bytes
-    }
-
     pub(super) fn status(&self) -> PendingStatus {
         PendingStatus {
             pending_count: self.bitmap.set.len(),
@@ -50,17 +48,6 @@ impl Pending {
     pub(super) fn clear(&mut self, budget: &Arc<Budget>) -> Result<(), Error> {
         self.replace(Bitmap::new(RoaringBitmap::new(), budget)?)?;
         self.rescan_needed = false;
-        Ok(())
-    }
-
-    pub(super) fn collapse_to_rescan(&mut self, budget: &Arc<Budget>) -> Result<(), Error> {
-        let generation = self
-            .rescan_generation
-            .checked_add(1)
-            .ok_or("rescan_generation_exhausted")?;
-        self.replace(Bitmap::new(RoaringBitmap::new(), budget)?)?;
-        self.rescan_generation = generation;
-        self.rescan_needed = true;
         Ok(())
     }
 
@@ -216,6 +203,9 @@ mod tests {
             let ids: Vec<_> = chunk.iter().map(|n| (n << 16) | 1).collect();
             let state = index.mark_dirty(&ids, false).unwrap();
             assert!(state.serialized_bytes <= SERIALIZED_LIMIT);
+            if state.rescan_generation == original.rescan_generation {
+                assert!(state.native_bytes <= PENDING_QUEUE_HEADROOM);
+            }
             if state.rescan_generation != original.rescan_generation {
                 overflowed = Some(state);
                 break;

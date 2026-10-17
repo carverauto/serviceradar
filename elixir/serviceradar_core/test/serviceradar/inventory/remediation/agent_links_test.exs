@@ -46,7 +46,9 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     assert {:ok, restored} = Device.get_by_uid(tombstone.uid, false, actor: actor)
     assert restored.deleted_at == nil
     assert restored.ip == recorded_ip
-    assert restored.uid != holder.uid
+    assert {:ok, kept} = Device.get_by_uid(holder.uid, false, actor: actor)
+    assert kept.deleted_at == nil
+    assert kept.ip == agent_ip
   end
 
   test "a purged tombstone is restored from the agent when its address is free", %{actor: actor, tmp_dir: tmp_dir} do
@@ -54,12 +56,12 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     host = "sr-purged-agent-#{seed}.example.com"
     agent_ip = invented_ip(seed + 20_000)
     recorded_ip = invented_ip(seed + 30_000)
-    tombstone = create_device("sr:agent-links-purged-#{seed}", "scrubbed-#{seed}.example.com", recorded_ip, actor)
+    tombstone = create_device("sr:agent-links-purged-#{seed}", host, recorded_ip, actor)
     assert {:ok, _} = Device.soft_delete(tombstone, "stale", "system:agent_links_test", actor: actor)
 
     Repo.query!(
-      "UPDATE platform.ocsf_devices SET hostname = NULL, ip = $1, identity_purged_at = timezone('utc', now()), agent_id = NULL WHERE uid = $2",
-      [recorded_ip, tombstone.uid]
+      "UPDATE platform.ocsf_devices SET hostname = $1, ip = $2, identity_purged_at = timezone('utc', now()), agent_id = NULL WHERE uid = $3",
+      [host, recorded_ip, tombstone.uid]
     )
 
     agent = register_agent("sr:agent-links-purged-#{seed}", host, agent_ip, nil, actor)
@@ -71,6 +73,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     assert restored.deleted_at == nil
     assert restored.hostname == host
     assert restored.ip == agent_ip
+    assert restored.agent_id == agent.uid
     assert restored.identity_purged_at == nil
   end
 
@@ -104,6 +107,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
   end
 
   defp invented_ip(seed) do
-    "198.51.#{rem(seed, 250) + 1}.#{rem(div(seed, 250), 250) + 1}"
+    "198.51.100.#{rem(seed, 254) + 1}"
   end
 end

@@ -101,9 +101,12 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
     assert FleetIdentity.device_ordinal(uid) == ordinal
   end
 
+  @tag sandbox: :unboxed
   test "committing fixture cleanup deletes only owned identities and restores protection on failure" do
     owned = "sr:cleanup-owned-#{Ecto.UUID.generate()}"
     unrelated = "sr:cleanup-unrelated-#{Ecto.UUID.generate()}"
+
+    on_exit(fn -> ServiceRadar.TestSupport.delete_device_fixtures!([owned, unrelated]) end)
 
     for uid <- [owned, unrelated],
         do: Repo.query!("INSERT INTO platform.ocsf_devices (uid) VALUES ($1)", [uid])
@@ -111,29 +114,38 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
     unrelated_ordinal = FleetIdentity.device_ordinal(unrelated)
 
     # A fixture-local trigger fails after dictionary deletion, proving that the cleanup's
-    # DDL and partial deletes roll back together. No production injection seam is needed.
-    Repo.query!("""
-    CREATE FUNCTION pg_temp.reject_fixture_delete() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN RAISE EXCEPTION 'synthetic cleanup failure'; END $$
-    """)
+    # DDL and partial deletes roll back together. The proof transaction rolls back so its
+    # exclusive lock does not outlive the savepoint. No production injection seam is needed.
+    assert {:error, :cleanup_failure_proved} =
+             Repo.transaction(fn ->
+               Repo.query!("""
+               CREATE FUNCTION pg_temp.reject_fixture_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+               BEGIN RAISE EXCEPTION 'synthetic cleanup failure'; END $$
+               """)
 
-    Repo.query!("""
-    CREATE TRIGGER reject_fixture_delete BEFORE DELETE ON platform.ocsf_devices
-    FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_fixture_delete()
-    """)
+               Repo.query!("""
+               CREATE TRIGGER reject_fixture_delete BEFORE DELETE ON platform.ocsf_devices
+               FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_fixture_delete()
+               """)
 
-    error =
-      rejected("failed_fixture_cleanup", fn ->
-        ServiceRadar.TestSupport.delete_device_fixtures!([owned])
-      end)
+               error =
+                 rejected("failed_fixture_cleanup", fn ->
+                   ServiceRadar.TestSupport.delete_device_fixtures!([owned])
+                 end)
 
-    assert error.postgres.message == "synthetic cleanup failure"
-    assert is_integer(FleetIdentity.device_ordinal(owned))
-    Repo.query!("DROP TRIGGER reject_fixture_delete ON platform.ocsf_devices")
+               assert error.postgres.message == "synthetic cleanup failure"
+               assert is_integer(FleetIdentity.device_ordinal(owned))
+               Repo.rollback(:cleanup_failure_proved)
+             end)
 
-    rejected("delete_guard_restored", fn ->
-      Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [owned])
-    end)
+    assert {:error, :guard_restored} =
+             Repo.transaction(fn ->
+               rejected("delete_guard_restored", fn ->
+                 Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [owned])
+               end)
+
+               Repo.rollback(:guard_restored)
+             end)
 
     assert :ok = ServiceRadar.TestSupport.delete_device_fixtures!([owned])
     assert :ok = ServiceRadar.TestSupport.delete_device_fixtures!([owned])
@@ -146,9 +158,14 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
 
     assert FleetIdentity.device_ordinal(unrelated) == unrelated_ordinal
 
-    rejected("delete_guard_preserved", fn ->
-      Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [unrelated])
-    end)
+    assert {:error, :guard_preserved} =
+             Repo.transaction(fn ->
+               rejected("delete_guard_preserved", fn ->
+                 Repo.query!("DELETE FROM platform.device_fleet_ordinals WHERE uid = $1", [unrelated])
+               end)
+
+               Repo.rollback(:guard_preserved)
+             end)
   end
 
   test "the last unsigned ordinal, exhausted allocation, and rejected bounds roll back with migration down" do
@@ -158,7 +175,7 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
     bounds_uid = "sr:dictionary-bounds-#{suffix}"
     sequence_before = sequence_snapshot()
     epoch_before = FleetIdentity.epoch()
-    assignments_before = assignment_snapshot()
+    assignments_before = assignment_snapshot([last_uid, exhausted_uid, bounds_uid])
 
     assert sequence_before.settings == %{
              type: "bigint",
@@ -273,7 +290,7 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
 
     assert sequence_snapshot() == sequence_before
     assert FleetIdentity.epoch() == epoch_before
-    assert assignment_snapshot() == assignments_before
+    assert assignment_snapshot([last_uid, exhausted_uid, bounds_uid]) == assignments_before
     assert trigger_names() == MapSet.new(@lifecycle_triggers ++ @protect_triggers)
 
     assert %{rows: []} =
@@ -317,9 +334,12 @@ defmodule ServiceRadar.Inventory.FleetIdentityDictionaryBoundaryDbTest do
     }
   end
 
-  defp assignment_snapshot do
+  defp assignment_snapshot(uids) do
     %{rows: [[count, max_ordinal]]} =
-      Repo.query!("SELECT count(*), max(ordinal) FROM platform.device_fleet_ordinals")
+      Repo.query!(
+        "SELECT count(*), max(ordinal) FROM platform.device_fleet_ordinals WHERE uid = ANY($1::text[])",
+        [uids]
+      )
 
     %{count: count, max_ordinal: max_ordinal}
   end

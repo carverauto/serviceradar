@@ -151,7 +151,28 @@ fn label_ranges_drop_expired_prefixes_and_keep_live_ones() {
     );
     retired.expires_at = Some((1, 0));
     trie.insert(retired);
+    trie.insert(Entry::new(
+        Prefix::parse("198.51.100.2/32").unwrap(),
+        vec![" retired ".into()],
+    ));
     let catalog = Catalog::build(&trie, catalog_deadline()).unwrap();
+    assert_eq!(catalog.label_count(), 2);
+    assert_eq!(
+        catalog
+            .page(&trie, None, 50, catalog_deadline())
+            .unwrap()
+            .labels,
+        vec!["office".to_string()]
+    );
+    let after_office = catalog
+        .page(&trie, Some("office"), 50, catalog_deadline())
+        .unwrap();
+    assert!(after_office.labels.is_empty());
+    assert!(after_office.next_after.is_none());
+    assert_eq!(
+        catalog.ranges(&trie, " retired ", 8, 264, catalog_deadline()),
+        Err("label_budget")
+    );
     assert_eq!(
         decoded_ranges(
             &catalog

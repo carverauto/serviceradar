@@ -481,6 +481,15 @@ defmodule ServiceRadar.PrefixTags.Store do
     end
   end
 
+  @doc "Drops a catalog built for a snapshot that is no longer the active version."
+  def release_catalog_unless_current(source, version, trie)
+      when is_binary(source) and is_integer(version) and is_reference(trie) do
+    case capture(source) do
+      {:ok, %{version: ^version}} -> :ok
+      _ -> release_native_catalog({version, trie})
+    end
+  end
+
   defp release_native_catalog(handle) do
     case handle_trie(handle) do
       trie when is_reference(trie) ->

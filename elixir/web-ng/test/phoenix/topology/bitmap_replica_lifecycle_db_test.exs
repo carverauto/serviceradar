@@ -72,7 +72,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     ids: [first_id, trigger_id, late_id, higher_id, unrelated_id],
     vendor: vendor
   } do
-    assert {:error, :not_ready} = World.active_manifest(:system)
+    previous =
+      case World.active_manifest(:system) do
+        {:ok, %{generation: generation}} -> generation
+        {:error, :not_ready} -> 0
+      end
     versions = [Ecto.UUID.generate(), Ecto.UUID.generate()]
     [first_version, next_version] = versions
     padding = Enum.map(1..501, &"sr:loader-padding-#{vendor}-#{&1}")
@@ -91,7 +95,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     ids = [first_id, late_id]
     stage_world(first_version, ids)
     stage_world(next_version, ids)
-    assert {:ok, %{generation: generation}} = World.activate_relayout(0, first_version)
+    assert {:ok, %{generation: generation}} = World.activate_relayout(previous, first_version)
+    assert generation > previous
 
     publisher_tasks = start_supervised!(Supervisor.child_spec({Task.Supervisor, max_children: 1}, id: :publisher_tasks))
     cache_tasks = start_supervised!(Supervisor.child_spec({Task.Supervisor, max_children: 4}, id: :cache_tasks))

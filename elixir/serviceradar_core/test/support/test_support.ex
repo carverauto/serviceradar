@@ -104,6 +104,68 @@ defmodule ServiceRadar.TestSupport do
     :ok
   end
 
+  @doc """
+  Removes one synthetic uid prefix from a disposable fixture database in one locked transaction.
+
+  The prefix must be specific. `%`, `_`, and `\\` are rejected so the LIKE pattern cannot widen.
+  The delete guard is suspended only inside this transaction. Ordinals are never reset or reused.
+  """
+  def delete_device_fixtures_by_prefix!(prefix) when is_binary(prefix) do
+    validate_fixture_database!()
+
+    if byte_size(prefix) < 8 or String.contains?(prefix, ["%", "_", "\\"]) do
+      raise ArgumentError, "fixture identity prefix is too broad"
+    end
+
+    like = prefix <> "%"
+
+    {:ok, :ok} =
+      ServiceRadar.Repo.transaction(
+        fn ->
+          ServiceRadar.Repo.query!("SET LOCAL lock_timeout = '1s'")
+          ServiceRadar.Repo.query!("SET LOCAL statement_timeout = '120s'")
+
+          ServiceRadar.Repo.query!(
+            "LOCK TABLE platform.ocsf_devices, platform.device_fleet_ordinals IN ACCESS EXCLUSIVE MODE"
+          )
+
+          assert_identity_delete_guard!()
+
+          ServiceRadar.Repo.query!(
+            "DELETE FROM platform.discovered_interfaces WHERE device_id LIKE $1",
+            [like],
+            timeout: 150_000
+          )
+
+          ServiceRadar.Repo.query!(
+            "ALTER TABLE platform.device_fleet_ordinals DISABLE TRIGGER trg_protect_fleet_identity_delete"
+          )
+
+          ServiceRadar.Repo.query!(
+            "DELETE FROM platform.device_fleet_ordinals WHERE uid LIKE $1",
+            [like],
+            timeout: 150_000
+          )
+
+          ServiceRadar.Repo.query!(
+            "DELETE FROM platform.ocsf_devices WHERE uid LIKE $1",
+            [like],
+            timeout: 150_000
+          )
+
+          ServiceRadar.Repo.query!(
+            "ALTER TABLE platform.device_fleet_ordinals ENABLE TRIGGER trg_protect_fleet_identity_delete"
+          )
+
+          assert_identity_delete_guard!()
+          :ok
+        end,
+        timeout: 150_000
+      )
+
+    :ok
+  end
+
   defp validate_fixture_database! do
     options = ServiceRadar.Repo.config()
     database = Keyword.get(options, :database)

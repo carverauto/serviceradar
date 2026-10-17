@@ -230,15 +230,18 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     end
   end
 
-  # A retained tombstone (Device.retained_reasons/0) is never a restore target: a hostname
-  # match is evidence, and evidence never revives one. The agent gets a fresh device instead.
+  # A retained or merged tombstone is never a restore target: a hostname match is
+  # evidence, and evidence never revives one. The agent gets a fresh device instead.
   defp relocate(plan, agent, expected, claimed, actor) do
     candidates = relocation_candidates(agent, expected, claimed, actor)
 
     live = Enum.filter(candidates, &is_nil(&1.deleted_at))
 
     tombstoned =
-      Enum.reject(candidates, &(is_nil(&1.deleted_at) or Device.retained_tombstone?(&1)))
+      Enum.reject(candidates, fn device ->
+        is_nil(device.deleted_at) or Device.retained_tombstone?(device) or
+          device.deleted_reason == "merged"
+      end)
 
     cond do
       (adopt = most_recent(Enum.filter(live, &(&1.agent_id == agent.uid)))) != nil ->
