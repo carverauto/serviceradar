@@ -312,14 +312,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
                ),
              do: {:ok, nil}
 
-      if match?({:error, _}, result) do
-        case Native.bitmap_index_mark_dirty(current.device, ordinals, false) do
-          {:ok, _} -> :ok
-          {:error, _} -> Native.bitmap_index_mark_dirty(current.device, [], true)
-        end
-      end
+      if match?({:error, _}, result), do: requeue_dirty(current.device, ordinals, result)
 
       result
+    end
+  end
+
+  defp requeue_dirty(_device, _ordinals, {:error, "pending"}), do: :ok
+
+  defp requeue_dirty(device, ordinals, _result) do
+    case Native.bitmap_index_mark_dirty(device, ordinals, false) do
+      {:ok, _} -> :ok
+      {:error, _} -> Native.bitmap_index_mark_dirty(device, [], true)
     end
   end
 

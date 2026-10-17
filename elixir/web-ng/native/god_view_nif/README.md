@@ -106,8 +106,9 @@ overhead, and the retained dirty bitmap. Publication rechecks that charge under
 the queue lock before admission and revision swap. Intrinsic overflow of the
 next revision, without the queue, makes IP explicitly unavailable (`native_cap`)
 while scalar membership keeps publishing. Queue bytes alone over the steady cap
-reject the stage as retryable `pending` and leave the accepted revision, scalar
-membership, and addresses unchanged. Pressure from old query pins or scratch
+reject the stage as retryable `pending`, fold those hints into the existing
+rescan, and leave the accepted revision, scalar membership, and addresses
+unchanged. Pressure from old query pins or scratch
 remains retryable.
 Completed bitmap calculations transfer their scratch reservation into the
 result allocation, releasing only the unused allowance. Failed transfers

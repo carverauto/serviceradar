@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         | reply: nil,
           metadata: result.metadata,
           awaiting: now(),
-          identity: fresh_identity(socket, result.metadata)
+          identity: delivered_identity(socket, result.metadata)
       }
       socket = assign(socket, :bitmap_stream, state)
       if reply_to, do: reply(reply_to, {:ok, result.binding})
@@ -203,18 +203,42 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   defp empty, do: %{sequence: 0, request: nil, reply: nil, task: nil, metadata: nil, awaiting: nil, identity: :stale}
 
-  defp unchanged?(socket, %{identity: {:ok, _identity}, metadata: metadata} = state) when not is_nil(metadata) do
-    fresh_identity(socket, metadata) == state.identity
+  defp unchanged?(socket, %{identity: {:ok, identity}, metadata: metadata}) when not is_nil(metadata) do
+    not named_prefix_query?(metadata) and fresh_identity(socket, metadata) == {:ok, identity}
   end
 
   defp unchanged?(_socket, _state), do: false
 
-  defp keep_frame?(socket, %{metadata: metadata} = state, reason)
+  defp keep_frame?(socket, %{metadata: metadata, identity: {:ok, stored}}, reason)
        when not is_nil(metadata) and reason in @transient_tick do
-    fresh_identity(socket, metadata) == state.identity and match?({:ok, _identity}, state.identity)
+    case fresh_identity(socket, metadata) do
+      {:ok, fresh} -> Map.delete(fresh, :index_revision) == Map.delete(stored, :index_revision)
+      _ -> false
+    end
   end
 
   defp keep_frame?(_socket, _state, _reason), do: false
+
+  defp delivered_identity(socket, metadata) do
+    case fresh_identity(socket, metadata) do
+      {:ok, identity} -> {:ok, %{identity | index_revision: built_revision(metadata)}}
+      other -> other
+    end
+  end
+
+  defp built_revision(%{index_revision: revision}) when is_integer(revision), do: revision
+
+  defp built_revision(%{index_revision: revision}) when is_binary(revision) do
+    case Integer.parse(revision) do
+      {revision, ""} -> revision
+      _ -> :unparsed
+    end
+  end
+
+  defp built_revision(_metadata), do: :unparsed
+
+  defp named_prefix_query?(%{prefix_sources: sources}) when is_map(sources), do: map_size(sources) > 0
+  defp named_prefix_query?(_metadata), do: false
 
   defp fresh_identity(socket, metadata) do
     with {:ok, %{ordinals: %{info: info}, manifest: manifest}} <- WorldCache.world(),
@@ -222,15 +246,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
          {:ok, authority} <- BitmapAuthority.current(socket.assigns.current_scope),
          :ok <- BitmapPrefixTags.current(metadata.prefix_sources || %{}) do
       {:ok,
-       {
-         manifest.layout_version,
-         manifest.generation,
-         info.dictionary_epoch,
-         info.assignment,
-         snapshot.dictionary_epoch,
-         snapshot.index_epoch,
-         snapshot.progress.index_revision,
-         authority
+       %{
+         layout_version: manifest.layout_version,
+         generation: manifest.generation,
+         world_epoch: info.dictionary_epoch,
+         assignment: info.assignment,
+         dictionary_epoch: snapshot.dictionary_epoch,
+         index_epoch: snapshot.index_epoch,
+         index_revision: snapshot.progress.index_revision,
+         authority: authority
        }}
     else
       _ -> :stale

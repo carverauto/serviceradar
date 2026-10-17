@@ -63,26 +63,12 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, second} = TopologyAtlas.new_ordinals(world, <<2::128>>)
     assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
 
-    reader =
-      spawn(fn ->
-        Stream.repeatedly(fn ->
-          send(parent, {:read_progress, TopologyAtlas.ordinal_info(world, first)})
-
-          receive do
-            :stop -> :stop
-          after
-            0 -> :continue
-          end
-        end)
-        |> Enum.reduce_while(0, fn
-          :stop, _count -> {:halt, :stopped}
-          :continue, count when count < 400 -> {:cont, count + 1}
-          :continue, _count -> {:halt, :bound}
-        end)
-      end)
+    reader = spawn(fn -> paced_ordinal_reader(parent, world, first) end)
 
     released =
       Enum.reduce_while(1..400, :pending, fn _, _pending ->
+        send(reader, :read)
+
         receive do
           {:read_progress, {:ok, %{ready: true}}} ->
             case TopologyAtlas.release_ordinals(first) do
@@ -106,6 +92,8 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     post =
       Enum.reduce_while(1..400, :missing, fn _, _missing ->
+        send(reader, :read)
+
         receive do
           {:read_progress, {:error, reason}} when reason in [:not_ready, :busy] ->
             {:halt, reason}
@@ -630,6 +618,17 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     assert tile.selection_bytes < 4096
     assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)
+  end
+
+  defp paced_ordinal_reader(parent, world, mapping) do
+    receive do
+      :stop ->
+        send(parent, {:read_progress, :stopped})
+
+      :read ->
+        send(parent, {:read_progress, TopologyAtlas.ordinal_info(world, mapping)})
+        paced_ordinal_reader(parent, world, mapping)
+    end
   end
 
   defp await_mapping_reclamation(world, deadline) do

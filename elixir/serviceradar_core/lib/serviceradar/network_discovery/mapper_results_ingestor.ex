@@ -1830,7 +1830,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       Enum.reduce(polled, {[], [], []}, fn entry, {existing, restored, new} ->
         case Map.fetch!(states, entry.uid) do
           {:existing, device} -> {[{:existing, entry, device} | existing], restored, new}
-          {:restored, device} -> {existing, [{entry, device} | restored], new}
+          {:restored, device, purged?} -> {existing, [{entry, device, purged?} | restored], new}
           :new -> {existing, restored, [entry | new]}
           :skip -> {existing, restored, new}
         end
@@ -1843,7 +1843,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     observed =
       existing
       |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
-      |> Kernel.++(Enum.map(restored, fn {_entry, device} -> device.uid end))
+      |> Kernel.++(Enum.map(restored, fn {_entry, device, _purged?} -> device.uid end))
 
     stamp_identity_observed(observed, observed_at)
 
@@ -1853,14 +1853,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    {purged, unpurged} = Enum.split_with(restored, fn {_entry, device} -> device.identity_purged_at end)
+    {purged, unpurged} = Enum.split_with(restored, fn {_entry, _device, purged?} -> purged? end)
 
-    Enum.each(unpurged, fn {entry, device} ->
+    Enum.each(unpurged, fn {entry, device, _purged?} ->
       maybe_move_device_address(entry, device, records, observed_at, actor)
     end)
 
-    unpurged_entries = Enum.map(unpurged, fn {entry, _device} -> entry end)
-    purged_entries = Enum.map(purged, fn {entry, _device} -> entry end)
+    unpurged_entries = Enum.map(unpurged, fn {entry, _device, _purged?} -> entry end)
+    purged_entries = Enum.map(purged, fn {entry, _device, _purged?} -> entry end)
     created = create_polled_devices(Enum.reverse(new), records, context, observed_at, actor)
     rehydrated = create_polled_devices(purged_entries, records, context, observed_at, actor)
     kept ++ unpurged_entries ++ rehydrated ++ created
@@ -1921,6 +1921,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # address was leased again while the device was gone); then the restore clears it in the same
   # audited transition, and the ordinary address move takes the device to the polled address.
   defp restore_polled_device(%Device{} = device, actor) do
+    purged? = not is_nil(device.identity_purged_at)
     attrs = if stale_address_taken?(device), do: %{ip: nil}, else: %{}
 
     # An update built from the primary read cannot see a tombstoned row (StaleRecord); a bulk
@@ -1937,7 +1938,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> case do
       %Ash.BulkResult{status: :success, records: [restored | _]} ->
         Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
-        {:restored, restored}
+        {:restored, restored, purged?}
 
       result ->
         Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(result)}")

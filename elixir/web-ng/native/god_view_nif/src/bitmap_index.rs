@@ -620,8 +620,7 @@ impl Index {
         };
         drop(scratch);
         check_time(end)?;
-        let pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
-        let pending = pending_guard.status();
+        let mut pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
         let intrinsic =
             next.charges().map(|charge| charge.bytes).sum::<usize>() + self._charge.bytes;
         let queued = pending_guard.bitmap_bytes();
@@ -630,9 +629,11 @@ impl Index {
                 next.addresses = None;
                 next.ip_unavailable = Some("native_cap");
             } else {
+                pending_guard.collapse_to_rescan(&self.budget)?;
                 return Err("pending");
             }
         }
+        let pending = pending_guard.status();
         let next = Arc::new(next);
         let mut published = self.revision.try_lock().map_err(|_| "busy")?;
         if self.closed.load(Ordering::Acquire) {
@@ -2086,12 +2087,24 @@ mod tests {
                 })
                 .collect()
         };
+        let ipv4 = |ordinal: u32| {
+            let host = (ordinal >> 16) + 1;
+            vec![10, (host >> 16) as u8, (host >> 8) as u8, host as u8]
+        };
+        let address_page = |ordinal: u32| {
+            let (query, _, _, total) = index
+                .query(b"allow", &[(8, String::new(), ipv4(ordinal), 32)], 1000)
+                .unwrap();
+            let page = query.page(b"allow", 0, 4, 1000).unwrap();
+            query.close().unwrap();
+            (total, page)
+        };
         let publish = |revision, source: &[u8], rows: Vec<Row>| {
             let completed: Vec<_> = rows.iter().map(|(id, _, _)| *id).collect();
             let addresses: Vec<_> = rows
                 .iter()
                 .filter(|(_, live, _)| *live)
-                .map(|(id, _, _)| (*id, vec![192, 0, 2, 1]))
+                .map(|(id, _, _)| (*id, ipv4(*id)))
                 .collect();
             let stage = index.begin_publish(revision, source, rows, true).unwrap();
             assert!(stage.add(&addresses, &completed).unwrap());
@@ -2149,7 +2162,7 @@ mod tests {
         let addresses: Vec<_> = probe
             .iter()
             .filter(|(_, live, _)| *live)
-            .map(|(id, _, _)| (*id, vec![192, 0, 2, 1]))
+            .map(|(id, _, _)| (*id, ipv4(*id)))
             .collect();
         let stage = index
             .begin_publish(before.revision, b"probe", probe.clone(), true)
@@ -2161,44 +2174,32 @@ mod tests {
         assert_eq!(during.cardinality, u64::from(count));
         assert!(during.ip_available);
         assert_eq!(during.ip_unavailable_reason, None);
-        assert_eq!(during.pending, before.pending);
+        assert_eq!(during.pending.pending_count, 0);
+        assert!(during.pending.rescan_needed);
+        assert_eq!(
+            during.pending.rescan_generation,
+            before.pending.rescan_generation + 1
+        );
         assert!(during.native_bytes <= MAX_BYTES);
-        let (cidr, _, _, cidr_total) = index
-            .query(
-                b"allow",
-                &[(8, String::new(), vec![192, 0, 2, 0], 24)],
-                1000,
-            )
-            .unwrap();
-        assert_eq!(cidr_total, u64::from(count));
-        cidr.close().unwrap();
+        drop(stage);
+        let first = 1u32;
+        let last = ((count - 1) << 16) | 1;
+        let probe_ordinal = (count << 16) | 1;
+        assert_eq!(address_page(first), (1, vec![first]));
+        assert_eq!(address_page(last), (1, vec![last]));
+        assert_eq!(address_page(probe_ordinal), (0, vec![]));
         let (facet, _, _, probe_total) = index
             .query(b"allow", &[predicate(&supported[0], "probe")], 1000)
             .unwrap();
         assert_eq!(probe_total, 0);
         facet.close().unwrap();
-        assert_eq!(
-            index.take_dirty(500).unwrap().0,
-            (0..500).map(|n| (n << 16) | 1).collect::<Vec<_>>()
-        );
-        let mut drained = index.status().unwrap();
-        while drained.pending.pending_count > 0 {
-            index.take_dirty(500).unwrap();
-            drained = index.status().unwrap();
-        }
-        let restored = publish(drained.revision, b"retry", probe);
+        let restored = publish(during.revision, b"retry", probe);
         assert!(restored.ip_available);
         assert_eq!(restored.ip_unavailable_reason, None);
         assert_eq!(restored.cardinality, u64::from(count) + 100);
-        let (cidr, _, _, cidr_total) = index
-            .query(
-                b"allow",
-                &[(8, String::new(), vec![192, 0, 2, 0], 24)],
-                1000,
-            )
-            .unwrap();
-        assert_eq!(cidr_total, u64::from(count) + 100);
-        cidr.close().unwrap();
+        assert_eq!(address_page(first), (1, vec![first]));
+        assert_eq!(address_page(last), (1, vec![last]));
+        assert_eq!(address_page(probe_ordinal), (1, vec![probe_ordinal]));
         let (facet, _, _, probe_total) = index
             .query(b"allow", &[predicate(&supported[0], "probe")], 1000)
             .unwrap();
