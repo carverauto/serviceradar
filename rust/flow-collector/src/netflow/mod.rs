@@ -816,6 +816,157 @@ mod tests {
                 .load(Ordering::Relaxed),
             1
         );
+        handler.parse_datagram(&options, options.len(), peer);
+        assert_eq!(
+            metrics
+                .options_sampling_rates_learned
+                .load(Ordering::Relaxed),
+            1,
+            "refreshing the same rate does not count as another learned rate"
+        );
+    }
+
+    /// Options scoped to an interface apply to that interface only.
+    #[test]
+    fn ipfix_options_interface_scope_applies_to_matching_flows() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
+        let handler = netflow_handler(Some(5), None, &metrics);
+        let peer: SocketAddr = "192.0.2.8:4739".parse().unwrap();
+        let ingress = ipfix_template_and_record(7, 301, Some(1), &[ie(10, 4, 10), ie(34, 4, 100)]);
+        let egress = ipfix_template_and_record(7, 302, Some(1), &[ie(14, 4, 20), ie(34, 4, 1000)]);
+        handler.parse_datagram(&ingress, ingress.len(), peer);
+        handler.parse_datagram(&egress, egress.len(), peer);
+
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 258, &[ie(10, 4, 10)]), peer),
+            100,
+            "ingress 10 keeps its own rate"
+        );
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 258, &[ie(10, 4, 20)]), peer),
+            1000,
+            "the egress-scoped index applies to a flow that enters that interface"
+        );
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(7, 259, &[ie(10, 4, 99)]), peer),
+            5,
+            "an interface with no options rate uses the configured default"
+        );
+
+        handler.parse_datagram(&ingress, ingress.len(), peer);
+        assert_eq!(
+            metrics
+                .options_sampling_rates_learned
+                .load(Ordering::Relaxed),
+            2,
+            "re-announcing interface 10 at 1:100 does not count again"
+        );
+
+        let domain = ipfix_sampling_options(7, &[ie(34, 4, 50)]);
+        handler.parse_datagram(&domain, domain.len(), peer);
+        let cases: [(&str, u16, Vec<Element>, u64); 5] = [
+            ("input interface 10", 258, vec![ie(10, 4, 10)], 100),
+            ("input interface 20", 258, vec![ie(10, 4, 20)], 1000),
+            (
+                "output interface 20 when the input has no entry",
+                260,
+                vec![ie(10, 4, 99), ie(14, 4, 20)],
+                1000,
+            ),
+            (
+                "unmatched interface falls back to the domain rate",
+                258,
+                vec![ie(10, 4, 30)],
+                50,
+            ),
+            (
+                "no interface falls back to the domain rate",
+                256,
+                vec![],
+                50,
+            ),
+        ];
+        for (case, template, extra, expected) in cases {
+            assert_eq!(
+                decoded_rate(&handler, &ipfix_flow(7, template, &extra), peer),
+                expected,
+                "{case}"
+            );
+        }
+        assert_eq!(
+            metrics
+                .options_sampling_rates_learned
+                .load(Ordering::Relaxed),
+            3
+        );
+    }
+
+    /// v9 interface scope (type 2) is the same key as an IPFIX interface scope.
+    #[test]
+    fn v9_options_interface_scope_applies_to_matching_flows() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        let handler = netflow_handler(Some(5), None, &metrics);
+        let peer: SocketAddr = "192.0.2.6:2055".parse().unwrap();
+        let words = |values: &[u16]| -> Vec<u8> {
+            values.iter().flat_map(|word| word.to_be_bytes()).collect()
+        };
+        let flowset = |id: u16, body: &[u8]| {
+            let mut set = id.to_be_bytes().to_vec();
+            set.extend_from_slice(&((4 + body.len()) as u16).to_be_bytes());
+            set.extend_from_slice(body);
+            set
+        };
+        let message = |flowsets: &[Vec<u8>]| {
+            let mut packet = Vec::new();
+            packet.extend_from_slice(&9u16.to_be_bytes());
+            packet.extend_from_slice(&1u16.to_be_bytes());
+            for value in [1000u32, 1_893_456_000, 1, 3] {
+                packet.extend_from_slice(&value.to_be_bytes());
+            }
+            for set in flowsets {
+                packet.extend_from_slice(set);
+            }
+            packet
+        };
+        let interface_options = |template: u16, interface: u16, rate: u16| {
+            message(&[
+                flowset(1, &words(&[template, 4, 4, 2, 4, 34, 4])),
+                flowset(template, &words(&[0, interface, 0, rate])),
+            ])
+        };
+        for (template, interface, rate) in [(301, 10, 100), (302, 20, 1000)] {
+            let packet = interface_options(template, interface, rate);
+            assert!(
+                handler
+                    .parse_datagram(&packet, packet.len(), peer)
+                    .is_empty()
+            );
+        }
+
+        let flow = |input: u32, output: u32| {
+            let mut record = Vec::new();
+            for value in [1500u32, 3, input, output] {
+                record.extend_from_slice(&value.to_be_bytes());
+            }
+            v9_packet(3, Some(&[(1, 4), (2, 4), (10, 4), (14, 4)]), &record)
+        };
+        assert_eq!(decoded_rate(&handler, &flow(10, 1), peer), 100);
+        assert_eq!(decoded_rate(&handler, &flow(20, 1), peer), 1000);
+        assert_eq!(decoded_rate(&handler, &flow(99, 1), peer), 5);
+
+        // System scope, sampling interval 50, no sampler id: the domain rate.
+        let domain = message(&[
+            flowset(1, &words(&[303, 4, 4, 1, 4, 34, 4])),
+            flowset(303, &words(&[0, 1, 0, 50])),
+        ]);
+        handler.parse_datagram(&domain, domain.len(), peer);
+        assert_eq!(decoded_rate(&handler, &flow(99, 1), peer), 50);
+        assert_eq!(
+            decoded_rate(&handler, &flow(99, 20), peer),
+            1000,
+            "output matches when the input interface has no entry"
+        );
+        assert_eq!(decoded_rate(&handler, &flow(10, 20), peer), 100);
     }
 
     /// Each RFC 5477 / RFC 7015 way of declaring a sampling rate in options.

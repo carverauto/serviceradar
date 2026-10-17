@@ -44,7 +44,7 @@ pub struct ListenerMetrics {
     pub source_count: AtomicU64,
     pub sampler_rate_rejections: AtomicU64,
     pub sampling_rate_clamped: AtomicU64,
-    /// Sampling rates learned from exporter options data records.
+    /// Options sampling rates newly stored or changed.
     pub options_sampling_rates_learned: AtomicU64,
     pub source_creator_evictions: AtomicU64,
     pub source_global_evictions: AtomicU64,
@@ -324,7 +324,7 @@ fn render_admission_metrics(out: &mut String, listeners: &[Arc<ListenerMetrics>]
         ),
         (
             "flow_collector_options_sampling_rates_learned_total",
-            "Sampling rates learned from exporter options records",
+            "Options sampling rates newly stored or changed",
             |m: &ListenerMetrics| m.options_sampling_rates_learned.load(Ordering::Relaxed),
         ),
         (

@@ -5,14 +5,25 @@ use netflow_parser::NetflowPacket;
 use netflow_parser::protocol::ProtocolTypes;
 use netflow_parser::static_versions::v5::V5;
 use netflow_parser::variable_versions::field_value::{DataNumber, FieldValue};
+use netflow_parser::variable_versions::ipfix::IPFixFieldPair;
 use netflow_parser::variable_versions::ipfix::lookup::ReverseInformationElement;
 use netflow_parser::variable_versions::ipfix::lookup::{IANAIPFixField, IPFixField};
+use netflow_parser::variable_versions::v9::ScopeDataField;
 use netflow_parser::variable_versions::v9::lookup::V9Field;
 use netflow_parser::{IpfixSourceKey, V9SourceKey};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 pub const MAX_SAMPLER_RATE_ENTRIES: usize = 65_536;
+
+/// How long a selector declaration still votes on the domain rate.
+///
+/// NetFlow options refreshes are commonly 30 minutes. The extra half hour
+/// keeps one delayed refresh from retiring a selector that is still in use.
+/// A selector silent for the whole window no longer affects flows that name
+/// no selector; the selectors refreshed inside the window do.
+pub const OPTIONS_REFRESH_WINDOW: Duration = Duration::from_secs(60 * 60);
 
 /// Ceiling applied to any exporter-declared sampling rate before publication.
 ///
@@ -41,49 +52,43 @@ pub const DEFAULT_MAX_SAMPLING_RATE: u64 = 1_000_000;
 pub struct SamplerRates {
     pub(super) entries: HashMap<SourceId, HashMap<u64, u64>>,
     pub(super) entry_count: usize,
-    /// Rates an options record declared for a whole source, for flow records
-    /// that name no sampler. Bounded by `MAX_SAMPLER_RATE_ENTRIES` sources.
-    domain_rates: HashMap<SourceId, DomainRate>,
+    /// Options rates for a source: the domain rate, per-interface rates, and
+    /// selector declarations with the time they were last seen. Bounded by
+    /// `MAX_SAMPLER_RATE_ENTRIES` sources. Interface rates share `entry_count`
+    /// with named samplers.
+    domain_rates: HashMap<SourceId, SourceOptions>,
     pub(super) rejected_inserts: u64,
     /// Rates clamped to the configured ceiling. Drained by the caller into
     /// `ListenerMetrics::sampling_rate_clamped`, mirroring `rejected_inserts`.
     pub(super) clamped_rates: u64,
-    /// Options records that declared a usable sampling rate. Drained by the
-    /// caller into `ListenerMetrics::options_sampling_rates_learned`.
+    /// Options rates newly stored or changed. A refresh of the same rate and
+    /// a rejected insert are not counted. Drained by the caller into
+    /// `ListenerMetrics::options_sampling_rates_learned`.
     pub(super) options_rates_learned: u64,
 }
 
-/// What options records have declared for a source as a whole.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum DomainRate {
-    /// An options record that names no sampler declared this rate.
-    Declared(u64),
-    /// Options records named samplers, and the samplers named so far agree on
-    /// this rate (or only `id` was named).
-    Sampler { id: u64, rate: u64 },
-    /// Different samplers declared different rates, so a flow record that
-    /// names none of them cannot be attributed to one.
-    Conflicting,
+/// Options-declared rates for one exporter source.
+#[derive(Default)]
+struct SourceOptions {
+    /// System or observation-domain scope, for flows with no closer match.
+    domain: Option<u64>,
+    /// Interface scope (IPFIX ingress/egress, v9 interface): ifIndex to rate.
+    interfaces: HashMap<u32, u64>,
+    /// Selector id to the rate and receive time of its last options declaration.
+    selectors: HashMap<u64, SelectorDecl>,
 }
 
-impl DomainRate {
-    fn rate_for(self, sampler_id: Option<u64>) -> Option<u64> {
-        match self {
-            Self::Declared(rate) => Some(rate),
-            Self::Sampler { id, rate } if sampler_id.is_none_or(|named| named == id) => Some(rate),
-            Self::Sampler { .. } | Self::Conflicting => None,
-        }
-    }
+struct SelectorDecl {
+    rate: u64,
+    seen_at_ns: u64,
+}
 
-    fn with_sampler(current: Option<Self>, id: u64, rate: u64) -> Self {
-        match current {
-            None => Self::Sampler { id, rate },
-            Some(Self::Sampler { id: known, .. }) if known == id => Self::Sampler { id, rate },
-            Some(Self::Sampler { rate: known, .. }) if known == rate => Self::Sampler { id, rate },
-            Some(declared @ Self::Declared(_)) => declared,
-            Some(Self::Sampler { .. } | Self::Conflicting) => Self::Conflicting,
-        }
-    }
+#[derive(PartialEq, Eq)]
+enum Store {
+    New,
+    Changed,
+    Same,
+    Rejected,
 }
 
 impl SamplerRates {
@@ -91,55 +96,234 @@ impl SamplerRates {
         if let Some(entries) = self.entries.remove(source) {
             self.entry_count -= entries.len();
         }
-        self.domain_rates.remove(source);
+        if let Some(options) = self.domain_rates.remove(source) {
+            self.entry_count -= options.interfaces.len();
+        }
     }
 
-    fn remember_sampler(&mut self, source: &SourceId, sampler_id: u64, rate: u64) {
+    fn remember_sampler(&mut self, source: &SourceId, sampler_id: u64, rate: u64) -> Store {
         if let Some(existing) = self
             .entries
             .get_mut(source)
             .and_then(|entries| entries.get_mut(&sampler_id))
         {
+            if *existing == rate {
+                return Store::Same;
+            }
             *existing = rate;
-        } else if self.entry_count < MAX_SAMPLER_RATE_ENTRIES {
-            self.entries
-                .entry(source.clone())
-                .or_default()
-                .insert(sampler_id, rate);
-            self.entry_count += 1;
-        } else {
-            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return Store::Changed;
         }
+        if self.entry_count >= MAX_SAMPLER_RATE_ENTRIES {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return Store::Rejected;
+        }
+        self.entries
+            .entry(source.clone())
+            .or_default()
+            .insert(sampler_id, rate);
+        self.entry_count += 1;
+        Store::New
+    }
+
+    fn remember_domain(&mut self, source: &SourceId, rate: u64) -> Store {
+        if let Some(options) = self.domain_rates.get_mut(source) {
+            return match options.domain {
+                Some(current) if current == rate => Store::Same,
+                Some(_) => {
+                    options.domain = Some(rate);
+                    Store::Changed
+                }
+                None => {
+                    options.domain = Some(rate);
+                    Store::New
+                }
+            };
+        }
+        if self.domain_rates.len() >= MAX_SAMPLER_RATE_ENTRIES {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return Store::Rejected;
+        }
+        self.domain_rates.insert(
+            source.clone(),
+            SourceOptions {
+                domain: Some(rate),
+                ..SourceOptions::default()
+            },
+        );
+        Store::New
+    }
+
+    fn remember_interface(&mut self, source: &SourceId, interface: u32, rate: u64) -> Store {
+        if let Some(options) = self.domain_rates.get_mut(source)
+            && let Some(current) = options.interfaces.get_mut(&interface)
+        {
+            if *current == rate {
+                return Store::Same;
+            }
+            *current = rate;
+            return Store::Changed;
+        }
+        if !self.domain_rates.contains_key(source)
+            && self.domain_rates.len() >= MAX_SAMPLER_RATE_ENTRIES
+        {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return Store::Rejected;
+        }
+        if self.entry_count >= MAX_SAMPLER_RATE_ENTRIES {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return Store::Rejected;
+        }
+        self.domain_rates
+            .entry(source.clone())
+            .or_default()
+            .interfaces
+            .insert(interface, rate);
+        self.entry_count += 1;
+        Store::New
+    }
+
+    fn note_selector(&mut self, source: &SourceId, id: u64, rate: u64, now_ns: u64) {
+        if !self.domain_rates.contains_key(source)
+            && self.domain_rates.len() >= MAX_SAMPLER_RATE_ENTRIES
+        {
+            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
+            return;
+        }
+        self.domain_rates
+            .entry(source.clone())
+            .or_default()
+            .selectors
+            .insert(
+                id,
+                SelectorDecl {
+                    rate,
+                    seen_at_ns: now_ns,
+                },
+            );
     }
 
     /// Records the rate one options data record declares, if it declares one.
-    fn learn_options(&mut self, source: &SourceId, sampling: &SamplingFields) {
+    ///
+    /// `interface` is set when the record's scope names an interface. A record
+    /// that names a sampler or selector keeps that selector's rate instead.
+    fn learn_options(
+        &mut self,
+        source: &SourceId,
+        sampling: &SamplingFields,
+        interface: Option<u32>,
+        now_ns: u64,
+    ) {
         let Some(rate) = sampling.rate() else {
             return;
         };
-        self.options_rates_learned = self.options_rates_learned.saturating_add(1);
-        if let Some(id) = sampling.sampler_id {
-            self.remember_sampler(source, id, rate);
-        }
-        let current = self.domain_rates.get(source).copied();
-        if current.is_none() && self.domain_rates.len() >= MAX_SAMPLER_RATE_ENTRIES {
-            self.rejected_inserts = self.rejected_inserts.saturating_add(1);
-            return;
-        }
-        let updated = match sampling.sampler_id {
-            Some(id) => DomainRate::with_sampler(current, id, rate),
-            None => DomainRate::Declared(rate),
+        let stored = if let Some(id) = sampling.sampler_id {
+            let stored = self.remember_sampler(source, id, rate);
+            if stored != Store::Rejected {
+                self.note_selector(source, id, rate, now_ns);
+            }
+            stored
+        } else if let Some(interface) = interface {
+            self.remember_interface(source, interface, rate)
+        } else {
+            self.remember_domain(source, rate)
         };
-        self.domain_rates.insert(source.clone(), updated);
+        if matches!(stored, Store::New | Store::Changed) {
+            self.options_rates_learned = self.options_rates_learned.saturating_add(1);
+        }
     }
 
-    /// The rate a flow record that declares none of its own inherits: that of
-    /// the sampler it names, else the one options declared for its source.
-    fn learned_rate(&self, source: &SourceId, sampler_id: Option<u64>) -> Option<u64> {
-        sampler_id
-            .and_then(|id| self.entries.get(source)?.get(&id).copied())
-            .or_else(|| self.domain_rates.get(source)?.rate_for(sampler_id))
+    /// The rate a flow record that declares none of its own inherits.
+    ///
+    /// Order: the sampler it names, the interface rate for `in_if` (or `out_if`
+    /// when that input has no entry), the domain rate, then the rate selectors
+    /// declared inside `OPTIONS_REFRESH_WINDOW` when they agree.
+    fn learned_rate(
+        &self,
+        source: &SourceId,
+        sampler_id: Option<u64>,
+        in_if: u32,
+        out_if: u32,
+        now_ns: u64,
+    ) -> Option<u64> {
+        if let Some(id) = sampler_id
+            && let Some(rate) = self
+                .entries
+                .get(source)
+                .and_then(|entries| entries.get(&id))
+        {
+            return Some(*rate);
+        }
+        let Some(options) = self.domain_rates.get(source) else {
+            return None;
+        };
+        if let Some(rate) = options.interfaces.get(&in_if) {
+            return Some(*rate);
+        }
+        if let Some(rate) = options.interfaces.get(&out_if) {
+            return Some(*rate);
+        }
+        if let Some(rate) = options.domain {
+            return Some(rate);
+        }
+        if sampler_id.is_none() {
+            return selector_domain_rate(options, now_ns);
+        }
+        None
     }
+}
+
+fn selector_domain_rate(options: &SourceOptions, now_ns: u64) -> Option<u64> {
+    let mut agreed = None;
+    for decl in options.selectors.values() {
+        let age = Duration::from_nanos(now_ns.saturating_sub(decl.seen_at_ns));
+        if age >= OPTIONS_REFRESH_WINDOW {
+            continue;
+        }
+        match agreed {
+            None => agreed = Some(decl.rate),
+            Some(rate) if rate == decl.rate => {}
+            Some(_) => return None,
+        }
+    }
+    agreed
+}
+
+fn ipfix_scope_interface(record: &[IPFixFieldPair]) -> Option<u32> {
+    let mut egress = None;
+    for (field, value) in record {
+        let IPFixField::IANA(kind) = field else {
+            continue;
+        };
+        let Some(index) = nonzero_u32(field_value_to_u32(value)) else {
+            continue;
+        };
+        match kind {
+            IANAIPFixField::IngressInterface => return Some(index),
+            IANAIPFixField::EgressInterface if egress.is_none() => egress = Some(index),
+            _ => {}
+        }
+    }
+    egress
+}
+
+fn v9_scope_interface(scopes: &[ScopeDataField]) -> Option<u32> {
+    scopes.iter().find_map(|scope| {
+        let ScopeDataField::Interface(bytes) = scope else {
+            return None;
+        };
+        interface_index(bytes)
+    })
+}
+
+fn interface_index(bytes: &[u8]) -> Option<u32> {
+    if bytes.is_empty() || bytes.len() > 4 {
+        return None;
+    }
+    let mut index = 0u32;
+    for byte in bytes {
+        index = (index << 8) | u32::from(*byte);
+    }
+    nonzero_u32(index)
 }
 
 /// The sampling information elements of one flow or options record.
@@ -472,12 +656,18 @@ impl Converter {
                 }
                 FlowSetBody::OptionsData(options) => {
                     let source = self.source();
+                    let now_ns = self.receive_time_ns;
                     for record in &options.fields {
                         let mut sampling = SamplingFields::default();
                         for (field, value) in &record.options_fields {
                             sampling.observe_v9(field, value);
                         }
-                        sampler_rates.learn_options(&source, &sampling);
+                        sampler_rates.learn_options(
+                            &source,
+                            &sampling,
+                            v9_scope_interface(&record.scope_fields),
+                            now_ns,
+                        );
                     }
                 }
                 FlowSetBody::NoTemplate(info) => {
@@ -790,12 +980,18 @@ impl Converter {
                 }
                 FlowSetBody::OptionsData(options) => {
                     let source = self.source();
+                    let now_ns = self.receive_time_ns;
                     for record in &options.fields {
                         let mut sampling = SamplingFields::default();
                         for (field, value) in record {
                             sampling.observe_ipfix(field, value);
                         }
-                        sampler_rates.learn_options(&source, &sampling);
+                        sampler_rates.learn_options(
+                            &source,
+                            &sampling,
+                            ipfix_scope_interface(record),
+                            now_ns,
+                        );
                     }
                 }
                 FlowSetBody::NoTemplate(info) => {
@@ -827,8 +1023,8 @@ impl Converter {
     }
 
     /// Resolves a flow's rate: the record's own sampling fields, then the rate
-    /// learned for the sampler it names or for its source, then the configured
-    /// per-exporter override or default.
+    /// learned for the sampler it names, then the interface rate, then the
+    /// domain rate, then the configured per-exporter override or default.
     fn apply_sampling_rate(
         &self,
         msg: &mut flowpb::FlowMessage,
@@ -843,7 +1039,15 @@ impl Converter {
         }
 
         let resolved = record_sampling_rate
-            .or_else(|| sampler_rates.learned_rate(&source, sampling.sampler_id))
+            .or_else(|| {
+                sampler_rates.learned_rate(
+                    &source,
+                    sampling.sampler_id,
+                    msg.in_if,
+                    msg.out_if,
+                    self.receive_time_ns,
+                )
+            })
             .unwrap_or(self.fallback_sampling_rate);
 
         let (bounded, was_clamped) = bound_sampling_rate(resolved, self.max_sampling_rate);
@@ -905,6 +1109,10 @@ fn v5_sampling_interval_to_rate(raw: u16) -> Option<u64> {
 }
 
 fn nonzero_u64(value: u64) -> Option<u64> {
+    if value > 0 { Some(value) } else { None }
+}
+
+fn nonzero_u32(value: u32) -> Option<u32> {
     if value > 0 { Some(value) } else { None }
 }
 
@@ -1092,6 +1300,7 @@ mod tests {
     use super::*;
     use netflow_parser::protocol::ProtocolTypes;
     use netflow_parser::variable_versions::field_value::{DurationValue, StringValue};
+    use netflow_parser::variable_versions::ipfix::FlowSetBody;
 
     fn make_string_value(s: &str) -> StringValue {
         StringValue {
@@ -1387,5 +1596,144 @@ mod tests {
         // is why v5 is not a vector for inflation.
         assert_eq!(v5_sampling_interval_to_rate(0xffff), Some(0x3fff));
         assert_eq!(v5_sampling_interval_to_rate(0), None);
+    }
+
+    fn ie(kind: IANAIPFixField, value: u64) -> IPFixFieldPair {
+        (
+            IPFixField::IANA(kind),
+            FieldValue::DataNumber(DataNumber::U64(value)),
+        )
+    }
+
+    fn convert_ipfix(
+        rates: &mut SamplerRates,
+        now_ns: u64,
+        body: FlowSetBody,
+    ) -> Vec<flowpb::FlowMessage> {
+        use netflow_parser::variable_versions::ipfix::{FlowSet, FlowSetHeader, Header, IPFix};
+
+        let packet = NetflowPacket::IPFix(IPFix {
+            header: Header {
+                version: 10,
+                length: 16,
+                export_time: 0,
+                sequence_number: 1,
+                observation_domain_id: 7,
+            },
+            flowsets: vec![FlowSet {
+                header: FlowSetHeader {
+                    header_id: 256,
+                    length: 4,
+                },
+                body,
+            }],
+        });
+        let peer: SocketAddr = "192.0.2.9:4739".parse().unwrap();
+        Converter::new(packet, peer, now_ns, 5, DEFAULT_MAX_SAMPLING_RATE)
+            .convert_with_sampler_rates(rates)
+    }
+
+    /// Selector 1 at 1:100, replaced by selector 2 at 1:512. While both have
+    /// been seen inside the refresh window, a flow that names neither stays
+    /// on the fallback. Once selector 1 ages out, selector 2 is the domain rate.
+    #[test]
+    fn retired_selector_ages_out_and_the_latest_refresh_wins() {
+        use netflow_parser::variable_versions::ipfix::{Data, OptionsData};
+
+        let options = |id: u64, rate: u64| {
+            FlowSetBody::OptionsData(OptionsData::new(vec![vec![
+                ie(IANAIPFixField::SelectorId, id),
+                ie(IANAIPFixField::SamplingInterval, rate),
+            ]]))
+        };
+        let unnamed = FlowSetBody::Data(Data::new(vec![vec![ie(
+            IANAIPFixField::OctetDeltaCount,
+            1500,
+        )]]));
+        let named = FlowSetBody::Data(Data::new(vec![vec![
+            ie(IANAIPFixField::OctetDeltaCount, 1500),
+            ie(IANAIPFixField::SelectorId, 1),
+        ]]));
+        let rate_of = |rates: &mut SamplerRates, now_ns: u64, body: FlowSetBody| {
+            let messages = convert_ipfix(rates, now_ns, body);
+            assert_eq!(messages.len(), 1);
+            messages[0].sampling_rate
+        };
+
+        let mut rates = SamplerRates::default();
+        let window = u64::try_from(OPTIONS_REFRESH_WINDOW.as_nanos()).unwrap();
+        let t0 = 1_000_000_000_000u64;
+
+        assert!(convert_ipfix(&mut rates, t0, options(1, 100)).is_empty());
+        assert_eq!(rate_of(&mut rates, t0, unnamed.clone()), 100);
+        assert_eq!(rates.options_rates_learned, 1);
+        assert!(convert_ipfix(&mut rates, t0, options(1, 100)).is_empty());
+        assert_eq!(rates.options_rates_learned, 1);
+
+        assert!(convert_ipfix(&mut rates, t0 + 1, options(2, 512)).is_empty());
+        assert_eq!(rates.options_rates_learned, 2);
+        assert_eq!(
+            rate_of(&mut rates, t0 + 1, unnamed.clone()),
+            5,
+            "both selectors are still inside the window and disagree"
+        );
+        assert_eq!(
+            rate_of(&mut rates, t0 + window, unnamed.clone()),
+            512,
+            "selector 1 has been silent for the window, so selector 2 wins"
+        );
+        assert_eq!(
+            rate_of(&mut rates, t0 + window, named),
+            100,
+            "a flow that names selector 1 still uses that selector"
+        );
+    }
+
+    #[test]
+    fn options_rate_metric_ignores_refreshes_and_rejected_inserts() {
+        use std::net::Ipv4Addr;
+
+        let sampling = |rate: u64| SamplingFields {
+            interval: Some(rate),
+            ..SamplingFields::default()
+        };
+        let source_at =
+            |index: u32| SourceId::Legacy(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(index)), 9));
+        let mut rates = SamplerRates::default();
+        for index in 0..MAX_SAMPLER_RATE_ENTRIES as u32 {
+            rates.learn_options(&source_at(index), &sampling(8), None, 1);
+        }
+        assert_eq!(rates.options_rates_learned, MAX_SAMPLER_RATE_ENTRIES as u64);
+        assert_eq!(rates.rejected_inserts, 0);
+
+        rates.learn_options(&source_at(u32::MAX), &sampling(8), None, 1);
+        assert_eq!(
+            rates.options_rates_learned, MAX_SAMPLER_RATE_ENTRIES as u64,
+            "a rejected insert is not a learned rate"
+        );
+        assert_eq!(rates.rejected_inserts, 1);
+
+        let first = source_at(0);
+        rates.learn_options(&first, &sampling(8), None, 2);
+        assert_eq!(rates.options_rates_learned, MAX_SAMPLER_RATE_ENTRIES as u64);
+        rates.learn_options(&first, &sampling(9), None, 3);
+        assert_eq!(
+            rates.options_rates_learned,
+            MAX_SAMPLER_RATE_ENTRIES as u64 + 1
+        );
+
+        rates.learn_options(&first, &sampling(100), Some(10), 4);
+        rates.learn_options(&first, &sampling(1000), Some(20), 4);
+        assert_eq!(rates.learned_rate(&first, None, 10, 0, 4), Some(100));
+        assert_eq!(rates.learned_rate(&first, None, 20, 0, 4), Some(1000));
+        assert_eq!(
+            rates.learned_rate(&first, None, 99, 20, 4),
+            Some(1000),
+            "output is used when the input interface has no entry"
+        );
+        assert_eq!(rates.learned_rate(&first, None, 99, 1, 4), Some(9));
+        rates.remove_source(&first);
+        assert_eq!(rates.learned_rate(&first, None, 10, 20, 4), None);
+        assert_eq!(rates.learned_rate(&first, None, 0, 0, 4), None);
     }
 }
