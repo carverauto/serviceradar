@@ -77,6 +77,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
         {:ok, %{generation: generation}} -> generation
         {:error, :not_ready} -> 0
       end
+
     versions = [Ecto.UUID.generate(), Ecto.UUID.generate()]
     [first_version, next_version] = versions
     padding = Enum.map(1..501, &"sr:loader-padding-#{vendor}-#{&1}")

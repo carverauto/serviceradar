@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
   @moduletag :db_free
 
   @tag timeout: 5_000
-  test "a suspended geometry owner cannot extend the original delivery deadline" do
+  test "an exhausted response deadline admits no query work" do
     keys = [:god_view_enabled, :topology_bitmap_enabled]
     previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
     for key <- keys, do: Application.put_env(:serviceradar_web_ng, key, true)
@@ -30,21 +30,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
 
     try do
       assert {:error, :query_timeout} =
-               BitmapQueries.confirm_delivery(
+               BitmapQueries.with_query(
                  %Scope{user: %{id: "synthetic-viewer"}},
-                 <<0::256>>,
-                 started + 100,
-                 %{},
-                 fn ->
-                   send(owner, {:delivery_check, self()})
+                 %{"all" => []},
+                 fn _context ->
+                   send(owner, {:query_work, self()})
                    WorldCache.world(cache)
-                 end
+                 end,
+                 deadline: started - 1
                )
 
       assert System.monotonic_time(:millisecond) - started < 1_500
-      assert_receive {:delivery_check, worker}
-      refute worker == self()
-      refute Process.alive?(worker)
+      refute_receive {:query_work, _worker}, 50
       assert {:error, :query_timeout} = BitmapQueries.normalize({:error, :deadline_exceeded})
     after
       :sys.resume(cache)

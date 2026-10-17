@@ -14,14 +14,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Topology.BitmapAuthority
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapQueryTasks
   alias ServiceRadarWebNG.Topology.BitmapSelection
   alias ServiceRadarWebNG.Topology.BitmapSource
   alias ServiceRadarWebNG.Topology.BitmapView
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.TileKey
+  alias ServiceRadarWebNG.Topology.TileWatchTasks
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldHealth
   alias ServiceRadarWebNG.Topology.WorldOverlay
@@ -308,7 +311,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     scope = Scope.for_user(user)
     start_supervised!({Endpoint, []})
-    tasks = start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.Topology.TileWatchTasks, max_children: 8})
+    tasks = start_supervised!({Task.Supervisor, name: TileWatchTasks, max_children: 8})
     start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     start_supervised!(BitmapQueries)
     start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
@@ -378,7 +381,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     try do
       blocked_ref = push(socket, "membership:watch", params)
-      query_tasks = ServiceRadarWebNG.Topology.BitmapQueryTasks
+      query_tasks = BitmapQueryTasks
       await(fn -> Task.Supervisor.children(query_tasks) end, &(length(&1) == 1))
 
       for event <- ["membership:unwatch", "membership:reset"] |> List.duplicate(4) |> List.flatten() do
@@ -430,10 +433,32 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_reply ref, :error, %{reason: "source_changed"}, 5_000
     refute_push "membership:frame", _frame, 100
 
-    # Replaying the same assignments preserves a response waiting in the channel
-    # mailbox. A genuinely changed projection invalidates that same receipt.
-    {:ok, pending} = BitmapView.build(scope, params, sequence + 1)
-    assert :ok = BitmapView.confirm_delivery(scope, pending)
+    # Geometry that blocks inside the admitted worker cannot outlive the build deadline.
+    started = System.monotonic_time(:millisecond)
+    :ok = :sys.suspend(WorldCache)
+
+    try do
+      assert {:error, :query_timeout} = BitmapView.build(scope, params, sequence + 1)
+      assert System.monotonic_time(:millisecond) - started < 2_000
+      assert [] = Task.Supervisor.children(BitmapQueryTasks)
+    after
+      :sys.resume(WorldCache)
+    end
+
+    # The next tick delivers the replacement. An identical mapping keeps the built identity.
+    ref = push(socket, "membership:watch", params)
+    assert_reply ref, :ok, %{view_digest: rebuilt_digest}, 5_000
+    assert_push "membership:frame", {:binary, rebuilt_frame}, 5_000
+    built_identity = assert_delivered_identity(socket, scope)
+    {rebuilt_sequence, _, _, _, _, _, _, _} = membership_rows(rebuilt_frame)
+
+    ref =
+      push(socket, "membership:ack", %{
+        "sequence" => Integer.to_string(rebuilt_sequence),
+        "view_digest" => rebuilt_digest
+      })
+
+    assert_reply ref, :ok
 
     fn ->
       {:ok, identical} = TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch)
@@ -446,12 +471,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
       {:ok, _} = TopologyAtlas.seal_ordinals(world, identical)
       assert :ok = WorldCache.install_ordinals(world, identical)
-      assert :ok = BitmapView.confirm_delivery(scope, pending)
     end
     |> Task.async()
     |> Task.await(5_000)
 
     :erlang.garbage_collect(Process.whereis(WorldCache))
+    send(socket.channel_pid, :tile_tick)
+    refute_push "membership:frame", _identical, 200
+    assert stream_identity(socket).assignment == built_identity.assignment
 
     {:ok, replacement} =
       await(fn -> TopologyAtlas.new_ordinals(world, snapshot.dictionary_epoch) end, &match?({:ok, _}, &1))
@@ -461,7 +488,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     {:ok, _} = TopologyAtlas.seal_ordinals(world, replacement)
     :ok = WorldCache.install_ordinals(world, replacement)
-    assert {:error, :source_changed} = BitmapView.confirm_delivery(scope, pending)
+    send(socket.channel_pid, :tile_tick)
+    assert_push "membership:frame", {:binary, _replaced_frame}, 5_000
+    replaced = assert_delivered_identity(socket, scope)
+    assert replaced.assignment != built_identity.assignment
+    assert replaced.authority == built_identity.authority
 
     health = start_supervised!({WorldHealth, cache: WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     {:ok, health_snapshot} = await(fn -> WorldHealth.snapshot(health) end, &match?({:ok, _}, &1))
@@ -503,14 +534,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     user =
       User
-      |> Ash.Changeset.for_create(:create, %{email: "bitmap-fence-#{System.unique_integer([:positive])}@example.com", role: :viewer},
+      |> Ash.Changeset.for_create(
+        :create,
+        %{email: "bitmap-fence-#{System.unique_integer([:positive])}@example.com", role: :viewer},
         actor: @actor
       )
       |> Ash.create!()
 
     scope = Scope.for_user(user)
     start_supervised!({Endpoint, []})
-    tasks = start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.Topology.TileWatchTasks, max_children: 8})
+    tasks = start_supervised!({Task.Supervisor, name: TileWatchTasks, max_children: 8})
     start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     start_supervised!(BitmapQueries)
     start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
@@ -565,7 +598,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       Enum.each(holders, &Process.exit(&1, :kill))
     end
 
-    await(fn -> Task.Supervisor.children(ServiceRadarWebNG.Topology.TileWatchTasks) end, &(&1 == []))
+    await(fn -> Task.Supervisor.children(TileWatchTasks) end, &(&1 == []))
     assert stream_identity(socket).index_revision == built.progress.index_revision
     send(socket.channel_pid, :tile_tick)
     assert_push "membership:frame", {:binary, refreshed}, 5_000
@@ -584,7 +617,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     ref = push(socket, "membership:unwatch", %{})
     assert_reply ref, :ok
 
-    expires_at = DateTime.add(DateTime.utc_now(), 8, :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: 8)
 
     Store.put_rows(source, [
       %{prefix: "192.0.2.0/25", tags: ["office"], expires_at: expires_at}
@@ -608,10 +641,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => prefix_digest})
     assert_reply ref, :ok
 
-    await(fn ->
-      {:ok, %{trie: current}} = Store.capture(source)
-      PrefixNative.label_ranges(current, "office", 8, 4_096, 1_000)
-    end, &(&1 == {:ok, <<>>}))
+    await(
+      fn ->
+        {:ok, %{trie: current}} = Store.capture(source)
+        PrefixNative.label_ranges(current, "office", 8, 4_096, 1_000)
+      end,
+      &(&1 == {:ok, <<>>})
+    )
 
     {:ok, %{version: ^version}} = Store.capture(source)
     {:ok, still} = BitmapIndex.snapshot()
@@ -627,13 +663,30 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     identity
   end
 
+  defp assert_delivered_identity(socket, scope) do
+    identity = stream_identity(socket)
+    {:ok, %{manifest: manifest, ordinals: %{info: info}}} = WorldCache.world()
+    {:ok, snapshot} = BitmapIndex.snapshot()
+    {:ok, authority} = BitmapAuthority.current(scope)
+
+    assert identity.layout_version == manifest.layout_version
+    assert identity.generation == manifest.generation
+    assert identity.world_epoch == info.dictionary_epoch
+    assert identity.assignment == info.assignment
+    assert identity.dictionary_epoch == snapshot.dictionary_epoch
+    assert identity.index_epoch == snapshot.index_epoch
+    assert identity.index_revision == snapshot.progress.index_revision
+    assert identity.authority == authority
+    identity
+  end
+
   defp quiet_index?({:ok, %{progress: %{pending_dirty: 0, reconciling: false, source_error: false}}}), do: true
   defp quiet_index?(_snapshot), do: false
 
   defp occupy_watch_tasks do
     holders =
       Enum.reduce_while(1..8, [], fn _, acc ->
-        case Task.Supervisor.start_child(ServiceRadarWebNG.Topology.TileWatchTasks, fn ->
+        case Task.Supervisor.start_child(TileWatchTasks, fn ->
                Process.sleep(30_000)
              end) do
           {:ok, pid} -> {:cont, [pid | acc]}
@@ -642,7 +695,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       end)
 
     assert {:error, _} =
-             Task.Supervisor.start_child(ServiceRadarWebNG.Topology.TileWatchTasks, fn -> :ok end)
+             Task.Supervisor.start_child(TileWatchTasks, fn -> :ok end)
 
     holders
   end

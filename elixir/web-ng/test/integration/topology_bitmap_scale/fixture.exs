@@ -122,7 +122,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
     %{rows: [[remaining]]} =
       Repo.query!("SELECT count(*)::bigint FROM platform.ocsf_devices WHERE uid LIKE 'sr:atlas-scale-%'")
 
-    if remaining != 0, do: raise "scale cleanup left #{remaining} sr:atlas-scale devices"
+    if remaining != 0, do: raise("scale cleanup left #{remaining} sr:atlas-scale devices")
     :ok
   end
 

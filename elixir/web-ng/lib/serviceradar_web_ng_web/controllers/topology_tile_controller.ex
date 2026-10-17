@@ -187,6 +187,14 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
       else: {:error, :overlay_protocol_changed}
   end
 
+  defp overlay_payload(_conn, content) do
+    if BitmapQueries.enabled?() do
+      {:error, :overlay_protocol_changed}
+    else
+      with {:ok, payload} <- Jason.encode(content), do: {:ok, payload, "application/json"}
+    end
+  end
+
   defp accepts_overlay?(conn) do
     conn
     |> get_req_header("accept")
@@ -198,14 +206,6 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
       |> String.trim()
       |> String.downcase() == "application/vnd.serviceradar.world-overlay"
     end)
-  end
-
-  defp overlay_payload(_conn, content) do
-    if BitmapQueries.enabled?() do
-      {:error, :overlay_protocol_changed}
-    else
-      with {:ok, payload} <- Jason.encode(content), do: {:ok, payload, "application/json"}
-    end
   end
 
   defp overlay_budget(payload) when byte_size(payload) <= 262_144, do: :ok
@@ -240,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   defp authorize_relayout(scope) do
-    case RBAC.authorize_current(scope, ["settings.networks.manage"]) do
+    case authorize_scope(scope, ["settings.networks.manage"]) do
       {:ok, current_scope} -> {:ok, current_scope}
       {:error, _reason} -> {:error, :forbidden}
     end
@@ -258,13 +258,18 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   defp current_authority(conn) do
     with true <- FeatureFlags.god_view_enabled?(),
          %Scope{user: user} = scope when not is_nil(user) <- conn.assigns[:current_scope],
-         {:ok, current_scope} <- RBAC.authorize_current(scope, ["analytics.view", "devices.view"]) do
+         {:ok, current_scope} <- authorize_scope(scope, ["analytics.view", "devices.view"]) do
       {:ok, current_scope}
     else
       false -> {:error, :god_view_disabled}
       {:error, _reason} -> {:error, :forbidden}
       _ -> {:error, :unauthorized}
     end
+  end
+
+  defp authorize_scope(scope, permissions) do
+    module = Application.get_env(:serviceradar_web_ng, :current_user_authorization_module, RBAC)
+    module.authorize_current(scope, permissions)
   end
 
   defp generation_headers(conn, manifest) do
@@ -333,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
         {503, "world_not_ready"}
 
       _ ->
-        {503, BitmapQueries.public_reason(reason)}
+        {503, "world_unavailable"}
     end
   end
 end

@@ -9,6 +9,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
 
   alias ServiceRadar.PrefixTags.Engine
+  alias ServiceRadar.PrefixTags.Native
   alias ServiceRadar.PrefixTags.NativeEngine
   alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.SnapshotReader
@@ -300,6 +301,9 @@ defmodule ServiceRadar.PrefixTags.Store do
   Backed by an ETS set so dynamically loaded snapshot/plugin sources are
   discoverable by aggregate `lookup/1` (not only the built-in catalog).
   """
+
+  # -- internals --------------------------------------------------------------
+
   @spec sources() :: [source()]
   def sources, do: Registry.sources()
 
@@ -346,8 +350,6 @@ defmodule ServiceRadar.PrefixTags.Store do
   rescue
     ArgumentError -> nil
   end
-
-  # -- internals --------------------------------------------------------------
 
   defp empty_stats, do: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0}
 
@@ -493,14 +495,14 @@ defmodule ServiceRadar.PrefixTags.Store do
   defp release_native_catalog(handle) do
     case handle_trie(handle) do
       trie when is_reference(trie) ->
-        case ServiceRadar.PrefixTags.Native.release_catalog(trie) do
+        case Native.release_catalog(trie) do
           {:error, "catalog_busy"} ->
             delay = erase_delay_ms()
 
             _ =
               Task.start(fn ->
                 Process.sleep(delay)
-                ServiceRadar.PrefixTags.Native.release_catalog(trie)
+                Native.release_catalog(trie)
               end)
 
           _ ->

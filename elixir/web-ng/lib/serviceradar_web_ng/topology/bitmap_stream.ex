@@ -105,15 +105,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     state = socket.assigns.bitmap_stream
 
     case state.task do
-      %{token: ^token} ->
+      %{token: ^token} = task ->
         state = release(state)
 
-        with true <- not is_nil(state.request),
-             {:ok, result} <- BitmapQueries.normalize(result) do
-          deliver(result, state, socket)
+        if task[:abandoned] || is_nil(state.request) do
+          assign(socket, :bitmap_stream, state)
         else
-          false -> assign(socket, :bitmap_stream, state)
-          {:error, reason} -> failed(state, reason, socket)
+          case BitmapQueries.normalize(result) do
+            {:ok, result} -> deliver(result, state, socket)
+            {:error, reason} -> failed(state, reason, socket)
+          end
         end
 
       _ ->
@@ -126,6 +127,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       reset(assign(socket, :bitmap_stream, state))
     else
       reply_to = state.reply
+
       state = %{
         state
         | reply: nil,
@@ -133,6 +135,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
           awaiting: now(),
           identity: delivered_identity(result)
       }
+
       socket = assign(socket, :bitmap_stream, state)
       if reply_to, do: reply(reply_to, {:ok, result.binding})
       push(socket, "membership:frame", {:binary, result.frame})
@@ -142,15 +145,31 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def timeout(token, socket) do
     case socket.assigns.bitmap_stream.task do
-      %{token: ^token} -> failed(release(socket.assigns.bitmap_stream), :query_timeout, socket)
-      _ -> socket
+      %{token: ^token} = task ->
+        Process.cancel_timer(task.timer)
+        state = %{socket.assigns.bitmap_stream | task: Map.put(task, :abandoned, true)}
+        failed(state, :query_timeout, socket)
+
+      _ ->
+        socket
     end
   end
 
   def down(ref, socket) do
-    case socket.assigns.bitmap_stream.task do
-      %{ref: ^ref} -> failed(release(socket.assigns.bitmap_stream), :query_unavailable, socket)
-      _ -> socket
+    state = socket.assigns.bitmap_stream
+
+    case state.task do
+      %{ref: ^ref} = task ->
+        state = release(state)
+
+        if task[:abandoned] do
+          assign(socket, :bitmap_stream, state)
+        else
+          failed(state, :query_unavailable, socket)
+        end
+
+      _ ->
+        socket
     end
   end
 

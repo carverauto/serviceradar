@@ -105,8 +105,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsersMultipartCapTest do
     for path <- @filter_paths do
       get_route = Phoenix.Router.route_info(ServiceRadarWebNGWeb.Router, "GET", path, "localhost")
       post_route = Phoenix.Router.route_info(ServiceRadarWebNGWeb.Router, "POST", path, "localhost")
-      assert get_route.plug == post_route.plug
-      assert get_route.plug_opts == post_route.plug_opts
+      assert %{plug: plug, plug_opts: action} = post_route
+
+      case get_route do
+        %{plug: ^plug, plug_opts: ^action} -> :ok
+        :error -> assert path == "/topology/query"
+      end
 
       conn =
         "POST"
