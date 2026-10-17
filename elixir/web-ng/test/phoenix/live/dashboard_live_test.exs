@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -145,6 +146,72 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
     assert Enum.find(cards, &(&1.title == "Camera Fleet")).href == "/cameras"
     assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
+  end
+
+  describe "camera pages before a relay session opens" do
+    setup %{conn: conn} do
+      test_pid = self()
+
+      {:ok, source} =
+        CameraSource.create_source(
+          %{
+            device_uid: "sr:#{Ecto.UUID.generate()}",
+            vendor: "axis",
+            vendor_camera_id: "opening-#{Ecto.UUID.generate()}",
+            display_name: "Example opening camera",
+            availability_status: "online",
+            assigned_agent_id: "agent-example-1",
+            assigned_gateway_id: "gateway-example-1"
+          },
+          actor: system_actor()
+        )
+
+      {:ok, _profile} =
+        CameraStreamProfile.create_profile(
+          %{camera_source_id: source.id, profile_name: "Low Stream", relay_eligible: true},
+          actor: system_actor()
+        )
+
+      relay_id = Ecto.UUID.generate()
+
+      # The open blocks until the test releases it. It gives up after a few
+      # seconds so a page that opens inside mount still renders, without a
+      # session.
+      overrides = [
+        camera_relay_session_manager: CameraRelaySessionManagerStub,
+        camera_relay_session_manager_open_result: fn _camera_id, _stream_id, _opts ->
+          send(test_pid, {:relay_open_started, self()})
+
+          receive do
+            :finish_relay_open ->
+              {:ok, %RelaySession{id: relay_id, status: :active, media_ingest_id: "core-media-example"}}
+          after
+            3_000 -> {:error, "relay open was not released"}
+          end
+        end,
+        camera_relay_poll_interval_ms: 120_000
+      ]
+
+      previous = Enum.map(overrides, fn {key, _value} -> {key, Application.get_env(:serviceradar_web_ng, key)} end)
+      Enum.each(overrides, fn {key, value} -> Application.put_env(:serviceradar_web_ng, key, value) end)
+      on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
+
+      %{conn: log_in_user(conn, admin_user_fixture()), source_id: source.id, relay_id: relay_id}
+    end
+
+    for {page, player_prefix} <- [{:multiview, "camera-multiview-relay"}, {:detail, "camera-detail-relay"}] do
+      test "#{page} renders while its relay session is still opening", ctx do
+        path = if unquote(page) == :multiview, do: "/cameras", else: "/cameras/#{ctx.source_id}"
+        {:ok, view, _html} = live(ctx.conn, path)
+
+        assert_receive {:relay_open_started, open_pid}, 5_000
+        assert render(view) =~ "Opening camera relay"
+
+        send(open_pid, :finish_relay_open)
+        _html = render_async(view, 5_000)
+        assert has_element?(view, "##{unquote(player_prefix)}-#{ctx.relay_id}")
+      end
+    end
   end
 
   describe "camera preview viewer teardown" do

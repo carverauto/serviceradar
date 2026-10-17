@@ -99,6 +99,29 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   end
 
   @impl true
+  # Only the latest layout request is delivered; LiveView drops the result of
+  # one it superseded.
+  def handle_async(:camera_layout_open, {:ok, {count, tiles}}, socket) do
+    Enum.each(tiles, &schedule_camera_refresh/1)
+
+    {:noreply,
+     socket
+     |> subscribe_camera_tiles(tiles)
+     |> assign(:camera_tiles, pad_camera_tiles(tiles, count))
+     |> assign(:relay_notice, camera_layout_notice(tiles, count))}
+  end
+
+  def handle_async(:camera_layout_open, {:exit, reason}, socket) do
+    Logger.warning("Camera multiview relay open failed: #{inspect(reason, limit: 20, printable_limit: 200)}")
+    count = socket.assigns.layout_count
+
+    {:noreply,
+     socket
+     |> assign(:camera_tiles, pad_camera_tiles([], count))
+     |> assign(:relay_notice, "Camera relay sessions could not be opened.")}
+  end
+
+  @impl true
   # Fallback timer for one tile: re-read it and re-arm.
   def handle_info({:refresh_camera_multiview_relay_session, relay_session_id}, socket) do
     {:noreply, refresh_camera_tile(socket, relay_session_id, rearm: true)}
@@ -146,21 +169,35 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
     assign(socket, :camera_relay_subscriptions, subscribed)
   end
 
+  # Opening a relay session reads the source, resolves its gateway and
+  # dispatches an agent command, once per viewport. That runs in a task so the
+  # page renders its viewports at once and fills them in as sessions open.
   defp open_camera_layout(socket, count) do
     if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
-      tiles = CameraMultiview.open_preview_tiles(socket.assigns.current_scope, count)
-      Enum.each(tiles, &schedule_camera_refresh/1)
+      scope = socket.assigns.current_scope
 
       socket
-      |> subscribe_camera_tiles(tiles)
       |> assign(:layout_count, count)
-      |> assign(:camera_tiles, pad_camera_tiles(tiles, count))
-      |> assign(:relay_notice, camera_layout_notice(tiles, count))
+      |> assign(:camera_tiles, opening_camera_tiles(socket.assigns.camera_tiles, count))
+      |> assign(:relay_notice, nil)
+      |> start_async(:camera_layout_open, fn ->
+        {count, CameraMultiview.open_preview_tiles(scope, count)}
+      end)
     else
       socket
       |> assign(:camera_tiles, pad_camera_tiles([], count))
       |> assign(:relay_notice, "You are not authorized to view camera streams.")
     end
+  end
+
+  # Viewports that already show a session keep it while the new layout opens.
+  defp opening_camera_tiles(tiles, count) do
+    open = tiles |> Enum.filter(& &1.session) |> Enum.take(count)
+
+    open ++
+      for idx <- (length(open) + 1)..count//1 do
+        %{label: "Camera #{idx}", detail: "Opening relay session", session: nil, error: "Opening camera relay"}
+      end
   end
 
   defp visible_camera_tiles(tiles, count), do: Enum.take(tiles, count)
