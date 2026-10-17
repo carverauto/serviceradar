@@ -70,6 +70,13 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
       "supports_rules" => true,
       "purposes" => ["snmp_monitoring"],
       "scope_types" => ["agent"],
+      # A rule's target query picks the devices on its agent that use the
+      # credential (`in:devices hostname:host01`, say). The rule form only
+      # renders the field when this control is on, and a rule cannot be saved
+      # without a query, so SNMP needs both the control and a default.
+      # `in:devices` matches every device, as the SNMP resolver treats it.
+      "rule_controls" => %{"target_query" => true},
+      "rule_defaults" => %{"target_query" => "in:devices"},
       "auth_methods" => [
         %{
           "id" => "community",

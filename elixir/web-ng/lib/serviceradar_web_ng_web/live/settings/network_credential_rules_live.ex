@@ -1891,7 +1891,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        }}
     end
   rescue
-    ArgumentError -> {:error, "Required fields are missing"}
+    # required_string/2 raises with the missing key as the message.
+    error in ArgumentError -> {:error, missing_rule_field_message(error.message)}
+  end
+
+  @required_rule_field_labels %{
+    "name" => "Name",
+    "target_query" => "Target query",
+    "scope_value" => "Scope value",
+    "secret_id" => "Secret"
+  }
+
+  defp missing_rule_field_message(key) do
+    case Map.fetch(@required_rule_field_labels, key) do
+      {:ok, label} -> "#{label} is required"
+      :error -> "Required fields are missing"
+    end
   end
 
   defp normalize_secret_params(%{"kind" => "descriptor"} = params, integration_profiles) do
