@@ -65,27 +65,37 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
       |> Ash.create()
 
     # The higher uid is written first so it sits ahead of the lower one in physical order.
+    # Other fixture suites insert and delete ocsf_devices at the same time. A slot they
+    # free between these two inserts is the first place the second row lands, which
+    # puts the lower uid ahead of the higher one. Hold the table across both inserts
+    # so that slot cannot appear between them.
     devices =
-      for {suffix, ip} <- [{"b", "198.51.100.12"}, {"a", "198.51.100.11"}] do
-        {:ok, device} =
-          Device
-          |> Ash.Changeset.for_create(
-            :create,
-            %{
-              uid: "sweep-lock-order-#{unique}-#{suffix}",
-              ip: ip,
-              partition: partition,
-              hostname: "lock-order-#{suffix}.example.com",
-              discovery_sources: ["netbox"],
-              is_available: false,
-              metadata: %{}
-            },
-            actor: actor
-          )
-          |> Ash.create()
+      Repo.transaction!(fn ->
+        Repo.query!("SET LOCAL lock_timeout = '#{@wait_ms}ms'")
 
-        device
-      end
+        Repo.query!("LOCK TABLE platform.ocsf_devices IN SHARE ROW EXCLUSIVE MODE")
+
+        for {suffix, ip} <- [{"b", "198.51.100.12"}, {"a", "198.51.100.11"}] do
+          {:ok, device} =
+            Device
+            |> Ash.Changeset.for_create(
+              :create,
+              %{
+                uid: "sweep-lock-order-#{unique}-#{suffix}",
+                ip: ip,
+                partition: partition,
+                hostname: "lock-order-#{suffix}.example.com",
+                discovery_sources: ["netbox"],
+                is_available: false,
+                metadata: %{}
+              },
+              actor: actor
+            )
+            |> Ash.create()
+
+          device
+        end
+      end)
 
     uids = Enum.map(devices, & &1.uid)
 
@@ -99,12 +109,14 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
 
     # Without this the sweep would reach the lower row first under any plan, and the case
     # could not tell ordered locking from plan-ordered locking.
-    assert [[^high_uid], [^low_uid]] =
-             Repo.query!(
-               "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) ORDER BY ctid",
-               [uids]
-             ).rows,
-           "setup must place the higher uid ahead of the lower one in physical order"
+    physical_order =
+      Repo.query!(
+        "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) ORDER BY ctid",
+        [uids]
+      ).rows
+
+    assert physical_order == [[high_uid], [low_uid]],
+           "setup must place the higher uid ahead of the lower one in physical order, got #{inspect(physical_order)}"
 
     {:ok,
      actor: actor,
