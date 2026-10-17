@@ -1555,6 +1555,35 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp blank_attribute?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank_attribute?(_value), do: false
 
+  @doc """
+  The live uid a new strong identity adopts at `ip` in `partition` when that
+  holder is an eligible provisional seed, otherwise nil.
+
+  Holder selection and eligibility are the active-IP remap in
+  `bulk_upsert_devices/3`: one live owner per partition and address, anchors
+  from live and archived identifier rows, and `provisional_ip_seed?/2`. An
+  incoming uid that already names a device adopts nothing.
+  """
+  @spec adoptable_provisional_seed_uid(term(), term(), term()) :: String.t() | nil
+  def adoptable_provisional_seed_uid(ip, partition, incoming_uid)
+      when is_binary(ip) and ip != "" and is_binary(incoming_uid) do
+    partition = record_partition(%{partition: partition})
+    holders = load_active_ip_owners([ip])
+
+    case Map.get(holders, {partition, ip}) do
+      %{uid: holder_uid} = holder when holder_uid != incoming_uid ->
+        if provisional_ip_seed?(holder, anchored_device_uids(holders)) and
+             not Map.has_key?(load_identity_times([%{uid: incoming_uid}]), incoming_uid) do
+          holder_uid
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def adoptable_provisional_seed_uid(_ip, _partition, _incoming_uid), do: nil
+
   # A failed INSERT can be caused by two previously-unseen records in the same
   # bulk statement sharing an IP. There is no database owner to find in that
   # case, so the old recovery path retried the exact same conflict. Never pick

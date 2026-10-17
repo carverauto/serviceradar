@@ -1018,6 +1018,139 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert fleet_ordinal!(root_uid) == ordinal
   end
 
+  test "mapper rediscovery keeps a fresh successor when the address seed has an archived anchor",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 73, uniq)
+    mac = unique_global_test_mac(uniq)
+    serial = "sr-archived-anchor-#{uniq}"
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    seed_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _seed} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: seed_uid,
+        ip: ip,
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "operator_ip_seed"
+        }
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: seed_uid,
+        identifier_type: :hardware_serial,
+        identifier_value: serial,
+        partition: "default",
+        confidence: :strong,
+        source: "mapper_device_creation_test"
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             ServiceRadar.TestSupport.IdentifierArchiveFixtures.archive!(
+               :hardware_serial,
+               serial
+             )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    successor = Ids.reseeded_device_id(root_uid)
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, kept_seed} = Device.get_by_uid(seed_uid, true, actor: actor)
+    assert kept_seed.deleted_at == nil
+    assert kept_seed.ip == nil
+    assert (kept_seed.metadata || %{})["identity_source"] == "operator_ip_seed"
+
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
+    assert fleet_ordinal!(root_uid) == ordinal
+  end
+
+  test "a later poll keeps a dependent linked to its live parent", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 74, uniq)
+    ap_ip = unique_test_ip(198, 51, 75, uniq + 1)
+    other_ip = unique_test_ip(198, 51, 76, uniq + 2)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+    other_mac = unique_global_test_mac(uniq + 2)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(other_ip, other_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: other_uid}] = wait_for_devices_by_ip(actor, other_ip)
+    assert other_uid != controller_uid
+    assert device_reports_address?(actor, other_uid, ap_ip)
+
+    assert [%Device{uid: ^ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+  end
+
+  test "a later poll repairs a dependent whose parent is no longer live", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 77, uniq)
+    ap_ip = unique_test_ip(198, 51, 78, uniq + 1)
+    other_ip = unique_test_ip(198, 51, 79, uniq + 2)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+    other_mac = unique_global_test_mac(uniq + 2)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, _} =
+             Device.soft_delete(controller, "manual", Ecto.UUID.generate(), actor: actor)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(other_ip, other_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: other_uid}] = wait_for_devices_by_ip(actor, other_ip)
+    assert device_reports_address?(actor, other_uid, ap_ip)
+
+    assert [%Device{uid: ^ap_uid, management_device_id: ^other_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+  end
+
   test "a later poll links an existing dependent after successor progress", %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
     controller_ip = unique_test_ip(198, 51, 71, uniq)
@@ -1697,6 +1830,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   defp hard_purge_deleted!(uid) do
     assert {%{errors: 0}, _deleted} =
              DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
+  end
+
+  defp device_reports_address?(actor, device_uid, address) do
+    assert {:ok, interfaces} =
+             Interface
+             |> Ash.Query.filter(device_id == ^device_uid)
+             |> Ash.read(actor: actor)
+
+    Enum.any?(interfaces, fn interface ->
+      interface.ip_addresses
+      |> List.wrap()
+      |> Enum.any?(
+        &(&1 == address or (is_binary(&1) and String.starts_with?(&1, address <> "/")))
+      )
+    end)
   end
 
   defp device_row?(uid) do
