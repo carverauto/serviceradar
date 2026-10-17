@@ -498,7 +498,7 @@ short-lived scoped grant. Two objects: a **credential** holds the material, a
 3. **Preview** before enabling: In Scope, not Matched, is the number that matters.
 
 Some providers are credential-only and take no rule -- AWX binds on a controller,
-VulnCheck on a feed, SNMP on a profile.
+VulnCheck on a feed. SNMP takes a rule; see [SNMP](./credentials.md#snmp).
 
 Full model, per-provider setup (Proxmox, UniFi Protect, Axis, AWX/AAP, NetBox,
 VulnCheck, SNMP), and symptom-to-cause troubleshooting:
