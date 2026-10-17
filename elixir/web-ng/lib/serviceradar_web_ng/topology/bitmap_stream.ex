@@ -109,8 +109,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         state = release(state)
 
         with true <- not is_nil(state.request),
-             {:ok, result} <- BitmapQueries.normalize(result),
-             :ok <- BitmapView.confirm_delivery(socket.assigns.current_scope, result) do
+             {:ok, result} <- BitmapQueries.normalize(result) do
           deliver(result, state, socket)
         else
           false -> assign(socket, :bitmap_stream, state)
@@ -132,7 +131,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         | reply: nil,
           metadata: result.metadata,
           awaiting: now(),
-          identity: delivered_identity(socket, result.metadata)
+          identity: delivered_identity(result)
       }
       socket = assign(socket, :bitmap_stream, state)
       if reply_to, do: reply(reply_to, {:ok, result.binding})
@@ -143,7 +142,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def timeout(token, socket) do
     case socket.assigns.bitmap_stream.task do
-      %{token: ^token} -> failed(socket.assigns.bitmap_stream, :query_timeout, socket)
+      %{token: ^token} -> failed(release(socket.assigns.bitmap_stream), :query_timeout, socket)
       _ -> socket
     end
   end
@@ -219,23 +218,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   defp keep_frame?(_socket, _state, _reason), do: false
 
-  defp delivered_identity(socket, metadata) do
-    case fresh_identity(socket, metadata) do
-      {:ok, identity} -> {:ok, %{identity | index_revision: built_revision(metadata)}}
-      other -> other
-    end
-  end
-
-  defp built_revision(%{index_revision: revision}) when is_integer(revision), do: revision
-
-  defp built_revision(%{index_revision: revision}) when is_binary(revision) do
-    case Integer.parse(revision) do
-      {revision, ""} -> revision
-      _ -> :unparsed
-    end
-  end
-
-  defp built_revision(_metadata), do: :unparsed
+  defp delivered_identity(%{identity: identity}) when is_map(identity), do: {:ok, identity}
+  defp delivered_identity(_result), do: :stale
 
   defp named_prefix_query?(%{prefix_sources: sources}) when is_map(sources), do: map_size(sources) > 0
   defp named_prefix_query?(_metadata), do: false

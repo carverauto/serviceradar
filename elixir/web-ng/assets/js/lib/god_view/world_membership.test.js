@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto"
 import {describe, expect, it, vi} from "vitest"
 import {WorldMembership} from "./world_membership"
-import {decodeBitmapFrame} from "./bitmap_frame"
+import {BITMAP_FRAME_BYTES, FRAME_FIELDS, decodeBitmapFrame} from "./bitmap_frame"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {bitmapBinding, bitmapFrame} from "./fixtures/bitmap_frame"
 import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
@@ -252,10 +252,17 @@ describe("binary admitted-row membership", () => {
   })
 
   it("stays below the frame ceiling for all 64 admitted tiles and 8192 rows", () => {
-    const tiles = Array.from({length: 64}, (_, x) => ({z: 6, x, y: 0, revision: "synthetic-maximum-receipt",
+    const text = "x".repeat(128)
+    const binding = Object.fromEntries(FRAME_FIELDS.map(field => [field, text]))
+    const prefixSources = Array.from({length: 32}, (_, index) => ({
+      source: String.fromCharCode(index + 1).padEnd(128, "a"),
+      version: 1n,
+    }))
+    const tiles = Array.from({length: 64}, (_, x) => ({z: 6, x, y: 0, revision: text,
       mask: Array(128).fill(1), causal: Array(128).fill(3), availability: Array(128).fill(2), counts: Array(128).fill(1)}))
-    const bytes = bitmapFrame({tiles})
-    expect(bytes.byteLength).toBeLessThan(65536)
+    const bytes = bitmapFrame({binding, tiles, prefixSources, total: 8192})
+    expect(bytes.byteLength).toBe(71720)
+    expect(bytes.byteLength).toBeLessThanOrEqual(BITMAP_FRAME_BYTES)
     expect(decodeBitmapFrame(bytes).tiles.size).toBe(64)
   })
 

@@ -665,8 +665,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     actor: actor
   } do
     uniq = System.unique_integer([:positive, :monotonic])
-    purged_ip = unique_test_ip(198, 51, 80, uniq)
-    unpurged_ip = unique_test_ip(198, 51, 81, uniq + 1)
+    purged_ip = reserved_test_ip(uniq)
+    unpurged_ip = reserved_test_ip(uniq + 1)
     purged_mac = unique_global_test_mac(uniq)
     unpurged_mac = unique_global_test_mac(uniq + 1)
     recorded_host = "sr-unpurged-#{uniq}.example.com"
@@ -1326,6 +1326,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       )
 
     Enum.map(rows, &List.to_tuple/1)
+  end
+
+  defp reserved_test_ip(seed) do
+    "198.51.100.#{rem(seed, 254) + 1}"
   end
 
   defp unique_test_ip(a, b, seed) do

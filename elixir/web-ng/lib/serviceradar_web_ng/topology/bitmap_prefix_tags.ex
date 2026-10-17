@@ -40,7 +40,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapPrefixTags do
     Enum.reduce_while(sources, {:ok, nil}, fn source, _acc ->
       with {:ok, budget} <- BitmapQueries.remaining(deadline),
            {:ok, snapshot} <- capture(source) do
-        Native.prepare_catalog(snapshot.trie, budget)
+        case Native.prepare_catalog(snapshot.trie, budget) do
+          {:ok, _} ->
+            Store.release_catalog_unless_current(source, snapshot.version, snapshot.trie)
+
+          _ ->
+            :ok
+        end
+
         {:cont, {:ok, nil}}
       else
         {:error, :query_timeout} = error -> {:halt, error}

@@ -143,6 +143,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
       :source_changed ->
         {503, "source_changed"}
 
+      :query_unavailable ->
+        {503, "query_unavailable"}
+
       reason
       when reason in [
              :invalid_tiles,

@@ -172,9 +172,6 @@ impl CanonicalOrdinals {
         for (visited, index) in aggregate.member_indices(world)?.enumerate() {
             if visited % 1024 == 0 {
                 check_time(deadline)?;
-            }
-            // Bound output/container growth while avoiding a container scan for every row.
-            if visited % 65_536 == 0 {
                 check_bitmap(&bitmap, max_bytes)?;
             }
             let ordinal = self.ordinals[index];

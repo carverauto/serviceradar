@@ -97,6 +97,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/identity_reconciler_unmerge_test.exs",
     "test/serviceradar/inventory/interface_current_state_test.exs",
     "test/serviceradar/inventory/plugin_source_inventory_integration_test.exs",
+    "test/serviceradar/inventory/remediation/agent_links_test.exs",
     "test/serviceradar/inventory/remediation/dire_remediation_test.exs",
     "test/serviceradar/inventory/remediation/link_local_alias_archive_test.exs",
     "test/serviceradar/inventory/remediation/netprobe_alias_debris_test.exs",

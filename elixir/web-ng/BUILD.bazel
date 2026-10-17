@@ -1020,7 +1020,7 @@ ex_unit_test(
     srcs = ["test/transport/bitmap_websocket_transport_test.exs"],
     data = glob(["test/transport/*.exs"], exclude = ["test/transport/*_test.exs"]),
     elixir_opts = ["-r", "test/transport/bitmap_transport_helper.exs"],
-    tags = ["acceptance_test", "manual", "no-remote-cache"],
+    tags = ["integration_test", "manual", "no-remote-cache"],
     target_compatible_with = ["@platforms//os:linux"],
     deps = [":erlang_app"],
 )

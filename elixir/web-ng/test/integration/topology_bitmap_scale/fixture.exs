@@ -104,16 +104,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
   def cleanup!(%{seeded: false}), do: :ok
 
   def cleanup!(%{seeded: true, ordinal_seq: sequence}) do
-    Repo.query!(
-      "DELETE FROM platform.discovered_interfaces WHERE device_id LIKE 'sr:atlas-scale-%'",
-      [],
-      timeout: 120_000
-    )
-
-    Enum.each(0..(@population - 1)//200, fn first ->
-      last = min(first + 199, @population - 1)
-      ServiceRadar.TestSupport.delete_device_fixtures!(Enum.map(first..last, &uid/1))
-    end)
+    ServiceRadar.TestSupport.delete_device_fixtures_by_prefix!("sr:atlas-scale-")
 
     Repo.query!("DELETE FROM platform.ng_users WHERE email = 'atlas-scale@example.com'")
 

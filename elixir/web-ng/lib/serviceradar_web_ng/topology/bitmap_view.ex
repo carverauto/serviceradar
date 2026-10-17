@@ -85,7 +85,24 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
          true <- latest.world == current.world and latest.ordinals == current.ordinals do
       metadata = metadata(context, current, watch, sequence)
 
-      with {:ok, frame} <- BitmapFrame.encode(metadata, tiles) do
+      identity = %{
+        layout_version: current.manifest.layout_version,
+        generation: current.manifest.generation,
+        world_epoch: info.dictionary_epoch,
+        assignment: info.assignment,
+        dictionary_epoch: context.dictionary_epoch,
+        index_epoch: context.index_epoch,
+        index_revision: context.revision,
+        authority: context.authority
+      }
+
+      with {:ok, frame} <- BitmapFrame.encode(metadata, tiles),
+           :ok <-
+             current_projection(%{
+               metadata: metadata,
+               mapping: mapping,
+               generation: current.manifest.generation
+             }) do
         binding =
           metadata
           |> Map.take([:dictionary_epoch, :query_digest, :authority_fingerprint, :view_digest])
@@ -103,7 +120,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
            authority: context.authority,
            prefix_sources: context.prefix_sources,
            mapping: mapping,
-           generation: current.manifest.generation
+           generation: current.manifest.generation,
+           identity: identity
          }}
       end
     else

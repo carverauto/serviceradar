@@ -989,15 +989,17 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
     # Same run id and build selection as the suite, before the clone. The manual
-    # netprobe and world worker targets are named because a wildcard skips
-    # them. $FLAGS stays off:
+    # netprobe, world worker, and websocket transport targets are named because
+    # a wildcard skips them. The transport target is compiled only; its
+    # measurement stays unexecuted. $FLAGS stays off:
     # bazel build rejects the test-only options that string carries.
     integration_compile = (
         "bazel build -c opt --config=ci --//build:enable_integration_tests "
         "--//build:run_id=$RUN_ID --build_tests_only "
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "//... //rust/netprobe:loaded_tcp_attribution_test "
-        "//rust/dgraph-topology:world_worker_test"
+        "//rust/dgraph-topology:world_worker_test "
+        "//elixir/web-ng:bitmap_websocket_transport_test"
     )
     unit_suite = (
         "scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests "

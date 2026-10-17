@@ -102,14 +102,16 @@ remain charged against the transient limit until they are actually dropped. Full
 rows reuse unchanged facet/live sets instead of duplicating them under readers.
 An allocation rejection leaves the published revision and membership unchanged.
 The address capacity calculation includes facet metadata, catalog and address
-overhead, and the retained dirty bitmap. Publication rechecks that charge under
-the queue lock before admission and revision swap. Intrinsic overflow of the
-next revision, without the queue, makes IP explicitly unavailable (`native_cap`)
-while scalar membership keeps publishing. Queue bytes alone over the steady cap
-reject the stage as retryable `pending`, fold those hints into the existing
-rescan, and leave the accepted revision, scalar membership, and addresses
-unchanged. Pressure from old query pins or scratch
-remains retryable.
+overhead, and a fixed worst-case pending-queue headroom independent of current
+occupancy. Publication rechecks intrinsic bytes plus that headroom under the
+queue lock before admission and revision swap. When the sum exceeds the steady
+cap, IP becomes explicitly unavailable (`native_cap`) and addresses are omitted.
+The rescan generation does not advance, and partial address matches are not
+certified. Ordinary hints stay on the current generation. A serialized hint
+past the 512 KiB portable pending limit starts a new rescan generation.
+Intrinsic overflow of the next revision also makes IP unavailable (`native_cap`)
+while scalar membership keeps publishing. Pressure from old query pins or
+scratch remains retryable.
 Completed bitmap calculations transfer their scratch reservation into the
 result allocation, releasing only the unused allowance. Failed transfers
 release their reservation without retiring other readers' allocations.

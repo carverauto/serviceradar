@@ -821,12 +821,14 @@ actions:
           # serviceradar_integration_db`. //rust/netprobe:loaded_tcp_attribution_test
           # and //rust/dgraph-topology:world_worker_test are manual, so the
           # wildcard does not select them; name them so they stay compiled.
+          # //elixir/web-ng:bitmap_websocket_transport_test is manual too.
+          # This command only compiles it. The measurement stays unexecuted.
           # This runner cannot grant the netprobe target's Linux capabilities,
           # so the suite does not execute that target. The world worker runs
           # in the explicit test below, after serial_0 is free. Leave $FLAGS
           # off this command: those options are test-only and bazel build
           # rejects them.
-          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test //elixir/web-ng:bitmap_websocket_transport_test
 
           START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &

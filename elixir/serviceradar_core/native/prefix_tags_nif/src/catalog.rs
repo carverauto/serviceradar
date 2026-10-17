@@ -60,6 +60,9 @@ impl Catalog {
                 if index % 256 == 0 {
                     check(deadline)?;
                 }
+                if surrounding_whitespace(tag) {
+                    continue;
+                }
                 validate_label(tag)?;
                 count += 1;
                 if count > (MAX_BYTES - size_of::<Self>()) / size_of::<LabelRef>() {
@@ -81,6 +84,9 @@ impl Catalog {
             for tag in 0..entry.tags.len() {
                 if tag % 256 == 0 {
                     check(deadline)?;
+                }
+                if surrounding_whitespace(&entry.tags[tag]) {
+                    continue;
                 }
                 references.push(LabelRef {
                     node: u32::try_from(node).map_err(|_| "catalog_budget")?,
@@ -138,6 +144,7 @@ impl Catalog {
             validate_label(after)?;
         }
         check(deadline)?;
+        let now = now_us();
         let mut offset = after.map_or(0, |after| {
             self.references.partition_point(|r| label(trie, r) <= after)
         });
@@ -145,8 +152,16 @@ impl Catalog {
         while offset < self.references.len() && labels.len() < limit {
             check(deadline)?;
             let current = label(trie, &self.references[offset]);
-            labels.push(current.to_owned());
-            offset += self.references[offset..].partition_point(|r| label(trie, r) == current);
+            let next =
+                offset + self.references[offset..].partition_point(|r| label(trie, r) == current);
+            let visible = !surrounding_whitespace(current)
+                && self.references[offset..next]
+                    .iter()
+                    .any(|reference| !reference_expired(trie, reference, now));
+            offset = next;
+            if visible {
+                labels.push(current.to_owned());
+            }
         }
         let next_after = (offset < self.references.len()).then(|| labels.last().unwrap().clone());
         Ok(LabelPage { labels, next_after })
@@ -178,17 +193,14 @@ impl Catalog {
         output
             .try_reserve_exact(capacity)
             .map_err(|_| "range_budget")?;
-        let now_us = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|elapsed| i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX))
-            .unwrap_or(0);
+        let now = now_us();
         let mut pending: Option<(u8, u128, u128)> = None;
         for (i, reference) in self.references[start..end].iter().enumerate() {
             if i % 256 == 0 {
                 check(deadline)?;
             }
             let entry = trie.entry(reference.node as usize, reference.entry as usize);
-            if entry.expires_at.is_some_and(|(at, _)| at <= now_us) {
+            if entry.expires_at.is_some_and(|(at, _)| at <= now) {
                 continue;
             }
             let range = numeric_range(entry.prefix);
@@ -249,8 +261,25 @@ fn append_range(
     Ok(())
 }
 
+fn surrounding_whitespace(label: &str) -> bool {
+    label.starts_with(char::is_whitespace) || label.ends_with(char::is_whitespace)
+}
+
+fn now_us() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+fn reference_expired(trie: &Trie, reference: &LabelRef, now: i64) -> bool {
+    trie.entry(reference.node as usize, reference.entry as usize)
+        .expires_at
+        .is_some_and(|(at, _)| at <= now)
+}
+
 fn validate_label(label: &str) -> Result<(), &'static str> {
-    if label.is_empty() || label.len() > 256 {
+    if label.is_empty() || label.len() > 256 || surrounding_whitespace(label) {
         Err("label_budget")
     } else {
         Ok(())

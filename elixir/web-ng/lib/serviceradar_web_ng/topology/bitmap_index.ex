@@ -66,6 +66,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
        seeded_at: nil,
        last_reconciled_at: nil,
        source_error: false,
+       retry_at: nil,
        sequence: 0,
        turn: 0
      }}
@@ -106,7 +107,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   @impl true
-  def handle_info(:step, state), do: {:noreply, step(%{state | timer: nil})}
+  def handle_info(:step, state), do: {:noreply, step(%{state | timer: nil, retry_at: nil})}
 
   def handle_info(:feature_check, state) do
     Process.send_after(self(), :feature_check, 1_000)
@@ -126,7 +127,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
     state = release(state)
 
     case result do
-      {:ok, result} -> {:noreply, state |> accept(work, result) |> schedule(@step_interval)}
+      {:ok, result} ->
+        {:noreply,
+         state |> accept(work, result) |> Map.put(:retry_at, nil) |> schedule(@step_interval)}
       {:error, :dictionary_changed} -> {:noreply, state |> disable() |> schedule(0)}
       {:error, _reason} -> {:noreply, retry(state, work)}
     end
@@ -318,8 +321,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
     end
   end
 
-  defp requeue_dirty(_device, _ordinals, {:error, "pending"}), do: :ok
-
   defp requeue_dirty(device, ordinals, _result) do
     case Native.bitmap_index_mark_dirty(device, ordinals, false) do
       {:ok, _} -> :ok
@@ -346,7 +347,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   defp accept(state, {:scan, _, mode, _}, %{done?: true}) do
     if mode == :seed,
       do:
-        Phoenix.PubSub.broadcast(
+        Phoenix.PubSub.local_broadcast(
           state.pubsub,
           "topology:world",
           {:bitmap_index_ready, Map.take(state.current, [:dictionary_epoch, :index_epoch])}
@@ -370,7 +371,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp retry(state, {:catalog, _}), do: schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
   defp retry(state, {:hints, ids}), do: state |> remember(ids) |> retry(:read)
-  defp retry(state, _work), do: schedule(%{state | source_error: true, rescan: true}, 1_000)
+  defp retry(state, _work) do
+    schedule(%{state | source_error: true, rescan: true, retry_at: now() + 1_000}, 1_000)
+  end
 
   defp remember(state, ids) do
     Enum.reduce(ids, state, fn id, state ->
@@ -414,7 +417,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         hint_bytes: 0,
         rescan: true,
         seeded_at: nil,
-        last_reconciled_at: nil
+        last_reconciled_at: nil,
+        retry_at: nil
     }
 
     catalogs = BitmapPrefixTags.release(state.catalog_sources)
@@ -456,9 +460,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   defp schedule(state, delay) do
+    delay = backoff_delay(state, delay)
     if state.timer, do: Process.cancel_timer(state.timer)
     %{state | timer: Process.send_after(self(), :step, delay)}
   end
+
+  defp backoff_delay(%{retry_at: retry_at}, delay) when is_integer(retry_at) do
+    max(delay, max(retry_at - now(), 0))
+  end
+
+  defp backoff_delay(_state, delay), do: delay
 
   defp release(state) do
     Process.cancel_timer(state.active.timeout)
