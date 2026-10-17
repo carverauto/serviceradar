@@ -212,6 +212,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         assert has_element?(view, "##{unquote(player_prefix)}-#{ctx.relay_id}")
       end
     end
+
+    test "a layout change waits for the relay open in flight and the newest layout wins", ctx do
+      {:ok, view, _html} = live(ctx.conn, "/cameras")
+      assert_receive {:relay_open_started, first_open}, 5_000
+
+      view |> element("button[phx-value-count='8']") |> render_click()
+      view |> element("button[phx-value-count='16']") |> render_click()
+      refute_receive {:relay_open_started, _}, 300
+
+      send(first_open, :finish_relay_open)
+      assert_receive {:relay_open_started, latest_open}, 5_000
+      send(latest_open, :finish_relay_open)
+      _html = render_async(view, 5_000)
+
+      assert has_element?(view, ".sr-camera-multiview-16")
+      assert has_element?(view, "#camera-multiview-relay-#{ctx.relay_id}")
+      refute_receive {:relay_open_started, _}, 300
+    end
   end
 
   describe "camera preview viewer teardown" do
