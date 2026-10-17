@@ -300,7 +300,7 @@ func groupProxmoxCandidatesByNode(devices []*DiscoveredDevice, known func(ip str
 }
 
 func proxmoxCandidateNodeKey(device *DiscoveredDevice) string {
-	if device == nil || device.Metadata["proxmox_tls_sans_recorded"] != "true" {
+	if device == nil || device.Metadata["proxmox_tls_sans_recorded"] != stringTrueValue {
 		return ""
 	}
 
@@ -464,7 +464,7 @@ func recordProxmoxCertificateSANs(device *DiscoveredDevice, cert *x509.Certifica
 
 	// Recorded even when empty: a certificate with no IP SANs can match no IP
 	// origin, which is different from a probe that saw no certificate at all.
-	device.Metadata["proxmox_tls_sans_recorded"] = "true"
+	device.Metadata["proxmox_tls_sans_recorded"] = stringTrueValue
 	device.Metadata["proxmox_tls_san_ips"] = strings.Join(ips, ",")
 	device.Metadata["proxmox_tls_san_dns"] = strings.Join(names, ",")
 }

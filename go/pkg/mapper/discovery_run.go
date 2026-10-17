@@ -214,5 +214,5 @@ func recursiveSNMPTargetsEnabled(job *DiscoveryJob) bool {
 		return true
 	}
 
-	return value == "true" || value == "1" || value == "yes" || value == "on"
+	return value == stringTrueValue || value == "1" || value == "yes" || value == "on"
 }

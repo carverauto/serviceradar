@@ -179,7 +179,7 @@ func TestGroupProxmoxCandidatesByNodeMergesOneNodesAddresses(t *testing.T) {
 	candidate := func(ip, title, sans string) *DiscoveredDevice {
 		device := buildProxmoxCandidateDevice(ip, title)
 		if sans != "" {
-			device.Metadata["proxmox_tls_sans_recorded"] = "true"
+			device.Metadata["proxmox_tls_sans_recorded"] = stringTrueValue
 			device.Metadata["proxmox_tls_san_ips"] = sans
 		}
 		return device
@@ -211,7 +211,7 @@ func TestProxmoxNodeCandidatesFoldIntoOneJobDevice(t *testing.T) {
 		first := buildProxmoxCandidateDevice("198.51.100.21", "pve02")
 		second := buildProxmoxCandidateDevice("192.0.2.21", "pve02")
 		for _, device := range []*DiscoveredDevice{first, second} {
-			device.Metadata["proxmox_tls_sans_recorded"] = "true"
+			device.Metadata["proxmox_tls_sans_recorded"] = stringTrueValue
 			device.Metadata["proxmox_tls_san_ips"] = "127.0.0.1,::1,192.0.2.21"
 		}
 		return []*DiscoveredDevice{first, second}
@@ -606,7 +606,7 @@ func (h *pveHits) snapshot(firstAddr, countAddr string) (time.Time, int) {
 
 func servePVE(t *testing.T, addr, body string, cert tls.Certificate, hits *pveHits) {
 	t.Helper()
-	listener, err := net.Listen("tcp", addr)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	require.NoError(t, err)
 	tlsListener := tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{cert}})
 	server := &http.Server{
@@ -627,7 +627,7 @@ func servePVE(t *testing.T, addr, body string, cert tls.Certificate, hits *pveHi
 
 func serveSilentTCP(t *testing.T, addr string) {
 	t.Helper()
-	listener, err := net.Listen("tcp", addr)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	require.NoError(t, err)
 	done := make(chan struct{})
 	go func() {
