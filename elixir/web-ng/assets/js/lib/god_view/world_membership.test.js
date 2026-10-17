@@ -166,6 +166,23 @@ describe("binary admitted-row membership", () => {
     }
   })
 
+  it("clears a published view when a later SRMO frame changes authority", () => {
+    const state = session()
+    state.receive(bitmapFrame({tiles: [tile]}))
+    expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
+    expect(state.total).toBe(9002)
+    state.onAck.mockClear()
+    state.onReset.mockClear()
+    state.receive(bitmapFrame({sequence: 2n, binding: {authority_fingerprint: "synthetic-authority-2"},
+      tiles: [{...tile, mask: [0, 1], counts: [0, 1]}]}))
+    expect(state.entries.size).toBe(0)
+    expect(state.total).toBeNull()
+    expect(state.binding).toBeNull()
+    expect(state.pending).toBe(true)
+    expect(state.onAck).not.toHaveBeenCalled()
+    expect(state.onReset).toHaveBeenCalledWith("Membership binding changed", bitmapBinding.view_digest)
+  })
+
   it.each(["aggregate", "boundary"])("rejects an oversized %s population before publishing any rows", kind => {
     const state = session()
     const nodes = [geometry.nodes[0], {kind, count: kind === "aggregate" ? 2 : 0}]
@@ -199,6 +216,54 @@ describe("binary admitted-row membership", () => {
       expect(renderer.cache.manifest.bitmap).toEqual({ready: true})
       expect(fetcher).toHaveBeenCalledTimes(2)
       expect(fetcher.mock.calls.every(([url]) => url === "/topology/tiles/manifest")).toBe(true)
+    } finally {renderer.destroyed = true; clearTimeout(renderer.watchTimer); renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals()}
+  })
+
+  it("drops stale overlay health when the manifest fetch fails", async () => {
+    const layout = "00000000-0000-4000-8000-000000000478"
+    const manifest = {layout_version: layout, generation: 5, zmax: 1, extent: 2 ** 24, node_count: 1,
+      relation_count: 0, bitmap_membership_protocol: 1, world_overlay_protocol: 0}
+    const geometry = {key: {layout_version: layout, z: 0, x: 0, y: 0}, revision: "rev-1", generation: 5,
+      nodes: [{kind: "device", count: 1}], edges: []}
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.channel = {state: "joined"}
+    renderer.membershipEnabled = true
+    renderer.cache.observe(manifest)
+    renderer.overlays.setVisible([geometry])
+    renderer.overlays.entries.set("0/0/0", {layout_version: layout, generation: 5, tile_id: "0/0/0",
+      revision: "rev-1", health: {glyphs: [{state: "healthy"}]}})
+    vi.stubGlobal("fetch", vi.fn(async () => {throw new Error("Topology manifest unavailable")}))
+    try {
+      await renderer.poll()
+      expect(renderer.overlays.entries.size).toBe(0)
+      expect(renderer.membershipEnabled).toBe(true)
+      expect(renderer.channel.state).toBe("joined")
+    } finally {renderer.destroyed = true; clearTimeout(renderer.watchTimer); renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals()}
+  })
+
+  it("keeps accepted protocol capabilities when a replica returns an older manifest", async () => {
+    const layout = "00000000-0000-4000-8000-000000000479"
+    const current = {layout_version: layout, generation: 5, zmax: 1, extent: 2 ** 24, node_count: 1,
+      relation_count: 0, bitmap_membership_protocol: 1, world_overlay_protocol: 1,
+      bitmap: {ready: true, query: {entity_kind: "device"}}}
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.channel = {state: "joined"}
+    renderer.membershipEnabled = true
+    renderer.bitmapQuery = {all: []}
+    renderer.membershipSignature = "accepted-view"
+    renderer.cache.observe(current)
+    renderer.overlays.setBinary(true)
+    const invalidated = vi.spyOn(renderer, "invalidateMembership")
+    const lagging = {layout_version: layout, generation: 4, zmax: 1, extent: 2 ** 24, node_count: 1, relation_count: 0}
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(lagging)))
+    try {
+      await renderer.poll()
+      expect(renderer.cache.manifest.generation).toBe(5)
+      expect(renderer.cache.manifest.bitmap).toEqual(current.bitmap)
+      expect(renderer.membershipEnabled).toBe(true)
+      expect(renderer.overlays.binary).toBe(true)
+      expect(renderer.membershipSignature).toBe("accepted-view")
+      expect(invalidated).not.toHaveBeenCalled()
     } finally {renderer.destroyed = true; clearTimeout(renderer.watchTimer); renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals()}
   })
 
