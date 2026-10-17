@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
 
+  require Logger
+
   @camera_relay_poll_interval_ms 1_000
 
   @impl true
@@ -73,11 +75,40 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
     {:noreply, assign(socket, :camera_tile, tile)}
   end
 
+  @impl true
+  def handle_async(:camera_source_open, {:ok, tile}, socket) do
+    schedule_camera_refresh(tile)
+    {:noreply, assign(socket, :camera_tile, tile)}
+  end
+
+  def handle_async(:camera_source_open, {:exit, reason}, socket) do
+    Logger.warning("Camera relay open failed: #{inspect(reason, limit: 20, printable_limit: 200)}")
+
+    {:noreply,
+     assign(socket, :camera_tile, %{
+       label: "Camera",
+       detail: "Primary stream",
+       session: nil,
+       error: "Camera relay session could not be opened"
+     })}
+  end
+
+  # Opening the relay session runs in a task, as on the multiview, so the page
+  # renders before the session is requested from the agent.
   defp open_camera_source(socket, camera_source_id) do
     if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
-      tile = CameraMultiview.open_source_preview(socket.assigns.current_scope, camera_source_id)
-      schedule_camera_refresh(tile)
-      assign(socket, :camera_tile, tile)
+      scope = socket.assigns.current_scope
+
+      socket
+      |> assign(:camera_tile, %{
+        label: "Camera Feed",
+        detail: "Opening live camera relay.",
+        session: nil,
+        error: "Opening camera relay"
+      })
+      |> start_async(:camera_source_open, fn ->
+        CameraMultiview.open_source_preview(scope, camera_source_id)
+      end)
     else
       assign(socket, :camera_tile, %{label: "Camera", detail: "Primary stream", session: nil, error: "Not authorized"})
     end

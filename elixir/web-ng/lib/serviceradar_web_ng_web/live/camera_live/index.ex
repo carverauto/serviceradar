@@ -22,6 +22,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       |> assign(:layout_count, @default_layout_count)
       |> assign(:camera_tiles, [])
       |> assign(:camera_relay_subscriptions, MapSet.new())
+      |> assign(:camera_layout_open_in_flight?, false)
+      |> assign(:camera_layout_opening_count, nil)
+      |> assign(:pending_layout_count, nil)
       |> assign(:relay_notice, nil)
 
     socket =
@@ -99,6 +102,36 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   end
 
   @impl true
+  def handle_async(:camera_layout_open, {:ok, {count, tiles}}, socket) do
+    Enum.each(tiles, &schedule_camera_refresh/1)
+
+    socket =
+      socket
+      |> subscribe_camera_tiles(tiles)
+      |> assign(:camera_tiles, pad_camera_tiles(tiles, count))
+      |> assign(:relay_notice, camera_layout_notice(tiles, count))
+
+    {:noreply, finish_camera_layout_open(socket, count)}
+  end
+
+  def handle_async(:camera_layout_open, {:exit, reason}, socket) do
+    Logger.warning("Camera multiview relay open failed: #{inspect(reason, limit: 20, printable_limit: 200)}")
+    count = socket.assigns.layout_count
+
+    kept =
+      socket.assigns.camera_tiles
+      |> Enum.filter(& &1.session)
+      |> Enum.take(count)
+
+    socket =
+      socket
+      |> assign(:camera_tiles, pad_camera_tiles(kept, count))
+      |> assign(:relay_notice, "Camera relay sessions could not be opened.")
+
+    {:noreply, finish_camera_layout_open(socket, socket.assigns.camera_layout_opening_count)}
+  end
+
+  @impl true
   # Fallback timer for one tile: re-read it and re-arm.
   def handle_info({:refresh_camera_multiview_relay_session, relay_session_id}, socket) do
     {:noreply, refresh_camera_tile(socket, relay_session_id, rearm: true)}
@@ -146,21 +179,60 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
     assign(socket, :camera_relay_subscriptions, subscribed)
   end
 
+  # Opening a relay session reads the source, resolves its gateway and
+  # dispatches an agent command, once per viewport. That runs in a task so the
+  # page renders its viewports at once and fills them in as sessions open.
   defp open_camera_layout(socket, count) do
     if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
-      tiles = CameraMultiview.open_preview_tiles(socket.assigns.current_scope, count)
-      Enum.each(tiles, &schedule_camera_refresh/1)
+      socket =
+        socket
+        |> assign(:layout_count, count)
+        |> assign(:camera_tiles, opening_camera_tiles(socket.assigns.camera_tiles, count))
+        |> assign(:relay_notice, nil)
 
-      socket
-      |> subscribe_camera_tiles(tiles)
-      |> assign(:layout_count, count)
-      |> assign(:camera_tiles, pad_camera_tiles(tiles, count))
-      |> assign(:relay_notice, camera_layout_notice(tiles, count))
+      if socket.assigns.camera_layout_open_in_flight? do
+        assign(socket, :pending_layout_count, count)
+      else
+        scope = socket.assigns.current_scope
+
+        socket
+        |> assign(:camera_layout_open_in_flight?, true)
+        |> assign(:camera_layout_opening_count, count)
+        |> assign(:pending_layout_count, nil)
+        |> start_async(:camera_layout_open, fn ->
+          {count, CameraMultiview.open_preview_tiles(scope, count)}
+        end)
+      end
     else
       socket
       |> assign(:camera_tiles, pad_camera_tiles([], count))
       |> assign(:relay_notice, "You are not authorized to view camera streams.")
     end
+  end
+
+  defp finish_camera_layout_open(socket, opened_count) do
+    pending = socket.assigns.pending_layout_count
+
+    socket =
+      socket
+      |> assign(:camera_layout_open_in_flight?, false)
+      |> assign(:pending_layout_count, nil)
+
+    if is_integer(pending) and pending != opened_count do
+      open_camera_layout(socket, pending)
+    else
+      socket
+    end
+  end
+
+  # Viewports that already show a session keep it while the new layout opens.
+  defp opening_camera_tiles(tiles, count) do
+    open = tiles |> Enum.filter(& &1.session) |> Enum.take(count)
+
+    open ++
+      for idx <- (length(open) + 1)..count//1 do
+        %{label: "Camera #{idx}", detail: "Opening relay session", session: nil, error: "Opening camera relay"}
+      end
   end
 
   defp visible_camera_tiles(tiles, count), do: Enum.take(tiles, count)
