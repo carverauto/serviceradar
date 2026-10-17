@@ -1676,7 +1676,8 @@ wait_for_observer_ready() { return 0; }
         # Both independent deadlines include the command envelope, quiet period
         # and cleanup. An otherwise passing workload must not start too late.
         for action_start, observer_start, admitted in (
-            (310, 1010, True),
+            (325, 1025, True),
+            (310, 1010, False),
             (310, 610, False),
             (309, 610, False),
             (310, 609, False),

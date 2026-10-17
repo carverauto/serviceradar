@@ -300,12 +300,13 @@ actions:
 
           admit_scale() {
             # The test limit excludes Bazel startup/analysis. Bound the complete
-            # command too, and reserve 30s quiet plus two 60s cleanup commands.
+            # command too, and reserve 30s quiet, two 60s cleanup commands,
+            # the 5s observer kill grace, and the 10s status reserve.
             local elapsed action_remaining observer_remaining required
             elapsed="$(date +%s)"
             action_remaining=$((3600 - elapsed + ACTION_START_SECONDS))
             observer_remaining=$((OBSERVER_MAX_SECONDS - elapsed + START_NS / 1000000000))
-            required=$((2760 + 30 + 120))
+            required=$((2760 + 30 + 120 + 15))
             if (( action_remaining < required || observer_remaining < required )); then
               echo "Scale admission refused: action_remaining=${action_remaining}s observer_remaining=${observer_remaining}s required=${required}s" >&2
               return 1

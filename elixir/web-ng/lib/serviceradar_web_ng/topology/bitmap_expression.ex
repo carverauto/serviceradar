@@ -171,11 +171,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapExpression do
   end
 
   defp predicate(%{"prefix_tag" => %{"source" => source, "label" => label} = selector} = term, _supported)
-       when map_size(term) == 1 and map_size(selector) == 2 and is_binary(source) and byte_size(source) in 1..128 and
-              is_binary(label) and byte_size(label) in 1..256 do
-    if String.valid?(source) and String.valid?(label),
-      do: {:ok, {:prefix_tag, source, label}},
-      else: {:error, :invalid_predicate}
+       when map_size(term) == 1 and map_size(selector) == 2 and is_binary(source) and is_binary(label) do
+    with {:ok, source} <- literal_text(source, 128), {:ok, label} <- literal_text(label, 256) do
+      {:ok, {:prefix_tag, source, label}}
+    end
   end
 
   defp predicate(_value, _supported), do: {:error, :invalid_predicate}

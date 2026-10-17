@@ -55,9 +55,10 @@ before the first workflow step) only for the compact and sparse variants, and
 verifies that parent is the declared runner. Ordinary diagnostics do not read
 that clock. Scale warms
 the database suites and selected scale target before starting the observer.
-Immediately before scale execution it checks both remaining clocks: 2,760
-seconds for the complete Bazel command (including its unchanged 2,700-second
-test limit), 30 seconds for quiescence and 120 seconds for cleanup. Teardown and
+Immediately before scale execution it checks both remaining clocks. The floor
+is 2,925 seconds: 2,760 for the complete Bazel command (including its unchanged
+2,700-second test limit), 30 seconds for quiescence, 120 seconds for cleanup,
+5 seconds of observer kill grace, and 10 seconds of status reserve. Teardown and
 lease release each have a 60-second command envelope, including forced exit.
 The observer's complete command is also bounded by the smaller of 3,300 seconds
 and the remaining action time minus ten seconds for final status cleanup; its
@@ -79,9 +80,10 @@ bazel build -c opt --config=remote --//build:enable_integration_tests \
 Do not run the database targets against a live or developer database. The
 helper requires the existing scratch-database guard and verified TLS. The
 acceptance test refuses to seed unless the connection is this run's disposable
-clone and no `sr:atlas-scale-%` rows are already present. Cleanup removes those
-exact rows, their interfaces and the synthetic viewer through the existing
-fixture lifecycle before the workflow drops the clone. Do not
+clone and no `sr:atlas-scale-%` rows are already present. The exit hook closes
+over that seed record, including a seed that stops early, and removes those
+exact rows, their interfaces and the synthetic viewer before the workflow drops
+the clone. Do not
 rerun a completed variant in a dirty clone: fixture IDs intentionally collide
 and fail rather than silently reuse prior state.
 

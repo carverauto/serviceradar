@@ -175,14 +175,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   end
 
   defp selector(world, mapping, _selection, %{kind: :device, id: id}, _context, _remaining) do
-    with {:ok, [ordinal]} <- TopologyAtlas.device_ordinals(world, mapping, [id]), do: {:ok, {:leaf, ordinal}}
+    case TopologyAtlas.device_ordinals(world, mapping, [id]) do
+      {:ok, [ordinal]} -> {:ok, {:leaf, ordinal}}
+      {:error, :not_ready} -> {:error, :source_changed}
+      other -> other
+    end
   end
 
   defp selector(world, mapping, selection, %{kind: :aggregate, id: id}, context, remaining) when remaining > 0 do
     with {:ok, aggregate} <- TopologyAtlas.aggregate_selection(world, selection, id),
-         {:ok, budget} <- BitmapQueries.remaining(context),
-         {:ok, bytes} <- TopologyAtlas.aggregate_ordinals(world, mapping, aggregate, remaining, budget) do
-      {:ok, {:aggregate, bytes}}
+         {:ok, budget} <- BitmapQueries.remaining(context) do
+      case TopologyAtlas.aggregate_ordinals(world, mapping, aggregate, remaining, budget) do
+        {:ok, bytes} -> {:ok, {:aggregate, bytes}}
+        {:error, :not_ready} -> {:error, :source_changed}
+        other -> other
+      end
     end
   end
 

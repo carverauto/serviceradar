@@ -537,8 +537,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
 
   defp identity_scrub_sql do
     # Reset only structural defaults; an arbitrary future default must not
-    # repopulate redacted identity or source data. Timestamps describe this scrub,
-    # not the removed inventory's history, and stay readable by typed consumers.
+    # repopulate redacted identity or source data. first_seen_time and
+    # created_time stay so a revived identity keeps its age. modified_time and
+    # identity_purged_at record the scrub.
     %{rows: rows} =
       Repo.query!("""
       SELECT quote_ident(attname), attname IN (
@@ -548,7 +549,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       WHERE attrelid = 'platform.ocsf_devices'::regclass
         AND attnum > 0 AND NOT attisdropped AND NOT attnotnull
         AND attname NOT IN ('deleted_at', 'deleted_by', 'deleted_reason', 'metadata',
-          'identity_purged_at', 'created_time', 'modified_time')
+          'identity_purged_at', 'created_time', 'first_seen_time', 'modified_time')
       ORDER BY attnum
       """)
 
@@ -560,7 +561,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     "UPDATE platform.ocsf_devices SET " <>
       cleared <>
       ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at', '_seed_successor']::text[])), " <>
-      "created_time = timezone('utc', now()), modified_time = timezone('utc', now()), " <>
+      "modified_time = timezone('utc', now()), " <>
       "identity_purged_at = timezone('utc', now()), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end
 

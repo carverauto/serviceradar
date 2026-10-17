@@ -1853,10 +1853,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    restored_entries = Enum.map(restored, fn {entry, _device} -> entry end)
+    {purged, unpurged} = Enum.split_with(restored, fn {_entry, device} -> device.identity_purged_at end)
+
+    Enum.each(unpurged, fn {entry, device} ->
+      maybe_move_device_address(entry, device, records, observed_at, actor)
+    end)
+
+    unpurged_entries = Enum.map(unpurged, fn {entry, _device} -> entry end)
+    purged_entries = Enum.map(purged, fn {entry, _device} -> entry end)
     created = create_polled_devices(Enum.reverse(new), records, context, observed_at, actor)
-    _rehydrated = create_polled_devices(restored_entries, records, context, observed_at, actor)
-    kept ++ restored_entries ++ created
+    rehydrated = create_polled_devices(purged_entries, records, context, observed_at, actor)
+    kept ++ unpurged_entries ++ rehydrated ++ created
   end
 
   defp devices_by_uid(uids, actor) do

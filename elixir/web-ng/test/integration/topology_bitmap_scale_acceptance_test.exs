@@ -19,8 +19,14 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       end
 
     started = now()
-    on_exit(fn -> Fixture.cleanup!() end)
-    fixture = Fixture.seed(distribution)
+    {:ok, tracker} = Agent.start_link(fn -> %{seeded: false, ordinal_seq: nil} end)
+
+    on_exit(fn ->
+      Fixture.cleanup!(Agent.get(tracker, & &1))
+      Agent.stop(tracker)
+    end)
+
+    fixture = Fixture.seed(distribution, tracker)
 
     emit(
       "fixture",

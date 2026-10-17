@@ -316,11 +316,13 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
           "DELETE FROM platform.sweep_host_results WHERE sweep_group_id IN (#{groups})",
           "DELETE FROM platform.sweep_group_executions WHERE sweep_group_id IN (#{groups})",
           "DELETE FROM platform.sweep_group_versions WHERE version_source_id IN (#{groups})",
-          "DELETE FROM platform.device_agent_availability WHERE device_uid IN (#{devices})",
-          "DELETE FROM platform.ocsf_devices WHERE partition = $1",
-          "DELETE FROM platform.sweep_groups WHERE partition = $1"
+          "DELETE FROM platform.device_agent_availability WHERE device_uid IN (#{devices})"
         ] do
       Repo.query!(sql, [partition])
     end
+
+    %{rows: rows} = Repo.query!(devices, [partition])
+    TestSupport.delete_device_fixtures!(Enum.map(rows, fn [uid] -> uid end))
+    Repo.query!("DELETE FROM platform.sweep_groups WHERE partition = $1", [partition])
   end
 end

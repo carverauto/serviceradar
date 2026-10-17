@@ -82,8 +82,11 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
           :ok ->
             {:noreply, schedule_next(%{state | backoff: 1_000, ordinal_scan_at: System.monotonic_time(:millisecond)})}
 
-          {:error, _reason} ->
+          {:error, reason} when reason in [:source_changed, :not_ready] ->
             _ = TopologyAtlas.release_ordinals(mapping)
+            {:noreply, retry(state)}
+
+          {:error, _reason} ->
             {:noreply, retry(state)}
         end
 

@@ -132,6 +132,40 @@ fn catalogs_share_a_reservation_across_sources_and_release_it_before_retry() {
     assert_eq!(Catalog::total_native_bytes(), baseline);
 }
 
+#[test]
+fn label_ranges_drop_expired_prefixes_and_keep_live_ones() {
+    let _serial = CATALOG_TESTS.lock().unwrap();
+    let mut trie = Trie::new();
+    let mut expired = Entry::new(Prefix::parse("192.0.2.0/25").unwrap(), vec!["office".into()]);
+    expired.expires_at = Some((1, 0));
+    trie.insert(expired);
+    let mut live = Entry::new(
+        Prefix::parse("192.0.2.128/25").unwrap(),
+        vec!["office".into()],
+    );
+    live.expires_at = Some((i64::MAX, 0));
+    trie.insert(live);
+    let mut retired = Entry::new(
+        Prefix::parse("198.51.100.1/32").unwrap(),
+        vec!["retired".into()],
+    );
+    retired.expires_at = Some((1, 0));
+    trie.insert(retired);
+    let catalog = Catalog::build(&trie, catalog_deadline()).unwrap();
+    assert_eq!(
+        decoded_ranges(
+            &catalog
+                .ranges(&trie, "office", 8, 264, catalog_deadline())
+                .unwrap()
+        ),
+        [(4, 0xc000_0280, 0xc000_02ff)]
+    );
+    assert!(catalog
+        .ranges(&trie, "retired", 8, 264, catalog_deadline())
+        .unwrap()
+        .is_empty());
+}
+
 fn row(prefix: &str, tag: &str) -> Entry {
     Entry::new(Prefix::parse(prefix).unwrap(), vec![tag.to_owned()])
 }

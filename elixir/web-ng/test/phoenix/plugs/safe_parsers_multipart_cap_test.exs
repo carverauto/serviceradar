@@ -87,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsersMultipartCapTest do
     |> SafeParsers.call(opts)
   end
 
-  @filter_paths ["/topology/tiles/search", "/topology/details", "/topology/snapshot/latest"]
+  @filter_paths ["/topology/tiles/search", "/topology/details", "/topology/snapshot/latest", "/topology/query"]
 
   test "filtered topology reads keep their GET actions and accept a POST body above the request line" do
     query = String.duplicate("a", 12_000)

@@ -300,7 +300,8 @@ export class WorldFilterPanel {
       return {[term.mode]: term.children.map(child => this.expression(child))}
     }
     const value = term.value || ""
-    if (term.field !== "$prefix_tag" && value !== value.trim()) throw new Error("Remove surrounding whitespace from the condition value.")
+    const source = term.source || ""
+    if (value !== value.trim() || source !== source.trim()) throw new Error("Remove surrounding whitespace from the condition value.")
     if (!value || new TextEncoder().encode(value).length > 256) throw new Error("Each condition needs a value of at most 256 bytes.")
     if (term.field === "$ip" && this.descriptor?.operators?.ip_cidr) return {ip_cidr: value}
     if (term.field === "$prefix_tag" && this.descriptor?.prefix_tags?.available && this.descriptor.prefix_tags.sources.some(source => source.source === term.source && source.available)) return {prefix_tag: {source: term.source, label: value}}

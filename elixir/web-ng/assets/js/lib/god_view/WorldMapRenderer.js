@@ -222,7 +222,17 @@ export default class WorldMapRenderer {
 
   setBitmapQuery(query) {
     const next = query === undefined ? null : query
-    if (JSON.stringify(next) === JSON.stringify(this.bitmapQuery ?? null)) return
+    if (JSON.stringify(next) === JSON.stringify(this.bitmapQuery ?? null)) {
+      this.updateFilterPanel()
+      this.render()
+      if (this.membershipError) {
+        this.membershipError = null
+        this.membershipSignature = null
+        this.clearMembershipRetry()
+        this.scheduleWatch()
+      }
+      return
+    }
     this.returnToMap()
     this.sceneCache.clear()
     this.queryGeneration = (this.queryGeneration || 0) + 1
@@ -519,7 +529,7 @@ export default class WorldMapRenderer {
     // displayed membership view. Canonical order also ignores cache LRU churn.
     const tiles = payload.tiles.filter(tile => this.cache.visible.has(`${tile.z}/${tile.x}/${tile.y}`) && typeof tile.revision === "string")
       .sort((left, right) => left.z - right.z || left.x - right.x || left.y - right.y)
-    return {protocol: 1, layout_version: payload.layout_version, tiles, query: this.bitmapQuery}
+    return {protocol: 1, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
   }
 
   syncMembership(payload) {
