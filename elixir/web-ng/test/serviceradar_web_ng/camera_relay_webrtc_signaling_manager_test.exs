@@ -114,11 +114,42 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
     assert_receive {:create_session, ^relay_session_id, _opts}
   end
 
+  # The advertised host is the only node allowed to run the call. A second
+  # queued success would be returned if the timeout were sent around again.
+  test "does not ask other nodes when the advertised host does not answer" do
+    if is_nil(Process.whereis(:serviceradar_camera_relay_hosts)), do: start_supervised!(RelayHosts)
+    Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_rpc_nodes, [Node.self(), Node.self()])
+
+    relay_session_id = Ecto.UUID.generate()
+    host = spawn(fn -> receive do: (:stop -> :ok) end)
+    on_exit(fn -> send(host, :stop) end)
+    :ok = RelayHosts.advertise(relay_session_id, host)
+    RemoteManagerStub.queue_create_results([{:badrpc, :timeout}, nil])
+
+    assert {:error, "camera relay webrtc signaling unavailable: :timeout"} =
+             CameraRelayWebRTCSignalingManager.create_session(relay_session_id, scope: :test)
+
+    assert_receive {:create_session, ^relay_session_id, _opts}
+    refute_receive {:create_session, ^relay_session_id, _opts}
+  end
+
   # A relay lives on the one core-elx node that ingests it; the others answer
   # :not_found. The local node listed twice stands in for two core-elx nodes.
+  # An unreachable node has not said the relay is absent, in either order, and
+  # for either "not hosted" answer.
   for {label, results, expected} <- [
         {"skips a node that does not host the relay", [{:error, :not_found}, :hosted], :created},
-        {"reports not found when no node hosts the relay", [{:error, :not_found}, {:error, :not_found}], :not_found}
+        {"reports not found when no node hosts the relay", [{:error, :not_found}, {:error, :not_found}],
+         :not_found},
+        {"keeps looking after a node it cannot reach", [{:badrpc, :timeout}, :hosted], :created},
+        {"reports unreachable when another node does not host the relay",
+         [{:badrpc, :timeout}, {:error, :not_found}], :unreachable},
+        {"reports unreachable when another node has no viewer session",
+         [{:badrpc, :timeout}, {:error, :viewer_session_not_found}], :unreachable},
+        {"reports unreachable when a node it cannot reach follows one that does not host the relay",
+         [{:error, :not_found}, {:badrpc, :nodedown}], :unreachable_later},
+        {"reports unreachable when a node it cannot reach follows one with no viewer session",
+         [{:error, :viewer_session_not_found}, {:badrpc, :nodedown}], :unreachable_later}
       ] do
     test "create_session #{label}" do
       Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_rpc_nodes, [Node.self(), Node.self()])
@@ -135,6 +166,8 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
       case unquote(expected) do
         :created -> assert {:ok, %{signaling_state: "viewer_authorized"}} = result
         :not_found -> assert result == {:error, :not_found}
+        :unreachable -> assert result == {:error, "camera relay webrtc signaling unavailable: :timeout"}
+        :unreachable_later -> assert result == {:error, "camera relay webrtc signaling unavailable: :nodedown"}
       end
 
       assert_receive {:create_session, _relay_session_id, _opts}

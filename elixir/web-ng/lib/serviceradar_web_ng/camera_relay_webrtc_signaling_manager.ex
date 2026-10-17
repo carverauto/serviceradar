@@ -5,15 +5,19 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
   A relay's media pipeline and its viewer sessions live on the one core-elx node
   that ingests that relay, and every other node answers "not found". That node
   advertises the relay through `ServiceRadar.Camera.RelayHosts`, so each call goes
-  straight to it. Only when no node advertises the relay (the moment before its
-  advertisement propagates, or a core-elx that predates it) does a call try the
-  core-elx nodes in turn, returning the first answer that is not "not hosted
-  here"; when every node says so, the relay or viewer session is really gone.
+  straight to it. If that call does not get an answer, it fails as unavailable
+  and is not sent again. Only when no node advertises the relay (the moment
+  before its advertisement propagates, or a core-elx that predates it) does a
+  call try the core-elx nodes in turn, returning the first answer that is not
+  "not hosted here". When every node says so, the relay or viewer session is
+  really gone. A node that does not answer has not said so, and that call stays
+  unavailable.
   """
 
   alias ServiceRadar.Camera.RelayHosts
 
   @default_rpc_timeout 5_000
+  @not_hosted [:not_found, :viewer_session_not_found]
 
   def create_session(relay_session_id, opts) when is_binary(relay_session_id) do
     rpc(:create_session, [relay_session_id, opts], opts)
@@ -43,12 +47,15 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
     module = remote_manager_module()
     timeout = Keyword.get(opts, :rpc_timeout, @default_rpc_timeout)
 
-    with host when not is_nil(host) <- RelayHosts.host_node(relay_session_id),
-         result when not is_tuple(result) or elem(result, 0) != :badrpc <-
-           :rpc.call(host, module, function, args, timeout) do
-      result
-    else
-      _not_advertised_or_unreachable -> scan_for_relay_host(module, function, args, timeout)
+    case RelayHosts.host_node(relay_session_id) do
+      nil ->
+        scan_for_relay_host(module, function, args, timeout)
+
+      host ->
+        case :rpc.call(host, module, function, args, timeout) do
+          {:badrpc, reason} -> unavailable(reason)
+          result -> result
+        end
     end
   end
 
@@ -61,20 +68,27 @@ defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManager do
 
   defp call_relay_host([], _module, _function, _args, _timeout, last_result), do: last_result
 
-  defp call_relay_host([node | rest], module, function, args, timeout, _last_result) do
+  defp call_relay_host([node | rest], module, function, args, timeout, last_result) do
     case :rpc.call(node, module, function, args, timeout) do
       {:badrpc, reason} ->
-        call_relay_host(rest, module, function, args, timeout, {
-          :error,
-          "camera relay webrtc signaling unavailable: #{inspect(reason)}"
-        })
+        call_relay_host(rest, module, function, args, timeout, unavailable(reason))
 
-      {:error, reason} = not_hosted when reason in [:not_found, :viewer_session_not_found] ->
-        call_relay_host(rest, module, function, args, timeout, not_hosted)
+      {:error, reason} = not_hosted when reason in @not_hosted ->
+        call_relay_host(rest, module, function, args, timeout, keep_absent(last_result, not_hosted))
 
       result ->
         result
     end
+  end
+
+  defp keep_absent(nil, not_hosted), do: not_hosted
+
+  defp keep_absent({:error, reason}, not_hosted) when reason in @not_hosted, do: not_hosted
+
+  defp keep_absent(kept, _not_hosted), do: kept
+
+  defp unavailable(reason) do
+    {:error, "camera relay webrtc signaling unavailable: #{inspect(reason)}"}
   end
 
   defp core_elx_nodes(module, timeout) do
