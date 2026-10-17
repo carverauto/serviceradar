@@ -714,7 +714,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     capabilities = package.capabilities || []
 
     %{
-      "camera_stream_view" => "camera.stream.view" in capabilities and RBAC.can?(scope, "devices.view"),
+      "camera_stream_view" => "camera.stream.view" in capabilities and RBAC.can?(scope, "devices.cameras.view"),
       "actions_invoke" => "actions.invoke" in capabilities and RBAC.can?(scope, "northbound.actions.launch"),
       "events_subscribe" => "events.subscribe" in capabilities
     }
