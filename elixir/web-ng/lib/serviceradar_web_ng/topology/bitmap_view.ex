@@ -53,25 +53,41 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
 
   defp current_projection(result) do
     with {:ok, %{ordinals: %{mapping: mapping}} = current} <- WorldCache.world(),
-         true <- current.manifest.generation == result.generation and mapping == result.mapping,
-         {:ok, snapshot} <- BitmapIndex.snapshot(),
-         true <- Ecto.UUID.load!(snapshot.dictionary_epoch) == result.metadata.dictionary_epoch,
-         true <- Ecto.UUID.load!(snapshot.index_epoch) == result.metadata.index_epoch do
-      :ok
+         :ok <- require_generation(current, result, mapping),
+         {:ok, snapshot} <- BitmapIndex.snapshot() do
+      require_index_epochs(snapshot, result)
     else
-      false -> {:error, :source_changed}
       {:ok, _unmapped_world} -> {:error, :membership_not_ready}
       error -> error
     end
   end
 
+  defp require_generation(current, result, mapping) do
+    if current.manifest.generation == result.generation and mapping == result.mapping do
+      :ok
+    else
+      {:error, :source_changed}
+    end
+  end
+
+  defp require_index_epochs(snapshot, result) do
+    dictionary = Ecto.UUID.load!(snapshot.dictionary_epoch)
+    index = Ecto.UUID.load!(snapshot.index_epoch)
+
+    if dictionary == result.metadata.dictionary_epoch and index == result.metadata.index_epoch do
+      :ok
+    else
+      {:error, :membership_not_ready}
+    end
+  end
+
   defp project(context, watch, sequence) do
     with {:ok, %{ordinals: %{mapping: mapping, info: info}} = current} <- WorldCache.world(),
-         true <- current.manifest.layout_version == watch.layout_version,
-         true <- info.dictionary_epoch == context.dictionary_epoch,
+         :ok <- require_layout(current, watch),
+         :ok <- require_dictionary_epoch(info, context),
          {:ok, tiles} <- project_tiles(current, mapping, context, watch),
          {:ok, latest} <- WorldCache.world(),
-         true <- latest.world == current.world and latest.ordinals == current.ordinals do
+         :ok <- require_same_world(latest, current) do
       metadata = metadata(context, current, watch, sequence)
 
       identity = %{
@@ -117,6 +133,30 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
       false -> {:error, :source_changed}
       {:ok, _unmapped_world} -> {:error, :membership_not_ready}
       error -> error
+    end
+  end
+
+  defp require_layout(current, watch) do
+    if current.manifest.layout_version == watch.layout_version do
+      :ok
+    else
+      {:error, :source_changed}
+    end
+  end
+
+  defp require_dictionary_epoch(info, context) do
+    if info.dictionary_epoch == context.dictionary_epoch do
+      :ok
+    else
+      {:error, :membership_not_ready}
+    end
+  end
+
+  defp require_same_world(latest, current) do
+    if latest.world == current.world and latest.ordinals == current.ordinals do
+      :ok
+    else
+      {:error, :source_changed}
     end
   end
 

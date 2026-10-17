@@ -24,12 +24,14 @@ Older sequences and evicted views are ignored. A missing or mismatched receipt,
 invalid state or changed authority clears membership and requests a baseline;
 new tiles stay hidden until their entire admitted view validates. A sequence
 jump is safe because every frame is a complete replacement.
-Transient warmup/source/query failures retry with a one-second exponential
-backoff capped at ten seconds. Malformed frames and resets follow the same
-backoff; a successful watch reply alone does not reset the retry count. An
-accepted complete replacement resets it. A new query or displayed view starts
-a new retry epoch. Unsupported predicates remain explicit errors;
-they do not retry until the query changes. Disable and teardown cancel retries.
+Automatic retries cover transient warmup, source, and query failures. They use
+a one-second exponential backoff capped at ten seconds. Malformed frames and
+resets follow that backoff. A successful watch reply alone leaves the retry
+count in place. An accepted complete replacement resets it. Unsupported
+predicates stay explicit errors and stay out of that automatic retry. A new
+query, a displayed view, a capability refresh, or another user request,
+including a pan or zoom that invalidates the membership view, may submit the
+same unsupported predicate again. Disable and teardown cancel retries.
 
 ## Binary format
 

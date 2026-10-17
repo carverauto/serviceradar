@@ -53,9 +53,12 @@ No old ordinal is reused. Physical scrub preserves the successor pointer.
 Eligible mapper rediscovery of an identity-purged operator, DIRE, or nil-actor
 tombstone allocates a fresh successor UID through the same durable
 `_seed_successor` pointer and eight-read bound. The purged row and its permanent
-ordinal stay. Creation and pointer movement commit together, and the successor
-is not redirected onto another device. Unpurged operator deletes stay
-suppressed. Merged, source-retired, and released-seed lineage stay suppressed
+ordinal stay. Creation and pointer movement commit together. An anchorless
+provisional seed already holding the polled IP may be that published
+successor, and the tombstone pointer records the adopted live UID. Merged,
+source-retired, released-seed, and operator tombstones are not adoption
+targets. Unpurged operator deletes stay suppressed. Merged, source-retired,
+and released-seed lineage stay suppressed
 and are never revived. A restorable system delete still returns as the same UID,
 including one reached through the successor pointer: rehydrate it when
 identity-purged and restore it when it is only soft-deleted. The walk continues
@@ -65,7 +68,10 @@ absence before pointer movement, and a successor is published only when that
 row is live and mapper-owned. A same-poll management link resolves each child
 address's parent once, then uses the parent's committed live UID: the rehydrated
 row when that parent is a restorable system delete, or the published successor
-when rediscovery allocates one. A withheld successor records no management parent.
+when rediscovery allocates one. A later poll of an existing or restored child
+records the parent's committed live UID when an earlier poll deferred or failed
+the parent. A withheld or not-yet-live parent leaves an existing link unchanged
+and records no planned id.
 
 Rollback retains dictionary deletion/truncate protection. It requires a cleanup
 binary with retained-identity support (or that support backported), or cleanup
@@ -97,6 +103,9 @@ transaction commits. Keep pending ordinals in native Roaring under a 512 KiB
 byte cap; the 500-row read batch is not its membership capacity. Normalize UID
 hints through bounded reads, with separate limits on that ingress. Coalesce
 repeated IDs; overflow requests reconciliation without an unbounded mailbox.
+The publisher owner retains its one drained batch, at most 500 ordinals, until
+publication succeeds. Native contention retries preserve that work without
+requiring another queue write, setting a source error, or starting a full scan.
 Lost hints and restarts are repaired by rolling, bounded keyset scans. Preserve
 an accepted index while preparing a replacement and report its age honestly.
 

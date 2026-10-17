@@ -365,6 +365,70 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     end
   end
 
+  @tag sandbox: :unboxed
+  test "publisher contention keeps pending updates without reporting a source failure", %{
+    ids: [first_id | _],
+    vendor: vendor
+  } do
+    first = create(first_id, vendor, true)
+    owner = start_replica(:one, ServiceRadar.PubSub)
+    ordinal = FleetIdentity.device_ordinal(first.uid)
+    await_members(owner, vendor, [ordinal])
+
+    {:ok, current} =
+      await_value(fn -> BitmapIndex.snapshot(owner) end, fn
+        {:ok, %{progress: %{pending_dirty: 0, reconciling: false}}} -> true
+        _ -> false
+      end)
+
+    {:ok, held_stage} =
+      await_value(
+        fn ->
+          with {:ok, status} <- Native.bitmap_index_status(current.device) do
+            Native.bitmap_index_begin_publish(current.device, status.revision, <<99::64>>, [], true)
+          end
+        end,
+        &match?({:ok, _}, &1)
+      )
+
+    handler = {__MODULE__, :publisher_contention, make_ref()}
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _timings, metadata, test_owner ->
+          if String.upcase(to_string(metadata.query)) == "ROLLBACK" and
+               self() in Task.Supervisor.children(__MODULE__.OneTasks) do
+            send(test_owner, {:publisher_rollback, handler, self()})
+          end
+        end,
+        self()
+      )
+
+    try do
+      set_available(first, false)
+
+      for _ <- 1..2 do
+        assert_receive {:publisher_rollback, ^handler, task}, 10_000
+        await_task(task)
+      end
+
+      assert {:ok, %{progress: progress}} = BitmapIndex.snapshot(owner)
+      refute progress.source_error
+      refute progress.reconciling
+      assert progress.pending_dirty > 0
+      assert {:ok, [^ordinal]} = members(owner, vendor)
+    after
+      :telemetry.detach(handler)
+      Native.bitmap_publish_abort(held_stage)
+    end
+
+    # Recovery comes from the retained work, before the ordinary 30-second scan.
+    await_members(owner, vendor, [], System.monotonic_time(:millisecond) + 10_000)
+  end
+
   defp hold_device_commit(uid, vendor) do
     parent = self()
     token = make_ref()

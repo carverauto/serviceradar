@@ -36,6 +36,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
      get `ip = NULL`.
   """
 
+  import Ecto.Query
+
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -78,6 +80,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       ip_literal_devices: ip_literal_uids
     }
 
+    # -- planning (read-only) ----------------------------------------------------
     case mode do
       :dry_run ->
         report
@@ -95,8 +98,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
         |> Map.put(:ip_literal_fixed, fixed)
     end
   end
-
-  # -- planning (read-only) ----------------------------------------------------
 
   defp scoped_agents(opts, actor) do
     statuses = Keyword.get(opts, :agent_statuses, @default_statuses)
@@ -392,6 +393,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   defp most_recent([]), do: nil
 
+  # -- execution ----------------------------------------------------------------
+
   defp most_recent(devices) do
     Enum.max_by(devices, fn device ->
       case device.last_seen_time do
@@ -419,8 +422,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     }
   end
 
-  # -- execution ----------------------------------------------------------------
-
   defp apply_plan(%{action: :skip}, _manifest, _actor, stats), do: stats
 
   defp apply_plan(plan, manifest, actor, stats) do
@@ -447,17 +448,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   # Atomic updates build their query from the primary read, which filters
   # tombstoned rows — restore must go through an include_deleted query.
-  defp ensure_target_device(
-         %{action: :restore, target_device: %{identity_purged_at: purged_at}} = plan,
-         manifest,
-         actor
-       )
-       when not is_nil(purged_at) do
-    bulk_restore(plan, manifest, actor, :gateway_restore, restore_attrs(plan))
-  end
-
   defp ensure_target_device(%{action: :restore} = plan, manifest, actor) do
-    bulk_restore(plan, manifest, actor, :restore, %{})
+    bulk_restore(plan, manifest, actor)
   end
 
   defp ensure_target_device(%{action: :create} = plan, manifest, actor) do
@@ -476,32 +468,63 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     end
   end
 
-  defp bulk_restore(plan, manifest, actor, action, attrs) do
+  defp bulk_restore(plan, manifest, actor) do
     result =
-      Device
-      |> Ash.Query.for_read(:by_uid, %{uid: plan.target_device.uid, include_deleted: true})
-      |> Ash.bulk_update(action, attrs,
-        actor: actor,
-        return_errors?: true,
-        strategy: [:atomic, :stream]
-      )
+      Repo.transaction(fn ->
+        case locked_restore_target(plan.target_device.uid) do
+          nil ->
+            Repo.rollback(:missing_restore_target)
+
+          row ->
+            {action, attrs} =
+              if is_nil(row.identity_purged_at),
+                do: {:restore, %{}},
+                else: {:gateway_restore, restore_attrs(plan)}
+
+            case restore_target(plan, actor, action, attrs) do
+              %Ash.BulkResult{status: :success} -> plan.target_device.uid
+              %Ash.BulkResult{errors: errors} -> Repo.rollback(errors)
+              other -> Repo.rollback(other)
+            end
+        end
+      end)
 
     case result do
-      %Ash.BulkResult{status: :success} ->
+      {:ok, uid} ->
         Manifest.record(
           manifest,
           @step,
           :restore_device,
           "platform.ocsf_devices",
-          [plan.target_device.uid],
+          [uid],
           %{agent_uid: plan.agent_uid}
         )
 
-        {:ok, plan.target_device.uid}
+        {:ok, uid}
 
-      %Ash.BulkResult{errors: errors} ->
-        {:error, errors}
+      {:error, error} ->
+        {:error, error}
     end
+  end
+
+  defp locked_restore_target(uid) do
+    Repo.one(
+      from(device in Device,
+        where: device.uid == ^uid,
+        lock: "FOR NO KEY UPDATE",
+        select: %{uid: device.uid, identity_purged_at: device.identity_purged_at}
+      )
+    )
+  end
+
+  defp restore_target(plan, actor, action, attrs) do
+    Device
+    |> Ash.Query.for_read(:by_uid, %{uid: plan.target_device.uid, include_deleted: true})
+    |> Ash.bulk_update(action, attrs,
+      actor: actor,
+      return_errors?: true,
+      strategy: [:atomic, :stream]
+    )
   end
 
   defp repoint_agent(%{old_device_uid: uid}, uid, _manifest, _actor), do: :ok
@@ -704,6 +727,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
          })
          |> Ash.create(actor: actor) do
       {:ok, identifier} ->
+        # -- ip literal fix -----------------------------------------------------------
         Manifest.record(
           manifest,
           @step,
@@ -744,8 +768,6 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       :ok
     end
   end
-
-  # -- ip literal fix -----------------------------------------------------------
 
   defp devices_with_ip_literal(ip_literal) when is_binary(ip_literal) and ip_literal != "" do
     %{rows: rows} =

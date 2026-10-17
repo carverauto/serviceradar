@@ -981,6 +981,93 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert tombstone.metadata["_seed_successor"] == controller_successor
   end
 
+  test "mapper rediscovery adopts an anchorless provisional seed at the purged address", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 70, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    seed_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _seed} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: seed_uid,
+        ip: ip,
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "operator_ip_seed"
+        }
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: ^seed_uid}] = wait_for_devices_by_ip(actor, ip)
+    refute device_row?(Ids.reseeded_device_id(root_uid))
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == seed_uid
+    assert fleet_ordinal!(root_uid) == ordinal
+  end
+
+  test "a later poll links an existing dependent after successor progress", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 71, uniq)
+    ap_ip = unique_test_ip(198, 51, 72, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(controller_ip, [controller_mac]),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    hard_purge!(controller, actor, "manual", Ecto.UUID.generate())
+    chain = Enum.scan(1..8, controller_uid, fn _, uid -> Ids.reseeded_device_id(uid) end)
+    progress = Ids.reseeded_device_id(List.last(chain))
+
+    chain
+    |> Enum.with_index(1)
+    |> Enum.each(fn {uid, index} ->
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: uid,
+          ip: unique_test_ip(198, 51, 80 + index, uniq + index)
+        })
+        |> Ash.create(actor: actor)
+
+      hard_purge!(device, actor, "manual", Ecto.UUID.generate())
+    end)
+
+    payload = managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac)
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert wait_for_devices_by_ip(actor, controller_ip, 1) == []
+    assert [%Device{management_device_id: nil}] = wait_for_devices_by_ip(actor, ap_ip)
+    assert {:ok, progressed} = Device.get_by_uid(controller_uid, true, actor: actor)
+    assert progressed.metadata["_seed_successor"] == progress
+    refute device_row?(progress)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [%Device{uid: ^progress}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{management_device_id: ^progress}] = wait_for_devices_by_ip(actor, ap_ip)
+  end
+
   test "a poll rehydrates a purged identity and leaves an unpurged tombstone's recorded identity",
        %{
          actor: actor
