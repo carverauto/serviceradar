@@ -254,6 +254,87 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     assert is_binary(guest_id)
   end
 
+  test "a new guest reported with its node gets its own device, not the node's", %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    node = "pve-guest-scope-#{suffix}"
+    native_cluster_id = "guest-scope-#{suffix}"
+    guest_name = "vm-guest-scope-#{suffix}"
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    node_entry = %{
+      "node" => node,
+      "status" => "online",
+      "ip" => "192.0.2.#{rem(suffix, 200) + 1}"
+    }
+
+    payload = fn guests ->
+      %{
+        "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "details" => %{
+          "schema" => "serviceradar.proxmox_enrichment.v1",
+          "targets" => [
+            %{
+              "cluster" => [%{"type" => "cluster", "name" => native_cluster_id}],
+              "nodes" => [node_entry],
+              "guests" => guests
+            }
+          ]
+        }
+      }
+    end
+
+    # The node is persisted first, so its integration identity is registered
+    # when the guest arrives alongside it.
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload.([]), %{},
+               actor: actor,
+               source_scope: source_scope
+             )
+
+    guest = %{
+      "node" => node,
+      "type" => "lxc",
+      "vmid" => 100 + rem(suffix, 800),
+      "name" => guest_name,
+      "status" => "running",
+      "interfaces" => [
+        %{
+          "name" => "eth0",
+          "mac_address" => "02:00:00:00:00:02",
+          "ip_addresses" => ["198.51.100.#{rem(suffix, 200) + 1}/24"],
+          "source" => "config"
+        }
+      ]
+    }
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload.([guest]), %{},
+               actor: actor,
+               source_scope: source_scope
+             )
+
+    assert [[node_uid, guest_uid, guest_hostname]] =
+             Repo.query!(
+               """
+               SELECT h.device_uid, g.device_uid, d.hostname
+               FROM platform.virtualization_hosts h
+               JOIN platform.virtualization_guests g ON g.host_id = h.id
+               JOIN platform.ocsf_devices d ON d.uid = g.device_uid
+               WHERE h.provider = 'proxmox' AND h.name = $1 AND g.name = $2
+               """,
+               [node, guest_name]
+             ).rows
+
+    assert is_binary(node_uid)
+    refute guest_uid == node_uid
+    assert guest_hostname == guest_name
+  end
+
   test "resolves hosts to existing devices by case-insensitive hostname", %{actor: actor} do
     suffix = System.unique_integer([:positive])
     provider = "testhv"

@@ -1607,21 +1607,33 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp identifier_type_atom("integration_id"), do: :integration_id
   defp identifier_type_atom(_value), do: nil
 
+  # Host-scoped records: hosts, host disks and host NICs.
   defp resolve_record_device_uid(record, devices, identity_maps) do
     current_uid = Map.get(record, :device_uid)
+    refs = host_scoped_lookup_refs(record)
 
-    Map.put(record, :device_uid, resolved_device_uid(record, devices, identity_maps, current_uid))
+    Map.put(
+      record,
+      :device_uid,
+      resolved_device_uid(record, devices, identity_maps, current_uid, refs)
+    )
   end
 
+  # Guest-scoped records: guests and guest NICs.
   defp resolve_record_device_uid(record, devices, identity_maps, actor, claim_type) do
     current_uid = reusable_current_uid(Map.get(record, :device_uid), claim_type, actor)
+    refs = guest_scoped_lookup_refs(record)
 
-    Map.put(record, :device_uid, resolved_device_uid(record, devices, identity_maps, current_uid))
+    Map.put(
+      record,
+      :device_uid,
+      resolved_device_uid(record, devices, identity_maps, current_uid, refs)
+    )
   end
 
-  defp resolved_device_uid(record, devices, identity_maps, current_uid) do
+  defp resolved_device_uid(record, devices, identity_maps, current_uid, refs) do
     Map.get(devices.by_uid, current_uid) ||
-      lookup_device_by_identity_maps(record, identity_maps) ||
+      lookup_device_by_identity_maps(refs, identity_maps) ||
       maybe_lookup_device_by_record_name(record, devices) ||
       existing_sr_uid(current_uid)
   end
@@ -1645,27 +1657,30 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     if DeviceClaimPolicy.reusable_for_claim?(uid, claim_type, actor), do: uid
   end
 
-  defp lookup_device_by_identity_maps(record, identity_maps) do
-    refs = identity_lookup_refs(record)
-
+  defp lookup_device_by_identity_maps(refs, identity_maps) do
     Enum.find_value(identity_maps, fn identity_map ->
       Enum.find_value(refs, &Map.get(identity_map, &1))
     end)
   end
 
-  # Guest-scoped records resolve through their guest ref; host-scoped
-  # records (hosts themselves, host disks/NICs) fall back to the host ref.
-  defp identity_lookup_refs(record) do
-    refs =
-      case Map.get(record, :guest_provider_ref) do
-        guest_ref when is_binary(guest_ref) and guest_ref != "" ->
-          [guest_ref, Map.get(record, :provider_ref)]
+  # A host disk or NIC belongs to its host's device, so it falls back to the
+  # host ref.
+  defp host_scoped_lookup_refs(record) do
+    Enum.filter(
+      [Map.get(record, :provider_ref), Map.get(record, :host_provider_ref)],
+      &present?/1
+    )
+  end
 
-        _ ->
-          [Map.get(record, :provider_ref), Map.get(record, :host_provider_ref)]
-      end
-
-    Enum.filter(refs, &present?/1)
+  # A guest is never its host. Guest records carry the host ref too, and the
+  # integration map is keyed by every host in the batch, so a host-ref
+  # fallback bound a guest whose own identity was not registered yet to its
+  # node's device. A guest NIC resolves through its guest's ref.
+  defp guest_scoped_lookup_refs(record) do
+    Enum.filter(
+      [Map.get(record, :guest_provider_ref), Map.get(record, :provider_ref)],
+      &present?/1
+    )
   end
 
   defp lookup_device_by_record_name(record, devices) do
