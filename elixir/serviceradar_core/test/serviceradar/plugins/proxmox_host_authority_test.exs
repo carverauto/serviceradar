@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
+  alias ServiceRadar.AgentConfig.WarningLedger
   alias ServiceRadar.Plugins.ProxmoxHostAuthority
 
   @sentinel "__SERVICERADAR_HOST_CREDENTIAL__"
@@ -520,38 +523,129 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     end
   end
 
-  test "a target whose address the node certificate does not list never reaches the agent" do
-    items = [
-      san_item("device-covered", "192.0.2.10", %{"proxmox_tls_san_ips" => "127.0.0.1,192.0.2.10"}),
-      san_item("device-uncovered", "192.0.2.20", %{"proxmox_tls_san_ips" => "198.51.100.20"}),
-      san_item("device-no-ip-sans", "192.0.2.21", %{}),
-      san_item("device-unprobed", "192.0.2.30", %{"proxmox_tls_sans_recorded" => nil}),
-      san_item("device-operator-url", "192.0.2.40", %{
-        "proxmox_base_url" => "https://198.51.100.40:8006"
-      })
-    ]
+  # Each case is one target: the address it is discovered at, its certificate
+  # fields, the device's own interface addresses, and where it is delivered
+  # (nil: dropped) with the binding origin that follows.
+  @certificate_cases [
+    %{
+      uid: "device-covered",
+      ip: "192.0.2.10",
+      fields: %{"proxmox_tls_san_ips" => "127.0.0.1,192.0.2.10"},
+      own: ["192.0.2.10/24"],
+      delivered_at: "192.0.2.10",
+      origin: "https://192.0.2.10:8006"
+    },
+    # Multi-homed: the certificate lists another of the device's own addresses.
+    %{
+      uid: "device-multi-homed",
+      ip: "192.0.2.20",
+      fields: %{"proxmox_tls_san_ips" => "198.51.100.20"},
+      own: ["192.0.2.20/24", "198.51.100.20/24"],
+      delivered_at: "198.51.100.20",
+      origin: "https://198.51.100.20:8006"
+    },
+    # The certificate lists addresses, but none the device owns.
+    %{
+      uid: "device-foreign-sans",
+      ip: "192.0.2.21",
+      fields: %{"proxmox_tls_san_ips" => "198.51.100.21"},
+      own: ["192.0.2.21/24"],
+      delivered_at: nil,
+      origin: nil
+    },
+    %{
+      uid: "device-no-ip-sans",
+      ip: "192.0.2.22",
+      fields: %{},
+      own: ["192.0.2.22/24"],
+      delivered_at: nil,
+      origin: nil
+    },
+    # Loopback, link-local, unspecified and broadcast name no reachable interface.
+    %{
+      uid: "device-loopback-only",
+      ip: "192.0.2.23",
+      fields: %{
+        "proxmox_tls_san_ips" => "127.0.0.1,::1,169.254.0.23,fe80::23,0.0.0.0,255.255.255.255"
+      },
+      own:
+        ~w(192.0.2.23/24 127.0.0.1/8 ::1/128 169.254.0.23/16 fe80::23/64 0.0.0.0 255.255.255.255),
+      delivered_at: nil,
+      origin: nil
+    },
+    # Same family as the dial address first, then the lowest address.
+    %{
+      uid: "device-dual-stack",
+      ip: "192.0.2.24",
+      fields: %{"proxmox_tls_san_ips" => "2001:db8::24,198.51.100.124,198.51.100.24"},
+      own: ~w(192.0.2.24/24 2001:db8::24/64 198.51.100.124/24 198.51.100.24/24),
+      delivered_at: "198.51.100.24",
+      origin: "https://198.51.100.24:8006"
+    },
+    %{
+      uid: "device-unprobed",
+      ip: "192.0.2.30",
+      fields: %{"proxmox_tls_sans_recorded" => nil},
+      own: ["198.51.100.30/24"],
+      delivered_at: "192.0.2.30",
+      origin: "https://192.0.2.30:8006"
+    },
+    # An operator-set URL is dialled as given.
+    %{
+      uid: "device-operator-url",
+      ip: "192.0.2.40",
+      fields: %{
+        "proxmox_base_url" => "https://198.51.100.40:8006",
+        "proxmox_tls_san_ips" => "198.51.100.41"
+      },
+      own: ["198.51.100.41/24"],
+      delivered_at: "192.0.2.40",
+      origin: "https://198.51.100.40:8006"
+    }
+  ]
+
+  test "a target is delivered only at an address its node certificate lists" do
+    items = Enum.map(@certificate_cases, &san_item(&1.uid, &1.ip, &1.fields))
+    own_addresses = Map.new(@certificate_cases, &{&1.uid, &1.own})
+    delivered = Enum.filter(@certificate_cases, & &1.delivered_at)
 
     params =
       %{}
       |> trust_material_params()
       |> put_in(["inputs"], [%{"name" => "targets", "chunk_hash" => "stale", "items" => items}])
 
-    {public, host} = partition("proxmox-inventory", "run_check", params, "assignment-san")
+    test_pid = self()
+
+    device_addresses = fn uids ->
+      send(test_pid, {:device_addresses, uids})
+      Map.take(own_addresses, uids)
+    end
+
+    {public, host} =
+      partition("proxmox-inventory", "run_check", params, "assignment-san",
+        device_addresses: device_addresses
+      )
 
     [input] = public["inputs"]
 
-    assert Enum.map(input["items"], & &1["uid"]) ==
-             ["device-covered", "device-unprobed", "device-operator-url"]
+    assert Map.new(input["items"], &{&1["uid"], &1["ip"]}) ==
+             Map.new(delivered, &{&1.uid, &1.delivered_at})
 
     assert input["chunk_hash"] =~ ~r/\A[0-9a-f]{64}\z/
 
-    assert host["bindings"] |> Enum.map(& &1["origin"]) |> Enum.sort() == [
-             "https://192.0.2.10:8006",
-             "https://192.0.2.30:8006",
-             "https://198.51.100.40:8006"
-           ]
+    assert host["bindings"] |> Enum.map(& &1["origin"]) |> Enum.sort() ==
+             delivered |> Enum.map(& &1.origin) |> Enum.sort()
 
-    # A pinned leaf fingerprint replaces address matching, so nothing is dropped.
+    # One lookup, for exactly the targets the certificate does not cover.
+    assert_received {:device_addresses, uids}
+
+    assert Enum.sort(uids) ==
+             ~w(device-dual-stack device-foreign-sans device-loopback-only device-multi-homed
+                device-no-ip-sans)
+
+    refute_received {:device_addresses, _uids}
+
+    # A pinned leaf fingerprint replaces address matching: nothing is dropped or redialled.
     pinned =
       put_in(
         params,
@@ -559,8 +653,37 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
         "sha256:" <> String.duplicate("ab", 32)
       )
 
-    {pinned_public, _host} = partition("proxmox-inventory", "run_check", pinned, "assignment-pin")
-    assert length(hd(pinned_public["inputs"])["items"]) == length(items)
+    {pinned_public, _host} =
+      partition("proxmox-inventory", "run_check", pinned, "assignment-pin",
+        device_addresses: device_addresses
+      )
+
+    assert hd(pinned_public["inputs"])["items"] == items
+  end
+
+  test "a dropped target is warned about once per change of its address or SAN set" do
+    start_supervised!(WarningLedger)
+
+    resolve = fn san_ips ->
+      item = san_item("device-warn-once", "192.0.2.50", %{"proxmox_tls_san_ips" => san_ips})
+
+      params =
+        %{}
+        |> trust_material_params()
+        |> put_in(["inputs"], [%{"name" => "targets", "items" => [item]}])
+
+      partition("proxmox-inventory", "run_check", params, "assignment-warn-once",
+        device_addresses: fn _uids -> %{"device-warn-once" => ["192.0.2.50/24"]} end
+      )
+    end
+
+    warnings = fn log ->
+      log |> String.split(~s("device-warn-once" at 192.0.2.50)) |> length() |> Kernel.-(1)
+    end
+
+    assert warnings.(capture_log(fn -> resolve.("198.51.100.50") end)) == 1
+    assert warnings.(capture_log(fn -> resolve.("198.51.100.50") end)) == 0
+    assert warnings.(capture_log(fn -> resolve.("198.51.100.51") end)) == 1
   end
 
   defp san_item(uid, ip, extra) do
@@ -630,7 +753,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     ])
   end
 
-  defp partition(plugin_id, entrypoint, params, assignment_id) do
+  defp partition(plugin_id, entrypoint, params, assignment_id, opts \\ []) do
     {rule_id, purpose} =
       case plugin_id do
         "proxmox-inventory" -> {"rule-inventory", "inventory_enrichment"}
@@ -646,7 +769,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
         params
       )
 
-    ProxmoxHostAuthority.partition(plugin_id, entrypoint, params, assignment_id)
+    ProxmoxHostAuthority.partition(plugin_id, entrypoint, params, assignment_id, opts)
   end
 
   defp inventory_grant do
