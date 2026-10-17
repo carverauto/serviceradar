@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   end
 
   defp open_camera_layout(socket, count) do
-    if RBAC.can?(socket.assigns.current_scope, "devices.view") do
+    if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
       tiles = CameraMultiview.open_preview_tiles(socket.assigns.current_scope, count)
       Enum.each(tiles, &schedule_camera_refresh/1)
 

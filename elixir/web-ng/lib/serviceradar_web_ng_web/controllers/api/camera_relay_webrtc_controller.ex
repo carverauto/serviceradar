@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
 
   def create_session(conn, %{"id" => relay_session_id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_id} <- CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id") do
       scope = get_scope(conn)
 
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
 
   def submit_answer(conn, %{"id" => relay_session_id, "viewer_session_id" => viewer_session_id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_relay_id} <-
            CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id"),
          {:ok, normalized_viewer_session_id} <-
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
 
   def add_candidate(conn, %{"id" => relay_session_id, "viewer_session_id" => viewer_session_id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_relay_id} <-
            CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id"),
          {:ok, normalized_viewer_session_id} <-
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
   # candidates after the offer, and the browser needs every one of them.
   def show_session(conn, %{"id" => relay_session_id, "viewer_session_id" => viewer_session_id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_relay_id} <-
            CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id"),
          {:ok, normalized_viewer_session_id} <-
@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
 
   def close_session(conn, %{"id" => relay_session_id, "viewer_session_id" => viewer_session_id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, "devices.view"),
+         :ok <- require_permission(conn, "devices.cameras.view"),
          {:ok, normalized_relay_id} <-
            CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id"),
          {:ok, normalized_viewer_session_id} <-
