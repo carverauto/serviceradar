@@ -774,6 +774,58 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     end
   end
 
+  # send_renotify/4 opens its own Repo.transaction, outside transact/2 when the
+  # continuation scan runs it. That transaction owns the same queue.
+  @tag sandbox: :unboxed
+  test "a plain transaction delivers queued notifications only after it commits" do
+    delivered = fn tag ->
+      %Ash.Notifier.Notification{
+        resource: AlertEvaluationLane,
+        domain: ServiceRadar.Observability,
+        data: %AlertEvaluationLane{},
+        for: [DeliveredNotifier],
+        metadata: %{test_pid: self(), tag: tag}
+      }
+    end
+
+    assert {:ok, :committed} =
+             Inbox.with_notification_queue(fn ->
+               Repo.transaction(fn ->
+                 Inbox.notify_after_commit([delivered.(:plain_commit)])
+                 :committed
+               end)
+             end)
+
+    assert_received {:delivered, :plain_commit}
+    refute_receive {:delivered, :plain_commit}, 100
+
+    assert {:error, :test} =
+             Inbox.with_notification_queue(fn ->
+               Repo.transaction(fn ->
+                 Inbox.notify_after_commit([delivered.(:plain_rollback)])
+                 Repo.rollback(:test)
+               end)
+             end)
+
+    refute_receive {:delivered, :plain_rollback}, 100
+
+    assert {:error, :outer} =
+             Inbox.transact(2_000, fn ->
+               assert {:ok, :saved} =
+                        Inbox.with_notification_queue(fn ->
+                          Repo.transaction(fn ->
+                            Inbox.notify_after_commit([delivered.(:outer_rollback)])
+                            :saved
+                          end)
+                        end)
+
+               refute_received {:delivered, :outer_rollback}
+               Repo.rollback(:outer)
+             end)
+
+    refute_receive {:delivered, :outer_rollback}, 100
+  end
+
   test "count overload rejects the entire batch without reserving input positions", %{
     rule: rule,
     actor: actor

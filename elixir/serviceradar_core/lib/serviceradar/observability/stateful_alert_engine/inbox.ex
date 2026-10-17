@@ -207,8 +207,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   def evaluation_key(rule_id), do: "alert-evaluation:owner:v1:#{rule_id}"
 
   @doc """
-  Sends Ash notifications once the enclosing `transact/2` commits, and drops
-  them if it rolls back. Outside one it sends them now.
+  Sends Ash notifications once the outermost notification queue commits, and
+  drops them if that transaction rolls back. With no queue open, sends them now.
+
+  `transact/2` owns the queue. A caller that opens its own `Repo.transaction`
+  owns the same queue by wrapping that transaction in `with_notification_queue/1`.
+  A nested call appends to the queue already open, so a savepoint commit does
+  not send before the outermost transaction commits.
 
   An Ash action run inside a plain `Repo.transaction` cannot send its own
   notifications: Ash holds them back and logs them as missed. Actions here run
@@ -224,22 +229,23 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     :ok
   end
 
-  # PostgreSQL's lock and statement timeouts enforce `timeout`: an expired
-  # statement is cancelled, the transaction rolls back and the connection stays
-  # usable. The client deadline only backstops a store PostgreSQL cannot reach.
-  # It starts at checkout, before the server budget does, and on expiry it
-  # disconnects the connection mid-query, so it must not equal that budget.
-  #
-  # The outermost call owns the notification queue `notify_after_commit/1`
-  # fills, and sends it only when its transaction committed.
-  def transact(timeout, work) do
+  @doc """
+  Owns the notification queue around one transaction result.
+
+  The outermost call sends what `notify_after_commit/1` queued only when `work`
+  returns `{:ok, _}`. Any other result, including a rollback, drops the queue.
+  A call nested inside an open queue, including `transact/2`, leaves sending to
+  that outer owner.
+  """
+  @spec with_notification_queue((-> result)) :: result when result: term()
+  def with_notification_queue(work) when is_function(work, 0) do
     if Process.get(@pending_notifications) do
-      run_transaction(timeout, work)
+      work.()
     else
       Process.put(@pending_notifications, [])
 
       try do
-        result = run_transaction(timeout, work)
+        result = work.()
         pending = Process.get(@pending_notifications)
 
         if match?({:ok, _}, result) do
@@ -251,6 +257,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         Process.delete(@pending_notifications)
       end
     end
+  end
+
+  # PostgreSQL's lock and statement timeouts enforce `timeout`: an expired
+  # statement is cancelled, the transaction rolls back and the connection stays
+  # usable. The client deadline only backstops a store PostgreSQL cannot reach.
+  # It starts at checkout, before the server budget does, and on expiry it
+  # disconnects the connection mid-query, so it must not equal that budget.
+  def transact(timeout, work) do
+    with_notification_queue(fn -> run_transaction(timeout, work) end)
   end
 
   defp run_transaction(timeout, work) do

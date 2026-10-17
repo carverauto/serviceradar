@@ -247,34 +247,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   end
 
   def send_renotify(alert_id, rule, _snapshot, now) when is_binary(alert_id) do
-    case Repo.transaction(fn ->
-           actor = SystemActor.system(:alert_engine)
+    case Inbox.with_notification_queue(fn ->
+           Repo.transaction(fn ->
+             actor = SystemActor.system(:alert_engine)
 
-           alert =
-             case Alert.get_by_id(alert_id, actor: actor) do
-               {:ok, alert} -> alert
-               {:error, reason} -> Repo.rollback(reason)
-             end
-
-           rule_id =
-             if is_map(rule), do: rule.id, else: (alert.metadata || %{})["incident_rule_id"]
-
-           case Ecto.UUID.cast(rule_id) do
-             {:ok, id} ->
-               case AdvisoryLocks.acquire_ordered([{:exclusive, Inbox.evaluation_key(id)}]) do
-                 :ok -> :ok
+             alert =
+               case Alert.get_by_id(alert_id, actor: actor) do
+                 {:ok, alert} -> alert
                  {:error, reason} -> Repo.rollback(reason)
                end
 
-             :error ->
-               :ok
-           end
+             rule_id =
+               if is_map(rule), do: rule.id, else: (alert.metadata || %{})["incident_rule_id"]
 
-           case renotify_in_transaction(alert_id, rule, now) do
-             :ok -> :ok
-             :skipped -> :skipped
-             {:error, reason} -> Repo.rollback(reason)
-           end
+             case Ecto.UUID.cast(rule_id) do
+               {:ok, id} ->
+                 case AdvisoryLocks.acquire_ordered([{:exclusive, Inbox.evaluation_key(id)}]) do
+                   :ok -> :ok
+                   {:error, reason} -> Repo.rollback(reason)
+                 end
+
+               :error ->
+                 :ok
+             end
+
+             case renotify_in_transaction(alert_id, rule, now) do
+               :ok -> :ok
+               :skipped -> :skipped
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end)
          end) do
       {:ok, :ok} ->
         :ok
