@@ -241,7 +241,7 @@ func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
 		return
 	}
 
-	devices := groupProxmoxCandidatesByNode(e.probeProxmoxCandidates(ctx, job, seeds))
+	devices := e.probeProxmoxCandidates(ctx, job, seeds)
 	if len(devices) == 0 {
 		return
 	}
@@ -249,7 +249,18 @@ func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
 	job.mu.Lock()
 	defer job.mu.Unlock()
 
-	for _, device := range devices {
+	e.addProxmoxCandidatesUnlocked(job, devices)
+}
+
+// addProxmoxCandidatesUnlocked groups the candidates per node and adds them to
+// the job's results. The caller holds job.mu.
+func (e *DiscoveryEngine) addProxmoxCandidatesUnlocked(job *DiscoveryJob, devices []*DiscoveredDevice) {
+	known := func(ip string) bool {
+		existingID, _ := e.resolveExistingDeviceIdentityByIPUnlocked(job, ip)
+		return existingID != ""
+	}
+
+	for _, device := range groupProxmoxCandidatesByNode(devices, known) {
 		e.addOrUpdateDeviceToResults(job, device)
 	}
 }
@@ -259,11 +270,12 @@ func (e *DiscoveryEngine) probeProxmoxCandidatesAfterIdentity(
 // SANs. Two nodes that share a name present certificates for different
 // addresses, so they stay apart.
 //
-// The merged candidate's IP is an address the certificate lists, or else the
-// lowest address, so the same node yields the same device across runs. Its
-// other addresses become alternate IPs. A candidate without recorded SANs is
-// left as it is.
-func groupProxmoxCandidatesByNode(devices []*DiscoveredDevice) []*DiscoveredDevice {
+// The merged candidate's IP is the address the job already resolves to a
+// device, so it folds onto that device; otherwise an address the certificate
+// lists, or else the lowest, so the same node yields the same device across
+// runs. Its other addresses become alternate IPs. A candidate without recorded
+// SANs is left as it is.
+func groupProxmoxCandidatesByNode(devices []*DiscoveredDevice, known func(ip string) bool) []*DiscoveredDevice {
 	groups := make(map[string][]*DiscoveredDevice)
 	order := make([]string, 0, len(devices))
 	grouped := make([]*DiscoveredDevice, 0, len(devices))
@@ -281,7 +293,7 @@ func groupProxmoxCandidatesByNode(devices []*DiscoveredDevice) []*DiscoveredDevi
 	}
 
 	for _, key := range order {
-		grouped = append(grouped, mergeProxmoxNodeCandidates(groups[key]))
+		grouped = append(grouped, mergeProxmoxNodeCandidates(groups[key], known))
 	}
 
 	return grouped
@@ -301,7 +313,7 @@ func proxmoxCandidateNodeKey(device *DiscoveredDevice) string {
 	return title + "|" + sans
 }
 
-func mergeProxmoxNodeCandidates(candidates []*DiscoveredDevice) *DiscoveredDevice {
+func mergeProxmoxNodeCandidates(candidates []*DiscoveredDevice, known func(ip string) bool) *DiscoveredDevice {
 	if len(candidates) == 1 {
 		return candidates[0]
 	}
@@ -313,6 +325,11 @@ func mergeProxmoxNodeCandidates(candidates []*DiscoveredDevice) *DiscoveredDevic
 
 	sorted := append([]*DiscoveredDevice(nil), candidates...)
 	sort.SliceStable(sorted, func(i, j int) bool {
+		iKnown, jKnown := known(sorted[i].IP), known(sorted[j].IP)
+		if iKnown != jKnown {
+			return iKnown
+		}
+
 		_, iListed := listed[sorted[i].IP]
 		_, jListed := listed[sorted[j].IP]
 		if iListed != jListed {

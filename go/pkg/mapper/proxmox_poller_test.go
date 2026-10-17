@@ -176,6 +176,8 @@ func TestGroupProxmoxCandidatesByNodeMergesOneNodesAddresses(t *testing.T) {
 		return device
 	}
 
+	unknown := func(string) bool { return false }
+
 	grouped := groupProxmoxCandidatesByNode([]*DiscoveredDevice{
 		// One node at two addresses; the certificate lists the second.
 		candidate("198.51.100.20", "pve01", "127.0.0.1,::1,192.0.2.20"),
@@ -184,7 +186,7 @@ func TestGroupProxmoxCandidatesByNodeMergesOneNodesAddresses(t *testing.T) {
 		candidate("192.0.2.30", "pve01", "127.0.0.1,::1,192.0.2.30"),
 		// Without recorded SANs a candidate is not grouped.
 		candidate("192.0.2.40", "pve01", ""),
-	})
+	}, unknown)
 
 	require.Len(t, grouped, 3)
 	assert.Equal(t, "192.0.2.20", grouped[1].IP)
@@ -196,28 +198,63 @@ func TestGroupProxmoxCandidatesByNodeMergesOneNodesAddresses(t *testing.T) {
 }
 
 func TestProxmoxNodeCandidatesFoldIntoOneJobDevice(t *testing.T) {
-	sans := "127.0.0.1,::1,192.0.2.21"
-	first := buildProxmoxCandidateDevice("198.51.100.21", "pve02")
-	second := buildProxmoxCandidateDevice("192.0.2.21", "pve02")
-	for _, device := range []*DiscoveredDevice{first, second} {
-		device.Metadata["proxmox_tls_sans_recorded"] = "true"
-		device.Metadata["proxmox_tls_san_ips"] = sans
+	nodeCandidates := func() []*DiscoveredDevice {
+		first := buildProxmoxCandidateDevice("198.51.100.21", "pve02")
+		second := buildProxmoxCandidateDevice("192.0.2.21", "pve02")
+		for _, device := range []*DiscoveredDevice{first, second} {
+			device.Metadata["proxmox_tls_sans_recorded"] = "true"
+			device.Metadata["proxmox_tls_san_ips"] = "127.0.0.1,::1,192.0.2.21"
+		}
+		return []*DiscoveredDevice{first, second}
 	}
 
-	job := &DiscoveryJob{
-		ID:        "job-1",
-		Results:   &DiscoveryResults{},
-		deviceMap: map[string]*DeviceInterfaceMap{},
+	newJob := func(devices ...*DiscoveredDevice) *DiscoveryJob {
+		job := &DiscoveryJob{
+			ID:        "job-1",
+			Results:   &DiscoveryResults{},
+			deviceMap: map[string]*DeviceInterfaceMap{},
+		}
+		for _, device := range devices {
+			job.Results.Devices = append(job.Results.Devices, device)
+			job.deviceMap[device.DeviceID] = &DeviceInterfaceMap{
+				DeviceID: device.DeviceID,
+				IPs:      map[string]struct{}{device.IP: {}},
+				MACs:     map[string]struct{}{device.MAC: {}},
+			}
+		}
+		return job
 	}
+
 	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
 
-	for _, device := range groupProxmoxCandidatesByNode([]*DiscoveredDevice{first, second}) {
-		engine.addOrUpdateDeviceToResults(job, device)
-	}
+	t.Run("a node the job has not identified becomes one device", func(t *testing.T) {
+		job := newJob()
 
-	require.Len(t, job.Results.Devices, 1)
-	assert.Equal(t, "192.0.2.21", job.Results.Devices[0].IP)
-	assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_ip:198.51.100.21"])
+		engine.addProxmoxCandidatesUnlocked(job, nodeCandidates())
+
+		require.Len(t, job.Results.Devices, 1)
+		assert.Equal(t, "192.0.2.21", job.Results.Devices[0].IP)
+		assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_ip:198.51.100.21"])
+	})
+
+	t.Run("a node the job holds at an address the certificate omits keeps its device", func(t *testing.T) {
+		snmpNode := &DiscoveredDevice{
+			DeviceID: "mac-020000000021",
+			IP:       "198.51.100.21",
+			MAC:      "02:00:00:00:00:21",
+			Hostname: "pve02",
+			Metadata: map[string]string{"source": "snmp"},
+		}
+		job := newJob(snmpNode)
+
+		engine.addProxmoxCandidatesUnlocked(job, nodeCandidates())
+
+		require.Len(t, job.Results.Devices, 1)
+		assert.Equal(t, "mac-020000000021", job.Results.Devices[0].DeviceID)
+		assert.Equal(t, "198.51.100.21", job.Results.Devices[0].IP)
+		assert.Equal(t, "true", job.Results.Devices[0].Metadata["proxmox_candidate"])
+		assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_ip:192.0.2.21"])
+	})
 }
 
 func TestApplyJobOptionsMetadataSkipsProxmoxCandidateProbeOption(t *testing.T) {
