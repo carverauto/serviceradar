@@ -72,3 +72,11 @@ func initMetricMaps() {
 Call `initMetricMaps()` (or your equivalent) at the top of the function that
 first needs the map. This works identically under both TinyGo/WASI and the
 standard Go toolchain used for tests.
+
+The same applies to any package-level value whose initializer calls a function
+the TinyGo build-time interpreter cannot evaluate, such as `fmt.Errorf`: it is
+left for `_start` and stays zero. An error sentinel declared that way is `nil`,
+so `return nil, errSentinel` reports success. Declare sentinels as constants of
+a string-based error type instead (see `errAWXRequestFailed` in `awx/main.go`).
+Native `go test` runs every initializer and cannot catch this;
+`//build/wasm_plugins:plugin_runtime_test` runs built plugins without `_start`.

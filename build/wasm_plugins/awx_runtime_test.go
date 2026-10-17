@@ -11,7 +11,9 @@ import (
 
 // These fixtures are invented independently of any controller. Exercising the
 // built Wasm is essential: native Go runs package initializers, whereas the
-// agent calls run_check without WASI _start, which would close the module.
+// agent calls run_check without WASI _start, which would close the module. An
+// error sentinel built by a package initializer is therefore nil here, so a
+// failed controller request must still surface as an error, not a nil response.
 func TestAWXPreflightWithoutWASIStart(t *testing.T) {
 	wasm := loadBuiltWasm(t, "awx.wasm")
 	for _, tc := range []struct {
@@ -19,23 +21,33 @@ func TestAWXPreflightWithoutWASIStart(t *testing.T) {
 		extraField     bool
 		generation     string
 		surveyVariable string
+		unavailable    bool
 		wantCalls      int
 		wantStatus     string
+		wantSummary    string
 	}{
 		{name: "canonical projection", generation: "1800000000000000001", surveyVariable: "release_version", wantCalls: 8, wantStatus: "OK"},
 		{name: "unknown selector denied", extraField: true, generation: "1800000000000000001", surveyVariable: "release_version", wantCalls: 0, wantStatus: "CRITICAL"},
 		{name: "generation overflow denied", generation: "9223372036854775808", surveyVariable: "release_version", wantCalls: 0, wantStatus: "CRITICAL"},
 		{name: "secret survey denied", generation: "1800000000000000001", surveyVariable: "client_secret", wantCalls: 2, wantStatus: "CRITICAL"},
 		{name: "reserved survey denied", generation: "1800000000000000001", surveyVariable: "hostvars", wantCalls: 2, wantStatus: "CRITICAL"},
+		{name: "controller error fails closed", generation: "1800000000000000001", surveyVariable: "release_version", unavailable: true, wantCalls: 1, wantStatus: "CRITICAL", wantSummary: "awx.fetch_launch_preflight: AWX request failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := awxRuntimeConfig(tc.generation)
 			if tc.extraField {
 				config["args"].(map[string]any)["extra_vars"] = map[string]any{}
 			}
-			result, calls := runAWXWasm(t, wasm, config, awxRuntimeResponses(tc.surveyVariable))
+			responses := awxRuntimeResponses(tc.surveyVariable)
+			if tc.unavailable {
+				responses["/api/v2/job_templates/11/"] = awxStatus(http.StatusServiceUnavailable)
+			}
+			result, calls := runAWXWasm(t, wasm, config, responses)
 			if result["status"] != tc.wantStatus || calls != tc.wantCalls {
 				t.Fatalf("status=%v calls=%d; want %s/%d; summary=%v", result["status"], calls, tc.wantStatus, tc.wantCalls, result["summary"])
+			}
+			if tc.wantSummary != "" && result["summary"] != tc.wantSummary {
+				t.Fatalf("summary=%v; want %s", result["summary"], tc.wantSummary)
 			}
 			if tc.wantStatus == "OK" {
 				var details map[string]any
@@ -94,6 +106,9 @@ func awxRuntimeResponses(surveyVariable string) map[string]any {
 	}
 }
 
+// awxStatus answers a fixture path with a bare non-2xx status and no body.
+type awxStatus int
+
 func runAWXWasm(t *testing.T, wasm []byte, config map[string]any, responses map[string]any) (map[string]any, int) {
 	t.Helper()
 	configJSON, err := json.Marshal(config)
@@ -105,6 +120,9 @@ func runAWXWasm(t *testing.T, wasm []byte, config map[string]any, responses map[
 		body, exists := responses[path]
 		if !exists || request.Method != http.MethodGet || request.ResponseMode != "status_body" {
 			t.Fatalf("unexpected HTTP request: %+v", request)
+		}
+		if status, ok := body.(awxStatus); ok {
+			return int(status), nil
 		}
 		encoded, err := json.Marshal(body)
 		if err != nil {
