@@ -44,6 +44,8 @@ pub struct ListenerMetrics {
     pub source_count: AtomicU64,
     pub sampler_rate_rejections: AtomicU64,
     pub sampling_rate_clamped: AtomicU64,
+    /// Options sampling rates newly stored or changed.
+    pub options_sampling_rates_learned: AtomicU64,
     pub source_creator_evictions: AtomicU64,
     pub source_global_evictions: AtomicU64,
     pub tls_authenticated_sessions: AtomicU64,
@@ -71,6 +73,7 @@ impl ListenerMetrics {
             source_count: AtomicU64::new(0),
             sampler_rate_rejections: AtomicU64::new(0),
             sampling_rate_clamped: AtomicU64::new(0),
+            options_sampling_rates_learned: AtomicU64::new(0),
             source_creator_evictions: AtomicU64::new(0),
             source_global_evictions: AtomicU64::new(0),
             tls_authenticated_sessions: AtomicU64::new(0),
@@ -313,11 +316,16 @@ fn emit(
 
 fn render_admission_metrics(out: &mut String, listeners: &[Arc<ListenerMetrics>]) {
     type AdmissionValue = fn(&ListenerMetrics) -> u64;
-    let admission_counters: [(&str, &str, AdmissionValue); 3] = [
+    let admission_counters: [(&str, &str, AdmissionValue); 4] = [
         (
             "flow_collector_sampler_rate_rejections_total",
             "Sampler rate inserts rejected at capacity",
             |m: &ListenerMetrics| m.sampler_rate_rejections.load(Ordering::Relaxed),
+        ),
+        (
+            "flow_collector_options_sampling_rates_learned_total",
+            "Options sampling rates newly stored or changed",
+            |m: &ListenerMetrics| m.options_sampling_rates_learned.load(Ordering::Relaxed),
         ),
         (
             "flow_collector_source_creator_evictions_total",
