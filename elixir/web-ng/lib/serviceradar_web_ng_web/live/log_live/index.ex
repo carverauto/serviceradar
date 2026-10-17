@@ -9750,8 +9750,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     rows =
       case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results}} when is_list(results) -> results
-        _ -> []
+        {:ok, %{"results" => results}} when is_list(results) ->
+          results
+
+        {:error, reason} ->
+          Logger.warning("NetFlow #{panel} query failed: #{inspect(reason)}")
+          []
+
+        _ ->
+          []
       end
 
     Enum.reduce(rows, %{}, fn

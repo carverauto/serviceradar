@@ -53,8 +53,8 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
         "app" => expr_text_clause(FLOW_APP_EXPR, filter),
         "direction" => expr_text_clause(FLOW_DIRECTION_EXPR, filter),
         "protocol_num" | "proto" => int_clause("protocol_num", filter, false),
-        "src_endpoint_port" | "src_port" => int_clause("src_endpoint_port", filter, false),
-        "dst_endpoint_port" | "dst_port" => int_clause("dst_endpoint_port", filter, false),
+        "src_endpoint_port" | "src_port" => port_clause("src_endpoint_port", filter),
+        "dst_endpoint_port" | "dst_port" => port_clause("dst_endpoint_port", filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample flows: '{other}'"
         ))),
@@ -334,6 +334,35 @@ fn int_clause(
     };
 
     Ok((clause, binds))
+}
+
+/// A flow port compares as an integer and also takes a list, as it does on
+/// the row and stats paths. An empty list adds no restriction there, so it
+/// adds none here.
+fn port_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    let negated = match filter.op {
+        FilterOp::In => false,
+        FilterOp::NotIn => true,
+        _ => return int_clause(column, filter, false),
+    };
+    let values = filter
+        .value
+        .as_list()?
+        .iter()
+        .map(|item| {
+            item.parse::<i64>()
+                .map_err(|_| ServiceError::InvalidRequest("invalid integer value".into()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if values.is_empty() {
+        return Ok(("1=1".to_string(), Vec::new()));
+    }
+    let clause = if negated {
+        format!("{column} <> ALL(?)")
+    } else {
+        format!("{column} = ANY(?)")
+    };
+    Ok((clause, vec![SqlBindValue::BigIntArray(values)]))
 }
 
 fn timeseries_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {

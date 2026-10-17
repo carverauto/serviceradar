@@ -113,9 +113,21 @@ pub(super) fn apply_filter<'a>(
                     _ => query,
                 };
             }
+            FilterOp::In => {
+                let values = port_list(filter, "src_port")?;
+                if !values.is_empty() {
+                    query = query.filter(src_endpoint_port.eq_any(values));
+                }
+            }
+            FilterOp::NotIn => {
+                let values = port_list(filter, "src_port")?;
+                if !values.is_empty() {
+                    query = query.filter(src_endpoint_port.ne_all(values));
+                }
+            }
             _ => {
                 return Err(ServiceError::InvalidRequest(
-                    "src_port filter only supports equality or wildcard matching".into(),
+                    "src_port filter only supports equality, list or wildcard matching".into(),
                 ));
             }
         },
@@ -141,9 +153,21 @@ pub(super) fn apply_filter<'a>(
                     _ => query,
                 };
             }
+            FilterOp::In => {
+                let values = port_list(filter, "dst_port")?;
+                if !values.is_empty() {
+                    query = query.filter(dst_endpoint_port.eq_any(values));
+                }
+            }
+            FilterOp::NotIn => {
+                let values = port_list(filter, "dst_port")?;
+                if !values.is_empty() {
+                    query = query.filter(dst_endpoint_port.ne_all(values));
+                }
+            }
             _ => {
                 return Err(ServiceError::InvalidRequest(
-                    "dst_port filter only supports equality or wildcard matching".into(),
+                    "dst_port filter only supports equality, list or wildcard matching".into(),
                 ));
             }
         },
@@ -621,16 +645,7 @@ fn apply_bidirectional_port_filter<'a>(
             );
         }
         FilterOp::In => {
-            let values = filter
-                .value
-                .as_list()?
-                .iter()
-                .map(|item| {
-                    item.parse::<i32>().map_err(|_| {
-                        ServiceError::InvalidRequest("port list values must be integers".into())
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let values = port_list(filter, "port")?;
             if values.is_empty() {
                 return Ok(query);
             }
@@ -641,16 +656,7 @@ fn apply_bidirectional_port_filter<'a>(
             );
         }
         FilterOp::NotIn => {
-            let values = filter
-                .value
-                .as_list()?
-                .iter()
-                .map(|item| {
-                    item.parse::<i32>().map_err(|_| {
-                        ServiceError::InvalidRequest("port list values must be integers".into())
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let values = port_list(filter, "port")?;
             if values.is_empty() {
                 return Ok(query);
             }
@@ -673,6 +679,21 @@ fn apply_bidirectional_port_filter<'a>(
     }
 
     Ok(query)
+}
+
+/// A port list's values. `collect_port_params` binds the same list, so an
+/// empty list must add no predicate here either.
+fn port_list(filter: &Filter, label: &str) -> Result<Vec<i32>> {
+    filter
+        .value
+        .as_list()?
+        .iter()
+        .map(|item| {
+            item.parse::<i32>().map_err(|_| {
+                ServiceError::InvalidRequest(format!("{label} list values must be integers"))
+            })
+        })
+        .collect()
 }
 
 /// `ip:` matches either flow endpoint, mirroring the bare `near:` form
