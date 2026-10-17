@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadarWebNGWeb.CameraLive.Index, as: CameraIndex
+  alias ServiceRadarWebNGWeb.CameraLive.Show, as: CameraShow
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.DashboardLive.Index, as: DashboardIndex
 
@@ -77,6 +78,23 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
     assert [%{session: %RelaySession{status: :active}}, ^other] = socket.assigns.camera_preview_tiles
   end
 
+  test "the detail page refreshes its tile only for its own session's broadcast",
+       %{relay_id: relay_id, tile: tile, other: other} do
+    socket = socket(%{camera_tile: tile})
+    other_id = other.session.id
+
+    assert {:noreply, ^socket} =
+             CameraShow.handle_info({:camera_relay_state, %{relay_session_id: other_id}}, socket)
+
+    refute_received {:relay_session_fetched, _}
+
+    assert {:noreply, socket} =
+             CameraShow.handle_info({:camera_relay_state, %{relay_session_id: relay_id}}, socket)
+
+    assert_received {:relay_session_fetched, ^relay_id}
+    assert %{session: %RelaySession{status: :active}} = socket.assigns.camera_tile
+  end
+
   test "the fallback refresh is a slow safety net, not a per-second poll" do
     previous = Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms)
     Application.delete_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms)
@@ -88,7 +106,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
     end
   end
 
-  for index <- [DashboardIndex, CameraIndex],
+  for index <- [DashboardIndex, CameraIndex, CameraShow],
       event <- [
         :camera_relay_webrtc_closed,
         :camera_relay_chunk,
@@ -96,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
         :unexpected_relay_event
       ] do
     test "#{inspect(index)} keeps its socket on #{event}", %{relay_id: relay_id, tile: tile} do
-      socket = socket(%{camera_preview_tiles: [tile], camera_tiles: [tile]})
+      socket = socket(%{camera_preview_tiles: [tile], camera_tiles: [tile], camera_tile: tile})
 
       message =
         {unquote(event),
