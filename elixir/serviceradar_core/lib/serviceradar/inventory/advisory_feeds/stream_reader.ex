@@ -214,6 +214,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
     )
   end
 
+  # `{:finished, output}` from `:zlib.safeInflate/2` means the queued input is
+  # drained, not that the gzip stream ended: keep feeding until input runs out.
   defp gzip_step(zlib, data, rest, _mode) do
     case :zlib.safeInflate(zlib, data) do
       {:continue, []} ->
@@ -223,10 +225,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
         {[copy_iodata(output)], {zlib, rest, :continue}}
 
       {:finished, []} ->
-        {[], close_then_done(zlib)}
+        {[], {zlib, rest, :input}}
 
       {:finished, output} ->
-        {[copy_iodata(output)], close_then_done(zlib)}
+        {[copy_iodata(output)], {zlib, rest, :input}}
     end
   catch
     :error, reason ->
@@ -370,6 +372,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
     end
   end
 
+  # `{:finished, output}` only means the bytes read so far are inflated. The
+  # shard ends at file EOF, so read the next block instead of stopping here.
   defp emit_inflate(state, zlib, data) do
     case :zlib.safeInflate(zlib, data) do
       {:continue, []} ->
@@ -379,10 +383,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
         {:text, copy_iodata(output), %{state | inflate: :continue}}
 
       {:finished, []} ->
-        {:eof, %{state | inflate: :eof}}
+        take_text(%{state | inflate: :input})
 
       {:finished, output} ->
-        {:text, copy_iodata(output), %{state | inflate: :eof}}
+        {:text, copy_iodata(output), %{state | inflate: :input}}
     end
   catch
     :error, {:data_error, _zlib} ->
