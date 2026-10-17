@@ -150,4 +150,26 @@ defmodule ServiceRadar.Cluster.StartupMigrationsUnitTest do
     assert StartupMigrations.cnpg_pooler_auth_function_grant_statement() ==
              ~s{GRANT EXECUTE ON FUNCTION "public"."user_search"(text) TO "cnpg_pooler_pgbouncer"}
   end
+
+  # Startup migrations leave the app role's password alone when the stored
+  # verifier already accepts it: re-setting it writes a new SCRAM salt and
+  # breaks every PgBouncer that cached the old one. The verifier below was
+  # produced by PostgreSQL for a throwaway role on a scratch database.
+  @postgres_verifier "SCRAM-SHA-256$4096:DijdK7lCZeE236rVT5eXNw==$+vYx3tqurntGPZ3J4FdIghiR9r0LguMV4g91/oinbzA=:I+e4zm37K0awFPwF7PbX+p/UbO6fk2qClvIKBRb6rvQ="
+
+  for {label, verifier, password, expected} <- [
+        {"accepts the password PostgreSQL hashed", @postgres_verifier,
+         "synthetic-fixture-password-1", true},
+        {"rejects a different password", @postgres_verifier, "synthetic-fixture-password-2",
+         false},
+        {"rejects an md5 hash", "md5" <> String.duplicate("a", 32),
+         "synthetic-fixture-password-1", false},
+        {"rejects a malformed verifier", "SCRAM-SHA-256$4096:bm90$a2V5:a2V5",
+         "synthetic-fixture-password-1", false}
+      ] do
+    test "SCRAM verifier check #{label}" do
+      assert StartupMigrations.scram_verifier_matches?(unquote(verifier), unquote(password)) ==
+               unquote(expected)
+    end
+  end
 end
