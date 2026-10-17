@@ -168,6 +168,10 @@ export class CameraRelayViewer {
     this.chunkCount = 0
     this.byteCount = 0
     this.destroyedFlag = false
+    // A reload or tab close skips the hook's destroyed(), so the viewer would
+    // never release its WebRTC session; core would only notice when ICE times
+    // out. Closing on pagehide sends the release (a keepalive request).
+    this.pageHideHandler = () => this.close()
     this.receivedRelaySnapshot = false
     this.receivedMediaChunk = false
     this.streamReconnectAttempts = 0
@@ -212,6 +216,7 @@ export class CameraRelayViewer {
     }
 
     this.setState(CAMERA_VIEWER_STATES.CONNECTING, {transport: this.transportSelection.selectedTransport})
+    window.addEventListener?.("pagehide", this.pageHideHandler)
 
     if (this.transportSelection.selectedTransport === CAMERA_RELAY_WEBRTC_TRANSPORT) {
       this.setSurfaceVisibility(CAMERA_RELAY_WEBRTC_TRANSPORT)
@@ -226,6 +231,7 @@ export class CameraRelayViewer {
 
   close() {
     this.destroyedFlag = true
+    window.removeEventListener?.("pagehide", this.pageHideHandler)
     this.clearStreamReconnectTimer()
     this.stopSocketKeepalive("socket")
     this.stopSocketKeepalive("statusSocket")

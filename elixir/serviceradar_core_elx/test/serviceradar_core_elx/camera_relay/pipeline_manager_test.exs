@@ -141,7 +141,15 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
 
     assert String.contains?(sdp, "m=video")
 
+    # The signaling manager keeps an answered viewer only while this is true.
+    # A missing viewer, or a relay that was never opened, must read as gone so
+    # an idle session still expires.
+    assert PipelineManager.webrtc_viewer_alive?(relay_session_id, viewer_session_id)
+    refute PipelineManager.webrtc_viewer_alive?(relay_session_id, "viewer-never-attached")
+    refute PipelineManager.webrtc_viewer_alive?("relay-never-opened", viewer_session_id)
+
     assert :ok = PipelineManager.remove_webrtc_viewer(relay_session_id, viewer_session_id)
+    refute PipelineManager.webrtc_viewer_alive?(relay_session_id, viewer_session_id)
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
@@ -184,6 +192,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
 
     assert_receive {:camera_relay_member_crashed, :webrtc_viewer, ^relay_session_id, ^viewer_session_id, _reason},
                    5_000
+
+    # A failed connection drops the sink, which is what lets an abandoned
+    # answered session expire instead of being refreshed forever.
+    refute PipelineManager.webrtc_viewer_alive?(relay_session_id, viewer_session_id)
 
     assert :ok =
              PipelineManager.record_chunk(relay_session_id, %{
