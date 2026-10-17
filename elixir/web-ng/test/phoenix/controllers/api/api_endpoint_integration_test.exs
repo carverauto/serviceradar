@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
           %{
             uid: "api-suite-#{System.unique_integer([:positive])}",
             hostname: "host-#{i}-#{System.unique_integer([:positive])}.local",
-            ip: "10.20.#{i}.#{:rand.uniform(250)}",
+            ip: seed_device_ip(),
             type_id: rem(i, 3),
             is_available: true,
             first_seen_time: DateTime.shift(now, hour: -1),
@@ -159,6 +159,14 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
 
       device_fixture(attrs)
     end
+  end
+
+  # An active device's IP is unique. Tests call seed_devices/2 more than once,
+  # and each call restarts the index, so the old "10.20.<index>.<random>"
+  # address collided across calls about once in 250. A counter cannot.
+  defp seed_device_ip do
+    n = System.unique_integer([:positive, :monotonic])
+    "10.20.#{rem(div(n, 250), 250)}.#{rem(n, 250) + 1}"
   end
 
   # ==========================================================================
