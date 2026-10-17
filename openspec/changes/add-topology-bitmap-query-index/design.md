@@ -68,10 +68,13 @@ absence before pointer movement, and a successor is published only when that
 row is live and mapper-owned. A same-poll management link resolves each child
 address's parent once, then uses the parent's committed live UID: the rehydrated
 row when that parent is a restorable system delete, or the published successor
-when rediscovery allocates one. A later poll of an existing or restored child
-records the parent's committed live UID when an earlier poll deferred or failed
-the parent. A withheld or not-yet-live parent leaves an existing link unchanged
-and records no planned id.
+when rediscovery allocates one. A later poll repairs an existing or restored
+child's management link only when the stored link is missing or its stored
+parent is no longer live, and it records that parent's committed live UID. A
+still-live stored parent stays, including when the poll names a different
+device. The update uses that same condition, so a concurrent live assignment is
+not overwritten. A withheld or not-yet-live parent leaves an existing link
+unchanged and records no planned id.
 
 Rollback retains dictionary deletion/truncate protection. It requires a cleanup
 binary with retained-identity support (or that support backported), or cleanup
