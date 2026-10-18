@@ -633,13 +633,33 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   end
 
   defp load_and_finalize(records_factory, provider, feed_key, opts) do
-    existing_state = Loader.existing_comparison_state(provider, feed_key)
+    with_comparison_table(provider, feed_key, fn existing_state ->
+      do_load_and_finalize(records_factory, provider, feed_key, existing_state, opts)
+    end)
+  end
+
+  # The live comparison state stays off this process's heap for the whole run;
+  # see Loader.existing_comparison_table/2.
+  defp with_comparison_table(provider, feed_key, fun) do
+    table = Loader.existing_comparison_table(provider, feed_key)
+
+    try do
+      fun.(table)
+    after
+      Loader.release_comparison_table(table)
+    end
+  end
+
+  defp do_load_and_finalize(records_factory, provider, feed_key, existing_state, opts) do
     existing_count = Loader.comparable_count(feed_key, existing_state)
     required_tree = Keyword.get(opts, :required_tree, feed_key)
     absolute_minimum = Keyword.get(opts, :expected_minimum, 1)
 
     {expected_minimum, retained_count_floor} =
-      snapshot_minimum(feed_key, map_size(existing_state), absolute_minimum,
+      snapshot_minimum(
+        feed_key,
+        Loader.comparison_state_size(existing_state),
+        absolute_minimum,
         accept_snapshot_contraction: Keyword.get(opts, :accept_snapshot_contraction) == true
       )
 
@@ -758,42 +778,48 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     with {:ok, snapshot} <- UbuntuAdapter.prepare_pair(acquired, adapter_opts),
          :ok <- Loader.validate_completeness(snapshot.completeness) do
       generation = Loader.next_generation(provider, feed_key)
-      existing_state = Loader.existing_comparison_state(provider, feed_key)
-      existing_count = Loader.comparable_count(feed_key, existing_state)
 
-      records =
-        Stream.map(snapshot.records, fn
-          {:ok, record} -> record
-          {:error, reason} -> raise "Ubuntu helper parse failure: #{inspect(reason)}"
-        end)
-
-      completeness =
-        Map.update!(snapshot.completeness, :validation, fn validation ->
-          Map.put(validation, "publication", %{
-            "complete" => true,
-            "count" => snapshot.completeness.source_objects_seen,
-            "generation_provenance" => acquired.generation_provenance,
-            "osv" => acquired.artifacts.osv,
-            "vex" => acquired.artifacts.vex,
-            "acquired_at" => DateTime.to_iso8601(acquired.acquired_at)
-          })
-        end)
-
-      with {:ok, result} <-
-             Loader.load_and_finalize(records,
-               provider: provider,
-               feed_key: feed_key,
-               generation: generation,
-               existing_state: existing_state,
-               normalization_version: Parsers.Ubuntu.normalization_version(),
-               completeness: completeness
-             ) do
-        {:ok, warn_if_guard_inert(feed_key, existing_count, result)}
-      end
+      with_comparison_table(provider, feed_key, fn existing_state ->
+        load_prepared_ubuntu(snapshot, acquired, provider, feed_key, generation, existing_state)
+      end)
     end
   end
 
   def load_ubuntu_snapshot(_acquired, _opts), do: {:error, :invalid_ubuntu_acquired_pair}
+
+  defp load_prepared_ubuntu(snapshot, acquired, provider, feed_key, generation, existing_state) do
+    existing_count = Loader.comparable_count(feed_key, existing_state)
+
+    records =
+      Stream.map(snapshot.records, fn
+        {:ok, record} -> record
+        {:error, reason} -> raise "Ubuntu helper parse failure: #{inspect(reason)}"
+      end)
+
+    completeness =
+      Map.update!(snapshot.completeness, :validation, fn validation ->
+        Map.put(validation, "publication", %{
+          "complete" => true,
+          "count" => snapshot.completeness.source_objects_seen,
+          "generation_provenance" => acquired.generation_provenance,
+          "osv" => acquired.artifacts.osv,
+          "vex" => acquired.artifacts.vex,
+          "acquired_at" => DateTime.to_iso8601(acquired.acquired_at)
+        })
+      end)
+
+    with {:ok, result} <-
+           Loader.load_and_finalize(records,
+             provider: provider,
+             feed_key: feed_key,
+             generation: generation,
+             existing_state: existing_state,
+             normalization_version: Parsers.Ubuntu.normalization_version(),
+             completeness: completeness
+           ) do
+      {:ok, warn_if_guard_inert(feed_key, existing_count, result)}
+    end
+  end
 
   defp parse_source_item({:error, {:read_error, _, _} = reason}, _parser),
     do: {:read_error, reason}

@@ -201,6 +201,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
              )
     end
 
+    # The load checks every record of a feed against the whole live corpus.
+    # Normalizing all of the stored state for each record made a full nist-nvd2
+    # load quadratic: hundreds of thousands of records, each walking hundreds of
+    # thousands of entries. Reductions, not wall time, make the bound exact.
+    test "checks one record without walking the rest of the stored state" do
+      stored =
+        Map.new(1..100_000, fn i ->
+          {"CVE-2099-#{i}",
+           %{modified_at: ~N[2099-01-15 12:34:56.123000], normalization_version: 2}}
+        end)
+
+      incoming = record("CVE-2099-42", "2099-01-15T12:34:56.123")
+
+      assert Loader.unchanged_advisory?(incoming, stored, 2)
+      assert reductions(fn -> Loader.unchanged_advisory?(incoming, stored, 2) end) < 10_000
+    end
+
     test "does not skip a projected advisory when its normalized projection changed" do
       incoming =
         "CVE-2099-0001"
@@ -571,6 +588,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
   end
 
   defp refute_skip(existing, rec), do: not Loader.unchanged_advisory?(rec, existing, nil)
+
+  defp reductions(fun) do
+    {:reductions, before} = Process.info(self(), :reductions)
+    fun.()
+    {:reductions, after_call} = Process.info(self(), :reductions)
+    after_call - before
+  end
 
   defp state(modified_at, normalization_version \\ nil, projection_digest \\ nil) do
     %{

@@ -610,6 +610,71 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     end
   end
 
+  # FeedWorker keeps the live state in a table so a full feed does not drag it
+  # through every garbage collection. The table has to make the guard's
+  # decisions exactly as the map does, through a real load, including for a
+  # row the ordinal backfill has not numbered yet.
+  test "the comparison table skips unchanged rows through a full load, numbered or not", %{
+    feed_key: feed_key
+  } do
+    load(feed_key, all_records())
+    [_changed, {numbered_id, _}, {unnumbered_id, _}] = @records
+
+    # The state between adding the ordinal column and the backfill finishing.
+    Repo.query!(
+      "ALTER TABLE platform.vulnerability_advisories ALTER COLUMN ordinal DROP NOT NULL"
+    )
+
+    Repo.update_all(
+      from(a in "vulnerability_advisories",
+        where:
+          a.provider == ^@provider and a.feed_key == ^feed_key and
+            a.source_object_id == ^unnumbered_id
+      ),
+      [set: [ordinal: nil]],
+      prefix: @schema
+    )
+
+    table = Loader.existing_comparison_table(@provider, feed_key)
+
+    try do
+      assert Loader.comparison_state_size(table) == 3
+      assert Loader.comparable_count(feed_key, table) == 3
+
+      changed =
+        Enum.map([{"ITEST-CVE-0001", "2024-06-01T00:00:00.000"} | tl(@records)], fn {id, m} ->
+          record(id, m)
+        end)
+
+      assert {:ok, result} =
+               Loader.load_and_finalize(changed,
+                 provider: @provider,
+                 feed_key: feed_key,
+                 generation: Loader.next_generation(@provider, feed_key),
+                 existing_state: table,
+                 completeness: complete_snapshot(length(changed))
+               )
+
+      # The numbered unchanged row is skipped on the ordinal the table carries;
+      # the unnumbered one is written so that it gets an ordinal and is observed.
+      assert result.advisories_upserted == 2
+      assert result.advisories_skipped == 1
+      assert result.source_objects_seen == 3
+      assert live_count(feed_key) == 3
+
+      assert from(a in "vulnerability_advisories",
+               where:
+                 a.provider == ^@provider and a.feed_key == ^feed_key and a.current == true and
+                   not is_nil(a.ordinal),
+               select: a.source_object_id
+             )
+             |> Repo.all(prefix: @schema)
+             |> Enum.sort() == Enum.sort(["ITEST-CVE-0001", numbered_id, unnumbered_id])
+    after
+      Loader.release_comparison_table(table)
+    end
+  end
+
   test "a genuinely changed advisory is still rewritten", %{feed_key: feed_key} do
     load(feed_key, all_records())
 

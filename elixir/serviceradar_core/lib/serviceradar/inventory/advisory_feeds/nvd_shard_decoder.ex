@@ -11,15 +11,32 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
       in_string: false,
       escape: false,
       buffer: <<>>,
-      cap_acc: [],
+      pos: 0,
+      start: 0,
+      pieces: [],
       cap_depth: 0,
       cap_string: false,
-      cap_escape: false
+      cap_escape: false,
+      patterns: %{
+        structure: :binary.compile_pattern(["{", "}", "\""]),
+        string: :binary.compile_pattern(["\"", "\\"])
+      }
     }
+  end
+
+  def pull(%{phase: phase} = state, data) when phase in [:in_array, :capture] do
+    resume(state, data)
   end
 
   def pull(state, data) do
     scan(%{state | buffer: <<>>}, append(state.buffer, data), false)
+  end
+
+  def finish(%{phase: phase} = state) when phase in [:in_array, :capture] do
+    case resume(state, <<>>) do
+      {:need_more, scanned} -> incomplete(scanned)
+      other -> other
+    end
   end
 
   def finish(state) do
@@ -29,6 +46,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
       other -> other
     end
   end
+
+  # Continue in the retained chunk, or append new text to its unread tail. An
+  # open record keeps its unflushed bytes from `start`.
+  defp resume(%{phase: :in_array, buffer: buffer, pos: pos} = state, data) do
+    case data do
+      <<>> -> in_array(state, buffer, pos)
+      data -> in_array(state, append(tail(buffer, pos), data), 0)
+    end
+  end
+
+  defp resume(%{phase: :capture, buffer: buffer, pos: pos, start: start} = state, data) do
+    case data do
+      <<>> -> capture(state, buffer, pos)
+      data -> capture(%{state | start: 0}, append(tail(buffer, start), data), pos - start)
+    end
+  end
+
+  defp tail(buffer, from), do: binary_part(buffer, from, byte_size(buffer) - from)
 
   defp incomplete(%{phase: :done}), do: :done
   defp incomplete(%{phase: :error} = state), do: {:error, :truncated_record, state}
@@ -59,10 +94,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
         seek_mark(state, bin, ?[, :in_array, final?)
 
       :in_array ->
-        in_array(state, bin, final?)
-
-      :capture ->
-        capture(state, bin, final?)
+        enter_array(state, bin, final?)
     end
   end
 
@@ -152,103 +184,106 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
     {:error, {:invalid_records, "vulnerabilities"}, %{state | phase: :error}}
   end
 
-  defp in_array(state, <<>>, _final?) do
-    {:need_more, %{state | buffer: <<>>}}
+  # The record body is scanned by offset into the current text chunk. Only the
+  # structural bytes are visited: one compiled `:binary.match/3` per string and
+  # per brace. Nothing is copied until a record is complete, and then it is
+  # copied once. Copying every run of bytes between tokens made this scanner,
+  # not Jason, the cost of a nist-nvd2 run: about ten times Jason's own decode
+  # time on the same shard.
+  defp enter_array(state, bin, _final?) do
+    in_array(%{state | buffer: bin, pos: 0, start: 0}, bin, 0)
   end
 
-  defp in_array(state, <<ws, rest::binary>>, final?) when ws in [?\s, ?\n, ?\r, ?\t, ?,] do
-    in_array(state, rest, final?)
+  defp in_array(state, bin, pos) when pos >= byte_size(bin) do
+    {:need_more, %{state | buffer: <<>>, pos: 0, start: 0}}
   end
 
-  defp in_array(state, <<?], _rest::binary>>, _final?) do
-    {:done, %{state | phase: :done, buffer: <<>>, cap_acc: []}}
+  defp in_array(state, bin, pos) do
+    case :binary.at(bin, pos) do
+      ws when ws in [?\s, ?\n, ?\r, ?\t, ?,] ->
+        in_array(state, bin, pos + 1)
+
+      ?] ->
+        {:done, %{state | phase: :done, buffer: <<>>, pos: 0, pieces: []}}
+
+      ?{ ->
+        capture(
+          %{
+            state
+            | phase: :capture,
+              cap_depth: 1,
+              cap_string: false,
+              cap_escape: false,
+              pieces: [],
+              start: pos
+          },
+          bin,
+          pos + 1
+        )
+
+      _other ->
+        {:error, :invalid_vulnerability, %{state | phase: :error, buffer: <<>>, pos: 0}}
+    end
   end
 
-  defp in_array(state, <<?{, rest::binary>>, final?) do
-    capture(
-      %{
-        state
-        | phase: :capture,
-          cap_depth: 1,
-          cap_string: false,
-          cap_escape: false,
-          cap_acc: ["{"]
-      },
-      rest,
-      final?
-    )
+  defp capture(state, bin, pos) when pos >= byte_size(bin) do
+    need_more_capture(state, bin)
   end
 
-  defp in_array(state, <<_ch, _rest::binary>>, _final?) do
-    {:error, :invalid_vulnerability, %{state | phase: :error, buffer: <<>>}}
+  # A backslash was the last byte of the previous chunk: skip the escaped byte.
+  defp capture(%{cap_string: true, cap_escape: true} = state, bin, pos) do
+    capture(%{state | cap_escape: false}, bin, pos + 1)
   end
 
-  defp capture(state, <<>>, _final?) do
-    {:need_more, %{state | buffer: <<>>}}
-  end
-
-  defp capture(%{cap_string: true, cap_escape: true} = state, <<ch, rest::binary>>, final?) do
-    capture(%{state | cap_escape: false, cap_acc: [<<ch>> | state.cap_acc]}, rest, final?)
-  end
-
-  defp capture(%{cap_string: true} = state, bin, final?) do
-    case :binary.match(bin, ["\\", "\""]) do
+  defp capture(%{cap_string: true} = state, bin, pos) do
+    case :binary.match(bin, state.patterns.string, scope: {pos, byte_size(bin) - pos}) do
       :nomatch ->
-        {:need_more, %{state | cap_acc: [copy_bin(bin) | state.cap_acc], buffer: <<>>}}
+        need_more_capture(state, bin)
 
-      {pos, 1} ->
-        <<head::binary-size(^pos), ch, rest::binary>> = bin
-        acc = push_copy(state.cap_acc, head)
-
-        case ch do
-          ?\\ ->
-            capture(%{state | cap_escape: true, cap_acc: ["\\" | acc]}, rest, final?)
-
-          ?" ->
-            capture(%{state | cap_string: false, cap_acc: ["\"" | acc]}, rest, final?)
+      {at, 1} ->
+        case :binary.at(bin, at) do
+          ?" -> capture(%{state | cap_string: false}, bin, at + 1)
+          ?\\ -> capture(%{state | cap_escape: true}, bin, at + 1)
         end
     end
   end
 
-  defp capture(state, bin, final?) do
-    case :binary.match(bin, ["{", "}", "\""]) do
+  defp capture(state, bin, pos) do
+    case :binary.match(bin, state.patterns.structure, scope: {pos, byte_size(bin) - pos}) do
       :nomatch ->
-        {:need_more, %{state | cap_acc: [copy_bin(bin) | state.cap_acc], buffer: <<>>}}
+        need_more_capture(state, bin)
 
-      {pos, 1} ->
-        <<head::binary-size(^pos), ch, rest::binary>> = bin
-        acc = push_copy(state.cap_acc, head)
-
-        case ch do
+      {at, 1} ->
+        case :binary.at(bin, at) do
           ?{ ->
-            capture(%{state | cap_depth: state.cap_depth + 1, cap_acc: ["{" | acc]}, rest, final?)
+            capture(%{state | cap_depth: state.cap_depth + 1}, bin, at + 1)
 
           ?" ->
-            capture(
-              %{state | cap_string: true, cap_escape: false, cap_acc: ["\"" | acc]},
-              rest,
-              final?
-            )
+            capture(%{state | cap_string: true, cap_escape: false}, bin, at + 1)
+
+          ?} when state.cap_depth == 1 ->
+            emit_object(state, bin, at + 1)
 
           ?} ->
-            depth = state.cap_depth - 1
-            acc = ["}" | acc]
-
-            if depth == 0 do
-              emit_object(state, acc, rest)
-            else
-              capture(%{state | cap_depth: depth, cap_acc: acc}, rest, final?)
-            end
+            capture(%{state | cap_depth: state.cap_depth - 1}, bin, at + 1)
         end
     end
   end
 
-  defp emit_object(state, acc, rest) do
+  # The record continues in the next chunk. Keep the unread tail of this chunk
+  # as a sub-binary; the chunks are the reader's own copies, so this holds no
+  # more than the record being assembled.
+  defp need_more_capture(state, bin) do
+    pieces = push_piece(state.pieces, bin, state.start, byte_size(bin))
+    {:need_more, %{state | pieces: pieces, buffer: <<>>, pos: 0, start: 0}}
+  end
+
+  defp emit_object(state, bin, stop) do
     object =
-      acc
-      |> Enum.reverse()
-      |> IO.iodata_to_binary()
-      |> :binary.copy()
+      case push_piece(state.pieces, bin, state.start, stop) do
+        [single] -> :binary.copy(single)
+        pieces -> pieces |> Enum.reverse() |> IO.iodata_to_binary()
+      end
 
     event =
       case Jason.decode(object) do
@@ -258,11 +293,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
       end
 
     {:event, event,
-     %{state | phase: :in_array, cap_acc: [], cap_depth: 0, buffer: copy_bin(rest)}}
+     %{
+       state
+       | phase: :in_array,
+         pieces: [],
+         cap_depth: 0,
+         buffer: bin,
+         pos: stop,
+         start: stop
+     }}
   end
 
-  defp push_copy(acc, <<>>), do: acc
-  defp push_copy(acc, bin), do: [copy_bin(bin) | acc]
+  defp push_piece(pieces, _bin, start, stop) when stop <= start, do: pieces
+  defp push_piece(pieces, bin, start, stop), do: [binary_part(bin, start, stop - start) | pieces]
 
   defp copy_bin(<<>>), do: <<>>
   defp copy_bin(bin), do: :binary.copy(bin)

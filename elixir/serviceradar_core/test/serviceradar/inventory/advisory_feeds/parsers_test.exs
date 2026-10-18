@@ -447,6 +447,59 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert records == ["CVE-2099-0100", "CVE-2099-0101"]
     end
 
+    # Jason decoding the whole document is the oracle: the streaming decoder
+    # must yield exactly its vulnerabilities for every chunk size, including
+    # splits inside an escape, a multi-byte character, or a brace in a string.
+    test "yields exactly Jason's records at every chunk size" do
+      records = [
+        %{
+          "cve" => %{
+            "id" => "CVE-2099-0200",
+            "descriptions" => [
+              %{"lang" => "en", "value" => "a } b { c \"q\" \\ d \\\" e"},
+              %{"lang" => "es", "value" => "café ☃ \u{1F600} \\u0041"}
+            ],
+            "configurations" => [
+              %{
+                "nodes" => [
+                  %{"cpeMatch" => [%{"criteria" => "cpe:2.3:a:example:a\\:b:1.0:*"}]}
+                ]
+              }
+            ]
+          }
+        },
+        %{},
+        %{"cve" => %{"id" => "CVE-2099-0201", "vulnerabilities" => [%{"nested" => "]"}]}},
+        %{"cve" => %{"id" => "CVE-2099-0202", "tail" => "\\"}}
+      ]
+
+      json =
+        ~s({"note": "the \\"vulnerabilities\\" key {is} below", ) <>
+          ~s("meta": {"vulnerabilities": [{"cve": {"id": "DECOY"}}]},\n ) <>
+          ~s("vulnerabilities" : [ ) <>
+          Enum.map_join(records, " ,\n\t", &Jason.encode!/1) <>
+          ~s( ], "after": {"x": "}"}})
+
+      expected = Jason.decode!(json)["vulnerabilities"]
+      assert expected == records
+
+      for size <- 1..64 do
+        chunks = for <<chunk::binary-size(size) <- json>>, do: chunk
+        rest = binary_part(json, size * length(chunks), rem(byte_size(json), size))
+        chunks = if rest == <<>>, do: chunks, else: chunks ++ [rest]
+
+        decoded =
+          chunks
+          |> StreamReader.decode_vulnerability_chunks()
+          |> Enum.map(fn
+            {:ok, record} -> record
+            other -> flunk("chunk size #{size}: #{inspect(other)}")
+          end)
+
+        assert decoded == expected, "chunk size #{size} diverged from Jason"
+      end
+    end
+
     test "keeps a large synthetic shard resident set to one record" do
       dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)
