@@ -187,13 +187,19 @@ The system SHALL raise a `network_only` discrepancy signal when a network-observ
 - **THEN** no candidate is published for that side
 
 ### Requirement: Host-Only Connections Through Monitored Exporters Raise A Coverage-Gap Signal
-The system SHALL raise a lower-severity `host_only` coverage-gap signal when host evidence shows internet-scoped connections from a device covered by an operator-defined expected-coverage rule, the rule's exporters were healthy for that hour (records received, none later than the maximum accepted flow delay), and no network evidence exists for those contacts at the hour's evaluation point. Under sampling, the computed probability that the exporter would have observed the contact SHALL be at least 0.999. Without an expected-coverage rule, no `host_only` signal SHALL be raised.
+The system SHALL raise a lower-severity `host_only` coverage-gap signal when host evidence shows internet-scoped connections from a device covered by an operator-defined expected-coverage rule, the rule's exporters were healthy for that hour (records received, none later than the maximum accepted flow delay), and no network evidence exists for those contacts at the hour's evaluation point. Under sampling, the computed probability that the exporter would have observed the contact SHALL be at least 0.999. Without an expected-coverage rule, no `host_only` signal SHALL be raised. Network evidence SHALL carry the exporter identity as part of its key, and the coverage-gap check SHALL consider only network evidence from the exporters the rule names.
 
 #### Scenario: Exporter misses covered traffic
 - **GIVEN** an expected-coverage rule maps `192.0.2.0/24` to an unsampled exporter that was healthy for the hour
 - **AND** a host in `192.0.2.0/24` reports 500 connections to `203.0.113.0/24` with no network evidence
 - **WHEN** the hourly evaluation runs
 - **THEN** a `host_only` signal with low severity is recorded, grouped by the rule and the exporter
+
+#### Scenario: Another exporter's record does not satisfy the rule
+- **GIVEN** an expected-coverage rule names exporter A, which was healthy for the hour
+- **AND** exporter B, which the rule does not name, reports the host's contact and A does not
+- **WHEN** the hourly evaluation runs
+- **THEN** a `host_only` signal is recorded for the rule and exporter A
 
 #### Scenario: Contact at the hour boundary is not a gap
 - **GIVEN** a covered host reports a contact at 12:59:50, visible as host evidence at 13:01
@@ -475,7 +481,7 @@ Exposure queries SHALL obtain device names, VLAN, owner, device tags and the age
 - **AND** names are not silently left empty
 
 ### Requirement: Exposure Is Rebuildable And Reconciled Against The Assessment Store
-The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit a terminal watermark for every other fact key CNPG knows in `V`, including keys whose assessment row was deleted, which carry the new sequence the deleting transaction drew, and a retirement marker for every tombstoned ordinal. A snapshot row SHALL be compared with the stored row on `(transition_seq, state)`: a greater sequence SHALL be applied; an equal sequence with an equal state SHALL change only the snapshot generation; an equal sequence with a different state SHALL be counted as a mismatch and the snapshot's state applied. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
+The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit a terminal watermark for every other fact key CNPG knows in `V`, including keys whose assessment row was deleted, which carry the new sequence the deleting transaction drew, and a retirement marker for every tombstoned ordinal. A snapshot row SHALL be compared with the stored row on `(transition_seq, state)`: a greater sequence SHALL be applied; an equal sequence with an equal state SHALL change only the snapshot generation; an equal sequence with a different state SHALL be counted as a mismatch and the snapshot's state applied. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of each fact's `(cve_ord, pkg_ord, transition_seq)` and a content hash of its actionable attributes (state, installed package version, severity, CVSS, KEV, exploit and fix flags) between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
 
 #### Scenario: Snapshot removes stale facts and keeps live updates
 - **GIVEN** StarRocks holds a fact that CNPG no longer considers actionable
@@ -506,6 +512,13 @@ The system SHALL rebuild exposure facts through a generation snapshot of all act
 - **GIVEN** a fact is deleted from StarRocks out of band
 - **WHEN** the daily reconciliation runs
 - **THEN** a mismatch is counted for that device, and a per-device snapshot restores the fact
+
+#### Scenario: Reconciliation detects attribute-only drift
+- **GIVEN** an active fact whose KEV flag changed from false to true at sequence 11 in CNPG
+- **AND** transition 11 was lost, so StarRocks still holds the fact active with KEV false at sequence 10
+- **WHEN** the daily reconciliation runs
+- **THEN** a mismatch is counted for that device although its actionable count and membership agree
+- **AND** a per-device snapshot sets the fact's KEV flag to true at sequence 11
 
 ### Requirement: Exposure Intelligence Requires StarRocks
 Exposure entities, host connection evidence, coverage attestations and discrepancy records SHALL be stored only in StarRocks. Without StarRocks, the exposure SRQL entities SHALL return `{:error, :starrocks_required}`, and the UI SHALL report that state. CNPG assessments and the existing CNPG-backed `in:devices cve:` and `in:endpoint_vulnerability_assessments` queries SHALL remain fully functional without StarRocks.

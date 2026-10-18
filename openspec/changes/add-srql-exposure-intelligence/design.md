@@ -360,12 +360,13 @@ CREATE TABLE IF NOT EXISTS serviceradar.observed_connections_hourly (
   pkg_ord BIGINT NOT NULL,         -- 0 when unknown
   process_name VARCHAR(64) NOT NULL,  -- '' when unknown
   workload_key VARCHAR(256) NOT NULL, -- '' when none
+  exporter_ord INT NOT NULL,       -- exporter device ordinal; 0 for host evidence
   host_connections BIGINT SUM, host_bytes BIGINT SUM, host_packets BIGINT SUM,
   network_flows BIGINT SUM, network_bytes BIGINT SUM, network_unsampled_flows BIGINT SUM,
   first_seen DATETIME MIN, last_seen DATETIME MAX
 )
 AGGREGATE KEY (device_ord, hour, `partition`, direction, proto, service_port, peer_ip,
-               peer_scope, pkg_ord, process_name, workload_key)
+               peer_scope, pkg_ord, process_name, workload_key, exporter_ord)
 PARTITION BY date_trunc('day', hour)
 DISTRIBUTED BY HASH(device_ord) BUCKETS 16;
 ```
@@ -588,8 +589,9 @@ Hour 12 is evaluated at about 13:21, sees both, and records no gap.
 **`host_only` (coverage gap) evaluation.** This runs hourly, at the evaluation point of
 each closed hour, against `observed_connections_hourly`. It is opt-in per
 expected-coverage rule (a CIDR or prefix tag mapped to a set of exporters). It selects
-rows with `peer_scope = internet`, `host_connections > 0` and `network_flows = 0` for
-devices covered by a rule.
+contacts with `peer_scope = internet` and `host_connections > 0` for devices covered by
+a rule that have no network evidence from the rule's own exporters (`exporter_ord` in the
+rule's set). Evidence from any other exporter does not satisfy the rule.
 
 - A gap requires the exporter to have been healthy for that hour: records were received,
   and none arrived later than the maximum accepted flow delay.
@@ -685,8 +687,11 @@ snapshots.
     taken. The snapshot reads the row as active with sequence 40 and upserts it. The
     resolution commits and arrives with sequence 41, before or after the upsert, and the
     fact ends resolved.
-- **Per-device reconciliation.** A daily job compares the actionable count and an
-  order-independent digest of `(cve_ord, pkg_ord)` per device between CNPG and StarRocks.
+- **Per-device reconciliation.** A daily job compares, per device between CNPG and
+  StarRocks, the actionable count and an order-independent digest over each fact's
+  `(cve_ord, pkg_ord, transition_seq)` and a content hash of its actionable attributes
+  (state, `pkgver_ord`, severity, CVSS, KEV, exploit and fix flags), so a lost update that
+  changes only an attribute is detected as well as a changed membership.
   Mismatched devices get a per-device snapshot, fenced the same way and scoped to the
   device. Mismatch counts are exported, so the check can fail visibly.
 
@@ -818,6 +823,8 @@ Refresh budgets:
 | A flow arrives later than the maximum accepted flow delay | Its sides are `outside_history` and counted; the exporter's hour counts as unhealthy, so it cannot produce a `host_only` gap. |
 | An address update arrives after a flow's late-window cutoff | The flow keeps its stamp and `address_update_after_cutoff` is counted. |
 | A snapshot row and the stored row share a sequence but differ in state | Counted as a reconciliation mismatch; the snapshot's state is applied. |
+| A lost transition changes only an attribute (KEV false to true) and keeps membership | The reconciliation digest covers each fact's sequence and attribute content hash, so the device mismatches and a per-device snapshot repairs it. |
+| A rule's expected exporter misses a contact that another exporter reports | Network evidence is keyed by `exporter_ord`; the coverage-gap check counts only the rule's exporters, so the gap is still raised for the expected exporter. |
 | Watermark growth | Kept permanently (about 24 bytes per key ever seen). Deferred: revisit a retirement-scoped expiry if the key count exceeds the capacity model by an order of magnitude. |
 
 ## Open Questions
