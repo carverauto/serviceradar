@@ -92,7 +92,16 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         %{id: index, pid: pid, opts: opts}
       end
 
-    await(fn -> reports(clients) end, &Enum.all?(&1, fn row -> row.frames > 0 end), 90_000, "initial 100 views")
+    replicas = [first, second]
+
+    await(
+      fn -> reports(clients) end,
+      &Enum.all?(&1, fn row -> row.frames > 0 end),
+      90_000,
+      "initial 100 views",
+      diagnose(clients, replicas)
+    )
+
     Enum.each(clients, &Client.phase(&1.pid, :churn))
     emit("warmup", %{clients: summarize(reports(clients)), replicas: metrics([first, second])})
 
@@ -183,7 +192,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       fn -> reports(clients) end,
       &Enum.all?(&1, fn row -> row.latest_total == expected end),
       90_000,
-      "final wire convergence"
+      "final wire convergence",
+      diagnose(clients, replicas)
     )
 
     Enum.each(clients, &Client.phase(&1.pid, :steady))
@@ -212,7 +222,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       fn -> reports(clients) end,
       &Enum.all?(&1, fn row -> row.latest_total == expected end),
       90_000,
-      "reconnected views"
+      "reconnected views",
+      diagnose(clients, replicas)
     )
 
     Enum.each(clients, &Client.phase(&1.pid, :steady))
@@ -254,7 +265,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       fn -> clients |> reports() |> Enum.take_every(11) end,
       &Enum.all?(&1, fn row -> row.slow_resets > 0 end),
       30_000,
-      "every slow viewer reset"
+      "every slow viewer reset",
+      diagnose(clients, replicas)
     )
 
     final = reports(clients)
@@ -320,7 +332,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         end)
       end,
       15_000,
-      "socket authority revocation"
+      "socket authority revocation",
+      diagnose(clients, replicas)
     )
 
     emit("revoked", %{clients: summarize(reports(clients))})
@@ -381,9 +394,10 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     {now() - start, result}
   end
 
-  defp await(read, predicate, timeout, label), do: await_until(read, predicate, now() + timeout, label)
+  defp await(read, predicate, timeout, label, diagnose \\ nil),
+    do: await_until(read, predicate, now() + timeout, label, diagnose)
 
-  defp await_until(read, predicate, deadline, label) do
+  defp await_until(read, predicate, deadline, label, diagnose) do
     result = read.()
 
     cond do
@@ -391,11 +405,40 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         result
 
       now() >= deadline ->
+        if diagnose, do: emit("wait_failed", Map.put(diagnose.(), :wait, label))
         flunk("#{label} did not complete: #{inspect(result, limit: 20)}")
 
       true ->
         Process.sleep(500)
-        await_until(read, predicate, deadline, label)
+        await_until(read, predicate, deadline, label, diagnose)
+    end
+  end
+
+  # Every viewer's own counters and both replicas' meters, so a failed wait shows
+  # which views stalled and why. Reports carry no session, cookie or CSRF value.
+  defp diagnose(clients, replicas) do
+    fn ->
+      %{
+        viewers:
+          Enum.map(clients, fn client ->
+            try do
+              client.pid
+              |> Client.report()
+              |> Map.drop([:latency_ms, :last_revision, :last_frame_at, :last_fresh_at])
+              |> Map.merge(%{viewer: client.id, slow: client.opts[:slow]})
+            catch
+              :exit, _ -> %{viewer: client.id, down: true}
+            end
+          end),
+        replicas:
+          Enum.map(replicas, fn replica ->
+            try do
+              Map.put(call(replica, :report), :replica, replica.id)
+            catch
+              :exit, _ -> %{replica: replica.id, unavailable: true}
+            end
+          end)
+      }
     end
   end
 

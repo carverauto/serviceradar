@@ -104,7 +104,18 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
   def cleanup!(%{seeded: false}), do: :ok
 
   def cleanup!(%{seeded: true, ordinal_seq: sequence}) do
-    ServiceRadar.TestSupport.delete_device_fixtures_by_prefix!("sr:atlas-scale-")
+    # As when seeding, per-row rollup maintenance would rewrite the same counter
+    # rows once per device; the shared delete joins this transaction, so skip it
+    # and recount once.
+    {:ok, _} =
+      Repo.transaction(
+        fn ->
+          Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+          ServiceRadar.TestSupport.delete_device_fixtures_by_prefix!("sr:atlas-scale-")
+          Repo.query!("SELECT platform.refresh_device_inventory_rollups()", [], timeout: 60_000)
+        end,
+        timeout: 150_000
+      )
 
     Repo.query!("DELETE FROM platform.ng_users WHERE email = 'atlas-scale@example.com'")
 

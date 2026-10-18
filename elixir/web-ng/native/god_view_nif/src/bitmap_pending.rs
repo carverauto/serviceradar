@@ -1,5 +1,5 @@
 //! Loss-tolerant change hints. The source's full keyset pass remains authoritative.
-use super::{check_time, deadline, Bitmap, Budget, Error, Index, BATCH_LIMIT};
+use super::{check_time, deadline, section, Bitmap, Budget, Error, Index, BATCH_LIMIT};
 use roaring::RoaringBitmap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ impl Index {
         if ids.len() > BATCH_LIMIT || ids.contains(&0) {
             return Err("invalid_dirty_batch");
         }
-        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
+        let mut pending = section(&self.pending)?;
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
@@ -112,7 +112,7 @@ impl Index {
         if !(1..=BATCH_LIMIT).contains(&limit) {
             return Err("invalid_dirty_batch");
         }
-        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
+        let mut pending = section(&self.pending)?;
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
@@ -135,7 +135,7 @@ impl Index {
     }
 
     pub fn acknowledge_reconcile(&self, observed_generation: u64) -> Result<PendingStatus, Error> {
-        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
+        let mut pending = section(&self.pending)?;
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }

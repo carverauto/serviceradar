@@ -2,7 +2,7 @@
 use roaring::RoaringBitmap;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 #[path = "bitmap_addresses.rs"]
@@ -103,6 +103,14 @@ impl Charge {
         Ok(self)
     }
 }
+// Admission, pins, pending dirty state and the published revision are held only
+// for bounded bookkeeping, as is a reaper's expiry check of a pin slot (reapers
+// themselves skip a slot its owner holds). Concurrent admitted readers, the status
+// sampler, pin owners and the publisher wait those sections out; only real budgets
+// and the single-writer publisher lock reject work.
+fn section<T>(lock: &Mutex<T>) -> Result<MutexGuard<'_, T>, Error> {
+    lock.lock().map_err(|_| "poisoned")
+}
 impl Budget {
     fn reserve(self: &Arc<Self>, bytes: usize) -> Result<Charge, Error> {
         let previous = self
@@ -127,7 +135,7 @@ impl Budget {
         additions: impl Iterator<Item = &'a Charge> + Clone,
         retired: impl Iterator<Item = &'a Charge> + Clone,
     ) -> Result<(), Error> {
-        let _admission = self.admission.try_lock().map_err(|_| "busy")?;
+        let _admission = section(&self.admission)?;
         let added: usize = additions
             .clone()
             .filter(|charge| !charge.retained.load(Ordering::Acquire))
@@ -405,7 +413,7 @@ impl Index {
         Ok(())
     }
     fn reap(&self) -> Result<usize, Error> {
-        let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
+        let mut pins = section(&self.pins)?;
         let now = Instant::now();
         pins.retain(|weak| {
             let Some(slot) = weak.upgrade() else {
@@ -423,8 +431,8 @@ impl Index {
     }
     pub fn status(&self) -> Result<Status, Error> {
         let pins = self.reap()?;
-        let pending = self.pending.try_lock().map_err(|_| "busy")?.status();
-        let revision = self.revision.try_lock().map_err(|_| "busy")?.clone();
+        let pending = section(&self.pending)?.status();
+        let revision = section(&self.revision)?.clone();
         Ok(Status {
             revision: revision.number,
             source: revision.source.clone(),
@@ -467,7 +475,7 @@ impl Index {
         if rows.len() > BATCH_LIMIT || source.is_empty() || source.len() > 128 {
             return Err("batch_budget");
         }
-        let old = self.revision.try_lock().map_err(|_| "busy")?.clone();
+        let old = section(&self.revision)?.clone();
         if old.number != expected {
             return Err("revision_conflict");
         }
@@ -642,7 +650,7 @@ impl Index {
         drop(changed);
         drop(scratch);
         check_time(end)?;
-        let pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
+        let pending_guard = section(&self.pending)?;
         let intrinsic =
             next.charges().map(|charge| charge.bytes).sum::<usize>() + self._charge.bytes;
         if next.addresses.is_some()
@@ -653,7 +661,7 @@ impl Index {
         }
         let pending = pending_guard.status();
         let next = Arc::new(next);
-        let mut published = self.revision.try_lock().map_err(|_| "busy")?;
+        let mut published = section(&self.revision)?;
         if self.closed.load(Ordering::Acquire) {
             return Err("closed");
         }
@@ -674,7 +682,7 @@ impl Index {
         drop(old);
         // Publication is committed; status must not turn an acknowledged commit into
         // a busy error merely because another reader is reaping pins.
-        let revision = self.revision.lock().map_err(|_| "poisoned")?.clone();
+        let revision = section(&self.revision)?.clone();
         Ok(Status {
             revision: revision.number,
             source: revision.source.clone(),
@@ -706,9 +714,9 @@ impl Index {
         if self.budget.readers.load(Ordering::Acquire) != 0 {
             return Err("reader_busy");
         }
-        let mut pending = self.pending.try_lock().map_err(|_| "busy")?;
+        let mut pending = section(&self.pending)?;
         pending.clear(&self.budget)?;
-        let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
+        let mut pins = section(&self.pins)?;
         for weak in pins.iter() {
             if let Some(slot) = weak.upgrade() {
                 let mut pin = slot.try_lock().map_err(|_| "reader_busy")?;
@@ -729,7 +737,7 @@ impl Index {
             ip_unavailable: None,
             _charge: self.budget.reserve(1024)?,
         };
-        let mut published = self.revision.try_lock().map_err(|_| "busy")?;
+        let mut published = section(&self.revision)?;
         self.budget.admit(
             empty.charges(),
             published.retiring_charges(Arc::strong_count(&published) == 1),
@@ -754,7 +762,7 @@ impl Index {
         if self.reap()? >= MAX_PINS {
             return Err("pin_budget");
         }
-        let revision = self.revision.try_lock().map_err(|_| "busy")?.clone();
+        let revision = section(&self.revision)?.clone();
         let accepted_fence = revision.fence;
         if !revision.ready {
             return Err("not_ready");
@@ -811,7 +819,7 @@ impl Index {
             _charge: pin_charge,
         };
         let slot = Arc::new(Mutex::new(Some(pin)));
-        let mut pins = self.pins.try_lock().map_err(|_| "busy")?;
+        let mut pins = section(&self.pins)?;
         if self.closed.load(Ordering::Acquire) {
             return Err("not_ready");
         }
@@ -922,7 +930,7 @@ impl Query {
             return Err("not_ready");
         }
         let _reader = self.budget.reader()?;
-        let mut slot = self.slot.try_lock().map_err(|_| "busy")?;
+        let mut slot = section(&self.slot)?;
         if slot
             .as_ref()
             .is_some_and(|pin| pin.expires <= Instant::now())
@@ -1108,7 +1116,7 @@ impl Query {
         })
     }
     pub fn close(&self) -> Result<(), Error> {
-        *self.slot.try_lock().map_err(|_| "busy")? = None;
+        *section(&self.slot)? = None;
         Ok(())
     }
 }
@@ -1138,6 +1146,8 @@ fn deserialize_bitmap(bytes: &[u8]) -> Result<RoaringBitmap, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Barrier;
+    use std::thread;
 
     #[test]
     fn bitset_footprint_and_completed_reservations_track_owned_storage() {
@@ -2016,6 +2026,64 @@ mod tests {
         );
         index.close().unwrap();
         assert_eq!(index.status().unwrap().cardinality, 0);
+    }
+
+    #[test]
+    fn admitted_readers_wait_for_short_index_sections_instead_of_reporting_busy() {
+        let index = index();
+        let rows = (1..=100)
+            .map(|id| row(id, if id % 2 == 0 { "A" } else { "B" }, "healthy"))
+            .collect();
+        index.publish(0, b"seed", rows, true).unwrap();
+        let vendor_a = || {
+            let (query, _, _, total) = index.query(b"allow", &[predicate("vendor", "A")], 1000)?;
+            let page = query.page(b"allow", 0, 128, 1000)?;
+            query.close()?;
+            Ok::<_, Error>((total, page.len()))
+        };
+        // Another reader, the status sampler or the publisher may be inside one of
+        // these sections at any instant; an admitted reader must wait it out.
+        thread::scope(|scope| {
+            for held in 0..4 {
+                let guards = (
+                    (held == 0).then(|| index.pins.lock().unwrap()),
+                    (held == 1).then(|| index.revision.lock().unwrap()),
+                    (held == 2).then(|| index.budget.admission.lock().unwrap()),
+                    (held == 3).then(|| index.pending.lock().unwrap()),
+                );
+                let reader = scope.spawn(vendor_a);
+                let sampler = scope.spawn(|| index.status().map(|status| status.cardinality));
+                thread::sleep(Duration::from_millis(20));
+                drop(guards);
+                assert_eq!(reader.join().unwrap(), Ok((50, 50)), "held section {held}");
+                assert_eq!(sampler.join().unwrap(), Ok(100), "held section {held}");
+            }
+        });
+        // Eight concurrent readers fit the reader and pin budgets exactly.
+        let start = Barrier::new(9);
+        thread::scope(|scope| {
+            let readers: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        (0..100)
+                            .map(|_| vendor_a())
+                            .find(|result| *result != Ok((50, 50)))
+                    })
+                })
+                .collect();
+            let sampler = scope.spawn(|| {
+                start.wait();
+                (0..400)
+                    .map(|_| index.status().map(|status| status.cardinality))
+                    .find(|result| *result != Ok(100))
+            });
+            for reader in readers {
+                assert_eq!(reader.join().unwrap(), None);
+            }
+            assert_eq!(sampler.join().unwrap(), None);
+        });
+        assert_eq!(index.status().unwrap().pins, 0);
     }
 
     #[test]

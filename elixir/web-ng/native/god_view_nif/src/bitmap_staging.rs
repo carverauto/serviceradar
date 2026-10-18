@@ -1,7 +1,7 @@
 //! One bounded unpublished source transaction per index. Partial address pages
 //! never become visible, and dropping a cancelled worker releases its staging.
 use super::addresses::{Entry, STAGE_BYTES};
-use super::{Budget, Charge, Error, Index, Row, Status, Value, BATCH_LIMIT};
+use super::{section, Budget, Charge, Error, Index, Row, Status, Value, BATCH_LIMIT};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -127,7 +127,7 @@ impl Index {
             return Err("batch_budget");
         }
         let unavailable = {
-            let old = self.revision.try_lock().map_err(|_| "busy")?;
+            let old = section(&self.revision)?;
             if old.number != expected {
                 return Err("revision_conflict");
             }

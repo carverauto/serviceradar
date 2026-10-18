@@ -7,9 +7,32 @@ world persistence, or upstream discovery ingestion. Geometry is an invented
 native world installed through `WorldCache`; canonical mappings still come
 from the real paged dictionary reader.
 
-The workload is implemented but has not run against the hosted database.
-OpenSpec task 4.2 remains unchecked until both distributions finish and their
-numbers and failures are reviewed. The database-free harness target compiles
+The compact workload has run against the hosted database and has not yet
+passed; sparse has not run. The latest compact attempt
+([BuildBuddy e578c706](https://carverauto.buildbuddy.io/invocation/e578c706-e28c-410e-9542-bf79ec2ff243),
+commit a8559ac3df) seeded 1,100,000 synthetic devices with 2,200,000 addresses
+in 239 seconds, started both four-scheduler peers, upgraded 50 concurrent
+authenticated sockets per server, mapped all 1,100,000 ordinals on both
+servers (about 15.5 seconds and 4,400,176 retained bytes each), and returned
+every HTTP tile receipt. It then failed the 90-second "initial 100 views" wait:
+at least one viewer had no accepted frame. The one viewer the failure printed
+had nine watches, three frames and six `query_busy` replies. No warmup, churn,
+replacement, reconnect or revocation phase ran. The test's own fixture
+cleanup then rolled back: deleting the 1,100,000 devices hit its 120-second
+statement timeout, as it also did in the earlier compact attempt. The hosted
+lifecycle's clone teardown still finished. The seed skips the per-row
+inventory rollup trigger and recounts once at the end. Cleanup now does the
+same; this has not yet run on the hosted database. The
+log cannot say which admission point returned each `query_busy`. One source
+was found and fixed: concurrent admitted readers, the status sampler and pin
+owners used non-waiting locks on the index's short bookkeeping sections, so a
+reader that met another one there failed as busy. They now wait those sections
+out, and the native `god_view_nif_test` reproduces the old failure. The
+eight-task query admission still answers `query_busy` when it is full. Reader,
+pin, memory and task limits are unchanged. Whether the fix clears the stalled
+views is unproven until the hosted compact and sparse runs pass. OpenSpec task
+4.2 remains unchecked until both distributions finish and their numbers and
+failures are reviewed. The database-free harness target compiles
 the complete scenario and checks its independent frame consumer, native
 geometry partition and isolated VM measurements.
 
@@ -211,7 +234,9 @@ reconciliation/reconnect outcomes. The frame latency is not an end-to-end
 measurement for subsequent unsolicited pushes. Driver writes and the final
 independent SQL population oracle are outside the per-server query counters.
 Every wait has a failure deadline; a crashed client is not automatically
-restarted and hidden.
+restarted and hidden. When a viewer wait fails, a `wait_failed` record lists
+every viewer's counters (or marks it down) and both servers' meter reports.
+The record contains no session values.
 
 Memory terms are intentionally separate. Native reservations include active
 scratch work; they are not pure retained index memory. A sample's current
