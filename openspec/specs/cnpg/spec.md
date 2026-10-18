@@ -295,13 +295,14 @@ The Helm CNPG deployment MUST avoid exposing CNPG services outside the cluster u
 - **THEN** services are ClusterIP-only (no NodePort or LoadBalancer exposure)
 
 ### Requirement: Flow Traffic Continuous Aggregates
-The database SHALL maintain TimescaleDB continuous aggregates over `platform.ocsf_network_activity` at three resolutions: 5-minute, 1-hour, and 1-day. Each CAGG SHALL pre-aggregate bytes, packets, and flow count grouped by source IP, destination IP, protocol, destination port, application label, sampler address, and direction.
+The database SHALL keep the TimescaleDB continuous aggregates over `platform.ocsf_network_activity` at three resolutions: 5-minute, 1-hour, and 1-day, until a separate drop. Each CAGG SHALL pre-aggregate bytes, packets, and flow count grouped by source IP, destination IP, protocol, destination port, application label, sampler address, and direction. EventWriter SHALL NOT insert new flow rows into that hypertable. New flows are stored only in StarRocks; see [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery).
 
-#### Scenario: 5-minute CAGG refreshes automatically
+#### Scenario: 5-minute CAGG refreshes retained rows
 - **GIVEN** the `platform.flow_traffic_5min` continuous aggregate exists
-- **WHEN** new flow records are inserted into `platform.ocsf_network_activity`
+- **AND** `platform.ocsf_network_activity` still holds retained rows
+- **WHEN** the refresh policy runs
 - **THEN** the 5-minute CAGG refreshes within 5 minutes via its configured refresh policy
-- **AND** querying the CAGG for a recent 5-minute bucket returns aggregated totals
+- **AND** querying the CAGG returns aggregated totals for buckets that still hold rows
 
 #### Scenario: Hierarchical CAGG chain
 - **GIVEN** the 1-hour CAGG `platform.flow_traffic_1h` is defined over the 5-minute CAGG
@@ -309,11 +310,10 @@ The database SHALL maintain TimescaleDB continuous aggregates over `platform.ocs
 - **THEN** the 1-hour CAGG aggregates from the 5-minute data (not raw)
 - **AND** the 1-day CAGG `platform.flow_traffic_1d` aggregates from the 1-hour CAGG
 
-#### Scenario: Query-time auto-resolution selects appropriate CAGG
-- **GIVEN** a SRQL query with a 7-day time window
-- **WHEN** the SRQL engine resolves the query source
-- **THEN** it selects the 1-hour CAGG (`platform.flow_traffic_1h`) instead of raw data
-- **AND** the query completes significantly faster than querying raw data for the same window
+#### Scenario: Flow queries do not read these aggregates
+- **WHEN** SRQL answers `in:flows` or another flow read
+- **THEN** it does not select `platform.flow_traffic_1h` or the other CNPG flow aggregates
+- **AND** the read is served from StarRocks, or refused when StarRocks is unavailable
 
 ### Requirement: 95th Percentile Bandwidth Calculation
 The database SHALL support 95th percentile bandwidth calculation over the continuous aggregates. This MUST be available as a query-time operation using TimescaleDB `percentile_agg` or equivalent.
@@ -325,25 +325,26 @@ The database SHALL support 95th percentile bandwidth calculation over the contin
 - **AND** this matches the industry-standard burstable billing calculation
 
 ### Requirement: Flow enrichment fields SHALL be persisted at ingestion time
-The ingestion pipeline SHALL normalize and persist canonical flow enrichment fields in CNPG when flow records are stored, including protocol label mapping, decoded TCP flag labels, destination service label metadata, directionality classification, and endpoint MAC vendor attribution.
+The ingestion pipeline SHALL normalize and persist canonical flow enrichment fields on the StarRocks flow row when flow records are stored, including protocol label mapping, decoded TCP flag labels, destination service label metadata, directionality classification, and endpoint MAC vendor attribution. It SHALL NOT write those flow rows to CNPG.
 
 #### Scenario: Protocol and TCP enrichment persisted on write
 - **GIVEN** an ingested flow record with `protocol_num = 6` and `tcp_flags = 18`
-- **WHEN** the record is written to CNPG
+- **WHEN** the record is stored
 - **THEN** persisted enrichment fields include canonical protocol label `tcp`
 - **AND** include decoded TCP flag labels `SYN` and `ACK`
 - **AND** retain raw protocol number and raw tcp flag bitmask values
+- **AND** no row is written to `platform.ocsf_network_activity`
 
 #### Scenario: Unknown mappings persist deterministic fallback
 - **GIVEN** an ingested flow record with unknown protocol/service mappings
-- **WHEN** the record is written to CNPG
+- **WHEN** the record is stored
 - **THEN** persisted enrichment fields use deterministic unknown labels
 - **AND** include enrichment source metadata marking those values as unknown
 
 #### Scenario: OUI vendor enrichment persisted on write
 - **GIVEN** an ingested flow record with source or destination MAC addresses
 - **AND** an active IEEE OUI snapshot contains matching prefixes
-- **WHEN** the record is written to CNPG
+- **WHEN** the record is stored
 - **THEN** persisted enrichment fields include endpoint MAC vendor labels
 - **AND** enrichment source is recorded as OUI dataset driven
 

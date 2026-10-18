@@ -327,5 +327,6 @@
 - [ ] 5.8 Operator docs and CHANGELOG (BREAKING): enabling StarRocks makes every dataset
   warehouse-only at once; readers without a warehouse implementation show "unavailable"; disabling StarRocks resumes
   CNPG writes without the history written meanwhile; JetStream retention bounds a warehouse
-  outage. Update `docs/docs/helm-configuration.md`, `docs/docs/netflow.md` and
-  `README-Docker.md`, which describe CNPG as the flow write target.
+  outage. `docs/docs/helm-configuration.md`, `docs/docs/netflow.md`,
+  `docs/docs/data-pipeline.md` and `README-Docker.md` name StarRocks as the only
+  flow store. CHANGELOG still records the earlier read-cutover notes.

@@ -17,8 +17,10 @@
 
 1. **The single point where everything converges is the CNPG database**
    (CloudNativePG / Postgres + TimescaleDB + Apache AGE graph + pgvector).
-   Anything that arrives over NATS is written to CNPG near-instantly, so there
-   is no reason to integrate against NATS — CNPG is the one uniform plane.
+   Anything that arrives over NATS is written to CNPG near-instantly, except
+   flows, which are stored only in StarRocks
+   ([NetFlow](./netflow.md#flow-cutover-and-delivery)). There is no reason to
+   integrate against NATS. CNPG remains the uniform plane for the other data.
 
 2. **The uniform API over it is SRQL** (ServiceRadar Query Language) — and,
    critically for you, **SRQL already exists as an embeddable Rust crate**
