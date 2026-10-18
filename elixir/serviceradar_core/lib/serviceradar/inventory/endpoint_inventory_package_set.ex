@@ -10,7 +10,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   @package_event_added "added"
   @package_event_removed "removed"
   @package_event_version_changed "version_changed"
-  @coverage_states ~w(complete partial not_scanned failed disabled unchanged unknown no_supported_package_source)
+  @coverage_states ~w(complete partial not_scanned failed disabled unchanged unknown no_supported_package_source upload_deferred)
   @diagnostic_complete_states ~w(scanned complete success)
   @diagnostic_failure_states ~w(error failed timeout)
   @diagnostic_unavailable_states ~w(unavailable skipped not_supported unsupported)
@@ -258,7 +258,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
 
   def scan_state(payload) do
     case Payload.string_value(payload, :state) || Payload.string_value(payload, :status) do
-      value when value in ["scanned", "scan_failed", "not_scanned", "unchanged", "partial"] ->
+      value
+      when value in [
+             "scanned",
+             "scan_failed",
+             "not_scanned",
+             "unchanged",
+             "partial",
+             "upload_deferred"
+           ] ->
         value
 
       value when value in ["complete", "success"] ->
