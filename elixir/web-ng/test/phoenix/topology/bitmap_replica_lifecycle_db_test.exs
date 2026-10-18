@@ -148,6 +148,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     # The padded dictionary spans at least two pages. Each page is a separate
     # supervised turn that resumes from the owner's retained cursor.
     assert_receive {:loader_page, ^paging, disabled_turn, first_cursor}, 10_000
+    # Earlier turns (the geometry load) also polled the head; only a turn that
+    # starts after this one may count as the disabled check below.
+    drain_loader_queries(observer)
 
     # Disabling Atlas between pages releases the staged projection and returns
     # the loader to ordinary head polling instead of the page cadence.
@@ -346,7 +349,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     end
 
     active_alias |> Ash.Changeset.for_update(:mark_stale, %{}, actor: @actor) |> Ash.update!()
-    Ash.destroy!(interface, actor: @actor)
+    interface |> Ash.Changeset.for_destroy(:destroy, %{}, actor: @actor) |> Ash.destroy!()
     nic |> Ash.Changeset.for_update(:update, %{exists: false}, actor: @actor) |> Ash.update!()
     assert {:ok, _} = publish_addresses(current, [first_ordinal], 2)
 
@@ -600,13 +603,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
   defp capacity_tags(keys, n), do: Map.new(keys, &{&1, String.pad_trailing("#{&1}-#{n}-", 200, "x")})
 
+  # Each batch posts its own values, so it adds new bitmaps instead of copying
+  # every earlier padding bitmap. The fill therefore stops at the retained
+  # admission budget, leaving less headroom than one batch (about 2.4 MB) and
+  # well below the capacity page's 12,500 new 200-byte groups.
   defp fill_index_capacity(current) do
-    attrs = Enum.map(current.supported_facets, &{&1, "capacity-padding"})
     {:ok, initial} = Native.bitmap_index_status(current.device)
 
     0..65_535
     |> Enum.chunk_every(500)
     |> Enum.reduce_while(initial, fn batch, previous ->
+      attrs = Enum.map(current.supported_facets, &{&1, "capacity-padding-#{hd(batch)}"})
       rows = Enum.map(batch, &{&1 * 65_536 + 65_535, true, attrs})
 
       case Native.bitmap_index_publish(current.device, previous.revision, "capacity-#{hd(batch)}", rows, true) do

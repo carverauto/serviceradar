@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadar.NetworkDiscovery.World
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Native, as: PrefixNative
   alias ServiceRadar.PrefixTags.Registry
@@ -678,6 +679,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert prefix_mask == <<1>>
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => prefix_digest})
     assert_reply ref, :ok
+    # The channel's own periodic tick must not rebuild while the entry expires,
+    # so its queued ticks run only once the task pool is saturated below.
+    suspend_idle(socket)
 
     await(
       fn ->
@@ -696,6 +700,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     holders = occupy_watch_tasks()
 
     try do
+      :ok = :sys.resume(socket.channel_pid)
       send(socket.channel_pid, :tile_tick)
       assert_push "membership:frame", {:binary, <<"SRMO", 1, 1, _::binary>>}, 5_000
       refute_push "membership:frame", _retained, 200
@@ -721,6 +726,25 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       fn -> BitmapPrefixTags.page(%{"source" => source}, <<61::256>>, System.monotonic_time(:millisecond) + 1_000) end,
       &match?({:ok, %{labels: ^labels}}, &1)
     )
+  end
+
+  # Suspends the channel with no build running and no frame awaiting an ack. A
+  # periodic tick that raced the caller's ack is delivered and acknowledged first.
+  defp suspend_idle(socket) do
+    :ok = :sys.suspend(socket.channel_pid)
+
+    case :sys.get_state(socket.channel_pid).assigns.bitmap_stream do
+      %{task: nil, awaiting: nil} ->
+        :ok
+
+      _busy ->
+        :ok = :sys.resume(socket.channel_pid)
+        assert_push "membership:frame", {:binary, frame}, 5_000
+        {sequence, _total, digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(frame)
+        ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
+        assert_reply ref, :ok
+        suspend_idle(socket)
+    end
   end
 
   defp stream_task(socket), do: :sys.get_state(socket.channel_pid).assigns.bitmap_stream.task
@@ -815,6 +839,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     :ok = TopologyAtlas.add_positions(builder, positions)
     {:ok, world} = TopologyAtlas.finish_world(builder)
+    publish_layout(positions)
     manifest = %{layout_version: @version, generation: 1, zmax: 16}
 
     prepared =
@@ -826,6 +851,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     :ok = WorldCache.install(world, manifest, prepared)
     :ok = WorldCache.install_ordinals(world, seal_mapping(world, devices, epoch))
     world
+  end
+
+  # Device search authorizes against the persisted active layout before the
+  # cached world, so the boxed sandbox publishes the same positions through the
+  # real staging and activation owners. The sandbox rolls them back.
+  defp publish_layout(positions) do
+    previous =
+      case World.active_manifest(:system) do
+        {:ok, %{generation: generation}} -> generation
+        {:error, :not_ready} -> 0
+      end
+
+    metadata = %{source_digest: "invented-bitmap-query", node_count: length(positions), relation_count: 0}
+    :ok = World.stage_candidate(@version, metadata, positions, [])
+    {:ok, %{layout_version: @version}} = World.activate_relayout(previous, @version)
   end
 
   defp seal_mapping(world, devices, epoch) do
