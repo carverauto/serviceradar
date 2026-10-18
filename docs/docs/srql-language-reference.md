@@ -546,7 +546,7 @@ in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
 | `direction` | | Flow direction |
 | `direction_label` | | Flow direction label |
 | `dst_service_label` | | Destination service label |
-| `flow_source` | `collector` | Originating collector |
+| `flow_source` | `collector` | Exporter protocol (`NetFlow v5`, `NetFlow v9`, `IPFIX`, `sFlow v5`) |
 | `app` | | Derived application classification label |
 | `sampler_address` | | Flow exporter / sampler address |
 | `exporter_name` | | Resolved exporter name |

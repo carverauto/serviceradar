@@ -182,9 +182,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
-                <% flow_src = flow_get_in(flow, ["ocsf_payload", "flow_source"]) %>
+                <% flow_src = flow_source_label(flow) %>
                 <.ui_badge
-                  :if={is_binary(flow_src) and flow_src != "Unknown"}
+                  :if={is_binary(flow_src)}
                   variant={
                     cond do
                       String.starts_with?(flow_src, "sFlow") -> "info"
@@ -197,12 +197,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                 >
                   {flow_src}
                 </.ui_badge>
-                <span
-                  :if={!is_binary(flow_src) or flow_src == "Unknown"}
-                  class="text-sr-muted"
-                >
-                  —
-                </span>
+                <span :if={is_nil(flow_src)} class="text-sr-muted">—</span>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
                 <.flow_attribution_summary flow={flow} />

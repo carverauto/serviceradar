@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
+  import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess, only: [flow_source_label: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
@@ -5802,7 +5803,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 />
               </td>
               <td class="whitespace-nowrap text-xs">
-                <.netflow_flow_type_badge flow_type={netflow_flow_type(flow)} />
+                <.netflow_flow_source_badge flow_source={flow_source_label(flow)} />
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono">
                 <div>{format_netflow_number(netflow_packets(flow))}</div>
@@ -6327,7 +6328,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         protocol={netflow_protocol_num(@flow)}
                         name={netflow_protocol_name(@flow)}
                       />
-                      <.netflow_flow_type_badge flow_type={netflow_flow_type(@flow)} />
+                      <.netflow_flow_source_badge flow_source={flow_source_label(@flow)} />
                     </div>
                     <div
                       :if={is_binary(@direction_label) and @direction_label != ""}
@@ -6748,14 +6749,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {label, "ghost"}
   end
 
-  defp netflow_flow_type_badge(assigns) do
-    flow_type = assigns.flow_type
-
+  defp netflow_flow_source_badge(assigns) do
     {label, variant} =
-      case flow_type do
-        "SFLOW_5" -> {"sFlow v5", "primary"}
-        "NETFLOW_V5" -> {"v5", "warning"}
-        "NETFLOW_V9" -> {"v9", "info"}
+      case assigns.flow_source do
+        "sFlow" <> _ = label -> {label, "primary"}
+        "NetFlow v5" -> {"NetFlow v5", "warning"}
+        "NetFlow v9" -> {"NetFlow v9", "info"}
         "IPFIX" -> {"IPFIX", "success"}
         nil -> {"Unknown", "ghost"}
         other -> {other, "ghost"}
@@ -6792,24 +6791,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_bytes(flow), do: netflow_value(flow, ["bytes_total", "octets"])
-
-  defp netflow_flow_type(flow) do
-    payload =
-      case Map.get(flow, "ocsf_payload") do
-        %{} = data -> data
-        _ -> nil
-      end
-
-    flow_type =
-      if is_map(payload) do
-        get_in(payload, ["unmapped", "flow_type"]) || get_in(payload, ["flow_type"])
-      end
-
-    case flow_type do
-      value when is_binary(value) and value != "" -> value
-      _ -> nil
-    end
-  end
 
   defp netflow_attribution(flow) when is_map(flow) do
     case flow |> Map.get("ocsf_payload") |> flow_get_in(["attribution"]) do
@@ -8247,32 +8228,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         udp: 0,
         other: 0,
         total_bytes: 0,
-        total_packets: 0,
-        v5: 0,
-        v9: 0,
-        ipfix: 0,
-        sflow: 0
+        total_packets: 0
       },
       fn flow, acc ->
         protocol = flow |> netflow_protocol_num() |> to_int()
         bytes = flow |> netflow_bytes() |> to_int()
         packets = flow |> netflow_packets() |> to_int()
-        flow_type = netflow_flow_type(flow)
 
         updated =
           case protocol do
             6 -> Map.update!(acc, :tcp, &(&1 + 1))
             17 -> Map.update!(acc, :udp, &(&1 + 1))
             _ -> Map.update!(acc, :other, &(&1 + 1))
-          end
-
-        updated =
-          case flow_type do
-            "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
-            "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
-            "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
-            "SFLOW_5" -> Map.update!(updated, :sflow, &(&1 + 1))
-            _ -> updated
           end
 
         updated

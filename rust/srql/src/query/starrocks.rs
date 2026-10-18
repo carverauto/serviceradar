@@ -224,6 +224,7 @@ const FLOW_ROW_FIELDS: &[&str] = &[
     "sampling_rate",
     "direction_label",
     "sampler_address",
+    "flow_source",
     "dst_service_label",
     "app",
     "src_as_number",
@@ -4335,6 +4336,25 @@ mod tests {
         );
         assert!(!compiled.sql.contains("SELECT *"), "{}", compiled.sql);
         refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn flow_rows_project_the_exporter_protocol() {
+        // The warehouse row has no ocsf_payload, so this column is the only
+        // place a flow table can learn whether the row was NetFlow, IPFIX or sFlow.
+        for query in [
+            "in:flows time:last_1h limit:5",
+            "in:attributed_flows time:last_1h limit:5",
+            "in:flows in_if_name:eth0 time:last_1h limit:5",
+        ] {
+            let compiled = translate(&plan(query), "serviceradar").expect("compile");
+            let projection = compiled.sql.split(" FROM ").next().unwrap();
+            assert!(
+                projection.contains("COALESCE(flow_source, 'Unknown') AS flow_source")
+                    || projection.contains("COALESCE(f.flow_source, 'Unknown') AS flow_source"),
+                "{query}: {projection}"
+            );
+        }
     }
 
     #[test]
