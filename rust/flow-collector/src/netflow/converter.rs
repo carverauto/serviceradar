@@ -403,10 +403,15 @@ fn interface_index(bytes: &[u8]) -> Option<u32> {
 /// 1-in-N, as selected/skipped runs of packets or flows, as n out of a
 /// population of N, or as a probability.
 ///
-/// Only packet sampling makes a record's counters a sample. Flow selection
-/// (RFC 7014) and property-match or hash-based filtering (RFC 5475) choose
-/// whole flows or packets, and every record they export carries complete
-/// counters, so their selection ratio is not a per-record multiplier.
+/// Only packet sampling makes a record's counters a sample.
+///
+/// Whole-flow selection keeps complete counters and publishes rate 1:
+/// `flowSelectorAlgorithm`, `selectorAlgorithm` 9, a hash selector whose
+/// `hashFlowDomain` is the flow key, and `samplingFlowInterval` /
+/// `samplingFlowSpacing`. Hash selection without `hashFlowDomain` emulates
+/// random packet sampling (RFC 5475 section 6.2) and uses the declared
+/// ratio. Property match (`selectorAlgorithm` 5) is a filter. A filter or
+/// hash selector that names no ratio declares no rate.
 #[derive(Default)]
 struct SamplingFields {
     sampler_id: Option<u64>,
@@ -418,10 +423,20 @@ struct SamplingFields {
     size: Option<u64>,
     population: Option<u64>,
     probability: Option<f64>,
-    /// The record names a packet sampling algorithm.
+    /// `selectorAlgorithm` 1-4, or `samplingAlgorithm` / `samplerMode` 1-2.
     packet_sampling: bool,
-    /// The record names flow selection, filtering, or hash parameters.
-    complete_selection: bool,
+    /// `flowSelectorAlgorithm` (IE390), any value.
+    flow_selector: bool,
+    /// `selectorAlgorithm` 9, flow-state dependent intermediate flow selection.
+    flow_state_selection: bool,
+    /// `selectorAlgorithm` 5, property-match filtering.
+    property_filter: bool,
+    /// `selectorAlgorithm` 6-8, hash-based filtering.
+    hash_selector: bool,
+    /// Hash parameter elements other than `hashFlowDomain` (IE327-334).
+    hash_parameters: bool,
+    /// `hashFlowDomain` (IE400): the hash input is the flow key.
+    hash_flow_domain: bool,
 }
 
 impl SamplingFields {
@@ -450,7 +465,9 @@ impl SamplingFields {
                 // filtering, 6-8 hash-based filtering, 9 flow-state selection.
                 match field_value_to_u64(value) {
                     1..=4 => self.packet_sampling = true,
-                    5..=9 => self.complete_selection = true,
+                    5 => self.property_filter = true,
+                    6..=8 => self.hash_selector = true,
+                    9 => self.flow_state_selection = true,
                     _ => {}
                 }
                 return true;
@@ -462,17 +479,23 @@ impl SamplingFields {
                 }
                 return true;
             }
-            IANAIPFixField::FlowSelectorAlgorithm
-            | IANAIPFixField::HashIppayloadOffset
+            IANAIPFixField::FlowSelectorAlgorithm => {
+                self.flow_selector = true;
+                return true;
+            }
+            IANAIPFixField::HashFlowDomain => {
+                self.hash_flow_domain = true;
+                return true;
+            }
+            IANAIPFixField::HashIppayloadOffset
             | IANAIPFixField::HashIppayloadSize
             | IANAIPFixField::HashOutputRangeMin
             | IANAIPFixField::HashOutputRangeMax
             | IANAIPFixField::HashSelectedRangeMin
             | IANAIPFixField::HashSelectedRangeMax
             | IANAIPFixField::HashDigestOutput
-            | IANAIPFixField::HashInitialiserValue
-            | IANAIPFixField::HashFlowDomain => {
-                self.complete_selection = true;
+            | IANAIPFixField::HashInitialiserValue => {
+                self.hash_parameters = true;
                 return true;
             }
             _ => return false,
@@ -492,20 +515,66 @@ impl SamplingFields {
         true
     }
 
-    /// The 1-in-N packet sampling rate these fields declare, if any.
+    /// The 1-in-N rate these fields declare, if they declare one.
     ///
-    /// A selection that keeps complete counters (flow selection, filtering,
-    /// hash parameters, or flow intervals without a packet sampling
-    /// algorithm) declares 1, so it also replaces a rate learned earlier.
+    /// Whole-flow selection publishes 1, which replaces a packet rate learned
+    /// earlier for the same scope. A property-match filter publishes nothing.
+    /// A hash selector with no ratio publishes nothing, so it does not vote
+    /// in a selection sequence.
     ///
     /// A lone packet interval is read as 1-in-N, as exporters that send it
     /// without a spacing use it; with a spacing it is the RFC run length, and
     /// the rate is (selected + skipped) / selected.
     fn rate(&self) -> Option<u64> {
-        let flow_level = self.flow_interval.is_some() || self.flow_spacing.is_some();
-        if !self.packet_sampling && (self.complete_selection || flow_level) {
+        if self.whole_flow() {
             return Some(1);
         }
+        // A property-match filter is not a sampler. A hash selector that
+        // names no ratio is not one either. Packet-content hashing that
+        // does declare a ratio falls through to that ratio.
+        if !self.packet_sampling
+            && (self.property_filter || (self.hash_selection() && !self.declares_ratio()))
+        {
+            return None;
+        }
+        self.packet_rate()
+    }
+
+    /// Selection that exports complete per-flow counters.
+    ///
+    /// An explicit packet-sampling algorithm on the same record keeps the
+    /// packet derivation. Flow-key hashing counts only when a ratio is
+    /// present; a bare hash selector declares no rate.
+    fn whole_flow(&self) -> bool {
+        if self.packet_sampling {
+            return false;
+        }
+        let flow_level = self.flow_interval.is_some() || self.flow_spacing.is_some();
+        self.flow_selector
+            || self.flow_state_selection
+            || flow_level
+            || (self.hash_selection() && self.hash_flow_domain && self.declares_ratio())
+    }
+
+    /// Hash-based filtering (`selectorAlgorithm` 6-8) or a hash parameter.
+    fn hash_selection(&self) -> bool {
+        self.hash_selector || self.hash_parameters || self.hash_flow_domain
+    }
+
+    /// A sampling interval, size, population, probability, packet run, or
+    /// flow interval. Naming a selector algorithm is not a ratio.
+    fn declares_ratio(&self) -> bool {
+        self.interval.is_some()
+            || self.packet_interval.is_some()
+            || self.packet_space.is_some()
+            || self.flow_interval.is_some()
+            || self.flow_spacing.is_some()
+            || self.size.is_some()
+            || self.population.is_some()
+            || self.probability.is_some()
+    }
+
+    fn packet_rate(&self) -> Option<u64> {
         let packet_interval = match (self.packet_interval, self.packet_space) {
             (Some(selected), Some(skipped)) => {
                 rounded_ratio(u128::from(selected) + u128::from(skipped), selected)

@@ -175,15 +175,28 @@ names no sampler and whose scope is an interface (IPFIX `ingressInterface` or
 `egressInterface`, v9 interface scope) stores the rate for that interface
 index. A system or observation-domain scope stores the domain rate.
 
-Only packet sampling scales records. A record that names flow selection
-(`flowSelectorAlgorithm`), property-match or hash-based filtering
-(`selectorAlgorithm` 5-9), hash parameters (`hash*` elements), or flow
-intervals (`samplingFlowInterval`/`samplingFlowSpacing`) without a packet
-sampling algorithm exports whole flows with complete counters. The collector
-publishes those flows with rate 1, whatever selection ratio the exporter
-declares, because analytics multiply each record by its rate and a
-whole-flow record multiplied by N reports N times the bytes that flow carried.
-The declared ratio is not stored.
+Only packet sampling scales records. Flow selection
+(`flowSelectorAlgorithm`), flow-state selection (`selectorAlgorithm` 9),
+flow-key hashing (a hash selector, `selectorAlgorithm` 6-8, or a hash
+parameter, together with `hashFlowDomain`), and flow intervals
+(`samplingFlowInterval`/`samplingFlowSpacing`) export whole flows with
+complete counters. The collector publishes those flows with rate 1, whatever
+selection ratio the exporter declares, because analytics multiply each record
+by its rate and a whole-flow record multiplied by N reports N times the bytes
+that flow carried. The declared ratio is not stored, and that rate 1 replaces
+a packet sampling rate learned earlier for the same scope.
+
+Hash-based selection over packet content (`selectorAlgorithm` 6-8 or hash
+parameters such as `hashIPPayloadOffset` and `hashIPPayloadSize`, with no
+`hashFlowDomain`) emulates random packet sampling. The collector derives its
+packet rate from the declared ratio, the same way it does for
+`selectorAlgorithm` 1-4.
+
+Property-match filtering (`selectorAlgorithm` 5) is a filter, not sampling.
+A filter or hash selector that declares no ratio (no sampling interval, size,
+population, probability, packet interval, or flow interval) stores no rate
+and does not vote. In a selection sequence, flows that name no selector keep
+the packet sampler's rate when the selectors that did declare a rate agree.
 
 A flow record's rate is resolved in this order: its own sampling fields; the
 learned rate of the sampler or selector it names; the interface rate for its

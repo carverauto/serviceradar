@@ -1011,45 +1011,82 @@ mod tests {
         assert_eq!(metrics.sampling_rate_clamped.load(Ordering::Relaxed), 1);
     }
 
-    /// Flow selection and hash or property filtering export whole flows with
-    /// complete counters, so the selection ratio they declare must not scale
-    /// the records: each flow publishes rate 1, not the fallback and not N.
+    /// Whole-flow selection exports complete counters, so its ratio is not a
+    /// per-record multiplier. Packet-content hashing is packet sampling. A
+    /// ratio-less property-match filter does not vote beside a packet sampler.
     #[test]
     fn ipfix_options_selection_of_whole_flows_is_not_scaled() {
         let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
         let handler = netflow_handler(Some(5), None, &metrics);
         let peer: SocketAddr = "192.0.2.5:4739".parse().unwrap();
-        let cases: [(&str, Vec<Element>, Vec<Element>); 4] = [
+        let cases: [(&str, Vec<Element>, Vec<Element>, u64); 6] = [
             (
                 "flowSelectorAlgorithm 3, samplingSize 1 of samplingPopulation 512",
                 vec![ie(302, 8, 4), ie(390, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
                 vec![ie(302, 8, 4)],
+                1,
             ),
             (
-                "selectorAlgorithm 6 (hash-based filtering), samplingInterval 512",
+                "selectorAlgorithm 6 with samplingInterval 512 and no hashFlowDomain",
                 vec![ie(304, 1, 6), ie(34, 4, 512)],
                 vec![],
+                512,
             ),
             (
-                "hashSelectedRangeMax with samplingInterval 512 and no algorithm",
+                "hashSelectedRangeMax with samplingInterval 512 and no hashFlowDomain",
                 vec![ie(332, 8, 127), ie(34, 4, 512)],
                 vec![],
+                512,
             ),
             (
                 "samplingFlowInterval selected, samplingFlowSpacing skipped",
                 vec![ie(396, 4, 1), ie(397, 4, 511)],
                 vec![],
+                1,
+            ),
+            (
+                "selectorAlgorithm 6, hashIPPayloadSize, samplingInterval 512, no hashFlowDomain",
+                vec![ie(304, 1, 6), ie(328, 2, 8), ie(34, 4, 512)],
+                vec![],
+                512,
+            ),
+            (
+                "selectorAlgorithm 6, hashFlowDomain, samplingInterval 512",
+                vec![ie(304, 1, 6), ie(400, 2, 8), ie(34, 4, 512)],
+                vec![],
+                1,
             ),
         ];
-        for (domain, (case, options, flow)) in (1u32..).zip(cases) {
+        for (domain, (case, options, flow, expected)) in (1u32..).zip(cases) {
             let packet = ipfix_sampling_options(domain, &options);
             handler.parse_datagram(&packet, packet.len(), peer);
             assert_eq!(
                 decoded_rate(&handler, &ipfix_flow(domain, 256, &flow), peer),
-                1,
+                expected,
                 "{case}"
             );
         }
+
+        // RFC 5476 selection sequence: property-match filter, then 1-of-512
+        // packet sampler. The filter names no ratio, so it stores nothing
+        // and the sampler's rate stays the consensus for unnamed flows.
+        let filter = ipfix_sampling_options(8, &[ie(302, 8, 1), ie(304, 1, 5)]);
+        let sampler = ipfix_sampling_options(
+            8,
+            &[
+                ie(302, 8, 2),
+                ie(304, 1, 3),
+                ie(309, 4, 1),
+                ie(310, 4, 512),
+            ],
+        );
+        handler.parse_datagram(&filter, filter.len(), peer);
+        handler.parse_datagram(&sampler, sampler.len(), peer);
+        assert_eq!(
+            decoded_rate(&handler, &ipfix_flow(8, 256, &[]), peer),
+            512,
+            "a ratio-less property-match selector does not break sampler consensus"
+        );
 
         // A selector that switches from packet sampling to flow selection.
         let packet_sampling = ipfix_sampling_options(
