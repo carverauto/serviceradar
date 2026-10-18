@@ -103,11 +103,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
       Payload.string_value(package, :package_manager) ||
         Payload.string_value(package, :manager)
 
-    [
-      anchor_property("serviceradar:package_manager", manager),
-      anchor_property("serviceradar:architecture", Payload.string_value(package, :architecture))
-    ]
-    |> Enum.reject(&is_nil/1)
+    Enum.reject(
+      [
+        anchor_property("serviceradar:package_manager", manager),
+        anchor_property("serviceradar:architecture", Payload.string_value(package, :architecture))
+      ],
+      &is_nil/1
+    )
   end
 
   defp anchor_property(_name, nil), do: nil
