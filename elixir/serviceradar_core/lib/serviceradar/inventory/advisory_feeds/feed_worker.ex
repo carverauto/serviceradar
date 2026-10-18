@@ -787,9 +787,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
                generation: generation,
                existing_state: existing_state,
                normalization_version: Parsers.Ubuntu.normalization_version(),
-               completeness: completeness,
-               transaction_timeout_ms: 3_600_000,
-               timeout_ms: 1_800_000
+               completeness: completeness
              ) do
         {:ok, warn_if_guard_inert(feed_key, existing_count, result)}
       end

@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   @moduledoc """
-  Chunked bulk loader for advisories, coordinates, package definitions,
-  assertions, and source presence.
+  Chunked bulk loader for advisories, coordinates, package definitions, and
+  assertions.
 
   Records arrive as `%{advisory: map, coordinates: [map], assertions: [map]}`
   with optional `products` and `product_sets` lists from a parser. This module
@@ -25,17 +25,31 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   `advisories_skipped` and alarms when it is zero against a non-empty corpus,
   because a silently-inert guard looks exactly like a healthy run.
 
-  ## Generation swap
+  ## Batched commits and generation swap
 
-  Each source object, including an unchanged one, gets a presence row for the
-  run's globally monotonic generation. Only an explicitly complete, validated
-  run may promote its generation and withdraw current rows absent from that
-  generation's presence. `load_and_finalize/2` keeps all writes and promotion
-  in one run-wide transaction so a late failure cannot expose partial content.
+  Each chunk commits in its own transaction: its product definitions, changed
+  advisory rows, and their complete coordinate, configuration, and assertion
+  replacements. An advisory row and its children are always written together,
+  so while a run is in progress the served corpus is a mix of old and new
+  versions per advisory, never a torn advisory. A first full nist-nvd2 rewrite
+  is therefore bounded by the chunk byte cap per transaction instead of being
+  one ~1 GB transaction.
+
+  A new advisory is written with `current = false`, and nothing current is
+  withdrawn, until the whole run has loaded and validated. A run that fails or
+  is incomplete leaves every previously current advisory current; a changed
+  advisory it already committed keeps its new, self-consistent content, and its
+  assertions carry the unpromoted generation.
+
+  Every advisory row has a dense bigint `ordinal`. The run records the ordinal
+  of every source object it observes, written or skipped, in an in-memory
+  `OrdinalSet`; nothing is written for an unchanged object. Finalization runs
+  only after the observed count matches the validated snapshot count: it
+  promotes the run's new rows and withdraws the feed's current rows whose
+  ordinal was not observed, each in bounded batches that commit separately.
 
   `current` remains the matcher liveness bit. Skipped rows retain their content
-  generation and timestamps; presence, not advisory rewrites, proves that they
-  were observed in the promoted snapshot.
+  generation and timestamps.
 
   Advisories upsert on `(provider, feed_key, source_object_id)`; coordinates on
   the coordinate identity. An NVD advisory row stores each referenced
@@ -50,6 +64,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability
+  alias ServiceRadar.Inventory.AdvisoryFeeds.OrdinalSet
   alias ServiceRadar.Repo
 
   require Logger
@@ -63,7 +78,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # every batch. Size this against transaction cost, not the wire protocol.
   @max_coordinate_insert 500
   @max_assertion_insert 500
-  @max_presence_insert 1_000
   @max_product_insert 1_000
   @max_product_insert_bytes 4 * 1_024 * 1_024
   @max_product_set_insert 100
@@ -71,6 +85,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   @max_assertion_lock_batch 1_000
   @default_ubuntu_chunk_bytes 16 * 1_024 * 1_024
   @nvd_chunk_bytes 16 * 1_024 * 1_024
+  # Per chunk transaction. A chunk is bounded by row count and bytes, so this is
+  # headroom for a slow disk, not a budget for a whole run.
+  @default_transaction_timeout_ms 600_000
+  @default_finalize_batch_size 1_000
+  @default_finalize_timeout_ms 600_000
+  @current_ordinal_page_size 10_000
   @schema "platform"
   @content_hash_feeds MapSet.new(~w(cisa-kev vulncheck-kev))
   @advisory_content_fields [
@@ -130,27 +150,43 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   @doc """
-  Load a stream of parsed records for one feed run.
+  Load one feed run and promote it when it validates.
 
   `records` is an enumerable of the complete loader record contract.
   Records matching the feed-specific stored comparison state are skipped
   entirely. A KEV row with no stored hash is rewritten once to backfill it.
   See the "Skipping unchanged advisories" note above.
 
-  Options: `:provider`, `:feed_key` (required), `:generation`, `:chunk_size`,
-  `:now`, `:existing_state`, `:existing_comparison_state`,
-  `:existing_modified`, and `:normalization_version`.
+  Each chunk commits on its own (see "Batched commits and generation swap").
+  The run is promoted only when `:completeness` validates before the load and
+  the number of distinct advisories the load observed equals its
+  `source_objects_seen`. Otherwise nothing is promoted or withdrawn.
+
+  Options: `:provider`, `:feed_key`, `:completeness` (required), `:generation`,
+  `:chunk_size`, `:chunk_bytes`, `:now`, `:existing_state`,
+  `:existing_comparison_state`, `:existing_modified`, `:normalization_version`,
+  `:transaction_timeout_ms` (each chunk transaction), `:timeout_ms` (each
+  finalization statement), and `:finalize_batch_size`.
 
   Existing state precedence is `:existing_state`,
   `:existing_comparison_state`, `:existing_modified`, then the database.
   """
-  @spec load_stream(Enumerable.t(), keyword()) :: load_result() | {:error, term()}
-  def load_stream(records, opts) do
+  @spec load_and_finalize(Enumerable.t(), keyword()) :: {:ok, load_result()} | {:error, term()}
+  def load_and_finalize(records, opts) do
     completeness = Keyword.fetch!(opts, :completeness)
 
-    case validate_completeness(completeness) do
-      :ok -> do_load_stream(records, opts, completeness)
-      {:error, _reason} = error -> error
+    with :ok <- validate_completeness(completeness),
+         {result, seen} = load_chunks(records, opts, completeness),
+         :ok <- validate_seen_count(completeness, OrdinalSet.size(seen)) do
+      :ok = finalize_generation(opts, result.generation, seen)
+
+      {:ok,
+       Map.merge(result, %{
+         source_objects_seen: OrdinalSet.size(seen),
+         complete_generation_at: DateTime.utc_now(),
+         validation: get(completeness, :validation),
+         complete_snapshot?: true
+       })}
     end
   end
 
@@ -198,39 +234,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     end
   end
 
-  @doc "Load and promote one validated snapshot in a single transaction."
-  @spec load_and_finalize(Enumerable.t(), keyword()) :: {:ok, load_result()} | {:error, term()}
-  def load_and_finalize(records, opts) do
-    completeness = Keyword.fetch!(opts, :completeness)
+  # Distinct advisories, not records: a source object repeated in the stream
+  # resolves to one ordinal and cannot satisfy the claimed snapshot count twice.
+  defp validate_seen_count(completeness, observed) do
+    expected = get(completeness, :source_objects_seen)
 
-    with :ok <- validate_completeness(completeness) do
-      Repo.transaction(
-        fn ->
-          result = do_load_stream(records, opts, completeness)
-          actual_seen = presence_count(opts, result.generation)
-          result = %{result | source_objects_seen: actual_seen}
-
-          if actual_seen != get(completeness, :source_objects_seen) do
-            Repo.rollback(
-              {:source_count_changed,
-               expected: get(completeness, :source_objects_seen), observed: actual_seen}
-            )
-          end
-
-          :ok = do_finalize(opts, result.generation, completeness)
-
-          Map.merge(result, %{
-            complete_generation_at: DateTime.utc_now(),
-            validation: get(completeness, :validation),
-            complete_snapshot?: true
-          })
-        end,
-        timeout: Keyword.get(opts, :transaction_timeout_ms, 3_600_000)
-      )
+    if observed == expected do
+      :ok
+    else
+      {:error, {:source_count_changed, expected: expected, observed: observed}}
     end
   end
 
-  defp do_load_stream(records, opts, completeness) do
+  defp load_chunks(records, opts, completeness) do
     provider = Keyword.fetch!(opts, :provider)
     feed_key = Keyword.fetch!(opts, :feed_key)
 
@@ -238,11 +254,18 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       Keyword.get_lazy(opts, :generation, fn -> next_generation(provider, feed_key) end)
 
     chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
-    now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    existing_state = existing_state(opts, provider, feed_key)
-    normalization_version = Keyword.get(opts, :normalization_version)
-    comparison = comparison_for_feed(feed_key)
+    context = %{
+      provider: provider,
+      feed_key: feed_key,
+      generation: generation,
+      now: Keyword.get(opts, :now, DateTime.utc_now()),
+      existing_state: existing_state(opts, provider, feed_key),
+      comparison: comparison_for_feed(feed_key),
+      normalization_version: Keyword.get(opts, :normalization_version),
+      transaction_timeout_ms:
+        Keyword.get(opts, :transaction_timeout_ms, @default_transaction_timeout_ms)
+    }
 
     init = %{
       advisories_upserted: 0,
@@ -259,32 +282,102 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
     records
     |> record_chunks(provider, chunk_size, opts)
-    |> Enum.reduce(init, fn chunk, acc ->
-      Enum.each(chunk, &validate_record!/1)
-
-      {changed, skipped} =
-        Enum.split_with(
-          chunk,
-          &(not unchanged_advisory?(&1, existing_state,
-              comparison: comparison,
-              normalization_version: normalization_version
-            ))
-        )
-
-      {adv, coord, assertions, products, product_sets} =
-        flush_chunk(chunk, changed, provider, feed_key, generation, now)
-
-      %{
-        acc
-        | advisories_upserted: acc.advisories_upserted + adv,
-          coordinates_upserted: acc.coordinates_upserted + coord,
-          assertions_upserted: acc.assertions_upserted + assertions,
-          products_upserted: acc.products_upserted + products,
-          product_sets_upserted: acc.product_sets_upserted + product_sets,
-          advisories_skipped: acc.advisories_skipped + length(skipped),
-          source_objects_seen: acc.source_objects_seen + length(chunk)
-      }
+    |> Enum.reduce({init, OrdinalSet.new()}, fn chunk, {acc, seen} ->
+      load_chunk(chunk, context, acc, seen)
     end)
+  end
+
+  defp load_chunk(chunk, context, acc, seen) do
+    Enum.each(chunk, &validate_record!/1)
+
+    {skipped, changed} = classify_chunk(chunk, context)
+
+    {adv, coord, assertions, products, product_sets, written_ordinals} =
+      flush_chunk(chunk, changed, context)
+
+    seen =
+      seen
+      |> OrdinalSet.put_all(Enum.map(skipped, &elem(&1, 1)))
+      |> OrdinalSet.put_all(written_ordinals)
+
+    acc = %{
+      acc
+      | advisories_upserted: acc.advisories_upserted + adv,
+        coordinates_upserted: acc.coordinates_upserted + coord,
+        assertions_upserted: acc.assertions_upserted + assertions,
+        products_upserted: acc.products_upserted + products,
+        product_sets_upserted: acc.product_sets_upserted + product_sets,
+        advisories_skipped: acc.advisories_skipped + length(skipped),
+        source_objects_seen: acc.source_objects_seen + length(chunk)
+    }
+
+    {acc, seen}
+  end
+
+  # Splits a chunk into `{record, ordinal}` pairs that are skipped and records
+  # that are written. A skipped record still has to be observed, so it needs the
+  # ordinal of its current row. State read by `existing_comparison_state/2`
+  # carries it; for state that does not (a caller-supplied map), the ordinal is
+  # read from the current row. A record that matches the comparison state but
+  # has no current row is written: skipping it would leave it unobserved.
+  defp classify_chunk(chunk, context) do
+    classified =
+      Enum.map(chunk, fn record ->
+        unchanged? =
+          unchanged_advisory?(record, context.existing_state,
+            comparison: context.comparison,
+            normalization_version: context.normalization_version
+          )
+
+        {record, unchanged?}
+      end)
+
+    {stated, unstated} =
+      for {%{advisory: advisory}, true} <- classified, reduce: {%{}, []} do
+        {stated, unstated} ->
+          source_object_id = fetch(advisory, :source_object_id)
+
+          case state_ordinal(context.existing_state, source_object_id) do
+            nil -> {stated, [source_object_id | unstated]}
+            ordinal -> {Map.put(stated, source_object_id, ordinal), unstated}
+          end
+      end
+
+    ordinals =
+      unstated
+      |> current_ordinals(context.provider, context.feed_key)
+      |> Map.merge(stated)
+
+    Enum.reduce(Enum.reverse(classified), {[], []}, fn
+      {%{advisory: advisory} = record, true}, {skipped, changed} ->
+        case Map.fetch(ordinals, fetch(advisory, :source_object_id)) do
+          {:ok, ordinal} -> {[{record, ordinal} | skipped], changed}
+          :error -> {skipped, [record | changed]}
+        end
+
+      {record, false}, {skipped, changed} ->
+        {skipped, [record | changed]}
+    end)
+  end
+
+  defp state_ordinal(state, source_object_id) do
+    case Map.fetch(state, source_object_id) do
+      {:ok, %{ordinal: ordinal}} when is_integer(ordinal) -> ordinal
+      _ -> nil
+    end
+  end
+
+  defp current_ordinals([], _provider, _feed_key), do: %{}
+
+  defp current_ordinals(source_object_ids, provider, feed_key) do
+    from(a in "vulnerability_advisories",
+      where:
+        a.provider == ^provider and a.feed_key == ^feed_key and a.current == true and
+          a.source_object_id in ^source_object_ids,
+      select: {a.source_object_id, a.ordinal}
+    )
+    |> Repo.all(prefix: @schema)
+    |> Map.new()
   end
 
   @doc false
@@ -348,23 +441,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     end
   end
 
-  defp presence_count(opts, generation) do
-    provider = Keyword.fetch!(opts, :provider)
-    feed_key = Keyword.fetch!(opts, :feed_key)
-
-    Repo.aggregate(
-      from(p in "advisory_feed_source_presence",
-        where: p.provider == ^provider and p.feed_key == ^feed_key and p.generation == ^generation
-      ),
-      :count,
-      prefix: @schema
-    )
-  end
-
   @doc """
   Map of
-  `source_object_id => %{modified_at:, content_hash:, normalization_version:, projection_digest:}`
-  for the feed's live advisories.
+  `source_object_id => %{modified_at:, content_hash:, normalization_version:, projection_digest:, ordinal:}`
+  for the feed's live advisories. The ordinal lets a skipped record be observed
+  without another read.
 
   Scoped to `current == true` on purpose: a row that is not current is either
   half-written by an aborted run or already demoted, and must be rewritten
@@ -375,7 +456,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
             modified_at: DateTime.t() | nil,
             content_hash: String.t() | nil,
             normalization_version: integer() | nil,
-            projection_digest: String.t() | nil
+            projection_digest: String.t() | nil,
+            ordinal: pos_integer()
           }
         }
   def existing_comparison_state(provider, feed_key) do
@@ -391,18 +473,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
         where: a.provider == ^provider and a.feed_key == ^feed_key and a.current == true,
         select:
           {a.source_object_id, type(a.modified_at, :utc_datetime_usec), a.content_hash,
-           a.metadata}
+           a.metadata, a.ordinal}
       )
 
     query
     |> Repo.all(prefix: @schema)
-    |> Map.new(fn {source_object_id, modified_at, content_hash, metadata} ->
+    |> Map.new(fn {source_object_id, modified_at, content_hash, metadata, ordinal} ->
       {source_object_id,
        %{
          modified_at: modified_at,
          content_hash: content_hash,
          normalization_version: metadata_normalization_version(metadata),
-         projection_digest: metadata_projection_digest(metadata)
+         projection_digest: metadata_projection_digest(metadata),
+         ordinal: ordinal
        }}
     end)
   end
@@ -413,7 +496,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
             modified_at: DateTime.t() | nil,
             content_hash: String.t() | nil,
             normalization_version: integer() | nil,
-            projection_digest: String.t() | nil
+            projection_digest: String.t() | nil,
+            ordinal: pos_integer()
           }
         }
   def existing_advisory_state(provider, feed_key),
@@ -540,7 +624,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       modified_at: get(value, :modified_at),
       content_hash: get(value, :content_hash),
       normalization_version: get(value, :normalization_version),
-      projection_digest: get(value, :projection_digest)
+      projection_digest: get(value, :projection_digest),
+      ordinal: get(value, :ordinal)
     }
   end
 
@@ -551,7 +636,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       modified_at: modified_at,
       content_hash: nil,
       normalization_version: nil,
-      projection_digest: nil
+      projection_digest: nil,
+      ordinal: nil
     }
   end
 
@@ -626,84 +712,112 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   defp to_utc(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
   defp to_utc(_), do: nil
 
-  @doc """
-  Promote a generation only when explicit completeness evidence validates.
-  """
-  @spec finalize(String.t(), String.t(), integer(), keyword()) :: :ok | {:error, term()}
-  def finalize(provider, feed_key, generation, opts) do
-    completeness = Keyword.fetch!(opts, :completeness)
-    scoped_opts = Keyword.merge(opts, provider: provider, feed_key: feed_key)
-    actual_seen = presence_count(scoped_opts, generation)
-
-    with :ok <- validate_completeness(completeness),
-         :ok <- validate_presence_count(completeness, actual_seen),
-         {:ok, :ok} <-
-           Repo.transaction(fn ->
-             do_finalize(scoped_opts, generation, completeness)
-           end) do
-      :ok
-    end
-  end
-
-  defp validate_presence_count(completeness, actual_seen) do
-    expected = get(completeness, :source_objects_seen)
-
-    if actual_seen == expected do
-      :ok
-    else
-      {:error, {:source_count_changed, expected: expected, observed: actual_seen}}
-    end
-  end
-
-  defp do_finalize(opts, generation, _completeness) do
+  # Runs only after the load validated. Each batch commits on its own: a
+  # promoted or withdrawn advisory is whole either way, and a batch that fails
+  # leaves the next run to finish the job (unpromoted rows are not current, so
+  # they are rewritten; withdrawal is recomputed from current rows).
+  defp finalize_generation(opts, generation, seen) do
     provider = Keyword.fetch!(opts, :provider)
     feed_key = Keyword.fetch!(opts, :feed_key)
-    timeout_ms = Keyword.get(opts, :timeout_ms, 600_000)
+    batch_size = Keyword.get(opts, :finalize_batch_size, @default_finalize_batch_size)
+    timeout_ms = Keyword.get(opts, :timeout_ms, @default_finalize_timeout_ms)
 
-    {:ok, _} =
-      Repo.query("SELECT set_config('statement_timeout', $1, true)", [
-        Integer.to_string(timeout_ms)
-      ])
+    promote_generation(provider, feed_key, generation, batch_size, timeout_ms)
 
-    Repo.update_all(
-      from(a in "vulnerability_advisories",
-        where:
-          a.provider == ^provider and a.feed_key == ^feed_key and
-            a.generation == ^generation and a.current == false
-      ),
-      [set: [current: true]],
-      prefix: @schema
-    )
-
-    demote_missing_rows(provider, feed_key, generation)
-
-    if Keyword.get(opts, :reap, true) do
-      reap_old_presence(provider, feed_key, generation)
-    end
+    provider
+    |> unobserved_current_ordinals(feed_key, seen)
+    |> Enum.chunk_every(batch_size)
+    |> Enum.each(&withdraw_batch(&1, provider, feed_key, generation, timeout_ms))
 
     :ok
   end
 
-  # Only presence in the validated generation defines snapshot membership.
-  defp demote_missing_rows(provider, feed_key, generation) do
-    sql = """
-    UPDATE platform.vulnerability_advisories AS advisory
-    SET current = FALSE
-    WHERE advisory.provider = $1
-      AND advisory.feed_key = $2
-      AND advisory.current = TRUE
-      AND NOT EXISTS (
-        SELECT 1
-        FROM platform.advisory_feed_source_presence AS presence
-        WHERE presence.provider = advisory.provider
-          AND presence.feed_key = advisory.feed_key
-          AND presence.generation = $3
-          AND presence.source_object_id = advisory.source_object_id
+  defp promote_generation(provider, feed_key, generation, batch_size, timeout_ms) do
+    %{num_rows: promoted} =
+      bounded_statement(
+        """
+        UPDATE platform.vulnerability_advisories
+        SET current = TRUE
+        WHERE id IN (
+          SELECT id
+          FROM platform.vulnerability_advisories
+          WHERE provider = $1
+            AND feed_key = $2
+            AND generation = $3
+            AND current = FALSE
+          LIMIT $4
+        )
+        """,
+        [provider, feed_key, generation, batch_size],
+        timeout_ms
       )
-    """
 
-    Repo.query!(sql, [provider, feed_key, generation])
-    :ok
+    if promoted > 0 do
+      promote_generation(provider, feed_key, generation, batch_size, timeout_ms)
+    else
+      :ok
+    end
+  end
+
+  # The withdrawal set is computed in full before any of it is applied. Current
+  # ordinals are read in keyset pages so neither side holds the corpus as rows.
+  defp unobserved_current_ordinals(provider, feed_key, seen) do
+    0
+    |> Stream.unfold(fn
+      :done ->
+        nil
+
+      after_ordinal ->
+        page =
+          Repo.all(
+            from(a in "vulnerability_advisories",
+              where:
+                a.provider == ^provider and a.feed_key == ^feed_key and a.current == true and
+                  a.ordinal > ^after_ordinal,
+              order_by: a.ordinal,
+              limit: ^@current_ordinal_page_size,
+              select: a.ordinal
+            ),
+            prefix: @schema
+          )
+
+        next = if length(page) < @current_ordinal_page_size, do: :done, else: List.last(page)
+        {Enum.reject(page, &OrdinalSet.member?(seen, &1)), next}
+    end)
+    |> Enum.concat()
+  end
+
+  # `generation <> $4` never withdraws a row this run wrote.
+  defp withdraw_batch(ordinals, provider, feed_key, generation, timeout_ms) do
+    bounded_statement(
+      """
+      UPDATE platform.vulnerability_advisories
+      SET current = FALSE
+      WHERE provider = $1
+        AND feed_key = $2
+        AND ordinal = ANY($3::bigint[])
+        AND current = TRUE
+        AND generation <> $4
+      """,
+      [provider, feed_key, ordinals, generation],
+      timeout_ms
+    )
+  end
+
+  defp bounded_statement(sql, params, timeout_ms) do
+    {:ok, result} =
+      Repo.transaction(
+        fn ->
+          Repo.query!("SELECT set_config('statement_timeout', $1, true)", [
+            Integer.to_string(timeout_ms)
+          ])
+
+          Repo.query!(sql, params, timeout: timeout_ms)
+        end,
+        timeout: timeout_ms
+      )
+
+    result
   end
 
   @doc "Delete advisories (cascade coordinates) older than the kept generation."
@@ -780,55 +894,37 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     :ok
   end
 
-  defp reap_old_presence(provider, feed_key, current_generation) do
-    Repo.query!(
-      """
-      DELETE FROM platform.advisory_feed_source_presence AS presence
-      WHERE presence.provider = $1
-        AND presence.feed_key = $2
-        AND presence.generation NOT IN (
-          SELECT generation
-          FROM (
-            SELECT DISTINCT generation
-            FROM platform.advisory_feed_source_presence
-            WHERE provider = $1 AND feed_key = $2 AND generation <= $3
-            ORDER BY generation DESC
-            LIMIT 3
-          ) AS retained
-        )
-      """,
-      [provider, feed_key, current_generation]
-    )
+  # One transaction per chunk, never one per run: an advisory row commits with
+  # its complete coordinate, configuration, and assertion replacement, and the
+  # product definitions its assertions reference.
+  defp flush_chunk(all_records, changed, context) do
+    %{provider: provider, feed_key: feed_key, generation: generation, now: now} = context
 
-    :ok
-  end
-
-  defp flush_chunk(all_records, changed, provider, feed_key, generation, now) do
-    # Presence and changed content land atomically per chunk. The system worker
-    # additionally wraps every chunk and finalization in one outer transaction.
     {:ok, result} =
-      Repo.transaction(fn ->
-        {products_upserted, product_sets_upserted} =
-          insert_product_definitions(all_records, now)
+      Repo.transaction(
+        fn ->
+          {products_upserted, product_sets_upserted} =
+            insert_product_definitions(all_records, now)
 
-        insert_presence(all_records, provider, feed_key, generation, now)
+          {advisories_upserted, coordinates_upserted, assertions_upserted, ordinals} =
+            flush_chunk_body(changed, provider, feed_key, generation, now)
 
-        {advisories_upserted, coordinates_upserted, assertions_upserted} =
-          flush_chunk_body(changed, provider, feed_key, generation, now)
-
-        {
-          advisories_upserted,
-          coordinates_upserted,
-          assertions_upserted,
-          products_upserted,
-          product_sets_upserted
-        }
-      end)
+          {
+            advisories_upserted,
+            coordinates_upserted,
+            assertions_upserted,
+            products_upserted,
+            product_sets_upserted,
+            ordinals
+          }
+        end,
+        timeout: context.transaction_timeout_ms
+      )
 
     result
   end
 
-  defp flush_chunk_body([], _provider, _feed_key, _generation, _now), do: {0, 0, 0}
+  defp flush_chunk_body([], _provider, _feed_key, _generation, _now), do: {0, 0, 0, []}
 
   defp flush_chunk_body(chunk, provider, feed_key, generation, now) do
     hash_content? = comparison_for_feed(feed_key) == :content_hash
@@ -870,7 +966,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
              :updated_at
            ]},
         conflict_target: [:provider, :feed_key, :source_object_id],
-        returning: [:id, :source_object_id]
+        returning: [:id, :source_object_id, :ordinal]
       )
 
     id_by_source =
@@ -929,7 +1025,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
     reap_stale_assertions(advisory_refs, generation)
 
-    {length(advisory_rows), coordinates_upserted, assertions_upserted}
+    {length(advisory_rows), coordinates_upserted, assertions_upserted,
+     Enum.map(returned, & &1.ordinal)}
   end
 
   # History is deliberately append-only and separate from the authoritative
@@ -1507,30 +1604,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     }
   end
 
-  defp insert_presence(records, provider, feed_key, generation, now) do
-    records
-    |> Enum.map(fn %{advisory: advisory} ->
-      %{
-        provider: provider,
-        feed_key: feed_key,
-        generation: generation,
-        source_object_id: fetch(advisory, :source_object_id),
-        content_modified_at: parse_datetime(fetch(advisory, :modified_at)),
-        observed_at: now,
-        metadata: %{}
-      }
-    end)
-    |> Enum.uniq_by(& &1.source_object_id)
-    |> Enum.chunk_every(@max_presence_insert)
-    |> Enum.each(fn rows ->
-      Repo.insert_all("advisory_feed_source_presence", rows,
-        prefix: @schema,
-        on_conflict: {:replace, [:content_modified_at, :observed_at, :metadata]},
-        conflict_target: [:provider, :feed_key, :generation, :source_object_id]
-      )
-    end)
-  end
-
   defp insert_coordinates([]), do: 0
 
   defp insert_coordinates(rows) do
@@ -1626,8 +1699,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # An assertion key is a global semantic identity, not a feed-local upsert key.
   # Row locking cannot protect an absent key, so serialize contenders on the
   # domain-separated key before checking ownership. The transaction-scoped lock
-  # is retained through the insert (and through the outer run-wide transaction)
-  # and prevents a losing feed from updating the winner after a check/insert race.
+  # is retained through the insert (until the chunk transaction commits) and
+  # prevents a losing feed from updating the winner after a check/insert race.
   defp lock_assertion_keys!(rows) do
     rows
     |> Enum.map(& &1.assertion_key)

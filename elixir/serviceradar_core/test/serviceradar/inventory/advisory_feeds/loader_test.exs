@@ -346,7 +346,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
           modified_at: ~U[2026-01-15 12:34:56.123Z],
           content_hash: String.duplicate("a", 64),
           normalization_version: 3,
-          projection_digest: String.duplicate("b", 64)
+          projection_digest: String.duplicate("b", 64),
+          ordinal: 7
         }
       }
 
