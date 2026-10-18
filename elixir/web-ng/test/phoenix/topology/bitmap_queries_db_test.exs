@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Native, as: PrefixNative
+  alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
   alias ServiceRadar.TopologyAtlas
@@ -65,6 +66,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
     start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    # Channel joins subscribe through the endpoint's own PubSub server.
+    start_supervised!(Supervisor.child_spec({Phoenix.PubSub, name: ServiceRadarWebNG.PubSub}, id: :web_pubsub))
     %{cohort: "bitmap-query-" <> Ecto.UUID.generate()}
   end
 
@@ -550,6 +553,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   } do
     source = "synthetic-bitmap-" <> String.replace(Ecto.UUID.generate(), "-", "")
     on_exit(fn -> Store.clear(source) end)
+    # The owner discovers sources through the registry; reuse an application-owned one.
+    if !Process.whereis(Registry), do: start_supervised!(Registry)
 
     included =
       create("sr:bitmap-fence-#{System.unique_integer([:positive])}", %{

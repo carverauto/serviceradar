@@ -28,9 +28,25 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   @authority <<23::256>>
 
   setup context do
-    # Only the replica/late-commit case needs independent committed connections.
-    ServiceRadar.TestSupport.checkout_repo!(context)
-    if context[:sandbox] != :unboxed, do: Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    # Only the replica/late-commit cases need independent committed connections.
+    if context[:sandbox] == :unboxed do
+      ServiceRadar.TestSupport.checkout_repo!(context)
+    else
+      # BitmapPublisher sets REPEATABLE READ inside its transaction, which a boxed
+      # sandbox runs as a savepoint. PostgreSQL accepts that only when the level is
+      # unchanged, so the shared owner opens the sandbox at the same level.
+      opts = [shared: true, isolation: "REPEATABLE READ"]
+
+      opts =
+        case ServiceRadar.TestSupport.sandbox_ownership_timeout(context) do
+          nil -> opts
+          timeout -> Keyword.put(opts, :ownership_timeout, timeout)
+        end
+
+      owner = Sandbox.start_owner!(Repo, opts)
+      on_exit(fn -> ServiceRadar.TestSupport.stop_repo_owner(owner, shared: true) end)
+    end
+
     suffix = Ecto.UUID.generate()
     ids = Enum.map(~w(first second late higher restarted), &("sr:bitmap-replica-#{suffix}-" <> &1))
     vendor = "bitmap-replica-#{suffix}"
@@ -136,7 +152,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     # Disabling Atlas between pages releases the staged projection and returns
     # the loader to ordinary head polling instead of the page cadence.
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
-    send(disabled_turn, {:continue_loader, paging})
+    release_page(paging, disabled_turn)
     await_task(disabled_turn)
     assert_receive {:loader_query, ^observer, disabled_check, :head, _} when disabled_check != disabled_turn, 10_000
     await_task(disabled_check)
@@ -151,7 +167,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     await_members(owner, vendor, [first_ordinal])
     send(loader, :refresh)
     assert_receive {:loader_page, ^paging, first_turn, ^first_cursor}, 10_000
-    send(first_turn, {:continue_loader, paging})
+    release_page(paging, first_turn)
     assert_receive {:loader_page, ^paging, second_turn, resumed_cursor}, 10_000
     assert second_turn != first_turn
     assert resumed_cursor != first_cursor
@@ -216,7 +232,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
         )
       after
         :telemetry.detach(barrier)
-        send(paging_task, {:continue_loader, barrier})
+        release_page(barrier, paging_task)
       end
 
       await_task(paging_task)
@@ -769,17 +785,24 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
               true -> nil
             end
 
-          if kind && self() in Task.Supervisor.children(tasks) do
+          # A timed Ash read runs in its own task, so attribute each query to
+          # the loader turn among the executing process and its callers.
+          children = if kind, do: Task.Supervisor.children(tasks), else: []
+          turn = Enum.find([self() | Process.get(:"$callers", [])], &(&1 in children))
+
+          if turn do
             rows =
               case metadata.result do
                 {:ok, %{num_rows: count}} -> count
                 _ -> :failed
               end
 
-            send(owner, {:loader_query, handler, self(), kind, rows})
-            if kind == :page, do: send(owner, {:loader_page, handler, self(), metadata.params})
+            send(owner, {:loader_query, handler, turn, kind, rows})
+            if kind == :page, do: send(owner, {:loader_page, handler, turn, metadata.params})
 
             if hold_page? and kind == :page do
+              send(owner, {:loader_hold, handler, turn, self()})
+
               receive do
                 {:continue_loader, ^handler} -> :ok
               after
@@ -795,10 +818,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     handler
   end
 
+  # The held query may run in a process below the turn; release that process.
+  defp release_page(handler, turn) do
+    assert_receive {:loader_hold, ^handler, ^turn, worker}, 10_000
+    send(worker, {:continue_loader, handler})
+  end
+
   defp drain_loader_queries(handler) do
     receive do
       {:loader_query, ^handler, _, _, _} -> drain_loader_queries(handler)
       {:loader_page, ^handler, _, _} -> drain_loader_queries(handler)
+      {:loader_hold, ^handler, _, _} -> drain_loader_queries(handler)
     after
       0 -> :ok
     end
