@@ -33,6 +33,8 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     notifiers: [ServiceRadar.Identity.DeviceAliasStateNotifier],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Identity.Validations.AliasValue
+
   @alias_fields [:device_id, :partition, :alias_type, :alias_value, :metadata]
   @metadata_fields [:metadata]
   @device_fields [:device_id]
@@ -132,7 +134,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       description "Create a new alias detection"
       accept @alias_fields
 
-      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+      validate {AliasValue, []}
 
       change fn changeset, _context ->
         now = DateTime.utc_now()
@@ -149,7 +151,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       accept @metadata_fields
       argument :confirm_threshold, :integer, default: 3
 
-      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+      validate {AliasValue, []}
 
       change atomic_update(:last_seen_at, expr(now()))
       change atomic_update(:sighting_count, expr(sighting_count + 1))
@@ -176,7 +178,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     update :confirm do
       description "Confirm alias as stable (seen multiple times)"
 
-      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+      validate {AliasValue, []}
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -188,7 +190,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       require_atomic? false
       accept @metadata_fields
 
-      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+      validate {AliasValue, []}
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -227,7 +229,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     update :reactivate do
       description "Reactivate a stale alias"
 
-      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+      validate {AliasValue, []}
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
