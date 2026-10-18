@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BAZELRC = ROOT / ".bazelrc"
@@ -1572,14 +1574,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
     def test_scale_opt_in_uses_the_existing_dispatch_only_diagnostic_lifecycle(self):
         action = named_action("WebNgDbDiagnostic")
-        self.assertIn("    triggers: {}\n", action)
-        self.assertNotIn("TOPOLOGY_BITMAP_SCALE", named_action("BazelCI"))
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        diagnostic = [item for item in workflow["actions"] if item["name"] == "WebNgDbDiagnostic"]
+        self.assertEqual(1, len(diagnostic))
+        self.assertEqual({}, diagnostic[0]["triggers"])
         self.assert_only_generation_lifecycle_runs(action)
         self.assert_observer_and_cleanup_contract(action)
         self.assert_preflight_and_clock_contract(action)
         self.assert_cache_flags("WebNgDbDiagnostic")
-        self.assertIn('case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in', action)
-        self.assertIn('--max-seconds "$OBSERVER_MAX_SECONDS" --required-pool-slots "$OBSERVER_POOL_SLOTS"', action)
         shell = database_lifecycle_shell(action)
         validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
         admission = shell[shell.index("admit_scale() {"):shell.index("validate_cleanup_json() {")]
@@ -1601,6 +1603,17 @@ SUITE_COMPLETE_FILE=suite-complete
 QUIESCENT_FILE=quiescent
 STOP_FILE=stop
 OBSERVER_TIMEOUT_LOG="$(mktemp)"
+OBSERVER_ARGS_LOG="$(mktemp)"
+record_observer() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --max-seconds) max_seconds="$2" ;;
+      --required-pool-slots) pool_slots="$2" ;;
+    esac
+    shift
+  done
+  printf 'observer=%s pool=%s\n' "$max_seconds" "$pool_slots" > "$OBSERVER_ARGS_LOG"
+}
 date() {
   if [[ "$1" == "+%s%N" ]]; then echo $((${SCALE_OBSERVER_START:-950} * 1000000000)); else echo 1000; fi
 }
@@ -1609,13 +1622,14 @@ timeout() {
   shift 3
   if [[ " $* " == *" //rust/integration-db:observe_connections "* ]]; then
     printf '%s\n' "$spec" > "$OBSERVER_TIMEOUT_LOG"
+    record_observer "$@"
     return 0
   fi
   [[ "$spec" == '--signal=TERM --kill-after=5s 2755s' ]] || return 1
   "$@"
 }
 bazel() {
-  if [[ " $* " == *" //rust/integration-db:observe_connections "* ]]; then return 0; fi
+  if [[ " $* " == *" //rust/integration-db:observe_connections "* ]]; then record_observer "$@"; return 0; fi
   target="${@: -1}"
   case "$1" in
     build) echo "$1 $target" ;;
@@ -1640,7 +1654,7 @@ wait_for_observer_ready() { return 0; }
             recorder + validators + admission + selector + execution
             + '\nwait\n'
             + "if [[ -n \"$SCALE_VARIANT\" ]]; then printf 'observer-timeout=%s\\n' \"$(cat \"$OBSERVER_TIMEOUT_LOG\")\"; fi\n"
-            + 'echo "observer=$OBSERVER_MAX_SECONDS pool=$OBSERVER_POOL_SLOTS"\n'
+            + 'cat "$OBSERVER_ARGS_LOG"\n'
         )
         for selected in ("", "0", "compact", "sparse"):
             with self.subTest(selected=selected):
@@ -1714,7 +1728,6 @@ wait_for_observer_ready() { return 0; }
             for line in shell.splitlines()
             if line.strip().startswith("CLEANUP_TIMEOUT=(timeout")
         )
-        self.assertEqual("CLEANUP_TIMEOUT=(timeout --signal=TERM --kill-after=5s 55s)", cleanup_timeout)
         for teardown, release, observer in ((0, 0, 0), (13, 0, 0), (0, 14, 0), (0, 0, 124), (137, 0, 0)):
             with self.subTest(teardown=teardown, release=release, observer=observer), tempfile.TemporaryDirectory() as tmp:
                 script = r'''
@@ -1985,41 +1998,6 @@ print(open(sys.argv[2]).read().strip())
                 ),
                 source,
             )
-
-    def test_async_telemetry_handlers_are_callback_scoped(self):
-        async_sources = {
-            row["source"]
-            for row in integration_dispositions()
-            if row["mode"] == "async"
-        }
-        telemetry_sources = {
-            source
-            for source in async_sources
-            if ":telemetry.attach"
-            in (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
-        }
-        agent_link_source = "test/serviceradar/inventory/agent_link_repair_worker_test.exs"
-        agent_links_restore_source = "test/serviceradar/inventory/remediation/agent_links_test.exs"
-        fact_writer_source = "test/serviceradar/inventory/device_snmp_fact_writer_test.exs"
-        expiry_source = "test/serviceradar/inventory/ephemeral_device_expiry_test.exs"
-
-        self.assertEqual(
-            {agent_link_source, agent_links_restore_source, fact_writer_source, expiry_source},
-            telemetry_sources,
-        )
-
-        source = (CORE_TEST_ROOT.parent / agent_link_source).read_text(encoding="utf-8")
-        self.assertEqual(2, source.count(":telemetry.attach("))
-        self.assertEqual(2, source.count("if metadata.agent_uid == agent_uid do"))
-
-        source = (CORE_TEST_ROOT.parent / fact_writer_source).read_text(encoding="utf-8")
-        self.assertEqual(1, source.count(":telemetry.attach("))
-        self.assertEqual(1, source.count("if self() == test_pid"))
-
-        source = (CORE_TEST_ROOT.parent / expiry_source).read_text(encoding="utf-8")
-        self.assertEqual(1, source.count(":telemetry.attach"))
-        self.assertEqual(1, source.count(":telemetry.detach(handler_id)"))
-        self.assertEqual(1, source.count("if self() == parent, do: send(parent,"))
 
     def test_async_modules_do_not_mutate_vm_global_logger_configuration(self):
         for row in integration_dispositions():

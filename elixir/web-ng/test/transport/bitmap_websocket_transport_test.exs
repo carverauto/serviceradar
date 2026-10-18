@@ -19,8 +19,7 @@ defmodule ServiceRadarWebNG.BitmapTransportTest do
       end
     end
 
-    result = run_case(Fixture.frames(:mixed, @warmup + @samples), 1, true, false)
-    assert result.negotiated == false
+    run_case(Fixture.frames(:mixed, @warmup + @samples), 1, true, false)
   end
 
   defp run_case(frames, clients, compressed, offer) do

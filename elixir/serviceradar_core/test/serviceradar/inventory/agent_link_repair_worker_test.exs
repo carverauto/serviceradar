@@ -200,6 +200,15 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorkerTest do
     unresolved_handler = attach_mislink_unresolved_telemetry(agent_uid)
     on_exit(fn -> :telemetry.detach(unresolved_handler) end)
 
+    for kind <- [:repaired, :mislink_unresolved] do
+      :telemetry.execute([:serviceradar, :agent_link_repair, kind], %{count: 1}, %{
+        agent_uid: other_agent_uid
+      })
+    end
+
+    refute_received {:repaired, _}
+    refute_received {:mislink_unresolved, _}
+
     AgentLinkRepairWorker.run_repair()
 
     {:ok, agent} = Agent.get_by_uid(agent_uid, actor: actor)

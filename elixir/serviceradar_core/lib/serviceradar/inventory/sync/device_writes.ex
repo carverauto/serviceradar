@@ -97,27 +97,29 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?, lock?) do
-    # Resolve predictable active-IP collisions up front so the first insert
-    # succeeds. Reactive recovery below only covers concurrent writers that
-    # land between this prepare step and insert_all.
-    {prepared_records, remap, releases, stale_releases} =
-      prepare_active_ip_claims(records, strong_uids, :precheck)
+    within_savepoint("device_writes_attempt", fn ->
+      # Resolve predictable active-IP collisions up front so the first insert
+      # succeeds. Reactive recovery below only covers concurrent writers that
+      # land between this prepare step and insert_all.
+      {prepared_records, remap, releases, stale_releases} =
+        prepare_active_ip_claims(records, strong_uids, :precheck)
 
-    # Test-only barrier point (Application env :device_writes_test_hooks).
-    run_test_hook(:after_active_ip_precheck)
+      # Test-only barrier point (Application env :device_writes_test_hooks).
+      run_test_hook(:after_active_ip_precheck)
 
-    {prepared_records, remap, stale_uids} =
-      withhold_stale_remap_targets(prepared_records, remap, lock?)
+      {prepared_records, remap, stale_uids} =
+        withhold_stale_remap_targets(prepared_records, remap, lock?)
 
-    insert_devices_with_releases(
-      prepared_records,
-      releases,
-      stale_releases,
-      update_query,
-      refresh_rollups?
-    )
+      insert_devices_with_releases(
+        prepared_records,
+        releases,
+        stale_releases,
+        update_query,
+        refresh_rollups?
+      )
 
-    {:ok, remap, stale_uids}
+      {:ok, remap, stale_uids}
+    end)
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
@@ -358,14 +360,35 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          refresh_rollups?
        ) do
     with_deadlock_retry(fn ->
-      do_insert_devices_with_releases(
-        records,
-        releases,
-        stale_releases,
-        update_query,
-        refresh_rollups?
-      )
+      within_savepoint("device_writes_upsert", fn ->
+        do_insert_devices_with_releases(
+          records,
+          releases,
+          stale_releases,
+          update_query,
+          refresh_rollups?
+        )
+      end)
     end)
+  end
+
+  defp within_savepoint(name, fun) when is_function(fun, 0) do
+    if Repo.in_transaction?() do
+      Repo.query!("SAVEPOINT " <> name)
+
+      try do
+        result = fun.()
+        Repo.query!("RELEASE SAVEPOINT " <> name)
+        result
+      rescue
+        e in Postgrex.Error ->
+          Repo.query!("ROLLBACK TO SAVEPOINT " <> name)
+          Repo.query!("RELEASE SAVEPOINT " <> name)
+          reraise e, __STACKTRACE__
+      end
+    else
+      fun.()
+    end
   end
 
   defp do_insert_devices_with_releases(records, [], [], update_query, refresh_rollups?) do

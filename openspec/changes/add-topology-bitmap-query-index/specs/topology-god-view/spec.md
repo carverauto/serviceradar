@@ -94,6 +94,8 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** temporary and retained allocations SHALL be reserved before construction
 - **AND** a resource rejection SHALL preserve the preceding complete revision and expose stale progress without broadening the query
 - **AND** retries SHALL retain unapplied work and permit recovery when pressure is released, including reclaimable deletions beyond a blocked publication page
+- **AND** a pass with capacity-deferred pages SHALL NOT seed readiness or acknowledge reconciliation
+- **AND** capacity staleness SHALL remain visible until a full pass publishes without deferrals
 
 #### Scenario: Filtering follows Atlas availability
 - **GIVEN** Atlas is enabled and the viewer has the existing analytics and device view permissions
@@ -119,6 +121,16 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** optional progress and page queries SHALL each have a five-second source-query bound
 - **AND** identical sealed assignments SHALL retain the accepted mapping and pending deliveries
 - **AND** changed assignments SHALL invalidate deliveries bound to the previous mapping
+
+#### Scenario: Interrupted identity projection resumes
+- **GIVEN** a dictionary projection spans multiple bounded pages
+- **WHEN** a supervised page worker stops or fails
+- **THEN** the owner SHALL retain its native mapping and cursor and retry from that cursor
+- **AND** each turn SHALL poll the geometry head before optional projection work
+- **AND** projection backoff SHALL NOT suppress geometry-head polling
+- **WHEN** native sealing succeeds but its completion message is lost
+- **THEN** the next turn SHALL recover that sealed result without applying another page
+- **AND** installation SHALL reject obsolete worlds or dictionary epochs and release their staged resources
 
 ### Requirement: Authorized Bitmap Query and Exact Facets
 The system SHALL evaluate bounded AND, OR and ANDNOT expressions over supported sets, intersect current effective visibility and pin one coherent native revision per response.
@@ -234,6 +246,14 @@ The system SHALL expose a usable map filter builder for supported canonical attr
 - **AND** missing sources, catalog exhaustion or range-budget overflow SHALL fail explicitly without partial results
 - **AND** discovery SHALL be paged and query evaluation SHALL NOT scan the fleet in BEAM or call core by RPC
 - **AND** source-version-only refreshes SHALL preserve unchanged filters, accepted membership and in-flight label discovery
+
+#### Scenario: Prefix Tag catalog preparation spans multiple turns
+- **GIVEN** a locally loaded prefix snapshot fits the catalog memory budget but requires more than one preparation turn
+- **WHEN** the background publisher prepares its label catalog
+- **THEN** counting, collection, sorting and label counting SHALL preserve progress across bounded turns
+- **AND** the publisher SHALL rotate sources and continue inventory work between preparation turns
+- **AND** discovery SHALL distinguish preparation in progress from admission failure
+- **AND** a failed admission SHALL remain retryable after retained catalog memory is released
 
 ### Requirement: Typed Binary Tile Overlay
 The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.

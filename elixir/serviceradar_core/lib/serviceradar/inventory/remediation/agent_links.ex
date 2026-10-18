@@ -290,32 +290,44 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     end)
   end
 
-  defp restore_attrs(plan) do
+  defp restore_attrs(plan, row) do
     agent = plan.agent
 
-    attrs = %{
-      hostname: agent.host || agent.name,
-      agent_id: agent.uid,
-      last_seen_time: DateTime.utc_now(),
-      discovery_sources: ["agent"],
-      metadata: %{"created_by" => "dire_remediation", "step" => @step}
-    }
-
-    if Decisions.valid_ip?(agent.ip), do: Map.put(attrs, :ip, agent.ip), else: attrs
+    Map.merge(
+      %{
+        hostname: agent.host || agent.name,
+        agent_id: agent.uid,
+        last_seen_time: DateTime.utc_now(),
+        discovery_sources: ["agent"],
+        metadata:
+          Map.merge(row.metadata || %{}, %{"created_by" => "dire_remediation", "step" => @step})
+      },
+      agent_ip_attrs(agent, row.uid)
+    )
   end
 
   defp create_attrs(agent) do
-    then(
-      %{
-        uid: "sr:" <> Ecto.UUID.generate(),
-        hostname: agent.host || agent.name,
-        agent_id: agent.uid,
-        discovery_sources: ["agent"],
-        metadata: %{"created_by" => "dire_remediation", "step" => @step}
-      },
-      fn attrs ->
-        if Decisions.valid_ip?(agent.ip), do: Map.put(attrs, :ip, agent.ip), else: attrs
-      end
+    %{
+      uid: "sr:" <> Ecto.UUID.generate(),
+      hostname: agent.host || agent.name,
+      agent_id: agent.uid,
+      discovery_sources: ["agent"],
+      metadata: %{"created_by" => "dire_remediation", "step" => @step}
+    }
+  end
+
+  # The agent's address goes to its device only while no other live device holds it.
+  defp agent_ip_attrs(agent, device_uid) do
+    if Decisions.valid_ip?(agent.ip) and not live_ip_holder?(agent.ip, device_uid),
+      do: %{ip: agent.ip},
+      else: %{}
+  end
+
+  defp live_ip_holder?(ip, device_uid) do
+    Repo.exists?(
+      from(device in Device,
+        where: device.ip == ^ip and is_nil(device.deleted_at) and device.uid != ^device_uid
+      )
     )
   end
 
@@ -454,8 +466,10 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
   end
 
   defp ensure_target_device(%{action: :create} = plan, manifest, actor) do
+    attrs = Map.merge(plan.create_attrs, agent_ip_attrs(plan.agent, plan.create_attrs.uid))
+
     case Device
-         |> Ash.Changeset.for_create(:create, plan.create_attrs)
+         |> Ash.Changeset.for_create(:create, attrs)
          |> Ash.create(actor: actor) do
       {:ok, device} ->
         Manifest.record(manifest, @step, :create_device, "platform.ocsf_devices", [device.uid], %{
@@ -480,7 +494,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
             {action, attrs} =
               if is_nil(row.identity_purged_at),
                 do: {:restore, %{}},
-                else: {:gateway_restore, restore_attrs(plan)}
+                else: {:gateway_restore, restore_attrs(plan, row)}
 
             case restore_target(plan, actor, action, attrs) do
               %Ash.BulkResult{status: :success} -> plan.target_device.uid
@@ -513,7 +527,11 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       from(device in Device,
         where: device.uid == ^uid,
         lock: "FOR NO KEY UPDATE",
-        select: %{uid: device.uid, identity_purged_at: device.identity_purged_at}
+        select: %{
+          uid: device.uid,
+          identity_purged_at: device.identity_purged_at,
+          metadata: device.metadata
+        }
       )
     )
   end

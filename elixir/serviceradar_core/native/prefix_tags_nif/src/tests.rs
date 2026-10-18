@@ -1,7 +1,7 @@
 // Copyright 2026 Carver Automation Corporation.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::Catalog;
+use crate::{Catalog, CatalogBuild, Prepared};
 use crate::{Entry, Indicator, Prefix, Stats, Trie};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -10,6 +10,17 @@ static CATALOG_TESTS: Mutex<()> = Mutex::new(());
 
 fn catalog_deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
+}
+
+fn build(trie: &Trie, deadline: Instant) -> Result<Catalog, &'static str> {
+    let mut build = CatalogBuild::new();
+    loop {
+        match build.resume(trie, deadline)? {
+            Prepared::Ready(catalog) => return Ok(catalog),
+            Prepared::Pending(next) if Instant::now() < deadline => build = next,
+            Prepared::Pending(_) => return Err("deadline_exceeded"),
+        }
+    }
 }
 
 fn decoded_ranges(bytes: &[u8]) -> Vec<(u8, u128, u128)> {
@@ -46,7 +57,7 @@ fn catalog_returns_full_chain_network_unions_and_live_lexical_pages() {
     let mut variant = row("192.0.2.0/25", "office");
     variant.vrf = Some("synthetic-isolated".into());
     trie.insert(variant);
-    let catalog = Catalog::build(&trie, catalog_deadline()).unwrap();
+    let catalog = build(&trie, catalog_deadline()).unwrap();
     assert_eq!(catalog.label_count(), 4);
     let first = catalog.page(&trie, None, 2, catalog_deadline()).unwrap();
     assert_eq!(first.labels, ["all", "host"]);
@@ -101,6 +112,79 @@ fn catalog_returns_full_chain_network_unions_and_live_lexical_pages() {
 }
 
 #[test]
+fn catalog_preparation_resumes_across_short_turns_and_holds_its_reservation() {
+    let _serial = CATALOG_TESTS.lock().unwrap();
+    let baseline = Catalog::total_native_bytes();
+    let mut trie = Trie::new();
+    for host in 0..64u32 {
+        let tags = (0..2_048).map(|tag| format!("label-{tag:04}")).collect();
+        trie.insert(Entry::new(
+            Prefix::parse(&format!("198.51.100.{host}/32")).unwrap(),
+            tags,
+        ));
+    }
+    let expected_labels: Vec<String> = (0..2_048).map(|tag| format!("label-{tag:04}")).collect();
+    let mut build = match CatalogBuild::new()
+        .resume(&trie, catalog_deadline())
+        .unwrap()
+    {
+        Prepared::Pending(build) => build,
+        Prepared::Ready(_) => {
+            panic!("one turn must yield before processing the entire large catalog")
+        }
+    };
+    let mut turns = 0;
+    let mut reservation = None;
+    let catalog = loop {
+        turns += 1;
+        assert!(turns < 100_000, "catalog preparation made no progress");
+        match build
+            .resume(&trie, Instant::now() + Duration::from_millis(1))
+            .unwrap()
+        {
+            Prepared::Ready(catalog) => break catalog,
+            Prepared::Pending(next) => {
+                if next.native_bytes() > 0 {
+                    assert_eq!(
+                        *reservation.get_or_insert(next.native_bytes()),
+                        next.native_bytes()
+                    );
+                }
+                assert_eq!(
+                    Catalog::total_native_bytes(),
+                    baseline + next.native_bytes()
+                );
+                build = next;
+            }
+        }
+    };
+    assert!(turns > 1);
+    assert_eq!(catalog.label_count(), 2_048);
+    assert_eq!(Some(catalog.native_bytes()), reservation);
+    let mut labels = Vec::new();
+    let mut after = None;
+    loop {
+        let page = catalog
+            .page(&trie, after.as_deref(), 50, catalog_deadline())
+            .unwrap();
+        labels.extend(page.labels);
+        after = page.next_after;
+        if after.is_none() {
+            break;
+        }
+    }
+    assert_eq!(labels, expected_labels);
+    let ranges = decoded_ranges(
+        &catalog
+            .ranges(&trie, "label-0007", 64, 64 * 33, catalog_deadline())
+            .unwrap(),
+    );
+    assert_eq!(ranges, [(4, 0xc633_6400, 0xc633_643f)]);
+    drop(catalog);
+    assert_eq!(Catalog::total_native_bytes(), baseline);
+}
+
+#[test]
 fn catalogs_share_a_reservation_across_sources_and_release_it_before_retry() {
     let _serial = CATALOG_TESTS.lock().unwrap();
     let baseline = Catalog::total_native_bytes();
@@ -109,10 +193,10 @@ fn catalogs_share_a_reservation_across_sources_and_release_it_before_retry() {
         Prefix::parse("192.0.2.0/24").unwrap(),
         vec!["synthetic".into(); 262_144],
     ));
-    let retained = Catalog::build(&trie, catalog_deadline()).unwrap();
+    let retained = build(&trie, catalog_deadline()).unwrap();
     assert!(retained.native_bytes() > 3_000_000);
     assert_eq!(
-        Catalog::build(&trie, catalog_deadline()).unwrap_err(),
+        build(&trie, catalog_deadline()).unwrap_err(),
         "catalog_budget"
     );
     assert_eq!(
@@ -121,12 +205,12 @@ fn catalogs_share_a_reservation_across_sources_and_release_it_before_retry() {
     );
     drop(retained);
     assert_eq!(Catalog::total_native_bytes(), baseline);
-    let replacement = Catalog::build(&trie, catalog_deadline()).unwrap();
+    let replacement = build(&trie, catalog_deadline()).unwrap();
     assert_eq!(replacement.label_count(), 1);
     drop(replacement);
     assert_eq!(Catalog::total_native_bytes(), baseline);
     assert_eq!(
-        Catalog::build(&trie, Instant::now()).unwrap_err(),
+        build(&trie, Instant::now()).unwrap_err(),
         "deadline_exceeded"
     );
     assert_eq!(Catalog::total_native_bytes(), baseline);
@@ -136,7 +220,10 @@ fn catalogs_share_a_reservation_across_sources_and_release_it_before_retry() {
 fn label_ranges_drop_expired_prefixes_and_keep_live_ones() {
     let _serial = CATALOG_TESTS.lock().unwrap();
     let mut trie = Trie::new();
-    let mut expired = Entry::new(Prefix::parse("192.0.2.0/25").unwrap(), vec!["office".into()]);
+    let mut expired = Entry::new(
+        Prefix::parse("192.0.2.0/25").unwrap(),
+        vec!["office".into()],
+    );
     expired.expires_at = Some((1, 0));
     trie.insert(expired);
     let mut live = Entry::new(
@@ -155,7 +242,7 @@ fn label_ranges_drop_expired_prefixes_and_keep_live_ones() {
         Prefix::parse("198.51.100.2/32").unwrap(),
         vec![" retired ".into()],
     ));
-    let catalog = Catalog::build(&trie, catalog_deadline()).unwrap();
+    let catalog = build(&trie, catalog_deadline()).unwrap();
     assert_eq!(catalog.label_count(), 2);
     assert_eq!(
         catalog

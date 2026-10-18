@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
   flatten typed address arrays without loading whole interface rows into BEAM.
   Invalid numeric addresses are ignored; source/native capacity failures disable
   the IP capability explicitly. Historical uncorroborated identifiers are excluded.
+  A native memory admission failure returns `{:capacity, result}` with the
+  unpublished read so its owner can defer those ordinals and keep reconciling.
   """
 
   alias Ecto.Adapters.SQL
@@ -17,6 +19,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
   @timeout 8_000
   @batch_size 500
   @array_limit 4_096
+  @capacity ["native_memory_budget", :native_memory_budget]
 
   @addresses """
   SELECT address.ordinal,
@@ -65,7 +68,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
              deadline: deadline
            ) do
       try do
-        with {:ok, _} <- Native.bitmap_index_finish_publish(current.device, stage), do: {:ok, result}
+        case Native.bitmap_index_finish_publish(current.device, stage) do
+          {:ok, _} -> {:ok, result}
+          {:error, reason} -> {:error, capacity(reason, result)}
+        end
       after
         Native.bitmap_publish_abort(stage)
       end
@@ -76,19 +82,24 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
     SQL.query!(Repo, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", [], timeout: remaining!(deadline))
     statement_deadline(deadline)
 
-    with {:ok, result} <- read.(),
-         {:ok, status} <- Native.bitmap_index_status(current.device),
-         {:ok, stage} <-
-           Native.bitmap_index_begin_publish(
-             current.device,
-             status.revision,
-             <<sequence::unsigned-64>>,
-             result.rows,
-             ready.(result)
-           ) do
-      populate(stage, result, deadline)
-    else
-      {:error, reason} -> Repo.rollback(reason)
+    case read.() do
+      {:ok, result} ->
+        with {:ok, status} <- Native.bitmap_index_status(current.device),
+             {:ok, stage} <-
+               Native.bitmap_index_begin_publish(
+                 current.device,
+                 status.revision,
+                 <<sequence::unsigned-64>>,
+                 result.rows,
+                 ready.(result)
+               ) do
+          populate(stage, result, deadline)
+        else
+          {:error, reason} -> Repo.rollback(capacity(reason, result))
+        end
+
+      {:error, reason} ->
+        Repo.rollback(reason)
     end
   end
 
@@ -96,7 +107,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
     case Native.bitmap_publish_addresses(stage, [], []) do
       {:ok, %{ip_available: false}} -> {stage, result}
       {:ok, %{ip_available: true}} -> populate_addresses(stage, result, deadline)
-      {:error, reason} -> abort(stage, reason)
+      {:error, reason} -> abort(stage, capacity(reason, result))
     end
   rescue
     exception ->
@@ -117,14 +128,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
 
         case Native.bitmap_publish_addresses(stage, [], completed) do
           {:ok, _} -> {stage, result}
-          {:error, reason} -> abort(stage, reason)
+          {:error, reason} -> abort(stage, capacity(reason, result))
         end
 
       :unavailable ->
         {stage, result}
 
       {:error, reason} ->
-        abort(stage, reason)
+        abort(stage, capacity(reason, result))
     end
   end
 
@@ -168,6 +179,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
       end
     end
   end
+
+  defp capacity(reason, result) when reason in @capacity, do: {:capacity, result}
+  defp capacity(reason, _result), do: reason
 
   defp abort(stage, reason) do
     Native.bitmap_publish_abort(stage)

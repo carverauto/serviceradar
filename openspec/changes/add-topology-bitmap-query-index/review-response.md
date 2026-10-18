@@ -425,3 +425,44 @@ branch. The recorded run was not repeated on this tree. Do not treat
 checkpoint. Hosted
 database and combined compact/sparse acceptance remain pending; no new physical
 GPU or portable-document containment result is implied by this unit gate.
+
+## Resumable publication and projection corrections
+
+The next review identified three remaining progress failures. A memory-rejected
+scan page could block later deletions; Prefix Tag preparation restarted work or
+performed an unbounded sort; and optional ordinal projection restarted complete
+dictionary scans after interruption. The corrected publisher defers rejected
+pages without acknowledging that pass, preserves capacity staleness until a
+clean pass, and rotates one resumable catalog source per turn. Native catalog
+counting, collection, in-place heapsort and label counting all yield with their
+state retained. The loader retains its private mapping and cursor across
+single-page tasks, polls the geometry head before each turn, separates projection
+backoff, recovers lost sealing completions and checks the dictionary epoch again
+before installation.
+
+The catalog regression failed on the interrupted draft in remote invocation
+`f55d05ab-d3c0-4769-825c-038464e1d4d9`: one long-deadline call processed the entire
+large catalog instead of yielding. The corrected native core suite and NIF build
+passed in `4dcd7349-5144-49da-8aed-7ffe035f4d2d`. Its 131,072 synthetic references
+exercise incremental construction, independent sorted-label/range expectations
+and reservation release. Hosted publisher and loader scenarios now exercise
+real memory admission, later tombstones, task cancellation and lost sealing
+completion; those database cases still need execution on the reviewed head.
+
+The same correction retains purged AgentLinks lineage and avoids assigning an
+address held by another live device, uses actual SQL savepoints for mapper retry,
+binds DIRE seed roots and successors to the swept synthetic address, and reuses
+an application-owned Prefix Tags registry in tests. Workflow trigger assertions
+now inspect parsed YAML; telemetry isolation is checked in the real test owners
+instead of counting source strings. The redundant derived WebSocket assertion
+is removed while the actual negotiated-wire assertion remains. Binary-path and
+GPU provenance documentation are corrected. These changes do not close hosted
+database, generated-trace or combined compact/sparse acceptance.
+
+The corrected working tree on checkpoint `b0bff03738132c80d7485604995b60619ea43b3b`
+passed the complete remote `make test` gate in
+`70ff6673-e160-4285-8736-815695425d6c`: 419 targets passed and two Swift platform
+targets were skipped. This receipt covers the corrections above before their
+commit; it is not evidence for an unchanged `b0bff037` checkout or a later rebase.
+The unit tier still excludes the hosted database scenarios. Full no-mistakes
+review, exact published-head CI and the remaining acceptance runs are pending.

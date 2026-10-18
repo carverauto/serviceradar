@@ -151,5 +151,9 @@ delivery. No query makes a core RPC or enumerates fleet addresses in Elixir.
 Compiled label selectors share a whole-query budget of 4096 ranges and 256 KiB;
 overflow fails explicitly. Feature catalogs are prepared by the existing background
 worker, have a global 4 MiB additional native-memory cap, and are released when
-Atlas stops or the source is removed. Catalog unavailability does not disable scalar
+Atlas stops or the source is removed. Counting, collection, in-place sorting and
+label counting all resume across bounded native turns. The publisher prepares
+one source for at most one second per turn and rotates sources, reporting
+`catalog_preparing` while construction is in progress and an explicit reason
+for admission failure. Catalog unavailability does not disable scalar
 filters or the ordinary Prefix Tags lookup service.

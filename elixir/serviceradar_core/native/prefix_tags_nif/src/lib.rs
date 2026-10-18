@@ -13,7 +13,7 @@ mod entry;
 mod prefix;
 mod trie;
 
-pub use catalog::{Catalog, LabelPage};
+pub use catalog::{Catalog, CatalogBuild, LabelPage, Prepared};
 pub use entry::{Entry, Indicator};
 pub use prefix::Prefix;
 pub use trie::{Stats, Trie};

@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapPrefixTagsTest do
     ])
 
     assert {:error, "catalog_not_ready"} = BitmapPrefixTags.page(%{"source" => @source}, @authority, deadline())
-    assert {:ok, _} = BitmapPrefixTags.prepare([@source], deadline())
+    assert {:ok, :ready} = BitmapPrefixTags.prepare(@source, deadline())
 
     assert {:ok, %{labels: ["alpha"], cursor: cursor}} =
              BitmapPrefixTags.page(%{"source" => @source, "limit" => "1"}, @authority, deadline())
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapPrefixTagsTest do
     {:ok, captured} = Store.capture(@source)
     Store.put_rows(@source, [%{prefix: "203.0.113.0/24", tags: ["beta", "zeta"]}])
     assert {:error, :source_changed} = BitmapPrefixTags.current(%{@source => captured.version})
-    assert {:ok, _} = BitmapPrefixTags.prepare([@source], deadline())
+    assert {:ok, :ready} = BitmapPrefixTags.prepare(@source, deadline())
 
     assert {:ok, %{labels: ["beta", "zeta"], cursor: nil}} =
              BitmapPrefixTags.page(%{"source" => @source, "cursor" => cursor}, @authority, deadline())
@@ -89,6 +89,27 @@ defmodule ServiceRadarWebNG.Topology.BitmapPrefixTagsTest do
     assert [] = BitmapPrefixTags.release([@source])
     assert {:error, "catalog_not_ready"} = BitmapPrefixTags.page(%{"source" => @source}, @authority, deadline())
   end
+
+  test "a catalog refused by the shared native budget is reported per source and retried after replacement" do
+    Store.put_rows(@source, [%{prefix: "192.0.2.0/24", tags: List.duplicate("synthetic", 360_000)}])
+
+    assert {:error, "catalog_budget"} = BitmapPrefixTags.prepare(@source, deadline())
+    assert %{available: false, reason: "catalog_budget"} = source_entry(BitmapPrefixTags.descriptor())
+    assert {:error, "catalog_not_ready"} = BitmapPrefixTags.page(%{"source" => @source}, @authority, deadline())
+
+    Store.put_rows(@source, [%{prefix: "192.0.2.0/24", tags: ["synthetic"]}])
+
+    assert {:ok, :ready} = BitmapPrefixTags.prepare(@source, deadline())
+    assert %{available: true} = entry = source_entry(BitmapPrefixTags.descriptor())
+    refute Map.has_key?(entry, :reason)
+
+    assert {:ok, %{labels: ["synthetic"], cursor: nil}} =
+             BitmapPrefixTags.page(%{"source" => @source}, @authority, deadline())
+
+    assert [] = BitmapPrefixTags.release([@source])
+  end
+
+  defp source_entry(descriptor), do: Enum.find(descriptor.sources, &(&1.source == @source))
 
   defp deadline, do: System.monotonic_time(:millisecond) + 1_000
 end

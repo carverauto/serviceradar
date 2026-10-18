@@ -109,6 +109,13 @@ repeated IDs; overflow requests reconciliation without an unbounded mailbox.
 The publisher owner retains its one drained batch, at most 500 ordinals, until
 publication succeeds. Native contention retries preserve that work without
 requiring another queue write, setting a source error, or starting a full scan.
+Memory admission is different: retain a rejected scan page as bounded dirty
+work and advance its keyset cursor so later tombstones can reclaim capacity.
+The pass records that it skipped publication; it cannot seed readiness or
+acknowledge reconciliation. Capacity staleness stays latched through successful
+dirty writes and intermediate pages until a subsequent full pass publishes
+without deferrals. If enqueueing also lacks capacity, the unacknowledged scan
+and periodic full reconciliation remain the completeness backstop.
 Lost hints and restarts are repaired by rolling, bounded keyset scans. Preserve
 an accepted index while preparing a replacement and report its age honestly.
 
@@ -160,8 +167,10 @@ once per batch; benchmark that cost separately from exact lookup and set algebra
 The 100,000-device diversity sweep varies one or five fields from 512 through
 65,536 values with only two query predicates. Those are measurement points,
 not new product limits. Preserve separate large-population and hosted convergence
-acceptance. Temporary pressure recovery at the native owner does not by itself
-prove publisher progress when a capacity-blocked page precedes later deletions.
+acceptance. The hosted publisher regression must fill the real native resource,
+establish that an actual source page is rejected, and observe later deletions
+and a subsequent clean pass restore publication. Native pressure recovery alone
+does not establish that owner-level progress.
 
 Causal state has no approved fleet-scale producer today. The legacy bounded
 scene evaluator is not such a producer, and availability cannot substitute for
@@ -240,8 +249,12 @@ live lexical cursor to source, authority and last label. Pod-local source
 versions are response metadata, not cross-replica cursor identities. Reserve
 at most 4 MiB total additional catalog
 memory across sources and retained snapshots. Build catalogs only in the
-existing background bitmap worker whenever Atlas is enabled. Retry
-admission after retained snapshots release memory, and release catalogs when
+existing background bitmap worker whenever Atlas is enabled. Prepare one source
+per turn, retaining counting, collection, in-place sorting and label-counting
+progress across turns. Each native call has both a deadline and a work quantum;
+the publisher yields after its one-second source turn and rotates sources.
+`catalog_preparing` is resumable progress, distinct from explicit admission
+failure. Retry admission after retained snapshots release memory, and release catalogs when
 Atlas stops or a source is removed. Catalog admission failure does
 not break existing prefix lookup; named-tag queries report unavailability.
 
@@ -308,7 +321,14 @@ remain hidden rather than exposing unrelated members.
 Build the world's canonical ordinal projection in the existing supervised world
 loader after geometry installation and index seeding. Stream dictionary pages
 of at most 500 identities, retaining a native u32 vector rather than another UID
-map. Seal and install it only against the exact accepted native world. Missing
+map. Retain the private mapping, cursor and dictionary progress in the loader
+between supervised turns, each reading at most one page after polling the
+geometry head. Projection errors have their own retry backoff and cannot reset
+the scan cursor or suppress geometry-head polling. A lost completion after
+native sealing is recovered by installing the sealed mapping, not by applying
+another page to it. Release staging when its world or dictionary epoch changes.
+Seal and install it only against the exact accepted native world and current
+index dictionary epoch. Missing
 canonical identities remain excluded and are reported as incomplete mapping.
 A complete projection is final for its immutable world and dictionary epoch;
 reuse it without dictionary count or identity-page queries. For incomplete

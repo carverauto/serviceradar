@@ -51,74 +51,208 @@ pub struct LabelPage {
     pub next_after: Option<String>,
 }
 
-impl Catalog {
-    pub fn build(trie: &Trie, deadline: Instant) -> Result<Self, &'static str> {
-        let mut count = 0usize;
-        for (_, _, entry) in trie.entries() {
-            check(deadline)?;
-            for (index, tag) in entry.tags.iter().enumerate() {
-                if index % 256 == 0 {
-                    check(deadline)?;
-                }
-                if !queryable_label(tag) {
-                    continue;
-                }
-                count += 1;
-                if count > (MAX_BYTES - size_of::<Self>()) / size_of::<LabelRef>() {
-                    return Err("catalog_budget");
-                }
-            }
-        }
-        let charge = Charge::reserve(size_of::<Self>() + count * size_of::<LabelRef>())?;
-        let mut references = Vec::new();
-        references
-            .try_reserve_exact(count)
-            .map_err(|_| "catalog_budget")?;
-        // The allocator may reserve extra capacity; never publish uncharged storage.
-        if references.capacity() != count {
-            return Err("catalog_budget");
-        }
-        for (node, entry_index, entry) in trie.entries() {
-            check(deadline)?;
-            for tag in 0..entry.tags.len() {
-                if tag % 256 == 0 {
-                    check(deadline)?;
-                }
-                if !queryable_label(&entry.tags[tag]) {
-                    continue;
-                }
-                references.push(LabelRef {
-                    node: u32::try_from(node).map_err(|_| "catalog_budget")?,
-                    entry: u32::try_from(entry_index).map_err(|_| "catalog_budget")?,
-                    tag: u32::try_from(tag).map_err(|_| "catalog_budget")?,
-                });
-            }
-        }
-        // Only background construction sorts. Its input is capped by the same
-        // global four-MiB reservation; request handlers never build a catalog.
-        references.sort_unstable_by_key(|r| {
-            let entry = trie.entry(r.node as usize, r.entry as usize);
-            (
-                &entry.tags[r.tag as usize],
-                !entry.prefix.ipv4,
-                entry.prefix.network,
-                entry.prefix.length,
-            )
-        });
-        check(deadline)?;
-        let label_count = references
-            .iter()
-            .enumerate()
-            .filter(|&(i, r)| i == 0 || label(trie, r) != label(trie, &references[i - 1]))
-            .count();
-        check(deadline)?;
-        Ok(Self {
-            references,
-            label_count,
-            charge,
-        })
+#[derive(Clone, Copy, Debug, Default)]
+struct Cursor {
+    node: usize,
+    entry: usize,
+    tag: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum BuildPhase {
+    #[default]
+    Count,
+    Collect,
+    Heapify(usize),
+    Sort(usize),
+    Labels(usize),
+}
+
+/// Every preparation phase resumes after a bounded turn, including sorting.
+/// Positions retain their global reservation while the owner yields.
+#[derive(Debug, Default)]
+pub struct CatalogBuild {
+    cursor: Cursor,
+    count: usize,
+    phase: BuildPhase,
+    label_count: usize,
+    collected: Option<(Vec<LabelRef>, Charge)>,
+}
+
+pub enum Prepared {
+    Ready(Catalog),
+    Pending(CatalogBuild),
+}
+
+impl CatalogBuild {
+    pub fn new() -> Self {
+        Self::default()
     }
 
+    pub fn native_bytes(&self) -> usize {
+        self.collected.as_ref().map_or(0, |(_, charge)| charge.0)
+    }
+
+    pub fn resume(mut self, trie: &Trie, deadline: Instant) -> Result<Prepared, &'static str> {
+        // A turn bounds work as well as elapsed time. One heap operation is
+        // logarithmic in the byte-bounded reference count and allocates nothing.
+        let mut remaining = 16_384;
+        while remaining > 0 && Instant::now() < deadline {
+            match self.phase {
+                BuildPhase::Count => {
+                    let header = size_of::<Self>().max(size_of::<Catalog>());
+                    let limit = (MAX_BYTES - header) / size_of::<LabelRef>();
+                    let count = &mut self.count;
+                    if !walk(trie, &mut self.cursor, deadline, &mut remaining, |_| {
+                        *count += 1;
+                        if *count > limit {
+                            Err("catalog_budget")
+                        } else {
+                            Ok(())
+                        }
+                    })? {
+                        break;
+                    }
+                    let charge = Charge::reserve(header + self.count * size_of::<LabelRef>())?;
+                    let mut references = Vec::new();
+                    references
+                        .try_reserve_exact(self.count)
+                        .map_err(|_| "catalog_budget")?;
+                    if references.capacity() != self.count {
+                        return Err("catalog_budget");
+                    }
+                    self.cursor = Cursor::default();
+                    self.collected = Some((references, charge));
+                    self.phase = BuildPhase::Collect;
+                }
+                BuildPhase::Collect => {
+                    let (references, _) = self.collected.as_mut().ok_or("catalog_budget")?;
+                    if !walk(
+                        trie,
+                        &mut self.cursor,
+                        deadline,
+                        &mut remaining,
+                        |reference| {
+                            if references.len() == references.capacity() {
+                                return Err("catalog_budget");
+                            }
+                            references.push(reference);
+                            Ok(())
+                        },
+                    )? {
+                        break;
+                    }
+                    self.phase = BuildPhase::Heapify(references.len() / 2);
+                }
+                BuildPhase::Heapify(0) => self.phase = BuildPhase::Sort(self.count),
+                BuildPhase::Heapify(next) => {
+                    let (references, _) = self.collected.as_mut().ok_or("catalog_budget")?;
+                    sift_down(references, trie, next - 1, self.count);
+                    self.phase = BuildPhase::Heapify(next - 1);
+                    remaining -= 1;
+                }
+                BuildPhase::Sort(end) if end <= 1 => self.phase = BuildPhase::Labels(0),
+                BuildPhase::Sort(end) => {
+                    let (references, _) = self.collected.as_mut().ok_or("catalog_budget")?;
+                    references.swap(0, end - 1);
+                    sift_down(references, trie, 0, end - 1);
+                    self.phase = BuildPhase::Sort(end - 1);
+                    remaining -= 1;
+                }
+                BuildPhase::Labels(next) if next == self.count => {
+                    let (references, charge) = self.collected.take().ok_or("catalog_budget")?;
+                    return Ok(Prepared::Ready(Catalog {
+                        references,
+                        label_count: self.label_count,
+                        charge,
+                    }));
+                }
+                BuildPhase::Labels(next) => {
+                    let (references, _) = self.collected.as_ref().ok_or("catalog_budget")?;
+                    if next == 0
+                        || label(trie, &references[next]) != label(trie, &references[next - 1])
+                    {
+                        self.label_count += 1;
+                    }
+                    self.phase = BuildPhase::Labels(next + 1);
+                    remaining -= 1;
+                }
+            }
+        }
+        Ok(Prepared::Pending(self))
+    }
+}
+
+fn reference_key<'a>(trie: &'a Trie, reference: &LabelRef) -> (&'a str, bool, u128, u8) {
+    let entry = trie.entry(reference.node as usize, reference.entry as usize);
+    (
+        &entry.tags[reference.tag as usize],
+        !entry.prefix.ipv4,
+        entry.prefix.network,
+        entry.prefix.length,
+    )
+}
+
+fn sift_down(references: &mut [LabelRef], trie: &Trie, mut root: usize, end: usize) {
+    while root * 2 + 1 < end {
+        let mut child = root * 2 + 1;
+        if child + 1 < end
+            && reference_key(trie, &references[child]) < reference_key(trie, &references[child + 1])
+        {
+            child += 1;
+        }
+        if reference_key(trie, &references[root]) >= reference_key(trie, &references[child]) {
+            break;
+        }
+        references.swap(root, child);
+        root = child;
+    }
+}
+
+fn walk(
+    trie: &Trie,
+    cursor: &mut Cursor,
+    deadline: Instant,
+    remaining: &mut usize,
+    mut visit: impl FnMut(LabelRef) -> Result<(), &'static str>,
+) -> Result<bool, &'static str> {
+    while let Some(entries) = trie.node_entries(cursor.node) {
+        if *remaining == 0 || Instant::now() >= deadline {
+            return Ok(false);
+        }
+        *remaining -= 1;
+        while let Some(entry) = entries.get(cursor.entry) {
+            if *remaining == 0 || Instant::now() >= deadline {
+                return Ok(false);
+            }
+            *remaining -= 1;
+            while cursor.tag < entry.tags.len() {
+                if *remaining == 0 || Instant::now() >= deadline {
+                    return Ok(false);
+                }
+                *remaining -= 1;
+                if queryable_label(&entry.tags[cursor.tag]) {
+                    visit(LabelRef {
+                        node: u32::try_from(cursor.node).map_err(|_| "catalog_budget")?,
+                        entry: u32::try_from(cursor.entry).map_err(|_| "catalog_budget")?,
+                        tag: u32::try_from(cursor.tag).map_err(|_| "catalog_budget")?,
+                    })?;
+                }
+                cursor.tag += 1;
+            }
+            cursor.entry += 1;
+            cursor.tag = 0;
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+        }
+        cursor.node += 1;
+        cursor.entry = 0;
+    }
+    Ok(true)
+}
+
+impl Catalog {
     pub fn label_count(&self) -> usize {
         self.label_count
     }

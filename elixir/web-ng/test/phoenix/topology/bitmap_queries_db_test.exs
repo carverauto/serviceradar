@@ -333,12 +333,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert vlan["label"] == "Inventory VLAN"
     assert "eq" in vlan["operators"]
 
-    {:ok, %{ordinals: projection}} = WorldCache.world()
     :ok = WorldCache.clear_ordinals()
     response = TopologyTileController.manifest(binary_conn(scope), %{})
     assert response.status == 200
     assert Jason.decode!(response.resp_body)["bitmap"]["reason"] == "membership_not_ready"
-    :ok = WorldCache.install_ordinals(world, projection.mapping)
+    :ok = WorldCache.install_ordinals(world, seal_mapping(world, [included, excluded], snapshot.dictionary_epoch))
 
     {:ok, _fence, socket} =
       UserSocket
@@ -738,14 +737,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       end)
 
     :ok = WorldCache.install(world, manifest, prepared)
+    :ok = WorldCache.install_ordinals(world, seal_mapping(world, devices, epoch))
+    world
+  end
+
+  defp seal_mapping(world, devices, epoch) do
     {:ok, mapping} = TopologyAtlas.new_ordinals(world, epoch)
 
     {:ok, _} =
       TopologyAtlas.apply_ordinals(world, mapping, Enum.map(devices, &{&1.uid, FleetIdentity.device_ordinal(&1.uid)}))
 
     {:ok, _} = TopologyAtlas.seal_ordinals(world, mapping)
-    :ok = WorldCache.install_ordinals(world, mapping)
-    world
+    mapping
   end
 
   defp binary_conn(scope) do

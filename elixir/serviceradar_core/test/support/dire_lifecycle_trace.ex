@@ -66,6 +66,9 @@ defmodule ServiceRadar.DireLifecycleTrace do
   # Resolver @max_canonical_follow_depth.
   @follow_depth 5
 
+  # SweepResultsIngestor @max_seed_uid_attempts.
+  @seed_chain_bound 8
+
   # The Armis source instance every trace's source identifiers belong to.
   @armis_instance "source-trace"
   @armis_scope %{partition: "default", source: "armis", source_instance: @armis_instance}
@@ -577,7 +580,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
           {"SweepCreate", uid, "NoDev"}
 
         {[uid], [], [root]} ->
-          assert_seed_head_update!(before, after_, root, uid)
+          assert_seed_head_update!(before, after_, root, uid, trace.real.ip[p])
 
           assert [%SweepHostResult{device_id: ^uid}] =
                    SweepHostResult
@@ -610,9 +613,15 @@ defmodule ServiceRadar.DireLifecycleTrace do
     )
   end
 
-  defp assert_seed_head_update!(before, after_, root, successor) do
+  defp assert_seed_head_update!(before, after_, root, successor, ip) do
+    assert root == Ids.generate_deterministic_device_id(%{ip: ip, partition: "default"})
     old = Map.fetch!(before.devices, root)
     current = Map.fetch!(after_.devices, root)
+    start = (old.stored["metadata"] || %{})["_seed_successor"] || root
+
+    chain = start |> Stream.iterate(&Ids.reseeded_device_id/1) |> Enum.take(@seed_chain_bound)
+    assert successor in chain
+
     assert old.deleted_at
     assert current.identity_revision == old.identity_revision + 1
     assert {ordinal, true} = old.ordinal

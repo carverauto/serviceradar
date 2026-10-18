@@ -166,9 +166,10 @@ valid bounded labels. This is control metadata, not bulk membership JSON.
 Fresh physical Chrome acceptance used browser child checkpoint
 `d64834abcba18a610847a1bf6bcc098a743cf881`. That commit does not resolve.
 `77a7db25b1` is a pre-rebase checkpoint and is not an ancestor of this branch.
-`c1773156d2` is also a pre-rebase checkpoint; the same change has subject
-`cdd9f5297d` on the current branch. These equivalent subjects identify the change,
-not a new measurement. The physical run was not re-executed here.
+`c1773156d2` and `cdd9f5297d` are also historical pre-rebase checkpoints, not
+ancestors of this branch; the same subject appears on this branch as
+`9d6465a074`. These equivalent subjects identify the change, not a new
+measurement. The physical run was not re-executed here.
 The declared RBE-built page has SHA-256
 `f3558550546c50bb19ad8b60c024dfef788980662eb8bc209349efd9940757e4`.
 The adapter reported Apple Metal 3 WebGPU with `fallback: false`. This remains

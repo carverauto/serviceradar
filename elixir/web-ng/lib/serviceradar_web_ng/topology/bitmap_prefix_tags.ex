@@ -35,25 +35,31 @@ defmodule ServiceRadarWebNG.Topology.BitmapPrefixTags do
     end
   end
 
-  @doc "Called only by the existing background publisher, with one shared deadline."
-  def prepare(sources, deadline) do
-    Enum.reduce_while(sources, {:ok, nil}, fn source, _acc ->
-      with {:ok, budget} <- BitmapQueries.remaining(deadline),
-           {:ok, snapshot} <- capture(source) do
-        case Native.prepare_catalog(snapshot.trie, budget) do
-          {:ok, _} ->
-            Store.release_catalog_unless_current(source, snapshot.version, snapshot.trie)
+  @doc """
+  Called only by the existing background publisher, one source per bounded turn.
+  Native construction keeps its cursor across turns, so a catalog larger than one
+  turn returns `:preparing` and resumes. A stale snapshot's catalog is released.
+  """
+  def prepare(source, deadline) do
+    with {:ok, snapshot} <- capture(source) do
+      result = prepare_snapshot(snapshot.trie, deadline)
+      Store.release_catalog_unless_current(source, snapshot.version, snapshot.trie)
+      result
+    end
+  end
 
-          _ ->
-            :ok
-        end
-
-        {:cont, {:ok, nil}}
-      else
-        {:error, :query_timeout} = error -> {:halt, error}
-        _ -> {:cont, {:ok, nil}}
+  defp prepare_snapshot(trie, deadline) do
+    with {:ok, budget} <- BitmapQueries.remaining(deadline),
+         {:ok, status} <- Native.prepare_catalog(trie, budget) do
+      cond do
+        status.available -> {:ok, :ready}
+        status.preparing -> prepare_snapshot(trie, deadline)
+        true -> {:error, :catalog_not_ready}
       end
-    end)
+    else
+      {:error, :query_timeout} -> {:ok, :preparing}
+      error -> error
+    end
   end
 
   @doc "Retains source names whose feature catalog is still in use, for bounded cleanup retries."
@@ -124,9 +130,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapPrefixTags do
   defp source_descriptor(source) do
     with {:ok, snapshot} <- capture(source),
          {:ok, status} <- Native.catalog_status(snapshot.trie) do
-      %{source: source, version: snapshot.version, available: status.available}
+      entry = %{source: source, version: snapshot.version, available: status.available}
+
+      cond do
+        status.available -> entry
+        status.failure -> Map.put(entry, :reason, status.failure)
+        true -> Map.put(entry, :reason, "catalog_preparing")
+      end
     else
-      _ -> %{source: source, available: false}
+      {:error, reason} -> %{source: source, available: false, reason: to_string(reason)}
     end
   end
 

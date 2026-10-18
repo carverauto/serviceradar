@@ -58,14 +58,8 @@ impl Trie {
         self.stats
     }
 
-    pub(crate) fn entries(&self) -> impl Iterator<Item = (usize, usize, &Entry)> {
-        self.nodes.iter().enumerate().flat_map(|(node, value)| {
-            value
-                .entries
-                .iter()
-                .enumerate()
-                .map(move |(entry, value)| (node, entry, value))
-        })
+    pub(crate) fn node_entries(&self, node: usize) -> Option<&[Entry]> {
+        self.nodes.get(node).map(|node| node.entries.as_slice())
     }
 
     pub(crate) fn entry(&self, node: usize, entry: usize) -> &Entry {

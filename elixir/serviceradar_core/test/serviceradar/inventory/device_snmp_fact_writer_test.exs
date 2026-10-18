@@ -220,7 +220,18 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
         )
       end
 
-    statements = count_fact_writes(fn -> :ok = DeviceSNMPFactWriter.write_rows(rows) end)
+    statements =
+      count_fact_writes(fn ->
+        Task.await(
+          Task.async(fn ->
+            :telemetry.execute([:service_radar, :repo, :query], %{}, %{
+              query: "INSERT INTO device_snmp_facts VALUES (...)"
+            })
+          end)
+        )
+
+        :ok = DeviceSNMPFactWriter.write_rows(rows)
+      end)
 
     assert length(facts(device.uid, actor)) == 40
     assert statements == 1

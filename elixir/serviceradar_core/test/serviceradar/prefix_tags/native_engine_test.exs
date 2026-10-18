@@ -107,7 +107,7 @@ defmodule ServiceRadar.PrefixTags.NativeEngineTest do
   end
 
   test "captured source catalogs page labels, export typed ranges and release independently of lookup" do
-    start_supervised!(Registry)
+    if !Process.whereis(Registry), do: start_supervised!(Registry)
     version = Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["office", "zone"]}])
     assert {:ok, %{version: ^version, trie: snapshot}} = Store.capture("manual")
     assert {:ok, ["manual"]} = Store.sources(1)

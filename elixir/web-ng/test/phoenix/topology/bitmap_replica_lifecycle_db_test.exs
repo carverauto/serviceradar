@@ -67,10 +67,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   end
 
   @tag sandbox: :unboxed
-  test "world loader leaves stable incomplete identities alone, yields pages to geometry, and detects late commits", %{
-    ids: [first_id, trigger_id, late_id, higher_id, unrelated_id],
-    vendor: vendor
-  } do
+  test "world loader resumes projection turns, leaves stable incomplete identities alone, yields pages to geometry, and detects late commits",
+       %{
+         ids: [first_id, trigger_id, late_id, higher_id, unrelated_id],
+         vendor: vendor
+       } do
     prior_manifest = World.active_manifest(:system)
     prior_head = world_head_row()
     prior_layout = layout_stamp(prior_head)
@@ -125,7 +126,33 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     await_members(owner, vendor, [first_ordinal])
     cache = start_supervised!({WorldCache, task_supervisor: cache_tasks, pubsub: ServiceRadar.PubSub})
     observer = observe_loader_queries(loader_tasks)
+    paging = observe_loader_queries(loader_tasks, true)
     loader = start_supervised!({WorldLoader, cache: cache, task_supervisor: loader_tasks, pubsub: ServiceRadar.PubSub})
+
+    # The padded dictionary spans at least two pages. Each page is a separate
+    # supervised turn that resumes from the owner's retained cursor.
+    assert_receive {:loader_page, ^paging, first_turn, first_cursor}, 10_000
+    send(first_turn, {:continue_loader, paging})
+    assert_receive {:loader_page, ^paging, second_turn, resumed_cursor}, 10_000
+    assert second_turn != first_turn
+    assert resumed_cursor != first_cursor
+
+    # A cancelled turn keeps the staged cursor; the next turn polls the head
+    # again and then retries the same page rather than restarting the scan.
+    Process.exit(second_turn, :kill)
+    assert_receive {:loader_page, ^paging, retry_turn, ^resumed_cursor}, 10_000
+    assert retry_turn != second_turn
+    assert_received {:loader_query, ^paging, ^retry_turn, :head, _}
+
+    # Reproduce native completion without its worker's result message. The
+    # dictionary padding has no geometry rows; the first device is this world's
+    # only assigned identity. Sealing the real retained resource before killing
+    # the paused worker must not trap its successor in sealed-page retries.
+    staged = :sys.get_state(loader).projection
+    assert {:ok, _} = TopologyAtlas.apply_ordinals(staged.world, staged.mapping, [{first_id, first_ordinal}])
+    assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(staged.world, staged.mapping)
+    Process.exit(retry_turn, :kill)
+    :telemetry.detach(paging)
     expected = [first_ordinal, 0]
     {assignment, progress} = await_projection(cache, first_version, ids, expected)
     await_loader_idle(loader)
@@ -445,6 +472,113 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     await_members(owner, vendor, [], System.monotonic_time(:millisecond) + 10_000)
   end
 
+  test "a capacity-rejected page does not prevent later deletions from restoring publication", %{vendor: vendor} do
+    keys = Enum.map(1..25, &"capacity-#{&1}")
+    Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, keys)
+    Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+
+    rows =
+      for n <- 1..1_000 do
+        %{
+          uid: "sr:#{vendor}-capacity-#{n}",
+          vendor_name: vendor,
+          is_available: true,
+          tags: if(n <= 500, do: %{}, else: capacity_tags(keys, n))
+        }
+      end
+
+    {1_000, _} = Repo.insert_all(Device, rows)
+    owner = start_replica(:one, __MODULE__.IsolatedPubSub)
+
+    {:ok, current} =
+      await_value(fn -> BitmapIndex.snapshot(owner) end, fn
+        {:ok, %{progress: %{reconciling: false}}} -> true
+        _ -> false
+      end)
+
+    # Pause only the BEAM owner while filling its real native resource through
+    # the publication API. Extra synthetic ordinals occupy the unchanged native
+    # budget without requiring a large database fixture or a test-only limit.
+    :ok = :sys.suspend(owner)
+
+    try do
+      await_value(fn -> Task.Supervisor.children(__MODULE__.OneTasks) end, &(&1 == []))
+      {first, deleted} = Enum.split(rows, 500)
+
+      for {row, n} <- Enum.with_index(first, 1) do
+        Repo.update_all(from(d in Device, where: d.uid == ^row.uid), set: [tags: capacity_tags(keys, n)])
+      end
+
+      deleted_ids = Enum.map(deleted, & &1.uid)
+      {500, _} = Repo.update_all(from(d in Device, where: d.uid in ^deleted_ids), set: [deleted_at: DateTime.utc_now()])
+      filled = fill_index_capacity(current)
+      first_ids = Enum.map(first, & &1.uid)
+      {:ok, ordinals} = BitmapSource.resolve_ids(first_ids)
+
+      # Establish that this exact source page really is refused under pressure;
+      # the owner must get past it to discover the later tombstones.
+      assert {:error, {:capacity, %{rows: refused}}} = publish_addresses(current, ordinals, 77)
+      assert length(refused) == 500
+      assert {:ok, unchanged} = Native.bitmap_index_status(current.device)
+      assert unchanged.revision == filled.revision
+      send(owner, :devices_rescan)
+      :ok = :sys.resume(owner)
+
+      await_value(fn -> BitmapIndex.snapshot(owner) end, fn
+        {:ok, %{progress: %{capacity_blocked: true, source_error: true}}} -> true
+        _ -> false
+      end)
+
+      # With the old retry-at-the-same-cursor behavior, none of these later
+      # deletions are published and this observable cardinality never falls.
+      await_value(fn -> Native.bitmap_index_status(current.device) end, fn
+        {:ok, %{cardinality: count}} -> count == filled.cardinality - 500
+        _ -> false
+      end)
+
+      send(owner, :devices_rescan)
+
+      await_value(fn -> BitmapIndex.snapshot(owner) end, fn
+        {:ok, %{progress: progress}} ->
+          not progress.capacity_blocked and not progress.source_error and not progress.reconciling and
+            progress.pending_dirty == 0 and progress.last_reconciled_at != current.progress.last_reconciled_at
+
+        _ ->
+          false
+      end)
+
+      assert {:ok, [first_ordinal]} = BitmapSource.resolve_ids([hd(first).uid])
+
+      assert {:ok, [^first_ordinal]} =
+               selected_members(current, %{"facet" => "tag:capacity-1", "value" => capacity_tags(keys, 1)["capacity-1"]})
+    after
+      :sys.resume(owner)
+    end
+  end
+
+  defp capacity_tags(keys, n), do: Map.new(keys, &{&1, String.pad_trailing("#{&1}-#{n}-", 200, "x")})
+
+  defp fill_index_capacity(current) do
+    attrs = Enum.map(current.supported_facets, &{&1, "capacity-padding"})
+    {:ok, initial} = Native.bitmap_index_status(current.device)
+
+    0..65_535
+    |> Enum.chunk_every(500)
+    |> Enum.reduce_while(initial, fn batch, previous ->
+      rows = Enum.map(batch, &{&1 * 65_536 + 65_535, true, attrs})
+
+      case Native.bitmap_index_publish(current.device, previous.revision, "capacity-#{hd(batch)}", rows, true) do
+        {:ok, status} -> {:cont, status}
+        {:error, "native_memory_budget"} -> {:halt, {:full, previous}}
+        error -> flunk("unexpected capacity fixture result: #{inspect(error)}")
+      end
+    end)
+    |> case do
+      {:full, status} -> status
+      _ -> flunk("synthetic sparse postings did not reach the native memory budget")
+    end
+  end
+
   defp hold_device_commit(uid, vendor) do
     parent = self()
     token = make_ref()
@@ -617,6 +751,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
               end
 
             send(owner, {:loader_query, handler, self(), kind, rows})
+            if kind == :page, do: send(owner, {:loader_page, handler, self(), metadata.params})
 
             if hold_page? and kind == :page do
               receive do
@@ -637,6 +772,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   defp drain_loader_queries(handler) do
     receive do
       {:loader_query, ^handler, _, _, _} -> drain_loader_queries(handler)
+      {:loader_page, ^handler, _, _} -> drain_loader_queries(handler)
     after
       0 -> :ok
     end

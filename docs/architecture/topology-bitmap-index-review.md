@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `499e370bfd02f0f00ef350efc001c4cf941539c68cc82222b91f4779f2ed64ce` | 908837 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `b4101585d881aa100730cdd55c386a2d385ea2fd174244fe96f664b4be6891e4` | 913161 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -34,20 +34,21 @@ Their exact source checksums are:
 | Source | SHA-256 |
 | --- | --- |
 | `proposal.md` | `c1487a8c52082af037efa9be9b1acf2f790c2c5a50c1db416ea32ac3bf0b71da` |
-| `design.md` | `a5d0181f70a3bea96a73376bf851da0d5bff5f8fdc72c869176278eb00c76670` |
-| `specs/topology-god-view/spec.md` | `c9152cefb8877e277263885b0443eebc4c4920d8166dd30616df3adbec932b44` |
+| `design.md` | `0d094376f0079505efc1def5a769c6bf922a8c67e7886c04f80e265c84c19f09` |
+| `specs/topology-god-view/spec.md` | `260f0de38087ee26d350bad1f25b4a49595d183f51bfd4f646c35feab1c955d7` |
 | `tasks.md` | `5aa39247d268ceb2474eaa90bf009e9720e2f8cf33e46964e767a1cec933a86a` |
-| `review-response.md` | `af4b0f17210f8a5d8065f43287c81c7eec0aa0a5ce64a2b14cb32d8a5402dd1b` |
+| `review-response.md` | `26f3f975c0996181c735aa17b3ebc276e2fb46150ba0aaa8947cda08cc845d05` |
 
-The current snapshot includes the final review corrections for bounded retries,
-displayed membership receipts, deterministic telemetry admission, parser/native
-limits, identity retention, catalog readers and schema-valid scale fixtures.
-The integrated remote unit gate passed 419 targets with two platform
-skips at pre-rebase checkpoint `18ff6bd6d0`, invocation
-`afe6cf35-2ec3-4d95-bbed-bee09930704f`. That commit is not an ancestor of this
-branch, and the run was not repeated on this tree. Do not treat `77eaecceb6`
-as that same gate. Hosted database and combined scale
-acceptance remain unchecked; the unit tier excludes those database cases.
+The current snapshot includes resumable Prefix Tag catalog construction,
+capacity-rejected page deferral with honest staleness, retained ordinal
+projection progress, identity restore/savepoint corrections and behavioral
+verification at the existing test owners. The corrected working tree on
+checkpoint `b0bff03738132c80d7485604995b60619ea43b3b` passed the complete remote
+`make test` gate: 419 targets passed with two Swift platform skips in
+`70ff6673-e160-4285-8736-815695425d6c`. This receipt covers those corrections
+before their commit, not an unchanged checkpoint checkout or a later rebase.
+Hosted database and combined scale acceptance remain unchecked; the unit tier
+excludes those database cases.
 The portable summary retains camera-only sharing, paged labels without search,
 masked zero-match glyphs, hidden unproven aggregate links and disabled compression.
 Its handoff source SHA-256 is
