@@ -151,6 +151,35 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
       "correlate failed:, query café!, " <> String.duplicate("€", 2_715) <> "...[truncated]"
 
     assert body == %{value: {:string_value, expected}}
+    assert byte_size(expected) == 8_192
+  end
+
+  test "a body past 4096 characters and inside the byte cap is exported as text" do
+    # 6000 ASCII bytes. That is under MAX_REPORT_BYTES (8192), so the body is not
+    # truncated, and over the old 4096-element charlist cap, which left array_value.
+    message = String.duplicate("A", 6_000)
+
+    batch = %{undefined: [%{level: :warning, msg: {:string, message}, meta: %{time: 1}}]}
+
+    assert %{resource_logs: [%{scope_logs: [%{log_records: [%{body: body}]}]}]} =
+             :otel_exporter_logs_otlp.build_request(batch, :otel_resource.create(%{}))
+
+    assert body == %{value: {:string_value, message}}
+  end
+
+  test "newline joining that pushes a body past 4096 characters stays text" do
+    # 2000 lines. Upstream trims the trailing newline, then joins the rest with ", ".
+    # 5998 characters is past the old charlist cap and still inside 8192 bytes.
+    message = String.duplicate("x\n", 2_000)
+    expected = String.duplicate("x, ", 1_999) <> "x"
+
+    batch = %{undefined: [%{level: :warning, msg: {:string, message}, meta: %{time: 1}}]}
+
+    assert %{resource_logs: [%{scope_logs: [%{log_records: [%{body: body}]}]}]} =
+             :otel_exporter_logs_otlp.build_request(batch, :otel_resource.create(%{}))
+
+    assert body == %{value: {:string_value, expected}}
+    assert String.length(expected) == 5_998
   end
 
   test "prepare renders improper chardata bodies as their text, not an inspected list" do
