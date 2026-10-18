@@ -621,7 +621,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       %{prefix: "192.0.2.0/25", tags: ["office"], expires_at: expires_at}
     ])
 
-    assert {:ok, nil} = BitmapPrefixTags.prepare([source], System.monotonic_time(:millisecond) + 5_000)
+    assert {:ok, :ready} = BitmapPrefixTags.prepare(source, System.monotonic_time(:millisecond) + 5_000)
     {:ok, %{version: version, trie: trie}} = Store.capture(source)
     assert {:ok, live_ranges} = PrefixNative.label_ranges(trie, "office", 8, 4_096, 1_000)
     assert byte_size(live_ranges) > 0

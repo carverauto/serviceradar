@@ -1418,7 +1418,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.assertIn(required, action)
 
         cleanup = action[action.index("cleanup() {") :]
-        cleanup_lines = [line.replace('"${CLEANUP_TIMEOUT[@]}" ', "") for line in normalized_shell_lines(cleanup)]
+        cleanup_lines = normalized_shell_lines(cleanup)
         self.assertEqual(
             1,
             cleanup_lines.count("bazel test $FLAGS //rust/integration-db:teardown_db"),
@@ -1578,11 +1578,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         diagnostic = [item for item in workflow["actions"] if item["name"] == "WebNgDbDiagnostic"]
         self.assertEqual(1, len(diagnostic))
         self.assertEqual({}, diagnostic[0]["triggers"])
-        self.assert_only_generation_lifecycle_runs(action)
-        self.assert_observer_and_cleanup_contract(action)
-        self.assert_preflight_and_clock_contract(action)
-        self.assert_cache_flags("WebNgDbDiagnostic")
         shell = database_lifecycle_shell(action)
+        selection = shell[shell.index('SCALE_VARIANT=""'):shell.index("\nRUN_ID=")]
         validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
         admission = shell[shell.index("admit_scale() {"):shell.index("validate_cleanup_json() {")]
         # Run the real selector through the observer launch, including the
@@ -1597,7 +1594,8 @@ RUN_ID=synthetic
 FLAGS='-c opt'
 GENERATION_DIGEST=synthetic-digest
 RUN_DATABASE=sr_core_test_synthetic
-ACTION_START_SECONDS=${SCALE_ACTION_START:-900}
+SERVICERADAR_DIAGNOSTIC_START_FILE="$(mktemp)"
+echo "${SCALE_ACTION_START:-900}" > "$SERVICERADAR_DIAGNOSTIC_START_FILE"
 READY_FILE=ready
 SUITE_COMPLETE_FILE=suite-complete
 QUIESCENT_FILE=quiescent
@@ -1651,7 +1649,7 @@ bazel() {
 wait_for_observer_ready() { return 0; }
 """
         script = (
-            recorder + validators + admission + selector + execution
+            recorder + selection + validators + admission + selector + execution
             + '\nwait\n'
             + "if [[ -n \"$SCALE_VARIANT\" ]]; then printf 'observer-timeout=%s\\n' \"$(cat \"$OBSERVER_TIMEOUT_LOG\")\"; fi\n"
             + 'cat "$OBSERVER_ARGS_LOG"\n'
@@ -1710,7 +1708,7 @@ wait_for_observer_ready() { return 0; }
 
         for action_start, expected in ((900, "3300 3295s"), (400, "2990 2985s")):
             result = subprocess.run(
-                ["bash", "-euc", recorder + admission + selector +
+                ["bash", "-euc", recorder + selection + admission + selector +
                  '\nwait\nlimit_scale_observer\necho "$OBSERVER_MAX_SECONDS ${OBSERVER_TIMEOUT[3]}"'],
                 text=True, capture_output=True, timeout=5,
                 env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
@@ -1721,59 +1719,111 @@ wait_for_observer_ready() { return 0; }
 
     def test_scale_cleanup_preserves_each_failure_and_attempts_release_after_teardown_failure(self):
         shell = database_lifecycle_shell(named_action("WebNgDbDiagnostic"))
-        cleanup = shell[shell.index("cleanup() {"):shell.index("trap cleanup EXIT")]
-        validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
-        cleanup_timeout = next(
-            line.strip()
-            for line in shell.splitlines()
-            if line.strip().startswith("CLEANUP_TIMEOUT=(timeout")
-        )
-        for teardown, release, observer in ((0, 0, 0), (13, 0, 0), (0, 14, 0), (0, 0, 124), (137, 0, 0)):
-            with self.subTest(teardown=teardown, release=release, observer=observer), tempfile.TemporaryDirectory() as tmp:
-                script = r'''
-FLAGS='-c opt'
-RUN_ID=synthetic
-RUN_DATABASE=sr_core_test_synthetic
-GENERATION_DIGEST=synthetic-digest
-GENERATION_LEASED=1
-SUITE_STATUS=0
-OBSERVER_STATUS=0
-START_NS=0
-OBSERVER_DIR="$TEST_TMP/observer"
-mkdir "$OBSERVER_DIR"
-SERVICERADAR_FIXTURE_ENV_FILE="$TEST_TMP/env"
-touch "$SERVICERADAR_FIXTURE_ENV_FILE"
-SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
-QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
-STOP_FILE="$OBSERVER_DIR/stop"
-''' + cleanup_timeout + r'''
+        # Run the real action from selection through observer readiness. Only
+        # external Bazel work, the observer process and the clock are replaced,
+        # so an early preparation failure reaches cleanup in production order.
+        lifecycle = shell[shell.index('SCALE_VARIANT=""'):shell.index('PROVISION_JSON="$(bazel run')]
+        stubs = r"""
+set -o pipefail
+SERVICERADAR_DIAGNOSTIC_START_FILE="$TEST_TMP/diagnostic-start"
+echo 900 > "$SERVICERADAR_DIAGNOSTIC_START_FILE"
+date() {
+  if [[ "$1" == "+%s%N" ]]; then echo 950000000000; else echo 1000; fi
+}
 timeout() {
-  [[ "$1 $2 $3" == '--signal=TERM --kill-after=5s 55s' ]] || exit 99
+  local spec="$1 $2 $3"
   shift 3
+  local arg target=""
+  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg"; done
+  echo "timeout $spec $target" >> "$LIFECYCLE_LOG"
   "$@"
 }
-bazel() {
-  echo "$1 ${@: -1}" >&2
-  if [[ "$1" == test ]]; then return "$TEARDOWN_FAILURE"; fi
-  printf '{"digest":"%s","lease_id":"%s","status":"released"}\n' "$GENERATION_DIGEST" "$RUN_DATABASE"
-  return "$RELEASE_FAILURE"
+observe() {
+  touch "$READY_FILE"
+  while [[ ! -e "$SUITE_COMPLETE_FILE" ]]; do sleep 0.1; done
+  touch "$QUIESCENT_FILE"
+  while [[ ! -e "$STOP_FILE" ]]; do sleep 0.1; done
+  return "$OBSERVER_FAILURE"
 }
-wait_for_marker() { test -e "$1"; }
-touch "$QUIESCENT_FILE"
-(exit "$OBSERVER_FAILURE") &
-OBSERVER_PID=$!
-'''
+bazel() {
+  local arg target=""
+  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg"; done
+  echo "$1 $target" >> "$LIFECYCLE_LOG"
+  if [[ "$1" == test && ( " $* " != *" --nocache_test_results "* || " $* " != *" --noremote_upload_local_results "* ) ]]; then
+    return 98
+  fi
+  local digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case "$target" in
+    //:buildbuddy_setup_fixture_env) echo "SERVICERADAR_TEST_ENV_FLAGS=" > "$SERVICERADAR_FIXTURE_ENV_FILE" ;;
+    //rust/integration-db:cleanup_generations) echo '[]' ;;
+    //rust/integration-db:prepare_generation)
+      local status=needs_migration
+      if [[ -e "$TEST_TMP/prepared" ]]; then status=ready; fi
+      touch "$TEST_TMP/prepared"
+      printf '{"builder_token":1,"database":"sr_tpl_%s","digest":"%s","status":"%s"}\n' "${digest:0:48}" "$digest" "$status"
+      ;;
+    //elixir/serviceradar_core:migrate_generation) return "$MIGRATE_FAILURE" ;;
+    //elixir/web-ng:topology_bitmap_scale_*) return "$BUILD_FAILURE" ;;
+    //rust/integration-db:observe_connections) observe ;;
+    //rust/integration-db:teardown_db) return "$TEARDOWN_FAILURE" ;;
+    //rust/integration-db:release_generation)
+      printf '{"digest":"%s","lease_id":"%s","status":"released"}\n' "$digest" "$RUN_DATABASE"
+      return "$RELEASE_FAILURE"
+      ;;
+  esac
+}
+"""
+        preparation = [
+            "run //:buildbuddy_setup_fixture_env",
+            "test //rust/integration-db:sweep_stale_dbs",
+            "run //rust/integration-db:cleanup_generations",
+            "run //rust/integration-db:prepare_generation",
+            "test //elixir/serviceradar_core:migrate_generation",
+        ]
+        bounded = "timeout --signal=TERM --kill-after=5s 55s "
+        teardown = "test //rust/integration-db:teardown_db"
+        release = "run //rust/integration-db:release_generation"
+        cases = (
+            # selector, migrate, build, teardown, release, observer, expected status, reached
+            ("compact", 7, 0, 0, 0, 0, 7, "migrate"),
+            ("sparse", 0, 9, 13, 0, 0, 9, "build"),
+            ("", 7, 0, 0, 0, 0, 7, "migrate"),
+            ("compact", 0, 0, 0, 0, 0, 0, "observer"),
+            ("compact", 0, 0, 13, 0, 0, 13, "observer"),
+            ("sparse", 0, 0, 0, 14, 0, 14, "observer"),
+            ("compact", 0, 0, 0, 0, 124, 124, "observer"),
+            ("compact", 0, 0, 137, 0, 0, 137, "observer"),
+        )
+        for selected, migrate, build, teardown_failure, release_failure, observer, status, reached in cases:
+            with self.subTest(selected=selected, migrate=migrate, build=build, teardown=teardown_failure,
+                              release=release_failure, observer=observer), tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp, "lifecycle.log")
                 result = subprocess.run(
-                    ["bash", "-euc", script + validators + cleanup + "\ncleanup\n"],
-                    text=True, capture_output=True, timeout=5,
-                    env={"PATH": os.environ["PATH"], "TEST_TMP": tmp, "TEARDOWN_FAILURE": str(teardown),
-                         "RELEASE_FAILURE": str(release), "OBSERVER_FAILURE": str(observer)},
+                    ["bash", "-euc", stubs + lifecycle + "\nexit 0\n"],
+                    text=True, capture_output=True, timeout=20,
+                    env={"PATH": os.environ["PATH"], "TMPDIR": tmp, "TEST_TMP": tmp, "LIFECYCLE_LOG": str(log),
+                         "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected, "MIGRATE_FAILURE": str(migrate),
+                         "BUILD_FAILURE": str(build), "TEARDOWN_FAILURE": str(teardown_failure),
+                         "RELEASE_FAILURE": str(release_failure), "OBSERVER_FAILURE": str(observer)},
                 )
-                self.assertEqual(observer or teardown or release, result.returncode, result.stderr)
-                self.assertEqual(["test //rust/integration-db:teardown_db", "run //rust/integration-db:release_generation"],
-                                 result.stderr.splitlines())
-                self.assertFalse(Path(tmp, "observer").exists())
-                self.assertFalse(Path(tmp, "env").exists())
+                self.assertEqual(status, result.returncode, result.stderr)
+                scale = selected != ""
+                expected = list(preparation)
+                if reached != "migrate":
+                    expected.append("run //rust/integration-db:prepare_generation")
+                    expected.append(f"build //elixir/web-ng:topology_bitmap_scale_{selected}_acceptance")
+                if reached == "observer":
+                    expected.append("timeout --signal=TERM --kill-after=5s 3295s //rust/integration-db:observe_connections")
+                    expected.append("run //rust/integration-db:observe_connections")
+                prefix = bounded if scale else ""
+                if scale:
+                    expected.append(prefix + "//rust/integration-db:teardown_db")
+                expected.append(teardown)
+                if scale:
+                    expected.append(prefix + "//rust/integration-db:release_generation")
+                expected.append(release)
+                self.assertEqual(expected, log.read_text(encoding="utf-8").splitlines())
+                self.assertEqual(["lifecycle.log", "prepared"], sorted(path.name for path in Path(tmp).iterdir()))
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "runner clock capture reads Linux /proc")
     def test_scale_action_clock_includes_runner_work_before_the_first_step(self):

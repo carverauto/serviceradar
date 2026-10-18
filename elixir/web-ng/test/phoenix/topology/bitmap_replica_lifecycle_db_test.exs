@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
   @tag sandbox: :unboxed
   test "world loader resumes projection turns, leaves stable incomplete identities alone, yields pages to geometry, and detects late commits",
        %{
-         ids: [first_id, trigger_id, late_id, higher_id, unrelated_id],
+         ids: [first_id, _second_id, late_id, higher_id, unrelated_id],
          vendor: vendor
        } do
     prior_manifest = World.active_manifest(:system)
@@ -171,45 +171,52 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     refute_receive {:loader_query, ^observer, _, :page, _}
     drain_loader_queries(observer)
 
-    # Hold a real completed 500-row source page while the normal publication
-    # message reaches the owner. A second connection publishes the next world.
-    barrier = observe_loader_queries(loader_tasks, true)
-    create(trigger_id, vendor, false)
-    send(loader, :refresh)
-    assert_receive {:loader_query, ^barrier, paging_task, :page, 500}, 10_000
-
-    try do
-      assert {:ok, %{generation: next_generation}} = World.activate_relayout(generation, next_version)
-
-      await_value(
-        fn -> WorldCache.manifest(cache) end,
-        &match?({:ok, %{observed_generation: ^next_generation, catching_up: true}}, &1)
-      )
-    after
-      :telemetry.detach(barrier)
-      send(paging_task, {:continue_loader, barrier})
-    end
-
-    await_task(paging_task)
-    assert_receive {:loader_query, ^observer, ^paging_task, :page, 500}
-    refute_receive {:loader_query, ^observer, ^paging_task, :page, _}
-    await_projection(cache, next_version, ids, expected)
-
     # Sequence allocation precedes commit: MAX alone misses this lower identity.
+    # The higher commit also changes progress, so the elapsed first-world scan
+    # becomes eligible again.
     {writer, token, _backend, late_ordinal} = hold_device_commit(late_id, vendor)
 
     try do
+      # Hold a real completed 500-row source page while the normal publication
+      # message reaches the owner. A second connection publishes the next world.
+      barrier = observe_loader_queries(loader_tasks, true)
       higher = create(higher_id, vendor, true)
       higher_ordinal = FleetIdentity.device_ordinal(higher.uid)
       assert late_ordinal < higher_ordinal
       assert {:ok, {high_water, before_count} = before_progress} = BitmapSource.dictionary_progress()
       assert high_water == higher_ordinal
       send(loader, :refresh)
+      assert_receive {:loader_query, ^barrier, paging_task, :page, 500}, 10_000
+
+      try do
+        assert {:ok, %{generation: next_generation}} = World.activate_relayout(generation, next_version)
+
+        await_value(
+          fn -> WorldCache.manifest(cache) end,
+          &match?({:ok, %{observed_generation: ^next_generation, catching_up: true}}, &1)
+        )
+      after
+        :telemetry.detach(barrier)
+        send(paging_task, {:continue_loader, barrier})
+      end
+
+      await_task(paging_task)
+      assert_receive {:loader_query, ^observer, ^paging_task, :page, 500}
+      refute_receive {:loader_query, ^observer, ^paging_task, :page, _}
       await_projection(cache, next_version, ids, expected, before_progress)
+      await_loader_idle(loader)
+      drain_loader_queries(observer)
+
       send(writer.pid, {:commit, token})
       assert {:ok, :ok} = Task.await(writer, 10_000)
       after_progress = {high_water, before_count + 1}
       assert {:ok, ^after_progress} = BitmapSource.dictionary_progress()
+
+      # The late commit becomes eligible once the next world's incomplete map
+      # crosses the same real owner retry interval.
+      late = make_ref()
+      Process.send_after(self(), {:late_interval, late}, 61_000)
+      assert_receive {:late_interval, ^late}, 62_000
       send(loader, :refresh)
       complete = [first_ordinal, late_ordinal]
       {complete_assignment, ^after_progress} = await_projection(cache, next_version, ids, complete, after_progress)

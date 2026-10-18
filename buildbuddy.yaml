@@ -247,6 +247,27 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
+          SCALE_VARIANT=""
+          CLEANUP_TIMEOUT=()
+          OBSERVER_TIMEOUT=()
+          # Select before the cleanup trap so every scale cleanup command,
+          # including one after an early preparation failure, is bounded.
+          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in
+            0|"")
+              ACTION_START_SECONDS="$(date +%s)"
+              ;;
+            compact|sparse)
+              SCALE_VARIANT="$SERVICERADAR_TOPOLOGY_BITMAP_SCALE"
+              ACTION_START_SECONDS="$(cat "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}")"
+              [[ "$ACTION_START_SECONDS" =~ ^[0-9]+$ ]]
+              CLEANUP_TIMEOUT=(timeout --signal=TERM --kill-after=5s 55s)
+              ;;
+            *)
+              echo "Invalid SERVICERADAR_TOPOLOGY_BITMAP_SCALE selector" >&2
+              exit 1
+              ;;
+          esac
+
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
           RUN_DATABASE="sr_core_test_$RUN_ID"
@@ -285,18 +306,6 @@ actions:
           GENERATION_DIGEST=""
           GENERATION_DATABASE=""
           START_NS=0
-          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-}" in
-            compact|sparse)
-              ACTION_START_SECONDS="$(cat "${SERVICERADAR_DIAGNOSTIC_START_FILE:-/tmp/serviceradar-web-ng-diagnostic-start}")"
-              [[ "$ACTION_START_SECONDS" =~ ^[0-9]+$ ]]
-              ;;
-            *)
-              ACTION_START_SECONDS="$(date +%s)"
-              ;;
-          esac
-          SCALE_VARIANT=""
-          CLEANUP_TIMEOUT=()
-          OBSERVER_TIMEOUT=()
 
           admit_scale() {
             # The test limit excludes Bazel startup/analysis. Bound the complete
@@ -486,16 +495,10 @@ actions:
 
           OBSERVER_MAX_SECONDS=1800
           OBSERVER_POOL_SLOTS=15
-          case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in
-            0|"") SCALE_VARIANT="" ;;
-            compact|sparse) SCALE_VARIANT="$SERVICERADAR_TOPOLOGY_BITMAP_SCALE" ;;
-            *) echo "Invalid SERVICERADAR_TOPOLOGY_BITMAP_SCALE selector" >&2; exit 1 ;;
-          esac
           if [[ -n "$SCALE_VARIANT" ]]; then
             bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //elixir/web-ng:networks_live_db_test //elixir/web-ng:plugin_config_cli_db_test //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance
             OBSERVER_MAX_SECONDS=3300
             OBSERVER_POOL_SLOTS=24
-            CLEANUP_TIMEOUT=(timeout --signal=TERM --kill-after=5s 55s)
           fi
           START_NS="$(date +%s%N)"
           if [[ -n "$SCALE_VARIANT" ]]; then limit_scale_observer || exit 1; fi
