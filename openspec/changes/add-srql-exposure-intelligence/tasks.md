@@ -26,19 +26,19 @@ deployment.
 - [ ] 1.3 NATS: the transitions and `exposure.dimensions.*` subjects, stream limits, and Helm permissions (core publishes, EventWriter consumes).
 - [ ] 1.4 EventWriter `ExposureTransitions` and `ExposureDimensions` processors: Stream Load with `merge_condition = transition_seq`, resolution as a state change, and transition log appends.
 - [ ] 1.5 Merge and deletion handling: `device_retired` from `endpoint_inventory_moves.ex` and device deletion. Grep for every writer of `device_fleet_ordinals.tombstoned` and of device deletion, not only the obvious one.
-- [ ] 1.6 Snapshot generation fenced by the recorded `pg_current_snapshot()` (start and end markers, finalize rule over `transition_xid` visibility, live transitions not visible in the snapshot applied in any order) and the daily per-device reconciliation with exported mismatch counts.
-- [ ] 1.7 Daily purge of facts resolved more than 7 days ago.
-- [ ] 1.8 Tests per scenario of *Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions*, *Exposure Identifiers Use Collision-Free Dictionaries* and *Exposure Is Rebuildable And Reconciled Against The Assessment Store*. Verify fact-table ownership through the transition interface: a published synthetic transition yields its fact row, and a rolled-back assessment change yields none. Include a snapshot test with a resolving transaction in flight while the snapshot is read, and a reconciliation test that fails when a fact is removed out of band.
+- [ ] 1.6 Snapshot generation fenced by the recorded `pg_current_snapshot()` (start and end markers, tombstones for facts resolved within the 8-day redelivery horizon read from retained outbox rows, finalize rule over `transition_xid` visibility, live transitions not visible in the snapshot applied in any order) and the daily per-device reconciliation with exported mismatch counts.
+- [ ] 1.7 Resolved facts kept as tombstones; transitions applied only when their sequence is greater than the stored one; transitions stream `max_age` 7 days and relayed outbox rows retained 8 days; daily purge of tombstones older than the 8-day horizon.
+- [ ] 1.8 Tests per scenario of *Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions*, *Exposure Identifiers Use Collision-Free Dictionaries* and *Exposure Is Rebuildable And Reconciled Against The Assessment Store*. Verify fact-table ownership through the transition interface: a published synthetic transition yields its fact row, and a rolled-back assessment change yields none. Include a snapshot test with a resolving transaction in flight while the snapshot is read, a warehouse-restore test with a pending older redelivery, and a reconciliation test that fails when a fact is removed out of band.
 
 ## 2. Address dimension and flow stamping
 - [ ] 2.1 Address publisher: inventory address changes and agent address leases -> `exposure.dimensions.address`, with interval open and close events, the shared flag, the attested flag, and prefix tags and site from the native prefix lookup.
 - [ ] 2.2 StarRocks `exposure_device_addresses` and its EventWriter processor.
-- [ ] 2.3 Flow-tier in-memory address validity history fed from the stream (retained for the maximum accepted flow delay plus the late window, with metrics including the `outside_history` count), endpoint resolution at the flow's observation time, plus new flow columns `src_device_ord`, `dst_device_ord`, `src_device_resolution`, `dst_device_resolution`, `src_attribution_outcome` and `dst_attribution_outcome`. Late stamps update the outcome and re-resolve the device with the same lookup. No backfill.
-- [ ] 2.4 Tests per scenario of *Flows And Host Evidence Map To Devices Through An Address Dimension* and *Flow Rows Record Per-Side Attribution Outcome And Device Ordinal*, including the delayed flow after readdressing.
+- [ ] 2.3 Flow-tier in-memory address validity history fed from the stream (retained for the maximum accepted flow delay plus the late window, with metrics including the `outside_history` count), endpoint resolution at the flow's observation time, plus new flow columns `src_device_ord`, `dst_device_ord`, `src_device_resolution`, `dst_device_resolution`, `src_attribution_outcome` and `dst_attribution_outcome`. Late stamps update the outcome and re-resolve the device with the same lookup. Address watches keyed by `(partition, ip)` for the late window, decision updates on address changes, and the `address_update_after_cutoff` count. No backfill.
+- [ ] 2.4 Tests per scenario of *Flows And Host Evidence Map To Devices Through An Address Dimension* and *Flow Rows Record Per-Side Attribution Outcome And Device Ordinal*, including the delayed flow after readdressing and the flow that arrives before its address update.
 
 ## 3. Evidence
 - [ ] 3.1 Extend the #5753 `host_connection_summaries` processor to also write evidence deltas. Rows merged to `service` or `overflow` become `peer_scope = unknown` evidence and are counted.
-- [ ] 3.2 Flow processor evidence deltas, with per-batch pre-aggregation -> `observed_connections_hourly`, classifying `peer_scope` against local CIDRs.
+- [ ] 3.2 Flow processor evidence deltas written from each side's final stamp at the late-window cutoff, with per-batch pre-aggregation -> `observed_connections_hourly`, classifying `peer_scope` against local CIDRs.
 - [ ] 3.3 Admit host-observed internet peers to the threat-intel lookup queue, deduplicated against flow endpoints.
 - [ ] 3.4 Add the `exposure_evidence` and `exposure_history` retention datasets as database-backed settings.
 - [ ] 3.5 Tests per scenario of *Observed Connections Form One Evidence Set With Provenance*, *Exposure Answers Do Not Require Network Flow Exporters* and *Host-Observed Peers Are Evaluated Against Threat Intelligence*.
@@ -62,7 +62,7 @@ deployment.
 - [ ] 6.2 StarRocks `agent_capture_coverage` and its processor.
 - [ ] 6.3 Discrepancy candidate publishing from the flow's home shard at the late-window cutoff (never for flows finalized early or with agent-provided attribution; deduplicated).
 - [ ] 6.4 Sharded `DiscrepancyEvaluator`: waits for attestations and evidence, applies the ordered controls, records suppressions from the closed reason vocabulary, scores, and publishes on `exposure.discrepancies`.
-- [ ] 6.5 Hourly `host_only` evaluation over expected-coverage rules, with exporter health and the sampling expectation.
+- [ ] 6.5 Hourly `host_only` evaluation over expected-coverage rules, with exporter health and the sampling expectation, and its own confidence (`H x X x P`) and threshold.
 - [ ] 6.6 `connection_discrepancies` table and processor; OCSF Detection Finding emission.
 - [ ] 6.7 SRQL `in:connection_discrepancies`, `in:agent_coverage` and `in:exposure_incidents`.
 - [ ] 6.8 Tests per scenario of every evasion, coverage-gap and false-positive control requirement. Each suppression reason is covered by a test that produces it.
@@ -71,9 +71,9 @@ deployment.
   - the same stimulus with sampled-only evidence produces `sampled_only`.
 
 ## 7. Alerting
-- [ ] 7.1 Stateful alert rules and incident fingerprints for discrepancy findings, with the default threshold 0.85.
-- [ ] 7.2 Seeded exposure rule templates (disabled by default), evaluated from transitions and evidence.
-- [ ] 7.3 Tests per scenario of the `observability-signals` delta.
+- [ ] 7.1 Stateful alert rules and incident fingerprints for discrepancy findings, with default thresholds 0.85 (`network_only`) and 0.75 (`host_only`).
+- [ ] 7.2 Tests per scenario of the `observability-signals` delta.
+- [ ] 7.3 Follow-up, not in this change: operator-configurable alert rules on exposure conditions (for example a new KEV exposure), proposed separately.
 
 ## 8. Capacity verification
 - [ ] 8.1 Synthetic load harness using only invented data: 20k hosts, 50M facts, 50k CVEs, transitions, summaries, flows and addresses.

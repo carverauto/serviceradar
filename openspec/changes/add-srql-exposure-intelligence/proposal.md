@@ -110,7 +110,7 @@ reported indicates a hidden process, a rootkit, or a blinded agent.
     - a new exposure publisher;
     - a new discrepancy evaluator;
     - `NetflowSecurityRefreshWorker` (host peers feed threat-intel lookups);
-    - `StatefulAlertEngine` rules.
+    - `StatefulAlertEngine` rules for discrepancy incidents.
   - EventWriter:
     - new processors for transitions, dimensions, coverage attestations and discrepancies;
     - the #5753 host connection summary processor, extended to write evidence deltas;

@@ -302,7 +302,11 @@ The evaluator SHALL NOT attribute a network-observed address to a host when the 
 - **THEN** it is recorded with reason `address_not_attested`
 
 ### Requirement: Discrepancy Signals Carry A Deterministic Confidence Score
-Each discrepancy signal SHALL carry a confidence in [0, 1] computed only from stored inputs as the product of an evidence factor, a translation factor and a temporal-margin factor. The signal SHALL include the factors and their inputs. Signals at or above the configured incident threshold (default 0.85) SHALL be eligible for alerting; signals below it SHALL be stored and queryable but SHALL NOT alert.
+Each discrepancy signal SHALL carry a confidence in [0, 1] computed only from stored inputs, with a formula per kind:
+- `network_only`: the product of an evidence factor, a translation factor and a temporal-margin factor;
+- `host_only`: the product of a host-evidence-strength factor, an exporter-position factor and a persistence factor over consecutive closed hours, with exporter health, the expected-coverage rule match and the sampling expectation as gates.
+
+The signal SHALL include the factors and their inputs. Each kind SHALL have its own configured incident threshold (default 0.85 for `network_only` and 0.75 for `host_only`). Signals at or above their kind's threshold SHALL be eligible for alerting; signals below it SHALL be stored and queryable but SHALL NOT alert.
 
 #### Scenario: Strong direct evidence alerts
 - **GIVEN** a direct-address candidate with an unsampled payload-bearing host-originated record, placed well inside the attested coverage
@@ -313,6 +317,16 @@ Each discrepancy signal SHALL carry a confidence in [0, 1] computed only from st
 - **GIVEN** an ACK-only host-originated record (evidence factor 0.9) resolved through a VIP (translation factor 0.9)
 - **WHEN** it is scored
 - **THEN** the confidence is 0.81, the signal is stored, and no alert is raised at the default threshold
+
+#### Scenario: Single-hour coverage gap is stored without alerting
+- **GIVEN** a `host_only` gap with strong host evidence on an unsampled exporter the rule marks as on the internet path, and no gap for the same device, rule and exporter in the previous hour
+- **WHEN** it is scored
+- **THEN** the confidence is 0.7, the signal is stored, and no alert is raised at the default `host_only` threshold
+
+#### Scenario: Persistent coverage gap alerts
+- **GIVEN** the same gap is signalled again in the next closed hour
+- **WHEN** it is scored
+- **THEN** the confidence is 1.0 and the signal is alert-eligible
 
 #### Scenario: Score is reproducible
 - **WHEN** a stored signal's inputs are rescored
@@ -331,7 +345,7 @@ The evaluator SHALL record every evaluated candidate that does not become a sign
 - **THEN** a zero candidate count and a high `coverage_unknown` count are distinguishable
 
 ### Requirement: Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions
-The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Writes SHALL be conditional on `transition_seq`, which increases per fact in commit order, so that duplicate or reordered transitions never overwrite newer state. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL set the fact's state to resolved. A purge SHALL physically remove facts that have been resolved for longer than 7 days.
+The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. A transition SHALL be applied only when its `transition_seq`, which increases per fact in commit order, is greater than the stored one, so that duplicate or reordered transitions never overwrite newer state. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL be a state change, never a delete: a resolved fact SHALL be kept as a tombstone carrying its `transition_seq` for at least the redelivery horizon of 8 days, which exceeds the transitions stream's 7-day message age and equals the retention of relayed outbox rows. A purge SHALL physically remove only tombstones resolved longer ago than the horizon.
 
 #### Scenario: Reordered transitions keep the newest state
 - **GIVEN** transitions with sequence 10 (resolved) and 9 (active) for the same fact are delivered in the order 10, 9
@@ -341,6 +355,11 @@ The system SHALL store current exposure in a StarRocks Primary Key table keyed `
 #### Scenario: Redelivery is idempotent
 - **WHEN** the same transition is delivered twice
 - **THEN** the fact is unchanged by the second delivery
+
+#### Scenario: Redelivered older active transition does not resurrect a resolved fact
+- **GIVEN** a fact resolved at sequence 11 three days ago
+- **WHEN** an active transition with sequence 10 for the same fact is redelivered
+- **THEN** the fact remains resolved at sequence 11
 
 #### Scenario: A published transition becomes a fact
 - **GIVEN** a synthetic actionable transition for an invented device, CVE and package is published on the transitions subject
@@ -383,7 +402,7 @@ Device ordinals SHALL come from `platform.device_fleet_ordinals`. CVE ordinals f
 - **AND** B's assessments are published under B's ordinal
 
 ### Requirement: Flows And Host Evidence Map To Devices Through An Address Dimension
-The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)` to `device_ord` with validity intervals, address source, a shared flag, an agent-attested flag, and the prefix tags and site of the address. It SHALL be fed from inventory address changes and agent address leases through JetStream. The EventWriter flow tier SHALL hold a bounded in-memory validity history per address, fed from the same stream and retained for the maximum accepted flow delay plus the late window. It SHALL resolve each flow endpoint against the intervals covering the flow's observation time, never against the address's current holder, and stamp per-side device ordinals and resolutions at ingest. An endpoint whose observation interval is covered by more than one device SHALL be `ambiguous`, and one older than the retained history SHALL be `outside_history` and counted; neither SHALL carry an ordinal. Late re-resolution SHALL use the same time-based lookup.
+The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)` to `device_ord` with validity intervals, address source, a shared flag, an agent-attested flag, and the prefix tags and site of the address. It SHALL be fed from inventory address changes and agent address leases through JetStream. The EventWriter flow tier SHALL hold a bounded in-memory validity history per address, fed from the same stream and retained for the maximum accepted flow delay plus the late window. It SHALL resolve each flow endpoint against the intervals covering the flow's observation time, never against the address's current holder, and stamp per-side device ordinals and resolutions at ingest. An endpoint whose observation interval is covered by more than one device SHALL be `ambiguous`, and one older than the retained history SHALL be `outside_history` and counted; neither SHALL carry an ordinal. Device stamping SHALL participate in the same late window as attribution: while a flow's window is open, an address-validity update for an address one of its sides resolved through SHALL re-resolve that side with the same time-based lookup and publish a decision update when the result changes. After the cutoff the stamp SHALL be final, and an address update that would have changed it SHALL be counted, not applied to flows.
 
 #### Scenario: Address change closes the previous interval
 - **GIVEN** `192.0.2.30` maps to device A
@@ -399,6 +418,19 @@ The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)
 - **GIVEN** the same address change
 - **WHEN** a flow observed at 12:00:30-12:01:30 is ingested
 - **THEN** its side for `192.0.2.30` has resolution `ambiguous` and no device ordinal
+
+#### Scenario: Flow arriving before its address update is corrected within the window
+- **GIVEN** `192.0.2.30` moves from device A to device B at 12:01, and B's interval reaches the flow tier at 12:01:30
+- **WHEN** a flow observed at 12:01:00-12:01:02 involving `192.0.2.30` is ingested at 12:01:02
+- **THEN** its side is first stamped with A's ordinal
+- **AND** when B's interval arrives within the late window, a decision update rewrites the side to B's ordinal with resolution `resolved`
+- **AND** the side's network evidence is written under B only
+
+#### Scenario: Address update after the cutoff is counted
+- **GIVEN** a flow side's late window has reached its cutoff
+- **WHEN** an address update arrives that changes the holder for the flow's observation time
+- **THEN** the flow keeps its stamp
+- **AND** the `address_update_after_cutoff` count increases
 
 #### Scenario: Flow older than the retained history is counted
 - **GIVEN** a flow whose observation time is older than the retained validity history
@@ -425,13 +457,20 @@ Exposure queries SHALL obtain device names, VLAN, owner, device tags and the age
 - **AND** names are not silently left empty
 
 ### Requirement: Exposure Is Rebuildable And Reconciled Against The Assessment Store
-The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
+The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit, as tombstones carrying their resolution sequence, every fact that left the actionable state within the redelivery horizon and is not actionable in `V`. A snapshot row SHALL be applied when its sequence is greater than or equal to the stored one; at equal sequence only the snapshot generation changes. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
 
 #### Scenario: Snapshot removes stale facts and keeps live updates
 - **GIVEN** StarRocks holds a fact that CNPG no longer considers actionable
 - **AND** a live transition arrives during the snapshot
 - **WHEN** snapshot generation G completes
 - **THEN** the stale fact is resolved, and the live transition's state is retained
+
+#### Scenario: Warehouse restore with pending redelivery does not resurrect a fact
+- **GIVEN** a restored warehouse holds a fact active at sequence 9
+- **AND** CNPG resolved that fact at sequence 11, visible in `V`, within the redelivery horizon
+- **AND** an active transition with sequence 10 for the fact is still awaiting redelivery
+- **WHEN** snapshot generation G completes and sequence 10 is delivered, in either order
+- **THEN** the fact ends resolved at sequence 11
 
 #### Scenario: Transaction in flight during the snapshot keeps its result
 - **GIVEN** a resolving transaction for an active fact has drawn its `transition_seq` but has not committed when the snapshot records `V`

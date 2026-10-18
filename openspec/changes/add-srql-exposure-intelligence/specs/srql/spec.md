@@ -112,7 +112,7 @@ SRQL SHALL provide `in:agent_coverage` over agent capture coverage attestations.
 - **AND** intervals with `complete = false` show the counter that voided them
 
 ### Requirement: SRQL Exposure Incidents Entity
-SRQL SHALL provide `in:exposure_incidents` over alert incidents that were created from exposure and discrepancy findings.
+SRQL SHALL provide `in:exposure_incidents` over alert incidents that were created from discrepancy findings.
 
 **Fields.** Rows SHALL expose `incident_id`, `kind`, `severity`, `status`, `device_id`, `hostname`, `first_seen`, `last_seen`, `occurrence_count`, `max_confidence` and a ready-to-run `discrepancies_query` pivot.
 

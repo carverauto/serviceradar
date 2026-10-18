@@ -166,12 +166,16 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
 - **"Active" is the exact actionable predicate:** `status = active AND assessment =
   confirmed AND disposition = affected`. This is the triple
   `add-srql-advisory-cpe-entities` defines. Candidates are not exposure.
-- **Resolution is a state change, not a physical delete.**
-  - Stream Load uses `merge_condition = transition_seq`, so an older or duplicate transition
-    never overwrites a newer one. This also holds for out-of-order redelivery.
-  - Conditional deletes are not available on Primary Key tables. For that reason a
-    resolution is written as `state = 0`, and a daily purge physically deletes rows that
-    have been resolved for longer than 7 days.
+- **Resolution is a state change, never a delete.**
+  - A transition is applied only when its `transition_seq` is greater than the stored one,
+    so an older or duplicate transition never overwrites newer state, including under
+    out-of-order redelivery.
+  - A resolution is written as `state = 0` and the row stays as a tombstone carrying its
+    `transition_seq`. A redelivered older active transition therefore loses to it.
+  - The **redelivery horizon** `H` is 8 days: the transitions stream keeps messages for at
+    most 7 days (`max_age`), and relayed outbox rows are retained for `H` before they are
+    deleted, so no transition older than `H` can be delivered again. A daily purge
+    physically deletes only tombstones resolved more than `H` ago.
 - **`transition_seq`** comes from one CNPG sequence. The matcher draws it in the same
   transaction as the assessment change, while holding that assessment row's lock, and
   stores it on the assessment row as its last transition sequence. Two transactions that
@@ -285,15 +289,32 @@ Only `resolved` stamps an ordinal. History is retained for the maximum accepted 
 (configured; default 15 minutes) plus the late window, and older closed intervals are
 evicted. At ingest the tier stamps `src_device_ord`, `dst_device_ord`,
 `src_device_resolution`, `dst_device_resolution`, `src_attribution_outcome` and
-`dst_attribution_outcome` onto the flow row. A late decision re-resolves the side with the
-same lookup at the flow's observation time and writes the result in the same partial
-update; the discrepancy candidate check at the late-window cutoff uses the same lookup.
+`dst_attribution_outcome` onto the flow row.
+
+Device stamping participates in the same late window as attribution (*Late Binding Is
+Bounded And Never Rescans Flows*), through the same watch and recompute mechanism, keyed by
+`(partition, ip)` instead of by socket key. Address updates may lag the flow by up to the
+60-second address freshness target, which is inside the 5-minute window:
+
+- while a flow's window is open, the home shard keeps an address watch for each side;
+- an address-validity update for a watched address within the window re-resolves that side
+  at the flow's observation time, and a changed result is published as a decision update
+  that rewrites the side's ordinal and resolution under the decision-sequence guard;
+- a late ownership decision re-resolves the side with the same lookup and writes the result
+  in the same partial update;
+- at the cutoff the stamp is final. An address update that arrives later and changes the
+  holder for an already-final observation time does not rewrite flows; it is counted
+  (`address_update_after_cutoff`).
+
+The discrepancy candidate check and the network evidence delta both use the final stamp.
 This avoids joining flows to a validity-interval table at query time. The StarRocks table
 serves host evidence, discrepancy evaluation and investigation.
 
 Example: device A holds `192.0.2.30` until 12:01, and device B from 12:01. A flow observed
 12:00:00-12:00:40 that arrives at 12:02 resolves to A. A flow observed 12:00:30-12:01:30
-is `ambiguous` and carries no ordinal.
+is `ambiguous` and carries no ordinal. A flow observed at 12:01:00-12:01:02 that arrives
+at 12:01:02, before B's interval arrives at 12:01:30, is first stamped with A; the address
+update re-resolves it within the window and the decision update rewrites it to B.
 
 Alternatives considered:
 
@@ -330,9 +351,11 @@ DISTRIBUTED BY HASH(device_ord) BUCKETS 16;
     delta per summary row. Rows merged to the `service` or `overflow` level have no peer
     address; they become evidence with `peer_ip = ''` and `peer_scope = unknown`, are
     counted, and never match a threat or internet predicate.
-  - The flow processor writes one delta per device-mapped side of each flow. Internal
-    traffic therefore yields one row from each device's perspective. Deltas are
-    pre-aggregated per batch by evidence key before Stream Load.
+  - The flow processor writes one delta per device-mapped side of each flow, once that
+    side's device resolution is final at the late-window cutoff (Decision 5), so a
+    corrected stamp never leaves evidence under the wrong device. Internal traffic
+    therefore yields one row from each device's perspective. Deltas are pre-aggregated per
+    batch by evidence key before Stream Load.
 - **Provenance is computed when the table is read**, at the `(hour, device_ord, direction,
   proto, service_port, peer_ip)` grain, summing across process keys:
   - `host` when `host_connections > 0` and `network_flows = 0`;
@@ -510,7 +533,8 @@ membership bitmap. This is documented as current membership (open question 3).
 | Network namespaces | A pod or container address requires `netns_scope = all`. | `netns_not_covered` |
 | Spoofing (optional) | When the exporter interface's segment is known, a host-originated record arriving on another interface is suppressed. | `ingress_mismatch` |
 
-**Confidence.** `confidence = E x T x M`. Coverage is a gate, not a factor.
+**Confidence for `network_only`.** `confidence = E x T x M`. Coverage is a gate, not a
+factor.
 
 - `E` (evidence) is 1.0 when the host-originated unsampled record carries payload (PSH or
   more than 1 KiB), and 0.9 when it carries ACK only.
@@ -519,9 +543,9 @@ membership bitmap. This is documented as current membership (open question 3).
 - `M` (temporal margin) is 1.0 when the overlap sits at least one tolerance away from any
   attested-interval edge, and 0.9 otherwise.
 
-The incident alert threshold defaults to 0.85. Signals below the threshold are stored and
-queryable but do not alert. The score is a pure function of stored inputs, so it can be
-recomputed in tests and investigations.
+The `network_only` incident threshold defaults to 0.85. Signals below the threshold are
+stored and queryable but do not alert. The score is a pure function of stored inputs, so
+it can be recomputed in tests and investigations.
 
 **`host_only` (coverage gap) evaluation.** This runs hourly, on each closed hour plus the
 exporter active timeout, against `observed_connections_hourly`. It is opt-in per
@@ -534,6 +558,22 @@ devices covered by a rule.
   `1 - (1 - 1/N)^host_packets`, must be at least 0.999. Without host packet counters,
   sampled exporters are skipped.
 - Severity is low. Incidents are grouped per `(device or rule, exporter)`.
+
+**Confidence for `host_only`.** There is no network record and no required attestation, so
+`network_only`'s factors do not apply. Exporter health, the expected-coverage rule match
+and the sampling expectation are gates. `confidence = H x X x P`:
+
+- `H` (host evidence strength) is 1.0 when the contact carries at least 10 host packets and
+  1 KiB of host bytes, and 0.8 otherwise;
+- `X` (exporter position) is 1.0 when the rule marks the exporter as on the internet path
+  for the covered prefix and it is unsampled, 0.9 when it is on the path and sampled, and
+  0.8 when its position is not stated;
+- `P` (persistence) is 1.0 when the same `(device, rule, exporter)` gap was also signalled
+  in the previous closed hour, and 0.7 for a first hour.
+
+The `host_only` incident threshold defaults to 0.75, so a single-hour gap stores a signal
+but does not alert, and a gap that persists on a known path does. The score is a pure
+function of the stored hourly evidence, rule and exporter health rows.
 
 **Output.** Each signal and each suppression is published on `exposure.discrepancies`.
 EventWriter writes `connection_discrepancies` (suppressions included, with their reason)
@@ -551,7 +591,7 @@ and do not create new alerts.
 | Fact -> bitmap views | <= 180 s (60 s refresh plus a refresh duration of <= 60 s) |
 | Inventory address change or address lease -> address dimension and flow-tier validity history | <= 60 s |
 | Summary interval close -> host evidence visible | <= 120 s |
-| Flow ingest -> network evidence visible | flow ingest latency + 60 s |
+| Flow's late-window cutoff -> network evidence visible | <= 60 s |
 | Later of interval close and the flow's late-window cutoff -> discrepancy record | <= 300 s; incident <= 60 s later |
 | UTC midnight -> daily snapshot | <= 15 min |
 
@@ -569,7 +609,12 @@ snapshots.
     first statement records `V = pg_current_snapshot()` (`xmin`, `xmax`, `xip`). Every
     read in that transaction sees exactly `V`.
   - It emits every actionable assessment visible in `V` as a `SNAPSHOT` upsert carrying the
-    row's last `transition_seq` and `transition_xid`. It then emits `SNAPSHOT_END(G, V)`.
+    row's last `transition_seq` and `transition_xid`. It also emits every fact that left
+    the actionable state within `H` and is not actionable in `V` as a `SNAPSHOT` tombstone
+    carrying the sequence of that resolution, read from the retained outbox rows, so it
+    covers assessment rows that were deleted. It then emits `SNAPSHOT_END(G, V)`.
+  - A snapshot row is applied when its sequence is greater than the stored one, or equal
+    to it, in which case only `snapshot_generation` changes.
   - The outbox keeps relaying live transitions throughout. A transition whose
     `transition_xid` is not visible in `V` (in flight or committed after `V` was taken) is
     applied normally whenever it arrives. Its per-row sequence is above the one the
@@ -581,7 +626,13 @@ snapshots.
     as they are. Live transitions are partial updates that never write
     `snapshot_generation`, so a delayed redelivery of a transition the snapshot already
     read does not make a snapshot-touched row look untouched.
-  - Example: a resolving transaction draws sequence 41 and is still in flight when `V` is
+  - Example (warehouse restore): the restored warehouse holds a fact active at sequence 9,
+    CNPG resolved it at sequence 11 (visible in `V`), and active sequence 10 is still
+    awaiting redelivery. The snapshot writes the tombstone at sequence 11, and the
+    redelivered sequence 10 is rejected, in either arrival order. A fact resolved more than
+    `H` before the restore has no tombstone, but none of its transitions can still be
+    delivered, so the finalize resolution is final.
+  - Example (in flight): a resolving transaction draws sequence 41 and is still in flight when `V` is
     taken. The snapshot reads the row as active with sequence 40 and upserts it. The
     resolution commits and arrives with sequence 41, before or after the upsert, and the
     fact ends resolved.

@@ -3,7 +3,7 @@
 ### Requirement: Assessment Transitions Are Published On JetStream
 The matcher SHALL publish an assessment transition on JetStream whenever an assessment enters or leaves the exact actionable state (`status = active`, `assessment = confirmed`, `disposition = affected`), or when an actionable assessment's installed version, KEV flag, exploit flag, CVSS score, severity or fixed version changes. Assessments whose relevant fields did not change SHALL NOT produce transitions.
 
-**Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once.
+**Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once. Relayed outbox rows SHALL be retained for the 8-day redelivery horizon, which exceeds the transitions stream's 7-day message age, so a snapshot can read the latest resolution of a fact whose assessment row was deleted.
 
 **Content.** Each transition SHALL carry:
 - `transition_seq`, drawn from one sequence while the transaction holds the assessment row's lock, and stored on the assessment row as its last transition sequence;
@@ -14,7 +14,7 @@ The matcher SHALL publish an assessment transition on JetStream whenever an asse
 
 **Device lifecycle.** Device merges and deletions SHALL publish a `device_retired` transition for the retired ordinal.
 
-**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`.
+**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`, plus a tombstone for each fact that left the actionable state within the horizon and is not actionable in that snapshot.
 
 #### Scenario: Upgrade that fixes the CVE emits a resolution
 - **GIVEN** an actionable assessment for a package at version 1.0

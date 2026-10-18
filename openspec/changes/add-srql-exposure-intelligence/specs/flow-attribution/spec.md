@@ -55,6 +55,8 @@ In addition to the owner columns written by *Flows Are Attributed On Ingest By K
 
 **Late decisions.** A late decision published under *Late Binding Is Bounded And Never Rescans Flows* SHALL update the per-side outcomes in the same partial update and under the same decision-sequence guard as the owner columns. It SHALL re-resolve the side's device with the same lookup at the flow's observation time and write the result in that partial update.
 
+**Late address updates.** While a flow's late window is open, the home shard SHALL hold an address watch per side, keyed by `(partition, ip)`, using the same watch and recompute mechanism as ownership. An address-validity update for a watched address SHALL re-resolve the side at the flow's observation time and, when the result changes, publish a decision update that rewrites `*_device_ord` and `*_device_resolution` under the decision-sequence guard. After the cutoff the stamp SHALL be final; later address updates SHALL be counted and SHALL NOT rewrite flows. Network evidence deltas SHALL be written from the final stamp.
+
 **Discrepancy candidates.** After a flow's late window reaches its cutoff, the home shard SHALL publish one deduplicated discrepancy candidate per device, peer, port, protocol and minute for each side whose final outcome is `no_owner` and whose device resolution at the flow's observation time is `resolved` to exactly one agent-managed device with address presence. Flows marked `attribution_finalized_early`, and flows carrying agent-provided attribution, SHALL NOT produce candidates.
 
 **History.** Historical flows SHALL NOT be backfilled.
