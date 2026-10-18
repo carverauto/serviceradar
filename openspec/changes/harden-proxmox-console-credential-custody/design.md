@@ -199,7 +199,7 @@ The control plane and agent advertise support for the host-only envelope, Proxmo
   must contain the same capability markers, acknowledge the same config
   version, and have no different pushed version pending. Missing evidence from
   an older control plane, gateway, agent, or plugin denies the open.
-- Existing legacy records may be displayed during migration, but cannot authorize a console until mapped unambiguously to v3.
+- Superseded legacy rows are not current inventory. The device-inventory spec in this change owns which legacy rows stay readable, and that an alias never authorizes a console.
 
 The UI reports an upgrade or migration prerequisite without exposing credential or topology details. Demo enablement waits until the control plane, target agents, and first-party plugin bundle all advertise the required versions.
 
