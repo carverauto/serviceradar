@@ -32,8 +32,8 @@ nothing to CNPG, and every reader reads the warehouse. Disabled: everything is w
 from CNPG, as today. Never both. There is no per-dataset
 shadow list, no per-dataset cutover list and no soak. `shadowDatasets` and `cutoverDatasets`
 are removed from Helm, Compose and `ServiceRadar.Analytics.StarRocks.Env`; the reader and
-destination code that branches on them (`Readers.mode_for/1`, `Destination.persist_after_cnpg/3`,
-`ack_cnpg_batch/4`) collapses to one branch on `enabled`.
+destination code that branches on them (`Readers.mode_for/1`, `Destination.persist_after_cnpg/3`)
+collapses to one branch on `enabled`.
 
 This replaces the earlier fixed order (shadow, parity, cutover, consumers migrated, soak, stop
 writes, retirement hold, drop). The dual-write existed to make a cutover reversible by keeping

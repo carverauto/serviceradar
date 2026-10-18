@@ -2,6 +2,14 @@ suite: flow collector bootstrap configmap
 templates:
   - flow-collector-bootstrap-configmap.yaml
   - flow-collector-bootstrap-job.yaml
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
   # F1: on a fresh `helm install`, pre-install hooks run before ANY ordinary
   # resource exists, so the bootstrap Job cannot mount the ordinary

@@ -34,66 +34,6 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     }
   ]
 
-  test "a transient metrics warehouse failure retries without repeating the completed CNPG insert" do
-    previous = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      previous |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:metrics])
-    )
-
-    on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
-
-    metric = %{
-      timestamp: ~U[2026-01-15 10:00:00Z],
-      gateway_id: "gateway-01",
-      series_key: "cpu:usage",
-      metric_name: "cpu_usage",
-      metric_type: "gauge",
-      value: 42.0
-    }
-
-    parent = self()
-    calls = :counters.new(1, [])
-
-    insert = fn rows ->
-      send(parent, {:cnpg, rows})
-      {:ok, length(rows)}
-    end
-
-    http = fn request ->
-      send(parent, {:warehouse, request})
-      :counters.add(calls, 1, 1)
-
-      if :counters.get(calls, 1) == 1 do
-        {:error, {:connect_failed, :econnrefused}}
-      else
-        {:ok, %{status: 200, body: %{"Status" => "Success", "NumberLoadedRows" => 1}}}
-      end
-    end
-
-    assert {:ok, 1} = Destination.ack_cnpg_batch(:metrics, [metric], insert, http: http)
-    assert_received {:cnpg, [^metric]}
-    refute_received {:cnpg, _}
-    assert_received {:warehouse, first}
-    assert_received {:warehouse, second}
-    assert first.body == second.body
-    assert first.headers == second.headers
-    refute_received {:warehouse, _}
-
-    failure = fn _, _, _ -> {:error, {:connect_failed, :econnrefused}} end
-
-    assert {:error,
-            {:missing_destinations,
-             %{
-               completed: [:cnpg],
-               missing: [:starrocks],
-               errors: %{starrocks: {:connect_failed, :econnrefused}}
-             }}} =
-             Destination.ack_cnpg_batch(:metrics, [metric], insert, persist: failure)
-  end
-
   test "warehouse failure counters travel as decodable delta metrics through a JetStream PubAck" do
     parent = self()
 
@@ -596,165 +536,6 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     end
   end
 
-  test "persist_after_cnpg stays best-effort for flows while the warehouse is disabled" do
-    prev = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      prev
-      |> Keyword.put(:enabled, false)
-      |> Keyword.put(:cutover_datasets, [])
-      |> Keyword.put(:shadow_datasets, [])
-    )
-
-    try do
-      persist = fn _table, _rows, _opts -> {:error, :publish_timeout} end
-
-      assert {:ok, :disabled} =
-               Destination.persist_after_cnpg(:flows, @flow_rows,
-                 persist: persist,
-                 enabled: false
-               )
-    after
-      Application.put_env(:serviceradar_core, StarRocks, prev)
-    end
-  end
-
-  test "ack_cnpg_batch requires Stream Load when flows are cut over" do
-    prev = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:flows])
-    )
-
-    try do
-      persist = fn table, rows, _opts ->
-        send(self(), {:persist, table, rows})
-        {:error, :publish_timeout}
-      end
-
-      insert = fn rows -> {:ok, length(rows)} end
-
-      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
-
-      assert_received {:persist, "ocsf_network_activity", [row]}
-      assert row["bytes_in"]
-      assert row["bytes_in"] == 1200
-
-      ok_persist = fn _table, _rows, _opts -> {:ok, %{loaded: 1}} end
-
-      assert {:ok, 1} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: ok_persist)
-
-      quarantine = fn _table, _rows, _opts -> {:quarantine, {:filtered_rows, 1, "sr-lab"}} end
-
-      assert {:ok, 1} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: quarantine)
-    after
-      Application.put_env(:serviceradar_core, StarRocks, prev)
-    end
-  end
-
-  # Captain decision 2026-09-28: flows commit to the warehouse before the
-  # JetStream ACK whenever the warehouse is enabled -- before, not after, the
-  # read cutover -- so the warehouse is complete and agent-enriched by the
-  # time an operator flips `cutoverDatasets`. An outage fails the batch (no
-  # ACK) instead of leaving a silent hole.
-  test "flows require the warehouse before ACK once StarRocks is enabled, before any cutover" do
-    prev = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
-    )
-
-    try do
-      insert = fn rows -> {:ok, length(rows)} end
-
-      persist = fn table, _rows, _opts ->
-        send(self(), {:persist, table})
-        {:error, :publish_timeout}
-      end
-
-      # The warehouse load failed: the batch is an error, so the EventWriter
-      # fails its JetStream ACK and the stream redelivers.
-      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
-
-      assert_received {:persist, "ocsf_network_activity"}
-
-      ok_persist = fn _table, _rows, _opts -> {:ok, %{loaded: 1}} end
-
-      assert {:ok, 1} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: ok_persist)
-    after
-      Application.put_env(:serviceradar_core, StarRocks, prev)
-    end
-  end
-
-  test "a flow warehouse outage redelivers and replays idempotently" do
-    prev = Application.get_env(:serviceradar_core, StarRocks, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
-    )
-
-    try do
-      parent = self()
-
-      insert = fn rows ->
-        send(parent, {:cnpg_insert, length(rows)})
-        # The real writer is `on_conflict: :nothing` on the stable flow
-        # identity, so the redelivered re-insert is a no-op that still
-        # succeeds.
-        {:ok, length(rows)}
-      end
-
-      persist =
-        fn table, rows, _opts ->
-          send(parent, {:warehouse_load, table, rows})
-
-          case Process.get(:loads, 0) do
-            0 ->
-              Process.put(:loads, 1)
-              {:error, :publish_timeout}
-
-            _ ->
-              {:ok, %{loaded: length(rows)}}
-          end
-        end
-
-      # First delivery: CNPG insert succeeds, the warehouse load times out,
-      # the batch fails and JetStream redelivers it.
-      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
-
-      # Redelivery of the same batch: both stores see the same rows again.
-      assert {:ok, 1} =
-               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
-
-      assert_received {:cnpg_insert, 1}
-      assert_received {:cnpg_insert, 1}
-
-      assert_received {:warehouse_load, "ocsf_network_activity", first_rows}
-      assert_received {:warehouse_load, "ocsf_network_activity", second_rows}
-
-      # The primary-key warehouse table upserts: the retried load carries the
-      # same stable record ids as the failed one, so the replay cannot
-      # duplicate rows.
-      assert Enum.map(first_rows, & &1["id"]) == Enum.map(second_rows, & &1["id"])
-    after
-      Application.put_env(:serviceradar_core, StarRocks, prev)
-    end
-  end
-
   test "raw flow loads protect attribution across regrouped deliveries" do
     parent = self()
 
@@ -776,14 +557,14 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
        }}
     end
 
-    assert {:ok, %{missing: []}} =
-             Destination.persist_shadow(:flows, @flow_rows, completed: [:cnpg], http: http)
+    assert {:ok, %{dataset: :flows, loaded: 1}} =
+             Destination.persist_warehouse(:flows, @flow_rows, http: http)
 
     assert_received {:load_label, first_label}
     regrouped = @flow_rows ++ [%{hd(@flow_rows) | id: "flow-beta-0002"}]
 
-    assert {:ok, %{missing: []}} =
-             Destination.persist_shadow(:flows, regrouped, completed: [:cnpg], http: http)
+    assert {:ok, %{dataset: :flows, loaded: 2}} =
+             Destination.persist_warehouse(:flows, regrouped, http: http)
 
     assert_received {:load_label, replay_label}
     refute first_label == replay_label

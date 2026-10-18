@@ -1,6 +1,14 @@
 suite: flow collector replicas
 templates:
   - flow-collector.yaml
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
   - it: rolls updates and spreads replicas once stateless
     set:

@@ -108,10 +108,9 @@ Run the query before deployment, immediately after deployment, and then hourly
 for at least 24 hours. The output reports current table bytes plus 1-hour and
 24-hour row rates for `platform.ocsf_events`, `platform.capacity_forecasts`, and
 `platform.ocsf_network_activity`. The expected post-fix signal is a sustained
-drop in `ocsf_events` and `capacity_forecasts` rows per hour; flow rows may stay
-near the exporter packet rate, so use the flow row rate together with the
-sampling-adjusted logical volume to confirm F39 is no longer undercounting
-sampled traffic while retention bounds physical table growth.
+drop in `ocsf_events` and `capacity_forecasts` rows per hour. Flows are stored
+only in StarRocks, so `platform.ocsf_network_activity` should report no new
+rows at all; a non-zero flow row rate there means a CNPG flow writer is back.
 
 ## Query and pgx Error Watch
 

@@ -1,13 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: NetFlow collection is independent of StarRocks
-The system SHALL leave NetFlow collection independently gated by Helm and Compose, SHALL keep NetFlow collection and persistence working when StarRocks analytics is disabled, and SHALL NOT make the collector depend on the warehouse in either direction.
-Flow serving is warehouse-only. CNPG hypertables are the flow write target only when StarRocks is disabled, and SHALL NOT be read as a flow serving path: a flow read SHALL be answered from StarRocks when it is enabled, and SHALL otherwise be refused with an explicit warehouse-required error rather than silently answered from CNPG.
+### Requirement: NetFlow collection requires StarRocks
+The system SHALL store NetFlow, sFlow and IPFIX flows only in StarRocks and SHALL NOT write a flow row to CNPG, whether or not StarRocks is enabled. Enabling the NetFlow collector SHALL require StarRocks analytics: the Helm chart SHALL refuse to render `flowCollector.enabled` without `analytics.starrocks.enabled`. A flow batch that reaches EventWriter while StarRocks is disabled SHALL be acknowledged without being stored or used to derive BGP observations, and EventWriter SHALL log that StarRocks is required once per node rather than once per batch.
+Flow serving is warehouse-only: a flow read SHALL be answered from StarRocks when it is enabled, and SHALL otherwise be refused with an explicit warehouse-required error rather than answered from CNPG. No reader SHALL query the CNPG `ocsf_network_activity` hypertable or its continuous aggregates for flows.
+
+#### Scenario: Flows are persisted with StarRocks enabled
+- **WHEN** EventWriter persists a flow batch while StarRocks is enabled
+- **THEN** the rows are Stream Loaded into the warehouse `ocsf_network_activity` table and the BGP observations derived from them are stored
+- **AND** no row is written to the CNPG `platform.ocsf_network_activity` hypertable
+- **AND** a failed warehouse load fails the JetStream acknowledgement instead of falling back to CNPG
 
 #### Scenario: Collector enablement without the warehouse
 - **WHEN** `flowCollector.enabled` is true and `analytics.starrocks.enabled` is false
-- **THEN** the collector is deployed and installation does not fail
-- **AND** CNPG hypertables remain the NetFlow store
+- **THEN** chart rendering fails with an error naming `analytics.starrocks.enabled`
+- **AND** no collector workload is deployed
+
+#### Scenario: Flows arrive without the warehouse
+- **WHEN** a flow batch reaches EventWriter while StarRocks is disabled
+- **THEN** the batch is acknowledged and nothing is written to CNPG or derived from it
+- **AND** EventWriter logs once per node that NetFlow ingestion requires StarRocks
 
 #### Scenario: A flow read with StarRocks disabled
 - **WHEN** a dashboard panel or an `in:flows` query runs while StarRocks is disabled

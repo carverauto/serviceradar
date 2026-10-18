@@ -1,4 +1,5 @@
 {{- if .Values.flowCollector.enabled }}
+{{- include "serviceradar.requireStarRocksForNetFlow" . }}
 {{- if (.Values.flowCollector.config).nats_creds_file }}
 {{- fail "flowCollector.config.nats_creds_file is unsupported; the chart uses the scoped flow-collector mTLS identity" }}
 {{- end }}

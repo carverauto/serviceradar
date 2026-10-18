@@ -28,12 +28,11 @@ load(
 )
 
 _FIXED_EXTERNAL_RESOURCE_SRCS = [
-    "test/integration/netflow_ingestion_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 ]
 
 def _missing_fixed_source_impl(_ctx):
-    missing = _FIXED_EXTERNAL_RESOURCE_SRCS[1]
+    missing = _FIXED_EXTERNAL_RESOURCE_SRCS[0]
     partition_by_lane([
         source
         for source in integration_selected_sources()

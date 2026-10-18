@@ -1,4 +1,5 @@
 {{- if .Values.flowCollector.enabled }}
+{{- include "serviceradar.requireStarRocksForNetFlow" . }}
 {{- if and .Values.flowCollector.service.ports.metrics.enabled (not (.Values.flowCollector.config).metrics_addr) }}
 {{- fail "flowCollector.config.metrics_addr is required when flowCollector.service.ports.metrics is enabled" }}
 {{- end }}

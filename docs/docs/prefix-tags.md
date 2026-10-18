@@ -94,13 +94,14 @@ is present on every EventWriter and SRQL query path. Apply the migration
 matching are on by default once the Loader / materializers have populated
 tries. Empty tries are a no-op for tag columns.
 
-7. Verify new flow rows carry tags:
+7. Verify new flow rows carry tags. Flows are stored only in StarRocks, so run
+   this on the warehouse Frontend (MySQL protocol, port 9030):
 
 ```sql
 SELECT time, src_endpoint_ip, dst_endpoint_ip,
        src_prefix_tags, dst_prefix_tags,
        src_prefix_tags_source, dst_prefix_tags_source
-FROM platform.ocsf_network_activity
+FROM serviceradar.ocsf_network_activity
 WHERE src_prefix_tags IS NOT NULL OR dst_prefix_tags IS NOT NULL
 ORDER BY time DESC
 LIMIT 20;

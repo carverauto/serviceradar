@@ -110,17 +110,16 @@ all telemetry stays on CNPG hypertables. Optional profiles:
 # Warehouse only (metrics/logs/events shadow). No flow collector.
 STARROCKS_ENABLED=true docker compose --profile starrocks up -d
 
-# NetFlow/sFlow collector on CNPG only.
-docker compose --profile flows up -d
-
-# Warehouse + NetFlow/sFlow collector.
+# Warehouse + NetFlow/sFlow collector. NetFlow requires the warehouse.
 STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 ```
 
 `flow-collector` stays off unless you pass `--profile flows` or
-`--profile network-ingest`. The two profiles are independent for *collection*:
-NetFlow collects without the warehouse and stores flows on CNPG hypertables.
-For warehouse read defaults, delivery guarantees and upgrade limitations, see
+`--profile network-ingest`. NetFlow requires the warehouse: flows are stored
+only in StarRocks and never on CNPG. Without `STARROCKS_ENABLED=true`,
+EventWriter acknowledges flow batches without storing them and logs once that
+StarRocks is required. For warehouse read defaults, delivery guarantees and
+upgrade limitations, see
 [NetFlow: Flow cutover and delivery](docs/docs/netflow.md#flow-cutover-and-delivery).
 
 There is no separate schema container: core creates and upgrades the
