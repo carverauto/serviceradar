@@ -530,6 +530,46 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
              }
     end
 
+    test "device IP aliases compare by address, not spelling, against primary IPs and each other" do
+      query_page_fn = fn _query, _opts ->
+        {:ok,
+         %{
+           rows: [
+             %{"ip" => "2001:db8::10", "uid" => "sr:dev-0001"},
+             %{"ip" => "2001:db8:0:0::40", "uid" => "sr:dev-0002"}
+           ],
+           next_cursor: nil
+         }}
+      end
+
+      alias_ips_fn = fn _uids ->
+        {:ok,
+         %{
+           "sr:dev-0001" => [
+             "2001:db8:0:0::10",
+             "2001:db8::40",
+             "2001:db8::50",
+             "2001:db8:0::50"
+           ]
+         }}
+      end
+
+      target_group = group(%{id: "sg-ipv6-aliases", name: "ipv6", target_query: @lab_query})
+
+      [compiled] =
+        SweepCompiler.compile_groups([target_group], %{},
+          query_page_fn: query_page_fn,
+          alias_ips_fn: alias_ips_fn
+        )
+
+      assert Enum.map(compiled["device_targets"], &{&1["network"], &1["metadata"]["device_uid"]}) ==
+               [
+                 {"2001:db8:0:0::40", "sr:dev-0002"},
+                 {"2001:db8::10", "sr:dev-0001"},
+                 {"2001:db8::50", "sr:dev-0001"}
+               ]
+    end
+
     test "groups are emitted sorted by id whatever order they are loaded in" do
       groups = pinned_groups()
 

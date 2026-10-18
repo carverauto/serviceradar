@@ -779,10 +779,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp row_primary_ips(rows) do
-    rows
-    |> Enum.map(&normalize_device_ip_target(&1["ip"]))
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
+    for row <- rows, {_target, key} <- [device_ip_target(row["ip"])], into: MapSet.new(), do: key
   end
 
   defp compact_target_row(row, alias_map, primary_ips, limit) do
@@ -808,10 +805,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp bounded_device_alias_ips(candidates, primary_ips, limit)
        when is_list(candidates) and limit > 0 do
     candidates
-    |> Enum.map(&normalize_device_ip_target/1)
-    |> Enum.reject(&(is_nil(&1) or MapSet.member?(primary_ips, &1)))
-    |> Enum.uniq()
+    |> Enum.map(&device_ip_target/1)
+    |> Enum.reject(&(is_nil(&1) or MapSet.member?(primary_ips, elem(&1, 1))))
+    |> Enum.uniq_by(&elem(&1, 1))
     |> Enum.take(limit)
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp bounded_device_alias_ips(_candidates, _primary_ips, _limit), do: []
@@ -839,7 +837,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         FROM platform.ocsf_devices d
         WHERE d.deleted_at IS NULL
           AND COALESCE(d.partition, 'default') = COALESCE(a.partition, 'default')
-          AND d.ip = a.alias_value
+          AND (CASE WHEN pg_input_is_valid(d.ip, 'inet') THEN d.ip::inet END) =
+            (CASE WHEN pg_input_is_valid(a.alias_value, 'inet') THEN a.alias_value::inet END)
       )
   ) ranked
   WHERE ranked.rn <= $2
@@ -901,18 +900,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp put_device_target_from_row(row, targets, group, modes) when is_map(row) do
-    case Map.get(row, "ip") do
-      value when is_binary(value) ->
-        case normalize_device_ip_target(value) do
-          nil ->
-            targets
-
-          target ->
-            Map.put_new(targets, target, device_target_from_row(row, target, group, modes))
-        end
-
-      _ ->
+    case device_ip_target(Map.get(row, "ip")) do
+      nil ->
         targets
+
+      {target, key} ->
+        Map.put_new(targets, key, device_target_from_row(row, target, group, modes))
     end
   end
 
@@ -921,12 +914,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp put_alias_targets_from_row(%{"alias_ips" => alias_ips} = row, targets, group, modes)
        when is_list(alias_ips) do
     Enum.reduce(alias_ips, targets, fn alias_ip, acc ->
-      case normalize_device_ip_target(alias_ip) do
-        nil ->
-          acc
-
-        target ->
-          Map.put_new(acc, target, device_target_from_row(row, target, group, modes))
+      case device_ip_target(alias_ip) do
+        nil -> acc
+        {target, key} -> Map.put_new(acc, key, device_target_from_row(row, target, group, modes))
       end
     end)
   end
@@ -953,17 +943,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp maybe_put_string(metadata, key, value), do: Map.put(metadata, key, to_string(value))
 
-  defp normalize_device_ip_target(value) when is_binary(value) do
-    value = String.trim(value)
+  defp device_ip_target(value) when is_binary(value) do
+    target = String.trim(value)
 
-    if valid_ip_address?(value), do: value
+    case :inet.parse_strict_address(String.to_charlist(target)) do
+      {:ok, address} -> {target, address}
+      {:error, _} -> nil
+    end
   end
 
-  defp normalize_device_ip_target(_value), do: nil
-
-  defp valid_ip_address?(value) do
-    value != "" and match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(value)))
-  end
+  defp device_ip_target(_value), do: nil
 
   defp merge_ports(nil, group), do: normalize_ports_override(group.ports, [])
 

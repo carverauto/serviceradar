@@ -386,6 +386,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       stale_alias_ip = "198.51.100.30"
       interface_alias_ip = "198.51.100.31"
       other_device_primary_ip = "198.51.100.40"
+      other_device_primary_ipv6 = "2001:db8:0:0::40"
+      other_device_primary_ipv6_alias = "2001:db8::40"
       hostname = "alias-target-#{unique_id}.example.com"
 
       {:ok, device} =
@@ -415,6 +417,31 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, _other_ipv6_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "sr:live-ipv6-holder-#{unique_id}",
+            ip: other_device_primary_ipv6,
+            hostname: "live-ipv6-holder-#{unique_id}.example.com",
+            partition: "default"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _held_by_other_ipv6} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: other_device_primary_ipv6_alias
+          },
+          actor: actor
+        )
 
       {:ok, _detected} =
         DeviceAliasState.create_detected(
