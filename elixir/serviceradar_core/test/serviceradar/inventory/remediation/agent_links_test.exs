@@ -59,14 +59,62 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     actor: actor,
     tmp_dir: tmp_dir
   } do
+    # Active addresses are unique per partition: only a same-partition holder keeps it.
+    for {holder_partition, offset, takes_ip?} <- [
+          {"default", 20_000, false},
+          {"isolation", 40_000, true}
+        ] do
+      purge_between_plan_and_restore(actor, tmp_dir, holder_partition, offset, takes_ip?)
+    end
+  end
+
+  test "a created agent device takes its address unless a same-partition device holds it", %{
+    actor: actor,
+    tmp_dir: tmp_dir
+  } do
+    for {holder_partition, offset, takes_ip?} <- [
+          {"default", 50_000, false},
+          {"isolation", 60_000, true}
+        ] do
+      seed = System.unique_integer([:positive])
+      host = "sr-agent-created-#{seed}.example.com"
+      agent_ip = invented_ip(seed + offset)
+
+      holder =
+        create_device(
+          "sr:agent-links-created-holder-#{seed}",
+          "holder-#{seed}.example.net",
+          agent_ip,
+          actor,
+          partition: holder_partition
+        )
+
+      agent = register_agent("sr:agent-created-#{seed}", host, agent_ip, nil, actor)
+      report = execute(agent, tmp_dir, actor)
+
+      assert report.errors == 0
+      assert {:ok, %Agent{device_uid: device_uid}} = Ash.get(Agent, agent.uid, actor: actor)
+      assert device_uid != holder.uid
+      assert {:ok, created} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert created.partition == "default"
+      assert created.ip == if(takes_ip?, do: agent_ip)
+      assert {:ok, kept} = Device.get_by_uid(holder.uid, false, actor: actor)
+      assert kept.deleted_at == nil
+      assert kept.ip == agent_ip
+    end
+  end
+
+  defp purge_between_plan_and_restore(actor, tmp_dir, holder_partition, offset, takes_ip?) do
     seed = System.unique_integer([:positive])
     host = "sr-agent-purged-#{seed}.example.com"
-    agent_ip = invented_ip(seed + 20_000)
-    recorded_ip = invented_ip(seed + 30_000)
+    agent_ip = invented_ip(seed + offset)
+    recorded_ip = invented_ip(seed + offset + 10_000)
     successor_uid = "sr:agent-links-successor-#{seed}"
 
     holder =
-      create_device("sr:agent-links-purged-holder-#{seed}", host <> ".holder", agent_ip, actor)
+      create_device("sr:agent-links-purged-holder-#{seed}", host <> ".holder", agent_ip, actor,
+        partition: holder_partition
+      )
 
     tombstone = create_device("sr:agent-links-purged-#{seed}", host, recorded_ip, actor)
 
@@ -122,7 +170,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
       assert {:ok, restored} = Device.get_by_uid(tombstone.uid, false, actor: actor)
       assert restored.deleted_at == nil
       assert restored.hostname == host
-      assert restored.ip == nil
+      assert restored.ip == if(takes_ip?, do: agent_ip)
       assert restored.metadata["_seed_successor"] == successor_uid
       assert restored.metadata["created_by"] == "dire_remediation"
       assert {:ok, %Agent{device_uid: device_uid}} = Ash.get(Agent, agent.uid, actor: actor)
@@ -165,11 +213,17 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     |> Ash.create!()
   end
 
-  defp create_device(uid, hostname, ip, actor) do
+  defp create_device(uid, hostname, ip, actor, opts \\ []) do
     Device
     |> Ash.Changeset.for_create(
       :create,
-      %{uid: uid, hostname: hostname, ip: ip, discovery_sources: ["mapper"]},
+      %{
+        uid: uid,
+        hostname: hostname,
+        ip: ip,
+        partition: Keyword.get(opts, :partition, "default"),
+        discovery_sources: ["mapper"]
+      },
       actor: actor
     )
     |> Ash.create!()

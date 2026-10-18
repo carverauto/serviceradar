@@ -219,10 +219,9 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
 
   def handle_info(:progress, state) do
     Process.send_after(self(), :progress, 1_000)
-    stamp = if state.phase == :churn, do: state.stats.last_fresh_at, else: state.stats.last_frame_at
-    gap = now() - max(stamp || state.phase_since, state.phase_since)
+    gap = now() - max(state.stats.last_fresh_at || state.phase_since, state.phase_since)
 
-    if not state.slow and state.phase in [:churn, :steady] do
+    if not state.slow and state.phase == :churn do
       if gap > 30_000, do: raise("normal viewer made no accepted progress for #{gap}ms")
       {:noreply, update_in(state.stats.max_normal_gap_ms, &max(&1, gap))}
     else

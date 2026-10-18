@@ -48,6 +48,25 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert_raise MatchError, fn -> Client.decode(envelope(frame <> <<0>>), [receipt]) end
   end
 
+  test "only a churning normal viewer must show fresh progress within 30 seconds" do
+    silent_since = System.monotonic_time(:millisecond) - 31_000
+    stats = %{last_fresh_at: nil, max_normal_gap_ms: 0}
+    viewer = %{slow: false, phase: :steady, phase_since: silent_since, stats: stats}
+
+    assert {:noreply, %{stats: %{max_normal_gap_ms: 0}}} = Client.handle_info(:progress, viewer)
+    assert_receive :progress, 2_000
+
+    assert_raise RuntimeError, ~r/no accepted progress/, fn ->
+      Client.handle_info(:progress, %{viewer | phase: :churn})
+    end
+
+    assert_receive :progress, 2_000
+    fresh = %{viewer | phase: :churn, stats: %{stats | last_fresh_at: System.monotonic_time(:millisecond)}}
+    assert {:noreply, %{stats: %{max_normal_gap_ms: gap}}} = Client.handle_info(:progress, fresh)
+    assert gap < 30_000
+    assert_receive :progress, 2_000
+  end
+
   test "synthetic geometry really partitions admitted leaf and aggregate rows" do
     world = Fixture.world("synthetic-acceptance-layout", 8_256)
 

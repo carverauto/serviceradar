@@ -302,7 +302,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
         metadata:
           Map.merge(row.metadata || %{}, %{"created_by" => "dire_remediation", "step" => @step})
       },
-      agent_ip_attrs(agent, row.uid)
+      agent_ip_attrs(agent, row.uid, row.partition)
     )
   end
 
@@ -316,17 +316,20 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     }
   end
 
-  # The agent's address goes to its device only while no other live device holds it.
-  defp agent_ip_attrs(agent, device_uid) do
-    if Decisions.valid_ip?(agent.ip) and not live_ip_holder?(agent.ip, device_uid),
+  # The agent's address goes to its device only while no other live device in
+  # the device's own partition holds it; active addresses are unique per partition.
+  defp agent_ip_attrs(agent, device_uid, partition) do
+    if Decisions.valid_ip?(agent.ip) and not live_ip_holder?(agent.ip, device_uid, partition),
       do: %{ip: agent.ip},
       else: %{}
   end
 
-  defp live_ip_holder?(ip, device_uid) do
+  defp live_ip_holder?(ip, device_uid, partition) do
     Repo.exists?(
       from(device in Device,
-        where: device.ip == ^ip and is_nil(device.deleted_at) and device.uid != ^device_uid
+        where:
+          device.ip == ^ip and device.partition == ^partition and is_nil(device.deleted_at) and
+            device.uid != ^device_uid
       )
     )
   end
@@ -466,7 +469,10 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
   end
 
   defp ensure_target_device(%{action: :create} = plan, manifest, actor) do
-    attrs = Map.merge(plan.create_attrs, agent_ip_attrs(plan.agent, plan.create_attrs.uid))
+    partition = Map.get(plan.create_attrs, :partition, "default")
+
+    attrs =
+      Map.merge(plan.create_attrs, agent_ip_attrs(plan.agent, plan.create_attrs.uid, partition))
 
     case Device
          |> Ash.Changeset.for_create(:create, attrs)
@@ -530,7 +536,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
         select: %{
           uid: device.uid,
           identity_purged_at: device.identity_purged_at,
-          metadata: device.metadata
+          metadata: device.metadata,
+          partition: device.partition
         }
       )
     )
