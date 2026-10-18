@@ -1126,6 +1126,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       end)
 
     deferred_row = scan_by_id(agent_id, deferred_scan_id)
+    deferred_scan_at = deferred_payload["last_scan_at"]
     assert deferred_row.state == "upload_deferred"
     assert deferred_row.coverage_state == "upload_deferred"
     assert deferred_row.current == false
@@ -1138,13 +1139,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package_row_count(agent_id) == 2
 
     completed_payload =
-      scan_payload(agent_id, deferred_scan_id,
+      agent_id
+      |> scan_payload(deferred_scan_id,
         components: [
           package_component("nginx", "1.24.0-2ubuntu7"),
           package_component("curl", "8.5.0-2ubuntu1"),
           package_component("openssl", "3.0.13-0ubuntu3")
         ]
       )
+      |> Map.merge(%{
+        "last_scan_at" => deferred_scan_at,
+        "last_successful_scan_at" => deferred_scan_at
+      })
 
     assert {:ok, completed} =
              EndpointInventoryIngestor.ingest_report(completed_payload,
@@ -1161,6 +1167,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert promoted_row.coverage_state == "complete"
     assert promoted_row.current == true
     assert length(current_packages(agent_id)) == 3
+
+    statuses =
+      deferred_scan_id
+      |> endpoint_inventory_scan_activities()
+      |> Enum.map(&{&1.status_code, &1.status})
+      |> Enum.sort()
+
+    assert statuses == [{"scanned", "Success"}, {"upload_deferred", "Failure"}]
   end
 
   test "changed scan reconciles package_count to actual loaded rows when reported count lies",
@@ -1939,6 +1953,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           metadata: e.metadata
         },
         limit: 1
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp endpoint_inventory_scan_activities(scan_id) do
+    Oban.drain_queue(queue: :events)
+
+    Repo.all(
+      from(e in "ocsf_events",
+        where:
+          e.class_uid == 6007 and e.category_uid == 6 and
+            fragment("?->'service_radar'->>'scan_id' = ?", e.metadata, ^scan_id),
+        select: %{status_code: e.status_code, status: e.status}
       ),
       prefix: "platform"
     )

@@ -778,7 +778,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     }
 
     # The deterministic id makes a re-ingested scan the same event, which
-    # EventWriter stores once.
+    # EventWriter stores once; a deferred scan's later upload is a new state and
+    # so a distinct event.
     case OcsfEventPublisher.publish(row, family: :inventory) do
       {:error, reason} when reason != :suppressed ->
         Logger.warning("Failed to publish endpoint inventory scan event",
@@ -859,7 +860,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "endpoint_inventory",
       context.agent_id,
       context.scan_id,
-      Payload.iso8601(context.last_scan_at)
+      Payload.iso8601(context.last_scan_at),
+      context.state
     ]
     |> Enum.join(":")
     |> deterministic_uuid()
