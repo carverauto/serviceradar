@@ -175,6 +175,33 @@ names no sampler and whose scope is an interface (IPFIX `ingressInterface` or
 `egressInterface`, v9 interface scope) stores the rate for that interface
 index. A system or observation-domain scope stores the domain rate.
 
+Only packet sampling scales records. Flow selection
+(`flowSelectorAlgorithm`, any value), flow-state selection
+(`selectorAlgorithm` 9), flow-key hashing (a hash selector,
+`selectorAlgorithm` 6-8, or a hash parameter, together with `hashFlowDomain`
+and a declared ratio), and flow intervals
+(`samplingFlowInterval`/`samplingFlowSpacing`) export whole flows with
+complete counters. The collector publishes those records with rate 1. The
+declared ratio is not stored, and that rate 1 replaces a packet sampling rate
+learned earlier for the same scope. Analytics multiply each record by its
+rate, so a whole-flow record multiplied by N would report N times the bytes
+that flow carried. An explicit packet-sampling algorithm on the same record
+(`selectorAlgorithm` 1-4, or `samplingAlgorithm` / `samplerMode` 1-2) keeps
+the packet derivation.
+
+Hash-based selection over packet content (`selectorAlgorithm` 6-8 or hash
+parameters such as `hashIPPayloadOffset` and `hashIPPayloadSize`, with no
+`hashFlowDomain`) emulates random packet sampling. The collector derives its
+packet rate from the declared ratio, the same way it does for
+`selectorAlgorithm` 1-4.
+
+Property-match filtering (`selectorAlgorithm` 5) is a filter, not sampling.
+By itself it stores no rate, including when that record also declares a
+ratio. A hash selector that declares no ratio (no sampling interval, size,
+population, probability, packet interval, or flow interval) stores no rate
+and does not vote. In a selection sequence, flows that name no selector keep
+the packet sampler's rate when the selectors that did declare a rate agree.
+
 A flow record's rate is resolved in this order: its own sampling fields; the
 learned rate of the sampler or selector it names; the interface rate for its
 input interface, or its output interface when the input has no entry; the
