@@ -381,10 +381,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   @doc false
-  @spec default_chunk_bytes() :: pos_integer()
-  def default_chunk_bytes, do: @default_chunk_bytes
-
-  @doc false
   @spec chunk_records(Enumerable.t(), keyword()) :: Enumerable.t()
   def chunk_records(records, opts \\ []) do
     chunk_by_serialized_size(
@@ -656,22 +652,34 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   @spec chunk_by_serialized_size(Enumerable.t(), pos_integer(), pos_integer()) :: Enumerable.t()
   def chunk_by_serialized_size(records, max_rows, max_bytes)
       when is_integer(max_rows) and max_rows > 0 and is_integer(max_bytes) and max_bytes > 0 do
-    Stream.chunk_while(
+    Stream.transform(
       records,
-      {[], 0, 0},
+      fn -> {[], 0, 0} end,
       fn record, {rows, row_count, byte_count} ->
         record_bytes = :erlang.external_size(record)
 
-        if rows != [] and (row_count >= max_rows or byte_count + record_bytes > max_bytes) do
-          {:cont, Enum.reverse(rows), {[record], 1, record_bytes}}
+        {emitted, rows, row_count, byte_count} =
+          if rows != [] and byte_count + record_bytes > max_bytes do
+            {[Enum.reverse(rows)], [], 0, 0}
+          else
+            {[], rows, row_count, byte_count}
+          end
+
+        rows = [record | rows]
+        row_count = row_count + 1
+        byte_count = byte_count + record_bytes
+
+        if row_count >= max_rows or byte_count >= max_bytes do
+          {emitted ++ [Enum.reverse(rows)], {[], 0, 0}}
         else
-          {:cont, {[record | rows], row_count + 1, byte_count + record_bytes}}
+          {emitted, {rows, row_count, byte_count}}
         end
       end,
       fn
-        {[], _row_count, _byte_count} -> {:cont, []}
-        {rows, _row_count, _byte_count} -> {:cont, Enum.reverse(rows), {[], 0, 0}}
-      end
+        {[], _row_count, _byte_count} = acc -> {[], acc}
+        {rows, _row_count, _byte_count} -> {[Enum.reverse(rows)], {[], 0, 0}}
+      end,
+      fn _acc -> :ok end
     )
   end
 

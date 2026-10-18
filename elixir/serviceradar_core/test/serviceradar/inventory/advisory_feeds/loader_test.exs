@@ -387,6 +387,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
   end
 
   describe "chunk_by_serialized_size/3" do
+    test "emits a full chunk before pulling the next record" do
+      records =
+        Stream.resource(
+          fn -> [:a, :b, :fail] end,
+          fn
+            [:fail] -> raise "next record pulled"
+            [record | rest] -> {[record], rest}
+          end,
+          fn _ -> :ok end
+        )
+
+      assert [[:a, :b]] = records |> Loader.chunk_by_serialized_size(2, 1_024) |> Enum.take(1)
+    end
+
     test "bounds chunks by both row count and serialized bytes" do
       small_a = %{id: "a", payload: String.duplicate("a", 80)}
       small_b = %{id: "b", payload: String.duplicate("b", 80)}
