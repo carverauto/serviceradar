@@ -373,10 +373,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert {:ok, %Agent{device_uid: agent_b_device}} = Agent.get_by_uid(agent_b, actor: actor)
     refute agent_b_device in [dev_b.uid, chimera.uid]
 
-    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "merged"} = merged} =
+    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "merged"}} =
              Device.get_by_uid(dev_b.uid, true, actor: actor)
 
-    assert merged.metadata["_merged_into"] == chimera.uid
+    assert {:ok, chimera.uid} ==
+             IdentityReconciler.resolve_canonical_device_id(dev_b.uid, actor)
 
     assert %{rows: [[^old_ordinal, true]]} =
              Repo.query!(

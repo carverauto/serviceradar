@@ -1105,13 +1105,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       root = seed.uid
       root_ordinal = FleetIdentity.device_ordinal(root)
 
-      if root_reason == "merged" do
-        survivor = merge_survivor!(actor, "long-seed-#{Ash.UUID.generate()}")
-        assert :ok = IdentityReconciler.merge_devices(root, survivor.uid, actor: actor)
-        purge!(root)
-      else
-        retire_and_purge!(actor, seed)
-      end
+      merged_into =
+        if root_reason == "merged" do
+          survivor = merge_survivor!(actor, "long-seed-#{Ash.UUID.generate()}")
+          assert :ok = IdentityReconciler.merge_devices(root, survivor.uid, actor: actor)
+          purge!(root)
+          survivor.uid
+        else
+          retire_and_purge!(actor, seed)
+          nil
+        end
 
       root_revision = identity_revision!(root)
 
@@ -1142,10 +1145,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       assert revival_audit_rows(root) == []
 
-      if root_reason == "merged" do
-        survivor = root_row.metadata["_merged_into"]
-        assert is_binary(survivor)
-        assert {:ok, ^survivor} = IdentityReconciler.resolve_canonical_device_id(root, actor)
+      if merged_into do
+        assert {:ok, ^merged_into} = IdentityReconciler.resolve_canonical_device_id(root, actor)
       end
     end
   end
