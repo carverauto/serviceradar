@@ -351,12 +351,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
                |> Enum.to_list()
     end
 
-    test "decodes a synthetic nist-nvd2 gz shard (gzip stream + JSON)" do
-      shard = %{"vulnerabilities" => [nvd_record()]}
-      gz = :zlib.gzip(Jason.encode!(shard))
+    test "decodes every record of a synthetic nist-nvd2 gz shard spanning many reads" do
+      dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      {path, _json_bytes, count} = write_fat_nvd_shard(dir)
 
-      [record] = StreamReader.records_from_gzip(gz)
-      assert record["cve"]["id"] == "CVE-2099-0001"
+      ids =
+        path
+        |> File.read!()
+        |> StreamReader.records_from_gzip()
+        |> Enum.map(& &1["cve"]["id"])
+
+      assert ids == Enum.map(1..count, &fat_cve_id/1)
+      File.rm_rf(dir)
     end
 
     test "stream_nvd_shards reads a synthetic .json.gz-in-zip on disk" do
@@ -429,7 +436,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
     test "keeps a large synthetic shard resident set to one record" do
       dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)
-      {json_bytes, count} = write_fat_nvd_shard(dir)
+      {path, json_bytes, count} = write_fat_nvd_shard(dir)
+      # Several 16 KiB reads: a shard that fits one read hides a reader that
+      # stops after the first inflate chunk.
+      assert File.stat!(path).size > 8 * 16_384
 
       :erlang.garbage_collect()
       baseline = resident_bytes()
@@ -454,6 +464,26 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
 
       File.rm_rf(dir)
     end
+
+    test "stream_nvd_shards reports a gz shard cut mid-stream as a truncated record" do
+      dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      {path, _json_bytes, count} = write_fat_nvd_shard(dir)
+      gz = File.read!(path)
+      File.write!(path, binary_part(gz, 0, div(byte_size(gz), 2)))
+
+      {oks, [last]} =
+        dir
+        |> StreamReader.stream_nvd_shards()
+        |> Enum.split(-1)
+
+      ids = Enum.map(oks, fn {:ok, record} -> record["cve"]["id"] end)
+
+      assert last == {:error, {:parse_error, path, :truncated_record}}
+      assert length(ids) > div(count, 4)
+      assert ids == Enum.map(1..length(ids), &fat_cve_id/1)
+      File.rm_rf(dir)
+    end
   end
 
   defp write_fat_nvd_shard(dir) do
@@ -463,7 +493,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
     {:ok, io} = File.open(path, [:write, :binary, :raw])
 
     count = 80
-    pad = String.duplicate("a", 32_000)
     total = deflate_write(io, z, ~s({"vulnerabilities":[))
 
     total =
@@ -472,7 +501,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
           "cve" => %{
             "id" => fat_cve_id(i),
             "descriptions" => [
-              %{"lang" => "en", "value" => "synthetic {brace} \"quote\" " <> pad}
+              %{"lang" => "en", "value" => "synthetic {brace} \"quote\" " <> fat_noise(i)}
             ],
             "references" => [
               %{"url" => "https://advisories.example.invalid/#{fat_cve_id(i)}"}
@@ -489,12 +518,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
     :ok = :zlib.deflateEnd(z)
     :zlib.close(z)
     :ok = File.close(io)
-    {total, count}
+    {path, total, count}
   end
 
   defp deflate_write(io, z, data) do
     :ok = IO.binwrite(io, :zlib.deflate(z, data))
     byte_size(data)
+  end
+
+  # Deterministic hex noise: it deflates to about half its size, so the shard
+  # spans many reads instead of collapsing the way repeated padding does.
+  defp fat_noise(i) do
+    Enum.map_join(1..500, fn block ->
+      Base.encode16(:crypto.hash(:sha256, "fat-#{i}-#{block}"), case: :lower)
+    end)
   end
 
   defp fat_cve_id(i) do
