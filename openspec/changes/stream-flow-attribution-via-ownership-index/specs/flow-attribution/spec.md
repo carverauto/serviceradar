@@ -131,7 +131,7 @@ The original endpoint of every flow side SHALL be looked up. A side that matches
 
 ### Requirement: Late Binding Is Bounded And Never Rescans Flows
 The flow processor SHALL hold a flow whose side is a monitored address without a matching lease for at most the configured hold window (default 5 seconds, maximum 30 seconds, and always below the consumer acknowledgement deadline), and MUST NOT hold a flow that has no monitored address on either side.
-A flow still unmatched after the hold, or one written because the hold buffer reached its item or byte cap, SHALL be written unattributed and recorded once, in the late-stamp set of its home shard (the shard of its source side, or of its destination when only the destination is monitored), for the late-stamp window (default 10 minutes) under an entry cap, with evictions counted. Precedence SHALL be the full ordering tuple of rank and side, with the source side ahead of the destination side at equal rank, as on ingest; an unattributed flow SHALL have the lowest precedence. When a lease arrives that covers a recorded flow's time on any shard, the home shard SHALL re-evaluate both sides of the flow under that precedence and SHALL publish an update on `events.flow.attribution` carrying the winner's precedence only when it is strictly better than the flow's current precedence. The entry SHALL stay pending until the flow holds the best possible precedence (exact rank on the source side) or the window ends, so the result MUST NOT depend on the order in which leases arrive. EventWriter SHALL apply an update as a partial primary-key update only when its precedence is at least the row's stored precedence, and MUST NOT let a higher version replace a better-precedence attribution. Late stamps for one flow MUST be published only by its home shard. The system MUST NOT read stored flows back to find unattributed ones.
+A flow still unmatched after the hold, or one written because the hold buffer reached its item or byte cap, SHALL be written unattributed and recorded once, in the late-stamp set of its home shard (the shard of its source side, or of its destination when only the destination is monitored), for the late-stamp window (default 10 minutes) under an entry cap, with evictions counted. Precedence SHALL be the full ordering tuple of rank and side, with the source side ahead of the destination side at equal rank, as on ingest; an unattributed flow SHALL have the lowest precedence. A precedence is final when no monitored side can produce a better candidate: exact on the source side, or exact on the destination side when the source is not a monitored address. A flow written on ingest with an owner at a non-final precedence while one of its sides is a monitored address SHALL also be recorded in the late-stamp set, and a flow written at a final precedence or carrying agent-provided attribution MUST NOT be recorded. When a lease arrives that covers a recorded flow's time on any shard, the home shard SHALL re-evaluate both sides of the flow under that precedence and SHALL publish an update on `events.flow.attribution` carrying the winner's precedence only when it is strictly better than the flow's current precedence. The entry SHALL stay pending until the flow's precedence is final or the window ends, so the result MUST NOT depend on the order in which leases arrive. EventWriter SHALL apply an update as a partial primary-key update only when its precedence is at least the row's stored precedence, and MUST NOT let a higher version replace a better-precedence attribution. Late stamps for one flow MUST be published only by its home shard. The system MUST NOT read stored flows back to find unattributed ones.
 
 #### Scenario: Flow races its ownership event
 - **GIVEN** a flow from 192.0.2.20:40002 arrives 2 seconds before the agent's `OPEN` for that key
@@ -165,6 +165,18 @@ A flow still unmatched after the hold, or one written because the hold buffer re
 - **AND** it then publishes the source owner, which EventWriter applies because its precedence is better
 - **AND** the flow row ends with the source-side owner
 
+#### Scenario: Exact worker lease arrives after a listener attribution on ingest
+- **GIVEN** the index holds a `bound` lease for `(tcp, 192.0.2.10, 8080)` owned by the listener process
+- **AND** a flow from 198.51.100.7:51002 to 192.0.2.10:8080 is written on ingest with the listener's owner
+- **WHEN** an exact peer entry `(tcp, 192.0.2.10, 8080, 198.51.100.7, 51002)` owned by a worker process arrives seconds later, within the late-stamp window
+- **THEN** the home shard publishes the worker's attribution with exact precedence
+- **AND** the flow row ends with the worker as its owner
+
+#### Scenario: Final ingest attribution is not enrolled
+- **GIVEN** a flow is written on ingest with an exact source-side owner
+- **WHEN** the flow processor finishes the batch
+- **THEN** the flow is not recorded in the late-stamp set
+
 #### Scenario: A higher version does not override better precedence
 - **GIVEN** a flow row carries an exact source-side attribution
 - **WHEN** an update with a higher version and a lower precedence reaches EventWriter
@@ -195,7 +207,7 @@ EventWriter SHALL append one row per ownership event to the StarRocks Duplicate 
 - **AND** no row-level DELETE or UPDATE was issued against the table
 
 ### Requirement: Hosts Report Per-Process Connection Summaries As Evidence
-Netprobe SHALL emit, per interval (default 60 seconds), one connection summary per `(agent, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)` that had at least one connection in the interval, recording the ephemeral side's port as 0. A summary SHALL carry the interval, the connection count, the first and last seen times inside the interval, bytes and packets per direction when available, and provenance (source, agent id, netprobe version, owner record and aggregation level). Accepted connections covered by a listener lease SHALL still be counted in per-peer summaries. Summaries SHALL travel through the `flow-attribution` admission lane and a dedicated JetStream stream, and EventWriter SHALL append them to the StarRocks Duplicate Key table `host_connection_summaries`, partitioned by day, under the `attribution` retention dataset; rows MUST NOT be updated or deleted individually. Netprobe SHALL enforce a per-agent cap on summary rows per interval (default 2,000) by merging rows, first across peer ports and then across peer addresses, and SHALL record the aggregation level and absorbed-row count on each merged row and count merged rows by level; it MUST NOT drop a connection from every row. The ownership index MUST NOT read connection summaries, and attribution MUST NOT depend on them.
+Netprobe SHALL emit, per interval (default 60 seconds), one connection summary per `(agent, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)` that had at least one connection in the interval, keeping every key field, including ephemeral ports, at its observed value. Netprobe MUST NOT aggregate summaries while the agent's interval is within its budget. A summary SHALL carry the interval, the connection count, the first and last seen times inside the interval, bytes and packets per direction when available, and provenance (source, agent id, netprobe version, owner record and aggregation level). Accepted connections covered by a listener lease SHALL still be counted in per-peer summaries. Summaries SHALL travel through the `flow-attribution` admission lane and a dedicated JetStream stream, and EventWriter SHALL append them to the StarRocks Duplicate Key table `host_connection_summaries`, partitioned by day, under the `attribution` retention dataset; rows MUST NOT be updated or deleted individually. Netprobe SHALL enforce a per-agent cap N on summary rows per interval (default 2,000, minimum 16) so that it never emits more than N rows in an interval, regardless of its process or peer count. Over the cap it SHALL degrade in stages, lowest-count rows first and stopping as soon as the interval fits: merge across peer ports, then across peer addresses, then collapse the remaining rows into at most one overflow row per direction that carries the total connection count, bytes and packets, a distinct-peer estimate, and the number of distinct owners and rows collapsed. It SHALL record the aggregation level and absorbed-row count on each merged row, count merged rows by level, and count every interval that reached the overflow level; it MUST NOT drop a connection from every row. The ownership index MUST NOT read connection summaries, and attribution MUST NOT depend on them.
 
 #### Scenario: Host-only deployment lists a process's peers
 - **GIVEN** a deployment with StarRocks and netprobe agents but no flow exporters
@@ -204,11 +216,12 @@ Netprobe SHALL emit, per interval (default 60 seconds), one connection summary p
 - **THEN** the rows list both peers with their connection counts and first and last seen times
 
 #### Scenario: Accepted connections still yield per-peer summaries
-- **GIVEN** a listener on 192.0.2.10:443/TCP accepts connections from 198.51.100.7 and 198.51.100.8 in one interval
+- **GIVEN** a listener on 192.0.2.10:443/TCP accepts connections from 198.51.100.7:51000, 198.51.100.7:51001 and 198.51.100.8:52000 in one interval
 - **AND** every accepted socket has the listener's owner, so no lease is emitted for them
+- **AND** the agent's interval is within its summary budget
 - **WHEN** netprobe emits the interval's summaries
-- **THEN** it emits one `inbound` summary per peer address for local endpoint 192.0.2.10:443 with peer port 0
-- **AND** each carries that peer's connection count
+- **THEN** it emits three `inbound` summaries for local endpoint 192.0.2.10:443, one per peer endpoint with its observed peer port
+- **AND** no row is aggregated
 
 #### Scenario: Summary budget overflow is counted and visible
 - **GIVEN** an agent has more distinct summary keys in one interval than its per-agent cap
@@ -216,6 +229,14 @@ Netprobe SHALL emit, per interval (default 60 seconds), one connection summary p
 - **THEN** it merges rows until the cap holds and marks each merged row with its aggregation level and absorbed-row count
 - **AND** the merged-row counter increments by level
 - **AND** the total connection count across the interval's rows equals the observed connection count
+
+#### Scenario: More processes than the summary cap
+- **GIVEN** an agent configured with a summary cap of 100 rows per interval
+- **AND** 150 distinct processes each make one outbound connection in the interval
+- **WHEN** netprobe emits the interval's summaries
+- **THEN** it emits at most 100 rows, including an `overflow` row for the outbound direction
+- **AND** the overflow row carries the collapsed connection count, a distinct-peer estimate, and the number of owners and rows it collapsed
+- **AND** the overflow-interval counter increments
 
 ### Requirement: Attribution Meets Fleet-Scale Capacity Targets
 Flow attribution SHALL sustain at least 1M flows/s attributed across horizontally scaled flow-tier nodes. It SHALL sustain ownership ingest from 20k agents, SHALL keep index memory at no more than 200 bytes per active key on average, and SHALL add no more than 250 ms p99 latency per flow batch for flows whose owner is present. Each target SHALL be verified with a synthetic load harness that uses only invented addresses from documentation ranges.
@@ -245,7 +266,7 @@ Flow attribution SHALL sustain at least 1M flows/s attributed across horizontall
 
 ### Requirement: Ownership Index And Enrichment Health Is Observable
 The ownership index and the flow attribution stage SHALL publish their health as metrics through the JetStream metrics pipeline, with labels that MUST NOT include agent identifiers, process identifiers, IP addresses, ports, command lines, partition names, or other unbounded payload-derived values.
-Index metrics SHALL include entries and bytes per shard, budget refusals, evictions, history evictions inside the horizon, ownership consumer lag, shard state (`warming`, `ready`, `standby`), rebuild duration, and ambiguous lookups. Enrichment metrics SHALL include flows by outcome and strategy, hold buffer depth and overflow, late-stamp set size, evictions and applied stamps, and lookup latency per batch. Connection summary metrics SHALL include rows per interval, merged rows by aggregation level, and summary consumer lag.
+Index metrics SHALL include entries and bytes per shard, budget refusals, evictions, history evictions inside the horizon, ownership consumer lag, shard state (`warming`, `ready`, `standby`), rebuild duration, and ambiguous lookups. Enrichment metrics SHALL include flows by outcome and strategy, hold buffer depth and overflow, late-stamp set size, evictions and applied stamps, and lookup latency per batch. Connection summary metrics SHALL include rows per interval, merged rows by aggregation level, intervals that reached the overflow level, and summary consumer lag.
 
 #### Scenario: Index falls behind
 - **GIVEN** ownership events arrive faster than a shard applies them

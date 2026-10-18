@@ -333,12 +333,19 @@ the kernel event.
   no monitored address on either side is never held: it is written immediately with outcome
   `unmonitored`. The hold buffer has an item cap and a byte cap. On overflow the flow is
   written immediately and goes to the late-stamp set.
-- **Late stamp**: a flow written without an owner while one of its sides is a monitored
-  address is recorded once, in the late-stamp set of its **home shard** (the shard of its
-  source side's bucket, or of the destination's when only the destination is monitored), as
-  `(flow id, flow time, both sides' keys, current precedence)`. **Precedence** is the full
-  ordering tuple `(rank, side)` with the source side ahead of the destination, the same order
-  the ingest path applies (Decision 3); an unattributed flow has the lowest precedence. Each other monitored side's shard
+- **Late stamp**: **precedence** is the full ordering tuple `(rank, side)` with the source
+  side ahead of the destination, the same order the ingest path applies (Decision 3); an
+  unattributed flow has the lowest precedence. A flow's precedence is **final** when no
+  monitored side can still produce a better candidate: `(exact, source)`, or `(exact,
+  destination)` when the source is not a monitored address. Every flow written with a
+  non-final precedence while one of its sides is a monitored address enters the late-stamp
+  set, whether it was written without an owner or with an ingest winner that a later lease
+  could still beat (a listener, relaxed, node-SNAT or public-endpoint candidate, or a
+  destination exact owner while the source is monitored). A flow attributed by its agent
+  (Decision 5) does not enter it, so a late stamp never replaces agent-local attribution. The
+  flow is recorded once, in the late-stamp set of its **home shard** (the shard of its source
+  side's bucket, or of the destination's when only the destination is monitored), as
+  `(flow id, flow time, both sides' keys, current precedence)`. Each other monitored side's shard
   keeps only a watch `(key, flow id, home shard)`. Entries and watches live for the late-stamp
   window (default 10 minutes) under an entry cap, and the oldest is evicted with a counter.
   When a lease arrives that covers a recorded flow's time, the shard that applied it notifies
@@ -346,17 +353,20 @@ the kernel event.
   ingest (including the VIP rule) and makes one decision for the flow. It publishes an update
   on `events.flow.attribution` only when the winner's precedence is strictly better than the
   flow's current precedence. The entry stays pending while a strictly better candidate is
-  still possible, so it retires only when the flow holds the best possible precedence
-  (`(exact, source)`) or the window ends. A destination exact owner stamped first is therefore
-  still replaced by a source exact owner that arrives later in the window, and the outcome
-  does not depend on which lease arrived first. Every update carries its precedence, and
+  still possible, so it retires only when the flow's precedence becomes final or the window
+  ends. A destination exact owner stamped first is therefore still replaced by a source exact
+  owner that arrives later in the window, a listener owner chosen on ingest is replaced by an
+  exact worker lease that arrives seconds later, and the outcome does not depend on which
+  lease arrived first. The entry cap bounds the set however many flows are enrolled; an
+  evicted entry keeps the attribution it was written with, and the eviction is counted. Every update carries its precedence, and
   `FlowAttributionUpdates` applies it as a partial primary-key update only when that
   precedence is at least the row's stored `attribution_precedence` (a StarRocks conditional
   update on that column), so better precedence wins rather than the higher version. Only the
   home shard publishes for a flow; no two shards ever write the same flow independently. Versions come from
   `flow_attribution_update_version` in batches, and only late stamps consume them.
-- **Never a full re-scan**: nothing reads stored flows back to find unattributed ones. The
-  late-stamp set is the only memory of unmatched flows, and it is bounded.
+- **Never a full re-scan**: nothing reads stored flows back to find unattributed or
+  fallback-attributed ones. The late-stamp set is the only memory of flows whose attribution
+  can still improve, and it is bounded.
 
 - Alternatives considered:
   - *No hold, only late stamp.* Simpler, but every flow that races its ownership event becomes a
@@ -416,7 +426,8 @@ pid, cmdline or partition labels):
   overflow, late-stamp set size, evictions and applied stamps, lookup latency per batch, and
   agent budget drops by reason (reported by netprobe).
 - Connection summaries: rows per interval, rows merged by the budget and the level they were
-  merged to (reported by netprobe), and summary consumer lag.
+  merged to, intervals that reached the `overflow` level (reported by netprobe), and summary
+  consumer lag.
 
 Per-interval diagnostics replace the per-pass ones: `no_producer` (no ownership events in the
 interval), `no_flows` (no flows reached the processor), and `unmonitored` (the successor of
@@ -433,21 +444,30 @@ ownership index never reads them, and attribution never depends on them.
 
 - **Key**: `(agent_id, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)`,
   where `owner` is the interned attribution key (tgid, process start time, container id) and
-  `direction` is `inbound` (accepted) or `outbound` (connected). The ephemeral side's port is
-  recorded as 0 (the peer port of an inbound connection, the local port of an outbound one), so
-  a summary aggregates connections to one service per peer instead of one row per connection.
+  `direction` is `inbound` (accepted) or `outbound` (connected). Every field keeps its observed
+  value, including the ephemeral ports, so within the budget a network-observed flow can be
+  matched to the host-observed connection on its full endpoints. Connections that share the
+  full key within one interval share one row.
 - **Fields**: interval start and end, connection count, first and last seen inside the
   interval, and bytes and packets in each direction when netprobe has the counters (null
   otherwise). Each row carries provenance: `source = netprobe`, the agent id, the netprobe
   version, the owner record, and the aggregation level.
 - **Interval**: default 60 s, aligned per agent. A key with no connection in the interval emits
   nothing.
-- **Budget**: a per-agent cap on summary rows per interval (default 2,000). Over the cap,
-  netprobe aggregates explicitly instead of dropping: it first merges rows that differ only in
-  peer port (the level becomes `peer_ip`), then rows that differ only in peer address (the
-  level becomes `service`, `peer_ip` null). Merged rows keep the summed counts and the
-  earliest and latest times, and record how many rows they absorbed. Netprobe counts merged
-  rows by level. A connection is never omitted from every row.
+- **Budget**: a per-agent cap N on summary rows per interval (default 2,000, minimum 16). Below
+  the cap nothing is aggregated. Over the cap, netprobe degrades in stages, applying each stage
+  to the lowest-count rows first and stopping as soon as the interval fits:
+  1. `peer_ip`: merge rows that differ only in peer port (`peer_port` null).
+  2. `service`: merge rows that differ only in peer address (`peer_ip` null), leaving one row
+     per owner, local endpoint, proto and direction.
+  3. `overflow`: collapse the remaining rows into one overflow row per direction (at most two
+     rows), keyed only by agent and direction, carrying the total connection count, bytes and
+     packets, a distinct-peer estimate, the number of distinct owners and of rows collapsed.
+  The overflow stage makes the cap strict: with cap N an agent emits at most N rows per
+  interval, whatever its process or peer count. Merged rows keep summed counts and the
+  earliest and latest times, and record their level and how many rows they absorbed. Netprobe
+  counts merged rows by level and counts every interval that reached the `overflow` level. A
+  connection is never omitted from every row.
 - **Transport and storage**: summaries ride in the same `flow-attribution` agent batches and
   admission lane, and core publishes them on `flows.connections.summary` in a dedicated
   `flow_connections` stream (short `max_age`, transport only; it does not overlap the `flows`
@@ -456,9 +476,10 @@ ownership index never reads them, and attribution never depends on them.
   `attribution` retention dataset. Rows are never updated or deleted individually.
 
 Volume is bounded by the budget, not by connection count: at most 2,000 rows per agent per
-minute, about 33 rows/s. With an assumed median of 100-300 distinct `(owner, service, peer)`
-tuples per host per minute, 20k hosts produce about 33k-100k rows/s (about 3-9B rows/day),
-and the budget caps the worst case at about 670k rows/s. Phase 0 measures the per-host
+minute, about 33 rows/s. Full keys make rows roughly one per connection per minute below the
+cap. With an assumed median of 200-600 distinct full keys per host per minute, 20k hosts
+produce about 67k-200k rows/s (about 6-17B rows/day), and the strict cap bounds the worst case
+at about 670k rows/s. Busy listeners reach the cap and degrade to `peer_ip` or `service` rows. Phase 0 measures the per-host
 distribution on the lab before this is sized.
 
 - Alternatives considered:

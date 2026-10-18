@@ -2,7 +2,7 @@
 - [ ] 0.1 On the lab, split current observation tuples into accepted (inbound, covered by a listener lease) and outbound (one lease each), and record active local keys per host. Project the per-host ownership event rate under Decision 1. Gate: median <= 5 events/s per host; otherwise revisit renewal period and close coalescing before 1.x.
 - [ ] 0.2 Spike the shard store: ETS with packed binary keys and interned owners, at 2.5M keys per shard. Measure the distribution of history depth per key under the 15-minute horizon, bytes per key (including that history), batched lookup rate, and apply rate; size the default per-key history cap from the results. Gate: <= 200 bytes per key; otherwise move the store into a Rust NIF behind the same interface.
 - [ ] 0.3 Measure replay time of 2 hours (the default stream `max_age`) of synthetic ownership events for one shard (2.5M keys). Gate: ready <= 2 minutes.
-- [ ] 0.4 On the lab, measure distinct `(owner, service, peer)` connection-summary keys per host per minute, and confirm the default per-agent summary cap (2,000 rows per interval) and the summary volume estimate in design.md Decision 9.
+- [ ] 0.4 On the lab, measure distinct full connection-summary keys per host per minute and how often busy hosts reach the cap, and confirm the default per-agent summary cap (2,000 rows per interval) and the summary volume estimate in design.md Decision 9.
 - [ ] 0.5 Record the results in this change's design.md, rounded, with no live hostnames, addresses or cluster names.
 
 ## 1. Netprobe: ownership leases
@@ -38,14 +38,14 @@
 - [ ] 4.2 Public endpoint map cache from `public_endpoints_current`, refreshed on change.
 - [ ] 4.3 Attribution step in `Processors.Flows`: keys for both sides on their original endpoints plus VIP backend keys in the same batch (backend candidates only below the original's ranks 0-2), batched lookups, the precedence table, the cross-side tie-break, and a single write with `attributed_flow` and owner columns. Keep agent-provided attribution for the side the agent owns.
 - [ ] 4.4 Hold buffer with item and byte caps, deadline below `ack_wait`, shard notification on `OPEN`, and no hold for unmonitored flows.
-- [ ] 4.5 Late-stamp set per home shard (window, entry cap, eviction counters) with watches on the other monitored side's shard; the home shard re-evaluates both sides under the ingest precedence and publishes an update carrying the `(rank, side)` precedence on `events.flow.attribution` only on strictly better precedence, keeping the entry pending until `(exact, source)` or window end, with versions fetched in batches.
+- [ ] 4.5 Late-stamp set per home shard (window, entry cap, eviction counters) with watches on the other monitored side's shard; the home shard re-evaluates both sides under the ingest precedence and publishes an update carrying the `(rank, side)` precedence on `events.flow.attribution` only on strictly better precedence, keeping the entry pending until the precedence is final or the window ends, with versions fetched in batches. Enroll unattributed flows and ingest winners at a non-final precedence while a side is monitored; never enroll final or agent-attributed flows.
 - [ ] 4.6 Add `attribution_precedence` to `ocsf_network_activity` (lowest for unattributed rows, set on ingest), and make `FlowAttributionUpdates` apply an update only when its precedence is at least the stored one (StarRocks conditional partial update), not by highest version.
 - [ ] 4.7 Tests per scenario of *Flows Are Attributed On Ingest By Key Lookup*, *Late Binding Is Bounded And Never Rescans Flows*, *Agent-Local Attribution Takes Precedence* and the modified *Correlation Is Protocol-Aware And Exact-First*.
 
 ## 5. Lease history and connection summaries
 - [ ] 5.1 StarRocks DDL for `flow_ownership_leases` (Duplicate Key, daily partitions) in `elixir/serviceradar_core/priv/starrocks/`.
 - [ ] 5.2 EventWriter processor that appends one row per ownership event; map the `attribution` retention dataset to the new table.
-- [ ] 5.3 Netprobe producer: per-interval connection summaries keyed per Decision 9 (ephemeral port 0, inbound and outbound), optional byte and packet counters, provenance, and the per-agent cap with explicit merging and merged-row counters by level. Add `ConnectionSummary` to `FlowAttributionEventBatch`.
+- [ ] 5.3 Netprobe producer: per-interval connection summaries keyed per Decision 9 (full keys including ephemeral ports, inbound and outbound), optional byte and packet counters, provenance, and the strict per-agent cap N (no aggregation below it; staged `peer_ip`, `service`, then per-direction `overflow` rows so at most N rows per interval) with merged-row counters by level and an overflow-interval counter. Add `ConnectionSummary` to `FlowAttributionEventBatch`.
 - [ ] 5.4 Core ingest: carry summaries through the `flow-attribution` lane and publish them on `flows.connections.summary` in a dedicated `flow_connections` stream (short `max_age`), with NATS permissions and no subject overlap with `flows` or `flow_ownership`.
 - [ ] 5.5 StarRocks DDL for `host_connection_summaries` (Duplicate Key, daily partitions), an EventWriter processor that appends them, and the `attribution` retention mapping.
 - [ ] 5.6 Tests per scenario of *Hosts Report Per-Process Connection Summaries As Evidence*.
@@ -60,7 +60,7 @@
 - [ ] 7.3 Ownership ingest run: 20k simulated agents for 1 hour; zero acknowledged loss; lag p99 <= 5 s.
 - [ ] 7.4 Memory run: 40M active keys at <= 200 bytes per key, with every shard within budget; rebuild of a 2.5M-key shard <= 2 minutes.
 - [ ] 7.5 Latency run: p99 added latency <= 250 ms per batch; holds within the window; late stamps within 60 s.
-- [ ] 7.6 Connection summary run: 20k simulated agents at the per-agent cap for 1 hour; zero acknowledged loss; every over-budget interval merged and counted.
+- [ ] 7.6 Connection summary run: 20k simulated agents at the per-agent cap for 1 hour; zero acknowledged loss; every over-budget interval merged and counted; no agent emits more than its cap, including agents with more processes than the cap.
 
 ## 8. Cutover and removal (same release as 1-6)
 - [ ] 8.1 Delete `FlowAttribution.Correlator`, `FlowAttribution.Correlation`, `PassMetrics`, the correlator kill switch and its supervisor wiring.
