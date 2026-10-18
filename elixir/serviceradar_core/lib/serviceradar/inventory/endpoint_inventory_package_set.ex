@@ -66,17 +66,59 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   end
 
   @doc """
-  Normalizes the package list carried in a delta wire payload (the `added`,
-  `removed`, and `changed` arrays). Each entry has the same shape as a full-set
-  package, so they reuse `normalize_package/1`.
+  Normalizes delta `added`, `removed`, and `changed` entries into the CycloneDX
+  anchor row: no ecosystem, with manager and architecture kept as component
+  properties. That is the row a full anchor upload stores, so both paths share
+  one `coordinate_hash/1`.
   """
   def normalize_delta_packages(entries) when is_list(entries) do
     entries
-    |> Enum.map(&normalize_package/1)
+    |> Enum.map(&normalize_delta_package/1)
     |> Enum.reject(&is_nil/1)
   end
 
   def normalize_delta_packages(_entries), do: []
+
+  defp normalize_delta_package(entry) when is_map(entry) do
+    entry
+    |> cyclonedx_anchor_component()
+    |> normalize_component()
+  end
+
+  defp normalize_delta_package(_entry), do: nil
+
+  defp cyclonedx_anchor_component(package) do
+    %{
+      "type" => "library",
+      "name" => Payload.string_value(package, :name),
+      "version" => Payload.string_value(package, :version),
+      "purl" => Payload.string_value(package, :purl),
+      "cpe" => anchor_cpe(package),
+      "properties" => anchor_properties(package)
+    }
+  end
+
+  defp anchor_properties(package) do
+    manager =
+      Payload.string_value(package, :package_manager) ||
+        Payload.string_value(package, :manager)
+
+    [
+      anchor_property("serviceradar:package_manager", manager),
+      anchor_property("serviceradar:architecture", Payload.string_value(package, :architecture))
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp anchor_property(_name, nil), do: nil
+  defp anchor_property(name, value), do: %{"name" => name, "value" => value}
+
+  defp anchor_cpe(package) do
+    case Payload.list_value(package, :cpes) do
+      [cpe | _] when is_binary(cpe) -> cpe
+      _ -> nil
+    end
+  end
 
   @doc """
   Applies a normalized delta (added/removed/changed lists of normalized

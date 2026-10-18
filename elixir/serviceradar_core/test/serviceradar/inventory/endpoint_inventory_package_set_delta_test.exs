@@ -130,6 +130,64 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSetDeltaTest do
              PackageSet.server_package_set_hash(target)
   end
 
+  # BuildCycloneDX (go/pkg/endpointinventory/cyclonedx.go) is the anchor a full
+  # upload stores. It drops ecosystem, keeps manager and architecture only as
+  # serviceradar properties, and copies only the first CPE. An applied delta of
+  # the same producer package has to land on that row, or fleet package counts
+  # keyed by coordinate_hash split across two coordinates.
+  test "an applied delta package matches the CycloneDX anchor row and coordinate hash" do
+    version = "7.81.0-1ubuntu1"
+
+    producer = %{
+      "name" => "curl",
+      "version" => version,
+      "architecture" => "amd64",
+      "manager" => "dpkg",
+      "ecosystem" => "deb",
+      "purl" => "pkg:deb/debian/curl@#{version}?arch=amd64",
+      "cpes" => [
+        "cpe:2.3:a:haxx:curl:#{version}:*:*:*:*:*:*:*",
+        "cpe:2.3:a:haxx:libcurl:#{version}:*:*:*:*:*:*:*"
+      ]
+    }
+
+    anchor_component = %{
+      "type" => "library",
+      "name" => "curl",
+      "version" => version,
+      "purl" => "pkg:deb/debian/curl@#{version}?arch=amd64",
+      "cpe" => "cpe:2.3:a:haxx:curl:#{version}:*:*:*:*:*:*:*",
+      "properties" => [
+        %{"name" => "serviceradar:package_manager", "value" => "dpkg"},
+        %{"name" => "serviceradar:architecture", "value" => "amd64"}
+      ]
+    }
+
+    [changed] = PackageSet.normalize_delta_packages([producer])
+
+    [written] =
+      PackageSet.apply_delta([normalized("curl", "7.80.0-1")], %{
+        added: [],
+        removed: [],
+        changed: [changed]
+      })
+
+    [anchor] =
+      PackageSet.normalize_packages(%{"sbom" => %{"components" => [anchor_component]}})
+
+    assert written == anchor
+    assert written.ecosystem == nil
+
+    assert written.metadata == %{
+             "properties" => %{
+               "serviceradar:package_manager" => "dpkg",
+               "serviceradar:architecture" => "amd64"
+             }
+           }
+
+    assert PackageSet.coordinate_hash(written) == PackageSet.coordinate_hash(anchor)
+  end
+
   test "empty delta reproduces the current set" do
     current = [normalized("bash", "5.1"), normalized("curl", "7.80")]
     delta = %{added: [], removed: [], changed: []}
