@@ -22,12 +22,14 @@ defmodule ServiceRadar.Identity.Validations.AliasValue do
   def validate(changeset, _opts, _context) do
     type = Ash.Changeset.get_attribute(changeset, :alias_type)
     value = Ash.Changeset.get_attribute(changeset, :alias_value)
+    device_id = Ash.Changeset.get_attribute(changeset, :device_id)
+    metadata = Ash.Changeset.get_attribute(changeset, :metadata) || %{}
 
     cond do
       type not in @address_types ->
         :ok
 
-      AliasPolicy.valid_alias_ip?(value) ->
+      AliasPolicy.valid_alias_ip?(value, AliasPolicy.known_cidrs_for_device(device_id, metadata)) ->
         :ok
 
       true ->

@@ -397,11 +397,12 @@ defmodule ServiceRadar.Identity.AliasEvents do
     {:ok, events}
   end
 
-  defp process_device_aliases(update, actor, confirm_threshold) do
+  defp process_device_aliases(update, actor, confirm_threshold, db_cidrs) do
     record = AliasRecord.from_metadata(update.metadata)
+    known_cidrs = update_known_cidrs(update, record, db_cidrs)
 
     record
-    |> alias_values()
+    |> alias_values(known_cidrs)
     |> Enum.flat_map(fn {type, value} ->
       case process_alias(update, type, value, actor, confirm_threshold) do
         nil -> []
@@ -411,17 +412,39 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp build_device_alias_events(updates, actor, confirm_threshold) do
-    updates
-    |> Enum.filter(&has_alias_metadata?(&1.metadata))
-    |> deduplicate_by_device_id()
-    |> Enum.flat_map(fn update ->
-      process_device_aliases(update, actor, confirm_threshold)
+    deduped =
+      updates
+      |> Enum.filter(&has_alias_metadata?(&1.metadata))
+      |> deduplicate_by_device_id()
+
+    known_cidrs_by_device =
+      deduped
+      |> Enum.map(& &1.device_id)
+      |> AliasPolicy.known_cidrs_by_device_ids()
+
+    Enum.flat_map(deduped, fn update ->
+      db_cidrs = Map.get(known_cidrs_by_device, update.device_id, [])
+      process_device_aliases(update, actor, confirm_threshold, db_cidrs)
     end)
   end
 
-  defp alias_values(nil), do: []
+  defp update_known_cidrs(update, nil, db_cidrs) do
+    Enum.uniq(db_cidrs ++ AliasPolicy.interface_known_cidrs([], update.metadata))
+  end
 
-  defp alias_values(record) do
+  defp update_known_cidrs(update, record, db_cidrs) do
+    candidate_ips =
+      Enum.reject(
+        [record.current_ip | Map.keys(record.ips) ++ Map.keys(record.interface_ips)],
+        &(is_nil(&1) or &1 == "")
+      )
+
+    Enum.uniq(db_cidrs ++ AliasPolicy.interface_known_cidrs(candidate_ips, update.metadata))
+  end
+
+  defp alias_values(nil, _known_cidrs), do: []
+
+  defp alias_values(record, known_cidrs) do
     base =
       Enum.reject(
         [
@@ -451,19 +474,19 @@ defmodule ServiceRadar.Identity.AliasEvents do
     # current_ip and collector_ip from `base`. This path is fed by the netprobe
     # NDP census and produces every IPv6 alias in the fleet; before this gate
     # existed it also produced 33 fe80:: link-local aliases on farm01.
-    # Link-local is per-interface and shared by convention on some platforms,
-    # so aliasing on it invites exactly the device collapse aliases are
-    # supposed to prevent.
+    # Link-local and subnet broadcast addresses are shared across hosts on a
+    # link/subnet, so aliasing on them invites exactly the device collapse
+    # aliases are supposed to prevent.
     #
     # Non-address alias types (service_id, mac) are unaffected -- they have
     # their own value spaces and this predicate does not apply to them.
     (base ++ ip_aliases ++ interface_ip_aliases)
     |> Enum.filter(fn
-      {:ip, value} -> AliasPolicy.valid_alias_ip?(value)
-      # Same address policy: loopback and link-local are worthless as a record of
-      # "this device has this address" regardless of the type they carry.
-      {:interface_ip, value} -> AliasPolicy.valid_alias_ip?(value)
-      {:collector_ip, value} -> AliasPolicy.valid_alias_ip?(value)
+      {:ip, value} -> AliasPolicy.valid_alias_ip?(value, known_cidrs)
+      # Same address policy: loopback, link-local, and broadcast are worthless as
+      # a record of "this device has this address" regardless of the type they carry.
+      {:interface_ip, value} -> AliasPolicy.valid_alias_ip?(value, known_cidrs)
+      {:collector_ip, value} -> AliasPolicy.valid_alias_ip?(value, known_cidrs)
       {_type, _value} -> true
     end)
     |> Enum.uniq()

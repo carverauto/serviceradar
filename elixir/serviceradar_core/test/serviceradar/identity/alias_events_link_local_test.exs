@@ -12,6 +12,7 @@ defmodule ServiceRadar.Identity.AliasEventsLinkLocalTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
@@ -95,7 +96,7 @@ defmodule ServiceRadar.Identity.AliasEventsLinkLocalTest do
     {:ok, device} = create_device(actor)
     link_local = "fe80::#{unique_hextet()}"
 
-    assert {:error, %Ash.Error.Invalid{}} =
+    assert {:error, %Invalid{}} =
              DeviceAliasState.create_detected(
                %{
                  device_id: device.uid,
@@ -121,6 +122,67 @@ defmodule ServiceRadar.Identity.AliasEventsLinkLocalTest do
                  partition: "default",
                  alias_type: :ip,
                  alias_value: routable,
+                 metadata: %{}
+               },
+               actor: actor
+             )
+  end
+
+  test "process_and_persist and create_detected reject IPv4 limited and directed broadcast addresses",
+       %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    octet = rem(System.unique_integer([:positive]), 200) + 10
+    unicast = "192.0.2.#{octet}"
+    directed_bcast = "192.0.2.255"
+
+    ServiceRadar.Repo.query!(
+      """
+      WITH host AS (
+        INSERT INTO platform.virtualization_hosts
+          (id, provider, provider_ref, device_uid, name)
+        VALUES (gen_random_uuid(), 'synthetic', 'synthetic:host:' || $1, $1, 'virt-node01')
+        RETURNING id
+      )
+      INSERT INTO platform.virtualization_network_interfaces
+        (id, provider, provider_ref, host_id, device_uid, name, cidr, address, ip_addresses)
+      SELECT gen_random_uuid(), 'synthetic', 'synthetic:vnic:' || $1, host.id, $1, 'vmbr0', $2, $3, ARRAY[$3]
+      FROM host
+      """,
+      [device.uid, "#{unicast}/24", unicast]
+    )
+
+    assert {:ok, _events} =
+             AliasEvents.process_and_persist(
+               [
+                 %{
+                   device_id: device.uid,
+                   partition: "default",
+                   timestamp: DateTime.utc_now(),
+                   metadata: %{
+                     "_alias_last_seen_at" => "2026-08-25T00:00:00Z",
+                     "_alias_last_seen_ip" => unicast,
+                     "ip_alias:#{unicast}" => "2026-08-25T00:00:00Z",
+                     "ip_alias:#{directed_bcast}" => "2026-08-25T00:00:00Z",
+                     "ip_alias:255.255.255.255" => "2026-08-25T00:00:00Z"
+                   }
+                 }
+               ],
+               actor: actor,
+               confirm_threshold: 1
+             )
+
+    values = alias_values(device.uid, actor)
+    assert unicast in values
+    refute directed_bcast in values
+    refute "255.255.255.255" in values
+
+    assert {:error, %Invalid{}} =
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: device.uid,
+                 partition: "default",
+                 alias_type: :ip,
+                 alias_value: directed_bcast,
                  metadata: %{}
                },
                actor: actor

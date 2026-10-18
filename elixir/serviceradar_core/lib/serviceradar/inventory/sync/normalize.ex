@@ -352,29 +352,32 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
 
   def enrich_alias_metadata(update) do
     metadata = update.metadata || %{}
-    alias_ips = alias_ips_from_metadata(metadata)
+    raw_alias_ips = alias_ips_from_metadata(metadata)
 
-    if alias_ips == [] do
+    if raw_alias_ips == [] do
       update
     else
+      known_cidrs = known_cidrs_from_update(update, raw_alias_ips)
+      cleaned_metadata = drop_invalid_alias_ip_keys(metadata, known_cidrs)
+
       timestamp = update.timestamp || DateTime.utc_now()
       timestamp = DateTime.truncate(timestamp, :second)
       ts_string = DateTime.to_iso8601(timestamp)
 
       alias_ips =
-        alias_ips
+        raw_alias_ips
         |> maybe_add_alias_ip(update.ip)
-        |> Enum.filter(&AliasPolicy.valid_alias_ip?/1)
+        |> Enum.filter(&AliasPolicy.valid_alias_ip?(&1, known_cidrs))
         |> Enum.uniq()
 
       if alias_ips == [] do
-        update
+        %{update | metadata: cleaned_metadata}
       else
         last_seen_ip =
-          if AliasPolicy.valid_alias_ip?(update.ip), do: update.ip
+          if AliasPolicy.valid_alias_ip?(update.ip, known_cidrs), do: update.ip
 
         metadata =
-          metadata
+          cleaned_metadata
           |> Map.put("_alias_last_seen_at", ts_string)
           |> maybe_put("_alias_last_seen_ip", last_seen_ip)
           |> add_alias_ip_keys(alias_ips, ts_string)
@@ -382,6 +385,47 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
         %{update | metadata: metadata, timestamp: timestamp}
       end
     end
+  end
+
+  defp known_cidrs_from_update(update, raw_alias_ips) do
+    iface_cidrs =
+      update
+      |> Map.get(:network_interfaces, [])
+      |> List.wrap()
+      |> Enum.flat_map(fn
+        iface when is_map(iface) ->
+          cidr = get_string(iface, ["cidr", :cidr, "subnet", :subnet])
+          ips = get_list(iface, ["ip_addresses", :ip_addresses])
+          meta = if is_binary(cidr) and cidr != "", do: %{"cidr" => cidr}, else: %{}
+          AliasPolicy.interface_known_cidrs(ips, meta)
+
+        _ ->
+          []
+      end)
+
+    candidate_ips = maybe_add_alias_ip(raw_alias_ips, Map.get(update, :ip))
+
+    Enum.uniq(
+      iface_cidrs ++
+        AliasPolicy.interface_known_cidrs(candidate_ips, Map.get(update, :metadata, %{}))
+    )
+  end
+
+  defp drop_invalid_alias_ip_keys(metadata, known_cidrs) when is_map(metadata) do
+    Enum.reduce(Map.keys(metadata), metadata, fn key, acc ->
+      cond do
+        String.starts_with?(key, "ip_alias:") ->
+          ip = key |> String.replace_prefix("ip_alias:", "") |> String.trim()
+          if AliasPolicy.valid_alias_ip?(ip, known_cidrs), do: acc, else: Map.delete(acc, key)
+
+        String.starts_with?(key, "alt_ip:") ->
+          ip = key |> String.replace_prefix("alt_ip:", "") |> String.trim()
+          if AliasPolicy.valid_alias_ip?(ip, known_cidrs), do: acc, else: Map.delete(acc, key)
+
+        true ->
+          acc
+      end
+    end)
   end
 
   def alias_ips_from_metadata(metadata) do

@@ -198,6 +198,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "test-debris",
     "stale-agent-devices",
     "link-local-alias-archive",
+    "broadcast-alias-archive",
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",

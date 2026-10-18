@@ -262,6 +262,7 @@ func buildMikroTikInventory(
 	rawBridgeVLANs []map[string]any,
 ) (*DiscoveredDevice, []*DiscoveredInterface) {
 	interfaceIPs := mapMikroTikInterfaceIPs(rawAddresses)
+	interfaceCIDRs := mapMikroTikInterfaceCIDRs(rawAddresses)
 	bridgeMetadata := mapMikroTikBridgePorts(rawBridgePorts)
 	vlanMetadata := mapMikroTikBridgeVLANs(rawBridgeVLANs)
 
@@ -320,6 +321,9 @@ func buildMikroTikInventory(
 		}
 		for key, value := range vlanMetadata[ifName] {
 			ifaceMetadata[key] = value
+		}
+		if cidrs := interfaceCIDRs[ifName]; len(cidrs) > 0 {
+			ifaceMetadata["ip_cidrs"] = strings.Join(cidrs, ",")
 		}
 
 		ifIndex := mikrotikInterfaceIndex(raw, idx)
@@ -419,16 +423,32 @@ func mapMikroTikInterfaceIPs(rawAddresses []map[string]any) map[string][]string 
 	for _, raw := range rawAddresses {
 		ifName := stringValue(raw, "interface")
 		address := stringValue(raw, "address")
-		if ifName == "" || address == "" {
+		if ifName == "" || address == "" || isIPv4DirectedBroadcastCIDR(address) {
 			continue
 		}
 
 		ip := stripCIDR(address)
-		if ip == "" {
+		if ip == "" || ip == "255.255.255.255" {
 			continue
 		}
 
 		result[ifName] = append(result[ifName], ip)
+	}
+
+	return result
+}
+
+func mapMikroTikInterfaceCIDRs(rawAddresses []map[string]any) map[string][]string {
+	result := make(map[string][]string)
+
+	for _, raw := range rawAddresses {
+		ifName := stringValue(raw, "interface")
+		address := strings.TrimSpace(stringValue(raw, "address"))
+		if ifName == "" || address == "" || !strings.Contains(address, "/") || isIPv4DirectedBroadcastCIDR(address) {
+			continue
+		}
+
+		result[ifName] = append(result[ifName], address)
 	}
 
 	return result
@@ -489,7 +509,11 @@ func mikrotikDeviceIP(baseURL string, rawAddresses []map[string]any) string {
 	}
 
 	for _, raw := range rawAddresses {
-		if ip := stripCIDR(stringValue(raw, "address")); ip != "" {
+		address := stringValue(raw, "address")
+		if isIPv4DirectedBroadcastCIDR(address) {
+			continue
+		}
+		if ip := stripCIDR(address); ip != "" && ip != "255.255.255.255" {
 			return ip
 		}
 	}

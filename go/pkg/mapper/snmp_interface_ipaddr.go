@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -29,6 +30,12 @@ import (
 const (
 	defaultTooManyParts = 5
 	ipv4Length          = 4
+	ipv4BitLength       = 32
+	ipv6BitLength       = 128
+	maxBroadcastPrefix  = 30
+
+	// ipAddressType values from IP-MIB (RFC 4293).
+	ipAddressTypeBroadcast = 3
 )
 
 // extractIPFromOID extracts an IP address from the last 4 parts of an OID
@@ -77,31 +84,71 @@ const (
 	defaultIPBytesLength = 4
 )
 
-// handleIPAdEntAddr processes an ipAdEntAddr PDU and updates the IP to ifIndex mapping
-func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
-	var ipString string
-
+func snmpIPv4String(pdu gosnmp.SnmpPDU) string {
 	switch uint8(pdu.Type) {
 	case uint8(gosnmp.IPAddress):
-		ipString = pdu.Value.(string)
+		if s, ok := pdu.Value.(string); ok {
+			return s
+		}
 	case uint8(gosnmp.OctetString):
-		// Some devices return IP as octet string
-		ipBytes := pdu.Value.([]byte)
-		if len(ipBytes) == defaultIPBytesLength {
-			ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
+		ipBytes, ok := pdu.Value.([]byte)
+		if ok && len(ipBytes) == defaultIPBytesLength {
+			return fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
 		}
 	}
+
+	return ""
+}
+
+// handleIPAdEntAddr processes an ipAdEntAddr PDU and updates the IP to ifIndex mapping
+func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
+	ipString := snmpIPv4String(pdu)
 
 	// If we got an IP, extract the IP from the OID too (for matching)
 	if ipString != "" {
 		if ip, ok := extractIPFromOID(pdu.Name); ok {
-			ipToIfIndex[ip] = 0 // Placeholder, will be filled by ipAdEntIfIndex
+			if _, exists := ipToIfIndex[ip]; !exists {
+				ipToIfIndex[ip] = 0 // Placeholder, will be filled by ipAdEntIfIndex
+			}
 		}
 	}
 }
 
-func (*DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+// handleIPAdEntNetMask processes an ipAdEntNetMask PDU and records the IPv4 prefix length.
+func handleIPAdEntNetMask(pdu gosnmp.SnmpPDU, ipToPrefixLen map[string]int) {
+	maskString := snmpIPv4String(pdu)
+	if maskString == "" {
+		return
+	}
+
+	parsedMask := net.ParseIP(maskString)
+	if parsedMask == nil {
+		return
+	}
+
+	mask4 := parsedMask.To4()
+	if mask4 == nil {
+		return
+	}
+
+	ones, bits := net.IPMask(mask4).Size()
+	if bits != ipv4BitLength || ones <= 0 {
+		return
+	}
+
+	if ip, ok := extractIPFromOID(pdu.Name); ok {
+		ipToPrefixLen[ip] = ones
+	}
+}
+
+func (e *DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+	ipToIfIndex, _, err := e.walkIPAddrTableWithPrefixes(client)
+	return ipToIfIndex, err
+}
+
+func (*DiscoveryEngine) walkIPAddrTableWithPrefixes(client *gosnmp.GoSNMP) (map[string]int, map[string]int, error) {
 	ipToIfIndex := make(map[string]int)
+	ipToPrefixLen := make(map[string]int)
 
 	err := client.BulkWalk(oidIPAddrTable, func(pdu gosnmp.SnmpPDU) error {
 		// Handle ipAdEntIfIndex to get the mapping of IP to ifIndex
@@ -114,18 +161,28 @@ func (*DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, 
 			handleIPAdEntAddr(pdu, ipToIfIndex)
 		}
 
+		if strings.HasPrefix(pdu.Name, oidIPAdEntNetMask) {
+			handleIPAdEntNetMask(pdu, ipToPrefixLen)
+		}
+
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to walk ipAddrTable: %w", err)
+		return nil, nil, fmt.Errorf("failed to walk ipAddrTable: %w", err)
 	}
 
-	return ipToIfIndex, nil
+	filterBroadcastAddresses(ipToIfIndex, ipToPrefixLen)
+
+	return ipToIfIndex, ipToPrefixLen, nil
 }
 
 // associateIPsWithInterfaces associates IP addresses with interfaces
 func (*DiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]int, ifMap map[int]*DiscoveredInterface) {
 	for ip, ifIndex := range ipToIfIndex {
+		if parsed := net.ParseIP(ip); parsed != nil && parsed.To4() != nil && parsed.To4().Equal(net.IPv4bcast) {
+			continue
+		}
+
 		if iface, exists := ifMap[ifIndex]; exists {
 			// Check if we already have this IP
 			found := false
@@ -141,6 +198,46 @@ func (*DiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]int, i
 				iface.IPAddresses = append(iface.IPAddresses, ip)
 			}
 		}
+	}
+}
+
+func (*DiscoveryEngine) associateIPPrefixesWithInterfaces(
+	ipToIfIndex map[string]int,
+	ipToPrefixLen map[string]int,
+	ifMap map[int]*DiscoveredInterface,
+) {
+	if len(ipToPrefixLen) == 0 {
+		return
+	}
+
+	cidrsByIfIndex := make(map[int][]string)
+
+	for ip, ifIndex := range ipToIfIndex {
+		prefixLen, ok := ipToPrefixLen[ip]
+		if !ok || prefixLen <= 0 {
+			continue
+		}
+
+		if _, exists := ifMap[ifIndex]; !exists {
+			continue
+		}
+
+		cidrsByIfIndex[ifIndex] = append(cidrsByIfIndex[ifIndex], fmt.Sprintf("%s/%d", ip, prefixLen))
+	}
+
+	for ifIndex, cidrs := range cidrsByIfIndex {
+		iface := ifMap[ifIndex]
+		if iface == nil {
+			continue
+		}
+
+		sort.Strings(cidrs)
+
+		if iface.Metadata == nil {
+			iface.Metadata = make(map[string]string)
+		}
+
+		iface.Metadata["ip_cidrs"] = strings.Join(cidrs, ",")
 	}
 }
 
@@ -226,40 +323,221 @@ func parseInetAddressIndex(suffix []string) (string, bool) {
 	return ip, true
 }
 
+func parseIPAddressColumnSuffix(pduName, columnOID string) (string, bool) {
+	if !strings.HasPrefix(pduName, columnOID+".") {
+		return "", false
+	}
+
+	suffix := strings.TrimPrefix(pduName, columnOID+".")
+	if suffix == "" {
+		return "", false
+	}
+
+	return parseInetAddressIndex(strings.Split(suffix, "."))
+}
+
+// parseIPAddressPrefixRowPointer extracts the trailing ipAddressPrefixLength
+// sub-identifier from an ipAddressPrefix RowPointer OID when it points into
+// ipAddressPrefixTable (.1.3.6.1.2.1.4.32.1).
+func parseIPAddressPrefixRowPointer(pdu gosnmp.SnmpPDU, isIPv6 bool) (int, bool) {
+	var oid string
+
+	switch v := pdu.Value.(type) {
+	case string:
+		oid = strings.TrimSpace(v)
+	case []byte:
+		oid = strings.TrimSpace(string(v))
+	default:
+		return 0, false
+	}
+
+	if oid == "" {
+		return 0, false
+	}
+
+	normalized := "." + strings.TrimPrefix(oid, ".")
+	if !strings.HasPrefix(normalized, oidIPAddressPrefixTable+".") {
+		return 0, false
+	}
+
+	parts := strings.Split(normalized, ".")
+	last := parts[len(parts)-1]
+
+	prefixLen, err := strconv.Atoi(last)
+	if err != nil || prefixLen <= 0 {
+		return 0, false
+	}
+
+	maxBits := ipv4BitLength
+	if isIPv6 {
+		maxBits = ipv6BitLength
+	}
+
+	if prefixLen > maxBits {
+		return 0, false
+	}
+
+	return prefixLen, true
+}
+
+func isIPv4DirectedBroadcast(ip net.IP, network *net.IPNet) bool {
+	if ip == nil || network == nil {
+		return false
+	}
+
+	ip4 := ip.To4()
+	netIP4 := network.IP.To4()
+	if ip4 == nil || netIP4 == nil || len(network.Mask) != ipv4Length {
+		return false
+	}
+
+	ones, bits := network.Mask.Size()
+	if bits != ipv4BitLength || ones < 0 || ones > maxBroadcastPrefix {
+		return false
+	}
+
+	for i := 0; i < ipv4Length; i++ {
+		bcastOctet := (netIP4[i] & network.Mask[i]) | ^network.Mask[i]
+		if ip4[i] != bcastOctet {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isIPv4DirectedBroadcastCIDR(cidr string) bool {
+	ip, network, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil || ip == nil {
+		if parsed := net.ParseIP(strings.TrimSpace(cidr)); parsed != nil && parsed.To4() != nil {
+			return parsed.To4().Equal(net.IPv4bcast)
+		}
+
+		return false
+	}
+
+	if ip4 := ip.To4(); ip4 != nil && ip4.Equal(net.IPv4bcast) {
+		return true
+	}
+
+	return isIPv4DirectedBroadcast(ip, network)
+}
+
+func filterBroadcastAddresses(ipToIfIndex map[string]int, ipToPrefixLen map[string]int) {
+	var networks []*net.IPNet
+
+	for ip, prefixLen := range ipToPrefixLen {
+		parsed := net.ParseIP(ip)
+		if parsed == nil || parsed.To4() == nil {
+			continue
+		}
+
+		if prefixLen < 0 || prefixLen > maxBroadcastPrefix {
+			continue
+		}
+
+		mask := net.CIDRMask(prefixLen, ipv4BitLength)
+		networks = append(networks, &net.IPNet{
+			IP:   parsed.To4().Mask(mask),
+			Mask: mask,
+		})
+	}
+
+	for ip := range ipToIfIndex {
+		parsed := net.ParseIP(ip)
+		if parsed == nil {
+			continue
+		}
+
+		ip4 := parsed.To4()
+		if ip4 == nil {
+			continue
+		}
+
+		if ip4.Equal(net.IPv4bcast) {
+			delete(ipToIfIndex, ip)
+			delete(ipToPrefixLen, ip)
+			continue
+		}
+
+		for _, network := range networks {
+			if isIPv4DirectedBroadcast(ip4, network) {
+				delete(ipToIfIndex, ip)
+				delete(ipToPrefixLen, ip)
+				break
+			}
+		}
+	}
+}
+
+func collectIPAddressTable(pdus []gosnmp.SnmpPDU) (map[string]int, map[string]int) {
+	ipToIfIndex := make(map[string]int)
+	ipToType := make(map[string]int)
+	ipToPrefixLen := make(map[string]int)
+
+	for _, pdu := range pdus {
+		if ip, ok := parseIPAddressColumnSuffix(pdu.Name, oidIPAddressIfIndex); ok {
+			if ifIndex, valOK := pdu.Value.(int); valOK {
+				ipToIfIndex[ip] = ifIndex
+			}
+			continue
+		}
+
+		if ip, ok := parseIPAddressColumnSuffix(pdu.Name, oidIPAddressType); ok {
+			if addrType, valOK := pdu.Value.(int); valOK {
+				ipToType[ip] = addrType
+			}
+			continue
+		}
+
+		if ip, ok := parseIPAddressColumnSuffix(pdu.Name, oidIPAddressPrefix); ok {
+			if prefixLen, valOK := parseIPAddressPrefixRowPointer(pdu, strings.Contains(ip, ":")); valOK {
+				ipToPrefixLen[ip] = prefixLen
+			}
+		}
+	}
+
+	for ip, addrType := range ipToType {
+		if addrType == ipAddressTypeBroadcast {
+			delete(ipToIfIndex, ip)
+			delete(ipToPrefixLen, ip)
+		}
+	}
+
+	filterBroadcastAddresses(ipToIfIndex, ipToPrefixLen)
+
+	return ipToIfIndex, ipToPrefixLen
+}
+
 // walkIPAddressTable walks ipAddressIfIndex to learn every address the device
-// reports, IPv6 included.
+// reports, IPv6 included, excluding broadcast rows (ipAddressType = broadcast(3)).
 //
 // This is additive to walkIPAddrTable rather than a replacement: ipAddrTable is
 // universally implemented while ipAddressTable is not, so dropping the legacy
 // walk would lose IPv4 on older agents. Where both report the same address the
 // values agree, and merging is idempotent.
-func (*DiscoveryEngine) walkIPAddressTable(client *gosnmp.GoSNMP) (map[string]int, error) {
-	ipToIfIndex := make(map[string]int)
+func (e *DiscoveryEngine) walkIPAddressTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+	ipToIfIndex, _, err := e.walkIPAddressTableWithPrefixes(client)
+	return ipToIfIndex, err
+}
+
+func (*DiscoveryEngine) walkIPAddressTableWithPrefixes(client *gosnmp.GoSNMP) (map[string]int, map[string]int, error) {
+	var pdus []gosnmp.SnmpPDU
 
 	err := client.BulkWalk(oidIPAddressTable, func(pdu gosnmp.SnmpPDU) error {
-		if !strings.HasPrefix(pdu.Name, oidIPAddressIfIndex) {
-			return nil
-		}
-
-		ifIndex, ok := pdu.Value.(int)
-		if !ok {
-			return nil
-		}
-
-		suffix := strings.TrimPrefix(strings.TrimPrefix(pdu.Name, oidIPAddressIfIndex), ".")
-		if suffix == "" {
-			return nil
-		}
-
-		if ip, parsed := parseInetAddressIndex(strings.Split(suffix, ".")); parsed {
-			ipToIfIndex[ip] = ifIndex
+		if strings.HasPrefix(pdu.Name, oidIPAddressIfIndex+".") ||
+			strings.HasPrefix(pdu.Name, oidIPAddressType+".") ||
+			strings.HasPrefix(pdu.Name, oidIPAddressPrefix+".") {
+			pdus = append(pdus, pdu)
 		}
 
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to walk ipAddressTable: %w", err)
+		return nil, nil, fmt.Errorf("failed to walk ipAddressTable: %w", err)
 	}
 
-	return ipToIfIndex, nil
+	ipToIfIndex, ipToPrefixLen := collectIPAddressTable(pdus)
+
+	return ipToIfIndex, ipToPrefixLen, nil
 }
