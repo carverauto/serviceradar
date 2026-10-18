@@ -45,7 +45,7 @@ cases = [
        purl: "pkg:rpm/rpm/coreutils@8.32-34.el9?distro=el-9&arch=aarch64&repository_url=https%3A%2F%2Fmirror.example.com%2Frepo")
    ]},
   {"missing_purl_fallback",
-   "No PURL at all: the canonical PURL is built from manager, ecosystem, name, version and architecture.",
+   "No PURL at all: the canonical PURL is built from the package manager, name, version, and architecture. Ecosystem is not an input.",
    [
      pkg.(name: "tzdata", version: "2024a-0+deb12u1", architecture: "all", manager: "dpkg", ecosystem: "debian"),
      pkg.(name: "busybox", version: "1.36.1-r15", architecture: "x86_64", manager: "apk"),
