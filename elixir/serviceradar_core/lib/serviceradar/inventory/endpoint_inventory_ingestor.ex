@@ -29,6 +29,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @metadata_reason_full_scan_hash_unchanged "full_scan_hash_unchanged"
   @metadata_reason_upload_already_acknowledged "upload_already_acknowledged"
   @state_not_scanned "not_scanned"
+  @state_upload_deferred "upload_deferred"
   @coverage_state_unchanged "unchanged"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
@@ -331,7 +332,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp maybe_short_circuit_noop(payload, agent_id, scan_id) do
     cond do
-      scan = existing_scan_snapshot(agent_id, scan_id) ->
+      scan = existing_short_circuit_scan(payload, agent_id, scan_id) ->
         {:ok, emit_short_circuit_result(scan, agent_id, scan_id, short_circuit_reason(payload))}
 
       upload_already_acknowledged?(payload) ->
@@ -342,6 +343,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
       true ->
         :continue
+    end
+  end
+
+  defp existing_short_circuit_scan(payload, agent_id, scan_id) do
+    case existing_scan_snapshot(agent_id, scan_id) do
+      %{state: @state_upload_deferred} = scan ->
+        if EndpointInventoryPackageSet.scan_state(payload) == @state_upload_deferred,
+          do: scan
+
+      scan ->
+        scan
     end
   end
 
@@ -766,7 +778,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     }
 
     # The deterministic id makes a re-ingested scan the same event, which
-    # EventWriter stores once.
+    # EventWriter stores once; a deferred scan's later upload is a new state and
+    # so a distinct event.
     case OcsfEventPublisher.publish(row, family: :inventory) do
       {:error, reason} when reason != :suppressed ->
         Logger.warning("Failed to publish endpoint inventory scan event",
@@ -847,7 +860,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "endpoint_inventory",
       context.agent_id,
       context.scan_id,
-      Payload.iso8601(context.last_scan_at)
+      Payload.iso8601(context.last_scan_at),
+      context.state
     ]
     |> Enum.join(":")
     |> deterministic_uuid()
@@ -1072,6 +1086,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp apply_hash_freshness(context, current, current_row_count) do
     hash_matched_noop? = hash_matched_unchanged_noop?(context, current)
+    deferred_upload? = deferred_upload?(context)
 
     # A degraded/empty upload carries no packages and is *not* a hash-matched
     # unchanged noop. Replacing or promoting on it would wipe a non-empty current
@@ -1079,16 +1094,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     # a hash drift). When there is something to protect, treat it like the noop path
     # so the existing current rows are preserved and re-stamped to the new scan.
     degraded_empty? = degraded_empty_upload?(context, hash_matched_noop?, current_row_count)
-    package_replacement_noop? = hash_matched_noop? or degraded_empty?
+    preserve_current_inventory? = hash_matched_noop? or degraded_empty?
+    package_replacement_noop? = preserve_current_inventory? or deferred_upload?
 
-    server_hash = effective_server_package_set_hash(context, current, package_replacement_noop?)
+    server_hash = effective_server_package_set_hash(context, current, preserve_current_inventory?)
     mismatch? = package_set_hash_mismatch?(context.reported_package_set_hash, server_hash)
 
     package_set_hash =
-      effective_package_set_hash(context, current, package_replacement_noop?, server_hash)
+      effective_package_set_hash(context, current, preserve_current_inventory?, server_hash)
 
-    unchanged_count = unchanged_scan_count(context, current, package_replacement_noop?)
-    last_changed_at = last_changed_scan_at(context, current, package_replacement_noop?)
+    unchanged_count = unchanged_scan_count(context, current, preserve_current_inventory?)
+    last_changed_at = last_changed_scan_at(context, current, preserve_current_inventory?)
     reconcile_floor_due? = reconcile_floor_due?(context, last_changed_at, unchanged_count)
 
     package_count =
@@ -1128,10 +1144,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       context.upload_reason == @upload_reason_unchanged
   end
 
-  # True when the upload carries no packages, isn't a hash-matched unchanged noop,
-  # and there is a non-empty current inventory that a wholesale replace would destroy.
+  defp deferred_upload?(%{state: @state_upload_deferred}), do: true
+  defp deferred_upload?(_context), do: false
+
+  # True when the upload carries no packages, isn't a hash-matched unchanged noop
+  # or an explicit deferral, and there is a non-empty current inventory that a
+  # wholesale replace would destroy.
   defp degraded_empty_upload?(context, hash_matched_noop?, current_row_count) do
-    not hash_matched_noop? and context.packages == [] and current_row_count > 0
+    not hash_matched_noop? and not deferred_upload?(context) and
+      context.packages == [] and current_row_count > 0
   end
 
   # Make the scan's surfaced package_count reflect the rows it can actually back:
