@@ -55,6 +55,14 @@ lookups before their single StarRocks write.
   held for a few seconds. If it is still unmatched it is written unattributed and kept in a
   bounded late-stamp set. A late ownership event stamps those flows through the existing
   versioned `events.flow.attribution` update. Nothing re-scans flows.
+- **Host-observed connection summaries.** Because accepted connections collapse onto their
+  listener's lease, netprobe also emits bounded per-interval summaries per process, local
+  endpoint and peer (counts, first and last seen, optional bytes and packets). They travel on
+  JetStream and are appended to a StarRocks evidence table for host-only exposure queries and
+  for spotting network-observed connections no host saw (#5745). Over a per-agent budget they
+  are merged and counted, never silently dropped. The ownership index does not use them.
+- **Late stamps follow precedence, not arrival order.** Updates carry their `(rank, side)`
+  precedence and are applied only when at least as good as the stored attribution.
 - **Agent-local attribution stays primary** for flows an agent produces itself. The index serves
   flows from routers and other exporters.
 - **Ownership history for incident response** moves from the sighting table to an append-only

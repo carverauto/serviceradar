@@ -58,8 +58,11 @@ The question being answered is a key lookup: `(partition, proto, ip, port)` at t
 - Goals:
   - Attribution cost is O(flows) with a constant number of key lookups per flow. No periodic
     global join, no re-scan of stored flows.
-  - Producer volume is proportional to ownership changes, not to time or connection count on a
-    listener.
+  - Ownership volume is proportional to ownership changes, not to time or connection count on a
+    listener. Peer evidence travels separately as bounded per-interval connection summaries
+    (Decision 9).
+  - Host-observed connection evidence (which process talked to which peer) is kept for
+    host-only exposure queries and for matching network-observed flows, without NetFlow.
   - Throughput scales horizontally: at least 1M flows/s attributed across consumers.
   - Ownership ingest from 20k agents. Index memory bounded per shard and proportional to active
     sockets.
@@ -105,7 +108,8 @@ an `OPEN` with the same key and `first_seen`.
 Keying on the local endpoint is what makes this cheap:
 
 - **Listeners are one lease.** An accepted connection is covered by its listener's lease and
-  emits nothing, unless the accepted socket's owner differs from the listener's (worker
+  emits no lease of its own (its peer is still counted in a connection summary, Decision 9),
+  unless the accepted socket's owner differs from the listener's (worker
   hand-off, `SO_REUSEPORT` groups with different tgids). In that case the agent emits an
   exact peer entry keyed on the connection's full 5-tuple (Decision 2).
 - **Wildcard listeners are expanded by the agent** into one lease per local address. The agent
@@ -332,18 +336,24 @@ the kernel event.
 - **Late stamp**: a flow written without an owner while one of its sides is a monitored
   address is recorded once, in the late-stamp set of its **home shard** (the shard of its
   source side's bucket, or of the destination's when only the destination is monitored), as
-  `(flow id, flow time, both sides' keys, current rank)`. Each other monitored side's shard
+  `(flow id, flow time, both sides' keys, current precedence)`. **Precedence** is the full
+  ordering tuple `(rank, side)` with the source side ahead of the destination, the same order
+  the ingest path applies (Decision 3); an unattributed flow has the lowest precedence. Each other monitored side's shard
   keeps only a watch `(key, flow id, home shard)`. Entries and watches live for the late-stamp
   window (default 10 minutes) under an entry cap, and the oldest is evicted with a counter.
   When a lease arrives that covers a recorded flow's time, the shard that applied it notifies
   the home shard, which re-runs the lookup for both sides under the same precedence as on
-  ingest (including the VIP rule) and makes one decision for the flow. It publishes a
-  versioned update on `events.flow.attribution` only when the winner ranks strictly better than
-  the flow's current rank, and keeps the entry until the flow reaches rank 0 or the window ends.
-  Only the home shard publishes for a flow, so each later version carries a better candidate
-  than the one before, and the version order the existing `FlowAttributionUpdates` processor
-  applies (partial primary-key update, highest version wins) agrees with the precedence. No
-  two shards ever write the same flow independently. Versions come from
+  ingest (including the VIP rule) and makes one decision for the flow. It publishes an update
+  on `events.flow.attribution` only when the winner's precedence is strictly better than the
+  flow's current precedence. The entry stays pending while a strictly better candidate is
+  still possible, so it retires only when the flow holds the best possible precedence
+  (`(exact, source)`) or the window ends. A destination exact owner stamped first is therefore
+  still replaced by a source exact owner that arrives later in the window, and the outcome
+  does not depend on which lease arrived first. Every update carries its precedence, and
+  `FlowAttributionUpdates` applies it as a partial primary-key update only when that
+  precedence is at least the row's stored `attribution_precedence` (a StarRocks conditional
+  update on that column), so better precedence wins rather than the higher version. Only the
+  home shard publishes for a flow; no two shards ever write the same flow independently. Versions come from
   `flow_attribution_update_version` in batches, and only late stamps consume them.
 - **Never a full re-scan**: nothing reads stored flows back to find unattributed ones. The
   late-stamp set is the only memory of unmatched flows, and it is bounded.
@@ -405,10 +415,59 @@ pid, cmdline or partition labels):
   `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, `error`), hold buffer depth and
   overflow, late-stamp set size, evictions and applied stamps, lookup latency per batch, and
   agent budget drops by reason (reported by netprobe).
+- Connection summaries: rows per interval, rows merged by the budget and the level they were
+  merged to (reported by netprobe), and summary consumer lag.
 
 Per-interval diagnostics replace the per-pass ones: `no_producer` (no ownership events in the
 interval), `no_flows` (no flows reached the processor), and `unmonitored` (the successor of
 `no_topology_overlap`).
+
+### 9. Host-observed connection summaries (peer evidence)
+
+Keying leases on the local endpoint collapses accepted connections into their listener's
+lease, so the index alone cannot say who a process talked to. That peer evidence is needed for
+host-only exposure queries in deployments without NetFlow, and for spotting a
+network-observed connection that no host observed (#5745). Netprobe therefore emits
+**connection summaries** alongside the leases. They are evidence, not a lookup key: the
+ownership index never reads them, and attribution never depends on them.
+
+- **Key**: `(agent_id, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)`,
+  where `owner` is the interned attribution key (tgid, process start time, container id) and
+  `direction` is `inbound` (accepted) or `outbound` (connected). The ephemeral side's port is
+  recorded as 0 (the peer port of an inbound connection, the local port of an outbound one), so
+  a summary aggregates connections to one service per peer instead of one row per connection.
+- **Fields**: interval start and end, connection count, first and last seen inside the
+  interval, and bytes and packets in each direction when netprobe has the counters (null
+  otherwise). Each row carries provenance: `source = netprobe`, the agent id, the netprobe
+  version, the owner record, and the aggregation level.
+- **Interval**: default 60 s, aligned per agent. A key with no connection in the interval emits
+  nothing.
+- **Budget**: a per-agent cap on summary rows per interval (default 2,000). Over the cap,
+  netprobe aggregates explicitly instead of dropping: it first merges rows that differ only in
+  peer port (the level becomes `peer_ip`), then rows that differ only in peer address (the
+  level becomes `service`, `peer_ip` null). Merged rows keep the summed counts and the
+  earliest and latest times, and record how many rows they absorbed. Netprobe counts merged
+  rows by level. A connection is never omitted from every row.
+- **Transport and storage**: summaries ride in the same `flow-attribution` agent batches and
+  admission lane, and core publishes them on `flows.connections.summary` in a dedicated
+  `flow_connections` stream (short `max_age`, transport only; it does not overlap the `flows`
+  or `flow_ownership` subjects). An EventWriter processor appends them to the StarRocks
+  Duplicate Key table `host_connection_summaries`, partitioned by day, under the
+  `attribution` retention dataset. Rows are never updated or deleted individually.
+
+Volume is bounded by the budget, not by connection count: at most 2,000 rows per agent per
+minute, about 33 rows/s. With an assumed median of 100-300 distinct `(owner, service, peer)`
+tuples per host per minute, 20k hosts produce about 33k-100k rows/s (about 3-9B rows/day),
+and the budget caps the worst case at about 670k rows/s. Phase 0 measures the per-host
+distribution on the lab before this is sized.
+
+- Alternatives considered:
+  - *Restore one lease per accepted connection.* Brings the listener volume back into the
+    index and the stream that Decision 1 removes. Rejected.
+  - *Derive peers from NetFlow.* Unavailable in host-only deployments, and it cannot detect a
+    connection that the network saw but the host did not. Rejected.
+  - *Drop rows over budget.* Silent loss defeats evasion detection. Rejected in favour of
+    explicit, counted aggregation.
 
 ## Capacity targets
 
@@ -426,6 +485,7 @@ Load is generated from invented data in 192.0.2.0/24, 198.51.100.0/24, 203.0.113
 | Hold | flows written within the hold window (default 5 s, maximum 30 s) |
 | Late stamp | applied within 60 s of the late ownership event |
 | Rebuild | a shard of 2.5M keys is ready within 2 minutes of start |
+| Connection summaries | 20k simulated agents at the per-agent budget (2,000 rows per minute) for 1 hour, no unacknowledged loss, every over-budget interval merged and counted |
 
 ## Risks / Trade-offs
 
