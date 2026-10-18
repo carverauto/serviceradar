@@ -17,10 +17,15 @@ generation. That write volume produces a WAL and disk storm on CNPG.
   a new nullable `platform.vulnerability_advisories.nvd_configurations` jsonb
   column keyed by configuration index.
 - Affected coordinates carry only `configuration_refs` (configuration index and
-  the term the alternative requires) instead of the expression.
-- The matcher fetches configurations once per distinct matched advisory and
-  resolves each coordinate's references into the same expression version 2
-  embedded, so evaluation and adjudication are unchanged.
+  the term the alternative requires) plus the digest of the configurations they
+  were written with, instead of the expression. The advisory records the digest
+  of its stored configurations.
+- The matcher fetches configurations once per chunk of matched advisories,
+  reading the chunk's coordinates and configurations in one read-only
+  REPEATABLE READ snapshot, and resolves each coordinate's references into the
+  same expression version 2 embedded, so evaluation and adjudication are
+  unchanged. A reference whose digest differs from the advisory's evaluates
+  unknown.
 - Coordinates still in the version 2 shape resolve unchanged until the next NVD
   run rewrites them; the normalization version advances to 3 so that run
   rewrites every NVD advisory once.
