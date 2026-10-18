@@ -30,6 +30,16 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+const (
+	mikrotikRestSystemIdentityPath = "/rest/system/identity"
+	mikrotikRestSystemResourcePath = "/rest/system/resource"
+	mikrotikRestInterfacePath      = "/rest/interface"
+	mikrotikRestIPAddressPath      = "/rest/ip/address"
+	mikrotikRestBridgePortPath     = "/rest/interface/bridge/port"
+	mikrotikRestBridgeVLANPath     = "/rest/interface/bridge/vlan"
+	mikrotikRestIPNeighborPath     = "/rest/ip/neighbor"
+)
+
 func TestQueryMikroTikDevices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
@@ -43,9 +53,9 @@ func TestQueryMikroTikDevices(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 
 		switch r.URL.Path {
-		case "/rest/system/identity":
+		case mikrotikRestSystemIdentityPath:
 			_ = json.NewEncoder(w).Encode(map[string]any{"name": "chr-demo"})
-		case "/rest/system/resource":
+		case mikrotikRestSystemResourcePath:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"version":           "7.16.1",
 				"architecture-name": "x86_64",
@@ -57,7 +67,7 @@ func TestQueryMikroTikDevices(t *testing.T) {
 				"model":         "CHR",
 				"serial-number": "ABC123",
 			})
-		case "/rest/interface":
+		case mikrotikRestInterfacePath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					".id":         "*2",
@@ -69,14 +79,14 @@ func TestQueryMikroTikDevices(t *testing.T) {
 					"comment":     "WAN uplink",
 				},
 			})
-		case "/rest/ip/address":
+		case mikrotikRestIPAddressPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"interface": "ether1",
 					"address":   "192.168.88.2/24",
 				},
 			})
-		case "/rest/interface/bridge/port":
+		case mikrotikRestBridgePortPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"interface": "ether1",
@@ -84,7 +94,7 @@ func TestQueryMikroTikDevices(t *testing.T) {
 					"pvid":      "1",
 				},
 			})
-		case "/rest/interface/bridge/vlan":
+		case mikrotikRestBridgeVLANPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"vlan-ids": "10",
@@ -92,7 +102,7 @@ func TestQueryMikroTikDevices(t *testing.T) {
 					"untagged": "ether1",
 				},
 			})
-		case "/rest/ip/neighbor":
+		case mikrotikRestIPNeighborPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"interface":   "ether1",
@@ -160,9 +170,9 @@ func TestQueryMikroTikDevicesIgnoresUnsupportedRouterboardEndpoint(t *testing.T)
 		w.Header().Set("Content-Type", "application/json")
 
 		switch r.URL.Path {
-		case "/rest/system/identity":
+		case mikrotikRestSystemIdentityPath:
 			_ = json.NewEncoder(w).Encode(map[string]any{"name": "chr-demo"})
-		case "/rest/system/resource":
+		case mikrotikRestSystemResourcePath:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"version":           "7.21.3",
 				"architecture-name": "x86_64",
@@ -172,7 +182,7 @@ func TestQueryMikroTikDevicesIgnoresUnsupportedRouterboardEndpoint(t *testing.T)
 		case "/rest/system/routerboard":
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"detail":"no such command or directory (routerboard)","error":400,"message":"Bad Request"}`))
-		case "/rest/interface":
+		case mikrotikRestInterfacePath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					".id":         "*1",
@@ -191,18 +201,18 @@ func TestQueryMikroTikDevicesIgnoresUnsupportedRouterboardEndpoint(t *testing.T)
 					"disabled":    false,
 				},
 			})
-		case "/rest/ip/address":
+		case mikrotikRestIPAddressPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"interface": "ether1",
 					"address":   "192.168.6.167/24",
 				},
 			})
-		case "/rest/interface/bridge/port":
+		case mikrotikRestBridgePortPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/rest/interface/bridge/vlan":
+		case mikrotikRestBridgeVLANPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/rest/ip/neighbor":
+		case mikrotikRestIPNeighborPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
 			http.NotFound(w, r)

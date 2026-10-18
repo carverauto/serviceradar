@@ -150,6 +150,9 @@ func (a *fakeSNMPAgent) serve() {
 
 				cursor = pdu.Name
 			}
+		case gosnmp.Sequence, gosnmp.GetResponse, gosnmp.SetRequest,
+			gosnmp.Trap, gosnmp.InformRequest, gosnmp.SNMPv2Trap, gosnmp.Report:
+			continue
 		default:
 			continue
 		}
@@ -208,7 +211,7 @@ func interfacesByIndex(interfaces []*DiscoveredInterface) map[int32]*DiscoveredI
 // host addresses, while RFC 3021 /31 links, /32 host routes and a .255 host
 // inside a wider prefix are.
 func TestQueryInterfacesOverSNMPDropsBroadcastAddresses(t *testing.T) {
-	var mib []gosnmp.SnmpPDU
+	mib := make([]gosnmp.SnmpPDU, 0, 40)
 
 	mib = append(mib, ifTableRow(2, "ether2")...)
 	mib = append(mib, ifTableRow(3, "wan1")...)
@@ -286,17 +289,17 @@ func TestQueryMikroTikDevicesDropsBroadcastAddresses(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 
 		switch r.URL.Path {
-		case "/rest/system/identity":
+		case mikrotikRestSystemIdentityPath:
 			_ = json.NewEncoder(w).Encode(map[string]any{"name": "rtr01"})
-		case "/rest/system/resource":
+		case mikrotikRestSystemResourcePath:
 			_ = json.NewEncoder(w).Encode(map[string]any{"version": "7.0", "board-name": "CHR"})
-		case "/rest/interface":
+		case mikrotikRestInterfacePath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{".id": "*2", "name": "bridge1", "type": "bridge", "mac-address": "00:11:22:00:00:01"},
 				{".id": "*3", "name": "wan1", "type": "ether", "mac-address": "00:11:22:00:00:02"},
 				{".id": "*4", "name": "p2p1", "type": "ether", "mac-address": "00:11:22:00:00:03"},
 			})
-		case "/rest/ip/address":
+		case mikrotikRestIPAddressPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"interface": "bridge1", "address": "192.0.2.1/24"},
 				{"interface": "bridge1", "address": "192.0.2.255/24"},
@@ -304,7 +307,7 @@ func TestQueryMikroTikDevicesDropsBroadcastAddresses(t *testing.T) {
 				{"interface": "wan1", "address": "203.0.113.255/16"},
 				{"interface": "p2p1", "address": "198.51.100.3/31"},
 			})
-		case "/rest/interface/bridge/port", "/rest/interface/bridge/vlan", "/rest/ip/neighbor":
+		case mikrotikRestBridgePortPath, mikrotikRestBridgeVLANPath, mikrotikRestIPNeighborPath:
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
 			http.NotFound(w, r)
