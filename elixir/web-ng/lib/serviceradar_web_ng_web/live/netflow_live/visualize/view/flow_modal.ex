@@ -154,8 +154,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                     bytes_out: <span class="font-mono">{bytes_out}</span>
                   </div>
                   <div :if={s = sampler}>sampler: <span class="font-mono">{s}</span></div>
-                  <div :if={ft = get_in(ocsf, ["unmapped", "flow_type"])}>
-                    flow_type: <span class="font-mono">{ft}</span>
+                  <div :if={source = flow_source_label(@flow)}>
+                    flow_source: <span class="font-mono">{source}</span>
                   </div>
                 </div>
               </div>

@@ -52,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
     :dst_mac_vendor,
     :dst_mac_vendor_source,
     :sampler_address,
+    :flow_source,
     :src_country_iso2,
     :dst_country_iso2,
     :ocsf_payload,
@@ -176,6 +177,47 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess do
 
   def flow_map_get(%{} = acc, key), do: Map.get(acc, key)
   def flow_map_get(_acc, _key), do: nil
+
+  @legacy_flow_type_labels %{
+    "SFLOW_5" => "sFlow v5",
+    "NETFLOW_V5" => "NetFlow v5",
+    "NETFLOW_V9" => "NetFlow v9",
+    "IPFIX" => "IPFIX"
+  }
+
+  @doc """
+  The exporter protocol of a flow row, as the label EventWriter stores in
+  `flow_source` ("NetFlow v9", "IPFIX", "sFlow v5", ...), or `nil` when unknown.
+
+  Warehouse rows carry it as the `flow_source` column and have no
+  `ocsf_payload`. CNPG rows carry it inside `ocsf_payload`, and the oldest of
+  those only as the collector's `flow_type` code.
+  """
+  def flow_source_label(flow) when is_map(flow) do
+    payload = flow_get(flow, ["ocsf_payload", "ocsf"])
+
+    Enum.find_value(
+      [
+        flow_get(flow, ["flow_source"]),
+        flow_get_in(payload, ["flow_source"]),
+        flow_get_in(payload, ["unmapped", "flow_type"]),
+        flow_get_in(payload, ["flow_type"])
+      ],
+      &normalize_flow_source/1
+    )
+  end
+
+  def flow_source_label(_flow), do: nil
+
+  defp normalize_flow_source(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      "Unknown" -> nil
+      label -> Map.get(@legacy_flow_type_labels, label, label)
+    end
+  end
+
+  defp normalize_flow_source(_value), do: nil
 
   def flow_app_label(flow) when is_map(flow) do
     # Prefer persisted enrichment labels first.
