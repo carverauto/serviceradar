@@ -355,8 +355,10 @@ the kernel event.
   with the source side ahead of the destination, the same total order the ingest path applies
   (Decisions 2 and 3); an unattributed flow has the lowest precedence. One rule covers every
   arrival order: **for a flow whose decision state is retained for its full late window, the
-  final decision is a function of the candidate set as it stands when the window closes,
-  independent of the order in which lease events arrived.** Budget-forced early finalization
+  final decision is a function of the candidates whose registration snapshot or notification
+  the home shard processed by the window's cutoff, independent of the order in which lease
+  events arrived.** A candidate applied on a remote shard before the cutoff whose notification
+  reaches the home shard after it is not included (Distributed ordering). Budget-forced early finalization
   (*Bound* below) is the one specified exception, and it is flagged on the flow.
   - *Enrollment*: every flow with a monitored side is enrolled when it is written, whether it
     was written without an owner or with an ingest winner. Nothing finalizes a decision early
@@ -596,6 +598,9 @@ implementation, with this intended handling:
   rebuilt by replay. Flows whose state is lost keep their last published decision and are
   flagged and counted like budget-forced early finalization. Deferred: replicating open
   decision states to the warm standby.
+- *Lease applied remotely before the cutoff, notified after it*: the candidate is not part of
+  the final decision and the late notification is counted as `late_conflict`. Deferred:
+  whether to wait for in-flight notifications, which would extend the window.
 - *Registration still unacknowledged at the cutoff*: covered above
   (`decision_closed_unreconciled`).
 

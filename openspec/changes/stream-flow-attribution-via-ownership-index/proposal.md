@@ -67,16 +67,17 @@ lookups before their single StarRocks write.
   are merged in stages down to a per-direction overflow row, so the cap is strict, and every
   merge is counted; nothing is silently dropped. The ownership index does not use them.
 - **Late decisions do not depend on arrival order.** For a flow whose decision state lasts
-  its full late window, the final decision is a function of the candidate set when the window
-  closes. The home shard recomputes it on every change to that set (new leases, delayed
+  its full late window, the final decision is a function of the candidates the home shard
+  processed by the window's cutoff. The home shard recomputes it on every change to that set (new leases, delayed
   closes, expiry) and publishes whenever it changes, including evidence-only updates for newly
   found ambiguity; updates are ordered by a per-flow decision sequence. If the decision-state
   budget binds, the oldest states finalize early and are flagged and counted.
 - **Agent-local attribution stays primary** for flows an agent produces itself. The index serves
   flows from routers and other exporters.
 - **Ownership history for incident response** moves from the sighting table to an append-only
-  lease history table, one row per finished lease, under the existing `attribution` retention
-  dataset.
+  lease history table, one row per ownership event (`OPEN`, `RENEW`, `CLOSE`, `SNAPSHOT`
+  entry), so a long-lived lease adds one renewal row per renewal period, under the existing
+  `attribution` retention dataset.
 - **Capacity targets become requirements:** at least 1M flows/s attributed across horizontally
   scaled consumers, ownership ingest from 20k agents, bounded memory per shard, and an
   attribution latency budget.
