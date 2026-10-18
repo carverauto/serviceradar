@@ -137,31 +137,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     {"ITEST-CVE-0003", "2024-03-25T23:59:59.999"}
   ]
 
-  defp load_generation(feed_key, records) do
-    generation = Loader.next_generation(@provider, feed_key)
-    completeness = complete_snapshot(length(records))
-
-    result =
-      Loader.load_stream(records,
-        provider: @provider,
-        feed_key: feed_key,
-        generation: generation,
-        completeness: completeness
-      )
-
-    {result, generation}
-  end
-
-  defp load(feed_key, records) do
+  defp load(feed_key, records, opts \\ []) do
     generation = Loader.next_generation(@provider, feed_key)
 
-    assert {:ok, result} =
-             Loader.load_and_finalize(records,
-               provider: @provider,
-               feed_key: feed_key,
-               generation: generation,
-               completeness: complete_snapshot(length(records))
-             )
+    opts =
+      opts
+      |> Keyword.put_new_lazy(:completeness, fn -> complete_snapshot(length(records)) end)
+      |> Keyword.merge(provider: @provider, feed_key: feed_key, generation: generation)
+
+    assert {:ok, result} = Loader.load_and_finalize(records, opts)
 
     {result, generation}
   end
@@ -179,6 +163,32 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
       },
       overrides
     )
+  end
+
+  # Records every Repo query issued by this process into the test mailbox.
+  defp capture_queries(tag) do
+    handler_id = {__MODULE__, tag, make_ref()}
+    test_pid = self()
+    telemetry_event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_event,
+      fn _event, _measurements, metadata, %{test_pid: test_pid} ->
+        if self() == test_pid, do: send(test_pid, {tag, metadata.query})
+      end,
+      %{test_pid: test_pid}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp drain_queries(tag, acc) do
+    receive do
+      {^tag, query} -> drain_queries(tag, [query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp drain_assertion_archive_queries(acc) do
@@ -222,13 +232,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     Repo.delete_all(
       from(history in "advisory_package_assertion_history",
         where: history.provider == ^@provider and history.feed_key == ^feed_key
-      ),
-      prefix: @schema
-    )
-
-    Repo.delete_all(
-      from(presence in "advisory_feed_source_presence",
-        where: presence.provider == ^@provider and presence.feed_key == ^feed_key
       ),
       prefix: @schema
     )
@@ -351,24 +354,47 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     )
   end
 
-  defp presence_exists?(feed_key, generation, source_object_id) do
-    Repo.exists?(
+  # A rewrite creates a new row version (a new ctid) even when every value is
+  # identical, so unchanged ctids prove no write reached the row.
+  defp row_versions(feed_key) do
+    advisories =
+      Repo.all(
+        from(a in "vulnerability_advisories",
+          where: a.provider == ^@provider and a.feed_key == ^feed_key,
+          select: {a.source_object_id, fragment("?::text", a.ctid)},
+          order_by: a.source_object_id
+        ),
+        prefix: @schema
+      )
+
+    coordinates =
+      Repo.all(
+        from(c in "advisory_coordinates",
+          where: c.provider == ^@provider and c.feed_key == ^feed_key,
+          select: {c.value, fragment("?::text", c.ctid)},
+          order_by: c.value
+        ),
+        prefix: @schema
+      )
+
+    {advisories, coordinates}
+  end
+
+  defp presence_row_count(feed_key) do
+    Repo.aggregate(
       from(p in "advisory_feed_source_presence",
-        where:
-          p.provider == ^@provider and p.feed_key == ^feed_key and
-            p.generation == ^generation and p.source_object_id == ^source_object_id
+        where: p.provider == ^@provider and p.feed_key == ^feed_key
       ),
+      :count,
       prefix: @schema
     )
   end
 
-  defp presence_generations(feed_key) do
-    Repo.all(
-      from(p in "advisory_feed_source_presence",
-        where: p.provider == ^@provider and p.feed_key == ^feed_key,
-        distinct: true,
-        select: p.generation,
-        order_by: [asc: p.generation]
+  defp generation_written?(feed_key, generation) do
+    Repo.exists?(
+      from(a in "vulnerability_advisories",
+        where:
+          a.provider == ^@provider and a.feed_key == ^feed_key and a.generation == ^generation
       ),
       prefix: @schema
     )
@@ -423,7 +449,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     {coordinates, assertions}
   end
 
-  test "an unchanged source object records presence without rewriting advisory or coordinate content",
+  test "a steady-state run over an unchanged corpus writes no advisory, coordinate, or presence rows",
        %{
          feed_key: feed_key
        } do
@@ -435,8 +461,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
     advisory_before = updated_ats(feed_key)
     coordinate_before = coordinate_updated_ats(feed_key)
+    versions_before = row_versions(feed_key)
 
-    {second, generation} = load(feed_key, all_records())
+    {second, _generation} = load(feed_key, all_records())
 
     # THE regression assertion. Before the fix this was skipped: 0, upserted: 3.
     assert second.advisories_skipped == 3,
@@ -448,10 +475,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert second.source_objects_seen == 3
     assert second.parse_errors == 0
 
-    for {source_object_id, _modified_at} <- @records do
-      assert presence_exists?(feed_key, generation, source_object_id)
-    end
-
+    assert row_versions(feed_key) == versions_before
+    assert presence_row_count(feed_key) == 0
     assert updated_ats(feed_key) == advisory_before
     assert coordinate_updated_ats(feed_key) == coordinate_before
     assert live_count(feed_key) == 3
@@ -749,7 +774,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     generation = Loader.next_generation(@provider, feed_key)
 
     assert {:error, {:incomplete_snapshot, [_ | _]}} =
-             Loader.load_stream([changed],
+             Loader.load_and_finalize([changed],
                provider: @provider,
                feed_key: feed_key,
                generation: generation,
@@ -807,53 +832,100 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
     assert current_source_ids(feed_key) == prior_source_ids
 
-    refute Enum.any?(initial, fn item ->
-             presence_exists?(feed_key, generation, item.advisory.source_object_id)
-           end)
+    refute generation_written?(feed_key, generation)
   end
 
-  test "a later chunk failure rolls back earlier changed content in the same run", %{
+  test "a load that fails partway withdraws nothing and leaves committed chunks whole", %{
     feed_key: feed_key
   } do
-    source_object_id = "ITEST-CVE-ROLLBACK"
+    source_object_id = "CVE-2099-0301"
+    absent_source_object_id = "CVE-2099-0302"
 
     initial =
-      record(source_object_id, "2024-01-01T00:00:00Z",
+      record(source_object_id, "2099-01-01T00:00:00Z",
         coordinates: [coordinate("last-complete")],
         assertions: [assertion("assertion-last-complete", source_object_id, "last-complete")]
       )
 
-    load(feed_key, [initial])
+    load(feed_key, [initial, record(absent_source_object_id, "2099-01-01T00:00:00Z")])
     original_id = advisory_id(feed_key, source_object_id)
-    original_children = child_values(feed_key, source_object_id)
-    original_timestamps = {updated_ats(feed_key), coordinate_updated_ats(feed_key)}
 
     changed =
-      record(source_object_id, "2024-02-01T00:00:00Z",
-        coordinates: [coordinate("would-leak")],
-        assertions: [assertion("assertion-would-leak", source_object_id, "would-leak")]
+      record(source_object_id, "2099-02-01T00:00:00Z",
+        coordinates: [coordinate("replacement-a"), coordinate("replacement-b")],
+        assertions: [assertion("assertion-replacement", source_object_id, "replacement")]
       )
 
     invalid_record =
-      "ITEST-CVE-INVALID"
-      |> record("2024-02-01T00:00:00Z")
+      "CVE-2099-0303"
+      |> record("2099-02-01T00:00:00Z")
       |> put_in([:advisory, :source_object_id], nil)
 
-    generation = Loader.next_generation(@provider, feed_key)
-
+    # The absent advisory is missing from this snapshot, so only a promoted run
+    # could withdraw it.
     assert_raise Postgrex.Error, fn ->
       Loader.load_and_finalize([changed, invalid_record],
         provider: @provider,
         feed_key: feed_key,
-        generation: generation,
         chunk_size: 1,
         completeness: complete_snapshot(2)
       )
     end
 
+    assert current_source_ids(feed_key) == [source_object_id, absent_source_object_id]
+
+    # The first chunk committed: its advisory carries the complete replacement,
+    # never a mix of old and new children.
     assert advisory_id(feed_key, source_object_id) == original_id
-    assert child_values(feed_key, source_object_id) == original_children
-    assert {updated_ats(feed_key), coordinate_updated_ats(feed_key)} == original_timestamps
+
+    assert child_values(feed_key, source_object_id) ==
+             {[coordinate("replacement-a").value, coordinate("replacement-b").value],
+              ["assertion-replacement"]}
+  end
+
+  @tag sandbox: :unboxed
+  test "each chunk commits before the load reads the next chunk", %{feed_key: feed_key} do
+    [first, second, third] = all_records()
+    test_pid = self()
+
+    # Counted on another connection, so only committed rows are visible.
+    committed_count = fn ->
+      fn ->
+        Repo.aggregate(
+          from(a in "vulnerability_advisories",
+            where: a.provider == ^@provider and a.feed_key == ^feed_key
+          ),
+          :count,
+          prefix: @schema
+        )
+      end
+      |> Task.async()
+      |> Task.await(5_000)
+    end
+
+    records =
+      Stream.resource(
+        fn -> [first, second, :probe, third] end,
+        fn
+          [] ->
+            {:halt, []}
+
+          [:probe | rest] ->
+            send(test_pid, {:committed_before_third_chunk, committed_count.()})
+            {[], rest}
+
+          [record | rest] ->
+            {[record], rest}
+        end,
+        fn _ -> :ok end
+      )
+
+    {result, _generation} =
+      load(feed_key, records, chunk_size: 1, completeness: complete_snapshot(3))
+
+    assert_received {:committed_before_third_chunk, 2}
+    assert result.advisories_upserted == 3
+    assert live_count(feed_key) == 3
   end
 
   test "retains superseded Ubuntu assertion snapshots across generations", %{
@@ -1188,7 +1260,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
   end
 
   @tag :tmp_dir
-  test "Ubuntu projected worker loads validated records, applies tombstones, and rolls back a late failure",
+  test "Ubuntu projected worker loads validated records, applies tombstones, and withdraws nothing on a late failure",
        %{feed_key: feed_key, tmp_dir: tmp_dir} do
     projected = read_ubuntu_fixture("projected_record_v2.json")
     manifest = ubuntu_manifest()
@@ -1221,6 +1293,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert complete.validation["vex"]["count"] == 1
     assert complete.validation["projection"] == %{"complete" => true, "version" => 2}
     assert current_source_ids(feed_key) == ["UBUNTU-CVE-2099-424242"]
+    complete_children = child_values(feed_key, "UBUNTU-CVE-2099-424242")
 
     assert Repo.exists?(
              from(assertion in "advisory_package_assertions",
@@ -1247,7 +1320,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert {_tombstone_result, _generation} = load(feed_key, [tombstone])
     assert child_values(feed_key, "UBUNTU-CVE-2099-424242") == {[], []}
 
-    generations_before = presence_generations(feed_key)
     current_before = current_source_ids(feed_key)
     changed = put_in(paired, [:advisory, :modified_at], ~U[2099-04-10 11:12:13Z])
 
@@ -1270,9 +1342,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
       )
     end
 
-    assert presence_generations(feed_key) == generations_before
+    # The chunk before the failure committed a whole replacement; nothing was
+    # withdrawn because the run never finalized.
     assert current_source_ids(feed_key) == current_before
-    assert child_values(feed_key, "UBUNTU-CVE-2099-424242") == {[], []}
+    assert child_values(feed_key, "UBUNTU-CVE-2099-424242") == complete_children
   end
 
   defp compact_ubuntu_acquired(tmp_dir, suffix) do
@@ -1495,25 +1568,133 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert child_values(feed_key, source_object_id) == original_children
   end
 
-  test "a validated complete generation retires only current advisories absent from its presence",
+  test "a validated complete run withdraws exactly the absent current advisories, in batches",
        %{
          feed_key: feed_key
        } do
-    [kept, withdrawn | _] = all_records()
-    load(feed_key, [kept, withdrawn])
+    records =
+      for index <- 1..1_003 do
+        record("CVE-2099-#{40_000 + index}", "2099-01-01T00:00:00Z")
+      end
 
-    # Make the withdrawn content generation old enough that the legacy
+    load(feed_key, records)
+    [kept_a, kept_b | absent] = records
+
+    # Make the absent content generation old enough that the legacy
     # numeric-generation reaper would delete it during the next promotion.
     for index <- 1..3 do
       Loader.next_generation("unrelated-provider", "unrelated-feed-#{index}")
     end
 
-    {result, generation} = load(feed_key, [kept])
+    capture_queries(:withdrawal_query)
+    {result, _generation} = load(feed_key, [kept_a, kept_b])
 
-    assert result.advisories_skipped == 1
-    assert presence_exists?(feed_key, generation, kept.advisory.source_object_id)
-    assert current_source_ids(feed_key) == [kept.advisory.source_object_id]
-    assert advisory_id(feed_key, withdrawn.advisory.source_object_id)
+    withdrawal_statements =
+      :withdrawal_query
+      |> drain_queries([])
+      |> Enum.filter(&String.contains?(&1, "ordinal = ANY"))
+
+    assert result.advisories_skipped == 2
+
+    assert current_source_ids(feed_key) ==
+             Enum.sort([kept_a.advisory.source_object_id, kept_b.advisory.source_object_id])
+
+    # 1,001 withdrawals in batches of at most 1,000, and withdrawn rows are kept.
+    assert length(withdrawal_statements) == 2
+
+    assert Repo.aggregate(
+             from(a in "vulnerability_advisories",
+               where: a.provider == ^@provider and a.feed_key == ^feed_key and a.current == false
+             ),
+             :count,
+             prefix: @schema
+           ) == length(absent)
+  end
+
+  test "rows the ordinal backfill has not reached are numbered when observed and withdrawn when absent",
+       %{feed_key: feed_key} do
+    [observed, absent | _] = all_records()
+    load(feed_key, [observed, absent])
+
+    # The state between adding the column and the ordinal backfill job finishing.
+    Repo.query!(
+      "ALTER TABLE platform.vulnerability_advisories ALTER COLUMN ordinal DROP NOT NULL"
+    )
+
+    Repo.update_all(
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^@provider and a.feed_key == ^feed_key
+      ),
+      [set: [ordinal: nil]],
+      prefix: @schema
+    )
+
+    {result, _generation} = load(feed_key, [observed])
+
+    assert result.source_objects_seen == 1
+    assert current_source_ids(feed_key) == [observed.advisory.source_object_id]
+
+    assert Repo.one!(
+             from(a in "vulnerability_advisories",
+               where:
+                 a.provider == ^@provider and a.feed_key == ^feed_key and
+                   a.source_object_id == ^observed.advisory.source_object_id,
+               select: not is_nil(a.ordinal)
+             ),
+             prefix: @schema
+           )
+  end
+
+  test "a row the ordinal backfill numbers during finalization is still withdrawn when absent",
+       %{feed_key: feed_key} do
+    [observed, absent | _] = all_records()
+    load(feed_key, [observed, absent])
+
+    Repo.query!(
+      "ALTER TABLE platform.vulnerability_advisories ALTER COLUMN ordinal DROP NOT NULL"
+    )
+
+    Repo.update_all(
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^@provider and a.feed_key == ^feed_key
+      ),
+      [set: [ordinal: nil]],
+      prefix: @schema
+    )
+
+    # Stands in for the ordinal backfill job numbering the absent row on another
+    # connection the moment the loader has scanned the numbered current rows.
+    handler_id = {__MODULE__, :backfill_during_finalize, make_ref()}
+    test_pid = self()
+    telemetry_event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_event,
+      fn _event, _measurements, metadata, _config ->
+        if self() == test_pid and String.contains?(metadata.query, ~s("ordinal" > )) and
+             !Process.get(:backfill_ran) do
+          Process.put(:backfill_ran, true)
+
+          Repo.query!(
+            """
+            UPDATE platform.vulnerability_advisories
+            SET ordinal = nextval('platform.vulnerability_advisories_ordinal_seq')
+            WHERE provider = $1 AND feed_key = $2 AND source_object_id = $3
+            """,
+            [@provider, feed_key, absent.advisory.source_object_id]
+          )
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    load(feed_key, [observed])
+
+    assert Process.get(:backfill_ran)
+    assert current_source_ids(feed_key) == [observed.advisory.source_object_id]
   end
 
   test "empty, partial, corrupt, errored, and incomplete generations cannot demote", %{
@@ -1533,26 +1714,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
     for overrides <- invalid_overrides do
       records = if overrides[:source_objects_seen] == 0, do: [], else: [kept]
-
-      {result, generation} =
-        case records do
-          [] -> {%{source_objects_seen: 0}, Loader.next_generation(@provider, feed_key)}
-          _ -> load_generation(feed_key, records)
-        end
-
-      completeness = complete_snapshot(result.source_objects_seen, overrides)
+      completeness = complete_snapshot(length(records), overrides)
 
       assert {:error, {:incomplete_snapshot, [_ | _]}} =
-               Loader.finalize(@provider, feed_key, generation, completeness: completeness)
+               Loader.load_and_finalize(records,
+                 provider: @provider,
+                 feed_key: feed_key,
+                 completeness: completeness
+               )
 
       assert current_source_ids(feed_key) ==
                Enum.sort([kept.advisory.source_object_id, protected.advisory.source_object_id])
     end
   end
 
-  test "finalize/4 requires explicit validated completeness", %{feed_key: feed_key} do
+  test "a run requires explicit completeness evidence", %{feed_key: feed_key} do
     assert_raise KeyError, fn ->
-      Loader.finalize(@provider, feed_key, 1, [])
+      Loader.load_and_finalize([], provider: @provider, feed_key: feed_key)
     end
   end
 
@@ -1630,31 +1808,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     }
   end
 
-  test "presence-only generations are never reused", %{feed_key: feed_key} do
+  test "skip-only generations are never reused", %{feed_key: feed_key} do
     [record | _] = all_records()
     {_first, first_generation} = load(feed_key, [record])
-    {_second, presence_only_generation} = load(feed_key, [record])
+    {_second, skip_only_generation} = load(feed_key, [record])
 
-    assert presence_only_generation > first_generation
-    assert Loader.next_generation(@provider, feed_key) > presence_only_generation
-  end
-
-  test "presence cleanup retains the last three actual feed generations across global gaps", %{
-    feed_key: feed_key
-  } do
-    [record | _] = all_records()
-
-    generations =
-      Enum.map(1..4, fn index ->
-        {_result, generation} = load(feed_key, [record])
-
-        for gap <- 1..4 do
-          Loader.next_generation("unrelated-provider", "gap-#{index}-#{gap}")
-        end
-
-        generation
-      end)
-
-    assert presence_generations(feed_key) == Enum.take(generations, -3)
+    assert skip_only_generation > first_generation
+    assert Loader.next_generation(@provider, feed_key) > skip_only_generation
   end
 end

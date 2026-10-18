@@ -346,7 +346,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
           modified_at: ~U[2026-01-15 12:34:56.123Z],
           content_hash: String.duplicate("a", 64),
           normalization_version: 3,
-          projection_digest: String.duplicate("b", 64)
+          projection_digest: String.duplicate("b", 64),
+          ordinal: 7
         }
       }
 
@@ -386,6 +387,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
   end
 
   describe "chunk_by_serialized_size/3" do
+    test "emits a full chunk before pulling the next record" do
+      records =
+        Stream.resource(
+          fn -> [:a, :b, :fail] end,
+          fn
+            [:fail] -> raise "next record pulled"
+            [record | rest] -> {[record], rest}
+          end,
+          fn _ -> :ok end
+        )
+
+      assert [[:a, :b]] = records |> Loader.chunk_by_serialized_size(2, 1_024) |> Enum.take(1)
+    end
+
     test "bounds chunks by both row count and serialized bytes" do
       small_a = %{id: "a", payload: String.duplicate("a", 80)}
       small_b = %{id: "b", payload: String.duplicate("b", 80)}
@@ -402,7 +417,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
                |> Enum.to_list()
     end
 
-    test "splits an nvd snapshot into byte-capped batches" do
+    test "splits any feed snapshot into 16 MiB batches" do
       payload = String.duplicate("x", 6_500_000)
 
       records =
@@ -416,13 +431,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
 
       chunks =
         records
-        |> Loader.chunk_records("nvd")
+        |> Loader.chunk_records()
         |> Enum.to_list()
 
       assert length(chunks) > 1
 
       assert Enum.all?(chunks, fn chunk ->
-               :erlang.external_size(chunk) <= Loader.nvd_chunk_bytes()
+               :erlang.external_size(chunk) <= 16 * 1_024 * 1_024
              end)
     end
   end
