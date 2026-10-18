@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability
   alias ServiceRadar.Inventory.AdvisoryFeeds.Parsers
   alias ServiceRadar.Inventory.AdvisoryFeeds.StreamReader
 
@@ -16,7 +17,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert advisory.severity == "high"
       assert advisory.cvss_score == 7.5
       assert advisory.metadata["cwes"] == ["CWE-787"]
-      assert advisory.metadata["normalization_version"] == 2
+      assert advisory.metadata["normalization_version"] == 3
       assert advisory.raw == record
 
       assert [coordinate] = coordinates
@@ -107,10 +108,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert coordinate.value == "cpe:2.3:a:example:starling_fetch:3.2.1:*:*:*:*:*:*:*"
 
       assert %{
-               "expression_version" => 2,
+               "expression_version" => 3,
                "affected_term_ids" => ["starling-fetch-term"],
-               "expression" => expression
+               "configuration_refs" => [
+                 %{"configuration_index" => 0, "required_term_ids" => ["starling-fetch-term"]}
+               ]
              } = coordinate.metadata["nvd_applicability"]
+
+      assert %{"expression" => expression} = resolved_applicability(advisory, coordinate)
 
       assert expression["op"] == "and"
       assert expression["negate"] == false
@@ -148,13 +153,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         }
       }
 
-      assert {:ok, %{coordinates: [coordinate]}} =
+      assert {:ok, %{advisory: advisory, coordinates: [coordinate]}} =
                Parsers.Nvd.parse_record(record, provider: "nvd", feed_key: "nist-nvd2")
 
       assert %{
                "affected_term_ids" => ["starling-one", "starling-two"],
                "expression" => %{"op" => "or", "children" => [first, second]}
-             } = coordinate.metadata["nvd_applicability"]
+             } = resolved_applicability(advisory, coordinate)
 
       assert Enum.map(
                [first, second],
@@ -203,18 +208,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         }
       }
 
-      assert {:ok, %{coordinates: coordinates}} =
+      assert {:ok, %{advisory: advisory, coordinates: coordinates}} =
                Parsers.Nvd.parse_record(record, provider: "nvd", feed_key: "nist-nvd2")
 
-      by_product = Map.new(coordinates, &{&1.cpe_product, &1})
-
-      starling_criteria =
-        expression_criteria(
-          by_product["starling_fetch"].metadata["nvd_applicability"]["expression"]
+      by_product =
+        Map.new(
+          coordinates,
+          &{&1.cpe_product, resolved_applicability(advisory, &1)["expression"]}
         )
 
-      quartz_criteria =
-        expression_criteria(by_product["quartz_tls"].metadata["nvd_applicability"]["expression"])
+      starling_criteria = expression_criteria(by_product["starling_fetch"])
+      quartz_criteria = expression_criteria(by_product["quartz_tls"])
 
       assert Enum.any?(starling_criteria, &String.contains?(&1, ":starling_fetch:"))
       refute Enum.any?(starling_criteria, &String.contains?(&1, ":quartz_tls:"))
@@ -222,14 +226,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       refute Enum.any?(quartz_criteria, &String.contains?(&1, ":starling_fetch:"))
 
       assert Enum.any?(
-               expression_terms(
-                 by_product["quartz_tls"].metadata["nvd_applicability"]["expression"]
-               ),
+               expression_terms(by_product["quartz_tls"]),
                fn term ->
                  term["role"] == "environment" and
                    String.starts_with?(term["term_id"], "configurations/")
                end
              )
+    end
+
+    test "persisted applicability grows linearly with the record's coordinates" do
+      # Each coordinate used to embed the whole configuration expression, so a
+      # record's stored bytes grew with coordinates x expression size (~3.4x per
+      # doubling here). Storing the expression once keeps doubling near 2x.
+      at_50 = persisted_applicability_bytes(wide_configuration_record(50))
+      at_100 = persisted_applicability_bytes(wide_configuration_record(100))
+
+      assert at_100 / at_50 < 2.2,
+             "doubling coordinates grew stored applicability #{Float.round(at_100 / at_50, 2)}x " <>
+               "(#{at_50} -> #{at_100} bytes)"
     end
 
     test "excludes non-vulnerable cpeMatch entries" do
@@ -665,6 +679,62 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
           ]
         }
       ]
+    }
+  end
+
+  defp resolved_applicability(advisory, coordinate) do
+    coordinate.metadata
+    |> NvdApplicability.resolve_metadata(advisory.nvd_configurations)
+    |> Map.fetch!("nvd_applicability")
+  end
+
+  # The bytes the loader persists for one record's applicability: every
+  # coordinate's metadata plus the advisory's configuration expressions.
+  defp persisted_applicability_bytes(record) do
+    {:ok, %{advisory: advisory, coordinates: coordinates}} =
+      Parsers.Nvd.parse_record(record, provider: "nvd", feed_key: "nist-nvd2")
+
+    coordinate_bytes =
+      coordinates |> Enum.map(&byte_size(Jason.encode!(&1.metadata))) |> Enum.sum()
+
+    coordinate_bytes + byte_size(Jason.encode!(Map.get(advisory, :nvd_configurations)))
+  end
+
+  # One configuration: N affected application CPEs AND a fixed set of 20
+  # environment operating systems.
+  defp wide_configuration_record(affected_count) do
+    affected =
+      for i <- 1..affected_count do
+        %{
+          "vulnerable" => true,
+          "criteria" => "cpe:2.3:a:example:widget_#{i}:*:*:*:*:*:*:*:*",
+          "versionEndExcluding" => "2.#{i}.0",
+          "matchCriteriaId" => "widget-#{i}"
+        }
+      end
+
+    environment =
+      for i <- 1..20 do
+        %{
+          "vulnerable" => false,
+          "criteria" => "cpe:2.3:o:exampleos:atlas_linux:#{i}:*:*:*:*:*:*:*",
+          "matchCriteriaId" => "atlas-#{i}"
+        }
+      end
+
+    %{
+      "cve" => %{
+        "id" => "CVE-2099-0101",
+        "configurations" => [
+          %{
+            "operator" => "AND",
+            "nodes" => [
+              %{"operator" => "OR", "cpeMatch" => affected},
+              %{"operator" => "OR", "cpeMatch" => environment}
+            ]
+          }
+        ]
+      }
     }
   end
 

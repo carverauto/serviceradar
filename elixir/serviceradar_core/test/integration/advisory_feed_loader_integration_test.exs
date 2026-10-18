@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker
   alias ServiceRadar.Inventory.AdvisoryFeeds.Loader
+  alias ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability
   alias ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd
   alias ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Ubuntu
   alias ServiceRadar.Repo
@@ -249,6 +250,51 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     |> Jason.decode!()
   end
 
+  # Two affected products share one configuration and its environment.
+  defp nvd_shared_configuration_record(cve_id, environment, modified_at) do
+    %{
+      "cve" => %{
+        "id" => cve_id,
+        "lastModified" => modified_at,
+        "configurations" => [
+          %{
+            "operator" => "AND",
+            "nodes" => [
+              %{
+                "operator" => "OR",
+                "cpeMatch" => [
+                  %{
+                    "vulnerable" => true,
+                    "criteria" => "cpe:2.3:a:example:widget_one:1.0:*:*:*:*:*:*:*",
+                    "matchCriteriaId" => "widget-one"
+                  },
+                  %{
+                    "vulnerable" => true,
+                    "criteria" => "cpe:2.3:a:example:widget_two:2.0:*:*:*:*:*:*:*",
+                    "matchCriteriaId" => "widget-two"
+                  }
+                ]
+              },
+              %{
+                "operator" => "OR",
+                "cpeMatch" => [
+                  %{"vulnerable" => false, "criteria" => environment, "matchCriteriaId" => "env"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  end
+
+  defp expression_criteria(%{"criteria" => criteria}), do: [criteria]
+
+  defp expression_criteria(%{"children" => children}),
+    do: Enum.flat_map(children, &expression_criteria/1)
+
+  defp expression_criteria(_expression), do: []
+
   defp all_records, do: Enum.map(@records, fn {id, m} -> record(id, m) end)
 
   defp live_count(feed_key) do
@@ -463,8 +509,60 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert %{advisories_upserted: 0, advisories_skipped: 1} =
              load_version.(Nvd.normalization_version())
 
-    assert %{normalization_version: 2} =
+    expected_version = Nvd.normalization_version()
+
+    assert %{normalization_version: ^expected_version} =
              Loader.existing_advisory_state(@provider, feed_key)[source_object_id]
+  end
+
+  test "NVD configurations are stored once on the advisory and replaced with it", %{
+    feed_key: feed_key
+  } do
+    cve_id = "CVE-2099-0201"
+
+    load_nvd = fn environment, modified_at ->
+      {:ok, parsed} =
+        cve_id
+        |> nvd_shared_configuration_record(environment, modified_at)
+        |> Nvd.parse_record(provider: @provider, feed_key: feed_key)
+
+      load(feed_key, [parsed])
+      parsed
+    end
+
+    load_nvd.("cpe:2.3:o:exampleos:atlas_linux:9:*:*:*:*:*:*:*", "2099-01-01T00:00:00.000")
+
+    parsed =
+      load_nvd.("cpe:2.3:o:exampleos:atlas_linux:10:*:*:*:*:*:*:*", "2099-02-01T00:00:00.000")
+
+    stored_configurations =
+      Repo.one!(
+        from(a in "vulnerability_advisories",
+          where:
+            a.provider == ^@provider and a.feed_key == ^feed_key and
+              a.source_object_id == ^cve_id,
+          select: a.nvd_configurations
+        ),
+        prefix: @schema
+      )
+
+    assert stored_configurations == parsed.advisory.nvd_configurations
+
+    stored = stored_coordinates(feed_key)
+    assert length(stored) == 2
+
+    for {_product, metadata} <- stored do
+      refute get_in(metadata, ["nvd_applicability", "expression"])
+
+      criteria =
+        metadata
+        |> NvdApplicability.resolve_metadata(stored_configurations)
+        |> get_in(["nvd_applicability", "expression"])
+        |> expression_criteria()
+
+      assert "cpe:2.3:o:exampleos:atlas_linux:10:*:*:*:*:*:*:*" in criteria
+      refute "cpe:2.3:o:exampleos:atlas_linux:9:*:*:*:*:*:*:*" in criteria
+    end
   end
 
   test "existing_modified_at/2 returns values the guard can compare", %{feed_key: feed_key} do
