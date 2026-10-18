@@ -64,43 +64,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
       )
       |> Ash.create()
 
-    # The higher uid is written first so it sits ahead of the lower one in physical order.
-    # Other fixture suites insert and delete ocsf_devices at the same time. A slot they
-    # free between these two inserts is the first place the second row lands, which
-    # puts the lower uid ahead of the higher one. Hold the table across both inserts
-    # so that slot cannot appear between them.
-    #
-    # `Repo.transaction!/1` does not open a SQL transaction: AshPostgres runs the
-    # function and matches its result. `LOCK TABLE` is rejected outside a
-    # transaction block, so this has to be `Repo.transaction/1`.
-    {:ok, devices} =
-      Repo.transaction(fn ->
-        Repo.query!("SET LOCAL lock_timeout = '#{@wait_ms}ms'")
-
-        Repo.query!("LOCK TABLE platform.ocsf_devices IN SHARE ROW EXCLUSIVE MODE")
-
-        for {suffix, ip} <- [{"b", "198.51.100.12"}, {"a", "198.51.100.11"}] do
-          {:ok, device} =
-            Device
-            |> Ash.Changeset.for_create(
-              :create,
-              %{
-                uid: "sweep-lock-order-#{unique}-#{suffix}",
-                ip: ip,
-                partition: partition,
-                hostname: "lock-order-#{suffix}.example.com",
-                discovery_sources: ["netbox"],
-                is_available: false,
-                metadata: %{}
-              },
-              actor: actor
-            )
-            |> Ash.create()
-
-          device
-        end
-      end)
-
+    devices = insert_high_uid_before_low_uid!(unique, partition, actor)
     uids = Enum.map(devices, & &1.uid)
 
     [low_uid, high_uid] =
@@ -113,11 +77,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
 
     # Without this the sweep would reach the lower row first under any plan, and the case
     # could not tell ordered locking from plan-ordered locking.
-    physical_order =
-      Repo.query!(
-        "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) ORDER BY ctid",
-        [uids]
-      ).rows
+    physical_order = physical_uid_order(uids)
 
     assert physical_order == [[high_uid], [low_uid]],
            "setup must place the higher uid ahead of the lower one in physical order, got #{inspect(physical_order)}"
@@ -173,6 +133,33 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
         end
       end
     end
+  end
+
+  test "insert_high_uid_before_low_uid!/3 recovers when the FSM wraps from a later block to an earlier block",
+       context do
+    filler_partition = "lock-order-fsm-#{System.unique_integer([:positive])}"
+    target_partition = "lock-order-fsm-target-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      cleanup!(filler_partition)
+      cleanup!(target_partition)
+    end)
+
+    prepare_fsm_backward_jump!(filler_partition, context.actor)
+
+    [high_device, low_device] =
+      insert_high_uid_before_low_uid!(
+        System.unique_integer([:positive]),
+        target_partition,
+        context.actor
+      )
+
+    assert high_device.uid > low_device.uid
+
+    assert physical_uid_order([high_device.uid, low_device.uid]) == [
+             [high_device.uid],
+             [low_device.uid]
+           ]
   end
 
   # Holds the lower row in its own transaction exactly as the identity fence does
@@ -304,6 +291,128 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
         Task.shutdown(task, :brutal_kill)
       end
     end
+  end
+
+  # Inserts descending-UID devices inside a single table-locked transaction until two
+  # consecutive inserts satisfy `ctid(higher_uid) < ctid(lower_uid)`.
+  #
+  # Locking `platform.ocsf_devices` prevents concurrent transactions from interleaving,
+  # but a single backend's first insert can still fill the last free slot on its cached
+  # `smgr_targblock` (a higher block number) and force the second insert to query the
+  # Free Space Map (FSM), which may return an earlier vacuumed block (`ctid(second) < ctid(first)`).
+  # Keeping earlier attempts in the heap until a pair lands in increasing `ctid` order prevents
+  # the FSM from reusing those slots and guarantees termination in well-founded `ctid` order.
+  defp insert_high_uid_before_low_uid!(unique, partition, actor) do
+    {:ok, devices} =
+      Repo.transaction(fn ->
+        Repo.query!("LOCK TABLE platform.ocsf_devices IN SHARE ROW EXCLUSIVE MODE")
+        first = create_lock_order_device!(unique, partition, actor, 999)
+        advance_until_high_before_low!(unique, partition, actor, first, 998, [])
+      end)
+
+    devices
+  end
+
+  defp advance_until_high_before_low!(_unique, _partition, _actor, _prev, seq, _discarded)
+       when seq < 1 do
+    flunk("failed to place a higher uid before a lower uid in physical order after 999 attempts")
+  end
+
+  defp advance_until_high_before_low!(unique, partition, actor, prev, seq, discarded) do
+    curr = create_lock_order_device!(unique, partition, actor, seq)
+
+    if physical_uid_order([prev.uid, curr.uid]) == [[prev.uid], [curr.uid]] do
+      if discarded != [] do
+        discarded_uids = Enum.map(discarded, & &1.uid)
+        Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [discarded_uids])
+      end
+
+      [prev, curr]
+    else
+      advance_until_high_before_low!(unique, partition, actor, curr, seq - 1, [prev | discarded])
+    end
+  end
+
+  defp create_lock_order_device!(unique, partition, actor, seq) do
+    seq_tag = seq |> Integer.to_string() |> String.pad_leading(4, "0")
+    third_octet = div(1000 - seq, 250)
+    fourth_octet = rem(1000 - seq, 250) + 1
+
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        uid: "sr:lock-order-#{unique}-#{seq_tag}",
+        ip: "198.18.#{third_octet}.#{fourth_octet}",
+        partition: partition,
+        is_available: true,
+        metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create!(return_notifications?: true)
+    |> case do
+      {device, _notifications} -> device
+      device -> device
+    end
+  end
+
+  defp physical_uid_order(uids) do
+    Repo.query!(
+      "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) ORDER BY ctid",
+      [uids]
+    ).rows
+  end
+
+  defp prepare_fsm_backward_jump!(partition, actor) do
+    unique = System.unique_integer([:positive])
+    Repo.query!("VACUUM platform.ocsf_devices")
+
+    first_row = {_u0, b0} = insert_filler_with_block!(unique, partition, actor, 999)
+
+    {next_seq, b1, first_b1_row, b0_rows} =
+      Enum.reduce_while(998..1//-1, [first_row], fn seq, acc ->
+        {_u, b} = row = insert_filler_with_block!(unique, partition, actor, seq)
+        if b > b0, do: {:halt, {seq, b, row, Enum.reverse(acc)}}, else: {:cont, [row | acc]}
+      end)
+
+    {last_seq, b2, b1_rows} =
+      Enum.reduce_while((next_seq - 1)..1//-1, [first_b1_row], fn seq, acc ->
+        {_u, b} = row = insert_filler_with_block!(unique, partition, actor, seq)
+        if b > b1, do: {:halt, {seq, b, Enum.reverse(acc)}}, else: {:cont, [row | acc]}
+      end)
+
+    Repo.query!(
+      "DELETE FROM platform.ocsf_devices WHERE partition = $1 AND (ctid::text::point)[0]::int = $2",
+      [partition, b2]
+    )
+
+    [{b1_uid, _} | _] = b1_rows
+    [{b0_uid1, _}, {b0_uid2, _}, {b0_uid3, _} | _] = b0_rows
+
+    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [
+      [b1_uid, b0_uid1, b0_uid2, b0_uid3]
+    ])
+
+    Repo.query!("VACUUM platform.ocsf_devices")
+
+    fn ->
+      insert_filler_with_block!(unique, partition, actor, last_seq - 1)
+    end
+    |> Task.async()
+    |> Task.await(@wait_ms)
+  end
+
+  defp insert_filler_with_block!(unique, partition, actor, seq) do
+    device = create_lock_order_device!(unique, partition, actor, seq)
+
+    [[block]] =
+      Repo.query!(
+        "SELECT (ctid::text::point)[0]::int FROM platform.ocsf_devices WHERE uid = $1",
+        [device.uid]
+      ).rows
+
+    {device.uid, block}
   end
 
   # Everything the case commits hangs off its own partition, so cleanup needs no state from a
