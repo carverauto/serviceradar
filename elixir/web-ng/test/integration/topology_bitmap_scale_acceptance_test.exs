@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Topology.Scale.Client
   alias ServiceRadarWebNG.Topology.Scale.Fixture
   alias ServiceRadarWebNG.Topology.Scale.Replica
@@ -53,12 +55,17 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       |> Ash.Changeset.for_create(:create, %{email: "atlas-scale@example.com", role: :viewer}, actor: actor)
       |> Ash.create!()
 
+    # Fail here, not as a later tile 403, if the clone lacks the catalog's viewer profile.
+    assert {:ok, _scope} = RBAC.authorize_current(Scope.for_user(user), ["analytics.view", "devices.view"])
+
     config = Enum.map(Application.loaded_applications(), fn {app, _, _} -> {app, Application.get_all_env(app)} end)
     first = start_replica(config, user)
     on_exit(fn -> stop_replica(first) end)
     second = start_replica(config, user)
     on_exit(fn -> stop_replica(second) end)
-    emit("machines", %{replicas: Enum.map([first, second], & &1.session.machine)})
+    machines = Enum.map([first, second], & &1.session.machine)
+    assert Enum.all?(machines, &(&1.schedulers == 4 and &1.dirty_cpu_schedulers == 4))
+    emit("machines", %{replicas: machines})
 
     for replica <- [first, second] do
       await(fn -> call(replica, :progress) end, &match?({:ok, _}, &1), 600_000, "publisher seed")
@@ -249,6 +256,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     samples = metrics([first, second])
 
     for sample <- samples do
+      assert sample.instrumented
       assert sample.samples > 100
       assert sample.latest.native_unavailable == 0
       assert sample.latest.mapping_unavailable == 0
@@ -312,7 +320,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   end
 
   defp start_replica(config, user) do
-    {:ok, peer, _node} = :peer.start_link(%{connection: :standard_io, args: [~c"+S", ~c"4:4", ~c"+SDcpu", ~c"8"]})
+    {:ok, peer, _node} = :peer.start_link(%{connection: :standard_io, args: [~c"+S", ~c"4:4", ~c"+SDcpu", ~c"4"]})
     Process.unlink(peer)
 
     try do

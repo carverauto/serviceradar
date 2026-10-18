@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
     event = Keyword.fetch!(Repo.config(), :telemetry_prefix) ++ [:query]
     :ok = :telemetry.attach(__MODULE__, event, &__MODULE__.query/4, table)
     send(self(), :sample)
-    {:ok, %{table: table, samples: 0, peaks: %{}, latest: %{}}}
+    {:ok, %{table: table, event: event, samples: 0, peaks: %{}, latest: %{}}}
   end
 
   def query(_event, timing, metadata, table) do
@@ -31,16 +31,18 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
         true -> :other
       end
 
+    # Transaction statements report num_rows nil, and Ecto omits or nils
+    # timings it did not measure; either would otherwise detach this handler.
     rows =
       case metadata.result do
-        {:ok, %{num_rows: rows}} -> rows
+        {:ok, %{num_rows: rows}} when is_integer(rows) -> rows
         _ -> 0
       end
 
     timings =
       Enum.map(
         [:query_time, :decode_time, :queue_time],
-        &System.convert_time_unit(Map.get(timing, &1, 0), :native, :microsecond)
+        &System.convert_time_unit(Map.get(timing, &1) || 0, :native, :microsecond)
       )
 
     [query, decode, queue] = timings
@@ -61,7 +63,10 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
         {key, %{queries: count, rows: rows, query_us: query, decode_us: decode, queue_us: queue}}
       end)
 
-    {:reply, %{samples: state.samples, peaks: state.peaks, latest: memory(), database: db}, state}
+    # A detached handler leaves stale counters behind; report it so they cannot pass.
+    attached = Enum.any?(:telemetry.list_handlers(state.event), &(&1.id == __MODULE__))
+
+    {:reply, %{samples: state.samples, peaks: state.peaks, latest: memory(), database: db, instrumented: attached}, state}
   end
 
   def terminate(_reason, _state), do: :telemetry.detach(__MODULE__)

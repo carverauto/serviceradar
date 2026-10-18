@@ -78,6 +78,26 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     end
   end
 
+  test "the database meter survives transaction events and reports a detached handler" do
+    {:ok, _} = Application.ensure_all_started(:telemetry)
+    start_supervised!(Meter)
+    event = Keyword.fetch!(ServiceRadar.Repo.config(), :telemetry_prefix) ++ [:query]
+
+    # Ecto's commit event: Postgrex reports num_rows nil and decode time is unmeasured.
+    commit = %{query: "commit", options: [], result: {:ok, %Postgrex.Result{command: :commit, num_rows: nil}}}
+    :telemetry.execute(event, %{query_time: 532, decode_time: nil}, commit)
+
+    select = %{query: "SELECT 1", options: [], result: {:ok, %Postgrex.Result{command: :select, num_rows: 3}}}
+    :telemetry.execute(event, %{query_time: 1, decode_time: 1, queue_time: 1}, select)
+
+    report = Meter.report()
+    assert report.instrumented
+    assert %{queries: 2, rows: 3} = report.database.other
+
+    :ok = :telemetry.detach(Meter)
+    refute Meter.report().instrumented
+  end
+
   test "isolated peer VMs load declared harness beams and expose actual Linux RSS" do
     {:ok, peer, _} = :peer.start_link(%{connection: :standard_io, args: [~c"+S", ~c"2:2"]})
 

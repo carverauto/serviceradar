@@ -123,7 +123,8 @@ existing identity or tombstone. The sequence is advanced after bootstrap.
 Sparse means separated high IDs, not a uniform sample of the entire u32 space.
 
 Two isolated BEAM VMs run the production source publishers and endpoint, with
-four ordinary schedulers and eight dirty CPU schedulers each. There is no
+four ordinary schedulers and four dirty CPU schedulers each (ERTS caps dirty
+CPU schedulers at the normal scheduler count). There is no
 mock query source or alternate publisher. Geometry covers 64 tiles, each with
 127 device glyphs and one aggregate. All views cover those tiles; row counts
 must add up to the exact matching population, including zero matches.
