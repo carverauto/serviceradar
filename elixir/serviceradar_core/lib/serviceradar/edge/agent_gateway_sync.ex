@@ -189,8 +189,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{pushed_config_version: ^version}} ->
-        # Same version re-pushed (reconnect / dependency-write re-stream): keep the
-        # original push timestamp so the no-ack window keeps counting.
+        # Same version recorded again (a reconnect pushes the current version):
+        # keep the original timestamp so the no-ack window keeps counting.
         :ok
 
       {:ok, %Agent{} = agent} ->
