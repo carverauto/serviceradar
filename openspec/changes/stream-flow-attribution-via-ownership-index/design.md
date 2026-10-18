@@ -202,8 +202,12 @@ silently unmatched.
 
 **Time-T lookup**: pick the lease whose interval contains T within a skew tolerance (default
 5 s). If several do (two agents claim one key with overlapping validity), pick
-deterministically: container id first, then the most recent `first_seen`, then `agent_id`,
-then `pid`. That is the current tie-break. Count the result as `ambiguous`.
+deterministically by the **owner order**: container id first, then the most recent
+`first_seen`, then `agent_id`, then `pid`. That is the current tie-break. It is a property of
+the candidate leases, never of their arrival order, and it is the third component of
+precedence (Decision 4), so the ingest path and the late path pick the same owner. Count the
+result as `ambiguous`; the flow row's match evidence records it as ambiguous. A key on which
+two owners hold overlapping validity is **contested**.
 
 **Sharding**: keys hash on `(partition, ip)` into 256 fixed **buckets**. E, X and R (hashed on
 their first ip), and A for one address therefore live in one bucket, so one lookup answers
@@ -348,11 +352,14 @@ the kernel event.
   no monitored side is never held: it is written immediately with outcome
   `unmonitored`. The hold buffer has an item cap and a byte cap. On overflow the flow is
   written immediately and goes to the late-stamp set.
-- **Late stamp**: **precedence** is the full ordering tuple `(rank, side)` with the source
-  side ahead of the destination, the same order the ingest path applies (Decision 3); an
-  unattributed flow has the lowest precedence. A flow's precedence is **final** when no
-  monitored side can still produce a better candidate: `(exact, source)`, or `(exact,
-  destination)` when the source is not monitored. Every flow written with a
+- **Late stamp**: **precedence** is the full ordering tuple `(rank, side, owner order)` with
+  the source side ahead of the destination, the same total order the ingest path applies
+  (Decisions 2 and 3); an unattributed flow has the lowest precedence. A flow's precedence is
+  **final** when no monitored side can still produce a better candidate: its `(rank, side)` is
+  `(exact, source)`, or `(exact, destination)` when the source is not monitored, and the
+  winning key was not contested when the decision was made. A contested winner keeps the
+  entry pending until the window ends, so a competing claimant that arrives later in the
+  window is compared by owner order exactly as it would have been on ingest. Every flow written with a
   non-final precedence while one of its sides is monitored enters the late-stamp
   set, whether it was written without an owner or with an ingest winner that a later lease
   could still beat (a listener, relaxed, node-SNAT or public-endpoint candidate, or a
@@ -373,7 +380,8 @@ the kernel event.
   ends. A destination exact owner stamped first is therefore still replaced by a source exact
   owner that arrives later in the window, a listener owner chosen on ingest is replaced by an
   exact worker lease that arrives seconds later, and the outcome does not depend on which
-  lease arrived first. The entry cap bounds the set however many flows are enrolled; an
+  lease arrived first. When two owners tie on `(rank, side)`, the owner order decides in
+  either arrival order. The entry cap bounds the set however many flows are enrolled; an
   evicted entry keeps the attribution it was written with, and the eviction is counted. Every update carries its precedence, and
   `FlowAttributionUpdates` applies it as a partial primary-key update only when that
   precedence is at least the row's stored `attribution_precedence` (a StarRocks conditional
@@ -436,7 +444,7 @@ pid, cmdline or partition labels):
 
 - Index: entries and bytes per shard, budget refusals, evictions (history evictions inside
   the horizon separately), ownership consumer lag,
-  shard state (`warming`, `ready`, `standby`), rebuild duration, and ambiguous count.
+  shard state (`warming`, `ready`, `standby`), rebuild duration, ambiguous count, and `late_conflict` (a claim overlapping another owner's lease on a key).
 - Enrichment: flows by outcome (`attributed` by strategy, `held`, `late_stamped`,
   `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, `error`), hold buffer depth and
   overflow, late-stamp set size, evictions and applied stamps, lookup latency per batch, and
@@ -505,6 +513,24 @@ distribution on the lab before this is sized.
     connection that the network saw but the host did not. Rejected.
   - *Drop rows over budget.* Silent loss defeats evasion detection. Rejected in favour of
     explicit, counted aggregation.
+
+## Known edge cases and deferred decisions
+
+Listed so that review converges: each case has its intended handling or is explicitly
+deferred.
+
+| Case | Handling |
+| --- | --- |
+| Ambiguous multi-owner endpoint (two agents claim one key with overlapping validity) | Owner order decides, identically on ingest and late; counted `ambiguous` and recorded in match evidence. A contested winner stays pending for the late-stamp window. |
+| Competing claim arriving after a flow's attribution became final and retired | Not re-stamped. The shard counts the overlapping claim when it applies the lease (`late_conflict`). Deferred: whether such a claim should re-open recent flows. |
+| Overlapping address spaces inside one partition (reused pod CIDRs) | Treated as the ambiguous case above. Deferred: whether to reject it as a configuration error (Open Questions). |
+| NAT beyond node SNAT and Kubernetes public endpoints (edge SNAT, CGNAT, cloud NAT gateways) | Deferred; the flow side is `no_owner` or `unmonitored`. |
+| IPv6 privacy address rotation | Address leases and wildcard re-expansion follow address changes. Deferred: prefix matching for privacy addresses. |
+| Exporters with very long active timeouts | The time-T lookup uses the flow time within the skew tolerance and the history horizon. Deferred: which flow timestamp to use, and whether the horizon follows the exporter's timeout. |
+| Late-stamp entry or history evicted by its cap | The flow keeps the attribution it was written with; evictions are counted. |
+| Ownership event lost on the way (dropped `CLOSE`) | Bounded by the lease TTL; the lease expires on its own. |
+| Accepted socket whose owner differs from its listener but the difference is invisible to the agent | Attributed to the listener's owner (Risks). |
+| Connection summaries over budget | Staged aggregation down to overflow rows, counted (Decision 9). |
 
 ## Capacity targets
 

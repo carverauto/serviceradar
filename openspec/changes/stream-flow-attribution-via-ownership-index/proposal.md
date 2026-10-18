@@ -65,8 +65,9 @@ lookups before their single StarRocks write.
   for spotting network-observed connections no host saw (#5745). Over a per-agent budget they
   are merged in stages down to a per-direction overflow row, so the cap is strict, and every
   merge is counted; nothing is silently dropped. The ownership index does not use them.
-- **Late stamps follow precedence, not arrival order.** Updates carry their `(rank, side)`
-  precedence and are applied only when at least as good as the stored attribution.
+- **Late stamps follow precedence, not arrival order.** Updates carry their
+  `(rank, side, owner order)` precedence, where owner order is the index's deterministic
+  tie-break, and are applied only when at least as good as the stored attribution.
 - **Agent-local attribution stays primary** for flows an agent produces itself. The index serves
   flows from routers and other exporters.
 - **Ownership history for incident response** moves from the sighting table to an append-only
@@ -109,6 +110,9 @@ lookups before their single StarRocks write.
     the lease history table); `Analytics.StarRocks.{Destination,Rows,Retention}`.
   - Helm: NATS stream and permissions for `flows.ownership.*`, and EventWriter flow-tier
     replicas and shard placement.
+- Tracking: [#5738](https://github.com/carverauto/serviceradar/issues/5738). Depends on this:
+  [#5745](https://github.com/carverauto/serviceradar/issues/5745) (exposure intelligence), which
+  needs the per-process connection summaries.
 - Related: `move-flow-attribution-to-starrocks` (archived; superseded here),
   `harden-flow-attribution-pipeline` (archived; the precedence and admission lane are kept),
   `add-netprobe-fleet-attribution` (event-driven netprobe inventory, which this builds on),
