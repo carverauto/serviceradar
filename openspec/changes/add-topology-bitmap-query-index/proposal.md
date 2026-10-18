@@ -22,6 +22,10 @@ buffer lifetime fix. Filtering never changes layout.
   the same bounded transaction. Canonical endpoints share this dictionary.
 - Maintain incremental Rust Roaring indexes for canonical inventory attributes
   and current availability, with bounded publication and explicit freshness.
+- Provide filtering whenever Atlas is enabled, using existing viewer permissions.
+  Bound stored group diversity by accounted memory and processing cost, independently
+  of the number of predicates in an operator's query; remove the arbitrary
+  1,024-values-per-field and 4,096-total-groups admission rules.
 - Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets,
   live ordinal pages and aggregate match counts on the server. Revalidate current
   authority before delivering counts, details, search or overlays.

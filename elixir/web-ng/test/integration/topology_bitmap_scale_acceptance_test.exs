@@ -221,15 +221,15 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       )
     end
 
-    Fixture.cap_facet()
-    cap = %{"expression" => %{"facet" => "tag:cohort", "value" => "cohort-0"}, "limit" => 1}
+    Fixture.oversize_facet_value()
+    unavailable = %{"expression" => %{"facet" => "tag:cohort", "value" => "cohort-0"}, "limit" => 1}
 
     for session <- sessions do
       await(
-        fn -> request_query(session, cap) end,
+        fn -> request_query(session, unavailable) end,
         &match?({422, %{"error" => "facet_unavailable"}}, &1),
         600_000,
-        "cardinality refusal"
+        "oversized facet value refusal"
       )
     end
 

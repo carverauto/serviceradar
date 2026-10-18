@@ -1,5 +1,5 @@
 //! Literal facet/tag prefixes share the exact index and its publication revision.
-use super::{check_time, Bitmap, Budget, Charge, Error, Index, Revision};
+use super::{bitmap_bytes, check_time, Bitmap, Budget, Charge, Error, Index, Revision};
 use roaring::RoaringBitmap;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -39,6 +39,9 @@ pub(super) fn refresh_presence(
     budget: &Arc<Budget>,
     end: Instant,
 ) -> Result<BTreeMap<String, Presence>, Error> {
+    // Both intermediates contain only this bounded batch, even when the live
+    // universe is large. Reserve before materializing them.
+    let _batch_scratch = budget.reserve(4 * bitmap_bytes(changed) + 4096)?;
     let empty = RoaringBitmap::new();
     let current_changed = &live.set & changed;
     old.presence
@@ -102,6 +105,46 @@ fn present_result(
     }
 }
 
+fn union_postings<'a>(
+    postings: impl Iterator<Item = &'a Arc<Bitmap>>,
+    budget: &Arc<Budget>,
+    end: Instant,
+) -> Result<Arc<Bitmap>, Error> {
+    // Each occupied level combines 2^level postings. A growing result is copied
+    // logarithmically, not once for every distinct matching value. The fixed
+    // stack is covered by the query's input reservation; combine reserves every
+    // bitmap allocation and each merge observes the original request deadline.
+    let mut levels: [Option<Arc<Bitmap>>; usize::BITS as usize] = std::array::from_fn(|_| None);
+    for posting in postings {
+        check_time(end)?;
+        let mut carry = posting.clone();
+        let mut level = 0;
+        loop {
+            let slot = levels.get_mut(level).ok_or("native_memory_budget")?;
+            match slot.take() {
+                Some(previous) => {
+                    check_time(end)?;
+                    carry = Bitmap::combine(&previous, &carry, 2, budget)?;
+                }
+                None => {
+                    *slot = Some(carry);
+                    break;
+                }
+            }
+            level += 1;
+        }
+    }
+    let mut result: Option<Arc<Bitmap>> = None;
+    for posting in levels.into_iter().flatten() {
+        check_time(end)?;
+        result = Some(match result {
+            Some(previous) => Bitmap::combine(&previous, &posting, 2, budget)?,
+            None => posting,
+        });
+    }
+    result.map_or_else(|| Bitmap::new(RoaringBitmap::new(), budget), Ok)
+}
+
 fn value_result(
     index: &Index,
     revision: &Revision,
@@ -114,20 +157,18 @@ fn value_result(
     if revision.unavailable.contains(key) {
         return Err("facet_unavailable");
     }
-    let mut result = Bitmap::new(RoaringBitmap::new(), &index.budget)?;
-    if prefix {
-        for ((facet, candidate), posting) in
-            revision.facets.range((key.to_owned(), value.to_owned())..)
-        {
-            if facet != key || !candidate.starts_with(value) {
-                break;
-            }
-            check_time(end)?;
-            result = Bitmap::combine(&result, posting, 2, &index.budget)?;
-        }
+    let result = if prefix {
+        let postings = revision
+            .facets
+            .range((key.to_owned(), value.to_owned())..)
+            .take_while(|((facet, candidate), _)| facet == key && candidate.starts_with(value))
+            .map(|(_, posting)| posting);
+        union_postings(postings, &index.budget, end)?
     } else if let Some(posting) = revision.facets.get(&(key.to_owned(), value.to_owned())) {
-        result = posting.clone();
-    }
+        posting.clone()
+    } else {
+        Bitmap::new(RoaringBitmap::new(), &index.budget)?
+    };
     if present {
         present_result(revision, key, result, &index.budget)
     } else {
@@ -158,8 +199,8 @@ pub(super) fn select(
         }
         check_time(end)?;
         let matching = if opcode == 5 {
-            // Key presence remains exact even if that facet's values exceeded
-            // the value-cardinality cap. The presence bitmap has no such cap.
+            // Key presence remains exact even when an oversized scalar value
+            // made exact value matching unavailable.
             revision
                 .presence
                 .get(key)

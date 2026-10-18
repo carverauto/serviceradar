@@ -4,6 +4,25 @@ Current decisions in the integrated implementation, ordered with the remaining
 acceptance uncertainty first. A sound decision is not a claim that its hosted
 acceptance has completed. Historical alternatives belong in the review response.
 
+## Keep filtering available with Atlas and bound actual resource use
+
+- Choice: the user rejected a separate bitmap feature-off switch. Atlas exposes
+  filters under existing analytics/device view permissions. Clearing a query
+  restores the base map; failed active queries remain explicit.
+- Choice: the user requested a measured resource model before any facet-eviction
+  policy. Remove the fixed 1,024-per-field and 4,096-total scalar group ceilings,
+  reserve construction memory before allocation, and retain existing memory,
+  deadline, publication and request-work bounds. The 4,096 compiled IP-range
+  bound is a separate query-work contract and remains unchanged.
+- Evidence: a fixed 100,000-device synthetic sweep reproduces the former cap
+  disabling a two-predicate query and even unrelated availability. Exact lookup
+  and balanced prefix unions are measured separately from publication costs.
+- Reach: native exhaustion recovery does not establish BEAM publisher progress,
+  hosted convergence or million-device high-diversity acceptance. Keep those
+  acceptance tasks open and report actual resource failures without eviction or
+  partial membership presented as exact.
+- Confidence: medium pending complete hosted acceptance.
+
 ## Reconcile missed hints without shared inventory-writer locks
 
 - Choice: existing best-effort hints coalesce native Roaring dirty work, while

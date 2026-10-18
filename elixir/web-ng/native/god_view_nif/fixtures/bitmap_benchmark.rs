@@ -228,3 +228,228 @@ fn synthetic_scale() {
         index.close().unwrap();
     }
 }
+
+// Vary value diversity independently of population and expression size. The
+// sparse permutation spreads the first 65,536 devices over 65,536 containers;
+// using a high starting ordinal alone would still exercise dense containers.
+fn diversity_ordinal(n: u32, sparse: bool) -> u32 {
+    if sparse {
+        n.rotate_left(16) + 1
+    } else {
+        n + 1
+    }
+}
+
+fn diversity_row(n: u32, sparse: bool, fields: u32, values: u32, churn: bool) -> bitmap_index::Row {
+    let mut attributes: Vec<_> = (0..fields)
+        .map(|field| {
+            (
+                format!("tag:cohort{field}"),
+                format!("g{:05}", (n + field * 17) % values).into(),
+            )
+        })
+        .collect();
+    let unavailable = n.is_multiple_of(11) ^ (churn && n < 1_000);
+    attributes.push((
+        "availability".into(),
+        if unavailable {
+            "unavailable"
+        } else {
+            "healthy"
+        }
+        .into(),
+    ));
+    (diversity_ordinal(n, sparse), true, attributes)
+}
+
+#[test]
+fn synthetic_diversity() {
+    const DEVICES: u32 = 100_000;
+    const AUTHORITY: &[u8] = b"synthetic-diversity-authority";
+    println!("diversity_fixture: population={DEVICES}, predicates=2, values_independent_of_population=true, sparse_rotation=16, seed=synthetic-arithmetic-v1, deadline_ms=1000, build=bazel-opt");
+    println!(
+        "hardware: cpu={}, ram={}, available_parallelism={:?}",
+        proc_field("/proc/cpuinfo", "model name"),
+        proc_field("/proc/meminfo", "MemTotal"),
+        std::thread::available_parallelism()
+    );
+    let mut unavailable_cases = Vec::new();
+    let mut build_limits = Vec::new();
+    let mut prefix_limits = Vec::new();
+    for sparse in [false, true] {
+        'case: for (fields, values) in [
+            (1, 512),
+            (1, 1024),
+            (1, 4096),
+            (1, 16_384),
+            (1, 65_536),
+            (5, 800),
+            (5, 900),
+            (5, 4096),
+        ] {
+            let supported = (0..fields)
+                .map(|field| format!("tag:cohort{field}"))
+                .chain(std::iter::once("availability".into()))
+                .collect();
+            let index = Index::new([1; 16], [2; 16], Kind::Device, supported).unwrap();
+            let started = Instant::now();
+            let mut revision = 0;
+            let mut batch_times = Vec::new();
+            for start in (0..DEVICES).step_by(500) {
+                let rows = (start..start + 500)
+                    .map(|n| diversity_row(n, sparse, fields, values, false))
+                    .collect();
+                let batch_start = Instant::now();
+                match index.publish(revision, b"synthetic-diversity", rows, true) {
+                    Ok(status) => revision = status.revision,
+                    Err(error @ ("native_memory_budget" | "deadline_exceeded")) => {
+                        let status = index.status().unwrap();
+                        assert_eq!(status.revision, revision);
+                        assert_eq!(status.cardinality, u64::from(start));
+                        println!("sparse={sparse} fields={fields} values_per_field={values} requested_population={DEVICES} accepted_population={start} build_limit={error} rejected_batch_ns={} seed_ms={} accounted_bytes={} peak_bytes={} rss={} hwm={}", batch_start.elapsed().as_nanos(), started.elapsed().as_millis(), status.native_bytes, status.peak_bytes, proc_field("/proc/self/status", "VmRSS"), proc_field("/proc/self/status", "VmHWM"));
+                        index.close().unwrap();
+                        build_limits.push((sparse, fields, values, start, error));
+                        continue 'case;
+                    }
+                    Err(error) => panic!("unexpected publication error: {error}"),
+                }
+                batch_times.push(batch_start.elapsed().as_nanos());
+            }
+            let seeded = index.status().unwrap();
+            assert_eq!(seeded.cardinality, u64::from(DEVICES));
+            println!("sparse={sparse} fields={fields} values_per_field={values} total_groups={} seed_ms={} batch_500_ns={:?} accounted_bytes={} peak_bytes={} rss={} hwm={} unavailable={:?}", fields * values + 2, started.elapsed().as_millis(), percentiles(batch_times), seeded.native_bytes, seeded.peak_bytes, proc_field("/proc/self/status", "VmRSS"), proc_field("/proc/self/status", "VmHWM"), seeded.unavailable);
+            if !seeded.unavailable.is_empty() {
+                // Record all distributions before failing, so the baseline
+                // distinguishes group-cap rejection from population pressure.
+                for field in ["tag:cohort0", "availability"] {
+                    let value = if field == "availability" {
+                        "unavailable"
+                    } else {
+                        "g00000"
+                    };
+                    match index.query(AUTHORITY, &[(0, field.into(), value.as_bytes().to_vec(), 0)], 1000) {
+                        Ok((query, _, _, total)) => {
+                            println!("sparse={sparse} fields={fields} values_per_field={values} field={field} total={total}");
+                            query.close().unwrap();
+                        }
+                        Err(error) => println!("sparse={sparse} fields={fields} values_per_field={values} field={field} query_error={error}"),
+                    }
+                }
+                unavailable_cases.push((sparse, fields, values));
+                index.close().unwrap();
+                continue;
+            }
+            let mut exact_times = Vec::new();
+            let mut prefix_times = Vec::new();
+            let mut prefix_limit = None;
+            for sample in 0..SAMPLES + WARMUP {
+                let group = sample as u32 % values;
+                let program = vec![
+                    (
+                        0,
+                        "tag:cohort0".into(),
+                        format!("g{group:05}").into_bytes(),
+                        0,
+                    ),
+                    (0, "availability".into(), b"unavailable".to_vec(), 0),
+                    (1, String::new(), Vec::new(), 2),
+                ];
+                let expected: Vec<_> = (group..DEVICES)
+                    .step_by(values as usize)
+                    .filter(|n| n.is_multiple_of(11))
+                    .map(|n| diversity_ordinal(n, sparse))
+                    .collect();
+                let start = Instant::now();
+                let (query, _, _, total) = index.query(AUTHORITY, &program, 1000).unwrap();
+                let elapsed = start.elapsed().as_nanos();
+                assert_eq!(total, expected.len() as u64);
+                let mut first_page = expected;
+                first_page.sort_unstable();
+                first_page.truncate(128);
+                assert_eq!(query.page(AUTHORITY, 0, 128, 1000).unwrap(), first_page);
+                query.close().unwrap();
+                if prefix_limit.is_none() {
+                    let start = Instant::now();
+                    match index.query(
+                        AUTHORITY,
+                        &[(4, "tag:cohort0".into(), b"g00".to_vec(), 0)],
+                        1000,
+                    ) {
+                        Ok((prefix, _, _, total)) => {
+                            let elapsed = start.elapsed().as_nanos();
+                            assert_eq!(
+                                total,
+                                (0..DEVICES).filter(|n| n % values < 1000).count() as u64
+                            );
+                            prefix.close().unwrap();
+                            if sample >= WARMUP {
+                                prefix_times.push(elapsed);
+                            }
+                        }
+                        Err(error @ ("deadline_exceeded" | "native_memory_budget")) => {
+                            println!("sparse={sparse} fields={fields} values_per_field={values} prefix_limit={error} rejected_after_ns={}", start.elapsed().as_nanos());
+                            prefix_limit = Some(error);
+                        }
+                        Err(error) => panic!("unexpected prefix error: {error}"),
+                    }
+                }
+                if sample >= WARMUP {
+                    exact_times.push(elapsed);
+                }
+            }
+            let program = [(0, "availability".into(), b"unavailable".to_vec(), 0)];
+            let pins: Vec<_> = (0..8)
+                .map(|_| index.query(AUTHORITY, &program, 1000).unwrap().0)
+                .collect();
+            let before: Vec<_> = (0..DEVICES)
+                .filter(|n| n.is_multiple_of(11))
+                .map(|n| diversity_ordinal(n, sparse))
+                .collect();
+            let mut first_page = before;
+            first_page.sort_unstable();
+            first_page.truncate(128);
+            let started = Instant::now();
+            for start in [0, 500] {
+                let rows = (start..start + 500)
+                    .map(|n| diversity_row(n, sparse, fields, values, true))
+                    .collect();
+                revision = index
+                    .publish(revision, b"synthetic-diversity-churn", rows, true)
+                    .unwrap()
+                    .revision;
+            }
+            let churn_ns = started.elapsed().as_nanos();
+            let retained = index.status().unwrap();
+            for pin in pins {
+                assert_eq!(pin.page(AUTHORITY, 0, 128, 1000).unwrap(), first_page);
+                pin.close().unwrap();
+            }
+            let (current, _, _, total) = index.query(AUTHORITY, &program, 1000).unwrap();
+            assert_eq!(
+                total,
+                (0..DEVICES)
+                    .filter(|n| n.is_multiple_of(11) ^ (*n < 1000))
+                    .count() as u64
+            );
+            current.close().unwrap();
+            let prefix_ns = (!prefix_times.is_empty()).then(|| percentiles(prefix_times));
+            println!("sparse={sparse} fields={fields} values_per_field={values} exact_two_predicate_ns={:?} prefix_ns={prefix_ns:?} prefix_limit={prefix_limit:?} churn_1percent_ns={churn_ns} eight_pins_retained_bytes={} after_close_bytes={} peak_bytes={}", percentiles(exact_times), retained.native_bytes, index.status().unwrap().native_bytes, retained.peak_bytes);
+            if let Some(error) = prefix_limit {
+                prefix_limits.push((sparse, fields, values, error));
+            }
+            index.close().unwrap();
+        }
+    }
+    assert!(
+        unavailable_cases.is_empty(),
+        "group caps rejected bounded queries: {unavailable_cases:?}"
+    );
+    assert!(
+        build_limits.is_empty(),
+        "supported distributions failed to finish: {build_limits:?}"
+    );
+    assert!(
+        prefix_limits.is_empty(),
+        "bounded prefix queries failed: {prefix_limits:?}"
+    );
+}

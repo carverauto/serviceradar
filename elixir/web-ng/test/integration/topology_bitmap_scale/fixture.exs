@@ -190,11 +190,12 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
     total
   end
 
-  def cap_facet do
-    Repo.query!("""
-    UPDATE platform.ocsf_devices SET tags = tags || jsonb_build_object('cohort', uid)
-    WHERE uid IN (SELECT 'sr:atlas-scale-' || n FROM generate_series(0, 1024) n)
-    """)
+  def oversize_facet_value do
+    %{num_rows: 1} =
+      Repo.query!("""
+      UPDATE platform.ocsf_devices SET tags = tags || jsonb_build_object('cohort', repeat('x', 257))
+      WHERE uid = 'sr:atlas-scale-0'
+      """)
   end
 
   def world(version, count \\ @population) do

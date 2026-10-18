@@ -78,7 +78,7 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** startup SHALL seed before reporting readiness
 
 #### Scenario: Dirty work and source budgets
-- **WHEN** pending changes, facet cardinality, native memory or query concurrency reach a configured limit
+- **WHEN** pending changes, scalar value size, native memory, processing time or query concurrency reach a configured limit
 - **THEN** retained work SHALL remain bounded and expose staleness, unavailability or structured rejection
 - **AND** publisher read batches SHALL be limited independently of pending-set capacity
 - **AND** coalesced ordinal dirty sets SHALL use Roaring with an explicit byte cap
@@ -86,6 +86,21 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** unavailable causal evidence SHALL NOT be synthesized from availability
 - **AND** intrinsic address capacity SHALL include actual pending bitmap memory under the final publication lock
 - **AND** address-capacity exhaustion SHALL preserve scalar progress and retained dirty hints
+
+#### Scenario: Stored diversity is independent of query complexity
+- **GIVEN** an operator applies two predicates to a fleet containing many distinct indexed values
+- **WHEN** complete publication and evaluation fit the declared memory and processing bounds
+- **THEN** crossing 1,024 values in a field or 4,096 total groups SHALL NOT disable that field or unrelated availability predicates
+- **AND** temporary and retained allocations SHALL be reserved before construction
+- **AND** a resource rejection SHALL preserve the preceding complete revision and expose stale progress without broadening the query
+- **AND** retries SHALL retain unapplied work and permit recovery when pressure is released, including reclaimable deletions beyond a blocked publication page
+
+#### Scenario: Filtering follows Atlas availability
+- **GIVEN** Atlas is enabled and the viewer has the existing analytics and device view permissions
+- **WHEN** the viewer opens the map
+- **THEN** filtering and named Prefix Tag discovery SHALL be available without a separate bitmap opt-in or settings-management permission
+- **AND** clearing an expression SHALL restore the full base map
+- **AND** failure of an active query SHALL remain explicit rather than display unfiltered membership as a successful result
 
 #### Scenario: Complete identity projection remains reusable
 - **GIVEN** every device in an immutable world has its permanent dictionary assignment

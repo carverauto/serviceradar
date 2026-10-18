@@ -93,25 +93,26 @@ Back up the dictionaries and epoch with canonical inventory.
 
 ## Rollout configuration
 
-Bitmap filtering is disabled by default. Helm deployments enable it with
-`webNg.topologyBitmapEnabled: true` while `webNg.godViewEnabled` is also enabled.
+Bitmap filtering is available whenever Atlas is enabled. Helm deployments use
+the existing `webNg.godViewEnabled` lifecycle setting; there is no separate
+bitmap enable flag. Existing analytics and device view permissions suffice.
 `webNg.topologyBitmapTagKeys` is a list of literal `Device.tags` keys, for example
 `[role, environment]`. The list permits at most 25 unique UTF-8 keys, each 1 to
 60 bytes. The filter builder receives this allowlist from `bitmap.query` in the
 topology manifest; it never enumerates fleet tag values. `Inventory VLAN` means
 the device inventory VLAN, not every VLAN carried by its interfaces.
 
-Non-Helm releases use `SERVICERADAR_TOPOLOGY_BITMAP_ENABLED=true` and
+Non-Helm releases use
 `SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS='["role","environment"]'`, together with
 `SERVICERADAR_GOD_VIEW_ENABLED=true`. The tag setting is a bounded JSON array so
 literal commas in a key are preserved. Invalid tag configuration prevents
-startup with an explicit configuration error. Helm renders both variables from
+startup with an explicit configuration error. Helm renders these variables from
 the first-class values and ignores competing `extraEnv`/`extraEnvValueFrom`
 entries. Roll the web release after changing these deployment settings.
 
 Readiness follows initial canonical identity backfill and a complete bounded
-inventory scan. Disabling bitmap filtering closes the local index and its work;
-the base topology remains available. Current query membership is re-evaluated
+inventory scan. Stopping Atlas closes the local index and its work. Clearing a
+filter restores the base map; failed active filters remain explicit. Current query membership is re-evaluated
 on every page, so restart pagination to see newly matching identities below an
 existing cursor.
 
@@ -150,5 +151,5 @@ delivery. No query makes a core RPC or enumerates fleet addresses in Elixir.
 Compiled label selectors share a whole-query budget of 4096 ranges and 256 KiB;
 overflow fails explicitly. Feature catalogs are prepared by the existing background
 worker, have a global 4 MiB additional native-memory cap, and are released when
-bitmap filtering is disabled. Catalog unavailability does not disable scalar
+Atlas stops or the source is removed. Catalog unavailability does not disable scalar
 filters or the ordinary Prefix Tags lookup service.

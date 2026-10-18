@@ -11,7 +11,7 @@
 - [ ] 1.2 Widen storage and sequence to checked full-u32, prevent repeat-allocation sequence burn, allocate missing tombstoned ordinals during bounded purge, and preserve lineage and rollback compatibility.
 - [ ] 1.3 Add resumable allocation/backfill; verify after-commit hint coverage at real transaction owners.
 - [ ] 1.4 Integrate one bounded native publisher with world/health lifecycle, byte-bounded Roaring dirty sets, coherent revisions and rolling keyset reconciliation.
-- [ ] 1.5 Implement canonical inventory/availability facets, value and memory caps, explicit readiness and freshness.
+- [ ] 1.5 Implement canonical inventory/availability facets, scalar-size and resource bounds, explicit readiness and freshness; prove publisher recovery beyond a blocked page.
 - [ ] 1.6 Prove persistence, purge/merge/delete/restore, lost hints, late commits, restart and two-replica convergence.
 - [ ] 1.7 Run declared synthetic native benchmarks against an independent array baseline; report actual limits.
 
@@ -32,7 +32,7 @@
 - [ ] 3.2 Prove native-to-browser column interoperability, high canonical IDs, malformed lengths, receipt and state-domain handling.
 - [ ] 3.3 Atomically replace matching admitted-row masks; reject stale work and bound slow-viewer coalescing without XOR history.
 - [ ] 3.4 Replace the active per-tile health/flow JSON overlay and JSON size checks with bounded binary fields, preserving coverage, unknown values and timestamps; keep Arrow attributes typed.
-- [ ] 3.5 Add the default-off rollout gate and explicit unsupported-filter fallback; release masks on eviction/disconnect/disable.
+- [ ] 3.5 Make filtering available whenever Atlas is enabled with existing viewer permissions; preserve explicit query failures and release resources on eviction, disconnect and Atlas shutdown.
 - [ ] 3.6 Run actual-browser zoom/reconnect/GPU-lifetime checks and measure retained bytes and upload copies.
 - [ ] 3.7 Deliver a visible filter builder for inventory VLAN/attributes/tags, AND/OR/EXCEPT, text prefix, IP/CIDR and existing named Prefix Tags, with supported-field discovery, pending/error feedback, exact global/aggregate counts and clear-to-base behavior.
 

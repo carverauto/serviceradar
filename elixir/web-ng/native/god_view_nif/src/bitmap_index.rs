@@ -55,8 +55,6 @@ pub enum ViewRow<'a> {
     Aggregate(&'a [u8]),
 }
 pub type RowOverlay = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
-const MAX_VALUES: usize = 4096;
-const MAX_FACET_VALUES: usize = 1024;
 const MAX_PINS: usize = 8;
 const MAX_READERS: usize = 8;
 // One owner index, two 32 MiB Atlas mappings, and a deployment-wide 4 MiB
@@ -83,6 +81,27 @@ struct Charge {
     budget: Arc<Budget>,
     bytes: usize,
     retained: AtomicBool,
+}
+impl Charge {
+    // Grow transient reservations before allocating. Transfer the new charge
+    // into this owner without changing the total accounted allocation.
+    fn extend(&mut self, bytes: usize) -> Result<(), Error> {
+        let mut extra = self.budget.reserve(bytes)?;
+        self.bytes += extra.bytes;
+        extra.bytes = 0;
+        Ok(())
+    }
+
+    fn shrink(mut self, bytes: usize) -> Result<Self, Error> {
+        if bytes > self.bytes {
+            return Err("reservation_too_small");
+        }
+        self.budget
+            .used
+            .fetch_sub(self.bytes - bytes, Ordering::AcqRel);
+        self.bytes = bytes;
+        Ok(self)
+    }
 }
 impl Budget {
     fn reserve(self: &Arc<Self>, bytes: usize) -> Result<Charge, Error> {
@@ -178,18 +197,10 @@ impl Bitmap {
         let charge = budget.reserve(bitmap_bytes(&set))?;
         Ok(Arc::new(Self { set, charge }))
     }
-    fn from_reserved(set: RoaringBitmap, mut charge: Charge) -> Result<Arc<Self>, Error> {
-        let bytes = bitmap_bytes(&set);
-        if bytes > charge.bytes {
-            return Err("reservation_too_small");
-        }
+    fn from_reserved(set: RoaringBitmap, charge: Charge) -> Result<Arc<Self>, Error> {
         // The completed set occupies the memory already reserved for computing
         // it. Transfer that allocation's ownership instead of reserving it twice.
-        charge
-            .budget
-            .used
-            .fetch_sub(charge.bytes - bytes, Ordering::AcqRel);
-        charge.bytes = bytes;
+        let charge = charge.shrink(bitmap_bytes(&set))?;
         Ok(Arc::new(Self { set, charge }))
     }
     fn combine(a: &Self, b: &Self, op: u8, budget: &Arc<Budget>) -> Result<Arc<Self>, Error> {
@@ -202,6 +213,25 @@ impl Bitmap {
         };
         Self::from_reserved(set, scratch)
     }
+}
+
+fn insert_addition(
+    additions: &mut BTreeMap<Facet, RoaringBitmap>,
+    key: Facet,
+    id: u32,
+    scratch: &mut Charge,
+) -> Result<(), Error> {
+    // A fresh batch bitmap has at most 500 entries. 256 bytes per insertion
+    // covers a new container, outer Vec spare capacity and the small array's
+    // capacity. New postings also reserve map slots, bitmap header and strings.
+    let new_entry = if additions.contains_key(&key) {
+        0
+    } else {
+        192 + 128 + key.0.capacity() + key.1.capacity()
+    };
+    scratch.extend(new_entry + 256)?;
+    additions.entry(key).or_default().insert(id);
+    Ok(())
 }
 
 struct Revision {
@@ -441,12 +471,18 @@ impl Index {
         if old.number != expected {
             return Err("revision_conflict");
         }
+        // This fixed part covers the bounded supported/unavailable/seen field
+        // directories (at most 32 names). Postings and their container growth
+        // are charged separately before insertion, independent of value count.
+        let mut scratch = self.budget.reserve(16_384)?;
         let mut changed = RoaringBitmap::new();
         let mut additions: BTreeMap<Facet, RoaringBitmap> = BTreeMap::new();
         let mut present = BTreeMap::<String, RoaringBitmap>::new();
         let mut live_additions = RoaringBitmap::new();
         let mut unavailable = old.unavailable.clone();
         for (id, live, values) in rows {
+            check_time(end)?;
+            scratch.extend(512)?;
             if id == 0 || !changed.insert(id) || values.len() > 32 {
                 return Err("invalid_row");
             }
@@ -465,7 +501,7 @@ impl Index {
                 match value {
                     Value::Exact(value) if value.is_empty() => return Err("invalid_facet_value"),
                     Value::Exact(value) if value.len() <= 256 => {
-                        additions.entry((facet, value)).or_default().insert(id);
+                        insert_addition(&mut additions, (facet, value), id, &mut scratch)?;
                     }
                     _ => {
                         unavailable.insert(facet);
@@ -473,59 +509,41 @@ impl Index {
                 }
             }
             for facet in &seen {
+                if !present.contains_key(facet) {
+                    scratch.extend(192 + 128 + facet.len())?;
+                }
+                scratch.extend(256)?;
                 present.entry(facet.clone()).or_default().insert(id);
             }
             for facet in self.supported.difference(&seen) {
-                additions
-                    .entry((facet.clone(), "unknown".into()))
-                    .or_default()
-                    .insert(id);
+                insert_addition(
+                    &mut additions,
+                    (facet.clone(), "unknown".into()),
+                    id,
+                    &mut scratch,
+                )?;
             }
         }
-        let scratch = self.budget.reserve(8 * 1024 * 1024)?;
-        let mut candidates: Vec<Facet> = old.facets.keys().cloned().collect();
-        for key in additions.keys() {
-            if !old.facets.contains_key(key) {
-                candidates.push(key.clone());
-            }
-        }
-        let mut keys = BTreeSet::new();
-        for key in candidates {
-            check_time(end)?;
-            if unavailable.contains(&key.0) {
-                continue;
-            }
-            let nonempty = match (old.facets.get(&key), additions.get(&key)) {
-                (_, Some(_)) => true,
-                (Some(before), None) => !before.set.is_subset(&changed),
-                (None, None) => false,
-            };
-            if nonempty {
-                keys.insert(key);
-            }
-        }
-        let mut counts = BTreeMap::new();
-        for (facet, _) in &keys {
-            *counts.entry(facet.clone()).or_insert(0usize) += 1;
-        }
-        for (facet, count) in counts {
-            if count > MAX_FACET_VALUES {
-                unavailable.insert(facet);
-            }
-        }
-        keys.retain(|(facet, _)| !unavailable.contains(facet));
-        if keys.len() > MAX_VALUES {
-            // A cap invalidates complete facets, never just the excess values.
-            unavailable.extend(additions.keys().map(|(facet, _)| facet.clone()));
-        }
+        // Borrow the old/new key union. There is no candidate-key clone or
+        // separate directory whose memory grows before admission. The retained
+        // directory gets its own reservation before the first cloned key.
+        let mut metadata_charge = self.budget.reserve(old._charge.bytes.max(16_384))?;
+        let keys = old.facets.keys().chain(
+            additions
+                .keys()
+                .filter(|key| !old.facets.contains_key(*key)),
+        );
         let mut facets = BTreeMap::new();
         for key in keys {
             check_time(end)?;
             if unavailable.contains(&key.0) {
                 continue;
             }
-            let before = old.facets.get(&key);
-            let add = additions.get(&key);
+            let before = old.facets.get(key);
+            let add = additions.get(key);
+            if before.is_none() {
+                metadata_charge.extend(192 + key.0.len() + key.1.len())?;
+            }
             let unchanged = match (before, add) {
                 (Some(before), Some(add)) => {
                     add.is_subset(&before.set) && before.set.intersection_len(&changed) == add.len()
@@ -534,7 +552,7 @@ impl Index {
                 _ => false,
             };
             if unchanged {
-                facets.insert(key, before.unwrap().clone());
+                facets.insert(key.clone(), before.unwrap().clone());
                 continue;
             }
             let reserve = self.budget.reserve(
@@ -545,7 +563,7 @@ impl Index {
                 next |= add;
             }
             if !next.is_empty() {
-                facets.insert(key, Bitmap::from_reserved(next, reserve)?);
+                facets.insert(key.clone(), Bitmap::from_reserved(next, reserve)?);
             }
         }
         let live = if live_additions.is_subset(&old.live.set)
@@ -557,12 +575,12 @@ impl Index {
                 .budget
                 .reserve(2 * (old.live.charge.bytes + bitmap_bytes(&live_additions)) + 4096)?;
             let mut live = &old.live.set - &changed;
-            live |= live_additions;
+            live |= &live_additions;
             Bitmap::from_reserved(live, reserve)?
         };
         let presence =
             facets::refresh_presence(&old, &live, &changed, &present, &self.budget, end)?;
-        let metadata = 8192
+        let metadata = 16_384
             + facets
                 .keys()
                 .map(|(f, v)| 192 + f.capacity() + v.capacity())
@@ -616,8 +634,12 @@ impl Index {
             presence,
             addresses,
             ip_unavailable,
-            _charge: self.budget.reserve(metadata)?,
+            _charge: metadata_charge.shrink(metadata)?,
         };
+        drop(additions);
+        drop(present);
+        drop(live_additions);
+        drop(changed);
         drop(scratch);
         check_time(end)?;
         let pending_guard = self.pending.try_lock().map_err(|_| "busy")?;
@@ -1551,16 +1573,14 @@ mod tests {
             index.query(b"allow", &[predicate("causal", "healthy")], 1000),
             Err("unsupported_facet")
         ));
-        for batch in 0..3 {
-            let revision = index.status().unwrap().revision;
-            let rows = (1..=500)
-                .map(|n| {
-                    let id = 2 + batch * 500 + n;
-                    row(id, &format!("invented-{id}"), "healthy")
-                })
-                .collect();
-            index.publish(revision, b"cardinality", rows, true).unwrap();
-        }
+        index
+            .publish(
+                1,
+                b"oversized",
+                vec![row(2, &"x".repeat(257), "healthy")],
+                true,
+            )
+            .unwrap();
         assert_eq!(index.status().unwrap().unavailable, vec!["vendor"]);
         assert!(matches!(
             index.query(b"allow", &[predicate("vendor", "Example A")], 1000),
@@ -1570,7 +1590,7 @@ mod tests {
             all(&index)
                 .facets(b"allow", &[("availability".into(), "healthy".into())], 1000)
                 .unwrap(),
-            vec![1501]
+            vec![2]
         );
         let revision = index.status().unwrap().revision;
         index
@@ -1592,7 +1612,7 @@ mod tests {
     }
 
     #[test]
-    fn facet_caps_follow_nonempty_postings_and_stay_latched() {
+    fn scalar_diversity_keeps_exact_membership_across_moves_and_deletions() {
         let vendor_only =
             || Index::new([1; 16], [2; 16], Kind::Device, vec!["vendor".into()]).unwrap();
         let row =
@@ -1630,26 +1650,16 @@ mod tests {
         index
             .publish(revision, b"over-1024", vec![row(1025, "extra")], true)
             .unwrap();
-        assert_eq!(
-            index.status().unwrap().unavailable,
-            vec!["vendor".to_string()]
-        );
-        assert!(matches!(
-            index.query(b"allow", &[predicate("vendor", "moved")], 1000),
-            Err("facet_unavailable")
-        ));
+        assert!(index.status().unwrap().unavailable.is_empty());
+        assert_eq!(page(&index, "extra"), (1, vec![1025]));
+        assert_eq!(page(&index, "moved"), (1, vec![1024]));
         let revision = index.status().unwrap().revision;
         index
             .publish(revision, b"drop-extra", vec![(1025, false, vec![])], true)
             .unwrap();
-        assert_eq!(
-            index.status().unwrap().unavailable,
-            vec!["vendor".to_string()]
-        );
-        assert!(matches!(
-            index.query(b"allow", &[predicate("vendor", "moved")], 1000),
-            Err("facet_unavailable")
-        ));
+        assert!(index.status().unwrap().unavailable.is_empty());
+        assert_eq!(page(&index, "extra"), (0, vec![]));
+        assert_eq!(page(&index, "moved"), (1, vec![1024]));
 
         let simultaneous = ["vendor", "region", "vlan", "os_name"];
         let index = Index::new(
@@ -1693,19 +1703,14 @@ mod tests {
                 true,
             )
             .unwrap();
-        assert_eq!(
-            index.status().unwrap().unavailable,
-            vec!["vendor".to_string()]
-        );
+        assert!(index.status().unwrap().unavailable.is_empty());
         let (query, _, _, count) = index
             .query(b"allow", &[predicate("region", "region-1")], 1000)
             .unwrap();
         assert_eq!(count, 2);
         assert_eq!(query.page(b"allow", 0, 8, 1000).unwrap(), vec![1, 1025]);
-        assert!(matches!(
-            index.query(b"allow", &[predicate("vendor", "vendor-1")], 1000),
-            Err("facet_unavailable")
-        ));
+        assert_eq!(page(&index, "vendor-1"), (1, vec![1]));
+        assert_eq!(page(&index, "vendor-1025"), (1, vec![1025]));
         let revision = index.status().unwrap().revision;
         index
             .publish(
@@ -1715,17 +1720,21 @@ mod tests {
                 true,
             )
             .unwrap();
-        assert_eq!(
-            index.status().unwrap().unavailable,
-            vec!["vendor".to_string()]
-        );
+        assert!(index.status().unwrap().unavailable.is_empty());
         let (query, _, _, count) = index
             .query(b"allow", &[predicate("region", "region-1")], 1000)
             .unwrap();
         assert_eq!(count, 1);
         assert_eq!(query.page(b"allow", 0, 8, 1000).unwrap(), vec![1]);
 
-        let names = ["vendor", "region", "vlan", "device_class", "os_name"];
+        let names = [
+            "vendor",
+            "region",
+            "vlan",
+            "device_class",
+            "os_name",
+            "availability",
+        ];
         let index = Index::new(
             [1; 16],
             [2; 16],
@@ -1743,6 +1752,7 @@ mod tests {
                     ("vlan".into(), format!("vlan-{id}").into()),
                     ("device_class".into(), class.into()),
                     ("os_name".into(), os.into()),
+                    ("availability".into(), "healthy".into()),
                 ],
             )
         };
@@ -1780,28 +1790,35 @@ mod tests {
                         ("vlan".into(), "vlan-1".into()),
                         ("device_class".into(), "class-1".into()),
                         ("os_name".into(), "extra".into()),
+                        ("availability".into(), "unavailable".into()),
                     ],
                 )],
                 true,
             )
             .unwrap();
-        let mut expected: Vec<String> = names.iter().map(|name| (*name).to_string()).collect();
-        expected.sort();
-        assert_eq!(index.status().unwrap().unavailable, expected);
-        assert!(matches!(
-            index.query(b"allow", &[predicate("vendor", "moved")], 1000),
-            Err("facet_unavailable")
-        ));
+        assert!(index.status().unwrap().unavailable.is_empty());
+        assert_eq!(page(&index, "moved"), (1, vec![1024]));
+        let (query, _, _, total) = index
+            .query(b"allow", &[predicate("availability", "unavailable")], 1000)
+            .unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(query.page(b"allow", 0, 128, 1000).unwrap(), vec![1025]);
+        query.close().unwrap();
         let revision = index.status().unwrap().revision;
         index
             .publish(revision, b"drop-global", vec![(1025, false, vec![])], true)
             .unwrap();
-        assert!(matches!(
-            index.query(b"allow", &[predicate("os_name", "base")], 1000),
-            Err("facet_unavailable")
-        ));
+        let (query, _, _, total) = index
+            .query(b"allow", &[predicate("os_name", "base")], 1000)
+            .unwrap();
+        assert_eq!(total, 1024);
+        query.close().unwrap();
+    }
 
-        let index = vendor_only();
+    #[test]
+    fn oversized_scalar_values_remain_explicitly_unavailable() {
+        let index = Index::new([1; 16], [2; 16], Kind::Device, vec!["vendor".into()]).unwrap();
+        let row = |id, value: &str| -> Row { (id, true, vec![("vendor".into(), value.into())]) };
         index
             .publish(0, b"overlength", vec![row(1, &"x".repeat(257))], true)
             .unwrap();
@@ -2101,7 +2118,10 @@ mod tests {
             let stage = index.begin_publish(revision, source, rows, true).unwrap();
             assert!(stage.add(&addresses, &completed).unwrap());
             index.finish_publish(&stage).unwrap_or_else(|error| {
-                panic!("publication {source:?} failed: {error}; {:?}", index.status());
+                panic!(
+                    "publication {source:?} failed: {error}; {:?}",
+                    index.status()
+                );
             });
             index.status().unwrap()
         };

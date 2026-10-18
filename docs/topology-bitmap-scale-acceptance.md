@@ -139,7 +139,7 @@ Normal clients must receive a fresh accepted revision within 30 seconds
 during ready churn, checked by each client even while the driver is blocked.
 Cold restart is a separately bounded recovery phase; every client must
 recover to the final SQL-derived population. Reconnects, cross-replica live
-pagination, facet-cardinality refusal and authority revocation are required
+pagination, oversized-facet-value refusal and authority revocation are required
 before the scenario can finish. Separate HTTP predicates must find every
 replacement primary address and none of the removed primary addresses; the
 shared interface IPv4 predicate must still select the complete population.

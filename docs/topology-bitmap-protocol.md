@@ -118,8 +118,8 @@ watch projection receipt reports incomplete canonical identity coverage.
 The manifest field `world_overlay_protocol: 1` also switches each existing
 `/topology/overlays/:layout/:z/:x/:y` request to
 `Accept: application/vnd.serviceradar.world-overlay`. The server returns that
-content type and an SRTO version-1 frame. JSON is supported only when the
-capability is disabled; an enabled client rejects a JSON response.
+content type and an SRTO version-1 frame. An enabled Atlas always advertises
+this protocol, and the client rejects a JSON response.
 
 All SRTO fields are little endian. Its 12-byte header contains `SRTO`, version
 uint8 `1`, flags uint8 `0`, reserved uint16 `0`, and whole frame size uint32.

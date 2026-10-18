@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `e392229bfbce98b0135bd672ea2d0c37bd373cd6e3319e3b8dda92c2022860ff` | 903241 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `499e370bfd02f0f00ef350efc001c4cf941539c68cc82222b91f4779f2ed64ce` | 908837 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -22,8 +22,10 @@ remain authoritative as implementation proceeds.
 The Atlas naming refresh includes the approved visible filter builder, literal
 tag prefixes, current device/interface IP CIDR matching, named Prefix Tags and
 the third review response. The source snapshot retains explicit unfinished
-acceptance tasks and the deferred Arrow telemetry follow-up. Negotiated
-WebSocket measurement is complete and compression stays disabled. Code
+acceptance tasks and the deferred Arrow telemetry follow-up. The negotiated
+WebSocket probe completed; task 4.7 still requires final integration validation,
+and compression stays disabled. Filtering follows Atlas availability, and scalar
+group diversity is admitted against actual memory and processing bounds. Code
 identifiers and protocol names remain unchanged.
 
 All five embedded source documents were regenerated from the current files.
@@ -31,11 +33,11 @@ Their exact source checksums are:
 
 | Source | SHA-256 |
 | --- | --- |
-| `proposal.md` | `35408df2d8f7b72f926b87ced8c293ee8035ab8d8a5c220d18325c68f2c04ecc` |
-| `design.md` | `756cbb1d091c5d0f9710bcc322f4d6c1d323be97e23272f8207ac1d075078b9d` |
-| `specs/topology-god-view/spec.md` | `41aa839c04a9c5aa921747092bcac25b55e3a3d459d0ffcc59760fdc005707a1` |
-| `tasks.md` | `fd86e2bca9ef259849c2ed19b220b5c1358a5674b61d229a878465e666dc3482` |
-| `review-response.md` | `55512dc38d8ee3446e8c580677e92c643d30d6126ec1fb255a0f7ff047f75ad4` |
+| `proposal.md` | `c1487a8c52082af037efa9be9b1acf2f790c2c5a50c1db416ea32ac3bf0b71da` |
+| `design.md` | `a5d0181f70a3bea96a73376bf851da0d5bff5f8fdc72c869176278eb00c76670` |
+| `specs/topology-god-view/spec.md` | `c9152cefb8877e277263885b0443eebc4c4920d8166dd30616df3adbec932b44` |
+| `tasks.md` | `5aa39247d268ceb2474eaa90bf009e9720e2f8cf33e46964e767a1cec933a86a` |
+| `review-response.md` | `af4b0f17210f8a5d8065f43287c81c7eec0aa0a5ce64a2b14cb32d8a5402dd1b` |
 
 The current snapshot includes the final review corrections for bounded retries,
 displayed membership receipts, deterministic telemetry admission, parser/native

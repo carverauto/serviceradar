@@ -143,9 +143,25 @@ provide its advertised semantics, return an explicit unavailable/stale status.
 | Named Prefix Tags | Existing locally loaded immutable prefix snapshots; an exact source/label selects devices through their current addresses. |
 | Availability | Current canonical availability using the existing world-health semantics: healthy, unavailable or unknown. |
 
-Missing values use the documented unknown bucket. Cap facet count, key length,
-value length, value cardinality and retained bytes. A facet that exceeds its
-budget becomes wholly unavailable; never return a partial index as exact.
+Missing values use the documented unknown bucket. Bound configured field count,
+key length and scalar value length independently of stored group diversity.
+There is no fixed distinct-value admission ceiling. Account retained and temporary
+native allocations before construction, including batch postings, strings, the
+next revision's directory and pinned revisions. Preserve the 125,000,000-byte
+steady and 160,000,000-byte total reservation limits, 500-row publication batch
+and one-second native deadline. A rejected publication retains the preceding
+atomic revision and reports stale progress; it must not disable unrelated fields
+or publish a partial result. Oversized scalar values still make their field
+explicitly unavailable because that field cannot be indexed completely.
+
+Publication borrows the union of old and changed keys rather than copying an
+additional complete candidate directory. It still visits the current directory
+once per batch; benchmark that cost separately from exact lookup and set algebra.
+The 100,000-device diversity sweep varies one or five fields from 512 through
+65,536 values with only two query predicates. Those are measurement points,
+not new product limits. Preserve separate large-population and hosted convergence
+acceptance. Temporary pressure recovery at the native owner does not by itself
+prove publisher progress when a capacity-blocked page precedes later deletions.
 
 Causal state has no approved fleet-scale producer today. The legacy bounded
 scene evaluator is not such a producer, and availability cannot substitute for
@@ -176,6 +192,8 @@ They are not regular expressions or glob programs. A bounded
 value-dictionary range and Roaring union is sufficient unless measurements
 justify a trie. A cap must reject the predicate rather than return a partial
 union. Prefix evaluation shares the query deadline and allocation accounting.
+Combine matching postings in balanced stages to avoid copying a growing union
+once per distinct value; this does not require a separate text trie.
 
 IP/CIDR is a different operator: parse IPv4/IPv6 numerically and match any known
 current device or interface address. Several matching addresses on one device
@@ -222,9 +240,9 @@ live lexical cursor to source, authority and last label. Pod-local source
 versions are response metadata, not cross-replica cursor identities. Reserve
 at most 4 MiB total additional catalog
 memory across sources and retained snapshots. Build catalogs only in the
-existing background bitmap worker; default-off snapshots allocate none. Retry
-admission after retained snapshots release memory, and release catalogs on
-feature disable. Catalog admission failure does
+existing background bitmap worker whenever Atlas is enabled. Retry
+admission after retained snapshots release memory, and release catalogs when
+Atlas stops or a source is removed. Catalog admission failure does
 not break existing prefix lookup; named-tag queries report unavailability.
 
 Return sorted, disjoint inclusive numeric ranges to the bitmap engine. Across
@@ -370,7 +388,7 @@ JSON encoding used only for size checks with the actual binary frame budget.
 Keep native health epochs in their existing opaque hexadecimal domain and
 preserve integer revisions losslessly. Small query/control metadata may remain JSON, but no bulk
 health or flow arrays are wrapped in JSON or embedded as JSON inside a binary
-envelope. The rollout-disabled compatibility path is identified separately.
+envelope. An enabled Atlas always advertises and serves this binary protocol.
 Admit telemetry before fetching in stable numeric tile order, reserving maximum
 row bytes and CPU/GPU metadata allowances within the 5 MiB retention cap.
 Unadmitted telemetry stays explicitly unknown until the viewport admission
@@ -390,10 +408,14 @@ destroyed or replaced.
 
 ## 6. Rollout and measurement
 
-The topology_bitmap_enabled flag defaults false and composes with the existing
-Atlas gate (`SERVICERADAR_GOD_VIEW_ENABLED`). Enable only after identity, convergence, authorization, synthetic
-scale and actual-hardware browser checks pass. Disabling releases resources and
-returns explicit unsupported-filter state while the bounded base view remains.
+Filtering is available whenever Atlas is enabled through the existing
+`SERVICERADAR_GOD_VIEW_ENABLED` lifecycle gate. There is no separate bitmap
+feature-off switch. Existing `analytics.view` and `devices.view` permissions
+govern access, including named Prefix Tag discovery. Clearing the expression
+restores the base map; unavailable or failed active queries remain explicit and
+never silently show an unfiltered success. Stopping Atlas releases its native,
+catalog and renderer resources. Identity, convergence, authorization, synthetic
+scale and actual-hardware browser checks remain release acceptance gates.
 Deployment, release and destructive data cleanup require separate authorization.
 
 Use independently synthetic 100,000 infrastructure plus 1,000,000 canonical

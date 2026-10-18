@@ -51,7 +51,7 @@ present tag keys by name prefix; 6 pairs a tag-name prefix with an exact value;
 7 pairs it with a value prefix on the same key. Tag-name prefixes omit `tag:`.
 Presence excludes the synthetic missing-value `unknown` bucket. An actual
 value `unknown` still matches. Key presence remains exact when that key's
-value cardinality exceeds its cap; value predicates reject unavailable facets.
+value exceeds the supported scalar size; value predicates reject unavailable facets.
 Operator strings are empty. Negation is relative to
 the live universe. The serving owner derives the authority fingerprint from
 current permission checks, never from a client field, and rechecks permission
@@ -84,11 +84,19 @@ Admission limits are 32 predicates, depth 8, 65 instructions, 50 facet counts,
 with eight retained handles and eight active readers. The serving owner closes
 request-local pins when the request finishes; 30 seconds is a native expiry
 backstop, not a cross-request cache. Every read
-has a deadline of at most one second. Unsupported or cardinality-capped facets
+has a deadline of at most one second. Unsupported or oversized-value facets
 fail explicitly; the index never returns a partial facet as exact. A canonical
 value exceeding 256 bytes also makes its whole facet unavailable until rebuild,
 while other facets and live membership keep publishing. Missing values use the
 exact literal `unknown`; values are not truncated or silently dropped.
+
+Stored scalar group diversity has no fixed count ceiling. Publication reserves
+batch postings and the next revision's key directory before construction,
+preserving the 125 MB retained and 160 MB total native limits. Prefix queries
+use balanced unions under the same request deadline. The
+[diversity measurement report](../../../../docs/topology-bitmap-diversity-measurements.md)
+records the separate 100,000-device, two-predicate experiment, source hashes,
+actual costs and remaining publisher/hosted acceptance.
 
 Posting sets are immutable and shared across revisions; only changed postings
 are replaced. Conservative native accounting includes bitmap container

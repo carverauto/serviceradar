@@ -1,5 +1,26 @@
 # Review response
 
+## Subsequent approved corrections
+
+The user requires filtering whenever Atlas is enabled, using existing viewer
+permissions. The separate default-off bitmap flag is removed; active-query
+failure never becomes an unfiltered success. Atlas lifecycle shutdown still
+reclaims resources. This supersedes earlier rollout-toggle assumptions.
+
+The user also requested memory/processing-based admission before adopting any
+facet-eviction policy. Synthetic high-diversity evaluation reproduced the old
+1,024/4,096 group limits disabling simple queries despite available memory.
+Native publication now reserves temporary postings and revision directories
+before construction and drops those scalar count limits. Prefix unions combine
+postings in balanced stages under the same memory and deadline bounds. This
+does not alter the distinct compiled IP-range limit or authorize eviction.
+Full publisher recovery, hosted database/scale acceptance and the other pending
+review corrections remain required; native measurements alone do not close them.
+
+The negotiated WebSocket probe completed; task 4.7 still awaits final integration
+validation. Compression remains disabled. Historical GPU measurements retain
+their original checkpoint provenance and are not measurements of the new head.
+
 This responds to every finding in `review.md` without changing that independent
 append-only review. The user confirmed current membership on each page on
 2026-10-16. Proposal, design, requirements and tasks now describe the reduced
