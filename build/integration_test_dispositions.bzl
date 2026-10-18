@@ -22,6 +22,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/automation/callback_grants/ash_store_db_test.exs",
     "test/serviceradar/automation/northbound/catalog_test.exs",
     "test/serviceradar/automation/northbound/history_test.exs",
+    "test/serviceradar/bgp/ingestor_db_test.exs",
     "test/serviceradar/cold_tier/registry_drift_test.exs",
     "test/serviceradar/composite_checks/verdict_event_writer_test.exs",
     "test/serviceradar/credentials/credential_broker_grant_db_test.exs",
