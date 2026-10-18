@@ -67,7 +67,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @retained_restore_skipped_event [:serviceradar, :sweep, :restore, :retained_skipped]
   @seed_uid_collision_event [:serviceradar, :sweep, :seed, :uid_collision]
   @seed_uid_collision_table :serviceradar_sweep_seed_uid_collisions
-  @max_seed_uid_collision_entries 10_000
   # How many uids of a seed's chain are tried before the host is left unseeded.
   @max_seed_uid_attempts 8
   @banner_grab_counter_dropped_event [
@@ -1084,21 +1083,30 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     key = {partition, ip}
     state = {existing.uid, existing.partition, existing.ip, existing.identity_revision}
 
+    transition_seed_uid_collision_state(table, key, state)
+  end
+
+  defp seed_uid_collision_state_changed?(_partition, _ip, _existing, false), do: false
+
+  defp transition_seed_uid_collision_state(table, key, state) do
     case :ets.lookup(table, key) do
       [{^key, ^state}] ->
         false
 
-      _ ->
-        if :ets.info(table, :size) >= @max_seed_uid_collision_entries do
-          :ets.delete_all_objects(table)
+      [{^key, previous}] ->
+        match_spec = [{{key, previous}, [], [{{{:const, key}, {:const, state}}}]}]
+
+        if :ets.select_replace(table, match_spec) == 1 do
+          true
+        else
+          transition_seed_uid_collision_state(table, key, state)
         end
 
-        :ets.insert(table, {key, state})
-        true
+      [] ->
+        :ets.insert_new(table, {key, state}) or
+          transition_seed_uid_collision_state(table, key, state)
     end
   end
-
-  defp seed_uid_collision_state_changed?(_partition, _ip, _existing, false), do: false
 
   defp clear_seed_uid_collisions(_partition, [], _track_collisions?), do: :ok
   defp clear_seed_uid_collisions(_partition, _ips, false), do: :ok
