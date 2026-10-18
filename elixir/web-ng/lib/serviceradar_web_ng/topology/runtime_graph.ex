@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   use GenServer
 
+  alias ServiceRadar.Inventory.Preparations.ExcludeSupersededLegacyIdentities
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.Native
 
@@ -290,6 +291,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @doc false
   @spec virtualization_inventory_links_query() :: String.t()
   def virtualization_inventory_links_query do
+    # A legacy row that a v3 row supersedes carries stale ownership.
+    superseded_guest =
+      ExcludeSupersededLegacyIdentities.superseded_sql(:guest, "g.provider", "g.provider_ref")
+
+    superseded_host =
+      ExcludeSupersededLegacyIdentities.superseded_sql(:host, "h.provider", "h.provider_ref")
+
     """
     SELECT jsonb_build_object(
       'local_device_id', h.device_uid,
@@ -344,6 +352,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND btrim(h.device_uid) <> ''
       AND btrim(g.device_uid) <> ''
       AND h.device_uid <> g.device_uid
+      AND NOT #{superseded_guest}
+      AND NOT #{superseded_host}
     ORDER BY COALESCE(g.observed_at, h.observed_at, g.updated_at, h.updated_at) DESC,
       h.device_uid ASC,
       g.device_uid ASC,

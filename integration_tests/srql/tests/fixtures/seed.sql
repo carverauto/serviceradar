@@ -1434,6 +1434,80 @@ SELECT
     base.now_ts
 FROM base, ids;
 
+-- Legacy guest rows next to the v3 rows that supersede them. Guest 300 has a
+-- resolved alias, guest 301 an ambiguous one with one surviving candidate, and
+-- guest 302 has no v3 row yet (unresolved). The legacy rows stay in the table.
+INSERT INTO virtualization_guests (
+    id,
+    provider,
+    provider_ref,
+    host_id,
+    name,
+    guest_type,
+    vmid,
+    status,
+    observed_at
+)
+VALUES
+    ('bbbbbbbb-0000-0000-0000-000000000300'::uuid, 'proxmox',
+     'proxmox:guest:pve-a:qemu:300', 'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'vm-300-legacy', 'vm', 300, 'stopped', NOW() - INTERVAL '90 days'),
+    ('bbbbbbbb-0000-0000-0000-000000000301'::uuid, 'proxmox',
+     'proxmox:guest:pve-a:qemu:301', 'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'vm-301-legacy', 'vm', 301, 'stopped', NOW() - INTERVAL '90 days'),
+    ('bbbbbbbb-0000-0000-0000-000000000302'::uuid, 'proxmox',
+     'proxmox:guest:pve-a:qemu:302', 'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'vm-302-legacy', 'vm', 302, 'stopped', NOW() - INTERVAL '90 days'),
+    ('bbbbbbbb-0000-0000-0000-000000001300'::uuid, 'proxmox',
+     'proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:300', 'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'vm-300', 'vm', 300, 'running', NOW() - INTERVAL '5 minutes'),
+    ('bbbbbbbb-0000-0000-0000-000000001301'::uuid, 'proxmox',
+     'proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:301', 'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'vm-301', 'vm', 301, 'running', NOW() - INTERVAL '5 minutes');
+
+INSERT INTO virtualization_identity_aliases (
+    id,
+    provider,
+    resource_kind,
+    legacy_provider_ref,
+    target_provider_ref,
+    status,
+    candidate_provider_refs
+)
+VALUES
+    ('bbbbbbbb-0000-0000-0000-000000002300'::uuid, 'proxmox', 'guest',
+     'proxmox:guest:pve-a:qemu:300', 'proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:300', 'resolved',
+     ARRAY['proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:300']),
+    ('bbbbbbbb-0000-0000-0000-000000002301'::uuid, 'proxmox', 'guest',
+     'proxmox:guest:pve-a:qemu:301', NULL, 'ambiguous',
+     ARRAY['proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:301', 'proxmox:v3:33333333-3333-4333-8333-333333333333:44444444-4444-4444-8444-444444444444:lab:qemu:301']),
+    ('bbbbbbbb-0000-0000-0000-000000002302'::uuid, 'proxmox', 'guest',
+     'proxmox:guest:pve-a:qemu:302', NULL, 'unresolved', ARRAY[]::text[]);
+
+-- A superseded legacy guest's NIC is hidden with it; the v3 guest's NIC is not.
+INSERT INTO virtualization_network_interfaces (
+    id,
+    provider,
+    provider_ref,
+    host_id,
+    guest_id,
+    guest_provider_ref,
+    name,
+    mac_address,
+    observed_at
+)
+VALUES
+    ('bbbbbbbb-0000-0000-0000-000000003300'::uuid, 'proxmox',
+     'proxmox:guest-nic:proxmox:guest:pve-a:qemu:300:52:54:00:00:03:00',
+     'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'bbbbbbbb-0000-0000-0000-000000000300'::uuid, 'proxmox:guest:pve-a:qemu:300',
+     'eth0', '52:54:00:00:03:00', NOW() - INTERVAL '90 days'),
+    ('bbbbbbbb-0000-0000-0000-000000004300'::uuid, 'proxmox',
+     'proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:300:nic:eth0',
+     'aaaaaaaa-0000-0000-0000-000000000101'::uuid,
+     'bbbbbbbb-0000-0000-0000-000000001300'::uuid, 'proxmox:v3:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:lab:qemu:300',
+     'eth0', '52:54:00:00:13:00', NOW() - INTERVAL '5 minutes');
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )

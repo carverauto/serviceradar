@@ -808,6 +808,7 @@ CREATE TABLE alerts (
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TABLE IF EXISTS virtualization_identity_aliases;
 DROP TABLE IF EXISTS virtualization_storage_systems;
 DROP TABLE IF EXISTS virtualization_network_interfaces;
 DROP TABLE IF EXISTS virtualization_host_disks;
@@ -954,6 +955,23 @@ CREATE TABLE virtualization_storage_systems (
     observed_at         TIMESTAMPTZ,
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Legacy-to-v3 identity aliases. SRQL hides a legacy row whose alias is
+-- resolved or ambiguous and whose v3 target row exists.
+CREATE TABLE virtualization_identity_aliases (
+    id                      UUID        PRIMARY KEY,
+    provider                TEXT        NOT NULL,
+    resource_kind           TEXT        NOT NULL,
+    legacy_provider_ref     TEXT        NOT NULL,
+    target_provider_ref     TEXT,
+    status                  TEXT        NOT NULL DEFAULT 'unresolved',
+    reason                  TEXT,
+    candidate_provider_refs TEXT[]      NOT NULL DEFAULT '{}',
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (provider, resource_kind, legacy_provider_ref)
 );
 
 -- Device identity correlation for log lookups.

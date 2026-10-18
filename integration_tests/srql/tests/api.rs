@@ -910,6 +910,64 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
     assert_eq!(rows[0]["vmid"], serde_json::json!(100));
     assert_eq!(rows[0]["host_name"], serde_json::json!("pve-a"));
 
+    // Superseded legacy rows stay in the table but are not current inventory.
+    let current_guests = QueryRequest {
+        query: "in:virtualization_guests provider:proxmox vmid:[300,301,302] sort:name:asc"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+
+    let response = harness.query(current_guests).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected current guests body: {body}"
+    );
+    let names: Vec<&str> = body["results"]
+        .as_array()
+        .expect("results array")
+        .iter()
+        .filter_map(|row| row["name"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["vm-300", "vm-301", "vm-302-legacy"],
+        "resolved and ambiguous legacy guests must be hidden, unresolved kept: {body}"
+    );
+
+    let current_guest_nics = QueryRequest {
+        query: r#"in:virtualization_network_interfaces provider:proxmox mac:["52:54:00:00:03:00","52:54:00:00:13:00"]"#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+
+    let response = harness.query(current_guest_nics).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected current guest NIC body: {body}"
+    );
+    let macs: Vec<&str> = body["results"]
+        .as_array()
+        .expect("results array")
+        .iter()
+        .filter_map(|row| row["mac_address"].as_str())
+        .collect();
+    assert_eq!(
+        macs,
+        vec!["52:54:00:00:13:00"],
+        "a superseded legacy guest's NIC must be hidden with it: {body}"
+    );
+
     let datastores = QueryRequest {
         query: "in:virtualization_datastores provider:proxmox storage:local-zfs active:true"
             .to_string(),
