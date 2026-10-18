@@ -187,14 +187,6 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
       else: {:error, :overlay_protocol_changed}
   end
 
-  defp overlay_payload(_conn, content) do
-    if BitmapQueries.enabled?() do
-      {:error, :overlay_protocol_changed}
-    else
-      with {:ok, payload} <- Jason.encode(content), do: {:ok, payload, "application/json"}
-    end
-  end
-
   defp accepts_overlay?(conn) do
     conn
     |> get_req_header("accept")

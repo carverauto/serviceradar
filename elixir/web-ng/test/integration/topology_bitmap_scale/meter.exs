@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
 
     bucket =
       cond do
-        String.contains?(sql, "bitmap_addresses") -> :addresses
+        metadata[:options][:topology_operation] == :bitmap_addresses -> :addresses
         String.contains?(sql, "device_fleet_ordinals") -> :dictionary
         String.contains?(sql, "ocsf_devices") -> :inventory
         String.contains?(sql, "users") or String.contains?(sql, "role_profiles") -> :authority

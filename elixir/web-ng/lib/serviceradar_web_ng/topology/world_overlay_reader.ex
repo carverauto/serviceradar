@@ -58,26 +58,16 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
         sampled_at: request.until
       }
 
-      with {:ok, content} <- encode_payload(payload, Map.get(settings, :binary?, false)) do
+      with {:ok, content} <- encode_payload(payload) do
         {:ok, %{payload: content, continuation: %{revision: prepared.revision, cursor: prepared.page.next_cursor}}}
       end
     end
   end
 
-  defp encode_payload(payload, true) do
+  defp encode_payload(payload) do
     case WorldOverlayFrame.encode(payload) do
       {:ok, frame} -> {:ok, payload |> Map.take([:layout_version, :generation]) |> Map.put(:binary, frame)}
       {:error, :frame_budget} -> {:error, :overlay_budget_exceeded}
-      error -> error
-    end
-  end
-
-  defp encode_payload(payload, false) do
-    with {:ok, encoded} <- Jason.encode(payload),
-         true <- byte_size(encoded) <= 262_144 do
-      {:ok, payload}
-    else
-      false -> {:error, :overlay_budget_exceeded}
       error -> error
     end
   end

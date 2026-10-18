@@ -199,7 +199,7 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
              WorldOverlayReader.prepare(empty_key, TileControl.fence(manifest), empty.revision, nil, cache, health_owner)
 
     assert {:ok, %{payload: %{binary: <<"SRTO", _rest::binary>>} = content}} =
-             WorldOverlayReader.read_rates(prepared_empty, Map.put(settings, :binary?, true))
+             WorldOverlayReader.read_rates(prepared_empty, settings)
 
     assert content |> Map.keys() |> Enum.sort() == [:binary, :generation, :layout_version]
   end

@@ -148,7 +148,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapPublisher do
     |> SQL.stream(@addresses, [ordinals],
       max_rows: @batch_size,
       timeout: remaining!(deadline),
-      deadline: deadline
+      deadline: deadline,
+      telemetry_options: [topology_operation: :bitmap_addresses]
     )
     |> Enum.reduce_while(:ok, fn %{rows: rows}, :ok ->
       remaining!(deadline)

@@ -257,7 +257,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       assert sample.peaks.current_mapping_bytes <= 33_554_432
       assert sample.peaks.pins <= 8
       assert sample.peaks.rss > 0
-      assert map_size(sample.database) > 0
+      assert %{queries: address_queries, rows: address_rows} = sample.database.addresses
+      assert address_queries > 0 and address_rows > 0
     end
 
     emit("combined", %{

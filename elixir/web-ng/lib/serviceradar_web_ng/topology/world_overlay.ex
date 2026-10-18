@@ -15,7 +15,6 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
 
   use GenServer
 
-  alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.TileControl
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
@@ -73,8 +72,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
     with {:ok, manifest} <- WorldCache.manifest(state.cache),
          true <- key.layout_version == manifest.layout_version do
       fence = TileControl.fence(manifest)
-      binary? = BitmapQueries.enabled?()
-      address = {key, revision, fence.generation, binary?}
+      address = {key, revision, fence.generation}
       entry = Map.get(state.entries, address)
 
       cond do
@@ -97,7 +95,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
           cache = state.cache
           health = state.health
           work = fn -> WorldOverlayReader.prepare(key, fence, revision, continuation, cache, health) end
-          pending = %{fence: fence, binary?: binary?, waiters: [], phase: :prepare, result: nil, cancelled: false}
+          pending = %{fence: fence, waiters: [], phase: :prepare, result: nil, cancelled: false}
           state = put_in(state.active[address], pending)
           {:noreply, state |> add_waiter(address, from) |> launch(address, work, @prepare_timeout)}
       end
@@ -157,7 +155,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
     # has released its world, health and selection references, including its
     # stack; native completion alone would not establish that property.
     if current?(state, pending.fence) do
-      settings = Map.put(state.settings, :binary?, pending.binary?)
+      settings = state.settings
       state = put_in(state.active[address], %{pending | phase: :rates, result: nil})
       launch(state, address, fn -> WorldOverlayReader.read_rates(prepared, settings) end, settings.timeout_ms + 2_000)
     else
