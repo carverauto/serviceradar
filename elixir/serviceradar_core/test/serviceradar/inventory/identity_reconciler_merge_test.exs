@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
   alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -193,6 +194,65 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
            }
 
     assert Enum.sort(survivor.discovery_sources) == ["armis", "manual", "sweep"]
+  end
+
+  test "merge drops guest-shaped and source-only metadata from survivor and records it under merge audit",
+       %{actor: actor} do
+    from_uid = "sr:" <> Ecto.UUID.generate()
+    to_uid = "sr:" <> Ecto.UUID.generate()
+
+    assert {:ok, _guest_duplicate} =
+             create_device(actor, from_uid, "pve01.lab.example", %{
+               metadata: %{
+                 "csv_import" => true,
+                 "device_id" => from_uid,
+                 "hypervisor_guest_type" => "qemu",
+                 "hypervisor_vmid" => 155,
+                 "integration_id" => "proxmox:v2:lab-cluster:qemu:155",
+                 "source" => "proxmox-candidate"
+               },
+               discovery_sources: ["proxmox", "sweep"]
+             })
+
+    assert {:ok, _node_survivor} =
+             create_device(actor, to_uid, "pve01.lab.example", %{
+               metadata: %{
+                 "device_role" => "hypervisor",
+                 "hypervisor_provider" => "proxmox",
+                 "hypervisor_provider_ref" => "proxmox:v2:lab-cluster:node:pve01",
+                 "integration_id" => "proxmox:v2:lab-cluster:node:pve01",
+                 "integration_type" => "hypervisor"
+               },
+               discovery_sources: ["proxmox"]
+             })
+
+    assert :ok =
+             IdentityReconciler.merge_devices(from_uid, to_uid,
+               actor: actor,
+               reason: "proxmox_dedupe"
+             )
+
+    assert {:ok, survivor} = Device.get_by_uid(to_uid, false, actor: actor)
+
+    assert survivor.metadata == %{
+             "csv_import" => true,
+             "device_role" => "hypervisor",
+             "hypervisor_provider" => "proxmox",
+             "hypervisor_provider_ref" => "proxmox:v2:lab-cluster:node:pve01",
+             "integration_id" => "proxmox:v2:lab-cluster:node:pve01",
+             "integration_type" => "hypervisor",
+             "type_manually_set" => false
+           }
+
+    assert {:ok, [audit]} = MergeAudit.get_merged_to(from_uid, actor: actor)
+
+    assert audit.details["dropped_source_metadata"] == %{
+             "device_id" => from_uid,
+             "hypervisor_guest_type" => "qemu",
+             "hypervisor_vmid" => 155,
+             "integration_id" => "proxmox:v2:lab-cluster:qemu:155",
+             "source" => "proxmox-candidate"
+           }
   end
 
   test "merge reassigns endpoint inventory rows and tombstones dead ordinal", %{actor: actor} do

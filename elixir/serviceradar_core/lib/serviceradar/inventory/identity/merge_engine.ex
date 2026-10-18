@@ -471,7 +471,12 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
              Reassignments.reassign_archived_identifiers(from_device_id, to_device_id),
            audit_details =
              details
-             |> merge_audit_details(from_device, source_identifiers, archived_identifiers)
+             |> merge_audit_details(
+               from_device,
+               to_device,
+               source_identifiers,
+               archived_identifiers
+             )
              |> put_succession_details(succession_details),
            :ok <-
              Reassignments.reassign_source_observations(from_device_id, to_device_id, actor),
@@ -687,11 +692,37 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   defp maybe_record_transaction_source_conflict(_error, _reason, _details), do: :ok
 
+  # Identity- and provenance-safe metadata keys that a merge may carry over
+  # from the merged-away device when absent on the survivor. Role- or
+  # record-specific keys (e.g. `hypervisor_vmid`, `hypervisor_guest_type`,
+  # synthetic `device_id`, candidate `source`) are never copied onto the
+  # survivor and are instead recorded under `merge_audit.details`.
+  @carried_over_metadata_keys ~w(
+    armis_device_id
+    authority
+    csv_import
+    integration_id
+    integration_type
+    netbox_device_id
+    source_device_id
+    sync_run_id
+    sync_service_id
+    sync_total_devices
+  )
+
+  @doc """
+  Metadata keys a merge carries over from the merged-away device when the
+  survivor does not already define them.
+  """
+  @spec carried_over_metadata_keys() :: [String.t()]
+  def carried_over_metadata_keys, do: @carried_over_metadata_keys
+
   # A merge retires one row but must not retire operator-owned classification
-  # with it. Tags are user data (CSV imports are a common source), metadata is
-  # multi-source enrichment, and discovery_sources is provenance. Preserve the
-  # union atomically before tombstoning the source; values already present on
-  # the chosen survivor win key conflicts.
+  # with it. Tags are user data (CSV imports are a common source),
+  # identity/provenance metadata is carried over when absent on the survivor,
+  # and discovery_sources is provenance. Preserve the union atomically before
+  # tombstoning the source; values already present on the chosen survivor win
+  # key conflicts.
   #
   # This is deliberately one database expression rather than a read/Map.merge/
   # write through :update. Device metadata has concurrent writers, and a stale
@@ -703,7 +734,14 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            UPDATE platform.ocsf_devices AS survivor
            SET tags = COALESCE(source.tags, '{}'::jsonb) ||
                       COALESCE(survivor.tags, '{}'::jsonb),
-               metadata = COALESCE(source.metadata, '{}'::jsonb) ||
+               metadata = COALESCE(
+                            (
+                              SELECT jsonb_object_agg(entry.key, entry.value)
+                              FROM jsonb_each(COALESCE(source.metadata, '{}'::jsonb)) AS entry(key, value)
+                              WHERE entry.key = ANY($3::text[])
+                            ),
+                            '{}'::jsonb
+                          ) ||
                           COALESCE(survivor.metadata, '{}'::jsonb) ||
                           jsonb_build_object('type_manually_set',
                         (COALESCE(source.metadata->'type_manually_set' = 'true'::jsonb,
@@ -761,7 +799,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            WHERE source.uid = $1 AND survivor.uid = $2
            RETURNING survivor.uid
            """,
-           [from_device_id, to_device_id]
+           [from_device_id, to_device_id, @carried_over_metadata_keys]
          ) do
       {:ok, %{num_rows: 1}} -> :ok
       {:ok, %{num_rows: 0}} -> {:error, :merge_device_missing}
@@ -781,14 +819,43 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   # `source_archived_identifiers` is the merged-away device's archived
   # identifiers, which the merge moved to the survivor; the unmerge moves back
   # exactly these (restore_archived_identifiers/3).
-  defp merge_audit_details(details, from_device, source_identifiers, archived_identifiers) do
+  defp merge_audit_details(
+         details,
+         from_device,
+         to_device,
+         source_identifiers,
+         archived_identifiers
+       ) do
     details
     |> Map.new()
     |> Map.put_new(:from_device_ip, from_device.ip)
     |> Map.put_new(:from_device_hostname, from_device.hostname)
     |> Map.put(:source_identifiers, source_identifiers)
     |> Map.put(:source_archived_identifiers, archived_identifiers)
+    |> Map.put(
+      :dropped_source_metadata,
+      dropped_source_metadata(from_device.metadata, to_device.metadata)
+    )
   end
+
+  defp dropped_source_metadata(from_metadata, to_metadata) when is_map(from_metadata) do
+    survivor_keys =
+      case to_metadata do
+        map when is_map(map) -> MapSet.new(Map.keys(map), &to_string/1)
+        _ -> MapSet.new()
+      end
+
+    carried_keys = MapSet.new(@carried_over_metadata_keys)
+
+    Map.reject(from_metadata, fn {key, _value} ->
+      key = to_string(key)
+
+      key == "type_manually_set" or
+        (MapSet.member?(carried_keys, key) and not MapSet.member?(survivor_keys, key))
+    end)
+  end
+
+  defp dropped_source_metadata(_from_metadata, _to_metadata), do: %{}
 
   defp source_identifiers(device_id, actor) do
     DeviceIdentifier
