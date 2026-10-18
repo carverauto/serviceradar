@@ -254,6 +254,8 @@ acceptance has completed. Historical alternatives belong in the review response.
   action and guarded disposable clone. Network/plugin checks remain, and ordinary
   BazelCI correctness stays required separately. Refuse scale admission unless
   both observer and action can fit the test, quiet period and bounded cleanup.
+  Scale runs before the network/plugin checks, which then get only the time
+  remaining before that same reserve and fail the run if it runs out.
 - Gap: the user retained all limits; the action clock includes checkout and
   preparation, while unbounded cleanup could outlive an otherwise passing test.
 - Reach: the 44-minute scenario stays inside its 45-minute test limit. The
@@ -263,6 +265,8 @@ acceptance has completed. Historical alternatives belong in the review response.
   The existing two-hour lease needs no extra renewal or new provisioner.
 - Verdict: sound; slow preparation refuses before workload admission, and slow
   cleanup remains an explicit failed run rather than a false acceptance claim.
+  With the network/plugin checks first, their observed runtime alone used the
+  admission margin and a hosted compact dispatch was refused without seeding.
 - Confidence: medium until hosted distributions exercise cleanup and timing.
 
 ## Reject surrounding whitespace in filter text

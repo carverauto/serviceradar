@@ -65,8 +65,22 @@ and the remaining action time minus ten seconds for final status cleanup; its
 five-second kill grace is inside that envelope. A stuck final sample cannot
 leave the cleanup waiting beyond the action's remaining budget.
 Insufficient time refuses admission and runs cleanup; it does not shorten the
-scenario or count an incomplete workload as a pass. Observer coverage still
-includes the earlier database suites and clone creation.
+scenario or count an incomplete workload as a pass.
+
+Scale runs first, right after the guarded clones are created, so the existing
+`networks_live_db_test` and `plugin_config_cli_db_test` cases cannot consume its
+window. One hosted compact dispatch was refused at admission after those cases
+ran first: the prelude had already used 435 seconds of observer time. Compact
+seeds `serial_0` and deletes its rows, user and ordinal sequence position on
+exit before those cases run there; sparse uses `serial_1`. The existing cases
+still run and remain required. Before each one starts, the same two clocks are
+read again, and it runs under a forced-exit envelope of whatever both deadlines
+hold beyond the same 165-second quiet, cleanup and status reserve. A case that
+cannot start or finish in that remainder fails the run and nothing further
+starts. The limits are not raised to make every phase fit: a scale test that
+uses its full 2,755-second envelope leaves roughly 300 seconds, less than an
+ordinary network case has taken in hosted CI, so that run fails instead of
+passing. Observer coverage includes clone creation, scale and both cases.
 
 Local compile and database-free verification use RBE:
 

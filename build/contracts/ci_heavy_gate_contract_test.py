@@ -1640,7 +1640,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         shell = database_lifecycle_shell(action)
         selection = shell[shell.index('SCALE_VARIANT=""'):shell.index("\nRUN_ID=")]
         validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
-        admission = shell[shell.index("admit_scale() {"):shell.index("validate_cleanup_json() {")]
+        admission = shell[shell.index("scale_remaining() {"):shell.index("validate_cleanup_json() {")]
         # Run the real selector through the observer launch, including the
         # production limit that runs before admission. Replace only external
         # Bazel work, while real JSON validation rejects another run's clone.
@@ -1671,18 +1671,23 @@ record_observer() {
   done
   printf 'observer=%s pool=%s\n' "$max_seconds" "$pool_slots" > "$OBSERVER_ARGS_LOG"
 }
+CLOCK_FILE="$(mktemp)"
+echo 1000 > "$CLOCK_FILE"
 date() {
-  if [[ "$1" == "+%s%N" ]]; then echo $((${SCALE_OBSERVER_START:-950} * 1000000000)); else echo 1000; fi
+  if [[ "$1" == "+%s%N" ]]; then echo $((${SCALE_OBSERVER_START:-950} * 1000000000)); else cat "$CLOCK_FILE"; fi
 }
 timeout() {
   spec="$1 $2 $3"
+  limit="$3"
   shift 3
   if [[ " $* " == *" //rust/integration-db:observe_connections "* ]]; then
     printf '%s\n' "$spec" > "$OBSERVER_TIMEOUT_LOG"
     record_observer "$@"
     return 0
   fi
-  [[ "$spec" == '--signal=TERM --kill-after=5s 2755s' ]] || return 1
+  [[ "$spec" == '--signal=TERM --kill-after=5s '* ]] || return 1
+  if [[ "${@: -1}" != //elixir/web-ng:topology_bitmap_scale_* ]]; then echo "limit=$limit"; fi
+  [[ "${@: -1}" != //elixir/web-ng:topology_bitmap_scale_* || "$spec" == '--signal=TERM --kill-after=5s 2755s' ]] || return 1
   "$@"
 }
 bazel() {
@@ -1691,9 +1696,14 @@ bazel() {
   case "$1" in
     build) echo "$1 $target" ;;
     test)
-      if [[ "$target" == //elixir/web-ng:topology_bitmap_scale_* ]]; then
-        [[ " $* " == *" --test_timeout=2700 "* ]] || return 1
-      fi
+      case "$target" in
+        //elixir/web-ng:topology_bitmap_scale_*)
+          [[ " $* " == *" --test_timeout=2700 "* ]] || return 1
+          elapsed="${SCALE_SECONDS:-0}" ;;
+        //elixir/web-ng:networks_live_db_test) elapsed="${NETWORK_SECONDS:-0}" ;;
+        *) elapsed=0 ;;
+      esac
+      echo $(($(cat "$CLOCK_FILE") + elapsed)) > "$CLOCK_FILE"
       echo "$1 $target"
       ;;
     run)
@@ -1722,10 +1732,14 @@ wait_for_observer_ready() { return 0; }
                 self.assertEqual(0, result.returncode, result.stderr)
                 enabled = selected in ("compact", "sparse")
                 target = f"//elixir/web-ng:topology_bitmap_scale_{selected}_acceptance"
-                expected = [f"build {target}"] if enabled else []
-                expected.extend(["test //elixir/web-ng:networks_live_db_test", "test //elixir/web-ng:plugin_config_cli_db_test"])
+                # Scale runs first; each existing case is then bounded by the
+                # observer deadline (950 + 3300) less the 165s reserve.
+                expected = [f"build {target}", f"test {target}", "limit=3080s"] if enabled else []
+                expected.append("test //elixir/web-ng:networks_live_db_test")
                 if enabled:
-                    expected.append(f"test {target}")
+                    expected.append("limit=3080s")
+                expected.append("test //elixir/web-ng:plugin_config_cli_db_test")
+                if enabled:
                     expected.append("observer-timeout=--signal=TERM --kill-after=5s 3295s")
                 expected.append("observer=3300 pool=24" if enabled else "observer=1800 pool=15")
                 self.assertEqual(expected, [line for line in result.stdout.splitlines() if not line.startswith("{")])
@@ -1764,6 +1778,30 @@ wait_for_observer_ready() { return 0; }
                 self.assertEqual(admitted, "test //elixir/web-ng:topology_bitmap_scale_compact_acceptance" in result.stdout)
                 if not admitted:
                     self.assertIn("Scale admission refused", result.stderr)
+
+        # The existing cases still run after an admitted scale test, each
+        # bounded by what is left of both deadlines before cleanup. Running
+        # out reports failure and starts nothing further.
+        ordinary = ("test //elixir/web-ng:networks_live_db_test", "test //elixir/web-ng:plugin_config_cli_db_test")
+        for scale_seconds, network_seconds, limits, completed in (
+            (2000, 400, ["limit=1080s", "limit=680s"], 2),
+            (2755, 0, ["limit=325s", "limit=325s"], 2),
+            (2755, 400, ["limit=325s"], 1),
+            (3082, 0, [], 0),
+        ):
+            with self.subTest(scale_seconds=scale_seconds, network_seconds=network_seconds):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
+                         "SCALE_SECONDS": str(scale_seconds), "NETWORK_SECONDS": str(network_seconds)},
+                )
+                lines = result.stdout.splitlines()
+                self.assertIn("test //elixir/web-ng:topology_bitmap_scale_compact_acceptance", lines)
+                self.assertEqual(limits, [line for line in lines if line.startswith("limit=")])
+                self.assertEqual(list(ordinary[:completed]), [line for line in lines if line in ordinary])
+                self.assertEqual(completed == 2, result.returncode == 0, result.stderr)
+                if completed < 2:
+                    self.assertIn("Diagnostic budget exhausted after scale", result.stderr)
 
         for action_start, expected in ((900, "3300 3295s"), (400, "2990 2985s")):
             result = subprocess.run(

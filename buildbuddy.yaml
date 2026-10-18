@@ -250,6 +250,7 @@ actions:
           SCALE_VARIANT=""
           CLEANUP_TIMEOUT=()
           OBSERVER_TIMEOUT=()
+          ORDINARY_TIMEOUT=()
           # Select before the cleanup trap so every scale cleanup command,
           # including one after an early preparation failure, is bounded.
           case "${SERVICERADAR_TOPOLOGY_BITMAP_SCALE:-0}" in
@@ -307,19 +308,38 @@ actions:
           GENERATION_DATABASE=""
           START_NS=0
 
-          admit_scale() {
-            # The test limit excludes Bazel startup/analysis. Bound the complete
-            # command too, and reserve 30s quiet, two 60s cleanup commands,
-            # the 5s observer kill grace, and the 10s status reserve.
-            local elapsed action_remaining observer_remaining required
+          scale_remaining() {
+            # Seconds both deadlines hold beyond the 30s quiet wait, two 60s
+            # cleanup commands, the 5s observer kill grace and the 10s status
+            # reserve. Each scale-mode phase is measured against it when it starts.
+            local elapsed action_remaining observer_remaining
             elapsed="$(date +%s)"
             action_remaining=$((3600 - elapsed + ACTION_START_SECONDS))
             observer_remaining=$((OBSERVER_MAX_SECONDS - elapsed + START_NS / 1000000000))
-            required=$((2760 + 30 + 120 + 15))
-            if (( action_remaining < required || observer_remaining < required )); then
-              echo "Scale admission refused: action_remaining=${action_remaining}s observer_remaining=${observer_remaining}s required=${required}s" >&2
+            SCALE_BUDGET="action_remaining=${action_remaining}s observer_remaining=${observer_remaining}s"
+            if (( observer_remaining < action_remaining )); then action_remaining=$observer_remaining; fi
+            SCALE_REMAINING=$((action_remaining - 30 - 120 - 15))
+          }
+
+          admit_scale() {
+            # The test limit excludes Bazel startup/analysis. Bound the complete
+            # command too: 2755s plus its 5s kill grace.
+            scale_remaining
+            if (( SCALE_REMAINING < 2760 )); then
+              echo "Scale admission refused: ${SCALE_BUDGET} required=$((2760 + 30 + 120 + 15))s" >&2
               return 1
             fi
+          }
+
+          limit_ordinary_suite() {
+            # After scale, an existing case gets only what is left before the
+            # same reserve. A case that cannot finish in it fails the run.
+            scale_remaining
+            if (( SCALE_REMAINING <= 5 )); then
+              echo "Diagnostic budget exhausted after scale: ${SCALE_BUDGET} reserve=$((30 + 120 + 15))s" >&2
+              return 1
+            fi
+            ORDINARY_TIMEOUT=(timeout --signal=TERM --kill-after=5s "$((SCALE_REMAINING - 5))s")
           }
 
           limit_scale_observer() {
@@ -509,10 +529,10 @@ actions:
           PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_serial_0)"
           echo "$PROVISION_JSON"
           validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
-          bazel test $FLAGS //elixir/web-ng:networks_live_db_test
-          bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test
           # Run only one scale distribution under the hosted one-hour action cap.
           # Keep the existing generation, guarded clones, observer and cleanup.
+          # Scale is admitted first, before the existing cases consume its
+          # window; compact deletes its seeded rows from serial_0 on exit.
           if [[ "$SCALE_VARIANT" == sparse ]]; then
             SCALE_PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_serial_1)"
             echo "$SCALE_PROVISION_JSON"
@@ -521,7 +541,11 @@ actions:
           if [[ -n "$SCALE_VARIANT" ]]; then
             admit_scale || exit 1
             timeout --signal=TERM --kill-after=5s 2755s bazel test $FLAGS --test_timeout=2700 //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance
+            limit_ordinary_suite || exit 1
           fi
+          "${ORDINARY_TIMEOUT[@]}" bazel test $FLAGS //elixir/web-ng:networks_live_db_test
+          if [[ -n "$SCALE_VARIANT" ]]; then limit_ordinary_suite || exit 1; fi
+          "${ORDINARY_TIMEOUT[@]}" bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test
 
   - name: "BazelCI"
     env:
