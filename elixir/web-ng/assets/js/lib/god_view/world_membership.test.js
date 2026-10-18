@@ -5,6 +5,7 @@ import {BITMAP_FRAME_BYTES, FRAME_FIELDS, decodeBitmapFrame} from "./bitmap_fram
 import WorldMapRenderer from "./WorldMapRenderer"
 import {bitmapBinding, bitmapFrame} from "./fixtures/bitmap_frame"
 import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
+import {decodeWorldTile} from "./world_tile_decode"
 
 const geometry = {key: {z: 0, x: 0, y: 0}, revision: "synthetic-tile", nodes: [{kind: "device", count: 1}, {kind: "aggregate", count: 9001}]}
 const tile = {z: 0, x: 0, y: 0, revision: geometry.revision, mask: [1, 1], causal: [3, 3], availability: [0, 2], counts: [1, 9001]}
@@ -659,6 +660,74 @@ describe("binary admitted-row membership", () => {
       expect(calls[1].init.body).toBeUndefined()
     } finally {
       renderer.destroyed = true
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([
+    ["omits bitmap_membership_protocol", manifest => {
+      const {bitmap_membership_protocol: _protocol, ...rest} = manifest
+      return rest
+    }],
+    ["sets bitmap_membership_protocol to 0", manifest => ({...manifest, bitmap_membership_protocol: 0})],
+  ])("shows the unfiltered map when a filter event arrives and the manifest %s", async (_label, disable) => {
+    const admitted = {...decodeWorldTile(worldTileIpc(), worldTileKey), generation: 1}
+    const base = {layout_version: worldTileKey.layout_version, generation: 1, zmax: 1, extent: 2 ** 24,
+      node_count: 2, relation_count: 0, bitmap_membership_protocol: 1}
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.summary = {textContent: ""}
+    renderer.deck = {setProps: vi.fn(), device: {submit() {}}}
+    renderer.membershipEnabled = true
+    renderer.bitmapQuery = {all: []}
+    renderer.cache.observe(base)
+    renderer.membership.pending = false
+    renderer.membership.total = 0
+    renderer.membership.entries.set(`${admitted.key.z}/${admitted.key.x}/${admitted.key.y}`, {
+      revision: admitted.revision, mask: new Uint8Array(admitted.nodes.length),
+      counts: new Uint32Array(admitted.nodes.length), availability: new Uint8Array(admitted.nodes.length),
+    })
+    const glyphRadius = () => {
+      const layer = renderer.deck.setProps.mock.calls.at(-1)[0].layers[0]
+      const nodes = layer.renderSubLayers({id: "capability-tile", data: admitted}).find(item => item?.id.endsWith("-nodes"))
+      return {layer, radius: nodes.props.getRadius(null, {index: 0})}
+    }
+    const responses = [disable(base), base]
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(responses.shift())))
+    try {
+      renderer.render()
+      expect(glyphRadius().radius).toBe(0)
+      await renderer.refreshManifest()
+      const unfiltered = glyphRadius()
+      expect(renderer.membershipEnabled).toBe(false)
+      expect(unfiltered.layer.props.membershipEnabled).toBe(false)
+      expect(unfiltered.layer.props.membershipPending).toBe(false)
+      expect(unfiltered.layer.props.membership).toBeNull()
+      expect(unfiltered.radius).toBeGreaterThan(0)
+      expect(renderer.summary.textContent).toBe("Topology query unavailable: filtering is disabled and this filter is not applied")
+      expect(renderer.summary.textContent).not.toContain("matching")
+      expect(renderer.queryParams({device_id: "synthetic-device"})).not.toHaveProperty("query")
+      renderer.setBitmapQuery({facet: "vlan", value: "20"})
+      const stale = glyphRadius()
+      expect(renderer.bitmapQuery).toEqual({facet: "vlan", value: "20"})
+      expect(stale.layer.props.membershipEnabled).toBe(false)
+      expect(stale.layer.props.membershipPending).toBe(false)
+      expect(stale.layer.props.membership).toBeNull()
+      expect(stale.radius).toBeGreaterThan(0)
+      expect(renderer.summary.textContent).toBe("Topology query unavailable: filtering is disabled and this filter is not applied")
+      expect(renderer.queryParams({device_id: "synthetic-device"})).not.toHaveProperty("query")
+      await renderer.refreshManifest()
+      const enabled = glyphRadius()
+      expect(renderer.membershipEnabled).toBe(true)
+      expect(enabled.layer.props.membershipEnabled).toBe(true)
+      expect(enabled.layer.props.membershipPending).toBe(true)
+      expect(enabled.radius).toBe(0)
+      expect(() => renderer.queryParams({device_id: "synthetic-device"})).toThrow("pending")
+    } finally {
+      renderer.destroyed = true
+      renderer.clearMembershipRetry()
+      clearTimeout(renderer.watchTimer)
+      renderer.cache.destroy()
+      renderer.overlays.destroy()
       vi.unstubAllGlobals()
     }
   })

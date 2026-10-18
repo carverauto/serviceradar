@@ -131,7 +131,7 @@ export class WorldFilterPanel {
     if (redraw) this.renderTree()
     const ready = this.state.enabled && descriptor && this.state.capability?.ready !== false
     this.apply.disabled = !ready
-    this.button.textContent = this.state.query ? "Filters active" : "Filters"
+    this.button.textContent = this.state.query && this.state.enabled ? "Filters active" : "Filters"
     this.help.hidden = !this.state.query
     this.status.textContent = !descriptor ? "Device filtering is unavailable on this server." :
       !ready ? `Filters are unavailable: ${this.state.capability?.reason?.replaceAll("_", " ") || (this.state.enabled ? "index preparing" : "filtering disabled")}.` :

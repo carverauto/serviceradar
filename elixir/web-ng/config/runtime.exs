@@ -804,17 +804,25 @@ mcp_refresh_ttl_seconds = parse_int_env.("SERVICERADAR_MCP_REFRESH_TTL_SECONDS",
 
 # Only bounded control configuration uses JSON; inventory and query membership
 # retain their typed native/binary paths. JSON preserves literal commas in keys.
-bitmap_tag_keys_json = System.get_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", "[]")
+# An unused allowlist cannot stop boot while bitmap filtering is off.
+topology_bitmap_enabled =
+  to_bool.(System.get_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "false")) == true
 
 bitmap_tag_keys =
-  with true <- byte_size(bitmap_tag_keys_json) <= 16_384,
-       {:ok, keys} <- Jason.decode(bitmap_tag_keys_json),
-       {:ok, keys} <- BitmapSource.tag_keys(keys) do
-    keys
+  if topology_bitmap_enabled do
+    bitmap_tag_keys_json = System.get_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", "[]")
+
+    with true <- byte_size(bitmap_tag_keys_json) <= 16_384,
+         {:ok, keys} <- Jason.decode(bitmap_tag_keys_json),
+         {:ok, keys} <- BitmapSource.tag_keys(keys) do
+      keys
+    else
+      _ ->
+        raise ArgumentError,
+              "SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS must be a JSON array of at most 25 unique UTF-8 keys, each 1..60 bytes"
+    end
   else
-    _ ->
-      raise ArgumentError,
-            "SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS must be a JSON array of at most 25 unique UTF-8 keys, each 1..60 bytes"
+    []
   end
 
 config :serviceradar_core, ServiceRadar.NATS.Connection,
@@ -915,7 +923,7 @@ config :serviceradar_web_ng,
   remote_access_tcp_enabled: remote_access_tcp_enabled
 
 config :serviceradar_web_ng,
-  topology_bitmap_enabled: to_bool.(System.get_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "false")) == true,
+  topology_bitmap_enabled: topology_bitmap_enabled,
   bitmap_tag_keys: bitmap_tag_keys
 
 if is_map(remote_access_ssh_certificate_policy) and

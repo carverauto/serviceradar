@@ -72,8 +72,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     ids: [first_id, trigger_id, late_id, higher_id, unrelated_id],
     vendor: vendor
   } do
+    prior_manifest = World.active_manifest(:system)
+    prior_head = world_head_row()
+    prior_layout = layout_stamp(prior_head)
+
     previous =
-      case World.active_manifest(:system) do
+      case prior_manifest do
         {:ok, %{generation: generation}} -> generation
         {:error, :not_ready} -> 0
       end
@@ -83,9 +87,22 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
     padding = Enum.map(1..501, &"sr:loader-padding-#{vendor}-#{&1}")
 
     on_exit(fn ->
-      # These are exact test-owned stages, in the disposable serial fixture.
       # ExUnit has stopped the supervised loader/publisher before teardown.
-      Enum.each(versions, &delete_world/1)
+      Enum.each(versions, &delete_staged_world/1)
+      restore_world_head(prior_head, prior_layout)
+      assert world_head_row() == prior_head
+      assert World.active_manifest(:system) == prior_manifest
+
+      for version <- versions do
+        uuid = Ecto.UUID.dump!(version)
+
+        assert %{num_rows: 0} =
+                 Repo.query!(
+                   "SELECT layout_version FROM platform.topology_world_layouts WHERE layout_version = $1",
+                   [uuid]
+                 )
+      end
+
       Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
       ServiceRadar.TestSupport.delete_device_fixtures!(padding)
     end)
@@ -514,12 +531,63 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
              )
   end
 
-  defp delete_world(version) do
+  defp world_head_row do
+    case Repo.query!("SELECT id, active_layout_version, generation, updated_at FROM platform.topology_world_head") do
+      %{rows: []} -> nil
+      %{rows: [row]} -> row
+    end
+  end
+
+  defp layout_stamp(nil), do: nil
+  defp layout_stamp([_id, nil, _generation, _updated_at]), do: nil
+
+  defp layout_stamp([_id, version, _generation, _updated_at]) do
+    case Repo.query!(
+           "SELECT status, updated_at FROM platform.topology_world_layouts WHERE layout_version = $1",
+           [version]
+         ) do
+      %{rows: []} -> nil
+      %{rows: [row]} -> row
+    end
+  end
+
+  defp delete_staged_world(version) do
     uuid = Ecto.UUID.dump!(version)
     Repo.query!("DELETE FROM platform.topology_world_head WHERE active_layout_version = $1", [uuid])
 
     for table <- ~w(topology_world_relations topology_world_positions topology_world_layouts) do
       Repo.query!("DELETE FROM platform.#{table} WHERE layout_version = $1", [uuid])
+    end
+  end
+
+  defp restore_world_head(nil, _layout) do
+    Repo.query!("DELETE FROM platform.topology_world_head")
+  end
+
+  defp restore_world_head([id, version, generation, updated_at], layout) do
+    Repo.query!("DELETE FROM platform.topology_world_head")
+
+    Repo.query!(
+      """
+      INSERT INTO platform.topology_world_head (id, active_layout_version, generation, updated_at)
+      VALUES ($1, $2, $3, $4)
+      """,
+      [id, version, generation, updated_at]
+    )
+
+    case layout do
+      [status, layout_updated_at] ->
+        Repo.query!(
+          """
+          UPDATE platform.topology_world_layouts
+          SET status = $1, updated_at = $2
+          WHERE layout_version = $3
+          """,
+          [status, layout_updated_at, version]
+        )
+
+      nil ->
+        :ok
     end
   end
 

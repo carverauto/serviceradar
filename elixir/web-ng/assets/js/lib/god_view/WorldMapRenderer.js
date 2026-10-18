@@ -239,7 +239,7 @@ export default class WorldMapRenderer {
     this.bitmapQuery = next
     this.clearMembershipRetry()
     this.invalidateMembership()
-    if (!this.membershipEnabled && query) this.status("Topology query filters are unavailable on this server.")
+    if (!this.membershipEnabled && query) this.status(this.mapSummary(this.visibleTileCount ?? 0))
     this.scheduleWatch()
   }
 
@@ -425,7 +425,7 @@ export default class WorldMapRenderer {
       this.membershipEnabled = accepted?.bitmap_membership_protocol === 1
       this.overlays.setBinary(accepted?.world_overlay_protocol === 1)
       this.updateFilterPanel()
-      if (!this.membershipEnabled && this.bitmapQuery !== null) this.status("Topology query unavailable: filtering is disabled")
+      if (!this.membershipEnabled && this.bitmapQuery !== null) this.status(this.mapSummary(this.visibleTileCount ?? 0))
       if (!changed) {
         if (membershipChanged || capabilityChanged) {this.clearMembershipRetry(); this.invalidateMembership(); this.render(); this.scheduleWatch()}
         return
@@ -590,7 +590,7 @@ export default class WorldMapRenderer {
       this.cache.prefetch()
     }
     const manifest = this.cache.manifest
-    this.status(this.bitmapQuery !== null && !this.membershipEnabled ? "Topology query unavailable: filtering is disabled" : this.mapSummary(tiles.length))
+    this.status(this.mapSummary(tiles.length))
     const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
@@ -613,13 +613,14 @@ export default class WorldMapRenderer {
   render() {
     if (!this.deck || !this.cache.manifest || this.destroyed || this.rendererFailed) return
     this.flushPendingCommands()
+    const membershipApplied = this.membershipEnabled && this.bitmapQuery !== null
     this.deck.setProps({layers: [new WorldTileLayer({
       id: `god-view-world-${this.cache.manifest.layout_version}`, visible: !this.detailRenderer,
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
-      membership: this.membership.entries, membershipRevision: this.membershipRevision,
-      membershipEnabled: this.bitmapQuery !== null, membershipPending: this.membership.pending,
+      membership: membershipApplied ? this.membership.entries : null, membershipRevision: this.membershipRevision,
+      membershipEnabled: membershipApplied, membershipPending: membershipApplied && this.membership.pending,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
@@ -793,8 +794,8 @@ export default class WorldMapRenderer {
   }
 
   queryParams(params) {
-    const query = this.bitmapQuery === null ? null : JSON.stringify(this.bitmapQuery)
-    if (query !== null && (!this.membershipEnabled || this.membership.pending)) {
+    const query = this.membershipEnabled && this.bitmapQuery !== null ? JSON.stringify(this.bitmapQuery) : null
+    if (query !== null && this.membership.pending) {
       throw new Error("Topology filter pending; try again when the map is ready")
     }
     if (params.query && params.query !== query) throw new Error("Topology query changed; select the item again")
@@ -829,6 +830,7 @@ export default class WorldMapRenderer {
   }
 
   mapSummary(tiles) {
+    if (this.bitmapQuery !== null && !this.membershipEnabled) return "Topology query unavailable: filtering is disabled and this filter is not applied"
     if (this.bitmapQuery !== null && this.membershipError) return `Topology query unavailable: ${this.membershipError}`
     if (this.bitmapQuery !== null && (this.membership.pending || this.membership.total === null)) return "Topology filter pending…"
     const summary = this.bitmapQuery === null ? `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles` :

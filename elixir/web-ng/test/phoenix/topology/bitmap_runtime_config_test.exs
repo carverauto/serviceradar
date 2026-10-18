@@ -89,6 +89,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
 
     for value <- [
           "not-json",
+          ~s("role"),
           ~s(["role","role"]),
           Jason.encode!(Enum.map(1..26, &("key-" <> Integer.to_string(&1)))),
           Jason.encode!([String.duplicate("x", 61)])
@@ -98,6 +99,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
       assert_raise ArgumentError, ~r/SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS/, fn ->
         Config.Reader.read!(runtime, env: :test, target: :host)
       end
+    end
+
+    System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "false")
+
+    for value <- ["not-json", ~s("role")] do
+      System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", value)
+      config = Config.Reader.read!(runtime, env: :test, target: :host)[:serviceradar_web_ng]
+      assert config[:topology_bitmap_enabled] == false
+      assert config[:bitmap_tag_keys] == []
     end
   end
 end
