@@ -423,7 +423,7 @@ export default class WorldMapRenderer {
       const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(accepted))
       const membershipChanged = this.membershipEnabled !== (accepted?.bitmap_membership_protocol === 1)
       this.membershipEnabled = accepted?.bitmap_membership_protocol === 1
-      this.overlays.setBinary(accepted?.world_overlay_protocol === 1)
+      this.overlays.setSupported(accepted?.world_overlay_protocol === 1)
       this.updateFilterPanel()
       if (!this.membershipEnabled && this.bitmapQuery !== null) this.status(this.mapSummary(this.visibleTileCount ?? 0))
       if (!changed) {

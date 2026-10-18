@@ -6,6 +6,8 @@ import WorldMapRenderer from "./WorldMapRenderer"
 import {bitmapBinding, bitmapFrame} from "./fixtures/bitmap_frame"
 import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
 import {decodeWorldTile} from "./world_tile_decode"
+import {telemetryFrame} from "./fixtures/world_overlay_frame"
+import {decodeWorldOverlay} from "./world_overlay_frame"
 
 const geometry = {key: {z: 0, x: 0, y: 0}, revision: "synthetic-tile", nodes: [{kind: "device", count: 1}, {kind: "aggregate", count: 9001}]}
 const tile = {z: 0, x: 0, y: 0, revision: geometry.revision, mask: [1, 1], causal: [3, 3], availability: [0, 2], counts: [1, 9001]}
@@ -223,16 +225,16 @@ describe("binary admitted-row membership", () => {
   it("drops stale overlay health when the manifest fetch fails", async () => {
     const layout = "00000000-0000-4000-8000-000000000478"
     const manifest = {layout_version: layout, generation: 5, zmax: 1, extent: 2 ** 24, node_count: 1,
-      relation_count: 0, bitmap_membership_protocol: 1, world_overlay_protocol: 0}
+      relation_count: 0, bitmap_membership_protocol: 1, world_overlay_protocol: 1}
     const geometry = {key: {layout_version: layout, z: 0, x: 0, y: 0}, revision: "rev-1", generation: 5,
       nodes: [{kind: "device", count: 1}], edges: []}
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     renderer.channel = {state: "joined"}
     renderer.membershipEnabled = true
     renderer.cache.observe(manifest)
+    renderer.overlays.setSupported(true)
     renderer.overlays.setVisible([geometry])
-    renderer.overlays.entries.set("0/0/0", {layout_version: layout, generation: 5, tile_id: "0/0/0",
-      revision: "rev-1", health: {glyphs: [{state: "healthy"}]}})
+    renderer.overlays.entries.set("0/0/0", decodeWorldOverlay(telemetryFrame(geometry), geometry))
     vi.stubGlobal("fetch", vi.fn(async () => {throw new Error("Topology manifest unavailable")}))
     try {
       await renderer.poll()
@@ -253,7 +255,7 @@ describe("binary admitted-row membership", () => {
     renderer.bitmapQuery = {all: []}
     renderer.membershipSignature = "accepted-view"
     renderer.cache.observe(current)
-    renderer.overlays.setBinary(true)
+    renderer.overlays.setSupported(true)
     const invalidated = vi.spyOn(renderer, "invalidateMembership")
     const lagging = {layout_version: layout, generation: 4, zmax: 1, extent: 2 ** 24, node_count: 1, relation_count: 0}
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(lagging)))
@@ -262,7 +264,7 @@ describe("binary admitted-row membership", () => {
       expect(renderer.cache.manifest.generation).toBe(5)
       expect(renderer.cache.manifest.bitmap).toEqual(current.bitmap)
       expect(renderer.membershipEnabled).toBe(true)
-      expect(renderer.overlays.binary).toBe(true)
+      expect(renderer.overlays.supported).toBe(true)
       expect(renderer.membershipSignature).toBe("accepted-view")
       expect(invalidated).not.toHaveBeenCalled()
     } finally {renderer.destroyed = true; clearTimeout(renderer.watchTimer); renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals()}

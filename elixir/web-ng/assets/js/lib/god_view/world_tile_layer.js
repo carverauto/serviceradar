@@ -35,9 +35,7 @@ const geometryFrames = new WeakMap()
 const flowFrames = new WeakMap()
 
 function healthLookup(overlay) {
-  if (overlay?.healthAt) return node => overlay.healthAt(node.index)
-  const byId = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
-  return node => byId.get(node.id)
+  return overlay ? node => overlay.healthAt(node.index) : () => null
 }
 
 function completeMember(geometry, membership, row) {
@@ -113,10 +111,9 @@ function flowFrame(geometry, overlay, membership) {
   }
   const key = membership || overlay
   if (overlayFrames.has(key)) return overlayFrames.get(key)
-  const byId = new Map((overlay.flow?.edges || []).map(edge => [edge.id, edge]))
   const edges = geometry.edges.flatMap(edge => {
     if (edge.stale || (membership && (!completeMember(geometry, membership, edge.source) || !completeMember(geometry, membership, edge.target)))) return []
-    const flow = overlay.flowAt ? overlay.flowAt(edge.index) : byId.get(edge.id)
+    const flow = overlay.flowAt(edge.index)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
     const ba = packetRate(flow.reverse)

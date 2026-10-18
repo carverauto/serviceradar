@@ -1,6 +1,6 @@
 import {expect, test} from "@playwright/test"
 import {resolve} from "node:path"
-import {transportTile, transportDetail} from "./js/lib/god_view/fixtures/world_transport.js"
+import {transportTile, transportDetail, transportOverlay} from "./js/lib/god_view/fixtures/world_transport.js"
 
 const html = resolve(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE, process.env.GOD_VIEW_WORLD_GPU_PAGE)
 
@@ -166,7 +166,7 @@ test("clearing missing membership restores glyphs and links on retained GPU laye
     await renderer.overlays.polling
     // Public layer inputs cover a missing tile receipt after pending state.
     // This component case does not claim a complete server/channel lifecycle.
-    renderer.deck.setProps({layers: [renderer.deck.props.layers[0].clone({membershipEnabled: true, membershipPending: true})]})
+    renderer.deck.setProps({layers: [renderer.deck.props.layers[0].clone({membershipEnabled: true, membershipPending: true, membership: new Map()})]})
   })
   await completedBitmapFrame(page)
   await page.evaluate(() => {
@@ -291,7 +291,7 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
     if (url.pathname === "/topology/tiles/manifest") {
       manifestRequests += 1
       if (manifestRequests === 1) return route.fulfill({status: 503, json: {error: "not_ready"}})
-      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1, bounds: [[192 * 32768, 192 * 32768], [208 * 32768, 216 * 32768]]}})
+      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1, world_overlay_protocol: 1, bounds: [[192 * 32768, 192 * 32768], [208 * 32768, 216 * 32768]]}})
     }
     if (url.pathname === "/topology/tiles/search") {
       expect(url.searchParams.get("device_id")).toBe("invented-device-a")
@@ -308,10 +308,9 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
       return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.apache.arrow.file", headers: {...headers, etag}})
     }
     if (url.pathname.startsWith("/topology/overlays/")) {
-      const tileId = url.pathname.split("/").slice(-3).join("/")
-      return route.fulfill({json: {layout_version: version, generation: 1, revision, tile_id: tileId,
-        health: {glyphs: []}, flow: {edges: [{id: "invented-link", total_relations: 1, selected_relations: 1,
-          forward: {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000}, reverse: {status: "unknown", animate: false}}]}}})
+      const [z, x, y] = url.pathname.split("/").slice(-3).map(Number)
+      const bytes = transportOverlay({z, x, y}, version, revision)
+      return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.serviceradar.world-overlay"})
     }
     if (url.pathname === "/topology/details") {
       expect(url.searchParams.get("id")).toBe("invented-device-a")

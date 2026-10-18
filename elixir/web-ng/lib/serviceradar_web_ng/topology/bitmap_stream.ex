@@ -111,14 +111,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         if task[:abandoned] || is_nil(state.request) do
           assign(socket, :bitmap_stream, state)
         else
-          case BitmapQueries.normalize(result) do
-            {:ok, result} -> deliver(result, state, socket)
+          with {:ok, result} <- BitmapQueries.normalize(result),
+               :ok <- current_authority(socket, result) do
+            deliver(result, state, socket)
+          else
             {:error, reason} -> failed(state, reason, socket)
           end
         end
 
       _ ->
         socket
+    end
+  end
+
+  defp current_authority(socket, result) do
+    case BitmapAuthority.current(socket.assigns.current_scope) do
+      {:ok, authority} when authority == result.authority -> :ok
+      _ -> {:error, :forbidden}
     end
   end
 

@@ -131,7 +131,26 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     # The padded dictionary spans at least two pages. Each page is a separate
     # supervised turn that resumes from the owner's retained cursor.
-    assert_receive {:loader_page, ^paging, first_turn, first_cursor}, 10_000
+    assert_receive {:loader_page, ^paging, disabled_turn, first_cursor}, 10_000
+
+    # Disabling Atlas between pages releases the staged projection and returns
+    # the loader to ordinary head polling instead of the page cadence.
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
+    send(disabled_turn, {:continue_loader, paging})
+    await_task(disabled_turn)
+    assert_receive {:loader_query, ^observer, disabled_check, :head, _} when disabled_check != disabled_turn, 10_000
+    await_task(disabled_check)
+    await_loader_idle(loader)
+    assert is_nil(:sys.get_state(loader).projection)
+    assert {:ok, %{ordinals: nil}} = WorldCache.world(cache)
+    drain_loader_queries(observer)
+    drain_loader_queries(paging)
+    refute_receive {:loader_query, ^observer, _, :head, _}, 1_000
+
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+    await_members(owner, vendor, [first_ordinal])
+    send(loader, :refresh)
+    assert_receive {:loader_page, ^paging, first_turn, ^first_cursor}, 10_000
     send(first_turn, {:continue_loader, paging})
     assert_receive {:loader_page, ^paging, second_turn, resumed_cursor}, 10_000
     assert second_turn != first_turn

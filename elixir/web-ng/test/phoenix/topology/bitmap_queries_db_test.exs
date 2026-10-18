@@ -516,7 +516,28 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     cached = scope |> binary_conn() |> Plug.Conn.put_req_header("if-none-match", etag)
     assert TopologyTileController.overlay(cached, overlay_params).status == 304
 
+    # A worker completes while access is still valid; revocation lands before
+    # the channel processes that queued result, which must not be delivered.
+    :ok = :sys.suspend(BitmapIndex)
+
+    revoked_ref =
+      try do
+        revoked_ref = push(socket, "membership:watch", params)
+        assert_push "membership:frame", {:binary, _replaced_reset}, 5_000
+        %{pid: worker} = await(fn -> stream_task(socket) end, &is_map/1)
+        worker_monitor = Process.monitor(worker)
+        :ok = :sys.suspend(socket.channel_pid)
+        :ok = :sys.resume(BitmapIndex)
+        assert_receive {:DOWN, ^worker_monitor, :process, _pid, :normal}, 5_000
+        revoked_ref
+      after
+        :sys.resume(BitmapIndex)
+      end
+
     user |> Ash.Changeset.for_update(:deactivate, %{}, actor: @actor) |> Ash.update!()
+    :ok = :sys.resume(socket.channel_pid)
+    assert_reply revoked_ref, :error, %{reason: "forbidden"}, 5_000
+    refute_push "membership:frame", _revoked_frame, 200
     assert TopologyTileController.overlay(cached, overlay_params).status == 403
     monitor = Process.monitor(socket.channel_pid)
     send(socket.channel_pid, :tile_tick)
@@ -666,6 +687,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       &match?({:ok, %{labels: ^labels}}, &1)
     )
   end
+
+  defp stream_task(socket), do: :sys.get_state(socket.channel_pid).assigns.bitmap_stream.task
 
   defp stream_identity(socket) do
     %{assigns: %{bitmap_stream: %{identity: {:ok, identity}}}} = :sys.get_state(socket.channel_pid)

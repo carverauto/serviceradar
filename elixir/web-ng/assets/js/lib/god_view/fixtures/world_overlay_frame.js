@@ -5,7 +5,7 @@ export const telemetryGeometry = {
 }
 export const telemetryTime = 1893456000123456n
 
-export function telemetryFrame(geometry = telemetryGeometry, {complete = false, health = null} = {}) {
+export function telemetryFrame(geometry = telemetryGeometry, {complete = false, health = null, flows = null} = {}) {
   const parts = []
   const integer = (size, value) => {
     const bytes = new Uint8Array(size), view = new DataView(bytes.buffer)
@@ -32,18 +32,25 @@ export function telemetryFrame(geometry = telemetryGeometry, {complete = false, 
   integer(2, geometry.nodes.length); integer(2, geometry.edges.length)
   for (let row = 0; row < geometry.nodes.length; row += 1) {
     const total = geometry.nodes[row].count ?? 2, healthy = Math.min(row % 2, total)
-    for (const count of health?.[row] || [healthy, 0, total - healthy, healthy, total]) integer(8, count)
+    const counts = health ? health[row] || [0, 0, total, 0, total] : [healthy, 0, total - healthy, healthy, total]
+    for (const count of counts) integer(8, count)
   }
-  for (const edge of geometry.edges) {
-    for (const count of [edge.count, complete ? edge.count : 2, complete ? edge.count : 1, 0, 0, 0, 0,
+  geometry.edges.forEach((edge, row) => {
+    const flow = flows?.[row]
+    const selected = flow?.selected ?? (complete ? edge.count : 2)
+    for (const count of [edge.count, selected, complete ? selected : 1, 0, 0, 0, 0,
       complete ? 0 : 1, complete ? 0 : edge.count - 2]) integer(4, count)
-    for (let direction = 0; direction < 2; direction += 1) {
-      integer(1, direction === 0 ? 1 : 0); integer(1, direction === 0 ? 1 : 0); integer(2, 0)
-      for (const value of [NaN, direction === 0 ? 12.5 : NaN, direction === 0 ? 0 : NaN, NaN]) rate(value)
-      integer(4, direction === 0 ? 1 : 0); integer(4, direction === 0 ? 1 : 0)
-      for (let index = 0; index < 6; index += 1) time(direction === 0 ? telemetryTime + BigInt(index % 3) : -9223372036854775808n)
+    for (const name of ["forward", "reverse"]) {
+      const direction = flows ? flow?.[name] || {status: "unknown", animate: false} : name === "forward"
+        ? {status: "partial", animate: true, observed_packets_per_second: 12.5, observed_octets_per_second: 0}
+        : {status: "unknown", animate: false}
+      const known = direction.status !== "unknown"
+      integer(1, ["unknown", "partial", "measured"].indexOf(direction.status)); integer(1, direction.animate ? 1 : 0); integer(2, 0)
+      for (const field of ["packets_per_second", "observed_packets_per_second", "observed_octets_per_second", "octets_per_second"]) rate(direction[field] ?? NaN)
+      integer(4, known ? 1 : 0); integer(4, known ? 1 : 0)
+      for (let index = 0; index < 6; index += 1) time(known ? telemetryTime + BigInt(index % 3) : -9223372036854775808n)
     }
-  }
+  })
   const frame = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0))
   let offset = 0
   for (const part of parts) {frame.set(part, offset); offset += part.length}

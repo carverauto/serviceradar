@@ -486,6 +486,7 @@ js_library(
     srcs = [
         "god_view_world_gpu.playwright.js",
         "js/lib/god_view/fixtures/snapshot_ipc.js",
+        "js/lib/god_view/fixtures/world_overlay_frame.js",
         "js/lib/god_view/fixtures/world_tile_ipc.js",
         "js/lib/god_view/fixtures/world_transport.js",
     ],

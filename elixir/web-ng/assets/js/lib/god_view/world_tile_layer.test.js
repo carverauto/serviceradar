@@ -7,7 +7,9 @@ import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import WorldTileLayer from "./world_tile_layer"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
-import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
+import {worldTileIpc, worldTileKey} from "./fixtures/world_tile_ipc"
+import {telemetryFrame} from "./fixtures/world_overlay_frame"
+import {decodeWorldOverlay} from "./world_overlay_frame"
 
 vi.mock("../GodViewRenderer", () => ({default: class {}}))
 
@@ -15,14 +17,11 @@ function tile() {
   return {...decodeWorldTile(worldTileIpc(), worldTileKey), generation: 1}
 }
 
-function overlay(geometry) {
-  return {
-    layout_version: worldTileKey.layout_version, generation: 1, revision: worldTileRevision,
-    health: {glyphs: [{id: geometry.nodes[0].id, counts: {total: 70000, healthy: 70000, unavailable: 0, unknown: 0}}]},
-    flow: {edges: [{id: geometry.edges[0].id, total_relations: 90000, selected_relations: 90000,
-      forward: {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000},
-      reverse: {status: "unknown", animate: false}}]},
-  }
+const measuredForward = {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000}
+
+// Decoded from synthetic SRTO bytes, exactly as the overlay owner admits them.
+function overlay(geometry, {health = [[70000, 0, 0, 70000, 70000]], flows = [{forward: measuredForward}]} = {}) {
+  return decodeWorldOverlay(telemetryFrame(geometry, {complete: true, health, flows}), geometry)
 }
 
 function layers(geometry, telemetry) {
@@ -504,7 +503,7 @@ describe("world tile rendering contract", () => {
     const geometry = tile()
     const firstOverlay = overlay(geometry)
     const first = layers(geometry, firstOverlay)
-    const changed = {...firstOverlay, health: {glyphs: [{id: geometry.nodes[0].id, counts: {total: 70000, unavailable: 1, unknown: 0}}]}}
+    const changed = overlay(geometry, {health: [[0, 1, 0, 1, 70000]]})
     const next = layers(geometry, changed)
     const nodeLayer = list => list.find(layer => layer.id.endsWith("-nodes"))
     expect(nodeLayer(next).props.data).toBe(nodeLayer(first).props.data)
@@ -515,8 +514,7 @@ describe("world tile rendering contract", () => {
     expect(packets.props.data.length).toBe(1)
     expect(Array.from(packets.props.data.attributes.instancePhase)).toEqual([0.25, 0.75])
     expect(Array.from(packets.props.data.attributes.instanceEndpoints)).toEqual([256, 0, 512, 256])
-    const incomplete = overlay(geometry)
-    incomplete.flow.edges[0].selected_relations = 89999
+    const incomplete = overlay(geometry, {flows: [{selected: 89999, forward: measuredForward}]})
     expect(layers(geometry, incomplete).some(layer => layer.id.endsWith("-packets"))).toBe(false)
     expect(layers(geometry, {...firstOverlay, generation: 2}).some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
@@ -639,8 +637,7 @@ describe("world tile rendering contract", () => {
 
   it("keeps graph classification stable when telemetry pages change or disappear", () => {
     const geometry = tile()
-    const telemetry = overlay(geometry)
-    telemetry.flow.edges[0].topology_class_counts = {backbone: 90000}
+    let telemetry = overlay(geometry)
     const edgeLayer = () => layers(geometry, telemetry).find(layer => layer.id.endsWith("-edges"))
     expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(1.5)
     geometry.edges[0].topologyClass = "endpoints"
@@ -650,8 +647,7 @@ describe("world tile rendering contract", () => {
     for (const layer of layers(geometry, telemetry).filter(item => /-edges$|-edge-mantle$/.test(item.id))) {
       expect(layer.props.getColor(null, {index: 0})[3]).toBe(0)
     }
-    telemetry.flow.edges[0].selected_relations = 1
-    telemetry.flow.edges[0].topology_class_counts = {backbone: 1}
+    telemetry = overlay(geometry, {flows: [{selected: 1, forward: measuredForward}]})
     expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(0)
     const unavailable = layers(geometry, null).find(layer => layer.id.endsWith("-edges"))
     expect(unavailable.props.getWidth(null, {index: 0})).toBe(0)
@@ -674,14 +670,12 @@ describe("world tile rendering contract", () => {
     {status: "partial", animate: true, observed_octets_per_second: 250, octets_per_second: null},
   ])("renders directional measured traffic without requiring a complete packet total: %j", direction => {
     const geometry = tile()
-    const telemetry = overlay(geometry)
-    telemetry.flow.edges[0].forward = direction
+    const telemetry = overlay(geometry, {flows: [{forward: direction}]})
     const packets = layers(geometry, telemetry).find(layer => layer.id.endsWith("-packets"))
     expect(packets?.props.data.length).toBe(1)
     expect(Array.from(packets.props.data.attributes.instanceFlow).slice(1, 3)).toEqual([1, 0])
 
-    const stopped = overlay(geometry)
-    stopped.flow.edges[0].forward = {...direction, animate: false}
+    const stopped = overlay(geometry, {flows: [{forward: {...direction, animate: false}}]})
     expect(layers(geometry, stopped).some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
 })

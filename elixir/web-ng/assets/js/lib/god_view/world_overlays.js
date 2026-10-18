@@ -1,4 +1,4 @@
-import {readBoundedBody, worldJson} from "./world_http"
+import {readBoundedBody} from "./world_http"
 import {tileId} from "./world_tile_cache"
 import {decodeWorldOverlay, worldOverlayReservation, WORLD_OVERLAY_MIME, WORLD_OVERLAY_MAX_BYTES} from "./world_overlay_frame"
 
@@ -19,14 +19,14 @@ export class WorldOverlays {
     this.admitted = new Map()
     this.pending = new Map()
     this.polling = null
-    this.binary = false
-    this.modeGeneration = 0
+    this.supported = false
+    this.protocolGeneration = 0
   }
 
-  setBinary(enabled) {
-    if (this.binary === enabled) return
-    this.binary = enabled
-    this.modeGeneration += 1
+  setSupported(enabled) {
+    if (this.supported === enabled) return
+    this.supported = enabled
+    this.protocolGeneration += 1
     this.entries.clear()
     for (const job of this.pending.values()) job.controller.abort()
     this.admit()
@@ -48,7 +48,7 @@ export class WorldOverlays {
     let remaining = MAX_RETAINED_BYTES
     this.admitted = new Map([...this.visible].sort(([, left], [, right]) => left.key.z - right.key.z || left.key.x - right.key.x || left.key.y - right.key.y)
       .filter(([, geometry]) => {
-        if (!this.binary) return true
+        if (!this.supported) return false
         const bytes = worldOverlayReservation(geometry)
         if (bytes > remaining) return false
         remaining -= bytes
@@ -97,30 +97,23 @@ export class WorldOverlays {
     const job = {geometry, controller}
     this.pending.set(id, job)
     const deadline = setTimeout(() => controller.abort(), 10000)
-    const modeGeneration = this.modeGeneration
+    const protocolGeneration = this.protocolGeneration
     try {
       const url = `/topology/overlays/${geometry.key.layout_version}/${id}?revision=${geometry.revision}`
-      let overlay
-      if (this.binary) {
-        const response = await fetch(url, {credentials: "same-origin", signal: controller.signal, headers: {Accept: WORLD_OVERLAY_MIME}})
-        if (!response.ok || response.headers.get("content-type")?.split(";")[0] !== WORLD_OVERLAY_MIME) {
-          await response.body?.cancel()
-          throw new Error("Invalid topology overlay response")
-        }
-        overlay = decodeWorldOverlay(await readBoundedBody(response, WORLD_OVERLAY_MAX_BYTES), geometry)
-      } else {
-        overlay = await worldJson(url, controller.signal)
-        if (!matches(overlay, geometry) || !Array.isArray(overlay.health?.glyphs) || overlay.health.glyphs.length > 128 ||
-            !Array.isArray(overlay.flow?.edges) || overlay.flow.edges.length > 512) throw new Error("Invalid topology overlay")
+      const response = await fetch(url, {credentials: "same-origin", signal: controller.signal, headers: {Accept: WORLD_OVERLAY_MIME}})
+      if (!response.ok || response.headers.get("content-type")?.split(";")[0] !== WORLD_OVERLAY_MIME) {
+        await response.body?.cancel()
+        throw new Error("Invalid topology overlay response")
       }
-      if (this.binary && overlay.retainedBytes > worldOverlayReservation(geometry)) throw new Error("Topology overlay exceeds admitted bytes")
-      if (controller.signal.aborted || modeGeneration !== this.modeGeneration || this.admitted.get(id) !== geometry) return
+      const overlay = decodeWorldOverlay(await readBoundedBody(response, WORLD_OVERLAY_MAX_BYTES), geometry)
+      if (overlay.retainedBytes > worldOverlayReservation(geometry)) throw new Error("Topology overlay exceeds admitted bytes")
+      if (controller.signal.aborted || protocolGeneration !== this.protocolGeneration || this.admitted.get(id) !== geometry) return
       this.entries.delete(id)
       this.entries.set(id, overlay)
       this.onChange()
     } catch (_error) {
       // An unavailable sample becomes unknown, never a frozen green/flow display.
-      if (modeGeneration === this.modeGeneration && this.visible.get(id) === geometry && this.entries.delete(id)) this.onChange()
+      if (protocolGeneration === this.protocolGeneration && this.visible.get(id) === geometry && this.entries.delete(id)) this.onChange()
     } finally {
       clearTimeout(deadline)
       if (this.pending.get(id) === job) this.pending.delete(id)

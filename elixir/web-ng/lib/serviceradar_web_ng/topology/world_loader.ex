@@ -208,6 +208,7 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
         start_projection(current, epoch, cache, manifest, owner, token, ordinal_scan_at)
       end
     else
+      {:error, :bitmap_disabled} = disabled -> {ordinal_result(disabled, cache, manifest), nil}
       other -> {ordinal_result(other, cache, manifest), staged}
     end
   end

@@ -4,6 +4,8 @@ import {GOD_VIEW_DEVICE_PROPS} from "./js/lib/god_view/lifecycle_dom_setup_metho
 import {decodeWorldTile} from "./js/lib/god_view/world_tile_decode"
 import {worldTileIpc, worldTileKey} from "./js/lib/god_view/fixtures/world_tile_ipc"
 import {snapshotIpcBytes} from "./js/lib/god_view/fixtures/snapshot_ipc"
+import {telemetryFrame} from "./js/lib/god_view/fixtures/world_overlay_frame"
+import {decodeWorldOverlay} from "./js/lib/god_view/world_overlay_frame"
 import GodViewRenderer from "./js/lib/GodViewRenderer"
 import {mountTransportHarness} from "./god_view_world_transport_harness"
 import {mountBitmapGpuHarness} from "./god_view_bitmap_gpu_harness"
@@ -38,11 +40,10 @@ window.addEventListener("error", event => fail(event.error || event.message))
 window.addEventListener("unhandledrejection", event => fail(event.reason))
 
 function telemetry(tile) {
-  return {layout_version: tile.key.layout_version, generation: 1, revision: tile.revision,
-    health: {glyphs: [{id: "invented-router", counts: {total: 1, healthy: unhealthy ? 0 : 1, unavailable: unhealthy ? 1 : 0, unknown: 0}}]},
-    flow: {edges: [{id: "invented-link", total_relations: 1, selected_relations: 1,
-      forward: {status: "measured", animate: true, packets_per_second: 200, octets_per_second: 30000},
-      reverse: {status: "measured", animate: true, packets_per_second: 75, octets_per_second: 10000}}]}}
+  const health = [unhealthy ? [0, 1, 0, 1, 1] : [1, 0, 0, 1, 1]]
+  const flows = [{forward: {status: "measured", animate: true, packets_per_second: 200, octets_per_second: 30000},
+    reverse: {status: "measured", animate: true, packets_per_second: 75, octets_per_second: 10000}}]
+  return decodeWorldOverlay(telemetryFrame(tile, {complete: true, health, flows}), tile)
 }
 
 function getTileData({index}) {
