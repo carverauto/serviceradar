@@ -22,6 +22,14 @@ defmodule ServiceRadarWebNG.Topology.Scale.Replica do
     for {app, _} <- config, do: Application.load(app)
     Application.put_all_env(config, persistent: true)
 
+    # Serve through the production pool, not the test Sandbox. In :auto mode a
+    # querying process owns its connection until it exits, so every long-lived
+    # WebSocket that authenticated on connect would pin one; the remaining
+    # upgrades were dropped from the queue and refused with 403. Size and queue
+    # limits are inherited unchanged.
+    repo = Application.fetch_env!(:serviceradar_core, Repo)
+    Application.put_env(:serviceradar_core, Repo, Keyword.put(repo, :pool, DBConnection.ConnectionPool))
+
     for app <- [
           :logger,
           :crypto,
@@ -66,7 +74,6 @@ defmodule ServiceRadarWebNG.Topology.Scale.Replica do
 
     {:ok, supervisor} = Supervisor.start_link(children, strategy: :one_for_one, name: @supervisor)
     Process.unlink(supervisor)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
     {_, bandit, _, _} = Enum.find(Supervisor.which_children(supervisor), fn {id, _, _, _} -> id == :listener end)
     {:ok, {_, port}} = ThousandIsland.listener_info(bandit)
     Map.merge(session(user), %{port: port, version: @version, machine: machine()})

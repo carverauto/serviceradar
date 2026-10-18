@@ -46,13 +46,38 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
     end
   end
 
-  def init(opts) do
-    Process.flag(:trap_exit, true)
-    session = Keyword.fetch!(opts, :session)
+  # Holds `count` concurrent sockets open until each upgrade resolves, so it
+  # exercises the same session, CSRF, token and RBAC boundary as the viewers
+  # and fails if established sockets keep any database connection checked out.
+  def upgrades(session, count) do
+    sockets = for _ <- 1..count, do: open_socket(session)
+
+    try do
+      Enum.map(sockets, fn {conn, stream} ->
+        receive do
+          {:gun_upgrade, ^conn, ^stream, ["websocket"], _headers} -> :upgraded
+          {:gun_response, ^conn, ^stream, _fin, status, _headers} -> {:refused, status}
+          {:gun_error, ^conn, ^stream, reason} -> {:error, reason}
+        after
+          15_000 -> :timeout
+        end
+      end)
+    after
+      Enum.each(sockets, fn {conn, _} -> :gun.close(conn) end)
+    end
+  end
+
+  defp open_socket(session) do
     {:ok, conn} = :gun.open(~c"127.0.0.1", session.port, %{protocols: [:http], retry: 0})
     {:ok, :http} = :gun.await_up(conn, 5_000)
     path = "/socket/websocket?vsn=2.0.0&_csrf_token=" <> URI.encode_www_form(session.csrf)
-    stream = :gun.ws_upgrade(conn, path, [{"cookie", session.cookie}], %{compress: false})
+    {conn, :gun.ws_upgrade(conn, path, [{"cookie", session.cookie}], %{compress: false})}
+  end
+
+  def init(opts) do
+    Process.flag(:trap_exit, true)
+    session = Keyword.fetch!(opts, :session)
+    {conn, stream} = open_socket(session)
 
     state = %{
       conn: conn,
@@ -239,6 +264,10 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
   def handle_info({:gun_ws, _, _, :close}, state), do: {:noreply, error(state, "socket_closed")}
   def handle_info({:gun_down, _, _, reason, _}, state), do: {:noreply, error(state, "gun_down:#{inspect(reason)}")}
   def handle_info({:EXIT, _, :normal}, state), do: {:noreply, state}
+
+  def handle_info({:gun_response, conn, stream, _fin, status, _headers}, %{conn: conn, stream: stream} = state),
+    do: {:stop, {:upgrade_refused, status}, state}
+
   def handle_info(message, state), do: {:stop, {:unexpected_transport, message}, state}
 
   def handle_call({:phase, phase}, _from, state) when phase in [:churn, :steady, :recovery] do
@@ -247,6 +276,9 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
 
   def handle_call(:report, _from, state), do: {:reply, state.stats, state}
   def terminate(_reason, state), do: :gun.close(state.conn)
+
+  # Crash reports must not print the session cookie or CSRF token.
+  def format_status(status), do: Map.update(status, :state, nil, &Map.put(&1, :session, :redacted))
 
   # Emulate the production WorldMapRenderer reset/transient backoff. Only an
   # accepted full frame resets it; a successful binding alone proves no progress.

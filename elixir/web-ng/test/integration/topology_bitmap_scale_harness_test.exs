@@ -67,6 +67,38 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert_receive :progress, 2_000
   end
 
+  test "a refused socket upgrade stops the viewer without logging its session" do
+    {:ok, _} = Application.ensure_all_started(:gun)
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(listen)
+
+    server =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen)
+        {:ok, _request} = :gen_tcp.recv(socket, 0, 5_000)
+        :ok = :gen_tcp.send(socket, "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n")
+
+        receive do
+          :done -> :gen_tcp.close(socket)
+        end
+      end)
+
+    session = %{port: port, cookie: "_synthetic_key=synthetic-cookie-value", csrf: "synthetic-csrf-value"}
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        {:ok, pid} = GenServer.start(Client, session: session, tiles: [])
+        monitor = Process.monitor(pid)
+        assert_receive {:DOWN, ^monitor, :process, ^pid, {:upgrade_refused, 403}}, 10_000
+      end)
+
+    send(server, :done)
+    :gen_tcp.close(listen)
+    assert log =~ "upgrade_refused"
+    refute log =~ "synthetic-cookie-value"
+    refute log =~ "synthetic-csrf-value"
+  end
+
   test "synthetic geometry really partitions admitted leaf and aggregate rows" do
     world = Fixture.world("synthetic-acceptance-layout", 8_256)
 

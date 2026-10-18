@@ -124,7 +124,13 @@ Sparse means separated high IDs, not a uniform sample of the entire u32 space.
 
 Two isolated BEAM VMs run the production source publishers and endpoint, with
 four ordinary schedulers and four dirty CPU schedulers each (ERTS caps dirty
-CPU schedulers at the normal scheduler count). There is no
+CPU schedulers at the normal scheduler count). Each server's Repo uses the
+production `DBConnection.ConnectionPool` with the inherited test pool size and
+queue limits, not the test Sandbox: in Sandbox `:auto` mode every long-lived
+WebSocket process would keep the connection it used to authenticate, pinning
+the pool and turning later upgrades into HTTP 403. Before waiting for the
+publishers, the driver opens 50 concurrent authenticated WebSocket upgrades per
+server and requires every one to succeed. There is no
 mock query source or alternate publisher. Geometry covers 64 tiles, each with
 127 device glyphs and one aggregate. All views cover those tiles; row counts
 must add up to the exact matching population, including zero matches.

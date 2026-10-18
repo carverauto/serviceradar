@@ -67,6 +67,13 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     assert Enum.all?(machines, &(&1.schedulers == 4 and &1.dirty_cpu_schedulers == 4))
     emit("machines", %{replicas: machines})
 
+    # Preflight the real WebSocket upgrade boundary with as many concurrently
+    # open sockets as the scenario holds per server, before the fleet run.
+    for replica <- [first, second] do
+      outcomes = Client.upgrades(replica.session, 50)
+      assert Enum.frequencies(outcomes) == %{upgraded: 50}
+    end
+
     for replica <- [first, second] do
       await(fn -> call(replica, :progress) end, &match?({:ok, _}, &1), 600_000, "publisher seed")
       {elapsed, mapping} = timed(fn -> call(replica, :install_geometry, [], 600_000) end)
