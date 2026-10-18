@@ -63,6 +63,14 @@ its coordinate count plus its configuration size.
 - **AND** each affected coordinate SHALL store only a reference to the configuration and the term it requires
 - **AND** the matcher SHALL resolve the reference to the same expression and evaluation result an embedded copy would produce
 
+#### Scenario: Reference written against other configurations is not resolved
+
+- **GIVEN** an NVD coordinate references configurations by index together with the digest of the configurations it was written with
+- **AND** the advisory now stores configurations with a different digest
+- **WHEN** endpoint vulnerability matching runs
+- **THEN** the reference SHALL evaluate unknown rather than true or false
+- **AND** the matcher SHALL read a chunk's coordinates and their advisory configurations from one consistent database snapshot
+
 #### Scenario: Coordinates written before the reference shape remain evaluable
 
 - **GIVEN** stored NVD coordinates still embed their configuration expression from an earlier normalization version

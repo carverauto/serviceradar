@@ -264,7 +264,43 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
 
       assert %{result: :unknown} =
                NvdApplicability.evaluate(
-                 resolved_expression(%{configurations: %{}}, coordinate),
+                 resolved_expression(%{normalized | configurations: %{}}, coordinate),
+                 facts
+               )
+    end
+
+    # A reference written against other configurations than the advisory now
+    # stores must not resolve against whatever occupies its index today.
+    test "a reference whose configurations digest differs evaluates unknown, never applicable" do
+      written = [%{"cpeMatch" => [%{"vulnerable" => true, "criteria" => curl_cpe()}]}]
+      other = "cpe:2.3:a:example:other_app:1.0:*:*:*:*:*:*:*"
+      rewritten = [%{"cpeMatch" => [%{"vulnerable" => true, "criteria" => other}]} | written]
+
+      assert {:ok, %{coordinates: [coordinate]}} = NvdApplicability.normalize(written)
+
+      assert {:ok, %{configurations_digest: rewritten_digest} = rewritten_normalized} =
+               NvdApplicability.normalize(rewritten)
+
+      current = ubuntu_curl()
+      facts = EndpointNvdFacts.build(current, [current])
+
+      assert NvdApplicability.stale_configuration_reference?(
+               coordinate.metadata,
+               rewritten_digest
+             )
+
+      assert %{result: :unknown} =
+               NvdApplicability.evaluate(
+                 resolved_expression(rewritten_normalized, coordinate),
+                 facts
+               )
+
+      assert %{result: :unknown} =
+               NvdApplicability.evaluate(
+                 resolved_expression(
+                   %{rewritten_normalized | configurations_digest: nil},
+                   coordinate
+                 ),
                  facts
                )
     end
@@ -1018,9 +1054,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
     parsed
   end
 
-  defp resolved_expression(%{configurations: configurations}, coordinate) do
+  defp resolved_expression(
+         %{configurations: configurations, configurations_digest: digest},
+         coordinate
+       ) do
     coordinate.metadata
-    |> NvdApplicability.resolve_metadata(configurations)
+    |> NvdApplicability.resolve_metadata(configurations, digest)
     |> get_in(["nvd_applicability", "expression"])
   end
 

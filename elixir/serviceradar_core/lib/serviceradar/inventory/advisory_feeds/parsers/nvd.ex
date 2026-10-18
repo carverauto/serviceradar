@@ -54,7 +54,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
           references: references(cve),
           metadata: %{
             "cwes" => Cwes.from_nvd_cve(cve),
-            "normalization_version" => normalized.expression_version
+            "normalization_version" => normalized.expression_version,
+            "nvd_configurations_digest" => normalized.configurations_digest
           },
           nvd_configurations: stored_configurations(normalized.configurations),
           raw: record

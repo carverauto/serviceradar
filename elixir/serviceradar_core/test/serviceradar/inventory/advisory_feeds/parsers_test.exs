@@ -684,7 +684,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
 
   defp resolved_applicability(advisory, coordinate) do
     coordinate.metadata
-    |> NvdApplicability.resolve_metadata(advisory.nvd_configurations)
+    |> NvdApplicability.resolve_metadata(
+      advisory.nvd_configurations,
+      advisory.metadata["nvd_configurations_digest"]
+    )
     |> Map.fetch!("nvd_applicability")
   end
 

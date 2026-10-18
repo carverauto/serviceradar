@@ -16,6 +16,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
   `resolve_metadata/2` with the advisory's configurations to get the evaluable
   `expression` back. Rows written by expression version 2 and earlier embed the
   expression and resolve unchanged.
+
+  Every reference also carries `configurations_digest`, the digest of the
+  configurations its advisory was written with. A reference whose digest does
+  not match the advisory's stored digest is stale and resolves to an
+  unsupported node, so it evaluates `:unknown` rather than against a different
+  configuration that now occupies the same index.
   """
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Cpe
@@ -78,6 +84,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
            %{
              coordinates: [map()],
              configurations: %{optional(String.t()) => map()},
+             configurations_digest: String.t(),
              expression_version: pos_integer()
            }}
           | {:error, term()}
@@ -114,17 +121,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
           into: %{},
           do: {Integer.to_string(index), expression}
 
+    digest = configurations_digest(referenced)
+
     coordinates =
       per_configuration
       |> Enum.flat_map(fn {_index, _expression, occurrences} -> occurrences end)
       |> Enum.group_by(fn {coordinate, _term, _ref} -> coordinate_identity(coordinate) end)
-      |> Enum.map(fn {_identity, occurrences} -> merge_occurrences(occurrences) end)
+      |> Enum.map(fn {_identity, occurrences} -> merge_occurrences(occurrences, digest) end)
       |> Enum.sort_by(&coordinate_identity/1)
 
     {:ok,
      %{
        coordinates: coordinates,
        configurations: referenced,
+       configurations_digest: digest,
        expression_version: @expression_version
      }}
   end
@@ -133,22 +143,33 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
 
   @doc """
   Resolve a coordinate's `configuration_refs` against its advisory's stored
-  configurations, returning metadata whose `nvd_applicability` carries the
-  evaluable `expression`.
+  configurations and their digest, returning metadata whose
+  `nvd_applicability` carries the evaluable `expression`.
 
   Metadata that already embeds an `expression` (expression version 2 and
   earlier) or carries no applicability is returned unchanged. A reference whose
-  configuration is missing resolves to an unsupported node, so it evaluates
-  `:unknown` instead of being silently dropped.
+  configuration is missing, or whose digest differs from `digest`, resolves to
+  an unsupported node, so it evaluates `:unknown` instead of being silently
+  dropped or resolved against another configuration.
   """
-  @spec resolve_metadata(map() | nil, map() | nil) :: map() | nil
-  def resolve_metadata(metadata, configurations) when is_map(metadata) do
+  @spec resolve_metadata(map() | nil, map() | nil, String.t() | nil) :: map() | nil
+  def resolve_metadata(metadata, configurations, digest) when is_map(metadata) do
     with %{} = applicability <- metadata_value(metadata, "nvd_applicability"),
          refs when is_list(refs) <- metadata_value(applicability, "configuration_refs") do
+      expression =
+        if stale_configuration_reference?(metadata, digest),
+          do: stale_reference(),
+          else: referenced_expression(refs, configurations || %{})
+
       resolved =
         applicability
-        |> Map.drop([:configuration_refs, "configuration_refs"])
-        |> Map.put("expression", referenced_expression(refs, configurations || %{}))
+        |> Map.drop([
+          :configuration_refs,
+          "configuration_refs",
+          :configurations_digest,
+          "configurations_digest"
+        ])
+        |> Map.put("expression", expression)
 
       metadata
       |> Map.delete(:nvd_applicability)
@@ -158,7 +179,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
     end
   end
 
-  def resolve_metadata(metadata, _configurations), do: metadata
+  def resolve_metadata(metadata, _configurations, _digest), do: metadata
+
+  @doc """
+  True when coordinate metadata references configurations written with a
+  different digest than `digest`, the one stored on its advisory now.
+  """
+  @spec stale_configuration_reference?(map() | nil, String.t() | nil) :: boolean()
+  def stale_configuration_reference?(metadata, digest) do
+    references_configurations?(metadata) and
+      (not is_binary(digest) or
+         metadata_value(metadata_value(metadata, "nvd_applicability"), "configurations_digest") !=
+           digest)
+  end
 
   @doc "True when coordinate metadata references advisory configurations."
   @spec references_configurations?(map() | nil) :: boolean()
@@ -170,6 +203,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
   end
 
   def references_configurations?(_metadata), do: false
+
+  defp configurations_digest(configurations) do
+    :sha256
+    |> :crypto.hash(:erlang.term_to_binary(configurations, [:deterministic]))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp stale_reference do
+    %{
+      "kind" => "unsupported",
+      "node_id" => "stale-configuration-reference",
+      "path" => "stale-configuration-reference"
+    }
+  end
 
   defp configuration_ref(index, term_id) do
     %{"configuration_index" => index, "required_term_ids" => [term_id]}
@@ -390,7 +437,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
     {coordinate.value, coordinate.version_start, coordinate.version_end}
   end
 
-  defp merge_occurrences([{first_coordinate, _term, _ref} | _] = occurrences) do
+  defp merge_occurrences([{first_coordinate, _term, _ref} | _] = occurrences, digest) do
     coordinate =
       Enum.reduce(occurrences, first_coordinate, fn {candidate, _term, _ref}, acc ->
         merge_coordinate_prefilter(acc, candidate)
@@ -407,7 +454,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
       Map.put(coordinate.metadata, "nvd_applicability", %{
         "expression_version" => @expression_version,
         "affected_term_ids" => term_ids,
-        "configuration_refs" => refs
+        "configuration_refs" => refs,
+        "configurations_digest" => digest
       })
 
     %{coordinate | metadata: metadata}
