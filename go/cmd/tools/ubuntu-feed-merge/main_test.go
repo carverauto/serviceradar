@@ -1857,7 +1857,7 @@ func TestScanRunAllowsExactFileByteCapAndRejectsCapPlusOne(t *testing.T) {
 }
 
 func TestMergeRunGroupBoundsAggregateCursorAndDecoderResidency(t *testing.T) {
-	const rawBytes = 64 << 10
+	const rawBytes = 128 << 10
 	for _, tc := range []struct {
 		name      string
 		capOffset int64
@@ -1883,10 +1883,12 @@ func TestMergeRunGroupBoundsAggregateCursorAndDecoderResidency(t *testing.T) {
 			}
 
 			lim := defaultLimits()
-			lim.fileBytes = rawBytes
 			lim.decoderBytes = 16 << 20
-			const expectedWriterReserve = int64(16 << 20)
-			cursorReserve := lim.fileBytes + lim.pathBytes
+			const (
+				expectedWriterReserve     = int64(16 << 20)
+				expectedCursorBufferBytes = int64(64 << 10)
+			)
+			cursorReserve := expectedCursorBufferBytes + lim.pathBytes
 			lim.residentBytes = expectedWriterReserve + int64(len(records))*lim.decoderBytes + int64(len(records)+1)*cursorReserve + tc.capOffset
 			budget := &workBudget{limit: 1 << 20}
 			for _, source := range sources {
@@ -1906,9 +1908,92 @@ func TestMergeRunGroupBoundsAggregateCursorAndDecoderResidency(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("two individually max-sized records rejected at exact aggregate cap: %v", err)
+				t.Fatalf("two records rejected at exact aggregate cap: %v", err)
 			}
 		})
+	}
+}
+
+type readCallCountingReader struct {
+	r     io.Reader
+	calls int
+}
+
+func (c *readCallCountingReader) Read(p []byte) (int, error) {
+	c.calls++
+	return c.r.Read(p)
+}
+
+func TestBoundedMergeFanInCollapsesMultiRunSyntheticSpoolInSinglePass(t *testing.T) {
+	lim := defaultLimits()
+	fanIn, err := boundedMergeFanIn(lim)
+	if err != nil {
+		t.Fatalf("boundedMergeFanIn(defaultLimits()) error = %v", err)
+	}
+	if fanIn != 14 {
+		t.Fatalf("boundedMergeFanIn(defaultLimits()) = %d, want 14", fanIn)
+	}
+
+	dir := t.TempDir()
+	const (
+		runCount                = 12
+		recordsPerRun           = 16
+		payloadPerRec           = 4 << 10
+		expectedLength          = runCount * recordsPerRun
+		expectedFileBufferBytes = 32 << 10
+	)
+	budget := &workBudget{limit: 64 << 20}
+	runs := make([]runFile, 0, runCount)
+	for runIdx := 0; runIdx < runCount; runIdx++ {
+		records := make([]runRecord, 0, recordsPerRun)
+		for recIdx := 0; recIdx < recordsPerRun; recIdx++ {
+			ordinal := recIdx*runCount + runIdx + 1
+			cve := fmt.Sprintf("CVE-2099-%04d", 8000+ordinal)
+			payload := fmt.Sprintf(`{"id":%q,"details":%q}`, "UBUNTU-"+cve, deterministicNoise(ordinal, payloadPerRec))
+			records = append(records, runRecord{CVE: cve, Raw: []byte(payload)})
+		}
+		filename := syntheticRun(t, dir, fmt.Sprintf("bench-%02d.spool", runIdx), records)
+		info, statErr := os.Stat(filename)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if reserveErr := budget.reserve(info.Size()); reserveErr != nil {
+			t.Fatal(reserveErr)
+		}
+		runs = append(runs, runFile{path: filename, size: info.Size()})
+	}
+
+	merged, passes, err := collapseRuns(osvKind, dir, runs, lim, budget)
+	if err != nil {
+		t.Fatalf("collapseRuns error = %v", err)
+	}
+	if passes != 1 {
+		t.Fatalf("collapseRuns passes = %d for %d runs, want 1", passes, runCount)
+	}
+	refs, err := scanRun(merged.path, expectedLength, lim)
+	if err != nil {
+		t.Fatalf("scanRun merged spool error = %v", err)
+	}
+	if len(refs) != expectedLength {
+		t.Fatalf("merged spool count = %d, want %d", len(refs), expectedLength)
+	}
+
+	encodedSpool, err := os.ReadFile(merged.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counting := &readCallCountingReader{r: bytes.NewReader(encodedSpool)}
+	decoder, err := newRunDecoder(counting, lim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer decoder.Close()
+	if _, err := io.Copy(io.Discard, decoder); err != nil {
+		t.Fatal(err)
+	}
+	maxExpectedCalls := len(encodedSpool)/expectedFileBufferBytes + 4
+	if counting.calls > maxExpectedCalls {
+		t.Fatalf("underlying spool reader calls = %d for %d bytes, want <= %d buffered reads", counting.calls, len(encodedSpool), maxExpectedCalls)
 	}
 }
 
