@@ -63,7 +63,8 @@ reported indicates a hidden process, a rootkit, or a blinded agent.
 - **Address dimension.** A new IP -> `device_ord` dimension with validity intervals maps
   flows and host peers to devices. Today a flow's `device_uid` is the exporter, so nothing
   maps an endpoint to a device. The flow tier also stamps per-side device ordinals and
-  attribution outcomes onto flow rows at ingest.
+  attribution outcomes onto flow rows at ingest, resolving each endpoint against the
+  validity intervals at the flow's observation time.
 - **Narrow catalog joins.** Small inventory dimensions (device names, sites, VLAN, owner,
   tags) are joined live through the existing `cnpg_platform` JDBC catalog, using two new
   flattened read-only views with column-scoped grants. Large CNPG tables (assessments,

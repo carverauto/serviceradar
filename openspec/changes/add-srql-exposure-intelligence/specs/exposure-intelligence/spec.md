@@ -97,7 +97,7 @@ The system SHALL filter and group exposure by site, prefix tag, VLAN, owner, dev
 - **AND** workload membership is derived from processes observed owning the exposed package within that window
 
 ### Requirement: Exposure Trend Is Answerable Over Time
-The system SHALL retain a daily snapshot of active exposure as device sets per CVE, severity and KEV flag, together with an append-only transition log. It SHALL answer per-day exposed-host counts, newly exposed counts, remediated counts and mean time to remediate for up to the history retention window. Example: `in:exposure_history kev:true time:last_90d stats:"count_distinct(device_id) as hosts by day"`.
+The system SHALL retain a daily snapshot of active exposure as device sets per CVE, severity and KEV flag, together with an append-only transition log. It SHALL answer per-day exposed-host counts, newly exposed counts, remediated counts and mean time to remediate for up to the history retention window. History SHALL be filterable only by the dimensions the snapshot retains (CVE, severity, KEV flag and device membership) and by the current-membership slices; package is not retained, and a history query filtering on package or on any other exposure field SHALL be rejected as unsupported. Example: `in:exposure_history kev:true time:last_90d stats:"count_distinct(device_id) as hosts by day"`.
 
 #### Scenario: Ninety-day KEV trend
 - **GIVEN** daily snapshots exist for the last 90 days
@@ -113,6 +113,10 @@ The system SHALL retain a daily snapshot of active exposure as device sets per C
 - **WHEN** an operator slices `in:exposure_history` by `site`
 - **THEN** each day's device set is intersected with the site's current membership
 - **AND** the response labels the slice membership as current
+
+#### Scenario: Package is not a history dimension
+- **WHEN** an operator runs `in:exposure_history package:openssl time:last_30d`
+- **THEN** the query is rejected with an unsupported filter field error that names `package`
 
 ### Requirement: Observed Connections Form One Evidence Set With Provenance
 The system SHALL maintain one observed-connection evidence set per device, hour, direction, protocol, service port and peer, fed by host-observed connection summaries and by network-observed flows. It SHALL report each evidence group's provenance as `host`, `network` or `corroborated`, computed across process keys so that one contact is never split into two provenances.
@@ -327,7 +331,7 @@ The evaluator SHALL record every evaluated candidate that does not become a sign
 - **THEN** a zero candidate count and a high `coverage_unknown` count are distinguishable
 
 ### Requirement: Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions
-The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Writes SHALL be conditional on a monotonically increasing `transition_seq`, so that duplicate or reordered transitions never overwrite newer state. Resolution SHALL set the fact's state to resolved. A purge SHALL physically remove facts that have been resolved for longer than 7 days.
+The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Writes SHALL be conditional on `transition_seq`, which increases per fact in commit order, so that duplicate or reordered transitions never overwrite newer state. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL set the fact's state to resolved. A purge SHALL physically remove facts that have been resolved for longer than 7 days.
 
 #### Scenario: Reordered transitions keep the newest state
 - **GIVEN** transitions with sequence 10 (resolved) and 9 (active) for the same fact are delivered in the order 10, 9
@@ -338,9 +342,15 @@ The system SHALL store current exposure in a StarRocks Primary Key table keyed `
 - **WHEN** the same transition is delivered twice
 - **THEN** the fact is unchanged by the second delivery
 
-#### Scenario: Nothing writes the fact table outside the pipeline
-- **WHEN** the codebase is searched for writers of `exposure_facts`
-- **THEN** the only writer is the EventWriter transitions processor, plus the purge and snapshot finalization it owns
+#### Scenario: A published transition becomes a fact
+- **GIVEN** a synthetic actionable transition for an invented device, CVE and package is published on the transitions subject
+- **WHEN** EventWriter consumes it
+- **THEN** a fact row with that key, state and `transition_seq` is readable from `exposure_facts`
+
+#### Scenario: A rolled-back assessment change creates no fact
+- **GIVEN** an assessment change whose CNPG transaction rolls back
+- **WHEN** the outbox relay and EventWriter have run past that point
+- **THEN** no transition is published for it, and no fact row for its key exists
 
 ### Requirement: Exposure Bitmaps Are Derived Views, Never The System Of Record
 Roaring bitmap sets of devices (per CVE, per severity and KEV flag, and per device summary) SHALL be derived by asynchronous materialized views or scheduled jobs from the fact table and SHALL NOT be written directly. SRQL SHALL read a bitmap view only for aggregate and set queries, and only while its last refresh is within the staleness budget. Otherwise it SHALL read the fact table. Only append-only daily snapshots MAY use an Aggregate `BITMAP_UNION` table.
@@ -373,12 +383,28 @@ Device ordinals SHALL come from `platform.device_fleet_ordinals`. CVE ordinals f
 - **AND** B's assessments are published under B's ordinal
 
 ### Requirement: Flows And Host Evidence Map To Devices Through An Address Dimension
-The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)` to `device_ord` with validity intervals, address source, a shared flag, an agent-attested flag, and the prefix tags and site of the address. It SHALL be fed from inventory address changes and agent address leases through JetStream. The EventWriter flow tier SHALL hold the current mapping in memory, fed from the same stream, and SHALL use it to stamp per-side device ordinals on flows at ingest.
+The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)` to `device_ord` with validity intervals, address source, a shared flag, an agent-attested flag, and the prefix tags and site of the address. It SHALL be fed from inventory address changes and agent address leases through JetStream. The EventWriter flow tier SHALL hold a bounded in-memory validity history per address, fed from the same stream and retained for the maximum accepted flow delay plus the late window. It SHALL resolve each flow endpoint against the intervals covering the flow's observation time, never against the address's current holder, and stamp per-side device ordinals and resolutions at ingest. An endpoint whose observation interval is covered by more than one device SHALL be `ambiguous`, and one older than the retained history SHALL be `outside_history` and counted; neither SHALL carry an ordinal. Late re-resolution SHALL use the same time-based lookup.
 
 #### Scenario: Address change closes the previous interval
 - **GIVEN** `192.0.2.30` maps to device A
 - **WHEN** inventory reports `192.0.2.30` on device B
-- **THEN** A's interval is closed, B's interval is opened, and flows ingested afterwards carry B's ordinal
+- **THEN** A's interval is closed, B's interval is opened, and flows observed afterwards carry B's ordinal
+
+#### Scenario: Delayed flow after readdressing keeps the original holder
+- **GIVEN** `192.0.2.30` belonged to device A until 12:01 and to device B from 12:01
+- **WHEN** a flow observed at 12:00:00-12:00:40 is ingested at 12:02
+- **THEN** its side for `192.0.2.30` carries A's ordinal with resolution `resolved`
+
+#### Scenario: Flow spanning a holder change is not attributed
+- **GIVEN** the same address change
+- **WHEN** a flow observed at 12:00:30-12:01:30 is ingested
+- **THEN** its side for `192.0.2.30` has resolution `ambiguous` and no device ordinal
+
+#### Scenario: Flow older than the retained history is counted
+- **GIVEN** a flow whose observation time is older than the retained validity history
+- **WHEN** it is ingested
+- **THEN** its side has resolution `outside_history` and no device ordinal
+- **AND** the `outside_history` count metric increases
 
 #### Scenario: Flow device is the endpoint, not the exporter
 - **GIVEN** a flow exported by a router between `192.0.2.10` (device H) and `203.0.113.5`
@@ -399,13 +425,19 @@ Exposure queries SHALL obtain device names, VLAN, owner, device tags and the age
 - **AND** names are not silently left empty
 
 ### Requirement: Exposure Is Rebuildable And Reconciled Against The Assessment Store
-The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, and SHALL resolve facts that the snapshot did not touch and that predate it. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
+The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
 
 #### Scenario: Snapshot removes stale facts and keeps live updates
 - **GIVEN** StarRocks holds a fact that CNPG no longer considers actionable
 - **AND** a live transition arrives during the snapshot
 - **WHEN** snapshot generation G completes
 - **THEN** the stale fact is resolved, and the live transition's state is retained
+
+#### Scenario: Transaction in flight during the snapshot keeps its result
+- **GIVEN** a resolving transaction for an active fact has drawn its `transition_seq` but has not committed when the snapshot records `V`
+- **AND** the snapshot therefore reads the assessment as active and upserts it with the previous sequence
+- **WHEN** the resolving transaction commits and its transition is delivered either before or after the snapshot upsert and the end marker
+- **THEN** the fact ends resolved
 
 #### Scenario: Reconciliation can fail
 - **GIVEN** a fact is deleted from StarRocks out of band
@@ -425,7 +457,7 @@ Exposure entities, host connection evidence, coverage attestations and discrepan
 The system SHALL meet these p99 freshness targets:
 - an assessment commit becomes a visible fact within 120 seconds;
 - a fact is reflected in the bitmap views within 180 seconds;
-- an address change or address lease reaches the address dimension and the flow-tier map within 60 seconds;
+- an address change or address lease reaches the address dimension and the flow-tier validity history within 60 seconds;
 - host evidence is visible within 120 seconds of its summary interval closing;
 - a discrepancy record exists within 300 seconds of the later of its interval closing and its flow's late-window cutoff;
 - the daily snapshot completes within 15 minutes of UTC midnight.

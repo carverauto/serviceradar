@@ -6,14 +6,15 @@ The matcher SHALL publish an assessment transition on JetStream whenever an asse
 **Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once.
 
 **Content.** Each transition SHALL carry:
-- `transition_seq`, drawn from one sequence;
+- `transition_seq`, drawn from one sequence while the transaction holds the assessment row's lock, and stored on the assessment row as its last transition sequence;
+- `transition_xid`, the producing transaction's `pg_current_xact_id()`;
 - `device_uid`, `package_identity_key`, `installed_version`, `cve_id`;
 - the device, CVE, package and package-version ordinals, allocated in that transaction;
 - the new state and the changed fields, and the reason.
 
 **Device lifecycle.** Device merges and deletions SHALL publish a `device_retired` transition for the retired ordinal.
 
-**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers.
+**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`.
 
 #### Scenario: Upgrade that fixes the CVE emits a resolution
 - **GIVEN** an actionable assessment for a package at version 1.0
@@ -29,6 +30,11 @@ The matcher SHALL publish an assessment transition on JetStream whenever an asse
 - **GIVEN** an assessment change whose transaction rolls back
 - **WHEN** the outbox relay runs
 - **THEN** no transition is published for it
+
+#### Scenario: Concurrent changes to one assessment are sequenced in commit order
+- **GIVEN** two transactions change the same assessment
+- **WHEN** both commit
+- **THEN** the transaction that committed later carries the higher `transition_seq`
 
 ### Requirement: Running Executables Resolve To Owning Packages
 The agent SHALL resolve the executable of each listening or attributed process to its owning installed package. It SHALL use the package manager's file ownership, or container image layer metadata when available, and SHALL resolve once per executable inode and cache the result, never once per connection. The resolved inventory package reference SHALL be attached to ownership lease owner records and to connection summary rows. An unresolved executable SHALL be reported as unknown and SHALL NOT be guessed from the process name or command line.

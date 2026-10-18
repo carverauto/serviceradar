@@ -49,19 +49,20 @@ Netprobe SHALL publish one capture coverage attestation for each connection summ
 
 ### Requirement: Flow Rows Record Per-Side Attribution Outcome And Device Ordinal
 In addition to the owner columns written by *Flows Are Attributed On Ingest By Key Lookup*, the EventWriter flow tier SHALL stamp each flow row with:
-- `src_device_ord` and `dst_device_ord`, taken from the current exposure address dimension map;
+- `src_device_ord` and `dst_device_ord`, resolved against the flow tier's address validity history at the flow's observation time, as defined by *Flows And Host Evidence Map To Devices Through An Address Dimension*;
+- `src_device_resolution` and `dst_device_resolution`, each one of `resolved`, `shared`, `ambiguous`, `unmapped` or `outside_history`; only `resolved` carries an ordinal;
 - `src_attribution_outcome` and `dst_attribution_outcome`, each one of `attributed`, `unmonitored`, `no_owner`, `ambiguous`, `index_warming` or `error`.
 
-**Late decisions.** A late decision published under *Late Binding Is Bounded And Never Rescans Flows* SHALL update the per-side outcomes in the same partial update and under the same decision-sequence guard as the owner columns.
+**Late decisions.** A late decision published under *Late Binding Is Bounded And Never Rescans Flows* SHALL update the per-side outcomes in the same partial update and under the same decision-sequence guard as the owner columns. It SHALL re-resolve the side's device with the same lookup at the flow's observation time and write the result in that partial update.
 
-**Discrepancy candidates.** After a flow's late window reaches its cutoff, the home shard SHALL publish one deduplicated discrepancy candidate per device, peer, port, protocol and minute for each side whose final outcome is `no_owner` and whose address maps to exactly one agent-managed device with address presence. Flows marked `attribution_finalized_early`, and flows carrying agent-provided attribution, SHALL NOT produce candidates.
+**Discrepancy candidates.** After a flow's late window reaches its cutoff, the home shard SHALL publish one deduplicated discrepancy candidate per device, peer, port, protocol and minute for each side whose final outcome is `no_owner` and whose device resolution at the flow's observation time is `resolved` to exactly one agent-managed device with address presence. Flows marked `attribution_finalized_early`, and flows carrying agent-provided attribution, SHALL NOT produce candidates.
 
 **History.** Historical flows SHALL NOT be backfilled.
 
 #### Scenario: Endpoint ordinal is stamped
-- **GIVEN** `192.0.2.10` maps to device H in the address dimension
+- **GIVEN** `192.0.2.10` maps to device H in the address dimension for the flow's observation time
 - **WHEN** a router-exported flow involving `192.0.2.10` is ingested
-- **THEN** the flow row's side for `192.0.2.10` carries H's ordinal and that side's attribution outcome
+- **THEN** the flow row's side for `192.0.2.10` carries H's ordinal, resolution `resolved`, and that side's attribution outcome
 - **AND** the flow's exporter `device_uid` is unchanged
 
 #### Scenario: Late decision updates the outcome

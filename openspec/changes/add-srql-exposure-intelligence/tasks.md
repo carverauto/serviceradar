@@ -21,20 +21,20 @@ deployment.
 - [ ] 0.9 Obtain approval to extend the StarRocks-required exception to exposure intelligence (design Decision 15). Update `AGENTS.md` only after approval.
 
 ## 1. Dictionaries, fact table and transitions
-- [ ] 1.1 CNPG migrations: `exposure_advisory_ordinals` (starting at 10^12), `exposure_package_ordinals`, `exposure_package_version_ordinals`, and the `transition_seq` sequence. Add a CVE ordinal function with unit tests at the 10^7 boundary.
+- [ ] 1.1 CNPG migrations: `exposure_advisory_ordinals` (starting at 10^12), `exposure_package_ordinals`, `exposure_package_version_ordinals`, the `transition_seq` sequence (drawn under the assessment row lock and stored on the assessment row), and `transition_xid` on outbox rows. Add a CVE ordinal function with unit tests at the 10^7 boundary.
 - [ ] 1.2 StarRocks DDL under `elixir/serviceradar_core/priv/starrocks/`: `exposure_facts`, `exposure_cve_dim`, `exposure_package_dim` and `exposure_transitions_log`.
 - [ ] 1.3 NATS: the transitions and `exposure.dimensions.*` subjects, stream limits, and Helm permissions (core publishes, EventWriter consumes).
 - [ ] 1.4 EventWriter `ExposureTransitions` and `ExposureDimensions` processors: Stream Load with `merge_condition = transition_seq`, resolution as a state change, and transition log appends.
 - [ ] 1.5 Merge and deletion handling: `device_retired` from `endpoint_inventory_moves.ex` and device deletion. Grep for every writer of `device_fleet_ordinals.tombstoned` and of device deletion, not only the obvious one.
-- [ ] 1.6 Snapshot generation (start and end markers, finalize rule) and the daily per-device reconciliation with exported mismatch counts.
+- [ ] 1.6 Snapshot generation fenced by the recorded `pg_current_snapshot()` (start and end markers, finalize rule over `transition_xid` visibility, live transitions not visible in the snapshot applied in any order) and the daily per-device reconciliation with exported mismatch counts.
 - [ ] 1.7 Daily purge of facts resolved more than 7 days ago.
-- [ ] 1.8 Tests per scenario of *Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions*, *Exposure Identifiers Use Collision-Free Dictionaries* and *Exposure Is Rebuildable And Reconciled Against The Assessment Store*. Include a reconciliation test that fails when a fact is removed out of band.
+- [ ] 1.8 Tests per scenario of *Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions*, *Exposure Identifiers Use Collision-Free Dictionaries* and *Exposure Is Rebuildable And Reconciled Against The Assessment Store*. Verify fact-table ownership through the transition interface: a published synthetic transition yields its fact row, and a rolled-back assessment change yields none. Include a snapshot test with a resolving transaction in flight while the snapshot is read, and a reconciliation test that fails when a fact is removed out of band.
 
 ## 2. Address dimension and flow stamping
 - [ ] 2.1 Address publisher: inventory address changes and agent address leases -> `exposure.dimensions.address`, with interval open and close events, the shared flag, the attested flag, and prefix tags and site from the native prefix lookup.
 - [ ] 2.2 StarRocks `exposure_device_addresses` and its EventWriter processor.
-- [ ] 2.3 Flow-tier in-memory address map fed from the stream (bounded, with metrics), plus new flow columns `src_device_ord`, `dst_device_ord`, `src_attribution_outcome` and `dst_attribution_outcome`. Late stamps update the outcome. No backfill.
-- [ ] 2.4 Tests per scenario of *Flows And Host Evidence Map To Devices Through An Address Dimension* and *Flow Rows Record Per-Side Attribution Outcome And Device Ordinal*.
+- [ ] 2.3 Flow-tier in-memory address validity history fed from the stream (retained for the maximum accepted flow delay plus the late window, with metrics including the `outside_history` count), endpoint resolution at the flow's observation time, plus new flow columns `src_device_ord`, `dst_device_ord`, `src_device_resolution`, `dst_device_resolution`, `src_attribution_outcome` and `dst_attribution_outcome`. Late stamps update the outcome and re-resolve the device with the same lookup. No backfill.
+- [ ] 2.4 Tests per scenario of *Flows And Host Evidence Map To Devices Through An Address Dimension* and *Flow Rows Record Per-Side Attribution Outcome And Device Ordinal*, including the delayed flow after readdressing.
 
 ## 3. Evidence
 - [ ] 3.1 Extend the #5753 `host_connection_summaries` processor to also write evidence deltas. Rows merged to `service` or `overflow` become `peer_scope = unknown` evidence and are counted.
@@ -45,16 +45,16 @@ deployment.
 
 ## 4. Bitmap views and history
 - [ ] 4.1 Async views `exposure_cve_devices_mv`, `exposure_risk_devices_mv` and `exposure_device_summary_mv` (60 s refresh), with refresh age and duration metrics.
-- [ ] 4.2 `exposure_daily` Aggregate table and the daily snapshot job.
+- [ ] 4.2 `exposure_daily` Aggregate table and the daily snapshot job. History filters are limited to the retained dimensions and the current-membership slices.
 - [ ] 4.3 Verification that compares each view's counts with direct fact counts, with a failure branch.
 - [ ] 4.4 Tests per scenario of *Exposure Bitmaps Are Derived Views, Never The System Of Record* and *Exposure Trend Is Answerable Over Time*.
 
 ## 5. SRQL
-- [ ] 5.1 Parser: the new entities and aliases, the `count_distinct(device_id)` aggregate, and the exposure, evidence, outcome and device-id filters on `flows` and `attributed_flows`.
+- [ ] 5.1 Parser: the new entities (one canonical name each, no aliases), the `count_distinct(device_id)` aggregate, and the exposure, evidence, outcome and device-id filters on `flows` and `attributed_flows`.
 - [ ] 5.2 StarRocks dialect for `in:exposure`, `in:observed_connections`, `in:exposure_history`, the flow pivots, view selection by staleness, and `as_of` reporting.
 - [ ] 5.3 Two-phase execution for `in:exposure_blast_radius`: seed cap, depth and node caps, BGP prefixes through BMP events and the address dimension, and truncation flags.
 - [ ] 5.4 `starrocks_required`, `catalog_unavailable` and `epss_unavailable` states; parameterization; window caps.
-- [ ] 5.5 web-ng SRQL catalog, the `EntityAccess` permission map (every alias), the MCP SRQL cookbook, viz metadata, and the SRQL parity inventory entries (StarRocks-only).
+- [ ] 5.5 web-ng SRQL catalog, the `EntityAccess` permission map (every new entity), the MCP SRQL cookbook, viz metadata, and the SRQL parity inventory entries (StarRocks-only).
 - [ ] 5.6 Tests per scenario of the `srql` delta and of the six use-case requirements. Assert the compiled SQL for each showcase query.
 
 ## 6. Coverage attestation and discrepancy detection

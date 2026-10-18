@@ -76,10 +76,11 @@ core exposure publisher --> exposure.dimensions.{cve,package,address}
                                                    exposure_device_addresses (validity intervals)
                                                      |
              +---------------------------------------+ (same stream also feeds the flow tier's
-             |                                         in-memory address map)
+             |                                         bounded address validity history)
              v
-flows.raw.* --> EventWriter flow tier: attribute (ownership index) + stamp
-                src/dst_device_ord, src/dst_attribution_outcome --> SR ocsf_network_activity
+flows.raw.* --> EventWriter flow tier: attribute (ownership index) + resolve endpoints at
+                observation time + stamp src/dst_device_ord, src/dst_device_resolution,
+                src/dst_attribution_outcome --> SR ocsf_network_activity
                        |                         |
                        | evidence deltas         | final no_owner on an attested address
                        v                         v
@@ -145,6 +146,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
   resolved_at         DATETIME,
   updated_at          DATETIME  NOT NULL,
   transition_seq      BIGINT    NOT NULL,
+  transition_xid      BIGINT    NOT NULL,   -- CNPG xact id of the producing transaction
   snapshot_generation BIGINT    NOT NULL
 )
 PRIMARY KEY (device_ord, cve_ord, pkg_ord)
@@ -171,7 +173,13 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
     resolution is written as `state = 0`, and a daily purge physically deletes rows that
     have been resolved for longer than 7 days.
 - **`transition_seq`** comes from one CNPG sequence. The matcher draws it in the same
-  transaction as the assessment change, so it is totally ordered per row.
+  transaction as the assessment change, while holding that assessment row's lock, and
+  stores it on the assessment row as its last transition sequence. Two transactions that
+  change the same row are serialized by the lock, so per row the sequence follows commit
+  order. Across rows it does not, which is why the snapshot fence (Decision 14) uses the
+  database snapshot rather than a sequence threshold.
+- **`transition_xid`** is `pg_current_xact_id()` of the producing transaction, recorded on
+  the outbox row and carried on the transition. It is 64-bit and does not wrap.
 - **`ORDER BY (cve_ord, device_ord)`** makes "devices exposed to CVE-X" a prefix-index
   range scan. Distributing by `device_ord` keeps the evidence join co-located.
 - **EPSS is not on the fact row.** EPSS changes daily for nearly every CVE. Denormalizing
@@ -259,12 +267,33 @@ express.
 The publisher emits interval opens and closes on inventory address changes and on agent
 address leases.
 
-The EventWriter flow tier keeps an in-memory current map `(partition, ip) -> device_ord |
-shared`, fed by the same stream, in the same way as the VIP map. At ingest it stamps
-`src_device_ord`, `dst_device_ord`, `src_attribution_outcome` and
-`dst_attribution_outcome` onto the flow row. This is time-correct by construction, and it
-avoids joining flows to a validity-interval table at query time. The history table serves
-host evidence, discrepancy evaluation and investigation.
+The EventWriter flow tier keeps an in-memory, bounded validity history per address,
+`(partition, ip) -> [(valid_from, valid_to, device_ord | shared)]`, fed by the same stream,
+in the same way as the VIP map. Each endpoint is resolved against the intervals that cover
+the flow's **observation time** (its start and end), never against whichever device holds
+the address when the record arrives:
+
+- exactly one device's interval covers the observation interval: `resolved`, with that
+  ordinal;
+- the address is shared during it: `shared`;
+- more than one device held the address during it: `ambiguous`;
+- no interval covers it: `unmapped`;
+- the observation time is older than the retained history: `outside_history`, counted by a
+  metric.
+
+Only `resolved` stamps an ordinal. History is retained for the maximum accepted flow delay
+(configured; default 15 minutes) plus the late window, and older closed intervals are
+evicted. At ingest the tier stamps `src_device_ord`, `dst_device_ord`,
+`src_device_resolution`, `dst_device_resolution`, `src_attribution_outcome` and
+`dst_attribution_outcome` onto the flow row. A late decision re-resolves the side with the
+same lookup at the flow's observation time and writes the result in the same partial
+update; the discrepancy candidate check at the late-window cutoff uses the same lookup.
+This avoids joining flows to a validity-interval table at query time. The StarRocks table
+serves host evidence, discrepancy evaluation and investigation.
+
+Example: device A holds `192.0.2.30` until 12:01, and device B from 12:01. A flow observed
+12:00:00-12:00:40 that arrives at 12:02 resolves to A. A flow observed 12:00:30-12:01:30
+is `ambiguous` and carries no ordinal.
 
 Alternatives considered:
 
@@ -402,6 +431,13 @@ scoped to a first query's result. Truncation is reported, never silent.
 kev)` with `devices BITMAP BITMAP_UNION`. A scheduled job writes it from the active facts
 after UTC midnight. A day's snapshot is never modified afterwards, so the union is safe.
 
+History filters are restricted to what the snapshot retains: `cve`, `severity`, `kev` and
+device membership (`device_id`), plus the current-membership slices below. Package is
+deliberately not retained: a package dimension would multiply the snapshot by the packages
+per CVE, which does not fit the capacity target. Every other exposure filter (`package`,
+`cvss_score`, `epss_score`, `exploit_available`, `agent_managed`, `hostname`) is rejected on
+`in:exposure_history` as unsupported.
+
 `serviceradar.exposure_transitions_log` (Duplicate Key, daily partitions) records every
 transition. It provides newly exposed and remediated counts and mean time to remediate.
 
@@ -444,8 +480,8 @@ membership bitmap. This is documented as current membership (open question 3).
 1. The flow's home shard publishes a candidate only when a side's decision is still
    `no_owner` at the late-window cutoff (default 5 minutes after the flow). Flows marked
    `attribution_finalized_early` and flows with agent-provided attribution never produce
-   candidates. The side's address must map to exactly one agent-managed device with
-   `agent_attested = true`. Candidates are deduplicated per
+   candidates. The side's device resolution at the flow's observation time must be
+   `resolved`, to exactly one agent-managed device with `agent_attested = true`. Candidates are deduplicated per
    `(device_ord, peer, port, proto, minute)`.
 2. The sharded evaluator holds each candidate until two things are true: attestations
    cover `[flow_start - tolerance, flow_end + tolerance]`, and the host-summary stream for
@@ -513,7 +549,7 @@ and do not create new alerts.
 |---|---|
 | Assessment commit -> fact visible | <= 120 s (outbox relay <= 10 s, EventWriter batch <= 30 s, Stream Load <= 30 s, margin) |
 | Fact -> bitmap views | <= 180 s (60 s refresh plus a refresh duration of <= 60 s) |
-| Inventory address change or address lease -> address dimension and flow-tier map | <= 60 s |
+| Inventory address change or address lease -> address dimension and flow-tier validity history | <= 60 s |
 | Summary interval close -> host evidence visible | <= 120 s |
 | Flow ingest -> network evidence visible | flow ingest latency + 60 s |
 | Later of interval close and the flow's late-window cutoff -> discrepancy record | <= 300 s; incident <= 60 s later |
@@ -526,16 +562,33 @@ snapshots.
 ### Decision 14: Rebuild and reconciliation
 
 - **Snapshot.** Used on a fresh install, after a warehouse restore, or after a
-  reconciliation mismatch.
-  - The publisher opens generation `G` at sequence `S0` and emits every actionable
-    assessment as a `SNAPSHOT` upsert. It then emits `SNAPSHOT_END(G, S0)`.
-  - On `SNAPSHOT_END`, rows with `snapshot_generation < G AND transition_seq < S0` are
-    resolved. Live transitions that arrive during the snapshot carry higher sequences and
-    survive.
+  reconciliation mismatch. The fence is the database snapshot the publisher read, which is
+  commit-ordered; a sequence threshold is not, because a transaction can draw a sequence
+  below the threshold and commit after the snapshot was read.
+  - The publisher opens generation `G` in one read-only `REPEATABLE READ` transaction whose
+    first statement records `V = pg_current_snapshot()` (`xmin`, `xmax`, `xip`). Every
+    read in that transaction sees exactly `V`.
+  - It emits every actionable assessment visible in `V` as a `SNAPSHOT` upsert carrying the
+    row's last `transition_seq` and `transition_xid`. It then emits `SNAPSHOT_END(G, V)`.
+  - The outbox keeps relaying live transitions throughout. A transition whose
+    `transition_xid` is not visible in `V` (in flight or committed after `V` was taken) is
+    applied normally whenever it arrives. Its per-row sequence is above the one the
+    snapshot read, because it was drawn under the row lock after the visible change
+    committed, so the merge condition lets it win in either arrival order.
+  - On `SNAPSHOT_END`, rows with `snapshot_generation < G` whose `transition_xid` is
+    visible in `V` (`xid < xmin`, or `xid < xmax` and not in `xip`) are resolved, keeping
+    their `transition_seq`. Rows last written by a transition not visible in `V` are left
+    as they are. Live transitions are partial updates that never write
+    `snapshot_generation`, so a delayed redelivery of a transition the snapshot already
+    read does not make a snapshot-touched row look untouched.
+  - Example: a resolving transaction draws sequence 41 and is still in flight when `V` is
+    taken. The snapshot reads the row as active with sequence 40 and upserts it. The
+    resolution commits and arrives with sequence 41, before or after the upsert, and the
+    fact ends resolved.
 - **Per-device reconciliation.** A daily job compares the actionable count and an
   order-independent digest of `(cve_ord, pkg_ord)` per device between CNPG and StarRocks.
-  Mismatched devices get a per-device snapshot. Mismatch counts are exported, so the check
-  can fail visibly.
+  Mismatched devices get a per-device snapshot, fenced the same way and scoped to the
+  device. Mismatch counts are exported, so the check can fail visibly.
 
 ### Decision 15: Exposure requires StarRocks
 
@@ -577,8 +630,8 @@ question 1).
 | Traffic predicates on `in:exposure` (`contacted_threat`, `inbound_internet`, `listening`, `provenance`, `namespace`) | additionally `observability.netflow.view` |
 | Exposure pivot filters on `in:flows` and `in:attributed_flows` | additionally `devices.view` |
 
-Every alias is listed in the `EntityAccess` map. Unknown-entity passthrough must not skip
-the gate.
+Every entity is listed in the `EntityAccess` map under one canonical name; the new
+entities have no aliases. Unknown-entity passthrough must not skip the gate.
 
 ## Capacity model
 

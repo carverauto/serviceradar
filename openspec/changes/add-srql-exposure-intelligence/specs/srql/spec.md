@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: SRQL Exposure Entity
-SRQL SHALL provide `in:exposure` (aliases `exposures` and `exposure_facts`) over current actionable exposure facts in StarRocks, with one row per device, package identity and CVE.
+SRQL SHALL provide `in:exposure` over current actionable exposure facts in StarRocks, with one row per device, package identity and CVE.
 
 **Fields.** Rows SHALL expose:
 - device: `device_id`, `hostname`, `site`, `vlan`, `owner`, `partition`, `agent_managed`;
@@ -45,7 +45,7 @@ SRQL SHALL support the aggregate `count_distinct(device_id)` on `in:exposure`, `
 - **THEN** SRQL returns an invalid-request error stating that `count_distinct` supports only `device_id`
 
 ### Requirement: SRQL Observed Connections Entity
-SRQL SHALL provide `in:observed_connections` (aliases `connection_evidence` and `contacts`) over the hourly observed-connection evidence set.
+SRQL SHALL provide `in:observed_connections` over the hourly observed-connection evidence set.
 
 **Fields.** Rows SHALL expose:
 - `time` (the hour), `device_id`, `hostname`, `direction`, `protocol`, `service_port`;
@@ -69,7 +69,7 @@ SRQL SHALL provide `in:observed_connections` (aliases `connection_evidence` and 
 - **THEN** only contacts with both host and network evidence are returned, and each row's `provenance` is `corroborated`
 
 ### Requirement: SRQL Connection Discrepancies Entity
-SRQL SHALL provide `in:connection_discrepancies` (aliases `discrepancies` and `evasion_signals`) over evaluated discrepancy candidates.
+SRQL SHALL provide `in:connection_discrepancies` over evaluated discrepancy candidates.
 
 **Fields.** Rows SHALL expose:
 - `id`, `time`, `kind` (`network_only` or `host_only`), `outcome` (`signal` or `suppressed`), `reason`;
@@ -96,7 +96,7 @@ SRQL SHALL provide `in:connection_discrepancies` (aliases `discrepancies` and `e
 - **THEN** the flows that produced the candidate are returned
 
 ### Requirement: SRQL Agent Coverage Entity
-SRQL SHALL provide `in:agent_coverage` (alias `capture_coverage`) over agent capture coverage attestations.
+SRQL SHALL provide `in:agent_coverage` over agent capture coverage attestations.
 
 **Fields.** Rows SHALL expose:
 - `agent_id`, `device_id`, `interval_start`, `interval_end`;
@@ -123,7 +123,7 @@ SRQL SHALL provide `in:exposure_incidents` over alert incidents that were create
 - **THEN** active evasion incidents are returned, each with a pivot that lists its discrepancy signals
 
 ### Requirement: SRQL Exposure Blast Radius Entity
-SRQL SHALL provide `in:exposure_blast_radius` (alias `blast_radius`). It SHALL accept the `in:exposure` exposure filters to select seed devices, `depth` (1-3, default 2), and `via` (`topology`, `bgp`, or a list of both; default `topology`).
+SRQL SHALL provide `in:exposure_blast_radius`. It SHALL accept the `in:exposure` exposure filters to select seed devices, `depth` (1-3, default 2), and `via` (`topology`, `bgp`, or a list of both; default `topology`).
 
 **Execution.** It SHALL compile to a two-phase plan. Phase one resolves the seeds in StarRocks; phase two is a bounded traversal parameterized by the seed list.
 
@@ -140,7 +140,7 @@ SRQL SHALL provide `in:exposure_blast_radius` (alias `blast_radius`). It SHALL a
 - **THEN** SRQL returns an invalid-request error stating the allowed depth range
 
 ### Requirement: SRQL Exposure History Entity
-SRQL SHALL provide `in:exposure_history` (alias `exposure_trend`) over daily exposure snapshots and the transition log. Rows SHALL expose `day`, `exposed_hosts`, `exposures`, `newly_exposed_hosts`, `remediated_hosts` and `mean_time_to_remediate`. The entity SHALL accept the `in:exposure` exposure filters, `count_distinct(device_id)` grouped by `day`, and a time window bounded by the history retention.
+SRQL SHALL provide `in:exposure_history` over daily exposure snapshots and the transition log. Rows SHALL expose `day`, `exposed_hosts`, `exposures`, `newly_exposed_hosts`, `remediated_hosts` and `mean_time_to_remediate`. The entity SHALL accept only the filters the daily snapshot retains (`cve`, `severity`, `kev` and `device_id`) and the current-membership slices `site`, `tag`, `vlan`, `owner` and `tags.<key>`, together with `count_distinct(device_id)` grouped by `day` and a time window bounded by the history retention. Every other `in:exposure` filter, including `package`, SHALL be rejected as an unsupported filter field.
 
 #### Scenario: KEV trend over ninety days
 - **WHEN** a client runs `in:exposure_history kev:true time:last_90d stats:"count_distinct(device_id) as hosts by day"`
@@ -151,8 +151,12 @@ SRQL SHALL provide `in:exposure_history` (alias `exposure_trend`) over daily exp
 - **WHEN** a client queries `time:last_400d`
 - **THEN** SRQL returns an invalid-request error that names the retention limit
 
+#### Scenario: Package filter on history is rejected
+- **WHEN** a client runs `in:exposure_history package:openssl time:last_30d`
+- **THEN** SRQL returns an unsupported filter field error that names `package`
+
 ### Requirement: SRQL Flow Exposure Pivot Filters
-SRQL `in:flows` and `in:attributed_flows` SHALL support identical exposure pivot filters `exposed`, `exposure_cve`, `exposure_kev` and `exposure_severity`, evaluated against the device ordinals stamped on each flow side. They SHALL also support `src_device_id` and `dst_device_id`. `in:attributed_flows` SHALL additionally support `attribution_outcome`, `src_attribution_outcome` and `dst_attribution_outcome`. A flow SHALL appear once even when both sides match. Flows ingested before ordinals were stamped SHALL NOT match exposure pivots.
+SRQL `in:flows` and `in:attributed_flows` SHALL support identical exposure pivot filters `exposed`, `exposure_cve`, `exposure_kev` and `exposure_severity`, evaluated against the device ordinals stamped on each flow side, which were resolved at the flow's observation time. A side whose device resolution is not `resolved` SHALL NOT match an exposure pivot or a device-id filter. They SHALL also support `src_device_id` and `dst_device_id`. `in:attributed_flows` SHALL additionally support `attribution_outcome`, `src_attribution_outcome` and `dst_attribution_outcome`. A flow SHALL appear once even when both sides match. Flows ingested before ordinals were stamped SHALL NOT match exposure pivots.
 
 #### Scenario: Flows of exposed devices
 - **WHEN** a client runs `in:flows exposure_cve:CVE-2024-0001 time:last_1h sort:time:desc limit:100`
@@ -170,7 +174,7 @@ SRQL SHALL gate the exposure entities as follows:
 - evidence filters on `in:exposure` additionally require `observability.netflow.view`;
 - exposure pivot filters on flow entities additionally require `devices.view`.
 
-Every alias SHALL be listed in the entity permission map, so that no alias reaches execution ungated over HTTP, LiveView or MCP.
+Each new entity SHALL have one canonical name and no aliases, and SHALL be listed in the entity permission map, so that no entity reaches execution ungated over HTTP, LiveView or MCP.
 
 #### Scenario: Missing netflow permission on an evidence filter
 - **GIVEN** a user with `devices.view` but without `observability.netflow.view`
@@ -178,9 +182,10 @@ Every alias SHALL be listed in the entity permission map, so that no alias reach
 - **THEN** SRQL refuses the query with a permission error
 - **AND** `in:exposure cve:CVE-2024-0001` still succeeds for that user
 
-#### Scenario: Alias does not bypass the gate
-- **WHEN** a user without `observability.netflow.view` runs `in:contacts time:last_1h`
-- **THEN** SRQL refuses the query with a permission error
+#### Scenario: Every entry point applies the gate
+- **GIVEN** a user without `observability.netflow.view`
+- **WHEN** the user runs `in:observed_connections time:last_1h` over HTTP, LiveView or MCP
+- **THEN** SRQL refuses the query with a permission error on each entry point
 
 ### Requirement: SRQL Exposure Query Bounds And Failure Fidelity
 Exposure entities SHALL parameterize every user-supplied value, SHALL enforce the standard limit and cursor ceilings, and SHALL cap evidence and discrepancy windows at 90 days. Exposure entities SHALL return `starrocks_required` when StarRocks is disabled. A timeout, a catalog failure or a backend failure SHALL be returned as an error, or as a field-level unavailable state, and SHALL NOT be rendered as an empty result. The SRQL parity inventory SHALL record the exposure entities as StarRocks-only.
