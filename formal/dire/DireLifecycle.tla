@@ -357,14 +357,20 @@ Sweep(p, d) ==
 \* Ids.reseeded_device_id/1 derives (task 9.7), so a purged merged-away record is never written
 \* live again. walk_seed treats a purged seed as reserved and moves on to
 \* Ids.reseeded_device_id. The model creates only a row that never existed.
+\* A retained address root may advance its durable seed head in the same
+\* transaction. act.v records that root and its revision bump invalidates work;
+\* its inventory, deletion state and merge redirect remain unchanged.
 SweepCreate(p, d) ==
     /\ ~\E e \in Devices : status[e] \in {"live", "tomb"} /\ ipOf[e] = p
     /\ status[d] = "absent"
     /\ status' = [status EXCEPT ![d] = "live"]
     /\ ipOf' = [ipOf EXCEPT ![d] = p]
     /\ sweepOnly' = sweepOnly \cup {d}
-    /\ work' = MarkStale(work, {d})
-    /\ act' = MkAct("SweepCreate", d, NoDev, 0, FALSE, {d})
+    /\ \E root \in {NoDev} \cup
+           {r \in Devices : status[r] \in {"tomb", "purged"} /\ reason[r] # "source_retired"} :
+         LET bumped == {d} \cup (IF root = NoDev THEN {} ELSE {root})
+         IN /\ work' = MarkStale(work, bumped)
+            /\ act' = MkAct("SweepCreate", d, root, 0, FALSE, bumped)
     /\ UNCHANGED <<reason, owner, audit, marked, arch>>
 
 \* AgentGatewaySync.upsert_device_for_agent/4 on the agent's device uid: a soft-deleted device
@@ -499,8 +505,8 @@ NoStaleCommit == [][act'.name = "Commit" => ~act'.stale]_vars
 ExpiryKeepsStrongIdentity ==
     [][act'.name = "Expire" => \A i \in Ids : owner[i] # act'.u]_vars
 
-\* Sweep Restore Of Expired Devices (add-source-id-succession D12): a sweep writes only a record
-\* that is live after the step, and a sweep that matches an expired tombstone restores it.
+\* Sweep results belong to a record live after the step. SweepCreate can also advance
+\* a retained root's seed head (act.v) without changing its tombstone or inventory.
 SweepWritesOnlyLiveRecords ==
     [][act'.name \in {"SweepCreate", "SweepRestore", "SweepRefresh"}
           => status'[act'.u] = "live"]_vars

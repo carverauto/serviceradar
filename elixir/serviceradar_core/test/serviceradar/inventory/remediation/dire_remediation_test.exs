@@ -302,6 +302,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     {:ok, stale_b} = create_device(actor, %{hostname: "stale-#{host_b}", agent_id: agent_b})
     {:ok, stale_c} = create_device(actor, %{hostname: "stale-#{host_c}", agent_id: agent_c})
 
+    assert %{rows: [[old_ordinal, false]]} =
+             Repo.query!(
+               "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+               [dev_b.uid]
+             )
+
     assert :ok =
              IdentityReconciler.merge_devices(dev_b.uid, chimera.uid,
                actor: actor,
@@ -335,8 +341,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert plans[agent_a].target_device_uid == chimera.uid
     # A merged tombstone is not a restore target. Host B gets a fresh device.
     assert plans[agent_b].action == :create
-    planned_b = plans[agent_b].target_device_uid
-    refute planned_b in [dev_b.uid, chimera.uid]
+    refute plans[agent_b].target_device_uid in [dev_b.uid, chimera.uid]
     assert plans[agent_c].action == :create
     assert plans[agent_b].stale_device_agent_links == [stale_b.uid]
     assert plans[agent_c].stale_device_agent_links == [stale_c.uid]
@@ -366,9 +371,19 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
 
     # Agent B was repointed at a fresh per-host device. The merged tombstone stays deleted.
     assert {:ok, %Agent{device_uid: agent_b_device}} = Agent.get_by_uid(agent_b, actor: actor)
-    assert agent_b_device == planned_b
-    assert {:ok, %Device{deleted_at: %DateTime{}}} =
+    refute agent_b_device in [dev_b.uid, chimera.uid]
+
+    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "merged"} = merged} =
              Device.get_by_uid(dev_b.uid, true, actor: actor)
+
+    assert merged.metadata["_merged_into"] == chimera.uid
+
+    assert %{rows: [[^old_ordinal, true]]} =
+             Repo.query!(
+               "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+               [dev_b.uid]
+             )
+
     assert {:ok, %Device{} = created_b} = Device.get_by_uid(agent_b_device, false, actor: actor)
     assert created_b.hostname == host_b
     assert created_b.agent_id == agent_b

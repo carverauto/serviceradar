@@ -58,6 +58,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   require Ash.Query
@@ -570,19 +571,29 @@ defmodule ServiceRadar.DireLifecycleTrace do
     written =
       for {uid, d} <- before.devices, Map.get(after_.devices, uid)[:version] != d.version, do: uid
 
-    {name, uid} =
+    {name, uid, head} =
       case {created, restored, written} do
         {[uid], [], []} ->
-          {"SweepCreate", uid}
+          {"SweepCreate", uid, "NoDev"}
+
+        {[uid], [], [root]} ->
+          assert_seed_head_update!(before, after_, root, uid)
+
+          assert [%SweepHostResult{device_id: ^uid}] =
+                   SweepHostResult
+                   |> Ash.Query.filter(sweep_group_id == ^group.id)
+                   |> Ash.read!(actor: trace.actor)
+
+          {"SweepCreate", uid, name_of!(trace, root)}
 
         {[], [uid], [uid]} ->
-          {"SweepRestore", uid}
+          {"SweepRestore", uid, "NoDev"}
 
         {[], [], [uid]} ->
-          {"SweepRefresh", uid}
+          {"SweepRefresh", uid, "NoDev"}
 
         {[], [], []} ->
-          {"SweepSkip", sole_tombstone!(trace, before, p)}
+          {"SweepSkip", sole_tombstone!(trace, before, p), "NoDev"}
 
         _ ->
           flunk(
@@ -595,8 +606,28 @@ defmodule ServiceRadar.DireLifecycleTrace do
       trace,
       after_,
       [],
-      act(name, name_of!(trace, uid), "NoDev", 0, bumped(trace, before, after_))
+      act(name, name_of!(trace, uid), head, 0, bumped(trace, before, after_))
     )
+  end
+
+  defp assert_seed_head_update!(before, after_, root, successor) do
+    old = Map.fetch!(before.devices, root)
+    current = Map.fetch!(after_.devices, root)
+    assert old.deleted_at
+    assert current.identity_revision == old.identity_revision + 1
+    assert {ordinal, true} = old.ordinal
+    assert is_integer(ordinal)
+    assert current.ordinal == old.ordinal
+    assert {new_ordinal, false} = after_.devices[successor].ordinal
+    refute new_ordinal == ordinal
+
+    assert Map.drop(current.stored, ["metadata", "identity_revision"]) ==
+             Map.drop(old.stored, ["metadata", "identity_revision"])
+
+    assert current.stored["metadata"] ==
+             Map.put(old.stored["metadata"] || %{}, "_seed_successor", successor)
+
+    assert after_.audit == before.audit
   end
 
   # A sweep that wrote nothing: the row it found must be the only one at `p`, a tombstone.
@@ -1039,21 +1070,23 @@ defmodule ServiceRadar.DireLifecycleTrace do
       |> read_devices()
       |> Enum.reject(&MapSet.member?(trace.pre_uids, &1.uid))
 
-    versions = row_versions(Enum.map(rows, & &1.uid))
+    snapshots = row_snapshots(Enum.map(rows, & &1.uid))
 
     devices =
       Map.new(rows, fn d ->
         {d.uid,
-         %{
-           deleted_at: d.deleted_at,
-           deleted_reason: d.deleted_reason,
-           identity_purged_at: d.identity_purged_at,
-           ip: d.ip,
-           identity_revision: d.identity_revision,
-           discovery_sources: d.discovery_sources,
-           source_retired_at: d.source_retired_at,
-           version: Map.fetch!(versions, d.uid)
-         }}
+         Map.merge(
+           %{
+             deleted_at: d.deleted_at,
+             deleted_reason: d.deleted_reason,
+             identity_purged_at: d.identity_purged_at,
+             ip: d.ip,
+             identity_revision: d.identity_revision,
+             discovery_sources: d.discovery_sources,
+             source_retired_at: d.source_retired_at
+           },
+           Map.fetch!(snapshots, d.uid)
+         )}
       end)
 
     uids = Enum.uniq(Map.keys(devices) ++ Map.keys(trace.names))
@@ -1100,16 +1133,23 @@ defmodule ServiceRadar.DireLifecycleTrace do
   # PostgreSQL writes a new row version, with the writing transaction's id (xmin) at a new
   # tuple position (ctid). A test's sandbox runs every write in one transaction, so xmin alone
   # can stay the same; the old version holds its position until that transaction ends.
-  defp row_versions([]), do: %{}
+  defp row_snapshots([]), do: %{}
 
-  defp row_versions(uids) do
+  defp row_snapshots(uids) do
     %{rows: rows} =
       Repo.query!(
-        "SELECT uid, xmin::text, ctid::text FROM platform.ocsf_devices WHERE uid = ANY($1)",
+        """
+        SELECT d.uid, d.xmin::text, d.ctid::text, to_jsonb(d), f.ordinal, f.tombstoned
+        FROM platform.ocsf_devices d
+        LEFT JOIN platform.device_fleet_ordinals f ON f.uid = d.uid
+        WHERE d.uid = ANY($1)
+        """,
         [uids]
       )
 
-    Map.new(rows, fn [uid, xmin, ctid] -> {uid, {xmin, ctid}} end)
+    Map.new(rows, fn [uid, xmin, ctid, stored, ordinal, tombstoned] ->
+      {uid, %{version: {xmin, ctid}, stored: stored, ordinal: {ordinal, tombstoned}}}
+    end)
   end
 
   # Each world identifier's owner. A source identifier is two rows (armis_device_id and its

@@ -1098,40 +1098,56 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     actor: actor,
     agent_id: agent_id
   } do
-    ip = unique_ip("long-seed-#{Ash.UUID.generate()}")
-    group = seed_sweep_group!(actor, "Sweep Long Seed #{Ash.UUID.generate()}")
-    seed = sweep_seed!(actor, group, agent_id, ip)
-    root = seed.uid
-    root_ordinal = FleetIdentity.device_ordinal(root)
-    retire_and_purge!(actor, seed)
-    root_revision = identity_revision!(root)
+    for root_reason <- ["seed_released", "merged"] do
+      ip = unique_ip("long-seed-#{Ash.UUID.generate()}")
+      group = seed_sweep_group!(actor, "Sweep Long Seed #{Ash.UUID.generate()}")
+      seed = sweep_seed!(actor, group, agent_id, ip)
+      root = seed.uid
+      root_ordinal = FleetIdentity.device_ordinal(root)
 
-    {current, ordinals} =
-      Enum.reduce(1..9, {root, [root_ordinal]}, fn _cycle, {previous, ordinals} ->
-        created = sweep_seed!(actor, group, agent_id, ip)
-        assert created.uid == Ids.reseeded_device_id(previous)
-        ordinal = FleetIdentity.device_ordinal(created.uid)
-        refute ordinal in ordinals
-        retire_and_purge!(actor, created)
-        {created.uid, [ordinal | ordinals]}
-      end)
+      if root_reason == "merged" do
+        survivor = merge_survivor!(actor, "long-seed-#{Ash.UUID.generate()}")
+        assert :ok = IdentityReconciler.merge_devices(root, survivor.uid, actor: actor)
+        purge!(root)
+      else
+        retire_and_purge!(actor, seed)
+      end
 
-    successor = sweep_seed!(actor, group, agent_id, ip)
-    assert successor.uid == Ids.reseeded_device_id(current)
-    refute FleetIdentity.device_ordinal(successor.uid) in ordinals
-    root_row = include_deleted_device!(actor, root)
-    assert root_row.metadata["_seed_successor"] == successor.uid
-    assert root_row.identity_purged_at
-    assert root_row.deleted_reason == "seed_released"
-    assert identity_revision!(root) > root_revision
+      root_revision = identity_revision!(root)
 
-    assert %{rows: [[^root_ordinal, true]]} =
-             Repo.query!(
-               "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
-               [root]
-             )
+      {current, ordinals} =
+        Enum.reduce(1..9, {root, [root_ordinal]}, fn _cycle, {previous, ordinals} ->
+          created = sweep_seed!(actor, group, agent_id, ip)
+          assert created.uid == Ids.reseeded_device_id(previous)
+          ordinal = FleetIdentity.device_ordinal(created.uid)
+          refute ordinal in ordinals
+          retire_and_purge!(actor, created)
+          {created.uid, [ordinal | ordinals]}
+        end)
 
-    assert revival_audit_rows(root) == []
+      successor = sweep_seed!(actor, group, agent_id, ip)
+      assert successor.uid == Ids.reseeded_device_id(current)
+      refute FleetIdentity.device_ordinal(successor.uid) in ordinals
+      root_row = include_deleted_device!(actor, root)
+      assert root_row.metadata["_seed_successor"] == successor.uid
+      assert root_row.identity_purged_at
+      assert root_row.deleted_reason == root_reason
+      assert identity_revision!(root) > root_revision
+
+      assert %{rows: [[^root_ordinal, true]]} =
+               Repo.query!(
+                 "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+                 [root]
+               )
+
+      assert revival_audit_rows(root) == []
+
+      if root_reason == "merged" do
+        survivor = root_row.metadata["_merged_into"]
+        assert is_binary(survivor)
+        assert {:ok, ^survivor} = IdentityReconciler.resolve_canonical_device_id(root, actor)
+      end
+    end
   end
 
   test "a sweep stores progress when one attempt examines eight reserved uids", %{
@@ -4629,18 +4645,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     {task, backend}
   end
 
-  # The checkout pid is not always the backend that waits: the fence query can
-  # run on another pool connection. Count sessions this transaction is blocking.
+  # A queued writer can wait behind another writer's tuple lock while that
+  # writer waits for our transaction. Follow only these writers to our backend.
   defp await_blocked_sweeps!(backends, deadline) do
     %{rows: [[blocked]]} =
       Repo.query!(
         """
-        SELECT count(DISTINCT pid) >= $1
-        FROM pg_stat_activity
-        WHERE pid <> pg_backend_pid()
-          AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+        WITH RECURSIVE waits(writer, pid, path) AS (
+          SELECT pid, pid, ARRAY[pid]
+          FROM unnest($1::int[]) AS writers(pid)
+          UNION ALL
+          SELECT waits.writer, blocker.pid, waits.path || blocker.pid
+          FROM waits
+          CROSS JOIN LATERAL unnest(pg_blocking_pids(waits.pid)) AS blocker(pid)
+          WHERE blocker.pid = ANY($1::int[] || ARRAY[pg_backend_pid()])
+            AND NOT blocker.pid = ANY(waits.path)
+        )
+        SELECT count(DISTINCT writer) = cardinality($1::int[])
+        FROM waits
+        WHERE pid = pg_backend_pid()
         """,
-        [length(backends)]
+        [backends]
       )
 
     if !blocked do

@@ -1039,12 +1039,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   # Legacy merge audits may outlive a physically removed root. They still fence creation,
-  # but cannot carry a head. A merged row that still exists is not a head either:
-  # the next seed is inserted without bumping that tombstone. New retained roots
-  # always provide this durable compare-and-set.
+  # but cannot carry a head. Retained roots, including merged roots, carry the head
+  # without changing their tombstone or merge redirect.
   defp advance_seed_head(%{root: nil}), do: :ok
-
-  defp advance_seed_head(%{root: %{deleted_reason: "merged"}}), do: :ok
 
   defp advance_seed_head(%{root: root, head: head, next: next}) do
     case Repo.query(
@@ -1056,7 +1053,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
              AND metadata->>'_seed_successor' IS NOT DISTINCT FROM $4::text
              AND deleted_at IS NOT NULL
              AND deleted_reason IS DISTINCT FROM 'source_retired'
-             AND deleted_reason IS DISTINCT FROM 'merged'
            """,
            [root.uid, next, root.identity_revision, head]
          ) do

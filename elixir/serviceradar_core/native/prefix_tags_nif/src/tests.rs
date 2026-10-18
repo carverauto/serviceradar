@@ -13,9 +13,9 @@ fn catalog_deadline() -> Instant {
 }
 
 fn decoded_ranges(bytes: &[u8]) -> Vec<(u8, u128, u128)> {
-    assert_eq!(bytes.len() % 33, 0);
-    bytes
-        .chunks_exact(33)
+    let (rows, remainder) = bytes.as_chunks::<33>();
+    assert!(remainder.is_empty());
+    rows.iter()
         .map(|row| {
             (
                 row[0],

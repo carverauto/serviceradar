@@ -1932,9 +1932,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         actor
       )
 
-    publish_deferred_management(existing, restored, identity_purged, parent_ips, context)
-
-    kept ++ restored_entries ++ written
+    committed = kept ++ restored_entries ++ written
+    publish_deferred_management(committed, parent_ips, context)
+    committed
   end
 
   defp polled_states(polled, devices, actor) do
@@ -2717,19 +2717,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
     StateEvents.invalidate_identity_cache_for_device_records(device_records)
     _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
-
-    Enum.each(device_records, fn record ->
-      case record do
-        %{management_device_id: management_device_id} when is_binary(management_device_id) ->
-          TopologyGraph.upsert_managed_by(
-            Map.get(remap, record.uid, record.uid),
-            Map.get(remap, management_device_id, management_device_id)
-          )
-
-        _ ->
-          :ok
-      end
-    end)
   end
 
   defp remap_polled_entries(entries, remap) do
@@ -3157,15 +3144,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp publish_deferred_management(existing, restored, identity_purged, parent_ips, context) do
-    # Rehydration has committed, so an identity-purged row is live again. Its
-    # stored parent is still the pre-restore link and uses the same repair.
+  defp publish_deferred_management(entries, parent_ips, context) do
+    # Identity writes and UID remaps have committed. An upsert's proposed parent
+    # need not be the persisted parent, so repair and publish from stored rows.
+    uids = entries |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    devices =
+      Device
+      |> where([device], device.uid in ^uids and is_nil(device.deleted_at))
+      |> select(
+        [device],
+        {device.uid, %{uid: device.uid, management_device_id: device.management_device_id}}
+      )
+      |> Repo.all()
+      |> Map.new()
+
     candidates =
-      Enum.flat_map(existing, fn {:existing, entry, device} ->
-        [{entry, device}]
-      end) ++
-        Enum.map(restored, fn {entry, device, _purged?} -> {entry, device} end) ++
-        identity_purged
+      Enum.flat_map(entries, fn entry ->
+        case Map.fetch(devices, entry.uid) do
+          {:ok, device} -> [{entry, device}]
+          :error -> []
+        end
+      end)
 
     live_parents = live_management_parent_uids(candidates)
 
@@ -3175,6 +3175,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end)
 
     update_management_links(pairs)
+    publish_stored_management_links(uids)
+  end
+
+  defp publish_stored_management_links(uids) do
+    Device
+    |> where([child], child.uid in ^uids and is_nil(child.deleted_at))
+    |> join(:inner, [child], parent in Device,
+      on: parent.uid == child.management_device_id and is_nil(parent.deleted_at)
+    )
+    |> select([child, parent], {child.uid, parent.uid})
+    |> Repo.all()
+    |> Enum.each(fn {child, parent} -> TopologyGraph.upsert_managed_by(child, parent) end)
   end
 
   defp live_management_parent_uids(candidates) do
@@ -3212,36 +3224,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp update_management_links(pairs) do
     {children, parents} = Enum.unzip(Enum.uniq(pairs))
 
-    %{rows: rows} =
-      Repo.query!(
-        """
-        UPDATE platform.ocsf_devices AS child
-        SET management_device_id = desired.parent_uid,
-            modified_time = timezone('utc', now())
-        FROM unnest($1::text[], $2::text[]) AS desired(child_uid, parent_uid)
-        JOIN platform.ocsf_devices AS parent
-          ON parent.uid = desired.parent_uid AND parent.deleted_at IS NULL
-        WHERE child.uid = desired.child_uid
-          AND child.deleted_at IS NULL
-          AND child.uid <> desired.parent_uid
-          AND child.management_device_id IS DISTINCT FROM desired.parent_uid
-          AND (
-            child.management_device_id IS NULL
-            OR NOT EXISTS (
-              SELECT 1
-              FROM platform.ocsf_devices AS stored_parent
-              WHERE stored_parent.uid = child.management_device_id
-                AND stored_parent.deleted_at IS NULL
-            )
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices AS child
+      SET management_device_id = desired.parent_uid,
+          modified_time = timezone('utc', now())
+      FROM unnest($1::text[], $2::text[]) AS desired(child_uid, parent_uid)
+      JOIN platform.ocsf_devices AS parent
+        ON parent.uid = desired.parent_uid AND parent.deleted_at IS NULL
+      WHERE child.uid = desired.child_uid
+        AND child.deleted_at IS NULL
+        AND child.uid <> desired.parent_uid
+        AND child.management_device_id IS DISTINCT FROM desired.parent_uid
+        AND (
+          child.management_device_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM platform.ocsf_devices AS stored_parent
+            WHERE stored_parent.uid = child.management_device_id
+              AND stored_parent.deleted_at IS NULL
           )
-        RETURNING child.uid, child.management_device_id
-        """,
-        [children, parents]
-      )
-
-    Enum.each(rows, fn [child, parent] ->
-      TopologyGraph.upsert_managed_by(child, parent)
-    end)
+        )
+      """,
+      [children, parents]
+    )
 
     :ok
   end
