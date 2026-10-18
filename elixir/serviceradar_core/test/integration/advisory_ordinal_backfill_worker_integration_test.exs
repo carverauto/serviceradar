@@ -77,6 +77,81 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.OrdinalBackfillWorkerIntegrationT
     refute check_constraint?()
   end
 
+  test "replaces an invalid leftover index from a failed concurrent build before setting NOT NULL",
+       %{feed_key: feed_key} do
+    # A concurrent unique build that fails on a duplicate leaves an INVALID
+    # index behind under the target name.
+    for id <- ~w(adv-1 adv-2), do: insert_unnumbered!(feed_key, id)
+
+    Repo.query!(
+      "UPDATE platform.vulnerability_advisories SET ordinal = -1 WHERE provider = $1 AND feed_key = $2",
+      [@provider, feed_key]
+    )
+
+    assert {:error, %Postgrex.Error{}} =
+             Repo.query("""
+             CREATE UNIQUE INDEX CONCURRENTLY #{@index}
+               ON platform.vulnerability_advisories (provider, feed_key, ordinal)
+               INCLUDE (current)
+             """)
+
+    Repo.query!(
+      "UPDATE platform.vulnerability_advisories SET ordinal = NULL WHERE provider = $1 AND feed_key = $2",
+      [@provider, feed_key]
+    )
+
+    assert index_state() == %{valid: false, unique: true}
+
+    assert_converges_to_valid_unique_index()
+    assert feed_key |> ordinals() |> Map.values() |> Enum.all?(&is_integer/1)
+  end
+
+  test "does not accept a non-unique index that IF NOT EXISTS would skip", %{feed_key: feed_key} do
+    insert_unnumbered!(feed_key, "adv-1")
+
+    Repo.query!("""
+    CREATE INDEX CONCURRENTLY #{@index}
+      ON platform.vulnerability_advisories (provider, feed_key, ordinal)
+    """)
+
+    assert index_state() == %{valid: true, unique: false}
+
+    assert_converges_to_valid_unique_index()
+  end
+
+  # The first run either repairs the index itself or fails without touching
+  # NOT NULL; the retry Oban would schedule must then finish the job.
+  defp assert_converges_to_valid_unique_index do
+    case OrdinalBackfillWorker.perform(%Oban.Job{args: %{}}) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        refute column_not_null?()
+        assert :ok = OrdinalBackfillWorker.perform(%Oban.Job{args: %{}})
+    end
+
+    assert valid_unique_index?()
+    assert column_not_null?()
+    refute check_constraint?()
+  end
+
+  defp index_state do
+    %{rows: [[valid, unique]]} =
+      Repo.query!(
+        """
+        SELECT pg_index.indisvalid, pg_index.indisunique
+        FROM pg_index
+        JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+        WHERE pg_index.indrelid = 'platform.vulnerability_advisories'::regclass
+          AND pg_class.relname = $1
+        """,
+        [@index]
+      )
+
+    %{valid: valid, unique: unique}
+  end
+
   defp insert_unnumbered!(feed_key, id) do
     Repo.query!(
       """

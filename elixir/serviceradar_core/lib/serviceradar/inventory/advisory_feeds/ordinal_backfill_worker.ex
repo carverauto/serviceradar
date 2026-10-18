@@ -7,8 +7,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.OrdinalBackfillWorker do
   - Rows are numbered from the column's sequence in batches of 5,000 keyed by
     primary key, each batch its own transaction, so the WAL is spread over
     many small commits. Rows inserted meanwhile already take the default.
-  - The unique `(provider, feed_key, ordinal)` index is built `CONCURRENTLY`;
-    an invalid leftover from an interrupted build is dropped first.
+  - The unique `(provider, feed_key, ordinal)` index is built `CONCURRENTLY`
+    and then checked in `pg_index`. `IF NOT EXISTS` skips an index of that
+    name whatever its state, so an invalid leftover from an interrupted build
+    (or any non-unique index under the name) is dropped and the job fails, to
+    be retried by Oban, before NOT NULL is touched.
   - NOT NULL is established through a `NOT VALID` check constraint that is
     then validated (a scan under a lock that does not block writes), so
     `SET NOT NULL` can rely on it instead of scanning under an exclusive lock.
@@ -63,11 +66,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.OrdinalBackfillWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     numbered = number_rows(<<0::128>>, 0)
-    create_unique_index()
-    set_not_null()
 
-    Logger.info("Advisory ordinal backfill complete", rows_numbered: numbered)
-    :ok
+    with :ok <- create_unique_index() do
+      set_not_null()
+      Logger.info("Advisory ordinal backfill complete", rows_numbered: numbered)
+      :ok
+    end
   end
 
   defp number_rows(after_id, total) do
@@ -85,27 +89,32 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.OrdinalBackfillWorker do
   end
 
   defp create_unique_index do
-    %{rows: invalid} =
-      query!(
-        """
-        SELECT 1
-        FROM pg_index
-        JOIN pg_class ON pg_class.oid = pg_index.indexrelid
-        JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
-        WHERE pg_namespace.nspname = 'platform'
-          AND pg_class.relname = $1
-          AND NOT pg_index.indisvalid
-        """,
-        [@index]
-      )
-
-    if invalid != [], do: query!("DROP INDEX CONCURRENTLY IF EXISTS platform.#{@index}")
-
     query!("""
     CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS #{@index}
       ON platform.vulnerability_advisories (provider, feed_key, ordinal)
       INCLUDE (current)
     """)
+
+    %{rows: rows} =
+      query!(
+        """
+        SELECT pg_index.indisvalid AND pg_index.indisready AND pg_index.indisunique
+        FROM pg_index
+        JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+        JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+        WHERE pg_namespace.nspname = 'platform'
+          AND pg_class.relname = $1
+        """,
+        [@index]
+      )
+
+    if rows == [[true]] do
+      :ok
+    else
+      query!("DROP INDEX CONCURRENTLY IF EXISTS platform.#{@index}")
+      Logger.warning("Advisory ordinal index was not a valid unique index; dropped for retry")
+      {:error, :invalid_ordinal_index}
+    end
   end
 
   defp set_not_null do
