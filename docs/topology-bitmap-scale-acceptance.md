@@ -32,7 +32,7 @@ The targets are:
 | `topology_bitmap_scale_sparse_acceptance` | Full workload on the existing `serial_1` scratch clone. |
 | `topology_bitmap_scale_acceptance` | Manual suite naming both variants. |
 
-The opt-in runs after the existing diagnostic database cases. Both peer
+The opt-in runs before the existing diagnostic database cases. Both peer
 servers in one variant use the same clone: compact uses the existing `serial_0`;
 sparse provisions `serial_1` through the existing generation target and checks
 its generation digest and run identity. The same observer and cleanup trap
