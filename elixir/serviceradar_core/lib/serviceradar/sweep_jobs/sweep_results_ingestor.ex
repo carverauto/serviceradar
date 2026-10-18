@@ -859,7 +859,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             acc + commit_seed_plan(result, plan, partition, actor, track_collisions?)
 
           {result, uid}, acc ->
-            acc + create_available_unknown_device(result, uid, partition, actor, track_collisions?)
+            acc +
+              create_available_unknown_device(result, uid, partition, actor, track_collisions?)
         end)
 
       created_map =
@@ -1027,7 +1028,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          end) do
       {:ok, {%Device{}, _stale}} ->
         clear_seed_uid_collisions(partition, [ip], track_collisions?)
-        Logger.info("SweepResultsIngestor: Created provisional sweep device #{plan.next} for #{ip}")
+
+        Logger.info(
+          "SweepResultsIngestor: Created provisional sweep device #{plan.next} for #{ip}"
+        )
+
         0
 
       {:ok, _} ->
