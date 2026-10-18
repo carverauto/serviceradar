@@ -227,5 +227,10 @@ normal interval.
 ## Execution Notes
 
 - Target criteria are evaluated when configs are compiled.
+- A device matched by target criteria is swept at its primary IP and at up to
+  8 of its active IP aliases (`confirmed` and `updated` ahead of `detected`;
+  configurable with `:sweep_max_alias_targets_per_device`). Stale aliases,
+  interface addresses, and addresses another live device in the partition
+  holds as its primary IP are not swept.
 - Sweep results update device availability and discovery metadata.
 - Large result sets are chunked by the agent and streamed to the gateway.

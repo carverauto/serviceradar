@@ -145,7 +145,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   @doc false
   # The compile step after groups and profiles are loaded. `:query_page_fn`
-  # replaces `SRQLRunner.query_page/2` for target queries. `:agent_capabilities`
+  # replaces `SRQLRunner.query_page/2` for target queries. `:alias_ips_fn`
+  # replaces the active `:ip` alias lookup for matched device uids; when only
+  # `:query_page_fn` is given, no aliases are loaded. `:agent_capabilities`
   # is the compiling agent's capability list (nil when unknown), which
   # withholds the modes the agent reports it cannot run; `:agent_id` names the
   # agent in the resulting log lines.
