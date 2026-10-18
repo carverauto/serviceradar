@@ -167,15 +167,23 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   confirmed AND disposition = affected`. This is the triple
   `add-srql-advisory-cpe-entities` defines. Candidates are not exposure.
 - **Resolution is a state change, never a delete.**
-  - A transition is applied only when its `transition_seq` is greater than the stored one,
-    so an older or duplicate transition never overwrites newer state, including under
-    out-of-order redelivery.
+  - Every transition carries the complete after-image of every fact column except
+    `snapshot_generation`, never only the changed fields. It is applied only when its
+    `transition_seq` is greater than the stored one, so out-of-order delivery converges to
+    the latest complete state and an older or duplicate transition never overwrites it.
   - A resolution is written as `state = 0` and the row stays as a tombstone carrying its
-    `transition_seq`. A redelivered older active transition therefore loses to it.
-  - The **redelivery horizon** `H` is 8 days: the transitions stream keeps messages for at
-    most 7 days (`max_age`), and relayed outbox rows are retained for `H` before they are
-    deleted, so no transition older than `H` can be delivered again. A daily purge
-    physically deletes only tombstones resolved more than `H` ago.
+    `transition_seq`.
+  - **The row is the fact's sequence watermark, and it is kept permanently.** A daily
+    compaction clears only the payload columns of tombstones resolved more than 7 days ago,
+    leaving the key, `state = 0`, `transition_seq` and `transition_xid`. Correctness
+    therefore does not depend on any delivery horizon: an older active transition delivered
+    at any later time still loses to the watermark. Watermark rows cost about 24 bytes each
+    before compression, and their number is bounded by the fact keys ever seen, because the
+    package identity is version-independent.
+  - Delivery delay is bounded for freshness, not for correctness: the oldest unrelayed
+    outbox row must be younger than 10 minutes, and the transitions stream keeps messages
+    for at most 7 days (`max_age`). Exceeding either raises a health alert. Relayed outbox
+    rows are deleted once acknowledged.
 - **`transition_seq`** comes from one CNPG sequence. The matcher draws it in the same
   transaction as the assessment change, while holding that assessment row's lock, and
   stores it on the assessment row as its last transition sequence. Two transactions that
@@ -238,8 +246,9 @@ carries an `as_of` for each source it read.
     address publisher emits, so agentless devices can carry network evidence and act as
     blast-radius members.
   - When a merge tombstones an ordinal, the publisher emits a `device_retired` transition.
-    That transition resolves every fact for the old ordinal and closes its address
-    intervals. The survivor's assessments then re-emit under the survivor's ordinal.
+    Its `transition_seq` is drawn in the transaction that tombstones the ordinal, and no
+    later transition is produced for that ordinal, so the retirement resolves every fact
+    for the old ordinal at that sequence and closes its address intervals. The survivor's assessments then re-emit under the survivor's ordinal.
 - **`cve_ord`.**
   - For `CVE-YYYY-N` with `N < 10^7`, the ordinal is `YYYY * 10^7 + N` (for example
     `CVE-2024-0001` -> `20240000001`). It is deterministic, needs no lookup on the hot
@@ -269,7 +278,10 @@ and site are stamped at publish time by the native prefix lookup, which a JDBC j
 express.
 
 The publisher emits interval opens and closes on inventory address changes and on agent
-address leases.
+address leases. Each publication is the complete current interval row (`valid_from`,
+`valid_to`, flags, tags and site) with an `interval_seq` drawn per interval, and it is
+applied, in StarRocks and in the flow tier, only when its `interval_seq` is greater than
+the stored one, so a close that overtakes its open still converges.
 
 The EventWriter flow tier keeps an in-memory, bounded validity history per address,
 `(partition, ip) -> [(valid_from, valid_to, device_ord | shared)]`, fed by the same stream,
@@ -298,10 +310,16 @@ Bounded And Never Rescans Flows*), through the same watch and recompute mechanis
 
 - while a flow's window is open, the home shard keeps an address watch for each side;
 - an address-validity update for a watched address within the window re-resolves that side
-  at the flow's observation time, and a changed result is published as a decision update
-  that rewrites the side's ordinal and resolution under the decision-sequence guard;
-- a late ownership decision re-resolves the side with the same lookup and writes the result
-  in the same partial update;
+  at the flow's observation time, and a changed result is published as a decision update;
+- a late ownership decision re-resolves the side with the same lookup and is published as a
+  decision update;
+- both kinds of update share the flow's one decision sequence, drawn by the home shard,
+  which is the only writer of the flow's decision state. Each update carries the complete
+  after-image of every column that sequence guards: for both sides the owner columns and
+  owner context, attribution outcome and attribution source, device ordinal and device
+  resolution, plus `attribution_finalized_early`. It never carries only the fields that
+  changed, so whichever update has the higher sequence already contains every earlier
+  change, and delivery in any order converges to the latest complete state;
 - at the cutoff the stamp is final. An address update that arrives later and changes the
   holder for an already-final observation time does not rewrite flows; it is counted
   (`address_update_after_cutoff`).
@@ -506,11 +524,11 @@ membership bitmap. This is documented as current membership (open question 3).
    candidates. The side's device resolution at the flow's observation time must be
    `resolved`, to exactly one agent-managed device with `agent_attested = true`. Candidates are deduplicated per
    `(device_ord, peer, port, proto, minute)`.
-2. The sharded evaluator holds each candidate until two things are true: attestations
-   cover `[flow_start - tolerance, flow_end + tolerance]`, and the host-summary stream for
-   that agent has been consumed past that range. If the attestations do not arrive by a
-   deadline (default 10 minutes), the candidate is recorded as suppressed with
-   `coverage_unknown`.
+2. The sharded evaluator holds each candidate until the evaluation point of its summary
+   interval (below) has passed, attestations cover `[flow_start - tolerance, flow_end +
+   tolerance]`, and the host-summary stream for that agent has been consumed past that
+   range. If the attestations do not arrive within a deadline after the evaluation point
+   (default 10 minutes), the candidate is recorded as suppressed with `coverage_unknown`.
 3. The evaluator checks the controls below, in order. The first one that fails records a
    suppression with its reason.
 4. It looks for a matching host connection in `host_connection_summaries`: same agent,
@@ -547,13 +565,25 @@ The `network_only` incident threshold defaults to 0.85. Signals below the thresh
 stored and queryable but do not alert. The score is a pure function of stored inputs, so
 it can be recomputed in tests and investigations.
 
-**`host_only` (coverage gap) evaluation.** This runs hourly, on each closed hour plus the
-exporter active timeout, against `observed_connections_hourly`. It is opt-in per
+**Evaluation point.** Both directions are evaluated at the same point for an interval `I`
+ending at `e` (the summary interval for `network_only`, the hour for `host_only`):
+`E(I) = max(e + exporter active timeout, e + maximum accepted flow delay + late window) +
+60 s`. That is the later of the exporter's last possible export and the late-window cutoff
+of every flow observed in `I`, plus the network-evidence write target. Each evaluation
+uses one read of the host and network evidence taken at `E(I)`. With the defaults
+(15-minute maximum flow delay, 5-minute late window) an hour is evaluated about 21 minutes
+after it closes. Example: a contact at 12:59:50 is reported by the host at 13:01; the flow
+is ingested at 13:00:30 and its network evidence is written after its cutoff at 13:05:30.
+Hour 12 is evaluated at about 13:21, sees both, and records no gap.
+
+**`host_only` (coverage gap) evaluation.** This runs hourly, at the evaluation point of
+each closed hour, against `observed_connections_hourly`. It is opt-in per
 expected-coverage rule (a CIDR or prefix tag mapped to a set of exporters). It selects
 rows with `peer_scope = internet`, `host_connections > 0` and `network_flows = 0` for
 devices covered by a rule.
 
-- A gap requires the exporter to have been healthy (records received) for that hour.
+- A gap requires the exporter to have been healthy for that hour: records were received,
+  and none arrived later than the maximum accepted flow delay.
 - Under sampling, the expected probability of having seen the contact,
   `1 - (1 - 1/N)^host_packets`, must be at least 0.999. Without host packet counters,
   sampled exporters are skipped.
@@ -592,7 +622,7 @@ and do not create new alerts.
 | Inventory address change or address lease -> address dimension and flow-tier validity history | <= 60 s |
 | Summary interval close -> host evidence visible | <= 120 s |
 | Flow's late-window cutoff -> network evidence visible | <= 60 s |
-| Later of interval close and the flow's late-window cutoff -> discrepancy record | <= 300 s; incident <= 60 s later |
+| Interval evaluation point `E(I)` (Decision 12) -> discrepancy record | <= 300 s; incident <= 60 s later |
 | UTC midnight -> daily snapshot | <= 15 min |
 
 The upstream bound from an inventory scan to a transition belongs to #5748 and is not
@@ -609,10 +639,12 @@ snapshots.
     first statement records `V = pg_current_snapshot()` (`xmin`, `xmax`, `xip`). Every
     read in that transaction sees exactly `V`.
   - It emits every actionable assessment visible in `V` as a `SNAPSHOT` upsert carrying the
-    row's last `transition_seq` and `transition_xid`. It also emits every fact that left
-    the actionable state within `H` and is not actionable in `V` as a `SNAPSHOT` tombstone
-    carrying the sequence of that resolution, read from the retained outbox rows, so it
-    covers assessment rows that were deleted. It then emits `SNAPSHOT_END(G, V)`.
+    row's complete after-image, last `transition_seq` and `transition_xid`. It also emits
+    a `SNAPSHOT` watermark (key, `state = 0`, sequence) for every other fact key known to
+    CNPG in `V`: non-actionable assessment rows carry their last sequence, and
+    `platform.exposure_fact_watermarks` (key and last sequence, written in the same
+    transaction that physically deletes an assessment row) covers deleted ones. It then
+    emits `SNAPSHOT_END(G, V)`.
   - A snapshot row is applied when its sequence is greater than the stored one, or equal
     to it, in which case only `snapshot_generation` changes.
   - The outbox keeps relaying live transitions throughout. A transition whose
@@ -623,15 +655,15 @@ snapshots.
   - On `SNAPSHOT_END`, rows with `snapshot_generation < G` whose `transition_xid` is
     visible in `V` (`xid < xmin`, or `xid < xmax` and not in `xip`) are resolved, keeping
     their `transition_seq`. Rows last written by a transition not visible in `V` are left
-    as they are. Live transitions are partial updates that never write
-    `snapshot_generation`, so a delayed redelivery of a transition the snapshot already
-    read does not make a snapshot-touched row look untouched.
+    as they are. Live transitions write their complete after-image except
+    `snapshot_generation`, which only the snapshot manages, so a delayed redelivery of a
+    transition the snapshot already read does not make a snapshot-touched row look
+    untouched.
   - Example (warehouse restore): the restored warehouse holds a fact active at sequence 9,
     CNPG resolved it at sequence 11 (visible in `V`), and active sequence 10 is still
-    awaiting redelivery. The snapshot writes the tombstone at sequence 11, and the
-    redelivered sequence 10 is rejected, in either arrival order. A fact resolved more than
-    `H` before the restore has no tombstone, but none of its transitions can still be
-    delivered, so the finalize resolution is final.
+    awaiting redelivery. The snapshot writes the watermark at sequence 11, and the
+    redelivered sequence 10 is rejected, in either arrival order, however long it was
+    delayed.
   - Example (in flight): a resolving transaction draws sequence 41 and is still in flight when `V` is
     taken. The snapshot reads the row as active with sequence 40 and upserts it. The
     resolution commits and arrives with sequence 41, before or after the upsert, and the
@@ -694,7 +726,9 @@ entities have no aliases. Unknown-entity passthrough must not skip the gate.
 | Bitmap views | under 200 MB | at most 50k bitmaps over ordinals below 2^20 |
 | Transitions | sustain 5k/s; drain a 1M-transition burst in <= 10 min | an advisory promotion or KEV listing touching a ubiquitous package |
 | Host summaries | as sized by #5753: at most 2,000 rows per agent per minute (about 33 rows/s), an estimated 67k-200k rows/s fleet | *Hosts Report Per-Process Connection Summaries As Evidence*; this change adds no cap |
-| Evidence writes | <= 25% of the flow row rate after in-batch pre-aggregation | gated by measurement in Phase 0 |
+| Host-derived evidence writes | per host, <= 25% of its summary rows after pre-aggregation, so at most 500 rows per minute; fleet about 17k-50k rows/s against 67k-200k summary rows/s | bounded by the #5753 summary cap; gated by measurement in Phase 0 |
+| Network-derived evidence writes | per exporter, <= 25% of its flow rows after pre-aggregation | at most two sides per flow before aggregation; gated by measurement in Phase 0 |
+| Fact watermarks | one row per fact key ever seen, about 24 bytes before compression | kept permanently; payloads compacted after 7 days resolved |
 | Discrepancy candidates | <= 100/s fleet in steady state | a `no_owner` on an attested address is rare when healthy |
 | Catalog device views | <= 250k rows; above that, mirror into StarRocks | JDBC pulls the whole view |
 
@@ -718,16 +752,17 @@ Refresh budgets:
 - each view refresh completes in <= 60 s at 50M facts;
 - the daily snapshot job completes in <= 5 min;
 - the hourly `host_only` evaluation completes in <= 5 min;
-- the purge and the daily reconciliation each complete in <= 15 min.
+- the tombstone compaction and the daily reconciliation each complete in <= 15 min.
 
 ## Risks / Trade-offs
 
 - **Exposure is only as right as the assessments.** With #5749 unfixed, about 97% of
   "active" rows on a lab deployment are orphans. Phase 0 gates on #5749 and on a
   reconciliation that can fail.
-- **Evidence write amplification.** Network evidence is written per flow side. Mitigation:
-  pre-aggregation per batch, a Phase 0 measurement gate, and an async view over flows as
-  the fallback design.
+- **Evidence write amplification.** Network evidence is written per flow side and host
+  evidence per summary row, each budgeted against its own source. Mitigation:
+  pre-aggregation per batch, Phase 0 measurement gates, and an async view over flows as the
+  fallback design for network evidence.
 - **Strict sampling rule.** sFlow-only deployments get no `network_only` signals.
   Mitigation: suppressed candidates are recorded and counted, so the gap is visible; a
   multi-vantage extension is an open question.

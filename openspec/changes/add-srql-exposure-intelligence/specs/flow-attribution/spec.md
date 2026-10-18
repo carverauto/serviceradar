@@ -53,9 +53,11 @@ In addition to the owner columns written by *Flows Are Attributed On Ingest By K
 - `src_device_resolution` and `dst_device_resolution`, each one of `resolved`, `shared`, `ambiguous`, `unmapped` or `outside_history`; only `resolved` carries an ordinal;
 - `src_attribution_outcome` and `dst_attribution_outcome`, each one of `attributed`, `unmonitored`, `no_owner`, `ambiguous`, `index_warming` or `error`.
 
-**Late decisions.** A late decision published under *Late Binding Is Bounded And Never Rescans Flows* SHALL update the per-side outcomes in the same partial update and under the same decision-sequence guard as the owner columns. It SHALL re-resolve the side's device with the same lookup at the flow's observation time and write the result in that partial update.
+**Late decisions.** A late decision published under *Late Binding Is Bounded And Never Rescans Flows* SHALL re-resolve the side's device with the same lookup at the flow's observation time.
 
-**Late address updates.** While a flow's late window is open, the home shard SHALL hold an address watch per side, keyed by `(partition, ip)`, using the same watch and recompute mechanism as ownership. An address-validity update for a watched address SHALL re-resolve the side at the flow's observation time and, when the result changes, publish a decision update that rewrites `*_device_ord` and `*_device_resolution` under the decision-sequence guard. After the cutoff the stamp SHALL be final; later address updates SHALL be counted and SHALL NOT rewrite flows. Network evidence deltas SHALL be written from the final stamp.
+**Complete after-images.** Every decision update for a flow, whether triggered by ownership or by an address update, SHALL draw from the flow's one decision sequence on its home shard and SHALL carry the complete after-image of every column that sequence guards: for both sides the owner columns and owner context, attribution outcome and attribution source, device ordinal and device resolution, plus `attribution_finalized_early`. A decision update SHALL NOT carry only changed fields, and SHALL be applied only when its sequence is greater than the stored one.
+
+**Late address updates.** While a flow's late window is open, the home shard SHALL hold an address watch per side, keyed by `(partition, ip)`, using the same watch and recompute mechanism as ownership. An address-validity update for a watched address SHALL re-resolve the side at the flow's observation time and, when the result changes, publish a decision update under the same rule. After the cutoff the stamp SHALL be final; later address updates SHALL be counted and SHALL NOT rewrite flows. Network evidence deltas SHALL be written from the final stamp.
 
 **Discrepancy candidates.** After a flow's late window reaches its cutoff, the home shard SHALL publish one deduplicated discrepancy candidate per device, peer, port, protocol and minute for each side whose final outcome is `no_owner` and whose device resolution at the flow's observation time is `resolved` to exactly one agent-managed device with address presence. Flows marked `attribution_finalized_early`, and flows carrying agent-provided attribution, SHALL NOT produce candidates.
 
@@ -70,7 +72,13 @@ In addition to the owner columns written by *Flows Are Attributed On Ingest By K
 #### Scenario: Late decision updates the outcome
 - **GIVEN** a flow side was written with outcome `no_owner`
 - **WHEN** a late decision with a higher decision sequence attributes that side
-- **THEN** the side's outcome becomes `attributed` in the same partial update as its owner columns
+- **THEN** the side's outcome becomes `attributed` in the same update as its owner columns
+
+#### Scenario: Ownership then address updates delivered out of order
+- **GIVEN** a flow's home shard publishes ownership decision 1 for the source side, then address decision 2 for the destination side
+- **WHEN** decision 2 is delivered first and decision 1 afterwards
+- **THEN** decision 1 is rejected
+- **AND** the flow row carries the source ownership from decision 1 and the destination device from decision 2, because decision 2's after-image includes both
 
 #### Scenario: Candidate only after the cutoff
 - **GIVEN** a flow side on an address with presence, owned by one agent-managed device, still has no owner at its late-window cutoff

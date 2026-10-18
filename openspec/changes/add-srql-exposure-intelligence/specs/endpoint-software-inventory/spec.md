@@ -3,18 +3,19 @@
 ### Requirement: Assessment Transitions Are Published On JetStream
 The matcher SHALL publish an assessment transition on JetStream whenever an assessment enters or leaves the exact actionable state (`status = active`, `assessment = confirmed`, `disposition = affected`), or when an actionable assessment's installed version, KEV flag, exploit flag, CVSS score, severity or fixed version changes. Assessments whose relevant fields did not change SHALL NOT produce transitions.
 
-**Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once. Relayed outbox rows SHALL be retained for the 8-day redelivery horizon, which exceeds the transitions stream's 7-day message age, so a snapshot can read the latest resolution of a fact whose assessment row was deleted.
+**Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once. The age of the oldest unrelayed outbox row SHALL be exported, and exceeding its bound (default 10 minutes) SHALL raise a health alert. A transaction that physically deletes an assessment row SHALL record the fact key and its last `transition_seq` in `platform.exposure_fact_watermarks`.
 
 **Content.** Each transition SHALL carry:
 - `transition_seq`, drawn from one sequence while the transaction holds the assessment row's lock, and stored on the assessment row as its last transition sequence;
 - `transition_xid`, the producing transaction's `pg_current_xact_id()`;
 - `device_uid`, `package_identity_key`, `installed_version`, `cve_id`;
 - the device, CVE, package and package-version ordinals, allocated in that transaction;
-- the new state and the changed fields, and the reason.
+- the complete after-image of the fact (state, installed version and its ordinal, severity, CVSS, KEV, exploit and fix flags, source scope, exposure and resolution times), never only the changed fields;
+- the list of changed fields, and the reason.
 
-**Device lifecycle.** Device merges and deletions SHALL publish a `device_retired` transition for the retired ordinal.
+**Device lifecycle.** Device merges and deletions SHALL publish a `device_retired` transition for the retired ordinal, with a `transition_seq` drawn in the transaction that tombstones the ordinal; it resolves each of the ordinal's facts at that sequence, and no later transition is produced for the ordinal.
 
-**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`, plus a tombstone for each fact that left the actionable state within the horizon and is not actionable in that snapshot.
+**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`, plus a watermark with the last `transition_seq` for every other fact key it knows, from non-actionable assessment rows and `platform.exposure_fact_watermarks`.
 
 #### Scenario: Upgrade that fixes the CVE emits a resolution
 - **GIVEN** an actionable assessment for a package at version 1.0
