@@ -5,9 +5,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   Records arrive as `%{advisory: map, coordinates: [map], assertions: [map]}`
   with optional `products` and `product_sets` lists from a parser. This module
-  accumulates bounded chunks (default 2,000 advisories, with a byte cap for
-  Ubuntu projections and nist-nvd2) and flushes them with `Repo.insert_all` upserts —
-  never one Ash create per row.
+  accumulates bounded chunks (default 2,000 advisories or 16 MiB, whichever
+  comes first; a single record larger than the byte cap commits alone in its own
+  chunk, since splitting it would tear the advisory) and flushes them with
+  `Repo.insert_all` upserts — never one Ash create per row.
 
   ## Skipping unchanged advisories
 
@@ -84,12 +85,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   @max_product_set_insert 100
   @max_product_set_insert_bytes 16 * 1_024 * 1_024
   @max_assertion_lock_batch 1_000
-  @default_ubuntu_chunk_bytes 16 * 1_024 * 1_024
-  @nvd_chunk_bytes 16 * 1_024 * 1_024
+  @default_chunk_bytes 16 * 1_024 * 1_024
   # Per chunk transaction. A chunk is bounded by row count and bytes, so this is
   # headroom for a slow disk, not a budget for a whole run.
   @default_transaction_timeout_ms 600_000
-  @default_finalize_batch_size 1_000
+  @finalize_batch_size 1_000
   @default_finalize_timeout_ms 600_000
   @current_ordinal_page_size 10_000
   @schema "platform"
@@ -166,8 +166,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   Options: `:provider`, `:feed_key`, `:completeness` (required), `:generation`,
   `:chunk_size`, `:chunk_bytes`, `:now`, `:existing_state`,
   `:existing_comparison_state`, `:existing_modified`, `:normalization_version`,
-  `:transaction_timeout_ms` (each chunk transaction), `:timeout_ms` (each
-  finalization statement), and `:finalize_batch_size`.
+  `:transaction_timeout_ms` (each chunk transaction), and `:timeout_ms` (each
+  finalization statement).
 
   Existing state precedence is `:existing_state`,
   `:existing_comparison_state`, `:existing_modified`, then the database.
@@ -254,8 +254,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     generation =
       Keyword.get_lazy(opts, :generation, fn -> next_generation(provider, feed_key) end)
 
-    chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
-
     context = %{
       provider: provider,
       feed_key: feed_key,
@@ -282,7 +280,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     }
 
     records
-    |> record_chunks(provider, chunk_size, opts)
+    |> chunk_records(opts)
     |> Enum.reduce({init, OrdinalSet.new()}, fn chunk, {acc, seen} ->
       load_chunk(chunk, context, acc, seen)
     end)
@@ -383,31 +381,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   @doc false
-  @spec nvd_chunk_bytes() :: pos_integer()
-  def nvd_chunk_bytes, do: @nvd_chunk_bytes
+  @spec default_chunk_bytes() :: pos_integer()
+  def default_chunk_bytes, do: @default_chunk_bytes
 
   @doc false
-  @spec chunk_records(Enumerable.t(), String.t(), keyword()) :: Enumerable.t()
-  def chunk_records(records, provider, opts \\ []) do
-    chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
-    record_chunks(records, provider, chunk_size, opts)
-  end
-
-  defp record_chunks(records, "ubuntu", chunk_size, opts) do
-    chunk_bytes = Keyword.get(opts, :chunk_bytes, @default_ubuntu_chunk_bytes)
-    chunk_by_serialized_size(records, chunk_size, chunk_bytes)
-  end
-
-  defp record_chunks(records, "nvd", chunk_size, opts) do
-    chunk_bytes = Keyword.get(opts, :chunk_bytes, @nvd_chunk_bytes)
-    chunk_by_serialized_size(records, chunk_size, chunk_bytes)
-  end
-
-  defp record_chunks(records, _provider, chunk_size, opts) do
-    case Keyword.fetch(opts, :chunk_bytes) do
-      {:ok, chunk_bytes} -> chunk_by_serialized_size(records, chunk_size, chunk_bytes)
-      :error -> Stream.chunk_every(records, chunk_size)
-    end
+  @spec chunk_records(Enumerable.t(), keyword()) :: Enumerable.t()
+  def chunk_records(records, opts \\ []) do
+    chunk_by_serialized_size(
+      records,
+      Keyword.get(opts, :chunk_size, @default_chunk_size),
+      Keyword.get(opts, :chunk_bytes, @default_chunk_bytes)
+    )
   end
 
   defp require_reason(reasons, true, _reason), do: reasons
@@ -721,20 +705,18 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   defp finalize_generation(opts, generation, seen) do
     provider = Keyword.fetch!(opts, :provider)
     feed_key = Keyword.fetch!(opts, :feed_key)
-    batch_size = Keyword.get(opts, :finalize_batch_size, @default_finalize_batch_size)
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_finalize_timeout_ms)
 
-    promote_generation(provider, feed_key, generation, batch_size, timeout_ms)
+    promote_generation(provider, feed_key, generation, timeout_ms)
+    withdraw_unnumbered(provider, feed_key, generation, timeout_ms)
 
     provider
     |> unobserved_current_ordinals(feed_key, seen)
-    |> Enum.chunk_every(batch_size)
+    |> Enum.chunk_every(@finalize_batch_size)
     |> Enum.each(&withdraw_batch(&1, provider, feed_key, generation, timeout_ms))
-
-    withdraw_unnumbered(provider, feed_key, generation, batch_size, timeout_ms)
   end
 
-  defp promote_generation(provider, feed_key, generation, batch_size, timeout_ms) do
+  defp promote_generation(provider, feed_key, generation, timeout_ms) do
     %{num_rows: promoted} =
       bounded_statement(
         """
@@ -750,12 +732,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
           LIMIT $4
         )
         """,
-        [provider, feed_key, generation, batch_size],
+        [provider, feed_key, generation, @finalize_batch_size],
         timeout_ms
       )
 
     if promoted > 0 do
-      promote_generation(provider, feed_key, generation, batch_size, timeout_ms)
+      promote_generation(provider, feed_key, generation, timeout_ms)
     else
       :ok
     end
@@ -793,7 +775,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # observes is numbered (skipped rows already were, written rows are numbered
   # by `number_unnumbered/1`). Such rows exist only until the backfill migration
   # completes; the unique ordinal index answers this probe once it does.
-  defp withdraw_unnumbered(provider, feed_key, generation, batch_size, timeout_ms) do
+  defp withdraw_unnumbered(provider, feed_key, generation, timeout_ms) do
     %{num_rows: withdrawn} =
       bounded_statement(
         """
@@ -810,12 +792,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
           LIMIT $4
         )
         """,
-        [provider, feed_key, generation, batch_size],
+        [provider, feed_key, generation, @finalize_batch_size],
         timeout_ms
       )
 
     if withdrawn > 0 do
-      withdraw_unnumbered(provider, feed_key, generation, batch_size, timeout_ms)
+      withdraw_unnumbered(provider, feed_key, generation, timeout_ms)
     else
       :ok
     end

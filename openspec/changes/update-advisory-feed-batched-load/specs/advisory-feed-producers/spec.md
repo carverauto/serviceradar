@@ -69,13 +69,16 @@ row per statement/product membership.
 The advisory feed loader SHALL commit each chunk of changed advisories in its
 own transaction, writing every advisory row together with its complete
 coordinate, configuration, and assertion replacement, and SHALL NOT hold one
-transaction across a whole feed run. It SHALL record the advisories a run
+transaction across a whole feed run. For every provider a chunk SHALL hold at
+most 2,000 records and at most 16 MiB of serialized records, except that a
+single record larger than 16 MiB SHALL commit alone in its own chunk rather
+than be split across transactions. It SHALL record the advisories a run
 observes as an in-memory set of advisory ordinals rather than as one database
 row per source object, and SHALL write nothing for an unchanged advisory. Only
 after the whole run has loaded and its completeness and distinct observed count
 have validated SHALL it promote the run's new advisories and withdraw the
-feed's current advisories that the run did not observe, each in bounded
-batches that commit separately. Generation metadata SHALL be promoted only
+feed's current advisories that the run did not observe, each in batches of at
+most 1,000 rows that commit separately. Generation metadata SHALL be promoted only
 after that.
 
 #### Scenario: Partial failure withdraws nothing
@@ -90,8 +93,15 @@ after that.
 
 - **GIVEN** a feed whose current advisories include some the new snapshot omits
 - **WHEN** a complete run validates
-- **THEN** exactly the current advisories absent from the snapshot SHALL stop being current, in batches no larger than the configured batch size
+- **THEN** exactly the current advisories absent from the snapshot SHALL stop being current, in batches of at most 1,000 rows
 - **AND** the withdrawn advisory rows SHALL be retained for provenance
+
+#### Scenario: Chunks are bounded by records and bytes
+
+- **GIVEN** a run of any provider whose changed records exceed 2,000 records or 16 MiB of serialized records
+- **WHEN** the loader commits them
+- **THEN** no chunk transaction SHALL hold more than 2,000 records or more than 16 MiB of serialized records
+- **AND** a single record larger than 16 MiB SHALL commit alone in its own chunk, whole
 
 #### Scenario: Steady state writes nothing
 

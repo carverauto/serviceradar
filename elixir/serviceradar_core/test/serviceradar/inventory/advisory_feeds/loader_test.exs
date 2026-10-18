@@ -403,7 +403,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
                |> Enum.to_list()
     end
 
-    test "splits an nvd snapshot into byte-capped batches" do
+    test "splits any feed snapshot into 16 MiB batches" do
       payload = String.duplicate("x", 6_500_000)
 
       records =
@@ -417,13 +417,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
 
       chunks =
         records
-        |> Loader.chunk_records("nvd")
+        |> Loader.chunk_records()
         |> Enum.to_list()
 
       assert length(chunks) > 1
 
       assert Enum.all?(chunks, fn chunk ->
-               :erlang.external_size(chunk) <= Loader.nvd_chunk_bytes()
+               :erlang.external_size(chunk) <= 16 * 1_024 * 1_024
              end)
     end
   end

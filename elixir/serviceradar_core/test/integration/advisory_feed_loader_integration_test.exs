@@ -1573,12 +1573,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
          feed_key: feed_key
        } do
     records =
-      for index <- 1..5 do
-        record("CVE-2099-04#{index}0", "2099-01-01T00:00:00Z")
+      for index <- 1..1_003 do
+        record("CVE-2099-#{40_000 + index}", "2099-01-01T00:00:00Z")
       end
 
     load(feed_key, records)
-    [kept_a, absent_a, kept_b, absent_b, absent_c] = records
+    [kept_a, kept_b | absent] = records
 
     # Make the absent content generation old enough that the legacy
     # numeric-generation reaper would delete it during the next promotion.
@@ -1587,7 +1587,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     end
 
     capture_queries(:withdrawal_query)
-    {result, _generation} = load(feed_key, [kept_a, kept_b], finalize_batch_size: 2)
+    {result, _generation} = load(feed_key, [kept_a, kept_b])
 
     withdrawal_statements =
       :withdrawal_query
@@ -1599,12 +1599,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert current_source_ids(feed_key) ==
              Enum.sort([kept_a.advisory.source_object_id, kept_b.advisory.source_object_id])
 
-    # Three withdrawals in batches of two, and withdrawn rows are kept.
+    # 1,001 withdrawals in batches of at most 1,000, and withdrawn rows are kept.
     assert length(withdrawal_statements) == 2
 
-    for absent <- [absent_a, absent_b, absent_c] do
-      assert advisory_id(feed_key, absent.advisory.source_object_id)
-    end
+    assert Repo.aggregate(
+             from(a in "vulnerability_advisories",
+               where: a.provider == ^@provider and a.feed_key == ^feed_key and a.current == false
+             ),
+             :count,
+             prefix: @schema
+           ) == length(absent)
   end
 
   test "rows the ordinal backfill has not reached are numbered when observed and withdrawn when absent",
@@ -1639,6 +1643,58 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
              ),
              prefix: @schema
            )
+  end
+
+  test "a row the ordinal backfill numbers during finalization is still withdrawn when absent",
+       %{feed_key: feed_key} do
+    [observed, absent | _] = all_records()
+    load(feed_key, [observed, absent])
+
+    Repo.query!(
+      "ALTER TABLE platform.vulnerability_advisories ALTER COLUMN ordinal DROP NOT NULL"
+    )
+
+    Repo.update_all(
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^@provider and a.feed_key == ^feed_key
+      ),
+      [set: [ordinal: nil]],
+      prefix: @schema
+    )
+
+    # Stands in for the backfill migration numbering the absent row on another
+    # connection the moment the loader has scanned the numbered current rows.
+    handler_id = {__MODULE__, :backfill_during_finalize, make_ref()}
+    test_pid = self()
+    telemetry_event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_event,
+      fn _event, _measurements, metadata, _config ->
+        if self() == test_pid and String.contains?(metadata.query, ~s("ordinal" > )) and
+             !Process.get(:backfill_ran) do
+          Process.put(:backfill_ran, true)
+
+          Repo.query!(
+            """
+            UPDATE platform.vulnerability_advisories
+            SET ordinal = nextval('platform.vulnerability_advisories_ordinal_seq')
+            WHERE provider = $1 AND feed_key = $2 AND source_object_id = $3
+            """,
+            [@provider, feed_key, absent.advisory.source_object_id]
+          )
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    load(feed_key, [observed])
+
+    assert Process.get(:backfill_ran)
+    assert current_source_ids(feed_key) == [observed.advisory.source_object_id]
   end
 
   test "empty, partial, corrupt, errored, and incomplete generations cannot demote", %{

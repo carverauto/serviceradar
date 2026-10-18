@@ -722,7 +722,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       opts
       |> Keyword.put(:normalization_version, Parsers.Nvd.normalization_version())
       |> Keyword.put(:required_tree, "vulnerabilities")
-      |> Keyword.put_new(:chunk_bytes, Loader.nvd_chunk_bytes())
     )
   end
 
