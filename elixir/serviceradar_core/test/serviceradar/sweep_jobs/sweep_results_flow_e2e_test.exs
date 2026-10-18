@@ -1029,6 +1029,102 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert devices_with_uids(actor, [uid, Ids.reseeded_device_id(uid)]) == []
   end
 
+  test "a sweep logs and counts a seed uid collision with a moved live device once per state change",
+       %{
+         actor: actor,
+         agent_id: agent_id
+       } do
+    unique_id = Ash.UUID.generate()
+    old_ip = unique_ip("seed-collision-old-#{unique_id}")
+    new_ip = unique_ip("seed-collision-new-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Seed Collision #{unique_id}")
+
+    seed = sweep_seed!(actor, group, agent_id, old_ip)
+    seed_uid = seed.uid
+    assert seed_uid == address_seed_uid(old_ip)
+
+    assert {:ok, _moved} =
+             seed
+             |> Ash.Changeset.for_update(:update, %{ip: new_ip}, actor: actor)
+             |> Ash.update()
+
+    handler_id = "seed-uid-collision-#{unique_id}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :sweep, :seed, :uid_collision],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:seed_uid_collision, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    {first_stats, first_log} =
+      CaptureLog.with_log([level: :warning], fn ->
+        assert {:ok, first_stats} = ingest_seed(actor, group, agent_id, old_ip)
+        assert first_stats.devices_created == 0
+        first_stats
+      end)
+
+    assert first_log =~
+             "Seed uid #{seed_uid} derived for available unknown host #{old_ip} (partition default) " <>
+               "collides with live device #{seed_uid} at #{new_ip}"
+
+    assert Map.get(first_stats, :seed_uid_collisions, 0) == 1
+
+    assert_receive {:seed_uid_collision, %{count: 1},
+                    %{
+                      ip: ^old_ip,
+                      partition: "default",
+                      seed_uid: ^seed_uid,
+                      colliding_device_uid: ^seed_uid,
+                      colliding_device_ip: ^new_ip
+                    }}
+
+    assert devices_at(actor, old_ip) == []
+
+    {repeat_stats, repeat_log} =
+      CaptureLog.with_log([level: :warning], fn ->
+        assert {:ok, repeat_stats} = ingest_seed(actor, group, agent_id, old_ip)
+        assert repeat_stats.devices_created == 0
+        repeat_stats
+      end)
+
+    assert Map.get(repeat_stats, :seed_uid_collisions, 0) == 0
+    refute repeat_log =~ "collides with live device"
+    refute_receive {:seed_uid_collision, _, _}
+
+    assert {:ok, down_stats} =
+             ingest_report(actor, group.id, agent_id, unavailable_result(old_ip))
+
+    assert Map.get(down_stats, :seed_uid_collisions, 0) == 0
+
+    {retriggered_stats, retriggered_log} =
+      CaptureLog.with_log([level: :warning], fn ->
+        assert {:ok, retriggered_stats} = ingest_seed(actor, group, agent_id, old_ip)
+        assert retriggered_stats.devices_created == 0
+        retriggered_stats
+      end)
+
+    assert retriggered_log =~
+             "Seed uid #{seed_uid} derived for available unknown host #{old_ip} (partition default) " <>
+               "collides with live device #{seed_uid} at #{new_ip}"
+
+    assert Map.get(retriggered_stats, :seed_uid_collisions, 0) == 1
+
+    assert_receive {:seed_uid_collision, %{count: 1},
+                    %{
+                      ip: ^old_ip,
+                      seed_uid: ^seed_uid,
+                      colliding_device_uid: ^seed_uid,
+                      colliding_device_ip: ^new_ip
+                    }}
+  end
+
   test "ingest results resolves active device when cache contains stale duplicate IP record", %{
     actor: actor,
     agent_id: agent_id

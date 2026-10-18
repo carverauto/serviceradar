@@ -65,6 +65,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
   @retained_restore_skipped_event [:serviceradar, :sweep, :restore, :retained_skipped]
+  @seed_uid_collision_event [:serviceradar, :sweep, :seed, :uid_collision]
+  @seed_uid_collision_table :serviceradar_sweep_seed_uid_collisions
   # How many uids of a seed's chain are tried before the host is left unseeded.
   @max_seed_uid_attempts 8
   @banner_grab_counter_dropped_event [
@@ -482,13 +484,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       )
       |> Map.new(fn {ip, {record, _alias}} -> {ip, record} end)
 
-    created_device_map =
+    {created_device_map, _seed_uid_collisions} =
       create_available_unknown_devices(
         results,
         unknown_ips -- Map.keys(detected_device_map),
         reporter_context.resolved_group_id,
         actor,
-        partition
+        partition,
+        track_collisions?: false
       )
 
     all_devices =
@@ -522,6 +525,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_failed: 0,
       devices_updated: 0,
       devices_created: 0,
+      seed_uid_collisions: 0,
       mapper_dispatched: 0,
       mapper_suppressed: 0,
       mapper_skipped: 0,
@@ -664,13 +668,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     detected_device_map =
       Map.new(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
 
-    created_device_map =
+    {created_device_map, seed_uid_collisions} =
       create_available_unknown_devices(
         results,
         unknown_ips -- detected_ips,
         reporter_context.resolved_group_id,
         actor,
-        partition
+        partition,
+        track_collisions?: true,
+        resolved_ips: known_ips ++ detected_ips
       )
 
     # Step 5: Merge all device sources
@@ -703,6 +709,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           |> Map.put(:devices_created, map_size(created_device_map))
           |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
           |> Map.put(:aliases_confirmed, aliases_confirmed)
+          |> Map.put(:seed_uid_collisions, seed_uid_collisions)
 
         {:ok, final_stats}
 
@@ -788,10 +795,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> prefix_promotion_stats()
   end
 
-  defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor, _partition),
-    do: %{}
+  defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor, partition, opts) do
+    clear_seed_uid_collisions(
+      partition,
+      Keyword.get(opts, :resolved_ips, []),
+      Keyword.get(opts, :track_collisions?, false)
+    )
 
-  defp create_available_unknown_devices(results, unknown_ips, _sweep_group_id, actor, partition) do
+    {%{}, 0}
+  end
+
+  defp create_available_unknown_devices(
+         results,
+         unknown_ips,
+         _sweep_group_id,
+         actor,
+         partition,
+         opts
+       ) do
+    track_collisions? = Keyword.get(opts, :track_collisions?, false)
+    resolved_ips = Keyword.get(opts, :resolved_ips, [])
+
     available_unknown_hosts =
       results
       |> Enum.filter(fn result ->
@@ -800,8 +824,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       end)
       |> Enum.reduce(%{}, fn result, acc -> Map.put_new(acc, extract_ip(result), result) end)
 
+    unavailable_unknown_ips = unknown_ips -- Map.keys(available_unknown_hosts)
+
+    clear_seed_uid_collisions(
+      partition,
+      resolved_ips ++ unavailable_unknown_ips,
+      track_collisions?
+    )
+
     if map_size(available_unknown_hosts) == 0 do
-      %{}
+      {%{}, 0}
     else
       available_unknown_ips = Map.keys(available_unknown_hosts)
 
@@ -813,21 +845,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           partition: partition
         )
 
+      clear_seed_uid_collisions(partition, Map.keys(active_existing_map), track_collisions?)
+
       hosts_to_create = Map.drop(available_unknown_hosts, Map.keys(active_existing_map))
 
-      hosts_to_create
-      |> Map.values()
-      |> seed_uids(partition, actor)
-      |> Enum.each(fn {result, uid} ->
-        create_available_unknown_device(result, uid, partition, actor)
-      end)
+      seed_uid_collisions =
+        hosts_to_create
+        |> Map.values()
+        |> seed_uids(partition, actor)
+        |> Enum.reduce(0, fn {result, uid}, acc ->
+          acc + create_available_unknown_device(result, uid, partition, actor, track_collisions?)
+        end)
 
-      DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
-        actor: actor,
-        include_deleted: true,
-        use_cache: false,
-        partition: partition
-      )
+      created_map =
+        DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
+          actor: actor,
+          include_deleted: true,
+          use_cache: false,
+          partition: partition
+        )
+
+      {created_map, seed_uid_collisions}
     end
   end
 
@@ -911,7 +949,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp create_available_unknown_device(result, uid, partition, actor) do
+  defp create_available_unknown_device(result, uid, partition, actor, track_collisions?) do
     ip = extract_ip(result)
     hostname = normalize_hostname(result["hostname"])
 
@@ -937,22 +975,189 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          |> Ash.Changeset.for_create(:create, attrs)
          |> Ash.create(actor: actor) do
       {:ok, _device} ->
+        clear_seed_uid_collisions(partition, [ip], track_collisions?)
         Logger.info("SweepResultsIngestor: Created provisional sweep device #{uid} for #{ip}")
+        0
 
       {:error, reason} ->
-        log_provisional_create_error(ip, reason)
+        handle_provisional_create_error(ip, uid, partition, reason, track_collisions?)
     end
   end
 
-  defp log_provisional_create_error(ip, reason) do
+  # A sweep response is reachability evidence on an address, not identity evidence: when the
+  # deterministic seed uid derived from `(partition, ip)` already belongs to a live device that
+  # has since moved to a different primary IP, attributing `ip` back to that moved device as an
+  # alias would conflate a creation-time UID hash with current address ownership. Instead,
+  # surface the collision at warning level and count it once per state change (#5740).
+  defp handle_provisional_create_error(ip, uid, partition, reason, track_collisions?) do
     if duplicate_device_conflict?(reason) do
-      Logger.debug(
-        "SweepResultsIngestor: Provisional sweep device already exists for #{ip}, skipping duplicate create"
-      )
+      case live_colliding_device(uid, partition, ip) do
+        {:collision, existing} ->
+          record_seed_uid_collision(ip, uid, partition, existing, track_collisions?)
+
+        :same_address ->
+          clear_seed_uid_collisions(partition, [ip], track_collisions?)
+
+          Logger.debug(
+            "SweepResultsIngestor: Provisional sweep device already exists for #{ip}, skipping duplicate create"
+          )
+
+          0
+
+        :not_live ->
+          Logger.debug(
+            "SweepResultsIngestor: Provisional sweep device already exists for #{ip}, skipping duplicate create"
+          )
+
+          0
+      end
     else
       Logger.warning(
         "SweepResultsIngestor: Failed to create provisional sweep device for #{ip}: #{inspect(reason)}"
       )
+
+      0
+    end
+  end
+
+  defp live_colliding_device(uid, partition, ip) do
+    case Repo.one(
+           from(d in Device,
+             where: d.uid == ^uid and is_nil(d.deleted_at),
+             select: %{
+               uid: d.uid,
+               ip: d.ip,
+               partition: d.partition,
+               identity_revision: d.identity_revision
+             }
+           )
+         ) do
+      %{ip: existing_ip, partition: existing_partition} = existing
+      when {existing_partition, existing_ip} != {partition, ip} ->
+        {:collision, existing}
+
+      %{} ->
+        :same_address
+
+      nil ->
+        :not_live
+    end
+  rescue
+    _ -> :not_live
+  end
+
+  defp record_seed_uid_collision(ip, uid, partition, existing, track_collisions?) do
+    if seed_uid_collision_state_changed?(partition, ip, existing, track_collisions?) do
+      Logger.warning(
+        "SweepResultsIngestor: Seed uid #{uid} derived for available unknown host #{ip} " <>
+          "(partition #{partition}) collides with live device #{existing.uid} at " <>
+          "#{existing.ip || "no primary IP"} (partition #{existing.partition}); leaving #{ip} unseeded"
+      )
+
+      :telemetry.execute(
+        @seed_uid_collision_event,
+        %{count: 1},
+        %{
+          ip: ip,
+          partition: partition,
+          seed_uid: uid,
+          colliding_device_uid: existing.uid,
+          colliding_device_ip: existing.ip,
+          colliding_device_partition: existing.partition
+        }
+      )
+
+      1
+    else
+      Logger.debug(
+        "SweepResultsIngestor: Seed uid #{uid} for #{ip} (partition #{partition}) still " <>
+          "collides with live device #{existing.uid} at #{existing.ip || "no primary IP"}, skipping"
+      )
+
+      0
+    end
+  end
+
+  defp seed_uid_collision_state_changed?(partition, ip, existing, true) do
+    table = ensure_seed_uid_collision_table()
+    key = {partition, ip}
+    state = {existing.uid, existing.partition, existing.ip, existing.identity_revision}
+
+    transition_seed_uid_collision_state(table, key, state)
+  end
+
+  defp seed_uid_collision_state_changed?(_partition, _ip, _existing, false), do: false
+
+  defp transition_seed_uid_collision_state(table, key, state) do
+    case :ets.lookup(table, key) do
+      [{^key, ^state}] ->
+        false
+
+      [{^key, previous}] ->
+        match_spec = [{{key, previous}, [], [{{{:const, key}, {:const, state}}}]}]
+
+        if :ets.select_replace(table, match_spec) == 1 do
+          true
+        else
+          transition_seed_uid_collision_state(table, key, state)
+        end
+
+      [] ->
+        :ets.insert_new(table, {key, state}) or
+          transition_seed_uid_collision_state(table, key, state)
+    end
+  end
+
+  defp clear_seed_uid_collisions(_partition, [], _track_collisions?), do: :ok
+  defp clear_seed_uid_collisions(_partition, _ips, false), do: :ok
+
+  defp clear_seed_uid_collisions(partition, ips, true) do
+    case :ets.whereis(@seed_uid_collision_table) do
+      :undefined ->
+        :ok
+
+      table ->
+        Enum.each(ips, fn ip ->
+          :ets.delete(table, {partition, ip})
+        end)
+    end
+  end
+
+  defp ensure_seed_uid_collision_table do
+    case :ets.whereis(@seed_uid_collision_table) do
+      :undefined ->
+        parent = self()
+        ref = make_ref()
+
+        spawn(fn ->
+          result =
+            try do
+              :ets.new(@seed_uid_collision_table, [
+                :named_table,
+                :public,
+                :set,
+                read_concurrency: true,
+                write_concurrency: true
+              ])
+            rescue
+              ArgumentError -> :already_exists
+            end
+
+          send(parent, {ref, result})
+
+          if result != :already_exists do
+            Process.sleep(:infinity)
+          end
+        end)
+
+        receive do
+          {^ref, _} -> @seed_uid_collision_table
+        after
+          1_000 -> @seed_uid_collision_table
+        end
+
+      _tid ->
+        @seed_uid_collision_table
     end
   end
 
@@ -2631,6 +2836,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_failed: Map.get(stats1, :hosts_failed, 0) + Map.get(stats2, :hosts_failed, 0),
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
       devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0),
+      seed_uid_collisions:
+        Map.get(stats1, :seed_uid_collisions, 0) + Map.get(stats2, :seed_uid_collisions, 0),
       mapper_dispatched:
         Map.get(stats1, :mapper_dispatched, 0) + Map.get(stats2, :mapper_dispatched, 0),
       mapper_suppressed:
