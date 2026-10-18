@@ -376,6 +376,47 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
           }
         }
   def existing_comparison_state(provider, feed_key) do
+    provider
+    |> comparison_rows(feed_key)
+    |> Map.new()
+  end
+
+  @doc """
+  The same comparison state as `existing_comparison_state/2`, held in a private
+  ETS table owned by the calling process instead of on its heap.
+
+  A full nist-nvd2 corpus is several hundred thousand entries, about 100 MB of
+  terms. Kept on the heap of the process that then decodes the whole feed, every
+  full-sweep collection copies all of it, and decoding promotes enough garbage
+  to force one every fraction of a second: the run spent its time copying this
+  map, not reading the feed. The table is outside the heap, and each record
+  copies out only its own entry.
+
+  Every `Loader` function that takes comparison state accepts the table. The
+  caller owns it and releases it with `release_comparison_table/1`.
+  """
+  @spec existing_comparison_table(String.t(), String.t()) :: :ets.tid()
+  def existing_comparison_table(provider, feed_key) do
+    table = :ets.new(:advisory_comparison_state, [:set, :private])
+    true = :ets.insert(table, comparison_rows(provider, feed_key))
+    table
+  end
+
+  @doc "Delete a table from `existing_comparison_table/2`."
+  @spec release_comparison_table(:ets.tid()) :: :ok
+  def release_comparison_table(table) do
+    :ets.delete(table)
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  @doc "Number of entries in comparison state, whether a map or a table."
+  @spec comparison_state_size(map() | :ets.tid()) :: non_neg_integer()
+  def comparison_state_size(state) when is_map(state), do: map_size(state)
+  def comparison_state_size(table), do: :ets.info(table, :size)
+
+  defp comparison_rows(provider, feed_key) do
     # `modified_at` is a `timestamp without time zone` column and this is a
     # schemaless query, so Ecto types the field as :any and hands back Postgrex's
     # raw %NaiveDateTime{}. type/2 loads it as a UTC DateTime to match the
@@ -393,7 +434,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
     query
     |> Repo.all(prefix: @schema)
-    |> Map.new(fn {source_object_id, modified_at, content_hash, metadata} ->
+    |> Enum.map(fn {source_object_id, modified_at, content_hash, metadata} ->
       {source_object_id,
        %{
          modified_at: modified_at,
@@ -439,7 +480,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   def unchanged_advisory?(_record, _existing_state), do: false
 
-  @spec unchanged_advisory?(map(), map(), integer() | nil | keyword()) :: boolean()
+  @spec unchanged_advisory?(map(), map() | :ets.tid(), integer() | nil | keyword()) ::
+          boolean()
   def unchanged_advisory?(record, existing_state, normalization_version)
       when is_integer(normalization_version) or is_nil(normalization_version) do
     unchanged_advisory?(record, existing_state,
@@ -451,9 +493,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   def unchanged_advisory?(%{advisory: advisory} = record, existing_state, opts)
       when is_list(opts) do
     source_object_id = fetch(advisory, :source_object_id)
-    state = normalize_existing_state(existing_state)
 
-    case {Keyword.get(opts, :comparison, :modified_at), Map.fetch(state, source_object_id)} do
+    # Look up and normalize this record's entry only. Normalizing the whole state
+    # here made every record cost O(corpus): quadratic over a full feed.
+    case {Keyword.get(opts, :comparison, :modified_at),
+          stored_state(existing_state, source_object_id)} do
       {:content_hash, {:ok, %{content_hash: stored_hash}}} when is_binary(stored_hash) ->
         stored_hash == content_hash(record)
 
@@ -468,10 +512,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   def unchanged_advisory?(_record, _existing_state, _opts), do: false
 
   @doc "Number of live rows whose state can participate in the feed's skip guard."
-  @spec comparable_count(String.t(), map()) :: non_neg_integer()
-  def comparable_count(feed_key, existing_state) do
-    state_key =
-      if comparison_for_feed(feed_key) == :content_hash, do: :content_hash, else: :modified_at
+  @spec comparable_count(String.t(), map() | :ets.tid()) :: non_neg_integer()
+  def comparable_count(feed_key, existing_state) when is_map(existing_state) do
+    state_key = comparable_state_key(feed_key)
 
     existing_state
     |> normalize_existing_state()
@@ -479,6 +522,38 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       not is_nil(Map.get(state, state_key))
     end)
   end
+
+  def comparable_count(feed_key, table) do
+    state_key = comparable_state_key(feed_key)
+
+    :ets.foldl(
+      fn {_source_object_id, state}, count ->
+        if is_nil(Map.get(state, state_key)), do: count, else: count + 1
+      end,
+      0,
+      table
+    )
+  end
+
+  defp comparable_state_key(feed_key) do
+    if comparison_for_feed(feed_key) == :content_hash, do: :content_hash, else: :modified_at
+  end
+
+  defp stored_state(state, source_object_id) when is_map(state) do
+    case Map.fetch(state, source_object_id) do
+      {:ok, value} -> {:ok, normalize_state_entry(value)}
+      :error -> :error
+    end
+  end
+
+  defp stored_state(table, source_object_id) when is_reference(table) do
+    case :ets.lookup(table, source_object_id) do
+      [{_source_object_id, state}] -> {:ok, state}
+      [] -> :error
+    end
+  end
+
+  defp stored_state(_state, _source_object_id), do: :error
 
   defp comparison_for_feed(feed_key) do
     if MapSet.member?(@content_hash_feeds, feed_key), do: :content_hash, else: :modified_at
@@ -504,7 +579,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   @doc false
-  @spec existing_state_from_options(keyword()) :: {:ok, map()} | :error
+  @spec existing_state_from_options(keyword()) :: {:ok, map() | :ets.tid()} | :error
   def existing_state_from_options(opts) when is_list(opts) do
     cond do
       Keyword.has_key?(opts, :existing_state) ->
@@ -527,6 +602,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     end)
   end
 
+  # A table from existing_comparison_table/2 already holds normalized entries.
+  defp normalize_existing_state(table) when is_reference(table), do: table
   defp normalize_existing_state(_state), do: %{}
 
   defp normalize_state_entry(%DateTime{} = modified_at), do: timestamp_state(modified_at)

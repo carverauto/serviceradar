@@ -486,6 +486,39 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     end
   end
 
+  # FeedWorker keeps the live state in a table so a full feed does not drag it
+  # through every garbage collection. The table has to make the guard's
+  # decisions exactly as the map does, through a real load.
+  test "the comparison table skips unchanged rows through a full load", %{feed_key: feed_key} do
+    load(feed_key, all_records())
+
+    table = Loader.existing_comparison_table(@provider, feed_key)
+
+    try do
+      assert Loader.comparison_state_size(table) == 3
+      assert Loader.comparable_count(feed_key, table) == 3
+
+      changed =
+        Enum.map([{"ITEST-CVE-0001", "2024-06-01T00:00:00.000"} | tl(@records)], fn {id, m} ->
+          record(id, m)
+        end)
+
+      assert {:ok, result} =
+               Loader.load_and_finalize(changed,
+                 provider: @provider,
+                 feed_key: feed_key,
+                 generation: Loader.next_generation(@provider, feed_key),
+                 existing_state: table,
+                 completeness: complete_snapshot(length(changed))
+               )
+
+      assert result.advisories_upserted == 1
+      assert result.advisories_skipped == 2
+    after
+      Loader.release_comparison_table(table)
+    end
+  end
+
   test "a genuinely changed advisory is still rewritten", %{feed_key: feed_key} do
     load(feed_key, all_records())
 

@@ -120,9 +120,31 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Cpe do
 
   defp split_cpe(_), do: :error
 
-  # Split on unescaped colons while retaining escapes for validation.
+  # Split on unescaped colons while retaining escapes for validation. NVD
+  # criteria rarely carry an escape, so the common case is one `:binary.split/3`.
   defp split_escaped(string) do
-    do_split(string, [], [])
+    case :binary.match(string, "\\") do
+      :nomatch -> :binary.split(string, ":", [:global])
+      _escaped -> split_escaped(string, 0, 0, [])
+    end
+  end
+
+  defp split_escaped(string, start, pos, acc) do
+    size = byte_size(string)
+
+    case :binary.match(string, [":", "\\"], scope: {pos, size - pos}) do
+      :nomatch ->
+        Enum.reverse([binary_part(string, start, size - start) | acc])
+
+      {at, 1} ->
+        case :binary.at(string, at) do
+          ?: ->
+            split_escaped(string, at + 1, at + 1, [binary_part(string, start, at - start) | acc])
+
+          ?\\ ->
+            split_escaped(string, start, min(at + 2, size), acc)
+        end
+    end
   end
 
   defp valid_formatted_parts?([part | _] = parts) do
@@ -148,31 +170,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Cpe do
 
   defp valid_bytes?(_component), do: false
 
-  defp do_split(<<>>, current, acc) do
-    Enum.reverse([finish(current) | acc])
-  end
-
-  defp do_split(<<"\\", c, rest::binary>>, current, acc) do
-    do_split(rest, [c, "\\" | current], acc)
-  end
-
-  defp do_split(<<":", rest::binary>>, current, acc) do
-    do_split(rest, [], [finish(current) | acc])
-  end
-
-  defp do_split(<<c, rest::binary>>, current, acc) do
-    do_split(rest, [c | current], acc)
-  end
-
-  defp finish(current) do
-    current
-    |> Enum.reverse()
-    |> Enum.map_join(fn
-      c when is_integer(c) -> <<c>>
-      c -> c
-    end)
-  end
-
   defp component(parts, index) do
     case Enum.at(parts, index) do
       nil -> nil
@@ -182,7 +179,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Cpe do
   end
 
   # Unescape CPE backslash escapes (\\: \\. \\* etc.) but preserve bare * and -.
+  # A binary walk, not a regex: this runs for all eleven components of every
+  # CPE in a feed, and a regex literal is re-imported on every call.
   defp unescape(component) do
-    String.replace(component, ~r/\\(.)/, "\\1")
+    case :binary.match(component, "\\") do
+      :nomatch -> component
+      _escaped -> unescape_bytes(component, [])
+    end
   end
+
+  defp unescape_bytes(<<"\\", byte, rest::binary>>, acc), do: unescape_bytes(rest, [acc, byte])
+  defp unescape_bytes(<<byte, rest::binary>>, acc), do: unescape_bytes(rest, [acc, byte])
+  defp unescape_bytes(<<>>, acc), do: IO.iodata_to_binary(acc)
 end
