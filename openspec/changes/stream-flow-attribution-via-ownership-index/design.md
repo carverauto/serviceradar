@@ -112,6 +112,15 @@ Keying on the local endpoint is what makes this cheap:
   unless the accepted socket's owner differs from the listener's (worker
   hand-off, `SO_REUSEPORT` groups with different tgids). In that case the agent emits an
   exact peer entry keyed on the connection's full 5-tuple (Decision 2).
+- **Accepted sockets are promoted when listener coverage ends.** Netprobe tracks the accepted
+  sockets each listener lease covers. Before it emits a `CLOSE` for a listener lease, or an
+  `OPEN` that gives the listener key a new owner, it emits an exact peer entry (`OPEN`, with
+  the accepted socket's own `first_seen` and owner) for every covered accepted socket that is
+  still open, in the same batch and ahead of the listener event. Each promoted entry then
+  lives and closes like any other lease. A process that closes its listener during a graceful
+  shutdown therefore keeps its in-flight connections attributed, and a process that later
+  binds the same port does not inherit them, because exact entries outrank its listener
+  lease.
 - **Wildcard listeners are expanded by the agent** into one lease per local address. The agent
   knows its own addresses, so the central index never has to guess which host a `0.0.0.0`
   belongs to. The agent also publishes **address leases** (its local addresses, renewed like
@@ -326,27 +335,34 @@ constant: at most a handful of hash lookups, batched.
 A flow can arrive before its ownership event, because agent batches lag a few seconds behind
 the kernel event.
 
-- **Hold**: if a side's address is a monitored address (`A` present) but no lease matches,
+- **Monitored sides**: a flow side is monitored when its address has presence (`A`), or when
+  it matches the public VIP map and any of its mapped backend addresses has presence. For a
+  VIP side, the backend keys are the side's keys for hold, enrollment, home-shard placement
+  and watches below, alongside its original keys, so a backend lease that arrives after the
+  flow still attributes it under the same precedence (public-endpoint rank, below any
+  original-endpoint candidate).
+- **Hold**: if a side is monitored but no lease matches,
   the flow is held in a per-consumer buffer for up to the hold window (default 5 s, maximum
   30 s, and always below the consumer `ack_wait`). The shard notifies waiting consumers when a
   matching `OPEN` arrives, and otherwise the flow is retried once at the deadline. A flow with
-  no monitored address on either side is never held: it is written immediately with outcome
+  no monitored side is never held: it is written immediately with outcome
   `unmonitored`. The hold buffer has an item cap and a byte cap. On overflow the flow is
   written immediately and goes to the late-stamp set.
 - **Late stamp**: **precedence** is the full ordering tuple `(rank, side)` with the source
   side ahead of the destination, the same order the ingest path applies (Decision 3); an
   unattributed flow has the lowest precedence. A flow's precedence is **final** when no
   monitored side can still produce a better candidate: `(exact, source)`, or `(exact,
-  destination)` when the source is not a monitored address. Every flow written with a
-  non-final precedence while one of its sides is a monitored address enters the late-stamp
+  destination)` when the source is not monitored. Every flow written with a
+  non-final precedence while one of its sides is monitored enters the late-stamp
   set, whether it was written without an owner or with an ingest winner that a later lease
   could still beat (a listener, relaxed, node-SNAT or public-endpoint candidate, or a
   destination exact owner while the source is monitored). A flow attributed by its agent
   (Decision 5) does not enter it, so a late stamp never replaces agent-local attribution. The
   flow is recorded once, in the late-stamp set of its **home shard** (the shard of its source
-  side's bucket, or of the destination's when only the destination is monitored), as
+  side's bucket, or of the destination's when only the destination is monitored; for a
+  monitored VIP side that is not an agent address, the shard of its first mapped backend), as
   `(flow id, flow time, both sides' keys, current precedence)`. Each other monitored side's shard
-  keeps only a watch `(key, flow id, home shard)`. Entries and watches live for the late-stamp
+  keeps only a watch `(key, flow id, home shard)`, including the shard of every mapped backend key of a monitored VIP side. Entries and watches live for the late-stamp
   window (default 10 minutes) under an entry cap, and the oldest is evicted with a counter.
   When a lease arrives that covers a recorded flow's time, the shard that applied it notifies
   the home shard, which re-runs the lookup for both sides under the same precedence as on

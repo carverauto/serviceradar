@@ -7,7 +7,7 @@
 
 ## 1. Netprobe: ownership leases
 - [ ] 1.1 Extend `proto/agent/netprobe/v1/netprobe.proto`: `lease_op`, `first_seen_unix_nano`, `last_seen_unix_nano`, `ttl_seconds`, `closed` on `FlowAttributionEvent`; `AddressLease` and `snapshot_complete` on `FlowAttributionEventBatch`. Regenerate Go, Rust and Elixir bindings.
-- [ ] 1.2 Key leases on the local endpoint in `rust/netprobe/src/attribution.rs`. Accepted sockets with the listener's owner emit nothing; a differing owner emits an exact peer entry keyed on the full 5-tuple, including the local port.
+- [ ] 1.2 Key leases on the local endpoint in `rust/netprobe/src/attribution.rs`. Accepted sockets with the listener's owner emit nothing; a differing owner emits an exact peer entry keyed on the full 5-tuple, including the local port. Track covered accepted sockets per listener and promote the still-open ones to exact peer entries, ahead of the listener's `CLOSE` or owner-changing `OPEN`.
 - [ ] 1.3 Emit `CLOSE` on TCP close and close-state transitions. Coalesce `OPEN` + `CLOSE` within one batch window into one event.
 - [ ] 1.4 Replace the 300 s raw heartbeat and the resend path with a jittered `RENEW` per renewal period (default 30 minutes).
 - [ ] 1.5 Expand wildcard listeners per local address. Publish address leases, and re-expand on address change.
@@ -37,7 +37,7 @@
 - [ ] 4.1 Allow the EventWriter flow pipeline (and the index shards) to run on every flow-tier node against the shared durable pull consumer. The rest of EventWriter stays coordinator-only.
 - [ ] 4.2 Public endpoint map cache from `public_endpoints_current`, refreshed on change.
 - [ ] 4.3 Attribution step in `Processors.Flows`: keys for both sides on their original endpoints plus VIP backend keys in the same batch (backend candidates only below the original's ranks 0-2), batched lookups, the precedence table, the cross-side tie-break, and a single write with `attributed_flow` and owner columns. Keep agent-provided attribution for the side the agent owns.
-- [ ] 4.4 Hold buffer with item and byte caps, deadline below `ack_wait`, shard notification on `OPEN`, and no hold for unmonitored flows.
+- [ ] 4.4 Monitored-side classification (address presence, or a VIP side with a monitored mapped backend, whose backend keys join hold, enrollment, home-shard placement and watches). Hold buffer with item and byte caps, deadline below `ack_wait`, shard notification on `OPEN`, and no hold for unmonitored flows.
 - [ ] 4.5 Late-stamp set per home shard (window, entry cap, eviction counters) with watches on the other monitored side's shard; the home shard re-evaluates both sides under the ingest precedence and publishes an update carrying the `(rank, side)` precedence on `events.flow.attribution` only on strictly better precedence, keeping the entry pending until the precedence is final or the window ends, with versions fetched in batches. Enroll unattributed flows and ingest winners at a non-final precedence while a side is monitored; never enroll final or agent-attributed flows.
 - [ ] 4.6 Add `attribution_precedence` to `ocsf_network_activity` (lowest for unattributed rows, set on ingest), and make `FlowAttributionUpdates` apply an update only when its precedence is at least the stored one (StarRocks conditional partial update), not by highest version.
 - [ ] 4.7 Tests per scenario of *Flows Are Attributed On Ingest By Key Lookup*, *Late Binding Is Bounded And Never Rescans Flows*, *Agent-Local Attribution Takes Precedence* and the modified *Correlation Is Protocol-Aware And Exact-First*.

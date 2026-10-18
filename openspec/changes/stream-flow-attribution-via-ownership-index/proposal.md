@@ -36,7 +36,8 @@ lookups before their single StarRocks write.
   leases keyed on the local endpoint: one open per new key, a slow renewal of each active lease
   (default 30 minutes) instead of the 300 s heartbeat, an explicit close when the kernel
   reports one, and a full snapshot on start. Accepted connections collapse onto their
-  listener's lease unless their owner differs. Wildcard listeners are expanded to the agent's
+  listener's lease unless their owner differs; when the listener closes or changes owner, its
+  still-open accepted sockets are promoted to exact entries first. Wildcard listeners are expanded to the agent's
   own addresses, and the agent publishes its address set as address leases.
 - **Ownership changes travel on JetStream.** Core keeps the existing bounded agent -> gateway
   -> core admission lane and publishes each admitted batch on `flows.ownership.<shard>` in a
@@ -51,7 +52,8 @@ lookups before their single StarRocks write.
   Public VIPs resolve to backends through a cached VIP map before the lookup. The existing
   precedence (exact, listener or relaxed UDP, node SNAT, public endpoint by exposure class) is
   preserved as lookup order.
-- **Bounded late binding.** A flow whose endpoint is a monitored address but has no owner yet is
+- **Bounded late binding.** A flow whose endpoint is monitored (an agent address, or a public
+  VIP whose mapped backend is) but has no owner yet is
   held for a few seconds. If it is still unmatched it is written unattributed and kept in a
   bounded late-stamp set; a flow written with a fallback owner that a later exact lease could
   still beat is kept there too. A late ownership event stamps those flows through the existing
