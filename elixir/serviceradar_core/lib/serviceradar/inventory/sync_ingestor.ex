@@ -168,8 +168,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
            resolved_updates
          ) do
       {:ok,
-       {{remap, identifier_records, identifier_result, previous_device_states, remap_stale},
-        pin_stale}} ->
+       {{remap, identifier_records, identifier_result, previous_device_states, remap_stale,
+         replaced_addresses}, pin_stale}} ->
         Enum.each(remap_stale, &Fence.report_stale_target(:sync_ingestor, &1, Map.get(pins, &1)))
         stale = MapSet.union(pin_stale, remap_stale)
         keep = &(not MapSet.member?(stale, &1))
@@ -190,7 +190,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
               resolved_updates: fresh_updates,
               previous_device_states: previous_device_states,
               remap: remap,
-              identifier_result: identifier_result
+              identifier_result: identifier_result,
+              replaced_addresses: Enum.filter(replaced_addresses, &keep.(&1.device_id))
             },
             actor,
             defer_state_events?
@@ -247,9 +248,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       # Read under the locks, so the state a transition event reports is the one
       # this write replaces.
       previous_device_states = StateEvents.previous_device_states(device_records)
+      held_addresses = Aliases.held_addresses(device_records, resolved_updates)
 
       case upsert_devices(device_records, strong_uids, resolved_updates) do
         {:ok, remap, remap_stale} ->
+          replaced_addresses = Aliases.replaced_addresses(held_addresses, remap)
+
           # A record whose redirect target was no longer live was withheld; so are
           # its identifiers. An IP-conflict recovery may have rewritten device uids
           # during the device upsert. Apply the same mapping to identifier records
@@ -263,8 +267,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             |> apply_uid_remap_to_identifier_records(remap)
 
           case upsert_identifiers(identifier_records) do
-            :ok -> {:ok, {remap, identifier_records, :ok, previous_device_states, remap_stale}}
-            {:error, _} = error -> error
+            :ok ->
+              {:ok,
+               {remap, identifier_records, :ok, previous_device_states, remap_stale,
+                replaced_addresses}}
+
+            {:error, _} = error ->
+              error
           end
 
         {:error, _} = error ->
@@ -328,7 +337,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       resolved_updates: resolved_updates,
       previous_device_states: previous_device_states,
       remap: remap,
-      identifier_result: identifier_result
+      identifier_result: identifier_result,
+      replaced_addresses: replaced_addresses
     } = written
 
     if !defer_state_events? do
@@ -347,6 +357,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       do: StateEvents.invalidate_identity_cache_for_identifier_records(identifier_records)
 
     _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
+    :ok = Aliases.retain_replaced_addresses(replaced_addresses, actor)
     alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
     _ = SourceFactReconciler.ingest_resolved(resolved_updates)
 

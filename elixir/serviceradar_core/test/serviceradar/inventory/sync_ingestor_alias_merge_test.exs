@@ -458,6 +458,73 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     end
   end
 
+  describe "an address replaced by a sync" do
+    # A hypervisor API reports a node at its cluster address while discovery reached the node
+    # on its management address. The configured address becomes the primary, and the address
+    # discovery established must stay attributable to the node: once neither the primary nor an
+    # alias holds it, a sweep reaching it resolves to nothing and cannot seed it again either
+    # (the address-named seed uid is the node's own).
+    test "a declarative source keeps the address it replaced as an alias", %{actor: actor} do
+      seed = System.unique_integer([:positive, :monotonic])
+      held_ip = test_net_ip("192.0.2", seed)
+      declared_ip = test_net_ip("198.51.100", seed)
+      integration_id = "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:node:node01"
+
+      {:ok, node} = create_device_at(actor, "node01", held_ip)
+      assert {:ok, _} = register_identifier(actor, node.uid, :integration_id, integration_id)
+
+      update = %{
+        "device_id" => node.uid,
+        "ip" => declared_ip,
+        "partition" => "default",
+        "source" => "hypervisor_enrichment",
+        "metadata" => %{"integration_id" => integration_id, "integration_type" => "hypervisor"}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      assert {:ok, %Device{ip: ^declared_ip}} = Device.get_by_uid(node.uid, false, actor: actor)
+
+      assert {:ok, [%DeviceAliasState{state: :detected}]} =
+               DeviceAliasState.lookup_for_device(node.uid, :ip, held_ip, actor: actor)
+
+      node_uid = node.uid
+
+      assert %{^held_ip => {%{canonical_device_id: ^node_uid}, _alias}} =
+               DeviceLookup.lookup_detected_aliases_by_ip([held_ip],
+                 actor: actor,
+                 partition: "default"
+               )
+    end
+
+    # An observed source saw the device at the new address, so the old one is the stale side of
+    # a move. Keeping it would attribute the address's next holder to this device.
+    test "an observed source does not keep the address it moved the device off", %{
+      actor: actor
+    } do
+      seed = System.unique_integer([:positive, :monotonic])
+      old_ip = test_net_ip("192.0.2", seed)
+      new_ip = test_net_ip("198.51.100", seed)
+      armis_id = "#{seed}"
+
+      {:ok, device} = create_device_at(actor, "moved-host", old_ip)
+      assert {:ok, _} = register_identifier(actor, device.uid, :armis_device_id, armis_id)
+
+      update = %{
+        "ip" => new_ip,
+        "source" => "armis",
+        "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      assert {:ok, %Device{ip: ^new_ip}} = Device.get_by_uid(device.uid, false, actor: actor)
+
+      assert {:ok, []} =
+               DeviceAliasState.lookup_for_device(device.uid, :ip, old_ip, actor: actor)
+    end
+  end
+
   describe "interface MAC registration" do
     test "two records for one chassis can both claim the same MAC", %{actor: actor} do
       {:ok, a} = create_device(actor, "chassis-wan-side")
@@ -597,6 +664,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
     uid
   end
+
+  defp create_device_at(actor, hostname, ip) do
+    Device
+    |> Ash.Changeset.for_create(:create, %{
+      uid: "sr:" <> Ecto.UUID.generate(),
+      hostname: hostname,
+      ip: ip,
+      discovery_sources: ["sweep"]
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp test_net_ip(prefix, seed), do: "#{prefix}.#{rem(seed, 254) + 1}"
 
   defp unique_test_ip(seed) do
     third = rem(seed, 250) + 1
