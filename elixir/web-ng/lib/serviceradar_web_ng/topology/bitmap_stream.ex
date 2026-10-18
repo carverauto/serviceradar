@@ -92,13 +92,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   def tick(socket) do
     state = socket.assigns.bitmap_stream
+    deadline = now() + @build_budget
 
     cond do
       !BitmapQueries.enabled?() -> reset(socket)
       state.awaiting && now() - state.awaiting >= @ack_timeout -> reset(socket)
       state.awaiting || state.task || is_nil(state.request) -> socket
-      unchanged?(socket, state) -> socket
-      true -> launch(socket)
+      unchanged?(socket, state, deadline) -> socket
+      true -> launch(socket, deadline)
     end
   end
 
@@ -113,10 +114,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
           assign(socket, :bitmap_stream, state)
         else
           with {:ok, result} <- BitmapQueries.normalize(result),
-               :ok <- current_delivery(socket, task, result) do
+               :ok <- current_delivery(socket, task.deadline, result) do
             deliver(result, state, socket)
           else
-            {:error, reason} -> failed(state, reason, socket)
+            {:error, reason} -> failed(state, reason, socket, task.deadline)
           end
         end
 
@@ -125,21 +126,28 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     end
   end
 
-  defp current_delivery(socket, task, result) do
-    remaining = task.deadline - now()
-    scope = socket.assigns.current_scope
-    prefix_sources = result.metadata.prefix_sources || %{}
-
-    with true <- remaining > 0,
-         checker = Task.async(fn -> bounded_identity(scope, prefix_sources) end),
-         {:ok, {:ok, fresh}} <- Task.yield(checker, remaining) || Task.shutdown(checker, :brutal_kill) do
+  defp current_delivery(socket, deadline, result) do
+    with {:ok, fresh} <- checked_identity(socket, result.metadata, deadline) do
       cond do
         fresh.authority != result.authority -> {:error, :forbidden}
-        Map.delete(fresh, :index_revision) != Map.delete(result.identity, :index_revision) -> {:error, :source_changed}
-        true -> :ok
+        same_binding?(fresh, result.identity) -> within(deadline)
+        true -> {:error, :source_changed}
       end
+    end
+  end
+
+  defp checked_identity(socket, metadata, deadline) do
+    scope = socket.assigns.current_scope
+    prefix_sources = metadata.prefix_sources || %{}
+
+    with :ok <- within(deadline),
+         checker = Task.async(fn -> bounded_identity(scope, prefix_sources) end),
+         remaining = max(deadline - now(), 0),
+         {:ok, result} <- Task.yield(checker, remaining) || Task.shutdown(checker, :brutal_kill),
+         :ok <- within(deadline) do
+      result
     else
-      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, _} = error -> error
       _ -> {:error, :query_timeout}
     end
   end
@@ -149,6 +157,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   catch
     :exit, _ -> {:error, :query_unavailable}
   end
+
+  defp within(deadline), do: if(now() < deadline, do: :ok, else: {:error, :query_timeout})
+
+  defp same_binding?(fresh, stored), do: Map.delete(fresh, :index_revision) == Map.delete(stored, :index_revision)
 
   defp deliver(result, state, socket) do
     if state.metadata && stable_binding(state.metadata) != stable_binding(result.metadata) do
@@ -176,7 +188,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       %{token: ^token} = task ->
         Process.cancel_timer(task.timer)
         state = %{socket.assigns.bitmap_stream | task: Map.put(task, :abandoned, true)}
-        failed(state, :query_timeout, socket)
+        failed(state, :query_timeout, socket, task.deadline)
 
       _ ->
         socket
@@ -193,7 +205,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         if task[:abandoned] do
           assign(socket, :bitmap_stream, state)
         else
-          failed(state, :query_unavailable, socket)
+          failed(state, :query_unavailable, socket, task.deadline)
         end
 
       _ ->
@@ -210,14 +222,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     :ok
   end
 
-  defp launch(socket) do
+  defp launch(socket, deadline \\ now() + @build_budget) do
     state = socket.assigns.bitmap_stream
     owner = self()
     token = make_ref()
     scope = socket.assigns.current_scope
     sequence = state.sequence + 1
     request = state.request
-    deadline = now() + @build_budget
 
     case Task.Supervisor.start_child(ServiceRadarWebNG.Topology.TileWatchTasks, fn ->
            send(owner, {:membership_built, token, BitmapView.build(scope, request, sequence, deadline)})
@@ -234,15 +245,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         assign(socket, :bitmap_stream, %{state | task: task, sequence: sequence})
 
       {:error, _reason} ->
-        failed(state, :query_busy, socket)
+        failed(state, :query_busy, socket, deadline)
     end
   end
 
-  defp failed(state, reason, socket) do
+  defp failed(state, reason, socket, deadline) do
     if state.reply, do: reply(state.reply, {:error, error(reason)})
     state = %{state | reply: nil}
 
-    if keep_frame?(socket, state, reason) do
+    if keep_frame?(socket, state, reason, deadline) do
       assign(socket, :bitmap_stream, state)
     else
       reset(assign(socket, :bitmap_stream, state))
@@ -251,21 +262,25 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   defp empty, do: %{sequence: 0, request: nil, reply: nil, task: nil, metadata: nil, awaiting: nil, identity: :stale}
 
-  defp unchanged?(socket, %{identity: {:ok, identity}, metadata: metadata}) when not is_nil(metadata) do
-    not named_prefix_query?(metadata) and fresh_identity(socket, metadata) == {:ok, identity}
+  defp unchanged?(socket, %{identity: {:ok, identity}, metadata: metadata}, deadline) when not is_nil(metadata) do
+    not named_prefix_query?(metadata) and checked_identity(socket, metadata, deadline) == {:ok, identity}
   end
 
-  defp unchanged?(_socket, _state), do: false
+  defp unchanged?(_socket, _state, _deadline), do: false
 
-  defp keep_frame?(socket, %{metadata: metadata, identity: {:ok, stored}}, reason)
+  defp keep_frame?(socket, %{metadata: metadata, identity: {:ok, stored}}, reason, deadline)
        when not is_nil(metadata) and reason in @transient_tick do
-    case fresh_identity(socket, metadata) do
-      {:ok, fresh} -> Map.delete(fresh, :index_revision) == Map.delete(stored, :index_revision)
-      _ -> false
+    if named_prefix_query?(metadata) do
+      false
+    else
+      case checked_identity(socket, metadata, deadline) do
+        {:ok, fresh} -> same_binding?(fresh, stored)
+        _ -> false
+      end
     end
   end
 
-  defp keep_frame?(_socket, _state, _reason), do: false
+  defp keep_frame?(_socket, _state, _reason, _deadline), do: false
 
   defp delivered_identity(%{identity: identity}) when is_map(identity), do: {:ok, identity}
   defp delivered_identity(_result), do: :stale
@@ -274,9 +289,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   # while the snapshot identity is source version only.
   defp named_prefix_query?(%{prefix_sources: sources}) when is_map(sources), do: map_size(sources) > 0
   defp named_prefix_query?(_metadata), do: false
-
-  defp fresh_identity(socket, metadata),
-    do: current_identity(socket.assigns.current_scope, metadata.prefix_sources || %{})
 
   defp current_identity(scope, prefix_sources) do
     with true <- BitmapQueries.enabled?() || {:error, :bitmap_disabled},

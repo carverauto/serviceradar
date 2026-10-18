@@ -550,7 +550,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   } do
     source = "synthetic-bitmap-" <> String.replace(Ecto.UUID.generate(), "-", "")
     on_exit(fn -> Store.clear(source) end)
-    included = create("sr:bitmap-fence-#{System.unique_integer([:positive])}", %{region: cohort, is_available: true})
+
+    included =
+      create("sr:bitmap-fence-#{System.unique_integer([:positive])}", %{
+        region: cohort,
+        is_available: true,
+        ip: "192.0.2.10"
+      })
 
     user =
       User
@@ -660,7 +666,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     ref = push(socket, "membership:watch", prefix_params)
     assert_reply ref, :ok, %{view_digest: prefix_digest}, 5_000
     assert_push "membership:frame", {:binary, prefix_frame}, 5_000
-    {sequence, _total, _wire_digest, _revision, _mask, _causal, _availability, _counts} = membership_rows(prefix_frame)
+
+    {sequence, _total, _wire_digest, _revision, prefix_mask, _causal, _availability, _counts} =
+      membership_rows(prefix_frame)
+
+    assert prefix_mask == <<1>>
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => prefix_digest})
     assert_reply ref, :ok
 
@@ -675,8 +685,28 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     {:ok, %{version: ^version}} = Store.capture(source)
     {:ok, still} = BitmapIndex.snapshot()
     assert still.progress.index_revision == stable.progress.index_revision
-    send(socket.channel_pid, :tile_tick)
-    assert_push "membership:frame", {:binary, _expired_refresh}, 5_000
+
+    # The expired match must not survive a failed periodic rebuild as a
+    # successful frame, even though the source version is unchanged.
+    holders = occupy_watch_tasks()
+
+    try do
+      send(socket.channel_pid, :tile_tick)
+      assert_push "membership:frame", {:binary, <<"SRMO", 1, 1, _::binary>>}, 5_000
+      refute_push "membership:frame", _retained, 200
+    after
+      Enum.each(holders, &Process.exit(&1, :kill))
+    end
+
+    await(fn -> Task.Supervisor.children(TileWatchTasks) end, &(&1 == []))
+    ref = push(socket, "membership:watch", prefix_params)
+    assert_reply ref, :ok, _expired_binding, 5_000
+    assert_push "membership:frame", {:binary, expired_frame}, 5_000
+
+    {_sequence, _total, _wire_digest, _revision, expired_mask, _causal, _availability, _counts} =
+      membership_rows(expired_frame)
+
+    assert expired_mask == <<0>>
     {:ok, after_prefix} = BitmapIndex.snapshot()
     assert after_prefix.progress.index_revision == stable.progress.index_revision
   end

@@ -247,6 +247,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
           pid: held,
           ref: Process.monitor(held),
           token: token,
+          deadline: System.monotonic_time(:millisecond) - 1,
           timer: Process.send_after(self(), {:membership_timeout, token}, 60_000)
         }
     }
