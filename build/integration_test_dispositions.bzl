@@ -239,6 +239,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/event_writer/processors/analytics_signals_test.exs": 1,
     "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/falco_events_integration_test.exs": 1,
+    "test/serviceradar/event_writer/processors/flows_warehouse_only_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/k8s_nodes_ordering_test.exs": 1,
     "test/serviceradar/event_writer/processors/k8s_public_endpoints_binding_test.exs": 1,
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 1,
@@ -409,6 +410,5 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
-    "test/integration/netflow_ingestion_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 ]

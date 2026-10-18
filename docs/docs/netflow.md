@@ -20,8 +20,8 @@ for the observation path, the correlator, and the `in:attributed_flows` evidence
 ServiceRadar uses a single canonical NetFlow ingest path:
 
 ```
-Network Devices → Flow Collector → NATS JetStream `flows` → EventWriter → ocsf_network_activity
- v5 UDP :2055       (Rust)          flows.raw.netflow      (Broadway)     (+ bgp_routing_info)
+Network Devices → Flow Collector → NATS JetStream `flows` → EventWriter → StarRocks ocsf_network_activity
+ v5 UDP :2055       (Rust)          flows.raw.netflow      (Broadway)     (+ CNPG bgp_routing_info)
  IPFIX TLS :4740
 ```
 
@@ -31,9 +31,9 @@ Raw flows use a **dedicated JetStream stream** (`flows` by default), not the sha
 - **Flow Collector**: Rust daemon for NetFlow, IPFIX, and sFlow. Ports and the UDP template opt-in are under [Collector Layout](#collector-layout).
 - **AutoScopedParser**: RFC-compliant per-source template isolation
 - **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
-- **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
-- **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
-- **StarRocks (optional, off by default)**: EventWriter Stream Loads flow rows into the warehouse. See [Flow cutover and delivery](#flow-cutover-and-delivery) for routing, acknowledgement and upgrade behavior.
+- **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, Stream Loads OCSF flow rows into StarRocks, and derives BGP observations
+- **StarRocks (required for NetFlow)**: The only flow store. EventWriter Stream Loads flow rows into the warehouse `ocsf_network_activity` table. See [Flow cutover and delivery](#flow-cutover-and-delivery) for routing, acknowledgement and upgrade behavior.
+- **CNPG**: Derived `bgp_routing_info` and the enrichment and attribution current state the warehouse joins. CNPG stores no flow rows.
 - **SRQL**: Query flows via `in:flows` from the warehouse's `ocsf_network_activity`.
 - **Web UI**: NetFlow dashboard with BGP topology visualization
 
@@ -47,16 +47,24 @@ The NetFlow dashboard and `in:flows` require warehouse reads. The dashboard
 throughput sparkline and device Flows-tab presence probes also route through
 `Readers`: without flow cutover, the sparkline renders empty and the probes
 report no flows. They do not fall back to CNPG on a warehouse failure.
-`DeviceRiskIocExposure` uses warehouse flows after cutover, but retains its CNPG
-query when the warehouse is disabled or an explicit cutover list omits `flows`.
-Its IOC cache and device-identity lookups remain in CNPG.
+`DeviceRiskIocExposure` reads warehouse flows after cutover and otherwise finds
+no flow evidence; it never reads CNPG flows. Its IOC cache and device-identity
+lookups remain in CNPG.
 
-Whenever the warehouse is enabled, flow Stream Load success or durable
-quarantine is required before JetStream ACK, independently of the read-cutover
-list. Warehouse failures backpressure ingestion; JetStream retention bounds
-how long unacknowledged data remains available. CNPG inserts still occur, and
-redelivery uses stable identities for CNPG conflict handling and warehouse
-upserts.
+NetFlow, sFlow and IPFIX flows are stored only in the warehouse. EventWriter
+never writes them to CNPG: the CNPG `platform.ocsf_network_activity`
+hypertable receives no rows, and its retention ages out what it held. Flow
+Stream Load success or durable quarantine is required before JetStream ACK,
+independently of the read-cutover list. Warehouse failures backpressure
+ingestion; JetStream retention bounds how long unacknowledged data remains
+available, and redelivery reuses stable identities, so the warehouse upserts
+rather than duplicates.
+
+Without the warehouse, flows are not stored at all. The Helm chart refuses to
+render `flowCollector.enabled` unless `analytics.starrocks.enabled` is set.
+Flows that still arrive from another publisher are acknowledged without being
+decoded or stored, and EventWriter logs once per node that NetFlow ingestion
+requires StarRocks. No BGP observation is derived from them.
 
 Full-row ingestion and correlation updates carry agent and process attribution.
 The risk reader resolves device identity through `ocsf_agents` first, then the
@@ -112,13 +120,14 @@ The shipped Compose stack leaves the flow collector off unless you pass
 the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`) independently; set
 `STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry, and set
 `STARROCKS_ROOT_PASSWORD` in `.env` (the container refuses to start without it;
-see `README-Docker.md`). The profiles are independent: NetFlow collection without StarRocks is supported and
-stores flows on CNPG hypertables. Reading those flows back -- the dashboard
-NetFlow panel, `in:flows` -- requires the warehouse and the `flows` cutover;
-without it the read is refused rather than served from CNPG.
+see `README-Docker.md`). NetFlow requires the warehouse: start the `flows`
+profile together with `--profile starrocks` and `STARROCKS_ENABLED=true`.
+Without it EventWriter acknowledges flow batches without storing them, and the
+dashboard NetFlow panel and `in:flows` are refused.
 
 The trap, flow, and BMP collectors together start with
-`docker compose --profile network-ingest up -d`. Its bounded JetStream
+`STARROCKS_ENABLED=true docker compose --profile starrocks --profile network-ingest up -d`.
+Its bounded JetStream
 reservations are KV 2 GiB + objects 2 GiB + events 2 GiB + flows 1 GiB + BMP
 128 MiB = 7.125 GiB. That leaves 896 MiB of account headroom under the generated
 8 GiB platform-account quota, which itself stays below the NATS server's 10G
@@ -469,7 +478,10 @@ that file. If you abandon the downgrade, re-apply the current chart/values so th
 current image rehomes the subjects forward to `flows`; do not leave the live
 ConfigMap different from the desired release.
 
-### 5. Query Database
+### 5. Query the Warehouse
+
+Run these queries on the StarRocks Frontend (MySQL protocol, port 9030),
+using your configured warehouse database (`serviceradar` by default).
 
 ```sql
 -- Check recent flows
@@ -482,7 +494,7 @@ SELECT
   bytes_total,
   packets_total
 FROM ocsf_network_activity
-WHERE time > NOW() - INTERVAL '5 minutes'
+WHERE time > NOW() - INTERVAL 5 MINUTE
 ORDER BY time DESC
 LIMIT 20;
 
@@ -492,7 +504,7 @@ SELECT
   COUNT(*) as flow_count,
   SUM(bytes_total) as total_bytes
 FROM ocsf_network_activity
-WHERE time > NOW() - INTERVAL '1 hour'
+WHERE time > NOW() - INTERVAL 1 HOUR
 GROUP BY src_endpoint_ip
 ORDER BY total_bytes DESC
 LIMIT 10;

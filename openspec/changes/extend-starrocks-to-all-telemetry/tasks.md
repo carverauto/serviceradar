@@ -33,8 +33,8 @@
     `{:error, :starrocks_required}` instead of reading CNPG flows; the CNPG fallbacks and their
     helpers are deleted. `DeviceRiskIocExposure` gained a warehouse flow page with the same
     keyset paging contract (over `time` and the flow row key) selected by
-    `Readers.backend(:flows) == :starrocks`, keeping the CNPG query for installations without
-    the warehouse; the hostile-IOC join and the device identity stay CNPG lookups
+    `Readers.backend(:flows) == :starrocks`; its CNPG flow query was later removed (5.2, flows),
+    so without the warehouse it finds no flow evidence; the hostile-IOC join and the device identity stay CNPG lookups
     (`ip_threat_intel_cache` is not in the catalog allowlist; the warehouse flow row carries the
     attributed flow's `agent_id`, so device is resolved agent first via `ocsf_agents` and falls
     back to `device_identifiers` on the destination IP). Tests:
@@ -47,7 +47,7 @@
     required-before-ACK before any cutover, outage-redelivery and idempotent
     replay (stable record ids); `EnvTest` and the elx production runtime config
     test pin the default cutover set; `DeviceRiskIocExposureRoutingTest` pins
-    the warehouse page, the CNPG fallback for a disabled warehouse, the strict
+    the warehouse page, no flow read at all for a disabled warehouse, the strict
     window bound, the dropped un-enriched in-window row, and retention of a
     maximum-risk contribution from full and partial encodings for an agent-only
     device. `FlowAttributionTest` executes the matching SQL and checks the
@@ -279,6 +279,18 @@
   source facts, log promotion, MTR traces including `AdhocScan`) skips the CNPG insert. Remove `shadowDatasets` and
   `cutoverDatasets` from Helm, Compose and `Env`; `Readers` routes every dataset to the warehouse
   when enabled.
+  - [x] Flows. `Processors.Flows` wrote every batch to the CNPG hypertable first and then to
+    the warehouse (`Destination.ack_cnpg_batch/4`), so a StarRocks installation kept filling
+    `platform.ocsf_network_activity`. It now Stream Loads through `Destination.persist_warehouse/3`
+    only; `ack_cnpg_batch/4` and the flows required-delivery special case are deleted. Without
+    StarRocks a flow batch is acknowledged without being decoded or stored and EventWriter logs
+    once per node that NetFlow requires StarRocks; the chart refuses `flowCollector.enabled`
+    without `analytics.starrocks.enabled`. `DeviceRiskIocExposure` lost its CNPG flow query and
+    the unused Go `InsertOCSFNetworkActivity` writer is deleted. Flow reads already refuse without
+    the warehouse. Test: `FlowsWarehouseOnlyDBTest` (no CNPG flow row with StarRocks enabled;
+    acknowledged, stored nowhere and logged once without it). The CNPG flow table, its hourly
+    continuous aggregates, retention reconcile and cold-tier registry entry are kept; dropping
+    them is a separate, approved change.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it has a warehouse implementation.
@@ -315,5 +327,6 @@
 - [ ] 5.8 Operator docs and CHANGELOG (BREAKING): enabling StarRocks makes every dataset
   warehouse-only at once; readers without a warehouse implementation show "unavailable"; disabling StarRocks resumes
   CNPG writes without the history written meanwhile; JetStream retention bounds a warehouse
-  outage. Update `docs/docs/helm-configuration.md`, `docs/docs/netflow.md` and
-  `README-Docker.md`, which describe CNPG as the flow write target.
+  outage. `docs/docs/helm-configuration.md`, `docs/docs/netflow.md`,
+  `docs/docs/data-pipeline.md` and `README-Docker.md` name StarRocks as the only
+  flow store. CHANGELOG still records the earlier read-cutover notes.

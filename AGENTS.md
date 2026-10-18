@@ -125,11 +125,15 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   Never both at once, and never neither: CNPG stays a complete telemetry backend
   for installations without StarRocks, so do not remove a CNPG telemetry writer,
   reader or table when adding its warehouse counterpart.
-  The approved exception is flow and process-attribution reads: `in:flows` and
-  `in:attributed_flows` require StarRocks and return
+  The approved exception is flows: NetFlow, sFlow, IPFIX and process
+  attribution are stored only in StarRocks, with no CNPG writer or reader.
+  `in:flows` and `in:attributed_flows` require StarRocks and return
   `{:error, :starrocks_required}` without it. Their UI must report that state
-  rather than read legacy CNPG flow rows. See
-  `openspec/changes/move-flow-attribution-to-starrocks` and commit `a1c9468b95`.
+  rather than read legacy CNPG flow rows. Without StarRocks, the chart refuses
+  to render the flow collector, and EventWriter acknowledges flow batches
+  without storing them. Do not add a CNPG flow write path back. See
+  `openspec/changes/move-flow-attribution-to-starrocks`, commit `a1c9468b95`,
+  and `openspec/changes/add-starrocks-telemetry-analytics`.
   Collectors and agents MUST NOT write metrics straight to CNPG or StarRocks, and
   core MUST NOT ingest a metric path that bypassed JetStream. The legacy
   agent→gateway→core gRPC `StreamStatus` path that writes sysmon metrics directly

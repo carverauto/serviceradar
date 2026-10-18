@@ -78,7 +78,6 @@ RELEASE_IDENTIFIER_CARDINALITY = (
     / "elixir/serviceradar_core/test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs"
 )
 FIXED_EXTERNAL_RESOURCE_PATHS = (
-    "test/integration/netflow_ingestion_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 )
 SERIAL_COMPOSITE_CHECK_SRCS = (

@@ -1,25 +1,22 @@
-suite: netflow renders without starrocks
+suite: netflow requires starrocks
 templates:
   - flow-collector.yaml
 tests:
-  # NetFlow collection must stay deployable on a CNPG-only install: the
-  # collector publishes to JetStream and EventWriter persists to CNPG
-  # hypertables whether or not the warehouse is present.
-  - it: renders the collector when starrocks is disabled
+  # Flows are stored only in StarRocks; EventWriter has no CNPG flow write.
+  # A collector without the warehouse would deliver flows that are dropped,
+  # so the chart refuses to render it. The bootstrap Job's refusal is in
+  # flow_collector_bootstrap_test.yaml: a fail in one template of a suite
+  # leaves the others with no failed document.
+  - it: refuses the collector when starrocks is disabled
+    template: flow-collector.yaml
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: false
-    documentSelector:
-      path: kind
-      value: Deployment
     asserts:
-      - equal:
-          path: kind
-          value: Deployment
-      - equal:
-          path: metadata.name
-          value: serviceradar-flow-collector
+      - failedTemplate:
+          errorMessage: "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow, sFlow and IPFIX flows are stored only in StarRocks"
   - it: does not deploy the collector when flowCollector.enabled is false
+    template: flow-collector.yaml
     set:
       analytics.starrocks.enabled: true
       analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
@@ -27,7 +24,8 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
-  - it: renders the collector when starrocks is also enabled
+  - it: renders the collector when starrocks is enabled
+    template: flow-collector.yaml
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true

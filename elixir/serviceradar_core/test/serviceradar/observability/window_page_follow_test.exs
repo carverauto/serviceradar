@@ -1,6 +1,10 @@
 defmodule ServiceRadar.Observability.WindowPageFollowTest do
-  use ExUnit.Case, async: true
+  # Not async: the hostile-IOC page test writes the StarRocks cutover list.
+  # `DeviceRiskIocExposure.flow_history_backend/0` reads that application env,
+  # which every other test in the node shares.
+  use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Inventory.DeviceRiskIocExposure
   alias ServiceRadar.Observability.CapacityForecasting.Source, as: CapacitySource
   alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityWorker
@@ -210,6 +214,15 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
   end
 
   test "hostile IOC flow scan keeps the row that arrives on the next offset page" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+    on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, prev) end)
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
     flows = [
       flow("sr:device-a", "192.0.2.1"),
       flow("sr:device-b", "192.0.2.2")
@@ -218,6 +231,13 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
     assert {:ok, %{devices: 2, hits: 2}} =
              DeviceRiskIocExposure.evaluate(
                flow_limit: 1,
+               hostile_ioc_ips: fn _as_of ->
+                 {:ok,
+                  %{
+                    "192.0.2.1" => %{sources: ["fixture"], severity: 4},
+                    "192.0.2.2" => %{sources: ["fixture"], severity: 4}
+                  }}
+               end,
                query_flow_page: fn _opts, page_size, after_key ->
                  flows
                  |> Enum.drop_while(fn flow ->

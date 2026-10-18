@@ -17,6 +17,14 @@ templates:
   - templates/bmp-collector.yaml
 release:
   namespace: serviceradar-test
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
   # --- one NATS server: every replica count renders as 1 ----------------------
   - it: caps the datasvc KV and object store replicas on one server

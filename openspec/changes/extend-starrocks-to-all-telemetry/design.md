@@ -18,9 +18,10 @@ orders of magnitude over every other dataset, which is why they moved to the war
   the warehouse only; no chart that silently shows different numbers after a reader moves; CNPG reduced to
   transactional state; maintenance safe on a modest warehouse.
 - Non-Goals: moving inventory, identity, credentials, configuration, alert state or jobs;
-  replacing the JetStream-first single-owner write path; making StarRocks mandatory (an
-  installation without it keeps CNPG telemetry, with the existing flow-serving
-  exception documented in [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery)).
+  replacing the JetStream-first single-owner write path; making StarRocks mandatory
+  for datasets other than flows (an installation without it keeps CNPG telemetry
+  except flows, which require StarRocks; see
+  [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery)).
 
 ## Decisions
 
@@ -28,12 +29,14 @@ orders of magnitude over every other dataset, which is why they moved to the war
 
 CNPG and the warehouse are both complete, supported telemetry backends; `analytics.starrocks.enabled`
 picks one. Enabled: EventWriter writes every append-only telemetry dataset to the warehouse and
-nothing to CNPG, and every reader reads the warehouse. Disabled: everything is written to and read
-from CNPG, as today. Never both. There is no per-dataset
+nothing to CNPG, and every reader reads the warehouse. Disabled: every dataset except flows
+is written to and read from CNPG. Flows are never written to or read from CNPG; without the
+warehouse they are not stored
+([NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery)). Never both. There is no per-dataset
 shadow list, no per-dataset cutover list and no soak. `shadowDatasets` and `cutoverDatasets`
 are removed from Helm, Compose and `ServiceRadar.Analytics.StarRocks.Env`; the reader and
-destination code that branches on them (`Readers.mode_for/1`, `Destination.persist_after_cnpg/3`,
-`ack_cnpg_batch/4`) collapses to one branch on `enabled`.
+destination code that branches on them (`Readers.mode_for/1`, `Destination.persist_after_cnpg/3`)
+collapses to one branch on `enabled`.
 
 This replaces the earlier fixed order (shadow, parity, cutover, consumers migrated, soak, stop
 writes, retirement hold, drop). The dual-write existed to make a cutover reversible by keeping
@@ -44,8 +47,9 @@ Consequences, accepted deliberately:
 
 - **No per-dataset rollback.** With CNPG no longer written, returning one dataset's reads to CNPG
   would serve history that stopped when the warehouse was enabled. So the switch does not exist.
-  Disabling StarRocks entirely resumes CNPG writes; CNPG then lacks everything written while the
-  warehouse was on, and the operator documentation states it.
+  Disabling StarRocks entirely resumes CNPG writes for every dataset except flows; flows stop
+  being stored. CNPG then lacks everything written while the warehouse was on, and the operator
+  documentation states it.
 - **Readers without a warehouse implementation show nothing.** Writes stop for every dataset at
   once, including datasets whose readers only query CNPG today (OTel, MTR, BMP, service
   status, and the direct readers inventoried in task 5.1). Until a reader has a warehouse
@@ -55,12 +59,13 @@ Consequences, accepted deliberately:
 - **A warehouse outage is a telemetry outage.** A failed load is not acknowledged and JetStream
   redelivers; there is no CNPG fallback write. Stream retention bounds how long an outage can
   last without loss, and is stated in operator docs.
-- **CNPG is not ripped out.** Except for the warehouse-only flow-serving surfaces
-  documented in [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery),
-  writers and readers keep their CNPG implementation next to the
-  warehouse one, selected by the switch, and no migration drops a CNPG telemetry table, continuous
-  aggregate or policy: installations without StarRocks depend on them, and the schema is shared.
-  On a StarRocks installation those tables simply stop receiving rows and retention ages them out.
+- **CNPG is not ripped out.** Flows have no CNPG writer or reader
+  ([NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery)). Every other writer and
+  reader keeps its CNPG implementation next to the warehouse one, selected by the switch, and no
+  migration drops a CNPG telemetry table, continuous aggregate or policy: installations without
+  StarRocks depend on them, and the schema is shared. On a StarRocks installation those tables
+  simply stop receiving rows and retention ages them out. The CNPG flow table stays until a
+  separate drop.
 
 Parity (Decision 2) still gates each warehouse reader: it proves a reader's queries answer the
 same as CNPG's before that reader ships. It no longer gates writes.

@@ -22,7 +22,7 @@
 - [x] 3.1 Pin compatible StarRocks/operator/CRDs/images, architectures and resource profiles; approve ownership, RPO/RTO and cost envelope.
 - [x] 3.2 Add Bazel-managed synthetic shared-data and shared-nothing test environments and versioned schema/migration targets; no new shell scripts.
 - [x] 3.3 Add opt-in Helm/operator integration and Compose profile, internal transport authentication, scoped roles/secrets, redirect policy and dedicated object storage configuration.
-  - `analytics.starrocks.enabled` warehouses flows/metrics/logs/events. `flowCollector.enabled` is independent and works without StarRocks. Compose: `--profile starrocks` warehouse only; `--profile flows` collector only; combine them for both. Off StarRocks means remaining telemetry on CNPG hypertables. `cutoverDatasets` stays empty.
+  - `analytics.starrocks.enabled` warehouses flows/metrics/logs/events. `flowCollector.enabled` requires StarRocks and the chart refuses to render it otherwise; flows are never written to CNPG. Compose: `--profile starrocks` warehouse only; combine it with `--profile flows` for NetFlow. Off StarRocks means remaining telemetry on CNPG hypertables. `cutoverDatasets` stays empty.
 - [x] 3.3a Apply the versioned StarRocks DDL automatically at core startup (`SchemaMigrator`): version ledger in the warehouse, PostgreSQL advisory lock across replicas, adoption of pre-ledger warehouses, replication sized to live backends. Removes the Compose `starrocks-init` shell loop and the hand-apply runbook; Helm installs and upgrades need no operator DDL.
 - [ ] 3.4 Prove FE metadata persistence, CN cache loss, upgrades, object outage and full restore; publish minimum supported installation profiles.
   - Lab shared-nothing limits recorded: FE follower restart PASS (3 Alive, invented rows survived). CN cache loss FAIL (enabledCn false). Object outage FAIL (no bucket). Full restore FAIL (not executed). Upgrade FAIL (already 3.5.21). Demo/serviceradar untouched.
@@ -31,7 +31,7 @@
 - [x] 4.1 Inventory every dataset writer, reader, Ash resource, background consumer and current-state side effect; finalize flows/metrics identity, partition and retention contracts.
 - [x] 4.2 Add the EventWriter destination seam preserving decoding/enrichment, demand isolation and nonnumeric/current-state writes.
 - [x] 4.3 Implement bounded Stream Load, stable identities/labels, result reconciliation, per-destination progress, explicit poison quarantine and safe ACK handling.
-  - `Destination.ack_cnpg_batch/4` requires Stream Load Success or durable quarantine when `Readers.mode_for/1` is starrocks; otherwise shadow stays best-effort. Helm cutover remains empty.
+  - `Destination.persist_after_cnpg/3` requires Stream Load Success or durable quarantine when `Readers.mode_for/1` is starrocks; otherwise shadow stays best-effort. Flows never take this path: they are warehouse-only through `Destination.persist_warehouse/3`. Helm cutover remains empty.
 - [x] 4.4 Add flow attribution update events through JetStream and monotonic partial-update semantics; test redelivery without enrichment loss.
   - StarRocks shadow is `Rows.encode(:flow_attribution)` + Stream Load `partial_update`/`columns`; `process_batch` compares incoming `attribution_version` to stored (or in-batch max) and must not persist nil `bytes_in`.
 - [x] 4.5 Prove crash/retry/batch-regrouping/label-expiry/partial-failure behavior and late-event expiry policy with synthetic real-database tests.

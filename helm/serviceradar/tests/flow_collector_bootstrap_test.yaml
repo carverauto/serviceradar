@@ -1,7 +1,22 @@
 suite: flow collector bootstrap job
 templates:
   - flow-collector-bootstrap-job.yaml
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
+  - it: refuses to render when starrocks is disabled
+    set:
+      flowCollector.enabled: true
+      analytics.starrocks.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow, sFlow and IPFIX flows are stored only in StarRocks"
   - it: runs the collector in bootstrap-stream mode as a pre-upgrade hook
     set:
       flowCollector.enabled: true

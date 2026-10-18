@@ -18,10 +18,9 @@ BGP (Border Gateway Protocol) information is collected from network devices expo
 ## Architecture
 
 ```
-Network Devices     Flow Collector         NATS JetStream       EventWriter        CNPG
-    (BGP-enabled    →  (flow collector) →  (flows.raw.netflow) → (Elixir)     →   (Postgres + Timescale + AGE)
-     v9/IPFIX)                                                                       ├─ ocsf_network_activity
-                                                                                     └─ bgp_routing_info
+Network Devices     Flow Collector         NATS JetStream       EventWriter        StarRocks + CNPG
+    (BGP-enabled    →  (flow collector) →  (flows.raw.netflow) → (Elixir)     →   ├─ ocsf_network_activity (StarRocks)
+     v9/IPFIX)                                                                       └─ bgp_routing_info (CNPG)
 ```
 
 The BGP data model is **protocol-agnostic**. BGP data is collected from:

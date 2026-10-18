@@ -2,9 +2,17 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   @moduledoc """
   Processor for flow telemetry (sFlow, NetFlow, IPFIX) in OCSF Network Activity format.
 
-  Parses flow data from NATS JetStream and inserts them into
-  the `ocsf_network_activity` hypertable using OCSF v1.3.0 Network Activity
-  schema (class_uid: 4001) with activity_id: 6 (Traffic).
+  Parses flow data from NATS JetStream into OCSF v1.3.0 Network Activity rows
+  (class_uid: 4001, activity_id: 6 Traffic) and Stream Loads them into the
+  StarRocks `ocsf_network_activity` table.
+
+  ## Storage
+
+  Flows are stored in StarRocks or not at all. There is no CNPG flow write:
+  the CNPG `platform.ocsf_network_activity` hypertable receives no rows from
+  this processor. A failed warehouse load fails the batch, so JetStream
+  redelivers it. Without StarRocks a batch is acknowledged without being
+  decoded or stored, and the refusal is logged once per node.
 
   ## OCSF Classification
 
@@ -27,9 +35,8 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias Flowpb.AttributedFlowMessage
   alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
-  alias ServiceRadar.Analytics.StarRocks.Identity
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.BGP.Ingestor
-  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.FlowAppClassifier
   alias ServiceRadar.EventWriter.FlowEnrichment
@@ -40,6 +47,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   require Logger
 
   @attributed_flow_event_type "attributed_flow"
+  @starrocks_required_logged {__MODULE__, :starrocks_required_logged}
   @attributed_flow_subject_prefix "flow.attributed."
 
   # Attribution payload caps in BYTES (Mi-85, proto/flow/flow.proto:132-142).
@@ -75,10 +83,23 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
 
   @impl true
   def process_batch(messages) do
+    if Destination.enabled?() do
+      persist_batch(messages)
+    else
+      log_starrocks_required()
+      {:ok, 0}
+    end
+  rescue
+    e ->
+      Logger.error("NetFlow OCSF batch persist failed: #{inspect(e)}")
+      {:error, e}
+  end
+
+  defp persist_batch(messages) do
     processed_messages = build_processed_messages(messages)
     rows = Enum.map(processed_messages, & &1.row)
 
-    if Enum.empty?(rows) do
+    if rows == [] do
       {:ok, 0}
     else
       with {:ok, count} <- insert_rows(rows) do
@@ -87,10 +108,19 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
         {:ok, count}
       end
     end
-  rescue
-    e ->
-      Logger.error("NetFlow OCSF batch insert failed: #{inspect(e)}")
-      {:error, e}
+  end
+
+  # Logged once per node, not per batch: an installation without the
+  # warehouse that still receives flows would otherwise log every batch.
+  defp log_starrocks_required do
+    if !:persistent_term.get(@starrocks_required_logged, false) do
+      :persistent_term.put(@starrocks_required_logged, true)
+
+      Logger.warning(
+        "NetFlow ingestion requires StarRocks: analytics.starrocks is disabled, " <>
+          "so flow batches are acknowledged without being stored"
+      )
+    end
   end
 
   @impl true
@@ -116,19 +146,16 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     end
   end
 
-  def insert_rows(rows) when is_list(rows) do
-    if Enum.empty?(rows) do
-      {:ok, 0}
-    else
-      ServiceRadar.Analytics.StarRocks.Destination.ack_cnpg_batch(
-        :flows,
-        rows,
-        &insert_netflow_rows/1
-      )
+  # Private functions
+
+  # Load Success or durable quarantine is `{:ok, count}`; anything else is
+  # `{:error, _}`, so the pipeline fails the JetStream acknowledgement.
+  defp insert_rows(rows) do
+    with {:ok, %{loaded: count}} <- Destination.persist_warehouse(:flows, rows) do
+      FlowPubSub.broadcast_ingest(%{count: count})
+      {:ok, count}
     end
   end
-
-  # Private functions
 
   defp build_processed_messages(messages) do
     FlowEnrichment.with_provider_cache(fn ->
@@ -298,26 +325,6 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
         Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
         nil
     end
-  end
-
-  defp insert_netflow_rows(rows) do
-    # DB connection's search_path determines the schema. CNPG computes `app`
-    # at query time (FLOW_APP_EXPR); the ingest-time label is a warehouse
-    # column only, so it never reaches the CNPG insert's column set.
-    {count, _} =
-      BulkInsert.insert_all(
-        table_name(),
-        Enum.map(rows, fn row ->
-          row
-          |> Map.delete(:app)
-          |> Map.put(:flow_uid, Identity.record_id(:flows, row))
-        end),
-        on_conflict: :nothing,
-        returning: false
-      )
-
-    FlowPubSub.broadcast_ingest(%{count: count})
-    {:ok, count}
   end
 
   defp record_netflow_interface_pairs(rows) do

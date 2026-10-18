@@ -7,7 +7,7 @@ title: Data Pipeline
 ServiceRadar uses two primary data paths:
 
 - Agent ingestion (edge status, discovery, sync) via mTLS gRPC to `agent-gateway`
-- Bulk telemetry ingestion (logs/flows/etc.) via NATS JetStream streams into CNPG
+- Bulk telemetry ingestion via NATS JetStream. EventWriter persists logs and the other CNPG telemetry datasets. NetFlow is stored only in StarRocks; see [NetFlow](./netflow.md#flow-cutover-and-delivery).
 
 This page is intentionally high-level. It focuses on the mental model and the moving parts you will see when debugging.
 
@@ -29,17 +29,21 @@ flowchart LR
 
   CNPG["CNPG\n(Postgres + Timescale + AGE)"]
 
+  Warehouse["StarRocks\n(flows)"]
+
   Syslog -->|"logs.syslog"| NATS
   Trapd -->|"logs.snmp"| NATS
   Netflow -->|"flows.raw.>"| NATS
 
   NATS -->|"logs.{syslog,snmp,otel}"| Core --> CNPG
-  NATS -->|"flows.raw.>"| Core --> CNPG
+  NATS -->|"flows.raw.>"| Core --> Warehouse
 ```
 
 `serviceradar_core` is the bulk-ingestion writer for these streams. It runs the
-Zen decision rules in-process for log normalization and persists records into
-CNPG. EventWriter's logs consumer promotes logs that match an event rule into
+Zen decision rules in-process for log normalization and persists log records
+into CNPG. Flow batches are Stream Loaded to StarRocks and are not written to
+CNPG; see [NetFlow](./netflow.md#flow-cutover-and-delivery). EventWriter's logs
+consumer promotes logs that match an event rule into
 OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
@@ -73,10 +77,10 @@ datasets, including BMP routing events -- written by the same EventWriter path.
 The BMP table and retention contract is in `k8s/starrocks/README.md`. CNPG
 remains the system of record for inventory,
 configuration, credentials and current alert state, and keeps serving scalar
-metrics, logs and event history until each is explicitly cut over. Flows are the
-exception: they are written to CNPG but served only from the warehouse, so
-`in:flows` and the NetFlow dashboard are refused until `flows` is cut over. See
-[NetFlow](./netflow.md) for the flow path and
+metrics, logs and event history until each is explicitly cut over. Flows are
+stored only in StarRocks and are never written to CNPG. Without the warehouse
+they are not stored, and `in:flows` and the NetFlow dashboard are refused. See
+[NetFlow](./netflow.md#flow-cutover-and-delivery) and
 [Helm Deployment and Configuration](./helm-configuration.md) for the chart
 values and where the warehouse install is documented.
 

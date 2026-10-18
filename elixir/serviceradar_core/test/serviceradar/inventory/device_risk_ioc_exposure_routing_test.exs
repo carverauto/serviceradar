@@ -11,10 +11,6 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
 
   @flow_columns ~w(hostile_ip dst_ip dst_port comm cmdline agent_id observed_at row_key)
 
-  @cnpg_flow_columns ~w(
-    device_uid agent_id hostile_ip dst_ip dst_port comm cmdline observed_at ioc_sources ioc_severity row_key
-  )
-
   setup do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
     on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, prev) end)
@@ -396,86 +392,27 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     refute_received :ioc_lookup
   end
 
-  # The CNPG fallback arm. A warehouse-disabled installation (or an operator's
-  # explicit cutover list that omits flows) keeps the risk read on the CNPG
-  # query, which resolves the device agent-first inside the SQL: an
-  # agent-only device -- one whose `dst_endpoint_ip` is not a
-  # `device_identifiers` row -- is detected there even though warehouse rows
-  # written before `agent_id` enrichment cannot see it.
-  test "a warehouse-disabled installation keeps the risk read on CNPG with agent-first resolution",
-       %{
-         prev: prev
-       } do
+  # Flows are stored only in the warehouse. Without it there is no flow
+  # history to correlate: neither store is queried and nothing is scored.
+  test "without the warehouse no flow history is read and no device is scored", %{prev: prev} do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
       prev |> Keyword.put(:enabled, false) |> Keyword.put(:cutover_datasets, [])
     )
 
-    parent = self()
-    as_of = ~U[2026-08-15 12:00:00Z]
-
-    cnpg_query = fn sql, params ->
-      send(parent, {:cnpg_sql, sql, params})
-
-      {:ok,
-       %{
-         columns: @cnpg_flow_columns,
-         rows: [
-           # The SQL resolved this device through ocsf_agents: its dst IP has
-           # no device_identifiers row.
-           [
-             "sr:device-from-agent",
-             "agent-001",
-             "203.0.113.9",
-             "10.0.0.8",
-             22,
-             "sshd",
-             nil,
-             as_of,
-             ["alienvault_otx"],
-             4,
-             "rk-1"
-           ]
-         ]
-       }}
-    end
-
-    assert {:ok, %{devices: 1, hits: 1}} =
+    assert {:ok, %{devices: 0, hits: 0}} =
              DeviceRiskIocExposure.evaluate(
-               as_of: as_of,
-               cnpg_query: cnpg_query,
-               query: fn _sql -> flunk("the warehouse must not be queried before the cutover") end,
-               query_findings: fn device_uids, _opts ->
-                 assert device_uids == ["sr:device-from-agent"]
-
-                 [
-                   %{
-                     device_uid: hd(device_uids),
-                     cve_id: "CVE-2026-0001",
-                     kev: true,
-                     cvss: 9.8,
-                     package: "openssh"
-                   }
-                 ]
-               end,
+               as_of: ~U[2026-08-15 12:00:00Z],
+               hostile_ioc_ips: fn _as_of -> flunk("no flows to match IOCs against") end,
+               query: fn _sql -> flunk("the warehouse is disabled") end,
+               query_findings: fn _device_uids, _opts -> [] end,
                query_active_contribution_uids: fn -> [] end,
                open_alert?: fn _source_id -> false end,
                upsert_contribution: fn _contribution, _opts -> :ok end,
                emit_event: fn _payload -> :ok end,
                create_alert: fn _attrs -> {:ok, %{id: "alert"}} end
              )
-
-    assert_received {:cnpg_sql, sql, params}
-
-    assert sql =~ "FROM platform.ocsf_network_activity"
-    assert sql =~ "LEFT JOIN platform.ocsf_agents"
-    assert sql =~ "COALESCE(a.device_uid, di.device_id)"
-    refute sql =~ "serviceradar.ocsf_network_activity"
-
-    # The CNPG window is [as_of - window, as_of], same bounds the warehouse
-    # page enforces after the cutover.
-    assert [^as_of, 3600, _page_size, nil, nil] = params
   end
 
   test "the warehouse window is strictly bounded by the risk lookback", %{prev: prev} do

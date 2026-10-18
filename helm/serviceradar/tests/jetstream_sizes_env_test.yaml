@@ -15,6 +15,14 @@ templates:
   - templates/bmp-collector.yaml
 release:
   namespace: serviceradar-test
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
   - it: renders every EventWriter stream, fallback and the threat-intel size into core
     template: templates/core.yaml

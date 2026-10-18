@@ -128,7 +128,7 @@ page, `FlowAttribution.Correlation`, the netflow, retrohunt, exporter cache, IP 
 endpoint scan workers, the dashboard throughput sparkline
 (`TrafficSparklines.warehouse_traffic_rows/2`), the device Flows-tab presence probes
 (`DeviceLive.FlowData`), and `DeviceRiskIocExposure` (warehouse flow page when
-`Readers.backend(:flows) == :starrocks`, CNPG kept otherwise). MTR: SRQL MTR, `MtrData`,
+`Readers.backend(:flows) == :starrocks`, no flow read otherwise; its CNPG query is removed). MTR: SRQL MTR, `MtrData`,
 dashboard MTR card and sparkline, `MtrTrace`,
 `MtrCompare`. OTel metrics (3.1): SRQL `otel_metrics`/`otel_metric_points` and every page using
 them (logs page metrics tab and OTLP view, `MetricLive.Show`, Analytics slowest spans,

@@ -8,8 +8,10 @@
 
 ServiceRadar has **two parallel planes** that both feed the UI:
 
-1. **Bulk telemetry plane** — metrics/logs/events/flows ride **NATS JetStream** into
-   `serviceradar_core`, which is the *sole* bulk writer to CNPG.
+1. **Bulk telemetry plane** — metrics, logs, events and flows ride **NATS JetStream** into
+   `serviceradar_core`, the bulk writer. Flows are stored only in StarRocks
+   ([NetFlow](../../docs/docs/netflow.md#flow-cutover-and-delivery)). Other telemetry is written
+   to CNPG unless that dataset's warehouse path is the active store.
 2. **Control / coordination plane** — `agent-gateway`, `core`, and `web-ng` form one
    **Erlang (ERTS) mTLS cluster** and coordinate live status/config over RPC + Phoenix PubSub,
    *not* NATS. The UI gets history from CNPG and live changes from PubSub.
@@ -201,7 +203,10 @@ Foundational migrations:
 | `cpu_cluster_metrics` (`20260613030000`) | — | aggregated cluster CPU |
 | `capacity_forecasts` (`20260612080000`) | `(forecasted_at, resource_key, metric_name, horizon_seconds)` | linear-model capacity projections: slope, projected_value/exhaustion_at, confidence, status |
 
-`netflow_metrics` was **dropped** (`20260403191500`); flow telemetry now lives in `ocsf_network_activity`.
+`netflow_metrics` was **dropped** (`20260403191500`). The CNPG hypertable
+`ocsf_network_activity` remains until a separate drop. New flow rows are stored only in
+StarRocks (`serviceradar.ocsf_network_activity`); see
+[NetFlow](../../docs/docs/netflow.md#flow-cutover-and-delivery).
 
 ### 5.3 Flow / NetFlow
 
