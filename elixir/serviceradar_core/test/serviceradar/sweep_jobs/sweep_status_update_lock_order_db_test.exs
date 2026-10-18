@@ -64,7 +64,12 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
       )
       |> Ash.create()
 
-    {devices, _reversed_pairs} = insert_high_uid_before_low_uid!(unique, partition, actor)
+    {devices, _reversed_pairs} =
+      insert_high_uid_before_low_uid!(
+        "platform.ocsf_devices",
+        &create_lock_order_device!(unique, partition, actor, &1)
+      )
+
     uids = Enum.map(devices, & &1.uid)
 
     [low_uid, high_uid] =
@@ -77,7 +82,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
 
     # Without this the sweep would reach the lower row first under any plan, and the case
     # could not tell ordered locking from plan-ordered locking.
-    physical_order = physical_uid_order(uids)
+    physical_order = physical_uid_order("platform.ocsf_devices", uids)
 
     assert physical_order == [[high_uid], [low_uid]],
            "setup must place the higher uid ahead of the lower one in physical order, got #{inspect(physical_order)}"
@@ -135,39 +140,54 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
     end
   end
 
-  test "insert_high_uid_before_low_uid!/3 recovers when the FSM wraps from a later block to an earlier block",
-       context do
-    filler_partition = "lock-order-fsm-#{System.unique_integer([:positive])}"
-    target_partition = "lock-order-fsm-target-#{System.unique_integer([:positive])}"
+  # A private temp table on one pinned connection gives a heap layout no other writer can
+  # disturb. Block 0 keeps room for one small row but not a large one, so the large fillers
+  # extend into block 1 and leave room for exactly one small row there. The first target
+  # insert takes that slot; the second asks the FSM, whose only candidate is block 0.
+  test "insert_high_uid_before_low_uid!/2 recovers when the FSM wraps from a later block to an earlier block" do
+    Repo.checkout(fn ->
+      Repo.query!("CREATE TEMP TABLE lock_order_fsm (uid text NOT NULL, pad text NOT NULL)")
 
-    on_exit(fn ->
-      cleanup!(filler_partition)
-      cleanup!(target_partition)
+      try do
+        Repo.query!("ALTER TABLE lock_order_fsm ALTER COLUMN pad SET STORAGE PLAIN")
+
+        for n <- 1..8, do: insert_fsm_row!("fill-#{n}", 900)
+        Repo.query!("DELETE FROM lock_order_fsm WHERE uid = 'fill-1'")
+        Repo.query!("VACUUM lock_order_fsm")
+
+        for n <- 9..11, do: insert_fsm_row!("fill-#{n}", 1900)
+        insert_fsm_row!("fill-12", 900)
+
+        assert fsm_blocks() == %{0 => 7, 1 => 4},
+               "setup must leave one small slot in block 0 and one in block 1, got #{inspect(fsm_blocks())}"
+
+        {[high, low], reversed_pairs} =
+          insert_high_uid_before_low_uid!("lock_order_fsm", fn seq ->
+            uid = "target-#{seq}"
+            insert_fsm_row!(uid, 900)
+            %{uid: uid}
+          end)
+
+        assert reversed_pairs == 1,
+               "the first target pair must land in reversed physical order, got #{reversed_pairs}"
+
+        assert high.uid > low.uid
+
+        assert Repo.query!(
+                 "SELECT uid FROM lock_order_fsm WHERE uid LIKE 'target-%' ORDER BY uid"
+               ).rows == [
+                 [low.uid],
+                 [high.uid]
+               ]
+
+        assert physical_uid_order("lock_order_fsm", [high.uid, low.uid]) == [
+                 [high.uid],
+                 [low.uid]
+               ]
+      after
+        Repo.query!("DROP TABLE IF EXISTS lock_order_fsm")
+      end
     end)
-
-    prepare_fsm_backward_jump!(filler_partition, context.actor)
-
-    {[high_device, low_device], reversed_pairs} =
-      insert_high_uid_before_low_uid!(
-        System.unique_integer([:positive]),
-        target_partition,
-        context.actor
-      )
-
-    assert reversed_pairs >= 1,
-           "setup must make the first target pair land in reversed physical order"
-
-    assert Repo.query!(
-             "SELECT uid FROM platform.ocsf_devices WHERE partition = $1 ORDER BY uid",
-             [target_partition]
-           ).rows == [[low_device.uid], [high_device.uid]]
-
-    assert high_device.uid > low_device.uid
-
-    assert physical_uid_order([high_device.uid, low_device.uid]) == [
-             [high_device.uid],
-             [low_device.uid]
-           ]
   end
 
   # Holds the lower row in its own transaction exactly as the identity fence does
@@ -301,43 +321,41 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
     end
   end
 
-  # Inserts descending-UID devices inside a single table-locked transaction until two
+  # Inserts descending-uid rows into `table` inside a single table-locked transaction until two
   # consecutive inserts satisfy `ctid(higher_uid) < ctid(lower_uid)`.
   #
-  # Locking `platform.ocsf_devices` prevents concurrent transactions from interleaving,
+  # Locking the table prevents concurrent transactions from interleaving,
   # but a single backend's first insert can still fill the last free slot on its cached
   # `smgr_targblock` (a higher block number) and force the second insert to query the
   # Free Space Map (FSM), which may return an earlier vacuumed block (`ctid(second) < ctid(first)`).
   # Keeping earlier attempts in the heap until a pair lands in increasing `ctid` order prevents
   # the FSM from reusing those slots and guarantees termination in well-founded `ctid` order.
-  defp insert_high_uid_before_low_uid!(unique, partition, actor) do
-    {:ok, devices} =
+  defp insert_high_uid_before_low_uid!(table, insert!) do
+    {:ok, result} =
       Repo.transaction(fn ->
-        Repo.query!("LOCK TABLE platform.ocsf_devices IN SHARE ROW EXCLUSIVE MODE")
-        first = create_lock_order_device!(unique, partition, actor, 999)
-        advance_until_high_before_low!(unique, partition, actor, first, 998, [])
+        Repo.query!("LOCK TABLE #{table} IN SHARE ROW EXCLUSIVE MODE")
+        advance_until_high_before_low!(table, insert!, insert!.(999), 998, [])
       end)
 
-    devices
+    result
   end
 
-  defp advance_until_high_before_low!(_unique, _partition, _actor, _prev, seq, _discarded)
-       when seq < 1 do
+  defp advance_until_high_before_low!(_table, _insert!, _prev, seq, _discarded) when seq < 1 do
     flunk("failed to place a higher uid before a lower uid in physical order after 999 attempts")
   end
 
-  defp advance_until_high_before_low!(unique, partition, actor, prev, seq, discarded) do
-    curr = create_lock_order_device!(unique, partition, actor, seq)
+  defp advance_until_high_before_low!(table, insert!, prev, seq, discarded) do
+    curr = insert!.(seq)
 
-    if physical_uid_order([prev.uid, curr.uid]) == [[prev.uid], [curr.uid]] do
+    if physical_uid_order(table, [prev.uid, curr.uid]) == [[prev.uid], [curr.uid]] do
       if discarded != [] do
         discarded_uids = Enum.map(discarded, & &1.uid)
-        Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [discarded_uids])
+        Repo.query!("DELETE FROM #{table} WHERE uid = ANY($1)", [discarded_uids])
       end
 
       {[prev, curr], length(discarded)}
     else
-      advance_until_high_before_low!(unique, partition, actor, curr, seq - 1, [prev | discarded])
+      advance_until_high_before_low!(table, insert!, curr, seq - 1, [prev | discarded])
     end
   end
 
@@ -365,70 +383,27 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
     end
   end
 
-  defp physical_uid_order(uids) do
-    Repo.query!(
-      "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) ORDER BY ctid",
-      [uids]
-    ).rows
+  defp physical_uid_order(table, uids) do
+    Repo.query!("SELECT uid FROM #{table} WHERE uid = ANY($1) ORDER BY ctid", [uids]).rows
   end
 
-  defp prepare_fsm_backward_jump!(partition, actor) do
-    unique = System.unique_integer([:positive])
-    Repo.query!("VACUUM platform.ocsf_devices")
+  defp insert_fsm_row!(uid, pad_bytes) do
+    Repo.query!("INSERT INTO lock_order_fsm (uid, pad) VALUES ($1, repeat('x', $2))", [
+      uid,
+      pad_bytes
+    ])
+  end
 
-    {next_seq, b2, b0_uids, b1_uid} =
-      fill_three_increasing_blocks!(unique, partition, actor, 999, [])
-
-    Repo.query!(
-      "DELETE FROM platform.ocsf_devices WHERE partition = $1 AND (ctid::text::point)[0]::int = $2",
-      [partition, b2]
+  defp fsm_blocks do
+    Map.new(
+      Repo.query!("SELECT (ctid::text::point)[0]::int, count(*) FROM lock_order_fsm GROUP BY 1").rows,
+      fn [
+           block,
+           count
+         ] ->
+        {block, count}
+      end
     )
-
-    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [[b1_uid | b0_uids]])
-
-    Repo.query!("VACUUM platform.ocsf_devices")
-
-    fn ->
-      insert_filler_with_block!(unique, partition, actor, next_seq)
-    end
-    |> Task.async()
-    |> Task.await(@wait_ms)
-  end
-
-  defp fill_three_increasing_blocks!(_unique, _partition, _actor, seq, _rows) when seq < 1 do
-    flunk("filler rows never spanned three increasing heap blocks")
-  end
-
-  defp fill_three_increasing_blocks!(unique, partition, actor, seq, rows) do
-    {_uid, b2} = row = insert_filler_with_block!(unique, partition, actor, seq)
-
-    case backward_jump_blocks(rows, b2) do
-      {b0_uids, b1_uid} -> {seq - 1, b2, b0_uids, b1_uid}
-      nil -> fill_three_increasing_blocks!(unique, partition, actor, seq - 1, rows ++ [row])
-    end
-  end
-
-  defp backward_jump_blocks(earlier_rows, b2) do
-    uids_by_block = Enum.group_by(earlier_rows, &elem(&1, 1), &elem(&1, 0))
-
-    with [b1 | lower] when b1 < b2 <- uids_by_block |> Map.keys() |> Enum.sort(:desc),
-         b0 when is_integer(b0) <- Enum.find(lower, &(length(uids_by_block[&1]) >= 3)) do
-      {Enum.take(uids_by_block[b0], 3), hd(uids_by_block[b1])}
-    else
-      _ -> nil
-    end
-  end
-
-  defp insert_filler_with_block!(unique, partition, actor, seq) do
-    device = create_lock_order_device!(unique, partition, actor, seq)
-
-    [[block]] =
-      Repo.query!(
-        "SELECT (ctid::text::point)[0]::int FROM platform.ocsf_devices WHERE uid = $1",
-        [device.uid]
-      ).rows
-
-    {device.uid, block}
   end
 
   # Everything the case commits hangs off its own partition, so cleanup needs no state from a
