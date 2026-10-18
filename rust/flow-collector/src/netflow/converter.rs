@@ -399,19 +399,21 @@ fn interface_index(bytes: &[u8]) -> Option<u32> {
 
 /// The sampling information elements of one flow or options record.
 ///
-/// Exporters express a rate several ways (RFC 5477, RFC 7015): directly as
-/// 1-in-N, as selected/skipped runs of packets or flows, as n out of a
-/// population of N, or as a probability.
+/// Exporters express a packet sampling rate several ways (RFC 5477, RFC 7015):
+/// directly as 1-in-N, as selected/skipped runs of packets, as n out of a
+/// population of N, or as a probability. Selected/skipped runs of flows are
+/// whole-flow selection, covered below, and are not a packet rate.
 ///
 /// Only packet sampling makes a record's counters a sample.
 ///
 /// Whole-flow selection keeps complete counters and publishes rate 1:
 /// `flowSelectorAlgorithm`, `selectorAlgorithm` 9, a hash selector whose
-/// `hashFlowDomain` is the flow key, and `samplingFlowInterval` /
-/// `samplingFlowSpacing`. Hash selection without `hashFlowDomain` emulates
-/// random packet sampling (RFC 5475 section 6.2) and uses the declared
-/// ratio. Property match (`selectorAlgorithm` 5) is a filter. A filter or
-/// hash selector that names no ratio declares no rate.
+/// `hashFlowDomain` is the flow key and that declares a ratio, and
+/// `samplingFlowInterval` / `samplingFlowSpacing`. Hash selection without
+/// `hashFlowDomain` emulates random packet sampling (RFC 5475 section 6.2)
+/// and uses the declared ratio. Property match (`selectorAlgorithm` 5) is a
+/// filter and declares no rate. A hash selector that names no ratio declares
+/// no rate.
 #[derive(Default)]
 struct SamplingFields {
     sampler_id: Option<u64>,

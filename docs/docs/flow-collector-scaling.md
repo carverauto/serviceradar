@@ -176,15 +176,18 @@ names no sampler and whose scope is an interface (IPFIX `ingressInterface` or
 index. A system or observation-domain scope stores the domain rate.
 
 Only packet sampling scales records. Flow selection
-(`flowSelectorAlgorithm`), flow-state selection (`selectorAlgorithm` 9),
-flow-key hashing (a hash selector, `selectorAlgorithm` 6-8, or a hash
-parameter, together with `hashFlowDomain`), and flow intervals
+(`flowSelectorAlgorithm`, any value), flow-state selection
+(`selectorAlgorithm` 9), flow-key hashing (a hash selector,
+`selectorAlgorithm` 6-8, or a hash parameter, together with `hashFlowDomain`
+and a declared ratio), and flow intervals
 (`samplingFlowInterval`/`samplingFlowSpacing`) export whole flows with
-complete counters. The collector publishes those flows with rate 1, whatever
-selection ratio the exporter declares, because analytics multiply each record
-by its rate and a whole-flow record multiplied by N reports N times the bytes
-that flow carried. The declared ratio is not stored, and that rate 1 replaces
-a packet sampling rate learned earlier for the same scope.
+complete counters. The collector publishes those records with rate 1. The
+declared ratio is not stored, and that rate 1 replaces a packet sampling rate
+learned earlier for the same scope. Analytics multiply each record by its
+rate, so a whole-flow record multiplied by N would report N times the bytes
+that flow carried. An explicit packet-sampling algorithm on the same record
+(`selectorAlgorithm` 1-4, or `samplingAlgorithm` / `samplerMode` 1-2) keeps
+the packet derivation.
 
 Hash-based selection over packet content (`selectorAlgorithm` 6-8 or hash
 parameters such as `hashIPPayloadOffset` and `hashIPPayloadSize`, with no
@@ -193,7 +196,8 @@ packet rate from the declared ratio, the same way it does for
 `selectorAlgorithm` 1-4.
 
 Property-match filtering (`selectorAlgorithm` 5) is a filter, not sampling.
-A filter or hash selector that declares no ratio (no sampling interval, size,
+By itself it stores no rate, including when that record also declares a
+ratio. A hash selector that declares no ratio (no sampling interval, size,
 population, probability, packet interval, or flow interval) stores no rate
 and does not vote. In a selection sequence, flows that name no selector keep
 the packet sampler's rate when the selectors that did declare a rate agree.

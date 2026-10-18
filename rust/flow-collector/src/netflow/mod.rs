@@ -1073,12 +1073,7 @@ mod tests {
         let filter = ipfix_sampling_options(8, &[ie(302, 8, 1), ie(304, 1, 5)]);
         let sampler = ipfix_sampling_options(
             8,
-            &[
-                ie(302, 8, 2),
-                ie(304, 1, 3),
-                ie(309, 4, 1),
-                ie(310, 4, 512),
-            ],
+            &[ie(302, 8, 2), ie(304, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
         );
         handler.parse_datagram(&filter, filter.len(), peer);
         handler.parse_datagram(&sampler, sampler.len(), peer);
