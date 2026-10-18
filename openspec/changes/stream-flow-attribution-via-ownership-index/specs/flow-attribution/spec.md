@@ -1,0 +1,386 @@
+## ADDED Requirements
+
+### Requirement: Agents Emit Socket Ownership Leases Instead Of Sightings
+Netprobe SHALL publish socket ownership as leases keyed on the local endpoint `(proto, local_ip, local_port)`, using the operations `OPEN`, `RENEW`, `CLOSE` and `SNAPSHOT`, and MUST NOT re-emit an unchanged lease on a heartbeat shorter than the renewal period.
+Each lease event SHALL carry `first_seen`, `last_seen`, a TTL, and the owner (`pid`, `tgid`, `uid`, `comm`, redacted command line, `container_id`, and workload identity when known). The renewal period SHALL default to 30 minutes and the TTL to twice the renewal period. An accepted connection whose owner matches its listener's owner MUST NOT produce its own lease; when the owners differ, netprobe SHALL emit an exact peer entry for that connection. Netprobe SHALL expand a wildcard listener into one lease per local address, SHALL publish its local addresses as address leases, and SHALL re-expand its wildcard leases when those addresses change. An `OPEN` and `CLOSE` for the same key within one agent batch window SHALL be coalesced into a single event. Netprobe SHALL send a `SNAPSHOT` of all active leases on start and after its agent reconnects. Netprobe SHALL enforce a per-agent event budget, MUST shed lease renewals before new outbound keys and MUST NOT shed listener or address leases, and SHALL count every shed event by reason. The command line SHALL be the redacted value capped at 256 bytes.
+
+#### Scenario: A busy listener is one lease
+- **GIVEN** a process listens on 192.0.2.10:443/TCP and accepts thousands of connections over 30 minutes from clients in 198.51.100.0/24
+- **AND** every accepted socket has the listener's owner
+- **WHEN** netprobe publishes ownership for that period
+- **THEN** it publishes one `OPEN` for the listener key and at most one `RENEW` per renewal period
+- **AND** it publishes no event per accepted connection
+
+#### Scenario: Accepted connection with a different owner
+- **GIVEN** a listener on 192.0.2.10:8080/TCP hands an accepted connection from 198.51.100.7:51000 to a process with a different tgid
+- **WHEN** netprobe resolves the accepted socket's owner
+- **THEN** it publishes an exact peer entry for `(tcp, 192.0.2.10, 198.51.100.7, 51000)` carrying that process as owner
+
+#### Scenario: Short-lived outbound connection costs one event
+- **GIVEN** a process opens a TCP connection from 192.0.2.20:40001 to 198.51.100.9:443 and closes it within one batch window
+- **WHEN** netprobe publishes the batch
+- **THEN** the batch carries one coalesced `OPEN` for key `(tcp, 192.0.2.20, 40001)` with `last_seen` and a closed flag
+- **AND** it carries no separate `CLOSE` for that key
+
+#### Scenario: Wildcard listener is expanded by the agent
+- **GIVEN** a host with addresses 192.0.2.30 and 192.0.2.31 runs a listener on 0.0.0.0:53/UDP
+- **WHEN** netprobe publishes the listener
+- **THEN** it publishes `bound` leases for `(udp, 192.0.2.30, 53)` and `(udp, 192.0.2.31, 53)`
+- **AND** when 192.0.2.31 is removed from the host it closes that address lease and the lease expanded from it
+
+#### Scenario: Agent exceeds its ownership budget
+- **GIVEN** an agent's ownership events exceed its configured per-agent budget
+- **WHEN** netprobe sheds events to stay within the budget
+- **THEN** it sheds renewals of known leases before new outbound keys
+- **AND** it does not shed listener or address leases
+- **AND** it increments a shed counter labeled by reason
+
+### Requirement: Socket Ownership Changes Flow Through JetStream
+Core SHALL publish every admitted ownership batch on JetStream subjects `flows.ownership.<bucket>`, where `<bucket>` is one of 256 fixed buckets derived from the hash of `(partition, ip)`, in a dedicated `flow_ownership` stream whose `max_age` is at least the lease renewal period. Core MUST NOT write ownership events directly to CNPG or StarRocks.
+The publisher SHALL derive node-SNAT peer entries from outbound `connected` leases whose local address is not one of the agent's registered node addresses, SHALL place each derived entry on the bucket of its own key, and SHALL keep the existing per-message row and byte caps. The `flow_ownership` stream subjects MUST NOT overlap the `flows` stream subjects.
+
+#### Scenario: Ownership batch is admitted
+- **GIVEN** an agent delivers an ownership batch through the `flow-attribution` source
+- **WHEN** core admits the batch
+- **THEN** it publishes each event on the bucket subject derived from the event's `(partition, ip)`
+- **AND** no CNPG or StarRocks table is written by core
+
+#### Scenario: Pod-local outbound connection produces a node-SNAT entry
+- **GIVEN** an agent whose registered node address is 192.0.2.40 reports an outbound lease from pod address 198.51.100.50:42000 to 192.0.2.99:5432/TCP
+- **WHEN** core publishes the lease
+- **THEN** it also publishes a peer entry `(tcp, 192.0.2.40, 192.0.2.99, 5432)` on the bucket of 192.0.2.40
+
+### Requirement: Endpoint Ownership Index Is Keyed Sharded And Bounded
+The system SHALL maintain an in-memory endpoint ownership index that maps endpoint keys `(partition, proto, ip, port)` and peer keys `(partition, proto, ip, remote_ip, remote_port)` to a validity history of at most four leases per key, plus an address presence count per `(partition, ip)`, fed only from the `flow_ownership` stream.
+Each lease SHALL reference an interned owner record. Workload identity SHALL be resolved once per owner record when the record is created, and identity carried on the event SHALL take precedence. A lookup at time T SHALL return the lease whose validity interval contains T within the configured skew tolerance (default 5 seconds). When more than one lease qualifies, the lookup SHALL choose deterministically (container id present, then most recent `first_seen`, then `agent_id`, then `pid`) and SHALL report the result as ambiguous. Closed leases SHALL remain resolvable for the configured history horizon (default 15 minutes). Leases not renewed within their TTL SHALL expire without a scan. The 256 buckets SHALL be grouped into shards, each with one active owner and an optional warm standby. Each shard MUST stay within its configured entry and byte budget, MUST refuse new outbound `connected` leases before `bound` leases when the budget is reached, and MUST count every refusal. On start a shard SHALL rebuild by replaying its bucket subjects and SHALL report `index_warming` for lookups until the replay completes.
+
+#### Scenario: Port reuse resolves by time
+- **GIVEN** key `(tcp, 192.0.2.20, 40001)` was owned by process A until 10:00:00 and by process B from 10:00:30
+- **WHEN** a flow at 09:59:50 and a flow at 10:00:40 are looked up
+- **THEN** the first resolves to process A
+- **AND** the second resolves to process B
+
+#### Scenario: Shard reaches its memory budget
+- **GIVEN** a shard is at its configured byte budget
+- **WHEN** a new outbound `connected` lease and a new listener lease arrive
+- **THEN** the shard refuses the outbound lease before the listener lease and counts the refusal
+- **AND** the shard's memory does not exceed its budget
+
+#### Scenario: Shard restarts
+- **GIVEN** a shard process restarts
+- **WHEN** it replays its bucket subjects from the `flow_ownership` stream
+- **THEN** every lease renewed within the stream's `max_age` is restored
+- **AND** lookups return `index_warming` until the replay completes
+
+#### Scenario: Lease is not renewed
+- **GIVEN** an agent stops sending events and its leases are not renewed
+- **WHEN** a lease's TTL elapses
+- **THEN** the lease expires from the index without a scan of the index
+
+### Requirement: Flows Are Attributed On Ingest By Key Lookup
+The EventWriter flow processor SHALL attribute each flow before its single StarRocks write by looking up the flow's source and destination endpoints in the ownership index, issuing at most one batched lookup per shard per flow batch, and MUST NOT run a periodic join of stored flows against ownership data.
+A flow side that matches the cached public endpoint map SHALL be rewritten to its backend endpoints before the lookup. The flow row SHALL be written once, carrying `event_type = attributed_flow` and the owner columns when an owner is found. The flow processor SHALL be able to run on multiple nodes against the shared durable flow consumer, and adding nodes SHALL increase attribution throughput without changing the shard layout.
+
+#### Scenario: Router flow to a monitored listener
+- **GIVEN** the index holds a `bound` lease for `(tcp, 192.0.2.10, 443)`
+- **WHEN** a router-exported flow from 198.51.100.7:51000 to 192.0.2.10:443 reaches the flow processor
+- **THEN** the processor writes the flow once with the listener's owner and `event_type = attributed_flow`
+- **AND** no partial update of that flow row is issued
+
+#### Scenario: No periodic global join
+- **WHEN** flow attribution runs at any flow rate
+- **THEN** no scheduled job reads stored flows to match them against ownership data
+
+#### Scenario: Public VIP resolves through the endpoint map
+- **GIVEN** the public endpoint map sends 203.0.113.80:443/TCP to the backend 192.0.2.60:8443
+- **AND** the index holds a `bound` lease for `(tcp, 192.0.2.60, 8443)`
+- **WHEN** a flow to 203.0.113.80:443 is attributed
+- **THEN** the flow is written with the backend's owner and the public endpoint context
+
+### Requirement: Late Binding Is Bounded And Never Rescans Flows
+The flow processor SHALL hold a flow whose side is a monitored address without a matching lease for at most the configured hold window (default 5 seconds, maximum 30 seconds, and always below the consumer acknowledgement deadline), and MUST NOT hold a flow that has no monitored address on either side.
+A flow still unmatched after the hold, or one written because the hold buffer reached its item or byte cap, SHALL be written unattributed and recorded in the late-stamp set of its shard for the late-stamp window (default 10 minutes) under an entry cap, with evictions counted. When a lease arrives that covers a recorded flow's time, the shard SHALL publish a versioned update on `events.flow.attribution`, which EventWriter applies as a partial primary-key update. The system MUST NOT read stored flows back to find unattributed ones.
+
+#### Scenario: Flow races its ownership event
+- **GIVEN** a flow from 192.0.2.20:40002 arrives 2 seconds before the agent's `OPEN` for that key
+- **WHEN** the `OPEN` arrives within the hold window
+- **THEN** the flow is written once, attributed
+- **AND** no late stamp is issued for it
+
+#### Scenario: Flow to an unmonitored address is not held
+- **GIVEN** neither endpoint of a flow is a monitored address
+- **WHEN** the flow reaches the flow processor
+- **THEN** it is written immediately with outcome `unmonitored`
+
+#### Scenario: Ownership arrives after the hold
+- **GIVEN** a flow involving monitored address 192.0.2.20 was written unattributed after its hold expired
+- **WHEN** a lease covering the flow's time arrives within the late-stamp window
+- **THEN** the shard publishes a versioned update on `events.flow.attribution`
+- **AND** the flow row becomes `attributed_flow`
+
+#### Scenario: Late-stamp set is full
+- **GIVEN** a shard's late-stamp set is at its entry cap
+- **WHEN** another unmatched flow is recorded
+- **THEN** the oldest entry is evicted and counted
+- **AND** no stored flows are read to recover it
+
+### Requirement: Agent-Local Attribution Takes Precedence
+When a flow arrives already attributed by the agent that produced it, the flow processor SHALL keep that attribution and MUST NOT replace it with an index lookup for the side the agent owns. Flows from routers, switches and other exporters SHALL be attributed through the ownership index. This requirement MUST NOT reintroduce central-to-agent flow replay.
+
+#### Scenario: Agent-attributed flow keeps its owner
+- **GIVEN** an agent publishes a flow that already carries attribution for its local endpoint 192.0.2.70:43000
+- **WHEN** the flow processor handles it
+- **THEN** the flow keeps the agent-provided owner for that side
+- **AND** the processor does not look up 192.0.2.70:43000 in the index
+
+### Requirement: Ownership Lease History Is Append-Only
+EventWriter SHALL append one row per ownership event to the StarRocks Duplicate Key table `flow_ownership_leases`, partitioned by day. Rows MUST NOT be updated or deleted individually. Expiry SHALL happen by dropping whole partitions under the `attribution` warehouse retention dataset.
+
+#### Scenario: Ownership history for incident response
+- **GIVEN** a process owned 192.0.2.10:443/TCP during the retained span
+- **WHEN** an operator queries the lease history for that endpoint
+- **THEN** the rows show the owner and the lease's `first_seen` and `last_seen`
+- **AND** no row-level DELETE or UPDATE was issued against the table
+
+### Requirement: Attribution Meets Fleet-Scale Capacity Targets
+Flow attribution SHALL sustain at least 1M flows/s attributed across horizontally scaled flow-tier nodes. It SHALL sustain ownership ingest from 20k agents, SHALL keep index memory at no more than 200 bytes per active key on average, and SHALL add no more than 250 ms p99 latency per flow batch for flows whose owner is present. Each target SHALL be verified with a synthetic load harness that uses only invented addresses from documentation ranges.
+
+#### Scenario: Attribution throughput scales out
+- **GIVEN** the load harness drives synthetic flows against an index populated for 20k simulated hosts
+- **WHEN** the number of flow-tier nodes is doubled, until the warehouse write limit is reached
+- **THEN** the attributed throughput grows by at least 1.6x
+- **AND** the aggregate attribution stage reaches at least 1M flows/s
+
+#### Scenario: Ownership ingest from 20k agents
+- **GIVEN** 20k simulated agents each emit ownership events at the measured per-host rate of at least 5 events/s
+- **WHEN** the load runs for one hour
+- **THEN** no acknowledged ownership event is lost
+- **AND** ownership consumer lag stays at or below 5 seconds at p99
+
+#### Scenario: Index memory stays proportional to active sockets
+- **GIVEN** the index holds 40M active keys across its shards
+- **WHEN** shard memory is measured
+- **THEN** the average is no more than 200 bytes per active key
+- **AND** every shard is within its configured budget
+
+#### Scenario: Shard rebuild time
+- **GIVEN** a shard owning 2.5M active keys restarts
+- **WHEN** it replays its bucket subjects
+- **THEN** it reports ready within 2 minutes
+
+### Requirement: Ownership Index And Enrichment Health Is Observable
+The ownership index and the flow attribution stage SHALL publish their health as metrics through the JetStream metrics pipeline, with labels that MUST NOT include agent identifiers, process identifiers, IP addresses, ports, command lines, partition names, or other unbounded payload-derived values.
+Index metrics SHALL include entries and bytes per shard, budget refusals, evictions, ownership consumer lag, shard state (`warming`, `ready`, `standby`), rebuild duration, and ambiguous lookups. Enrichment metrics SHALL include flows by outcome and strategy, hold buffer depth and overflow, late-stamp set size, evictions and applied stamps, and lookup latency per batch.
+
+#### Scenario: Index falls behind
+- **GIVEN** ownership events arrive faster than a shard applies them
+- **WHEN** health is reported
+- **THEN** the ownership consumer lag metric rises for that shard
+- **AND** the metric labels identify the shard ordinal only
+
+## MODIFIED Requirements
+
+### Requirement: Attribution Requires StarRocks
+When StarRocks is not configured, flow process attribution SHALL be disabled: ownership events MUST NOT be published or stored, the ownership index MUST NOT start, and the attribution health surface MUST report that StarRocks is required.
+
+#### Scenario: Deployment without StarRocks
+- **GIVEN** a deployment with no StarRocks warehouse configured
+- **WHEN** an agent delivers socket ownership events
+- **THEN** core does not publish or persist them anywhere
+- **AND** the attribution health surface reports `attribution_disabled: starrocks_required`
+
+### Requirement: Correlation Is Protocol-Aware And Exact-First
+Flow attribution SHALL preserve every deployed protocol- and topology-aware candidate family, within the flow's partition and the lookup's time tolerance, as an ordered sequence of key lookups with deterministic precedence. An exact match MUST rank ahead of every fallback. A `connected` lease whose remote endpoint equals the flow's other side, an exact peer entry, or an ICMP or ICMPv6 peer entry on endpoint addresses without port equality is exact. A `bound` lease (listener, expanded wildcard listener, or unconnected UDP socket) on the flow side's endpoint MAY match TCP or UDP at the listener rank. A relaxed UDP peer entry MAY match the same endpoint IP roles and remote service port while allowing the local ephemeral port to be zero or to differ from the exporter-observed port. Lower-ranked node-SNAT peer entries MAY map a registered agent node IP to the attributed socket while preserving the remote endpoint and service port. A public endpoint MAY map a known VIP, protocol and port to backend endpoints that are then looked up. Public-endpoint candidates MUST rank below exact, listener or relaxed, and node-SNAT candidates, and their Gateway, LoadBalancer/ExternalIP, and other exposure classes MUST keep that relative order. No fallback candidate may displace an eligible exact candidate. Across the two sides of a flow, the lower rank SHALL win, and on a tie the source side SHALL win.
+
+#### Scenario: Exact TCP tuple is correlated
+- **GIVEN** a `connected` TCP lease for 192.0.2.20:40001 whose remote is 198.51.100.9:443
+- **WHEN** a flow from 192.0.2.20:40001 to 198.51.100.9:443 in the same partition is attributed
+- **THEN** the lookup selects that lease
+- **AND** it records the match strategy as exact
+
+#### Scenario: Coalesced listener matches a local service endpoint
+- **GIVEN** a `bound` TCP or UDP lease on a local endpoint
+- **WHEN** a flow's side matches its partition, protocol and endpoint within the time tolerance
+- **THEN** the lookup may select the listener lease only when no exact candidate ranks ahead of it
+- **AND** it records the match strategy as wildcard listener
+
+#### Scenario: Exact UDP candidate outranks relaxed candidates
+- **GIVEN** one exact UDP candidate and one or more relaxed UDP candidates are eligible for the same flow
+- **WHEN** the candidates are ranked
+- **THEN** the exact candidate is selected
+- **AND** no relaxed candidate may displace it because its lease is newer or closer in time
+
+#### Scenario: UDP client observation uses the relaxed service-port match
+- **GIVEN** a UDP lease has a zero coalesced local port, or a non-zero local ephemeral port that differs from the exporter-observed port
+- **AND** no exact UDP candidate exists
+- **WHEN** a UDP flow matches the same partition, protocol, endpoint IP roles, remote service port, and time tolerance
+- **THEN** the flow may be attributed from that relaxed candidate
+- **AND** the match strategy is recorded as relaxed UDP rather than exact
+
+#### Scenario: Relaxed UDP candidate is ambiguous
+- **GIVEN** no exact candidate exists and more than one lease satisfies the constrained relaxed UDP match for one flow
+- **WHEN** the candidates are evaluated
+- **THEN** the ambiguous-candidate outcome is incremented
+- **AND** any resulting match evidence MUST identify the relaxed ambiguity rather than presenting the result as exact attribution
+
+#### Scenario: ICMP exporter pseudo-ports differ
+- **GIVEN** an ICMP or ICMPv6 peer entry and a flow share a partition, endpoint IPs, protocol, and time tolerance
+- **WHEN** their port or type/code representations differ
+- **THEN** the candidate is evaluated without requiring port equality
+
+#### Scenario: Node-SNAT maps a pod-local attribution to its agent node
+- **GIVEN** a node-SNAT peer entry exists for the agent's registered node IP and the flow's remote endpoint and service port
+- **WHEN** a flow uses that node IP after SNAT within the partition and time tolerance
+- **THEN** the lookup may select the node-SNAT candidate only after higher-ranked candidates
+- **AND** it records the match strategy as node SNAT
+
+#### Scenario: Public endpoint maps a VIP to a backend socket
+- **GIVEN** a known public endpoint maps a VIP, protocol, and port to a backend endpoint that has a lease
+- **WHEN** a flow uses that VIP within the partition and time tolerance
+- **THEN** the lookup may select the public-endpoint candidate only after higher-ranked candidates
+- **AND** it records the applicable public-endpoint strategy
+
+#### Scenario: Exact local candidate outranks a Gateway public endpoint
+- **GIVEN** an exact candidate and a Gateway public-endpoint candidate are both eligible for one flow
+- **WHEN** the candidates are ranked
+- **THEN** the exact candidate is selected even though the public endpoint's raw exposure rank is zero
+- **AND** Gateway still ranks ahead of LoadBalancer, ExternalIP, and other candidates when public endpoints are compared with each other
+
+#### Scenario: Both sides match at the same rank
+- **GIVEN** both endpoints of a flow have listener-rank candidates and neither side has a better one
+- **WHEN** the flow is attributed
+- **THEN** the source side's owner is written
+
+### Requirement: Correlation Exposes Topology And Match Outcomes
+The flow attribution stage SHALL publish one bounded diagnostic per reporting interval on the flow-attribution metric subject, counting flows by exactly the outcomes `attributed`, `held`, `late_stamped`, `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, and `error`, and SHALL report `no_producer` when no ownership events arrived in the interval and `no_flows` when no flows reached the processor. An interval whose readings are missing SHALL omit that diagnostic rather than guess. Each interval SHALL also publish attributed counts for the exact, listener-or-relaxed, node-SNAT, and public-endpoint strategies. Exported metric labels MUST NOT include agent identifiers, process identifiers, IP addresses, ports, command lines, partition names, or other unbounded payload-derived values. Sampled diagnostic logs MAY include bounded agent and partition context.
+
+#### Scenario: Flows and ownership have no address overlap
+- **GIVEN** ownership leases exist for a netprobe host
+- **AND** no flow in the interval has that host's addresses on either side
+- **WHEN** the interval's diagnostic is published
+- **THEN** those flows count as `unmonitored`
+- **AND** the outcome is not reported as an attribution failure
+
+#### Scenario: Monitored address without an owner
+- **GIVEN** a flow side is a monitored address
+- **WHEN** no lease matches after the hold and the late-stamp window
+- **THEN** the flow counts as `no_owner`
+- **AND** an operator can tell this apart from an index that was warming or a stage that did not run
+
+#### Scenario: A row is attributed with a classified strategy
+- **GIVEN** an eligible exact or fallback candidate exists
+- **WHEN** the flow is written as `attributed_flow`
+- **THEN** the `attributed` count increments
+- **AND** the corresponding exact or fallback strategy count increments
+
+### Requirement: Flow Attribution Admission Is Bounded Isolated And Commit-Confirmed
+Core SHALL execute flow-attribution (socket ownership) admission through a dedicated supervised admission lane rather than inside the shared `StatusHandler` mailbox. The lane MUST be independent of retained plugin-result admission, retain the original synchronous caller reference, and reply only after JetStream has acknowledged every message of the complete unit or the unit has failed. It MUST bound concurrency, total admitted item count, total retained encoded payload bytes, per-agent admitted items, queue wait, and worker runtime; item and byte totals SHALL include queued and in-flight work. The default SHALL be exactly one worker, 16 total admitted items, 64 MiB of total retained payload, four admitted items per agent, a two-second maximum queue wait, and a 20-second worker timeout. Deployments MAY configure different positive concurrency, item, byte, per-agent, queue-wait, and worker-timeout bounds. Queue wait MUST NOT exceed two seconds, worker runtime MUST NOT exceed 20 seconds, and their sum plus three seconds MUST NOT exceed the gateway core-call deadline. That gateway deadline MUST NOT exceed 25 seconds while the agent flow RPC deadline remains 30 seconds. Retained-byte admission MUST account for the encoded payload plus fixed envelope overhead. The lane SHALL expose queued and in-flight depth and bytes, queue wait, run duration, admission rejection, timeout, task exit, and completion-outcome telemetry. A producer batch of at most 4,096 events and 6 MiB SHALL remain one logical acknowledgement unit and MUST NOT be acknowledged as independently committed sub-batches.
+
+#### Scenario: Accepted batch replies only after acknowledgement
+- **GIVEN** a valid ownership batch is admitted within every item, byte, and per-agent bound
+- **WHEN** its worker publishes the complete unit successfully
+- **THEN** the lane replies to the original caller only after JetStream acknowledges every message of the unit
+- **AND** the reply transfers retry ownership for that complete unit
+
+#### Scenario: Saturated flow lane does not block unrelated status work
+- **GIVEN** the flow-attribution lane is at its concurrency or admitted-capacity limit
+- **WHEN** unrelated status work or retained plugin-result work reaches core
+- **THEN** the shared status mailbox remains available to classify that work
+- **AND** flow-attribution saturation does not consume the retained plugin-result lane's item, byte, or worker budget
+
+#### Scenario: Admission exceeds a mandatory bound
+- **GIVEN** accepting a flow-attribution batch would exceed the lane's total item, total retained-byte, or per-agent admitted limit across queued and in-flight work
+- **WHEN** core evaluates admission
+- **THEN** it rejects the batch with an explicit admission error
+- **AND** it performs no inline flow-attribution publish work in `StatusHandler`
+
+#### Scenario: Lane telemetry accounts for admitted and rejected work
+- **GIVEN** flow-attribution batches are admitted, executed, completed, timed out, or rejected
+- **WHEN** the lane reports its operational state
+- **THEN** its telemetry separately accounts for queued and in-flight depth and retained encoded bytes
+- **AND** it records queue wait, worker duration, and the applicable completion or rejection outcome
+
+#### Scenario: Admitted work does not reach durable completion
+- **GIVEN** a flow-attribution batch has been admitted
+- **WHEN** it exceeds its queue-wait or worker deadline, its task exits, or a publish is not acknowledged
+- **THEN** the lane replies to the original caller with the corresponding explicit error
+- **AND** it does not report the batch as committed
+- **AND** retrying the complete unit remains safe because applying a repeated lease event leaves the index unchanged
+
+#### Scenario: Concurrent workers are configured
+- **GIVEN** a deployment configures more than one flow-attribution worker
+- **WHEN** batches from many agents are admitted
+- **THEN** they are published concurrently within the configured bounds
+- **AND** each batch is still acknowledged only as one complete unit
+
+#### Scenario: Flow attribution cast follows the bounded path
+- **GIVEN** legacy compatibility delivers flow attribution without a caller reference
+- **WHEN** core accepts the cast
+- **THEN** it routes the work through the same bounded flow-attribution lane
+- **AND** it MUST NOT execute the publish inline in a shared mailbox
+- **AND** no production agent-retained producer may use the cast as a commit acknowledgement
+
+#### Scenario: One producer batch remains one acknowledgement unit
+- **GIVEN** a valid producer batch contains no more than 4,096 events and 6 MiB of encoded payload
+- **WHEN** core admits that batch
+- **THEN** the lane treats the complete batch as one logical acknowledgement unit
+- **AND** it does not acknowledge a published prefix while the remainder is unpublished
+
+### Requirement: Post-Rollout Verification Proves The Committed Artifact Chain
+Release and deployment verification SHALL start after rollout completion and SHALL verify the exact deployed netprobe version and artifact before applying a new stimulus. End-to-end success MUST be established from post-rollout artifacts: a real TCP connection, TCP producer-stage evidence, an ownership lease for the stimulus socket in the index and in `flow_ownership_leases`, a sampled flow with an eligible endpoint and time overlap, and the resulting `attributed_flow` row with the expected process context. Process health, probe-attach logs, gateway acknowledgements, index or enrichment health metrics, or pre-rollout rows MUST NOT be accepted as substitutes for the final database artifact.
+
+#### Scenario: Verification rejects a stale deployed netprobe artifact
+- **GIVEN** a candidate rollout is reported complete
+- **WHEN** the target host's running netprobe version or artifact identity does not match the candidate release
+- **THEN** verification fails before interpreting protocol or attribution results
+- **AND** rows produced by the stale artifact do not satisfy the candidate release gate
+
+#### Scenario: Netprobe attribution change advances the native add-on artifact
+- **GIVEN** a netprobe source change affects flow-attribution behavior
+- **WHEN** the candidate native add-on artifact is prepared for rollout
+- **THEN** the netprobe add-on manifest version and Bazel `NETPROBE_VERSION` advance together
+- **AND** the bundle, version-bump, and native-add-on build gates succeed before that artifact is used for end-to-end verification
+
+#### Scenario: Post-rollout TCP flow is attributed end to end
+- **GIVEN** rollout completion and the expected netprobe artifact have been verified on the target host
+- **AND** the selected connection path traverses a sampled export path visible to ServiceRadar
+- **WHEN** a process completes a real TCP connection after rollout
+- **THEN** TCP lifecycle evidence for that stimulus appears at the producer stages
+- **AND** a `flow_ownership_leases` row newer than the stimulus contains the expected key and process owner
+- **AND** a sampled flow newer than the stimulus contains the matching endpoint and eligible time overlap
+- **AND** that flow row is committed with `event_type = "attributed_flow"` and the expected agent and process context, written on ingest or by a late stamp
+
+#### Scenario: Delivery control makes a missing TCP lease meaningful
+- **GIVEN** a controlled TCP stimulus has completed after rollout
+- **WHEN** no ownership lease for the stimulus appears
+- **THEN** verification MUST require a post-stimulus positive delivery control from the same netprobe-to-core path before classifying TCP production as failed
+- **AND** absence of that control is reported as an inconclusive delivery state rather than proof of a TCP producer defect
+
+#### Scenario: Export topology cannot observe the target host
+- **GIVEN** post-rollout ownership leases exist for the target host
+- **WHEN** no sampled flow involving that host's addresses exists within the eligible time tolerance
+- **THEN** end-to-end verification fails with `unmonitored`
+- **AND** it does not classify the missing attributed row as a TCP producer or index regression
+
+#### Scenario: Healthy index does not prove an attributed artifact
+- **GIVEN** the index and the attribution stage report healthy metrics
+- **WHEN** no exact post-stimulus `ocsf_network_activity` row is committed as `attributed_flow`
+- **THEN** end-to-end verification remains failed
+
+## REMOVED Requirements
+
+### Requirement: Attribution Observations Flow Through JetStream Into StarRocks
+**Reason**: Periodic socket sightings are replaced by ownership leases. The `flows.attribution.observations` subject, the `FlowAttributionObservations` processor and the `flow_process_attribution_observations` table are deleted.
+**Migration**: Straight switch. Ownership leases travel on `flows.ownership.<bucket>` (see *Socket Ownership Changes Flow Through JetStream*), and history is kept in `flow_ownership_leases`. Nothing is migrated: the observation window is ephemeral.
+
+### Requirement: Observation Storage Has No Row-Level Churn
+**Reason**: The observation table is dropped. Its append-only, partition-expiry discipline carries over to the lease history table.
+**Migration**: See *Ownership Lease History Is Append-Only*. The `attribution` retention dataset now governs `flow_ownership_leases`.
+
+### Requirement: Correlation Runs In The Warehouse
+**Reason**: The periodic in-warehouse join has a fixed throughput ceiling (about 42 flows/s at the current batch limit and interval), and its cost grows with flows times observations. Attribution becomes a key lookup on ingest.
+**Migration**: See *Flows Are Attributed On Ingest By Key Lookup* and *Late Binding Is Bounded And Never Rescans Flows*. `FlowAttribution.Correlator`, `FlowAttribution.Correlation` and the correlator kill switch are deleted. `events.flow.attribution` remains, for late stamps only.
+
+### Requirement: Correlator Health Is Observable
+**Reason**: There is no correlator pass to measure.
+**Migration**: See *Ownership Index And Enrichment Health Is Observable*. `PassMetrics` is deleted.
