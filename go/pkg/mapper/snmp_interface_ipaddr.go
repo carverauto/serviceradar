@@ -132,7 +132,7 @@ func handleIPAdEntNetMask(pdu gosnmp.SnmpPDU, ipToPrefixLen map[string]int) {
 	}
 
 	ones, bits := net.IPMask(mask4).Size()
-	if bits != ipv4BitLength || ones <= 0 {
+	if bits != ipv4BitLength {
 		return
 	}
 
@@ -141,12 +141,7 @@ func handleIPAdEntNetMask(pdu gosnmp.SnmpPDU, ipToPrefixLen map[string]int) {
 	}
 }
 
-func (e *DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
-	ipToIfIndex, _, err := e.walkIPAddrTableWithPrefixes(client)
-	return ipToIfIndex, err
-}
-
-func (*DiscoveryEngine) walkIPAddrTableWithPrefixes(client *gosnmp.GoSNMP) (map[string]int, map[string]int, error) {
+func (*DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, map[string]int, error) {
 	ipToIfIndex := make(map[string]int)
 	ipToPrefixLen := make(map[string]int)
 
@@ -214,7 +209,7 @@ func (*DiscoveryEngine) associateIPPrefixesWithInterfaces(
 
 	for ip, ifIndex := range ipToIfIndex {
 		prefixLen, ok := ipToPrefixLen[ip]
-		if !ok || prefixLen <= 0 {
+		if !ok {
 			continue
 		}
 
@@ -364,7 +359,7 @@ func parseIPAddressPrefixRowPointer(pdu gosnmp.SnmpPDU, isIPv6 bool) (int, bool)
 	last := parts[len(parts)-1]
 
 	prefixLen, err := strconv.Atoi(last)
-	if err != nil || prefixLen <= 0 {
+	if err != nil || prefixLen < 0 {
 		return 0, false
 	}
 
@@ -470,7 +465,10 @@ func filterBroadcastAddresses(ipToIfIndex map[string]int, ipToPrefixLen map[stri
 	}
 }
 
-func collectIPAddressTable(pdus []gosnmp.SnmpPDU) (map[string]int, map[string]int) {
+// collectIPAddressTable returns the non-broadcast addresses with their ifIndex
+// and prefix length, plus every address ipAddressType classifies as
+// broadcast(3) so callers can drop it from addresses learned elsewhere.
+func collectIPAddressTable(pdus []gosnmp.SnmpPDU) (map[string]int, map[string]int, []string) {
 	ipToIfIndex := make(map[string]int)
 	ipToType := make(map[string]int)
 	ipToPrefixLen := make(map[string]int)
@@ -497,31 +495,73 @@ func collectIPAddressTable(pdus []gosnmp.SnmpPDU) (map[string]int, map[string]in
 		}
 	}
 
+	var broadcastIPs []string
+
 	for ip, addrType := range ipToType {
 		if addrType == ipAddressTypeBroadcast {
+			broadcastIPs = append(broadcastIPs, ip)
 			delete(ipToIfIndex, ip)
 			delete(ipToPrefixLen, ip)
 		}
 	}
 
+	sort.Strings(broadcastIPs)
+
 	filterBroadcastAddresses(ipToIfIndex, ipToPrefixLen)
 
-	return ipToIfIndex, ipToPrefixLen
+	return ipToIfIndex, ipToPrefixLen, broadcastIPs
+}
+
+// mergeIPAddressTable folds ipAddressTable rows into the ipAddrTable results
+// and then drops every address ipAddressTable classified as broadcast, including
+// one ipAddrTable reported without a usable mask. It returns the number of IPv6
+// addresses merged.
+func mergeIPAddressTable(
+	ipToIfIndex, ipToPrefixLen, extra, extraPrefixes map[string]int,
+	broadcastIPs []string,
+) int {
+	v6Count := 0
+
+	for ip, prefixLen := range extraPrefixes {
+		if _, exists := ipToPrefixLen[ip]; !exists {
+			ipToPrefixLen[ip] = prefixLen
+		}
+	}
+
+	for ip, ifIndex := range extra {
+		// ipAddrTable already carries a real ifIndex for the addresses it
+		// reports; do not let a duplicate row overwrite it with a placeholder.
+		if existing, ok := ipToIfIndex[ip]; ok && existing != 0 && ifIndex == 0 {
+			continue
+		}
+
+		ipToIfIndex[ip] = ifIndex
+
+		if strings.Contains(ip, ":") {
+			v6Count++
+		}
+	}
+
+	for _, ip := range broadcastIPs {
+		delete(ipToIfIndex, ip)
+		delete(ipToPrefixLen, ip)
+	}
+
+	return v6Count
 }
 
 // walkIPAddressTable walks ipAddressIfIndex to learn every address the device
 // reports, IPv6 included, excluding broadcast rows (ipAddressType = broadcast(3)).
+// The broadcast rows are returned separately so the caller can also drop them
+// from the addresses ipAddrTable reported.
 //
 // This is additive to walkIPAddrTable rather than a replacement: ipAddrTable is
 // universally implemented while ipAddressTable is not, so dropping the legacy
 // walk would lose IPv4 on older agents. Where both report the same address the
 // values agree, and merging is idempotent.
-func (e *DiscoveryEngine) walkIPAddressTable(client *gosnmp.GoSNMP) (map[string]int, error) {
-	ipToIfIndex, _, err := e.walkIPAddressTableWithPrefixes(client)
-	return ipToIfIndex, err
-}
-
-func (*DiscoveryEngine) walkIPAddressTableWithPrefixes(client *gosnmp.GoSNMP) (map[string]int, map[string]int, error) {
+func (*DiscoveryEngine) walkIPAddressTable(
+	client *gosnmp.GoSNMP,
+) (map[string]int, map[string]int, []string, error) {
 	var pdus []gosnmp.SnmpPDU
 
 	err := client.BulkWalk(oidIPAddressTable, func(pdu gosnmp.SnmpPDU) error {
@@ -534,10 +574,10 @@ func (*DiscoveryEngine) walkIPAddressTableWithPrefixes(client *gosnmp.GoSNMP) (m
 		return nil
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to walk ipAddressTable: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to walk ipAddressTable: %w", err)
 	}
 
-	ipToIfIndex, ipToPrefixLen := collectIPAddressTable(pdus)
+	ipToIfIndex, ipToPrefixLen, broadcastIPs := collectIPAddressTable(pdus)
 
-	return ipToIfIndex, ipToPrefixLen, nil
+	return ipToIfIndex, ipToPrefixLen, broadcastIPs, nil
 }

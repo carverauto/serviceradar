@@ -135,21 +135,7 @@ defmodule ServiceRadar.Identity.AliasEventsLinkLocalTest do
     unicast = "192.0.2.#{octet}"
     directed_bcast = "192.0.2.255"
 
-    ServiceRadar.Repo.query!(
-      """
-      WITH host AS (
-        INSERT INTO platform.virtualization_hosts
-          (id, provider, provider_ref, device_uid, name)
-        VALUES (gen_random_uuid(), 'synthetic', 'synthetic:host:' || $1, $1, 'virt-node01')
-        RETURNING id
-      )
-      INSERT INTO platform.virtualization_network_interfaces
-        (id, provider, provider_ref, host_id, device_uid, name, cidr, address, ip_addresses)
-      SELECT gen_random_uuid(), 'synthetic', 'synthetic:vnic:' || $1, host.id, $1, 'vmbr0', $2, $3, ARRAY[$3]
-      FROM host
-      """,
-      [device.uid, "#{unicast}/24", unicast]
-    )
+    insert_vnic(device.uid, "#{unicast}/24", unicast)
 
     assert {:ok, _events} =
              AliasEvents.process_and_persist(
@@ -187,6 +173,62 @@ defmodule ServiceRadar.Identity.AliasEventsLinkLocalTest do
                },
                actor: actor
              )
+  end
+
+  test "an alias detected before its subnet was known cannot be confirmed once it is",
+       %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    directed_bcast = "192.0.2.127"
+
+    assert {:ok, detected} =
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: device.uid,
+                 partition: "default",
+                 alias_type: :ip,
+                 alias_value: directed_bcast,
+                 metadata: %{}
+               },
+               actor: actor
+             )
+
+    insert_vnic(device.uid, "192.0.2.1/25", "192.0.2.1")
+
+    assert {:error, %Invalid{}} =
+             DeviceAliasState.confirm_from_sweep(detected, %{metadata: %{}}, actor: actor)
+
+    assert {:error, %Invalid{}} =
+             DeviceAliasState.record_sighting(detected, %{confirm_threshold: 1}, actor: actor)
+
+    assert {:error, %Invalid{}} =
+             detected
+             |> Ash.Changeset.for_update(:confirm, %{})
+             |> Ash.update(actor: actor)
+
+    assert {:ok, stale} = DeviceAliasState.mark_stale(detected, actor: actor)
+
+    assert {:error, %Invalid{}} =
+             stale
+             |> Ash.Changeset.for_update(:reactivate, %{})
+             |> Ash.update(actor: actor)
+  end
+
+  defp insert_vnic(device_uid, cidr, address) do
+    ServiceRadar.Repo.query!(
+      """
+      WITH host AS (
+        INSERT INTO platform.virtualization_hosts
+          (id, provider, provider_ref, device_uid, name)
+        VALUES (gen_random_uuid(), 'synthetic', 'synthetic:host:' || $1, $1, 'virt-node01')
+        RETURNING id
+      )
+      INSERT INTO platform.virtualization_network_interfaces
+        (id, provider, provider_ref, host_id, device_uid, name, cidr, address, ip_addresses)
+      SELECT gen_random_uuid(), 'synthetic', 'synthetic:vnic:' || $1, host.id, $1, 'vmbr0', $2, $3, ARRAY[$3]
+      FROM host
+      """,
+      [device_uid, cidr, address]
+    )
   end
 
   defp create_device(actor) do

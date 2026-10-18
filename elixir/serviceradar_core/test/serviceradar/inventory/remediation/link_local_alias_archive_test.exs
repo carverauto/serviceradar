@@ -138,6 +138,10 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
     _bcast_id = insert_alias_state(device_id, bcast, "confirmed", "ip")
     _limited_id = insert_alias_state(device_id, "255.255.255.255", "confirmed", "interface_ip")
     _wide_id = insert_alias_state(device_id, wide_host, "confirmed", "ip")
+    _mapped_id = insert_alias_state(device_id, "::ffff:255.255.255.255", "confirmed", "ip")
+    _limited_host_id = insert_alias_state(device_id, "255.255.255.255/32", "detected", "ip")
+    # An explicit /16 decides on its own; the /24 known for eth0 does not apply.
+    _explicit_wide_id = insert_alias_state(device_id, "192.0.2.255/16", "confirmed", "ip")
 
     dry_report = BroadcastAliasArchive.run(:dry_run, [], nil, actor)
     assert dry_report.would_archive >= 2
@@ -158,6 +162,9 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
     assert alias_state(device_id, "255.255.255.255") == "archived"
     assert alias_state(device_id, unicast) == "confirmed"
     assert alias_state(device_id, wide_host) == "confirmed"
+    assert alias_state(device_id, "::ffff:255.255.255.255") == "archived"
+    assert alias_state(device_id, "255.255.255.255/32") == "archived"
+    assert alias_state(device_id, "192.0.2.255/16") == "confirmed"
     refute metadata_has_ip_alias?(device_id, bcast)
     assert metadata_has_ip_alias?(device_id, unicast)
     assert metadata_has_ip_alias?(device_id, wide_host)
@@ -173,6 +180,28 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
       )
 
     assert eth0_ips == [unicast]
+
+    # The /24 inferred from the 192.0.2.10 + 192.0.2.255 pair outlives its
+    # evidence, so a later bare 192.0.2.255 alias is still recognised.
+    %{rows: [[eth0_cidrs]]} =
+      Repo.query!(
+        """
+        SELECT metadata->>'ip_cidrs'
+        FROM platform.discovered_interfaces
+        WHERE device_id = $1 AND interface_uid = 'ifindex:2'
+        """,
+        [device_id]
+      )
+
+    assert eth0_cidrs == "192.0.2.0/24"
+
+    _late_bcast_id = insert_alias_state(device_id, bcast, "detected", "interface_ip")
+    rerun_manifest = Manifest.open(manifest_path <> ".rerun", %{test: "broadcast_alias_archive"})
+    rerun = BroadcastAliasArchive.run(:execute, [], rerun_manifest, actor)
+    Manifest.close(rerun_manifest)
+
+    assert rerun.archived_alias_states >= 1
+    assert alias_states(device_id, bcast) == ["archived", "archived"]
   end
 
   defp seed_pathology do
@@ -275,6 +304,20 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
       )
 
     exists
+  end
+
+  defp alias_states(device_id, value) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT state FROM platform.device_alias_states
+        WHERE device_id = $1 AND alias_value = $2
+        ORDER BY state
+        """,
+        [device_id, value]
+      )
+
+    List.flatten(rows)
   end
 
   defp metadata_has_ip_alias?(device_id, ip) do

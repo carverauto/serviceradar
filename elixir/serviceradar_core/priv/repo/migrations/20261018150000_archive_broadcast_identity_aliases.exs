@@ -60,7 +60,8 @@ defmodule ServiceRadar.Repo.Migrations.ArchiveBroadcastIdentityAliases do
       SELECT ip
       FROM unnest(di.ip_addresses) AS ip
       WHERE NOT (#{BroadcastAliasArchive.alias_broadcast_predicate("di.device_id", "ip")})
-    )
+    ),
+    metadata = #{BroadcastAliasArchive.preserve_inferred_cidrs_sql("di")}
     WHERE COALESCE(array_length(di.ip_addresses, 1), 0) > 0
       AND EXISTS (
         SELECT 1

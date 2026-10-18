@@ -399,7 +399,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
 
   defp process_device_aliases(update, actor, confirm_threshold, db_cidrs) do
     record = AliasRecord.from_metadata(update.metadata)
-    known_cidrs = update_known_cidrs(update, record, db_cidrs)
+    known_cidrs = Enum.uniq(db_cidrs ++ AliasPolicy.interface_known_cidrs([], update.metadata))
 
     record
     |> alias_values(known_cidrs)
@@ -426,20 +426,6 @@ defmodule ServiceRadar.Identity.AliasEvents do
       db_cidrs = Map.get(known_cidrs_by_device, update.device_id, [])
       process_device_aliases(update, actor, confirm_threshold, db_cidrs)
     end)
-  end
-
-  defp update_known_cidrs(update, nil, db_cidrs) do
-    Enum.uniq(db_cidrs ++ AliasPolicy.interface_known_cidrs([], update.metadata))
-  end
-
-  defp update_known_cidrs(update, record, db_cidrs) do
-    candidate_ips =
-      Enum.reject(
-        [record.current_ip | Map.keys(record.ips) ++ Map.keys(record.interface_ips)],
-        &(is_nil(&1) or &1 == "")
-      )
-
-    Enum.uniq(db_cidrs ++ AliasPolicy.interface_known_cidrs(candidate_ips, update.metadata))
   end
 
   defp alias_values(nil, _known_cidrs), do: []

@@ -114,10 +114,14 @@ func TestCollectIPAddressTableSkipsBroadcastRowsAndExtractsPrefixes(t *testing.T
 		},
 	}
 
-	ipToIfIndex, ipToPrefixLen := collectIPAddressTable(pdus)
+	ipToIfIndex, ipToPrefixLen, broadcastIPs := collectIPAddressTable(pdus)
 
 	if _, exists := ipToIfIndex["192.0.2.255"]; exists {
 		t.Fatalf("collectIPAddressTable retained broadcast row 192.0.2.255: %#v", ipToIfIndex)
+	}
+
+	if got := strings.Join(broadcastIPs, ","); got != "192.0.2.255" {
+		t.Fatalf("broadcastIPs = %q, want 192.0.2.255", got)
 	}
 
 	if got := ipToIfIndex["192.0.2.10"]; got != 2 {
@@ -130,6 +134,73 @@ func TestCollectIPAddressTableSkipsBroadcastRowsAndExtractsPrefixes(t *testing.T
 
 	if got := ipToPrefixLen["192.0.2.10"]; got != 24 {
 		t.Fatalf("ipToPrefixLen[192.0.2.10] = %d, want 24", got)
+	}
+}
+
+// ipAddrTable reports 192.0.2.127 without a usable mask, so nothing on the
+// legacy side marks it as the /25 broadcast; ipAddressTable classifies the same
+// address as broadcast(3) without a prefix. The merged result must not keep it.
+func TestMergeIPAddressTableDropsBroadcastClassifiedLegacyRows(t *testing.T) {
+	ipToIfIndex := map[string]int{"192.0.2.1": 2, "192.0.2.127": 2}
+	ipToPrefixLen := map[string]int{}
+
+	pdus := []gosnmp.SnmpPDU{
+		{Name: oidIPAddressIfIndex + ".1.4.192.0.2.1", Type: gosnmp.Integer, Value: 2},
+		{Name: oidIPAddressIfIndex + ".1.4.192.0.2.127", Type: gosnmp.Integer, Value: 2},
+		{Name: oidIPAddressIfIndex + ".2.16.32.1.13.184.0.1.0.0.0.0.0.0.0.0.0.1", Type: gosnmp.Integer, Value: 2},
+		{Name: oidIPAddressType + ".1.4.192.0.2.1", Type: gosnmp.Integer, Value: 1},
+		{Name: oidIPAddressType + ".1.4.192.0.2.127", Type: gosnmp.Integer, Value: ipAddressTypeBroadcast},
+	}
+
+	extra, extraPrefixes, broadcastIPs := collectIPAddressTable(pdus)
+	v6Count := mergeIPAddressTable(ipToIfIndex, ipToPrefixLen, extra, extraPrefixes, broadcastIPs)
+	filterBroadcastAddresses(ipToIfIndex, ipToPrefixLen)
+
+	if _, exists := ipToIfIndex["192.0.2.127"]; exists {
+		t.Fatalf("merged result retained broadcast-classified 192.0.2.127: %#v", ipToIfIndex)
+	}
+
+	if got := ipToIfIndex["192.0.2.1"]; got != 2 {
+		t.Fatalf("ipToIfIndex[192.0.2.1] = %d, want 2", got)
+	}
+
+	if v6Count != 1 {
+		t.Fatalf("v6Count = %d, want 1", v6Count)
+	}
+}
+
+// A 0.0.0.0 mask and a /0 ipAddressPrefix are a valid zero-length prefix, so the
+// interface still reports an explicit CIDR for its .255 host.
+func TestZeroLengthPrefixIsPropagated(t *testing.T) {
+	ipToPrefixLen := map[string]int{}
+	handleIPAdEntNetMask(gosnmp.SnmpPDU{
+		Name:  oidIPAdEntNetMask + ".198.51.100.255",
+		Type:  gosnmp.IPAddress,
+		Value: "0.0.0.0",
+	}, ipToPrefixLen)
+
+	if got, ok := ipToPrefixLen["198.51.100.255"]; !ok || got != 0 {
+		t.Fatalf("ipToPrefixLen[198.51.100.255] = %d (present=%v), want 0", got, ok)
+	}
+
+	prefixLen, ok := parseIPAddressPrefixRowPointer(gosnmp.SnmpPDU{
+		Type:  gosnmp.ObjectIdentifier,
+		Value: oidIPAddressPrefixTable + ".1.2.1.4.0.0.0.0.0",
+	}, false)
+	if !ok || prefixLen != 0 {
+		t.Fatalf("parseIPAddressPrefixRowPointer = %d (ok=%v), want 0", prefixLen, ok)
+	}
+
+	ipToIfIndex := map[string]int{"198.51.100.255": 2}
+	filterBroadcastAddresses(ipToIfIndex, ipToPrefixLen)
+
+	ifMap := map[int]*DiscoveredInterface{2: {IfIndex: 2}}
+	engine := &DiscoveryEngine{}
+	engine.associateIPsWithInterfaces(ipToIfIndex, ifMap)
+	engine.associateIPPrefixesWithInterfaces(ipToIfIndex, ipToPrefixLen, ifMap)
+
+	if got := ifMap[2].Metadata["ip_cidrs"]; got != "198.51.100.255/0" {
+		t.Fatalf("ifMap[2].Metadata[ip_cidrs] = %q, want 198.51.100.255/0", got)
 	}
 }
 

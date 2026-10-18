@@ -21,7 +21,6 @@ import (
 
 	"sort"
 
-	"strings"
 	"time"
 
 	"github.com/gosnmp/gosnmp"
@@ -61,7 +60,7 @@ func (e *DiscoveryEngine) queryInterfaces(
 	e.walkIfHighSpeed(client, ifMap)
 
 	// Get IP addresses and subnet masks from ipAddrTable (legacy, IPv4-only)
-	ipToIfIndex, ipToPrefixLen, err := e.walkIPAddrTableWithPrefixes(client)
+	ipToIfIndex, ipToPrefixLen, err := e.walkIPAddrTable(client)
 	if err != nil {
 		e.logger.Debug().Str("target", target).Err(err).Msg("Failed to walk ipAddrTable")
 	}
@@ -80,29 +79,11 @@ func (e *DiscoveryEngine) queryInterfaces(
 	// must not discard the IPv4 results above.
 	v6Count := 0
 
-	if extra, extraPrefixes, addrErr := e.walkIPAddressTableWithPrefixes(client); addrErr != nil {
+	if extra, extraPrefixes, broadcastIPs, addrErr := e.walkIPAddressTable(client); addrErr != nil {
 		e.logger.Debug().Str("target", target).Err(addrErr).
 			Msg("Failed to walk ipAddressTable (normal for some devices)")
 	} else {
-		for ip, prefixLen := range extraPrefixes {
-			if _, exists := ipToPrefixLen[ip]; !exists {
-				ipToPrefixLen[ip] = prefixLen
-			}
-		}
-
-		for ip, ifIndex := range extra {
-			// ipAddrTable already carries a real ifIndex for the addresses it
-			// reports; do not let a duplicate row overwrite it with a placeholder.
-			if existing, ok := ipToIfIndex[ip]; ok && existing != 0 && ifIndex == 0 {
-				continue
-			}
-
-			ipToIfIndex[ip] = ifIndex
-
-			if strings.Contains(ip, ":") {
-				v6Count++
-			}
-		}
+		v6Count = mergeIPAddressTable(ipToIfIndex, ipToPrefixLen, extra, extraPrefixes, broadcastIPs)
 	}
 
 	if v6Count > 0 {

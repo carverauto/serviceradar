@@ -1489,6 +1489,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
              ) == ["192.0.2.1", "198.51.100.1", "203.0.113.255"]
     end
 
+    test "keeps a .255 host whose interface reports a wider prefix" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "203.0.113.1",
+               ["203.0.113.255"],
+               ["203.0.113.1/16"]
+             ) == ["203.0.113.1", "203.0.113.255"]
+    end
+
     test "normalize_interface strips broadcast IPv4 addresses while preserving unicast and link-local" do
       result =
         MapperResultsIngestor.normalize_interface(%{

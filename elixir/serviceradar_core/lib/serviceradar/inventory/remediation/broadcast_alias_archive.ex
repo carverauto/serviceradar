@@ -9,6 +9,12 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
   and removes broadcast addresses from `platform.discovered_interfaces.ip_addresses`.
   GitHub #5743.
 
+  Values are judged as `AliasPolicy.broadcast_ip?/2` judges them: an explicit
+  `/len` decides alone, and a bare address is checked against the device's
+  known subnets. A `/24` inferred from a `.255` and sibling host pair on one
+  interface is written to that interface's `ip_cidrs` metadata when the `.255`
+  is removed, so the subnet stays known after its evidence is gone.
+
   Archives, does not mark stale: `:stale` is consulted by
   `MapperResultsIngestor.find_device_uid_by_alias/3` and revived on subsequent
   sightings.
@@ -27,10 +33,6 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
   @default_limit 5_000
   @max_batches 10_000
 
-  @ipv4_regex "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:/(?:3[0-2]|[12]?[0-9]))?$"
-  @ipv4_cidr_regex "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(?:3[0-2]|[12]?[0-9])$"
-  @ipv4_255_regex "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}255$"
-
   @doc false
   def broadcast_ctes(schema \\ "platform") do
     """
@@ -44,54 +46,74 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
       ORDER BY device_id, interface_uid, timestamp DESC
     ),
     raw_explicit_cidrs AS (
-      SELECT device_uid AS device_id, btrim(cidr) AS cidr_text
+      SELECT device_uid AS device_id, NULL::text AS interface_uid, cidr AS cidr_text
       FROM #{schema}.virtualization_network_interfaces
       WHERE device_uid IS NOT NULL AND cidr IS NOT NULL AND btrim(cidr) <> ''
       UNION
-      SELECT li.device_id, btrim(ip) AS cidr_text
+      SELECT li.device_id, li.interface_uid, btrim(token) AS cidr_text
       FROM latest_ifaces li
       CROSS JOIN LATERAL unnest(li.ip_addresses) AS ip
-      WHERE ip LIKE '%/%'
+      CROSS JOIN LATERAL regexp_split_to_table(ip, '[ ,]+') AS token
+      WHERE token LIKE '%/%'
       UNION
-      SELECT li.device_id, btrim(token) AS cidr_text
+      SELECT li.device_id, li.interface_uid, btrim(token) AS cidr_text
       FROM latest_ifaces li
-      CROSS JOIN LATERAL regexp_split_to_table(
-        concat_ws(
-          ',',
-          li.metadata->>'ip_cidrs',
-          li.metadata->>'cidr',
-          li.metadata->>'subnet'
-        ),
-        '\\s*,\\s*'
-      ) AS token
+      CROSS JOIN LATERAL (VALUES ('ip_cidrs'), ('cidr'), ('subnet')) AS k(name)
+      CROSS JOIN LATERAL (
+        SELECT li.metadata->>k.name AS val
+        WHERE jsonb_typeof(li.metadata->k.name) = 'string'
+        UNION ALL
+        SELECT elem
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof(li.metadata->k.name) = 'array' THEN li.metadata->k.name
+            ELSE '[]'::jsonb
+          END
+        ) AS elem
+      ) AS v
+      CROSS JOIN LATERAL regexp_split_to_table(v.val, '[ ,]+') AS token
       WHERE token LIKE '%/%'
     ),
     explicit_cidrs AS (
-      SELECT DISTINCT device_id, cidr_text::inet AS net
-      FROM raw_explicit_cidrs
-      WHERE cidr_text ~ '#{@ipv4_cidr_regex}'
-        AND family(cidr_text::inet) = 4
+      SELECT DISTINCT
+        r.device_id,
+        r.interface_uid,
+        set_masklen(nv.addr, nv.prefix_len) AS net
+      FROM raw_explicit_cidrs r
+      CROSS JOIN LATERAL #{ipv4_value_sql("r.cidr_text")} AS nv
+      WHERE nv.addr IS NOT NULL
+        AND nv.prefix_len BETWEEN 0 AND 32
+    ),
+    iface_bare_ips AS (
+      SELECT DISTINCT li.device_id, li.interface_uid, nv.addr
+      FROM latest_ifaces li
+      CROSS JOIN LATERAL unnest(li.ip_addresses) AS ip
+      CROSS JOIN LATERAL #{ipv4_value_sql("ip")} AS nv
+      WHERE nv.addr IS NOT NULL
+        AND nv.prefix_len IS NULL
     ),
     inferred_pair_cidrs AS (
       SELECT DISTINCT
-        li.device_id,
-        set_masklen((btrim(bcast_ip)::inet), 24) AS net
-      FROM latest_ifaces li
-      CROSS JOIN LATERAL unnest(li.ip_addresses) AS bcast_ip
-      CROSS JOIN LATERAL unnest(li.ip_addresses) AS host_ip
-      WHERE btrim(bcast_ip) ~ '#{@ipv4_255_regex}'
-        AND btrim(bcast_ip) <> '255.255.255.255'
-        AND btrim(host_ip) ~ '#{@ipv4_regex}'
-        AND btrim(host_ip) NOT LIKE '%/%'
-        AND btrim(host_ip) <> btrim(bcast_ip)
-        AND NOT (btrim(host_ip) ~ '\\.(0|255)$')
-        AND network(set_masklen((btrim(bcast_ip)::inet), 24)) =
-            network(set_masklen((btrim(host_ip)::inet), 24))
+        b.device_id,
+        b.interface_uid,
+        network(set_masklen(b.addr, 24))::inet AS net
+      FROM iface_bare_ips b
+      WHERE split_part(host(b.addr), '.', 4) = '255'
+        AND host(b.addr) <> '255.255.255.255'
+        AND EXISTS (
+          SELECT 1
+          FROM iface_bare_ips h
+          WHERE h.device_id = b.device_id
+            AND h.interface_uid = b.interface_uid
+            AND h.addr <<= network(set_masklen(b.addr, 24))
+            AND split_part(host(h.addr), '.', 4)::int BETWEEN 1 AND 254
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM explicit_cidrs ec
-          WHERE ec.device_id = li.device_id
-            AND (btrim(bcast_ip)::inet) <<= ec.net
+          WHERE ec.device_id = b.device_id
+            AND ec.interface_uid = b.interface_uid
+            AND b.addr <<= network(ec.net)
         )
     ),
     device_broadcast_ips AS (
@@ -99,11 +121,109 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
         c.device_id,
         host(broadcast(c.net)) AS bcast_ip
       FROM (
-        SELECT device_id, net FROM explicit_cidrs WHERE masklen(net) BETWEEN 0 AND 30
+        SELECT device_id, net FROM explicit_cidrs WHERE masklen(net) <= 30
         UNION
         SELECT device_id, net FROM inferred_pair_cidrs
       ) c
     )
+    """
+  end
+
+  # One row `(addr, prefix_len)` for a raw address value, parsed the way
+  # `AliasPolicy` parses it: `%zone` dropped, an IPv4-mapped IPv6 address
+  # unwrapped (its `/96..128` prefix shifted to `/0..32`), `addr` NULL when the
+  # value is not IPv4, `prefix_len` NULL without a `/` and -1 when the prefix is
+  # unusable.
+  defp ipv4_value_sql(raw_value_expr) do
+    """
+    (
+      SELECT
+        CASE
+          WHEN p.raw_addr IS NULL THEN NULL
+          WHEN family(p.raw_addr) = 4 THEN p.raw_addr
+          WHEN p.raw_addr <<= '::ffff:0:0/96'::inet
+            THEN '0.0.0.0'::inet + (p.raw_addr - '::ffff:0.0.0.0'::inet)
+        END AS addr,
+        CASE
+          WHEN p.prefix_text IS NULL THEN NULL
+          WHEN p.raw_addr IS NULL OR btrim(p.prefix_text) !~ '^[0-9]{1,3}$' THEN -1
+          WHEN btrim(p.prefix_text)::int <= 32 THEN btrim(p.prefix_text)::int
+          WHEN family(p.raw_addr) = 6 AND btrim(p.prefix_text)::int BETWEEN 96 AND 128
+            THEN btrim(p.prefix_text)::int - 96
+          ELSE -1
+        END AS prefix_len
+      FROM (
+        SELECT
+          CASE
+            WHEN btrim(split_part(v.value, '/', 1)) <> ''
+              AND pg_input_is_valid(btrim(split_part(v.value, '/', 1)), 'inet')
+              THEN btrim(split_part(v.value, '/', 1))::inet
+          END AS raw_addr,
+          CASE WHEN strpos(v.value, '/') > 0 THEN split_part(v.value, '/', 2) END AS prefix_text
+        FROM (SELECT split_part(btrim(#{raw_value_expr}), '%', 1) AS value) v
+      ) p
+    )
+    """
+  end
+
+  @doc false
+  def alias_broadcast_predicate(device_id_expr, raw_value_expr) do
+    """
+    EXISTS (
+      SELECT 1
+      FROM #{ipv4_value_sql(raw_value_expr)} AS nv
+      WHERE nv.addr IS NOT NULL
+        AND (
+          (
+            host(nv.addr) = '255.255.255.255'
+            AND (nv.prefix_len IS NULL OR nv.prefix_len >= 0)
+          )
+          OR (
+            nv.prefix_len BETWEEN 0 AND 30
+            AND host(nv.addr) = host(broadcast(set_masklen(nv.addr, nv.prefix_len)))
+          )
+          OR (
+            nv.prefix_len IS NULL
+            AND EXISTS (
+              SELECT 1
+              FROM device_broadcast_ips dbi
+              WHERE dbi.device_id = #{device_id_expr}
+                AND dbi.bcast_ip = host(nv.addr)
+            )
+          )
+        )
+    )
+    """
+  end
+
+  @doc false
+  def preserve_inferred_cidrs_sql(iface_expr) do
+    """
+    CASE
+      WHEN (
+        #{iface_expr}.metadata IS NULL
+        OR (
+          jsonb_typeof(#{iface_expr}.metadata) = 'object'
+          AND NOT #{iface_expr}.metadata ? 'ip_cidrs'
+        )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM inferred_pair_cidrs ipc
+        WHERE ipc.device_id = #{iface_expr}.device_id
+          AND ipc.interface_uid = #{iface_expr}.interface_uid
+      )
+      THEN COALESCE(#{iface_expr}.metadata, '{}'::jsonb) || jsonb_build_object(
+        'ip_cidrs',
+        (
+          SELECT string_agg(DISTINCT ipc.net::text, ',' ORDER BY ipc.net::text)
+          FROM inferred_pair_cidrs ipc
+          WHERE ipc.device_id = #{iface_expr}.device_id
+            AND ipc.interface_uid = #{iface_expr}.interface_uid
+        )
+      )
+      ELSE #{iface_expr}.metadata
+    END
     """
   end
 
@@ -316,7 +436,8 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
           SELECT ip
           FROM unnest(di.ip_addresses) AS ip
           WHERE NOT (#{alias_broadcast_predicate("di.device_id", "ip")})
-        )
+        ),
+        metadata = #{preserve_inferred_cidrs_sql("di")}
         WHERE COALESCE(array_length(di.ip_addresses, 1), 0) > 0
           AND EXISTS (
             SELECT 1
@@ -345,35 +466,6 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
     end
 
     length(keys)
-  end
-
-  @doc false
-  def alias_broadcast_predicate(device_id_expr, raw_value_expr) do
-    trimmed = "split_part(btrim(#{raw_value_expr}), '%', 1)"
-
-    """
-    (
-      #{trimmed} = '255.255.255.255'
-      OR (
-        #{trimmed} ~ '#{@ipv4_cidr_regex}'
-        AND masklen((#{trimmed})::inet) BETWEEN 0 AND 30
-        AND host((#{trimmed})::inet) = host(broadcast((#{trimmed})::inet))
-      )
-      OR (
-        #{trimmed} ~ '#{@ipv4_regex}'
-        AND NOT (
-          #{trimmed} LIKE '%/%'
-          AND masklen((#{trimmed})::inet) IN (31, 32)
-        )
-        AND EXISTS (
-          SELECT 1
-          FROM device_broadcast_ips dbi
-          WHERE dbi.device_id = #{device_id_expr}
-            AND dbi.bcast_ip = split_part(#{trimmed}, '/', 1)
-        )
-      )
-    )
-    """
   end
 
   defp record!(manifest, action, table, ids, extra) do

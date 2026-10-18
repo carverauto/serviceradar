@@ -352,32 +352,29 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
 
   def enrich_alias_metadata(update) do
     metadata = update.metadata || %{}
-    raw_alias_ips = alias_ips_from_metadata(metadata)
+    alias_ips = alias_ips_from_metadata(metadata)
 
-    if raw_alias_ips == [] do
+    if alias_ips == [] do
       update
     else
-      known_cidrs = known_cidrs_from_update(update, raw_alias_ips)
-      cleaned_metadata = drop_invalid_alias_ip_keys(metadata, known_cidrs)
-
       timestamp = update.timestamp || DateTime.utc_now()
       timestamp = DateTime.truncate(timestamp, :second)
       ts_string = DateTime.to_iso8601(timestamp)
 
       alias_ips =
-        raw_alias_ips
+        alias_ips
         |> maybe_add_alias_ip(update.ip)
-        |> Enum.filter(&AliasPolicy.valid_alias_ip?(&1, known_cidrs))
+        |> Enum.filter(&AliasPolicy.valid_alias_ip?/1)
         |> Enum.uniq()
 
       if alias_ips == [] do
-        %{update | metadata: cleaned_metadata}
+        update
       else
         last_seen_ip =
-          if AliasPolicy.valid_alias_ip?(update.ip, known_cidrs), do: update.ip
+          if AliasPolicy.valid_alias_ip?(update.ip), do: update.ip
 
         metadata =
-          cleaned_metadata
+          metadata
           |> Map.put("_alias_last_seen_at", ts_string)
           |> maybe_put("_alias_last_seen_ip", last_seen_ip)
           |> add_alias_ip_keys(alias_ips, ts_string)
@@ -387,46 +384,88 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
     end
   end
 
-  defp known_cidrs_from_update(update, raw_alias_ips) do
-    iface_cidrs =
-      update
-      |> Map.get(:network_interfaces, [])
+  @alias_ip_key_prefixes ["ip_alias:", "interface_ip_alias:", "alt_ip:"]
+  @interface_ipv4_keys ["ipv4_address", :ipv4_address, "ip", :ip]
+
+  @doc """
+  Drops IPv4 broadcast addresses from resolved `{update, device_id}` pairs before
+  they are persisted: `ip_alias:*`, `interface_ip_alias:*` and `alt_ip:*`
+  metadata keys, and interface IPv4 addresses.
+
+  A bare address is judged against the subnets already persisted for the
+  resolved device (`AliasPolicy.known_cidrs_by_device_ids/1`) plus the subnets
+  the update reports for its own interfaces and metadata.
+  """
+  def drop_broadcast_addresses(resolved_updates) do
+    persisted_cidrs =
+      resolved_updates
+      |> Enum.map(&elem(&1, 1))
+      |> AliasPolicy.known_cidrs_by_device_ids()
+
+    Enum.map(resolved_updates, fn {update, device_id} ->
+      known_cidrs = Enum.uniq(Map.get(persisted_cidrs, device_id, []) ++ update_cidrs(update))
+
+      update = %{
+        update
+        | metadata: drop_broadcast_alias_keys(update.metadata, known_cidrs),
+          network_interfaces: drop_broadcast_interface_ips(update.network_interfaces, known_cidrs)
+      }
+
+      {update, device_id}
+    end)
+  end
+
+  defp update_cidrs(update) do
+    interface_cidrs =
+      update.network_interfaces
       |> List.wrap()
       |> Enum.flat_map(fn
         iface when is_map(iface) ->
+          ips =
+            get_list(iface, ["ip_addresses", :ip_addresses]) ++
+              List.wrap(get_string(iface, @interface_ipv4_keys))
+
           cidr = get_string(iface, ["cidr", :cidr, "subnet", :subnet])
-          ips = get_list(iface, ["ip_addresses", :ip_addresses])
-          meta = if is_binary(cidr) and cidr != "", do: %{"cidr" => cidr}, else: %{}
-          AliasPolicy.interface_known_cidrs(ips, meta)
+          AliasPolicy.interface_known_cidrs(ips, %{"cidr" => cidr})
 
         _ ->
           []
       end)
 
-    candidate_ips = maybe_add_alias_ip(raw_alias_ips, Map.get(update, :ip))
-
-    Enum.uniq(
-      iface_cidrs ++
-        AliasPolicy.interface_known_cidrs(candidate_ips, Map.get(update, :metadata, %{}))
-    )
+    AliasPolicy.interface_known_cidrs([], update.metadata) ++ interface_cidrs
   end
 
-  defp drop_invalid_alias_ip_keys(metadata, known_cidrs) when is_map(metadata) do
-    Enum.reduce(Map.keys(metadata), metadata, fn key, acc ->
-      cond do
-        String.starts_with?(key, "ip_alias:") ->
-          ip = key |> String.replace_prefix("ip_alias:", "") |> String.trim()
-          if AliasPolicy.valid_alias_ip?(ip, known_cidrs), do: acc, else: Map.delete(acc, key)
+  defp drop_broadcast_alias_keys(metadata, known_cidrs) when is_map(metadata) do
+    Map.reject(metadata, fn {key, _value} -> broadcast_alias_key?(key, known_cidrs) end)
+  end
 
-        String.starts_with?(key, "alt_ip:") ->
-          ip = key |> String.replace_prefix("alt_ip:", "") |> String.trim()
-          if AliasPolicy.valid_alias_ip?(ip, known_cidrs), do: acc, else: Map.delete(acc, key)
+  defp drop_broadcast_alias_keys(metadata, _known_cidrs), do: metadata
 
-        true ->
-          acc
-      end
+  defp broadcast_alias_key?(key, known_cidrs) when is_binary(key) do
+    Enum.any?(@alias_ip_key_prefixes, fn prefix ->
+      String.starts_with?(key, prefix) and
+        key
+        |> String.replace_prefix(prefix, "")
+        |> String.trim()
+        |> AliasPolicy.broadcast_ip?(known_cidrs)
     end)
   end
+
+  defp broadcast_alias_key?(_key, _known_cidrs), do: false
+
+  defp drop_broadcast_interface_ips(interfaces, known_cidrs) when is_list(interfaces) do
+    Enum.map(interfaces, fn
+      iface when is_map(iface) ->
+        Map.reject(iface, fn {key, value} ->
+          key in @interface_ipv4_keys and AliasPolicy.broadcast_ip?(value, known_cidrs)
+        end)
+
+      other ->
+        other
+    end)
+  end
+
+  defp drop_broadcast_interface_ips(interfaces, _known_cidrs), do: interfaces
 
   def alias_ips_from_metadata(metadata) do
     metadata

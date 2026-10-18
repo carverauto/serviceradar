@@ -114,12 +114,28 @@ defmodule ServiceRadar.Identity.AliasPolicy do
   end
 
   @doc """
-  Loads known IPv4 subnet CIDRs for a single device from its persisted
-  `virtualization_network_interfaces`, latest `discovered_interfaces`, and optional
-  metadata map.
+  `valid_alias_ip?/2` against the known IPv4 subnet CIDRs of `device_id`: its
+  persisted `virtualization_network_interfaces`, latest `discovered_interfaces`,
+  and the explicit CIDRs in `metadata`.
+
+  Those CIDRs are loaded only for a bare IPv4 address whose two low bits are set,
+  because no other address can be the directed broadcast of a `0..30` prefix.
   """
-  @spec known_cidrs_for_device(term(), term()) :: [String.t()]
-  def known_cidrs_for_device(device_id, metadata \\ %{}) do
+  @spec valid_alias_ip_for_device?(term(), term(), term()) :: boolean()
+  def valid_alias_ip_for_device?(value, device_id, metadata \\ %{}) do
+    valid_alias_ip?(value) and
+      (not directed_broadcast_candidate?(value) or
+         valid_alias_ip?(value, known_cidrs_for_device(device_id, metadata)))
+  end
+
+  defp directed_broadcast_candidate?(value) when is_binary(value) do
+    case parse_ipv4_value(value) do
+      {:ok, ip4, nil} -> band(ipv4_to_u32(ip4), 3) == 3
+      _ -> false
+    end
+  end
+
+  defp known_cidrs_for_device(device_id, metadata) do
     meta_cidrs = if is_map(metadata), do: explicit_cidrs_from_metadata(metadata), else: []
 
     db_cidrs =
