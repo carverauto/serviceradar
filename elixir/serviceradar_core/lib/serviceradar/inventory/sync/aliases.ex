@@ -28,12 +28,17 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
   @doc """
   The primary addresses the batch's declarative updates may replace, keyed by device uid.
 
+  A device's record is built from the batch's last update for its uid (`DeviceRecords`), so
+  that update's source decides: a declarative update that wins keeps the address it replaces
+  even after an observed sighting of the device earlier in the batch, and an observed update
+  that wins keeps nothing.
+
   A declarative source (`SourcePolicy.observed_address_source?/1` is false: a hypervisor API,
   NetBox, AWX, a generic integration) reports the address it is configured with, which is
   not evidence that the address the device currently holds is gone. A hypervisor node, for
   one, is reported at its cluster address while discovery reached it on its management
   address. The upsert still takes the configured address (`DeviceWrites`), so the held one
-  is read here, under the batch's row locks, and kept as an alias once the write lands.
+  is read here, under the batch's row locks, and kept as an alias in the same transaction.
 
   An observed source is left out on purpose: it saw the device at the new address, so the old
   one is the stale side of a move (DHCP churn), and keeping it would attribute the next
@@ -41,15 +46,11 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
   """
   @spec held_addresses([map()], [{map(), String.t()}]) :: %{String.t() => map()}
   def held_addresses(device_records, resolved_updates) do
-    observed =
-      for {update, uid} <- resolved_updates,
-          SourcePolicy.observed_address_source?(update),
-          into: MapSet.new(),
-          do: uid
+    winning_updates = Map.new(resolved_updates, fn {update, uid} -> {uid, update} end)
 
     uids =
       for record <- device_records,
-          not MapSet.member?(observed, record.uid),
+          declarative_write?(Map.get(winning_updates, record.uid)),
           present_ip?(Map.get(record, :ip)),
           uniq: true,
           do: record.uid
@@ -66,6 +67,9 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
       |> Map.new(fn {uid, ip, partition} -> {uid, %{ip: ip, partition: partition}} end)
     end
   end
+
+  defp declarative_write?(nil), do: false
+  defp declarative_write?(update), do: not SourcePolicy.observed_address_source?(update)
 
   @doc """
   The held addresses (`held_addresses/2`) the write replaced: the device is still live under
@@ -107,27 +111,29 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
   device, so the address still resolves to the device and a sweep that reaches it confirms the
   alias (`SweepResultsIngestor`). A device that already has a row for the address keeps it as it
   is: its lifecycle, including an invalidation, is not overridden here.
+
+  Runs inside the transaction that replaced the addresses and returns the first lookup or
+  create error unchanged, so the caller rolls the replacement back with it: a replacement that
+  committed without its alias would leave the old address recorded nowhere, and a replay would
+  read the new address as the held one.
   """
-  @spec retain_replaced_addresses([map()], term()) :: :ok
+  @spec retain_replaced_addresses([map()], term()) :: :ok | {:error, term()}
   def retain_replaced_addresses(replacements, actor) do
-    Enum.each(replacements, &retain_replaced_address(&1, actor))
+    Enum.reduce_while(replacements, :ok, fn replacement, :ok ->
+      case retain_replaced_address(replacement, actor) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp retain_replaced_address(replacement, actor) do
     %{device_id: device_id, ip: ip, partition: partition, replaced_by: replaced_by} = replacement
 
     case DeviceAliasState.lookup_for_device(device_id, :ip, ip, actor: actor) do
-      {:ok, []} ->
-        create_replaced_address_alias(device_id, ip, partition, replaced_by, actor)
-
-      {:ok, _existing} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "SyncIngestor: could not read the alias rows of #{device_id} for its replaced " <>
-            "address #{ip}: #{inspect(reason)}"
-        )
+      {:ok, []} -> create_replaced_address_alias(device_id, ip, partition, replaced_by, actor)
+      {:ok, _existing} -> :ok
+      {:error, _reason} = error -> error
     end
   end
 
@@ -147,11 +153,8 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
             "(primary address now #{replaced_by})"
         )
 
-      {:error, reason} ->
-        Logger.warning(
-          "SyncIngestor: could not keep replaced address #{ip} of #{device_id} as an alias: " <>
-            inspect(reason)
-        )
+      {:error, _reason} = error ->
+        error
     end
   end
 

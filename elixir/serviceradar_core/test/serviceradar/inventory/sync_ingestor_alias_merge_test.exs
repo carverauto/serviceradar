@@ -497,6 +497,43 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
                )
     end
 
+    # The record a batch writes for a device is its last update for that device, so that
+    # update's source decides. A sighting of the node at its held address earlier in the batch
+    # does not make the configured address that wins a move.
+    test "a declarative update that wins its batch keeps the address after an observed sighting",
+         %{actor: actor} do
+      seed = System.unique_integer([:positive, :monotonic])
+      held_ip = test_net_ip("192.0.2", seed)
+      declared_ip = test_net_ip("198.51.100", seed)
+      armis_id = "#{seed}"
+      integration_id = "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:node:node02"
+
+      {:ok, node} = create_device_at(actor, "node02", held_ip)
+      assert {:ok, _} = register_identifier(actor, node.uid, :armis_device_id, armis_id)
+      assert {:ok, _} = register_identifier(actor, node.uid, :integration_id, integration_id)
+
+      sighting = %{
+        "ip" => held_ip,
+        "source" => "armis",
+        "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+      }
+
+      declaration = %{
+        "device_id" => node.uid,
+        "ip" => declared_ip,
+        "partition" => "default",
+        "source" => "hypervisor_enrichment",
+        "metadata" => %{"integration_id" => integration_id, "integration_type" => "hypervisor"}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([sighting, declaration], actor: actor)
+
+      assert {:ok, %Device{ip: ^declared_ip}} = Device.get_by_uid(node.uid, false, actor: actor)
+
+      assert {:ok, [%DeviceAliasState{state: :detected}]} =
+               DeviceAliasState.lookup_for_device(node.uid, :ip, held_ip, actor: actor)
+    end
+
     # An observed source saw the device at the new address, so the old one is the stale side of
     # a move. Keeping it would attribute the address's next holder to this device.
     test "an observed source does not keep the address it moved the device off", %{
