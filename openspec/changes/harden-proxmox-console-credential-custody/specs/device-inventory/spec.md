@@ -52,6 +52,13 @@ The migration SHALL map each legacy v1/v2 Proxmox reference to a v3 identity onl
 - **THEN** the alias SHALL be quarantined as ambiguous
 - **AND** no object merge, credential resolution, current-owner selection, or console session SHALL occur from that alias
 
+#### Scenario: Superseded legacy row remains stored but is not current
+- **GIVEN** a legacy guest, host, or cluster row whose alias is resolved to an existing v3 row, or ambiguous with at least one existing candidate v3 row
+- **WHEN** device, dashboard, topology, or SRQL readers list current virtualization inventory
+- **THEN** that legacy row, and child rows attached only through it, SHALL NOT be presented as current inventory
+- **AND** the legacy row SHALL remain stored and reachable by exact provider-reference lookup for alias resolution and migration comparison
+- **AND** a legacy row without an existing v3 replacement SHALL remain readable during the compatibility period
+
 #### Scenario: Migration is replayed
 - **GIVEN** v3 backfill and relationship migration completed once
 - **WHEN** the migration is rerun after another inventory sync

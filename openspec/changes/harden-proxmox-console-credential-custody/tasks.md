@@ -32,6 +32,7 @@
 - [ ] 4.4 Backfill hosts, guests, device links, and ownership relationships transactionally and idempotently from their producing integration/controller.
 - [ ] 4.5 Create read-only legacy aliases only for one-to-one mappings; quarantine zero-match or multi-match aliases and deny their use for writes or consoles.
 - [ ] 4.6 Add migration reconciliation reports for counts, duplicate native names/VMIDs, ambiguous aliases, relationship preservation, and prohibited overwrites.
+- [x] 4.7 Keep superseded legacy guest, host, and cluster rows, and the child rows attached to them, out of current-inventory reads (Ash primary and by-device reads, hosted topology SQL, SRQL) without deleting them.
 
 ## 5. Authorize and bind exact guest console routes
 

@@ -56,7 +56,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     super::reject_stats(plan, "virtualization")?;
     let spec = entity_spec(&plan.entity)?;
     let mut params = Vec::new();
-    let mut predicates = Vec::new();
+    let mut predicates = vec![current_inventory_predicate(&plan.entity)?];
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         let start_ref = push_param(&mut params, BindParam::timestamptz(*start));
@@ -161,6 +161,59 @@ fn entity_spec(entity: &Entity) -> Result<EntitySpec> {
             "unsupported virtualization entity".into(),
         )),
     }
+}
+
+/// Hides legacy rows that a source-scoped v3 row has superseded, and the child
+/// rows attached to them. The rule matches
+/// `ServiceRadar.Inventory.Preparations.ExcludeSupersededLegacyIdentities`:
+/// a legacy row is superseded when its identity alias is `resolved` and the
+/// target row exists, or `ambiguous` and any candidate row exists. Unresolved
+/// legacy rows remain visible. Child rows carry no alias of their own, so they
+/// follow their owning guest, host, or cluster.
+fn current_inventory_predicate(entity: &Entity) -> Result<String> {
+    let guest = superseded_sql("guest", "virtualization_guests", "g");
+    let host = superseded_sql("host", "virtualization_hosts", "h");
+    let cluster = superseded_sql("cluster", "virtualization_clusters", "c");
+
+    match entity {
+        Entity::VirtualizationClusters => Ok(format!(
+            "NOT {}",
+            superseded_sql("cluster", "virtualization_clusters", "t")
+        )),
+        Entity::VirtualizationHosts => Ok(format!(
+            "NOT {}",
+            superseded_sql("host", "virtualization_hosts", "t")
+        )),
+        Entity::VirtualizationGuests => Ok(format!(
+            "NOT {}",
+            superseded_sql("guest", "virtualization_guests", "t")
+        )),
+        Entity::VirtualizationHostDisks => Ok(format!("NOT {host}")),
+        Entity::VirtualizationDatastores | Entity::VirtualizationStorageSystems => Ok(format!(
+            "NOT {host} AND (t.host_id IS NOT NULL OR NOT {cluster})"
+        )),
+        Entity::VirtualizationNetworkInterfaces => Ok(format!(
+            "NOT {guest} AND (t.guest_id IS NOT NULL OR NOT {host})"
+        )),
+        _ => Err(ServiceError::InvalidRequest(
+            "unsupported virtualization entity".into(),
+        )),
+    }
+}
+
+fn superseded_sql(resource_kind: &str, table: &str, row: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM virtualization_identity_aliases superseding_alias \
+         WHERE superseding_alias.provider = {row}.provider \
+         AND superseding_alias.resource_kind = '{resource_kind}' \
+         AND superseding_alias.legacy_provider_ref = {row}.provider_ref \
+         AND superseding_alias.status IN ('resolved', 'ambiguous') \
+         AND EXISTS (SELECT 1 FROM {table} successor \
+         WHERE successor.provider = superseding_alias.provider \
+         AND successor.provider_ref = ANY(CASE superseding_alias.status \
+         WHEN 'resolved' THEN ARRAY[superseding_alias.target_provider_ref] \
+         ELSE superseding_alias.candidate_provider_refs END)))"
+    )
 }
 
 fn filter_predicate(

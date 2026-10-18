@@ -6,8 +6,12 @@ defmodule ServiceRadar.Inventory.VirtualizationHost do
   use Ash.Resource,
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # The primary read hides superseded legacy rows on purpose, so relationship
+    # loads see the same current inventory as direct reads.
+    primary_read_warning?: false
 
+  alias ServiceRadar.Inventory.Preparations.ExcludeSupersededLegacyIdentities
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @devices_view_check {ActorHasPermission, permission: "devices.view"}
@@ -46,7 +50,13 @@ defmodule ServiceRadar.Inventory.VirtualizationHost do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:destroy]
+
+    read :read do
+      primary? true
+      prepare {ExcludeSupersededLegacyIdentities, resource_kind: :host}
+      pagination offset?: true, keyset?: true, required?: false, countable: true
+    end
 
     create :create do
       accept @identity_fields ++ @mutable_fields
@@ -65,6 +75,7 @@ defmodule ServiceRadar.Inventory.VirtualizationHost do
 
     read :by_device do
       argument :device_uid, :string, allow_nil?: false
+      prepare {ExcludeSupersededLegacyIdentities, resource_kind: :host}
       filter expr(device_uid == ^arg(:device_uid))
     end
   end
