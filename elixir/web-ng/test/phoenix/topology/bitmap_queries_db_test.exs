@@ -516,24 +516,24 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     cached = scope |> binary_conn() |> Plug.Conn.put_req_header("if-none-match", etag)
     assert TopologyTileController.overlay(cached, overlay_params).status == 304
 
-    # A worker completes while access is still valid; revocation lands before
-    # the channel processes that queued result, which must not be delivered.
-    :ok = :sys.suspend(BitmapIndex)
+    # Each held worker completes against the current binding; the change made
+    # before the channel processes that queued result must stop its delivery.
+    expired_ref = hold_completed_watch(socket, params)
+    assert_push "membership:frame", {:binary, _replaced_reset}, 5_000
+    held = make_ref()
+    Process.send_after(self(), {:deadline_elapsed, held}, 1_100)
+    assert_receive {:deadline_elapsed, ^held}, 2_000
+    :ok = :sys.resume(socket.channel_pid)
+    assert_reply expired_ref, :error, %{reason: "query_timeout"}, 5_000
+    refute_push "membership:frame", _expired_frame, 200
 
-    revoked_ref =
-      try do
-        revoked_ref = push(socket, "membership:watch", params)
-        assert_push "membership:frame", {:binary, _replaced_reset}, 5_000
-        %{pid: worker} = await(fn -> stream_task(socket) end, &is_map/1)
-        worker_monitor = Process.monitor(worker)
-        :ok = :sys.suspend(socket.channel_pid)
-        :ok = :sys.resume(BitmapIndex)
-        assert_receive {:DOWN, ^worker_monitor, :process, _pid, :normal}, 5_000
-        revoked_ref
-      after
-        :sys.resume(BitmapIndex)
-      end
+    remapped_ref = hold_completed_watch(socket, params)
+    :ok = WorldCache.install_ordinals(world, seal_mapping(world, [included, excluded], snapshot.dictionary_epoch))
+    :ok = :sys.resume(socket.channel_pid)
+    assert_reply remapped_ref, :error, %{reason: "source_changed"}, 5_000
+    refute_push "membership:frame", _remapped_frame, 200
 
+    revoked_ref = hold_completed_watch(socket, params)
     user |> Ash.Changeset.for_update(:deactivate, %{}, actor: @actor) |> Ash.update!()
     :ok = :sys.resume(socket.channel_pid)
     assert_reply revoked_ref, :error, %{reason: "forbidden"}, 5_000
@@ -689,6 +689,24 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   end
 
   defp stream_task(socket), do: :sys.get_state(socket.channel_pid).assigns.bitmap_stream.task
+
+  # Returns with the watch worker finished and its result queued behind a
+  # suspended channel; the caller resumes the channel after changing state.
+  defp hold_completed_watch(socket, params) do
+    :ok = :sys.suspend(BitmapIndex)
+
+    try do
+      ref = push(socket, "membership:watch", params)
+      %{pid: worker} = await(fn -> stream_task(socket) end, &is_map/1)
+      worker_monitor = Process.monitor(worker)
+      :ok = :sys.suspend(socket.channel_pid)
+      :ok = :sys.resume(BitmapIndex)
+      assert_receive {:DOWN, ^worker_monitor, :process, _pid, :normal}, 5_000
+      ref
+    after
+      :sys.resume(BitmapIndex)
+    end
+  end
 
   defp stream_identity(socket) do
     %{assigns: %{bitmap_stream: %{identity: {:ok, identity}}}} = :sys.get_state(socket.channel_pid)

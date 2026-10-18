@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   @ack_timeout 15_000
   @task_timeout 1_500
+  @build_budget 1_000
   @transient_tick [
     :query_busy,
     :query_timeout,
@@ -112,7 +113,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
           assign(socket, :bitmap_stream, state)
         else
           with {:ok, result} <- BitmapQueries.normalize(result),
-               :ok <- current_authority(socket, result) do
+               :ok <- current_delivery(socket, task, result) do
             deliver(result, state, socket)
           else
             {:error, reason} -> failed(state, reason, socket)
@@ -124,11 +125,29 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     end
   end
 
-  defp current_authority(socket, result) do
-    case BitmapAuthority.current(socket.assigns.current_scope) do
-      {:ok, authority} when authority == result.authority -> :ok
-      _ -> {:error, :forbidden}
+  defp current_delivery(socket, task, result) do
+    remaining = task.deadline - now()
+    scope = socket.assigns.current_scope
+    prefix_sources = result.metadata.prefix_sources || %{}
+
+    with true <- remaining > 0,
+         checker = Task.async(fn -> bounded_identity(scope, prefix_sources) end),
+         {:ok, {:ok, fresh}} <- Task.yield(checker, remaining) || Task.shutdown(checker, :brutal_kill) do
+      cond do
+        fresh.authority != result.authority -> {:error, :forbidden}
+        Map.delete(fresh, :index_revision) != Map.delete(result.identity, :index_revision) -> {:error, :source_changed}
+        true -> :ok
+      end
+    else
+      {:ok, {:error, reason}} -> {:error, reason}
+      _ -> {:error, :query_timeout}
     end
+  end
+
+  defp bounded_identity(scope, prefix_sources) do
+    current_identity(scope, prefix_sources)
+  catch
+    :exit, _ -> {:error, :query_unavailable}
   end
 
   defp deliver(result, state, socket) do
@@ -198,15 +217,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
     scope = socket.assigns.current_scope
     sequence = state.sequence + 1
     request = state.request
+    deadline = now() + @build_budget
 
     case Task.Supervisor.start_child(ServiceRadarWebNG.Topology.TileWatchTasks, fn ->
-           send(owner, {:membership_built, token, BitmapView.build(scope, request, sequence)})
+           send(owner, {:membership_built, token, BitmapView.build(scope, request, sequence, deadline)})
          end) do
       {:ok, pid} ->
         task = %{
           pid: pid,
           ref: Process.monitor(pid),
           token: token,
+          deadline: deadline,
           timer: Process.send_after(owner, {:membership_timeout, token}, @task_timeout)
         }
 
@@ -254,11 +275,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   defp named_prefix_query?(%{prefix_sources: sources}) when is_map(sources), do: map_size(sources) > 0
   defp named_prefix_query?(_metadata), do: false
 
-  defp fresh_identity(socket, metadata) do
-    with {:ok, %{ordinals: %{info: info}, manifest: manifest}} <- WorldCache.world(),
+  defp fresh_identity(socket, metadata),
+    do: current_identity(socket.assigns.current_scope, metadata.prefix_sources || %{})
+
+  defp current_identity(scope, prefix_sources) do
+    with true <- BitmapQueries.enabled?() || {:error, :bitmap_disabled},
+         {:ok, authority} <- current_authority(scope),
+         {:ok, %{ordinals: %{info: info}, manifest: manifest}} <- WorldCache.world(),
          {:ok, snapshot} <- BitmapIndex.snapshot(),
-         {:ok, authority} <- BitmapAuthority.current(socket.assigns.current_scope),
-         :ok <- BitmapPrefixTags.current(metadata.prefix_sources || %{}) do
+         :ok <- BitmapPrefixTags.current(prefix_sources) do
       {:ok,
        %{
          layout_version: manifest.layout_version,
@@ -271,7 +296,16 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
          authority: authority
        }}
     else
-      _ -> :stale
+      {:ok, _unmapped_world} -> {:error, :membership_not_ready}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :source_changed}
+    end
+  end
+
+  defp current_authority(scope) do
+    case BitmapAuthority.current(scope) do
+      {:ok, authority} -> {:ok, authority}
+      _ -> {:error, :forbidden}
     end
   end
 

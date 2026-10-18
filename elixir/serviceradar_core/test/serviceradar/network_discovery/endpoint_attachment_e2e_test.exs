@@ -21,6 +21,8 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
@@ -155,6 +157,33 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
       )
 
     assert device_count == 1
+  end
+
+  test "an identity-purged endpoint sighting gains one fresh successor", %{
+    endpoint_uid: endpoint_uid
+  } do
+    actor = SystemActor.system(:mapper_topology_ingestor)
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!([fdb_payload()]), %{})
+    assert {:ok, %Device{} = device} = Device.get_by_uid(endpoint_uid, false, actor: actor)
+    assert {:ok, _} = Device.soft_delete(device, "manual", Ecto.UUID.generate(), actor: actor)
+
+    assert {%{errors: 0}, _deleted} =
+             DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [
+               %{uid: endpoint_uid}
+             ])
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!([fdb_payload()]), %{})
+
+    successor = Ids.reseeded_device_id(endpoint_uid)
+
+    assert {:ok, %Device{deleted_at: nil} = live} =
+             Device.get_by_uid(successor, false, actor: actor)
+
+    assert live.metadata["identity_source"] == "mapper_topology_sighting"
+    assert {:ok, tombstone} = Device.get_by_uid(endpoint_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
   end
 
   defp fdb_payload do

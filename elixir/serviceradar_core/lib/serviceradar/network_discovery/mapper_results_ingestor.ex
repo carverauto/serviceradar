@@ -623,33 +623,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          actor
        ) do
     with {:ok, uid} <- resolve_device_uid_via_dire(candidate_ip, partition, [mac], actor) do
-      cond do
-        device_exists?(uid, actor) ->
-          # DIRE resolved the sighting onto an existing device (MAC identifier,
-          # alias, or merge-audit canonical hit) — reuse it, never duplicate.
-          {:ok, uid}
+      entry =
+        sighting_entry(
+          uid,
+          candidate_ip,
+          partition,
+          [mac],
+          sighting_metadata(metadata, source_device_id)
+        )
 
-        is_binary(existing_uid = find_live_device_uid_by_ip(candidate_ip, partition, actor)) and
-          bindable_endpoint_ip_device?(existing_uid, mac, actor) and
-            endpoint_ip_mac_bind_allowed?(metadata) ->
-          # The sighting's IP already belongs to a live device with no
-          # conflicting MAC identity (e.g. an IP-only hypervisor record). DIRE
-          # never consults the IP when a strong MAC is present, so bind here
-          # and register the MAC so future sightings resolve via DIRE instead
-          # of minting a provisional duplicate. Distinct MAC = different
-          # hardware: when the device already carries a different MAC (column
-          # or registered identifier), shared-IP evidence (DHCP churn, NAT/VIP
-          # reuse) must never merge them, so the guard falls through to the
-          # deterministic MAC-seeded mint below.
-          #
-          # Cross-subnet / observed-join FDB is excluded: that evidence can
-          # pair one chassis MAC with another host's IP, which is how a dead
-          # MikroTik CHR absorbed a live vJunos identity.
-          register_mapper_mac_identifiers(existing_uid, [mac], candidate_ip, partition, actor)
-          {:ok, existing_uid}
-
-        true ->
-          create_endpoint_topology_device(
+      # DIRE resolved the sighting onto a known identity (MAC identifier, alias,
+      # or merge-audit canonical hit) — reuse it through its lifecycle, never duplicate.
+      case retained_mapper_uid(entry, %{}, %{}, actor) do
+        :new ->
+          bind_or_create_endpoint_topology_device(
             uid,
             mac,
             candidate_ip,
@@ -658,7 +645,51 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
             metadata,
             actor
           )
+
+        resolved ->
+          resolved
       end
+    end
+  end
+
+  defp bind_or_create_endpoint_topology_device(
+         uid,
+         mac,
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    existing_uid = find_live_device_uid_by_ip(candidate_ip, partition, actor)
+
+    if is_binary(existing_uid) and bindable_endpoint_ip_device?(existing_uid, mac, actor) and
+         endpoint_ip_mac_bind_allowed?(metadata) do
+      # The sighting's IP already belongs to a live device with no
+      # conflicting MAC identity (e.g. an IP-only hypervisor record). DIRE
+      # never consults the IP when a strong MAC is present, so bind here
+      # and register the MAC so future sightings resolve via DIRE instead
+      # of minting a provisional duplicate. Distinct MAC = different
+      # hardware: when the device already carries a different MAC (column
+      # or registered identifier), shared-IP evidence (DHCP churn, NAT/VIP
+      # reuse) must never merge them, so the guard falls through to the
+      # deterministic MAC-seeded mint below.
+      #
+      # Cross-subnet / observed-join FDB is excluded: that evidence can
+      # pair one chassis MAC with another host's IP, which is how a dead
+      # MikroTik CHR absorbed a live vJunos identity.
+      register_mapper_mac_identifiers(existing_uid, [mac], candidate_ip, partition, actor)
+      {:ok, existing_uid}
+    else
+      create_endpoint_topology_device(
+        uid,
+        mac,
+        candidate_ip,
+        partition,
+        source_device_id,
+        metadata,
+        actor
+      )
     end
   end
 
@@ -740,11 +771,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           uid: uid,
           mac: mac,
           discovery_sources: ["mapper", "sighting"],
-          metadata:
-            metadata
-            |> Map.put("identity_state", "provisional")
-            |> Map.put("identity_source", "mapper_topology_sighting")
-            |> Map.put("candidate_from_device_id", source_device_id)
+          metadata: sighting_metadata(metadata, source_device_id)
         },
         :ip,
         candidate_ip
@@ -837,20 +864,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          actor
        ) do
     with {:ok, uid} <- resolve_device_uid_via_dire(candidate_ip, partition, [], actor) do
-      if device_exists?(uid, actor) do
-        # DIRE resolved the sighting onto an existing device (identifier,
-        # alias, or merge-audit canonical hit) — reuse it, never duplicate.
-        {:ok, uid}
-      else
+      metadata = sighting_metadata(metadata, source_device_id)
+
+      # DIRE resolved the sighting onto a known identity (identifier, alias, or
+      # merge-audit canonical hit) — reuse it through its lifecycle, never duplicate.
+      with :new <-
+             retained_mapper_uid(
+               sighting_entry(uid, candidate_ip, partition, [], metadata),
+               %{},
+               %{},
+               actor
+             ) do
         attrs = %{
           uid: uid,
           ip: candidate_ip,
           discovery_sources: ["mapper", "sighting"],
-          metadata:
-            metadata
-            |> Map.put("identity_state", "provisional")
-            |> Map.put("identity_source", "mapper_topology_sighting")
-            |> Map.put("candidate_from_device_id", source_device_id)
+          metadata: metadata
         }
 
         case Device
@@ -1592,20 +1621,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp create_candidate_device_for_ip(ip, partition, source_device_id, actor) do
     with {:ok, uid} <- resolve_device_uid_via_dire(ip, partition, [], actor) do
-      if device_exists?(uid, actor) do
-        # DIRE resolved the candidate IP onto an existing device — reuse it.
-        {:ok, uid}
-      else
-        attrs = %{
-          uid: uid,
-          ip: ip,
-          discovery_sources: ["mapper"],
-          metadata: %{
-            "identity_state" => "provisional",
-            "identity_source" => "mapper_client_ip_candidate_seed",
-            "candidate_from_device_id" => source_device_id
-          }
-        }
+      metadata = %{
+        "identity_state" => "provisional",
+        "identity_source" => "mapper_client_ip_candidate_seed",
+        "candidate_from_device_id" => source_device_id
+      }
+
+      # DIRE resolved the candidate IP onto a known identity — reuse it through its lifecycle.
+      with :new <-
+             retained_mapper_uid(
+               sighting_entry(uid, ip, partition, [], metadata),
+               %{},
+               %{},
+               actor
+             ) do
+        attrs = %{uid: uid, ip: ip, discovery_sources: ["mapper"], metadata: metadata}
 
         case Device
              |> Ash.Changeset.for_create(:create, attrs)
@@ -1734,11 +1764,78 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     partition = partition_for_device_ip(device_ip, records)
 
     with {:ok, device_uid} <- resolve_device_uid_via_dire(device_ip, partition, [], actor) do
-      if device_exists?(device_uid, actor) do
-        {:ok, device_uid}
-      else
+      entry = sighting_entry(device_uid, device_ip, partition, [], address_seed_metadata())
+
+      with :new <- retained_mapper_uid(entry, parent_ips, ip_to_uid, actor) do
         create_address_seeded_device(device_uid, device_ip, parent_ips, ip_to_uid, actor)
       end
+    end
+  end
+
+  defp address_seed_metadata,
+    do: %{"identity_state" => "provisional", "identity_source" => "mapper_ip_seed"}
+
+  # Weak (address or sighting) evidence for a resolved uid. It never adopts an
+  # address holder or stamps an identity observation the way a polled MAC does.
+  defp sighting_entry(uid, device_ip, partition, macs, metadata),
+    do: %{
+      uid: uid,
+      device_ip: device_ip,
+      partition: partition,
+      macs: macs,
+      metadata: metadata,
+      strong: false
+    }
+
+  defp sighting_metadata(metadata, source_device_id) do
+    metadata
+    |> Map.put("identity_state", "provisional")
+    |> Map.put("identity_source", "mapper_topology_sighting")
+    |> Map.put("candidate_from_device_id", source_device_id)
+  end
+
+  # A resolved uid follows the same retained lifecycle as a MAC poll
+  # (`polled_device_state/2`): live and restorable rows are reused, identity-purged
+  # rows are rehydrated or succeeded through the guarded identity work, and protected
+  # tombstones stay deleted. Only an unknown uid reaches the caller's own create.
+  defp retained_mapper_uid(entry, parent_ips, context, actor) do
+    device = Map.get(devices_by_uid([entry.uid], actor), entry.uid)
+
+    case polled_device_state(device, actor) do
+      :new ->
+        :new
+
+      {:existing, device} ->
+        {:ok, device.uid}
+
+      {:restored, device, _purged?} ->
+        {:ok, device.uid}
+
+      :skip ->
+        {:error, :retained_tombstone}
+
+      {:purged, device} ->
+        commit_retained_identity(
+          [{:rehydrate, device.uid, [{%{entry | uid: device.uid}, device}]}],
+          parent_ips,
+          context,
+          actor
+        )
+
+      {:succeed, root, next, head, action, pins} ->
+        commit_retained_identity(
+          [{:succeed, root.uid, [{entry, root, next, head, action, pins}]}],
+          parent_ips,
+          context,
+          actor
+        )
+    end
+  end
+
+  defp commit_retained_identity(items, parent_ips, context, actor) do
+    case commit_identity_work(items, parent_ips, context, DateTime.utc_now(), actor) do
+      {[%{uid: uid} | _], _context} -> {:ok, uid}
+      {[], _context} -> {:error, :identity_work_deferred}
     end
   end
 
@@ -1752,10 +1849,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           uid: device_uid,
           ip: device_ip,
           discovery_sources: ["mapper"],
-          metadata: %{
-            "identity_state" => "provisional",
-            "identity_source" => "mapper_ip_seed"
-          }
+          metadata: address_seed_metadata()
         },
         :management_device_id,
         management_device_id
@@ -2637,7 +2731,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
              _ -> Repo.rollback(:restore_failed)
            end
 
-           stamp_identity_observed([device.uid], observed_at)
+           if strong_entry?(entry), do: stamp_identity_observed([device.uid], observed_at)
 
            case write_polled_device_rows([entry], parent_ips, context, observed_at) do
              {:ok, %{remap: remap} = batch} ->
@@ -2684,13 +2778,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     timestamp = DateTime.truncate(observed_at, :second)
     resolved_updates = Enum.map(representatives, &{new_device_update(&1), &1.uid})
 
-    # The poll observed each device itself (stamp_identity_observed/2).
+    strong_uids =
+      for entry <- representatives, strong_entry?(entry), into: MapSet.new(), do: entry.uid
+
+    # A MAC poll observed each device itself (stamp_identity_observed/2); weak
+    # address or sighting evidence does not.
     device_records =
       resolved_updates
       |> DeviceRecords.build_device_upsert_records(timestamp)
       |> Enum.map(fn record ->
         record
-        |> Map.put(:identity_observed_at, observed_at)
+        |> maybe_put(
+          :identity_observed_at,
+          if(MapSet.member?(strong_uids, record.uid), do: observed_at)
+        )
         |> maybe_put(
           :management_device_id,
           find_management_device_uid(record.ip, parent_ips, context)
@@ -2698,7 +2799,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end)
 
     previous_states = StateEvents.previous_device_states(device_records)
-    strong_uids = MapSet.new(representatives, & &1.uid)
 
     case DeviceWrites.bulk_upsert_devices(device_records, strong_uids, resolved_updates) do
       {:ok, remap} ->
@@ -2727,18 +2827,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
   end
 
-  defp new_device_update(%{device_ip: device_ip, partition: partition, macs: macs}) do
+  defp new_device_update(%{device_ip: device_ip, partition: partition, macs: macs} = entry) do
     Normalize.normalize_update(%{
       "ip" => device_ip,
       "mac" => List.first(macs),
       "partition" => partition,
       "source" => "mapper",
-      "metadata" => %{
-        "identity_state" => "provisional",
-        "identity_source" => "mapper_primary_mac_seed"
-      }
+      "metadata" =>
+        Map.get(entry, :metadata, %{
+          "identity_state" => "provisional",
+          "identity_source" => "mapper_primary_mac_seed"
+        })
     })
   end
+
+  defp strong_entry?(entry), do: Map.get(entry, :strong, true)
 
   # An existing device keeps its address while that address is still one of its own: the
   # address it was polled at, or one its interfaces report (a router polled at its WAN and

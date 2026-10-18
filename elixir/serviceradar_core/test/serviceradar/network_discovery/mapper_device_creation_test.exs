@@ -835,6 +835,61 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert mac_owner(actor, IdentityReconciler.normalize_mac(mac)) == successor
   end
 
+  test "address-only rediscovery follows the retained identity lifecycle", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 56, uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    assert root.metadata["identity_source"] == "mapper_ip_seed"
+    root_ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    # An identity-purged operator delete yields one fresh address-seeded successor.
+    assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+    assert [%Device{uid: successor} = successor_row] = wait_for_devices_by_ip(actor, ip)
+    assert successor == Ids.reseeded_device_id(root_uid)
+    assert successor_row.metadata["identity_source"] == "mapper_ip_seed"
+    successor_ordinal = fleet_ordinal!(successor)
+    assert successor_ordinal != root_ordinal
+    assert fleet_ordinal!(root_uid) == root_ordinal
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
+
+    # A purged system expiry reached through the chain keeps its uid and ordinal.
+    assert {:ok, _} =
+             Device.soft_delete(successor_row, "stale", "system:mapper_test_reaper", actor: actor)
+
+    hard_purge_deleted!(successor)
+    assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, revived} = Device.get_by_uid(successor, false, actor: actor)
+    assert revived.deleted_at == nil
+    assert revived.identity_purged_at == nil
+    assert fleet_ordinal!(successor) == successor_ordinal
+    refute device_row?(Ids.reseeded_device_id(successor))
+  end
+
+  test "address-only rediscovery leaves a purged retained tombstone deleted", %{actor: actor} do
+    for reason <- ["merged" | Device.retained_reasons()] do
+      uniq = System.unique_integer([:positive, :monotonic])
+      ip = unique_test_ip(198, 51, 57, uniq)
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+      assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+      hard_purge!(device, actor, reason, "system:mapper_test")
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+      assert wait_for_devices_by_ip(actor, ip, 1) == []
+      assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+      assert tombstone.deleted_reason == reason
+      refute get_in(tombstone.metadata || %{}, ["_seed_successor"])
+      refute device_row?(Ids.reseeded_device_id(uid))
+    end
+  end
+
   test "same-poll rediscovery links a dependent to the controller successor", %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
     controller_ip = unique_test_ip(198, 51, 55, uniq)
@@ -1915,6 +1970,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       }
     end)
     |> Jason.encode!()
+  end
+
+  # One interface with no MAC: the polled address is the only evidence.
+  defp address_payload(device_ip) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    Jason.encode!([
+      %{
+        "device_id" => "default:#{device_ip}",
+        "partition" => "default",
+        "device_ip" => device_ip,
+        "if_index" => 1,
+        "if_name" => "eth0",
+        "timestamp" => ts
+      }
+    ])
   end
 
   defp mac_owner(actor, normalized_mac) do

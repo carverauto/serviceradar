@@ -41,9 +41,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
     end
   end
 
-  def build(scope, params, sequence) do
-    deadline = System.monotonic_time(:millisecond) + 1_000
-
+  def build(scope, params, sequence, deadline \\ System.monotonic_time(:millisecond) + 1_000) do
     with {:ok, watch} <- validate(params),
          {:ok, {_fence, result}} <-
            BitmapQueries.with_query(scope, params["query"], &project(&1, watch, sequence), deadline: deadline) do
