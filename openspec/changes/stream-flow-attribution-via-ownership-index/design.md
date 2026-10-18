@@ -93,7 +93,8 @@ Netprobe publishes **socket ownership leases** keyed on the local endpoint
   agent batch window (default 5 s) are coalesced into one `OPEN` with `last_seen` and a closed
   flag, so a short-lived connection costs one event.
 - `SNAPSHOT`: the full set of active leases, sent on netprobe start and after an agent
-  reconnects. The index replaces that agent's leases with the snapshot.
+  reconnects. The index adopts the snapshot as that agent's active set and closes, at the
+  snapshot's time, any of the agent's leases the snapshot omits.
 
 Each event carries `first_seen`, `last_seen`, and a `ttl` (default 2 x renewal period). It
 also carries the owner: `pid`, `tgid`, `uid`, `comm`, `redacted_cmdline` (already redacted and
@@ -106,7 +107,7 @@ Keying on the local endpoint is what makes this cheap:
 - **Listeners are one lease.** An accepted connection is covered by its listener's lease and
   emits nothing, unless the accepted socket's owner differs from the listener's (worker
   hand-off, `SO_REUSEPORT` groups with different tgids). In that case the agent emits an
-  exact peer entry (Decision 2).
+  exact peer entry keyed on the connection's full 5-tuple (Decision 2).
 - **Wildcard listeners are expanded by the agent** into one lease per local address. The agent
   knows its own addresses, so the central index never has to guess which host a `0.0.0.0`
   belongs to. The agent also publishes **address leases** (its local addresses, renewed like
@@ -124,7 +125,9 @@ per-host outbound connection rate as the stated upper bound.
 
 A per-agent budget (events/s and burst) is enforced in netprobe. Over budget, netprobe first
 drops renewals of leases that are already known, then new outbound keys, and counts the drops
-by reason. Listener and address leases are never shed.
+by reason. Listener and address leases are never shed. A shed renewal does not change what a
+lease's validity is: the lease stays valid until the `last_seen + ttl` of its last delivered
+event, on a running shard and after a rebuild alike (Decision 2).
 
 - Alternatives considered:
   - *Keep sightings, coalesce centrally.* This still ships and stores ~25 rows/s per host, and
@@ -135,7 +138,7 @@ by reason. Listener and address leases are never shed.
     events self-healing. Rejected.
   - *Key on the full 5-tuple.* Exact for every connection, but it keeps one key per accepted
     connection, which is the source of most listener volume. Rejected. Exact server-side
-    entries are emitted only when the owner differs (Decision 2).
+    entries keep the full 5-tuple, and are emitted only when the owner differs (Decision 2).
   - *Periodic full snapshot only.* Simple, but volume is proportional to active sockets times
     snapshot frequency, and freshness is bounded by the snapshot period. Rejected except on
     start and reconnect.
@@ -155,35 +158,48 @@ with `::ffff:` stripped):
 - **Endpoint key** `E = (partition, proto, ip, port)` -> lease. Each lease has a kind:
   `connected` (records its remote endpoint) or `bound` (listener, expanded wildcard, or
   unconnected UDP).
-- **Peer key** `P = (partition, proto, ip, remote_ip, remote_port)` -> lease. Used for exact
-  server-side entries whose owner differs from the listener, for ICMP (ports zero), for relaxed
-  UDP, and for node SNAT. For node SNAT, the publisher derives a peer entry
+- **Exact peer key** `X = (partition, proto, ip, port, remote_ip, remote_port)` -> lease. The
+  full 5-tuple of an accepted connection whose owner differs from the listener's. Keeping the
+  local port means two connections from one client to two local ports of one address resolve
+  to their own owners; the listener's `bound` lease remains the fallback for that endpoint.
+- **Relaxed peer key** `R = (partition, proto, ip, remote_ip, remote_port)` -> lease. Used only
+  for the families that are matched without the local port: ICMP (ports zero), relaxed UDP,
+  and node SNAT. For node SNAT, the publisher derives a relaxed peer entry
   `(partition, proto, node_ip, remote_ip, remote_port)` for each outbound `connected` lease
   whose local address is not one of the agent's node addresses. The node IP comes from the
   agent's registered address, as the correlator uses today.
 - **Address presence** `A = (partition, ip)`: a reference count of active leases and address
   leases on an address. It answers "is this a monitored address" (Decision 4).
 
-**Value**: a short validity history per key: up to 4 leases, each
+**Value**: a time-bounded validity history per key. Each entry is one lease,
 `[first_seen, closed_at or last_seen + ttl)`, pointing at an interned **owner record**. Owner
 records (`agent_id, pid, uid, comm, redacted_cmdline, container_id, workload_identity`) are
 stored once and referenced by id, because many keys share one owner. Workload identity is
 resolved once per owner record at insert, from the CNPG `workload_identity_current` cache by
 `(partition, agent_id, container_id)`. Identity carried on the event wins, as today. Closed
-leases are kept for a history horizon (default 15 minutes, the current skew) so a flow
-exported after its socket closed still resolves at its own time T.
+and expired leases are kept until their interval ended more than the history horizon ago
+(default 15 minutes, the current skew), so a flow exported after its socket closed still
+resolves at its own time T. History is bounded by time, not by a fixed slot count: every lease
+whose interval ended inside the horizon stays resolvable, however many owners a reused key had.
+A per-key cap (default 32 entries) sized from the horizon and the shard's byte budget protects
+memory against a pathological key. On overflow the shard first drops entries whose interval
+ended beyond the horizon, then the oldest entry inside the horizon, and it counts each
+eviction inside the horizon (`history_evicted`), so a lost interval is visible rather than
+silently unmatched.
 
 **Time-T lookup**: pick the lease whose interval contains T within a skew tolerance (default
 5 s). If several do (two agents claim one key with overlapping validity), pick
 deterministically: container id first, then the most recent `first_seen`, then `agent_id`,
 then `pid`. That is the current tie-break. Count the result as `ambiguous`.
 
-**Sharding**: keys hash on `(partition, ip)` into 256 fixed **buckets**. E, P (hashed on its
-first ip), and A for one address therefore live in one bucket, so one lookup answers owner,
-peer, and presence together. Buckets are grouped into N **shards** (default 16). Each shard is
+**Sharding**: keys hash on `(partition, ip)` into 256 fixed **buckets**. E, X and R (hashed on
+their first ip), and A for one address therefore live in one bucket, so one lookup answers
+owner, peer, and presence together. Buckets are grouped into N **shards** (default 16). Each shard is
 owned by one active node, with an optional warm standby, through the existing
 coordinator/lease machinery. Because the bucket count is fixed, the publisher never changes
-when shards move. Rebalancing moves bucket ranges.
+when shards move. Rebalancing moves bucket ranges. A single-node or small installation uses the
+same layout and simply places every shard on its one flow node; there is no separate replicated
+mode.
 
 **Memory bound**: each shard has an entry budget and a byte budget. Expired leases are evicted
 in expiry order (a timer wheel, not a scan). When the budget is still exceeded, new `RENEW`
@@ -191,9 +207,14 @@ and `OPEN` entries for outbound `connected` leases are refused before `bound` le
 refusal is counted. A shard never grows past its budget.
 
 **Size**: the index is sized by active sockets, not by observations. Assuming 1-2k active keys
-per host, 20k hosts is 20-40M entries. At a target of at most 200 bytes per entry, including
-history slots and the share of interned owners, that is 4-8 GB across all shards. Phase 0
-measures active keys per host on the lab and the bytes per entry of the chosen store.
+per host, 20k hosts is 20-40M keys. A key costs its packed key and table overhead plus one
+fixed-size history entry (two timestamps, an owner id and flags, about 32 bytes) per interval
+it holds inside the horizon, plus its share of interned owners. Most keys hold one interval;
+reused outbound keys hold a few. At a target of at most 200 bytes per active key on average,
+including the history each key holds and its owner share, that is 4-8 GB across all shards.
+The per-key cap bounds the worst case, not the average. Phase 0 measures active keys per host,
+the distribution of history depth per key under the 15-minute horizon, and the bytes per key
+of the chosen store.
 
 **Store**: per-shard ETS tables with packed binary keys (a 16-byte address, 2-byte port, 1-byte
 proto, and an integer partition id) and a separate owner table. If the Phase 0 spike measures
@@ -204,8 +225,19 @@ behind the same shard interface. The project already ships Rust NIFs.
 and fed from JetStream. Each shard consumes its bucket subjects from a dedicated
 `flow_ownership` stream (`flows.ownership.<bucket>`, 256 concrete leaves; it does not overlap
 the `flows` stream's concrete `flows.raw.*` leaves). On restart a shard replays its subjects.
-Stream `max_age` is the renewal period plus margin (default 45 minutes), so every live lease
-has at least one event in the stream and the replay rebuilds the complete index. While a shard
+The rebuild contract is that replay restores every lease still within its TTL and every
+closed or expired lease still inside the history horizon. A shard only ever grants validity
+from an event it has applied, up to that event's `last_seen + ttl`, and keeps the interval for
+the horizon after it ends. Stream `max_age` must therefore be at least the lease TTL plus the
+larger of the renewal period and the history horizon, plus a safety margin for jitter and
+publish lag (default 2 hours: 60-minute TTL, 30-minute renewal, 30-minute margin), and
+EventWriter refuses to start a shard against a stream configured below that bound. The stream
+uses `discard: new`, so a stream at its byte limit refuses publishes (which retained delivery
+retries) instead of dropping old events that a replay needs. Renewal shedding and snapshots stay
+inside this contract: a shed renewal only lets a lease expire at the validity its last event
+already granted, and a `SNAPSHOT` closes the agent's omitted leases at the snapshot's time
+instead of deleting them, so neither shortens an interval a running shard holds. Both are
+events in the stream, so a replay reproduces the same result. While a shard
 is warming, its lookups return `index_warming` and the affected flows enter the late-stamp set
 (Decision 4). A warm standby makes failover immediate.
 
@@ -232,18 +264,21 @@ is warming, its lookups return `index_warming` and the affected flows enter the 
     the two lookups, and the other still crosses nodes. Rejected (see Decision 3).
   - *Full index replica in every flow consumer.* Every lookup is local and nothing crosses
     nodes, but memory is index size x replicas, and every replica applies the full ownership
-    stream. It is supported as a placement (every flow node hosts every bucket) for single-node
-    and small installs, where it is the default. It is not the large-fleet default.
+    stream. It adds a second placement and consumption mode for no gain over placing all shards
+    on one node in a small install. Rejected.
 
 ### 3. Flows are attributed on ingest in the EventWriter flow path
 
 The EventWriter `Flows` processor gains an attribution step between decode/enrichment and the
 single StarRocks write:
 
-1. For each flow in the batch, build the lookup keys for both sides. A side that matches the
-   cached **public VIP map** (from CNPG `public_endpoints_current`, refreshed on change, keyed
-   by `(proto, vip_ip, vip_port)`) is first rewritten to its backend endpoints. The VIP is a
-   lookup in front of the index, not a join branch.
+1. For each flow in the batch, build the lookup keys for both sides from the endpoints the
+   exporter reported. A side that matches the cached **public VIP map** (from CNPG
+   `public_endpoints_current`, refreshed on change, keyed by `(proto, vip_ip, vip_port)`) also
+   gets keys for its backend endpoints. The original endpoint is always looked up: backend
+   keys add public-endpoint candidates, they never replace the original's candidates. Both
+   key sets go into the same batched lookup. The VIP is a lookup in front of the index, not a
+   join branch.
 2. Group the keys by bucket, then by shard owner, and issue **one batched lookup per shard per
    flow batch**. When the shard is local this is a function call; otherwise it is one
    distributed call over the existing ERTS cluster.
@@ -254,12 +289,14 @@ Precedence keeps the current ranks and their metric names:
 
 | Rank | Strategy | Lookup |
 | --- | --- | --- |
-| 0 | exact | `E(side)` `connected` lease whose remote equals the other side; `P(side.ip, other)` exact peer entry; ICMP `P(side.ip, other.ip, 0)` |
-| 1 | listener / relaxed UDP | `E(side)` `bound` lease; UDP `P(side.ip, other.ip, other.port)` |
-| 2 | node SNAT | `P(node_ip = side.ip, other.ip, other.port)` |
-| 3 + exposure | public endpoint | VIP -> backend `E` or `P` (Gateway 0, LoadBalancer/ExternalIP 1, other 2) |
+| 0 | exact | `E(side)` `connected` lease whose remote equals the other side; `X(side.ip, side.port, other.ip, other.port)` exact peer entry; ICMP `R(side.ip, other.ip, 0)` |
+| 1 | listener / relaxed UDP | `E(side)` `bound` lease; UDP `R(side.ip, other.ip, other.port)` |
+| 2 | node SNAT | `R(node_ip = side.ip, other.ip, other.port)` |
+| 3 + exposure | public endpoint | VIP -> backend `E`, `X` or `R` (Gateway 0, LoadBalancer/ExternalIP 1, other 2) |
 
-Across sides, the lower rank wins. On a tie the source side wins: it is the sender of the bytes
+Ranks 0-2 are looked up on the original endpoint, so a VIP side's backend candidates win only
+when the original endpoint has no candidate at those ranks; in particular an exact owner of the
+original endpoint is never displaced by a backend mapping. Across sides, the lower rank wins. On a tie the source side wins: it is the sender of the bytes
 the record counts, so the two directional records of one conversation each attribute their own
 sender. The row keeps the existing single-owner columns.
 
@@ -293,13 +330,21 @@ the kernel event.
   `unmonitored`. The hold buffer has an item cap and a byte cap. On overflow the flow is
   written immediately and goes to the late-stamp set.
 - **Late stamp**: a flow written without an owner while one of its sides is a monitored
-  address is recorded in the late-stamp set of that side's shard as
-  `(key, flow id, flow time, attribution_version)`. Entries live for the late-stamp window
-  (default 10 minutes) under an entry cap, and the oldest is evicted with a counter. When a
-  lease arrives that covers a recorded flow's time, the shard publishes a versioned update on
-  `events.flow.attribution`, and the existing `FlowAttributionUpdates` processor applies it as a
-  partial primary-key update. Versions come from `flow_attribution_update_version` in
-  batches, and only late stamps consume them.
+  address is recorded once, in the late-stamp set of its **home shard** (the shard of its
+  source side's bucket, or of the destination's when only the destination is monitored), as
+  `(flow id, flow time, both sides' keys, current rank)`. Each other monitored side's shard
+  keeps only a watch `(key, flow id, home shard)`. Entries and watches live for the late-stamp
+  window (default 10 minutes) under an entry cap, and the oldest is evicted with a counter.
+  When a lease arrives that covers a recorded flow's time, the shard that applied it notifies
+  the home shard, which re-runs the lookup for both sides under the same precedence as on
+  ingest (including the VIP rule) and makes one decision for the flow. It publishes a
+  versioned update on `events.flow.attribution` only when the winner ranks strictly better than
+  the flow's current rank, and keeps the entry until the flow reaches rank 0 or the window ends.
+  Only the home shard publishes for a flow, so each later version carries a better candidate
+  than the one before, and the version order the existing `FlowAttributionUpdates` processor
+  applies (partial primary-key update, highest version wins) agrees with the precedence. No
+  two shards ever write the same flow independently. Versions come from
+  `flow_attribution_update_version` in batches, and only late stamps consume them.
 - **Never a full re-scan**: nothing reads stored flows back to find unattributed ones. The
   late-stamp set is the only memory of unmatched flows, and it is bounded.
 
@@ -353,7 +398,8 @@ and enforces the existing per-message row and byte caps.
 Metrics travel on the JetStream metrics pipeline with bounded labels (no agent id, IP, port,
 pid, cmdline or partition labels):
 
-- Index: entries and bytes per shard, budget refusals, evictions, ownership consumer lag,
+- Index: entries and bytes per shard, budget refusals, evictions (history evictions inside
+  the horizon separately), ownership consumer lag,
   shard state (`warming`, `ready`, `standby`), rebuild duration, and ambiguous count.
 - Enrichment: flows by outcome (`attributed` by strategy, `held`, `late_stamped`,
   `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, `error`), hold buffer depth and
@@ -389,15 +435,15 @@ Load is generated from invented data in 192.0.2.0/24, 198.51.100.0/24, 203.0.113
 - **Memory blowup in ETS.** Mitigation: the Phase 0 spike, per-shard budgets with refusal
   accounting, and a Rust NIF store behind the same interface.
 - **Cross-node lookup latency** when shards are spread across nodes. Mitigation: one batched
-  call per shard per flow batch; full-replica placement for small installs.
+  call per shard per flow batch; small installs place every shard on their one flow node.
 - **Clock skew** between exporters and agents. Mitigation: a skew tolerance on the time-T
   lookup and a history horizon equal to today's 15-minute skew; the tolerance is a setting.
 - **Long active timeouts on exporters** can put a flow's time far from the socket's lifetime.
   Mitigation: the history horizon covers closed leases; open question below on which flow
   timestamp to use.
 - **JetStream load** of the ownership stream at fleet scale (~100k events/s, R3). Mitigation: a
-  dedicated stream with its own limits; owner records deduplicated within a message; a short
-  `max_age`.
+  dedicated stream with its own limits; owner records deduplicated within a message; a
+  `max_age` no longer than the rebuild contract requires (default 2 hours).
 - **Loss of attribution precision for accepted connections** whose worker pid differs from the
   listener's but whose difference the agent cannot see. Mitigation: exact peer entries are
   emitted whenever the accepted socket's tgid differs; the listener owner is otherwise the
