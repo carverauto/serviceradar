@@ -177,6 +177,7 @@ ASYNC_INTEGRATION_SRCS = [
 SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/integration/advisory_feed_loader_integration_test.exs": 1,
     "test/integration/advisory_feed_loader_products_integration_test.exs": 1,
+    "test/integration/advisory_ordinal_backfill_worker_integration_test.exs": 1,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 1,
     "test/integration/audit_history_retention_integration_test.exs": 1,
     "test/integration/netflow_ingestion_integration_test.exs": 1,

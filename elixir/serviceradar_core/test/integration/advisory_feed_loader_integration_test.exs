@@ -1616,7 +1616,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     [observed, absent | _] = all_records()
     load(feed_key, [observed, absent])
 
-    # The state between adding the column and the backfill migration finishing.
+    # The state between adding the column and the ordinal backfill job finishing.
     Repo.query!(
       "ALTER TABLE platform.vulnerability_advisories ALTER COLUMN ordinal DROP NOT NULL"
     )
@@ -1662,7 +1662,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
       prefix: @schema
     )
 
-    # Stands in for the backfill migration numbering the absent row on another
+    # Stands in for the ordinal backfill job numbering the absent row on another
     # connection the moment the loader has scanned the numbered current rows.
     handler_id = {__MODULE__, :backfill_during_finalize, make_ref()}
     test_pid = self()

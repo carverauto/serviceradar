@@ -114,3 +114,10 @@ after that.
 - **GIVEN** a run whose observed advisory count is below the expected minimum or differs from its validated snapshot count
 - **WHEN** the run reaches finalization
 - **THEN** it SHALL NOT promote or withdraw anything
+
+#### Scenario: Advisories the ordinal backfill has not reached
+
+- **GIVEN** advisory rows that predate the ordinal column and are numbered by a post-startup backfill job rather than by a migration
+- **WHEN** a complete run validates before that job has numbered them
+- **THEN** each such advisory the run observes SHALL be numbered and stay current
+- **AND** each such current advisory the run did not observe SHALL be withdrawn

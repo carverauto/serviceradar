@@ -781,7 +781,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   # A current row still without an ordinal was not observed: every row a run
   # observes is numbered (skipped rows already were, written rows are numbered
-  # by `number_unnumbered/1`). Such rows exist only until the backfill migration
+  # by `number_unnumbered/1`). Such rows exist only until `OrdinalBackfillWorker`
   # completes; the unique ordinal index answers this probe once it does.
   defp withdraw_unnumbered(provider, feed_key, generation, timeout_ms) do
     %{num_rows: withdrawn} =
@@ -1054,7 +1054,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   # A row that predates the ordinal column keeps a NULL ordinal until the
-  # backfill migration numbers it, and an upsert never assigns the column
+  # `OrdinalBackfillWorker` numbers it, and an upsert never assigns the column
   # default to an existing row. Number such a row here, in its chunk's
   # transaction, so every written advisory is observed.
   defp number_unnumbered(returned) do
