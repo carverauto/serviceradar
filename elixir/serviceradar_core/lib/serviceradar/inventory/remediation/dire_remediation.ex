@@ -14,14 +14,19 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     1. `blob-purge`   — extract first-MAC fallbacks, purge invalid mac rows (4.1)
     2. `test-debris`  — delete 2026-04-25 test artifacts + reip devices (4.2)
     3. `stale-agent-devices` — remove historical unavailable agent churn
-    4. `agent-links`  — rebuild agent->device links from ocsf_agents ground
+    4. `link-local-alias-archive` — archive link-local identity aliases
+    5. `broadcast-alias-archive` — archive IPv4 broadcast identity aliases and
+       strip them from device metadata and discovered interfaces
+    6. `netprobe-alias-debris` — archive addresses a collector absorbed from
+       hosts it merely observed
+    7. `agent-links`  — rebuild agent->device links from ocsf_agents ground
        truth, fix stranded identifiers/poisoned aliases/ip literal (4.3)
-    5. `proxmox-dups` — collapse intra-Proxmox duplicate hostname groups (4.4)
-    6. `proxmox-unfuse` — explicit-only Proxmox cross-cluster split
+    8. `proxmox-dups` — collapse intra-Proxmox duplicate hostname groups (4.4)
+    9. `proxmox-unfuse` — explicit-only Proxmox cross-cluster split
        planning/disposition (GitHub #4051; execute gated; see below)
-    7. `armis-unmerge` — explicit-only Armis split planning/disposition
-       (execute gated; see below)
-    8. `armis-dups`   — collapse Armis rows onto their armis_device_id owner
+    10. `armis-unmerge` — explicit-only Armis split planning/disposition
+        (execute gated; see below)
+    11. `armis-dups`  — collapse Armis rows onto their armis_device_id owner
        (DISABLED by default — see `@armis_dups_step` below)
 
   The source id remediation (OpenSpec add-source-id-succession, design D11)
@@ -83,6 +88,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.ArmisDups
   alias ServiceRadar.Inventory.Remediation.ArmisUnmerge
   alias ServiceRadar.Inventory.Remediation.BlobPurge
+  alias ServiceRadar.Inventory.Remediation.BroadcastAliasArchive
   alias ServiceRadar.Inventory.Remediation.LinkLocalAliasArchive
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
@@ -134,8 +140,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     "blob-purge",
     "test-debris",
     "stale-agent-devices",
-    # Archive leftover link-local aliases before any step that can merge.
+    # Archive leftover link-local and broadcast aliases before any step that can merge.
     "link-local-alias-archive",
+    "broadcast-alias-archive",
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
@@ -431,6 +438,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("link-local-alias-archive", mode, opts, manifest, actor),
     do: LinkLocalAliasArchive.run(mode, opts, manifest, actor)
+
+  defp run_step("broadcast-alias-archive", mode, opts, manifest, actor),
+    do: BroadcastAliasArchive.run(mode, opts, manifest, actor)
 
   defp run_step("armis-unmerge", mode, opts, manifest, actor),
     do: ArmisUnmerge.run(mode, opts, manifest, actor)

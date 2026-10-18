@@ -21,7 +21,6 @@ import (
 
 	"sort"
 
-	"strings"
 	"time"
 
 	"github.com/gosnmp/gosnmp"
@@ -60,8 +59,8 @@ func (e *DiscoveryEngine) queryInterfaces(
 	// Specifically try to get ifHighSpeed for interfaces that need it
 	e.walkIfHighSpeed(client, ifMap)
 
-	// Get IP addresses from ipAddrTable (legacy, IPv4-only)
-	ipToIfIndex, err := e.walkIPAddrTable(client)
+	// Get IP addresses and subnet masks from ipAddrTable (legacy, IPv4-only)
+	ipToIfIndex, ipToPrefixLen, err := e.walkIPAddrTable(client)
 	if err != nil {
 		e.logger.Debug().Str("target", target).Err(err).Msg("Failed to walk ipAddrTable")
 	}
@@ -70,28 +69,21 @@ func (e *DiscoveryEngine) queryInterfaces(
 		ipToIfIndex = make(map[string]int)
 	}
 
-	// Then ipAddressTable (IP-MIB), which is address-family aware and is the only
-	// standard source of IPv6 addresses. Not every agent implements it, so a
-	// failure here is expected and must not discard the IPv4 results above.
+	if ipToPrefixLen == nil {
+		ipToPrefixLen = make(map[string]int)
+	}
+
+	// Then ipAddressTable (IP-MIB), which is address-family aware, classifies
+	// broadcast rows via ipAddressType, and is the only standard source of IPv6
+	// addresses. Not every agent implements it, so a failure here is expected and
+	// must not discard the IPv4 results above.
 	v6Count := 0
 
-	if extra, addrErr := e.walkIPAddressTable(client); addrErr != nil {
+	if extra, extraPrefixes, broadcastIPs, addrErr := e.walkIPAddressTable(client); addrErr != nil {
 		e.logger.Debug().Str("target", target).Err(addrErr).
 			Msg("Failed to walk ipAddressTable (normal for some devices)")
 	} else {
-		for ip, ifIndex := range extra {
-			// ipAddrTable already carries a real ifIndex for the addresses it
-			// reports; do not let a duplicate row overwrite it with a placeholder.
-			if existing, ok := ipToIfIndex[ip]; ok && existing != 0 && ifIndex == 0 {
-				continue
-			}
-
-			ipToIfIndex[ip] = ifIndex
-
-			if strings.Contains(ip, ":") {
-				v6Count++
-			}
-		}
+		v6Count = mergeIPAddressTable(ipToIfIndex, ipToPrefixLen, extra, extraPrefixes, broadcastIPs)
 	}
 
 	if v6Count > 0 {
@@ -99,8 +91,11 @@ func (e *DiscoveryEngine) queryInterfaces(
 			Msg("Discovered IPv6 addresses from ipAddressTable")
 	}
 
-	// Associate IPs with interfaces
+	filterBroadcastAddresses(ipToIfIndex, ipToPrefixLen)
+
+	// Associate IPs and discovered subnet CIDRs with interfaces
 	e.associateIPsWithInterfaces(ipToIfIndex, ifMap)
+	e.associateIPPrefixesWithInterfaces(ipToIfIndex, ipToPrefixLen, ifMap)
 
 	// Convert map to slice and finalize interfaces
 	interfaces := e.finalizeInterfaces(job, ifMap, jobID)

@@ -1473,15 +1473,59 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
                ["192.168.1.1"]
              ) == ["192.168.1.1"]
     end
+
+    test "excludes IPv4 limited and directed broadcast addresses from identity aliases" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "192.0.2.1",
+               [
+                 "192.0.2.255",
+                 "198.51.100.1",
+                 "198.51.101.255",
+                 "203.0.113.255",
+                 "255.255.255.255"
+               ],
+               ["192.0.2.1/24", "198.51.100.1/23", "203.0.113.1/16"]
+             ) == ["192.0.2.1", "198.51.100.1", "203.0.113.255"]
+    end
+
+    test "keeps a .255 host whose interface reports a wider prefix" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "203.0.113.1",
+               ["203.0.113.255"],
+               ["203.0.113.1/16"]
+             ) == ["203.0.113.1", "203.0.113.255"]
+    end
+
+    test "normalize_interface strips broadcast IPv4 addresses while preserving unicast and link-local" do
+      result =
+        MapperResultsIngestor.normalize_interface(%{
+          "device_id" => "sr:router-01",
+          "device_ip" => "192.0.2.1",
+          "if_index" => 2,
+          "if_name" => "eth0",
+          "ip_addresses" => ["192.0.2.1", "192.0.2.255", "fe80::1", "255.255.255.255"],
+          "metadata" => %{"ip_cidrs" => "192.0.2.1/24"}
+        })
+
+      assert result.ip_addresses == ["192.0.2.1", "fe80::1"]
+    end
   end
 
   describe "find_device_uid_by_alias/3" do
-    test "does not treat leftover link-local :ip rows as merge evidence" do
+    test "does not treat leftover link-local or broadcast :ip rows as merge evidence" do
       assert {:ok, nil} =
                MapperResultsIngestor.find_device_uid_by_alias("fe80::1", "default", nil)
 
       assert {:ok, nil} =
                MapperResultsIngestor.find_device_uid_by_alias("169.254.1.1", "default", nil)
+
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("255.255.255.255", "default", nil)
+
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("192.0.2.255/24", "default", nil)
     end
   end
 end

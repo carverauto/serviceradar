@@ -24,8 +24,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
     * `--execute` — apply changes (default: dry run)
     * `--step <name>` — run a single step (repeatable). One of:
-      `blob-purge`, `test-debris`, `stale-agent-devices`, `agent-links`,
-      `proxmox-dups`, `source-id-retire`, `source-succession`,
+      `blob-purge`, `test-debris`, `stale-agent-devices`,
+      `link-local-alias-archive`, `broadcast-alias-archive`,
+      `netprobe-alias-debris`, `agent-links`, `proxmox-dups`, `source-id-retire`, `source-succession`,
       `released-seed-shells`, `proxmox-unfuse`, `armis-unmerge`, `armis-dups`,
       `source-id-verify`, `source-id-rollback`, `all` (default `all`).
       `all` cannot be combined with another step.
@@ -198,6 +199,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "test-debris",
     "stale-agent-devices",
     "link-local-alias-archive",
+    "broadcast-alias-archive",
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",

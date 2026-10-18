@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Inventory.Remediation.BroadcastAliasArchive
   alias ServiceRadar.Inventory.Remediation.DireRemediation
   alias ServiceRadar.Inventory.Remediation.LinkLocalAliasArchive
   alias ServiceRadar.Inventory.Remediation.Manifest
@@ -92,6 +93,115 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
 
   test "the step is in the default DIRE run order" do
     assert "link-local-alias-archive" in DireRemediation.steps()
+    assert "broadcast-alias-archive" in DireRemediation.steps()
+  end
+
+  test "BroadcastAliasArchive archives broadcast :ip and :interface_ip aliases and strips metadata and discovered_interfaces",
+       %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    device_id = "sr:test-bcast-alias-#{suffix}"
+    unicast = "192.0.2.10"
+    bcast = "192.0.2.255"
+    wide_host = "203.0.113.255"
+
+    Repo.query!(
+      """
+      INSERT INTO platform.ocsf_devices
+        (uid, ip, metadata, discovery_sources, first_seen_time, last_seen_time, modified_time)
+      VALUES ($1, $2, $3, ARRAY['mapper'], timezone('utc', now()), timezone('utc', now()), timezone('utc', now()))
+      ON CONFLICT (uid) DO NOTHING
+      """,
+      [
+        device_id,
+        unicast,
+        %{
+          "ip_alias:#{unicast}" => "2026-08-25T00:00:00Z",
+          "ip_alias:#{bcast}" => "2026-08-25T00:00:00Z",
+          "interface_ip_alias:255.255.255.255" => "2026-08-25T00:00:00Z",
+          "ip_alias:#{wide_host}" => "2026-08-25T00:00:00Z"
+        }
+      ]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO platform.discovered_interfaces
+        (timestamp, device_id, interface_uid, if_name, ip_addresses, metadata, created_at)
+      VALUES
+        (timezone('utc', now()), $1, 'ifindex:2', 'eth0', ARRAY[$2, $3], '{}'::jsonb, timezone('utc', now())),
+        (timezone('utc', now()), $1, 'ifindex:3', 'eth1', ARRAY['203.0.113.1', $4], jsonb_build_object('ip_cidrs', '203.0.113.1/16,203.0.113.255/16'), timezone('utc', now()))
+      """,
+      [device_id, unicast, bcast, wide_host]
+    )
+
+    _unicast_id = insert_alias_state(device_id, unicast, "confirmed", "ip")
+    _bcast_id = insert_alias_state(device_id, bcast, "confirmed", "ip")
+    _limited_id = insert_alias_state(device_id, "255.255.255.255", "confirmed", "interface_ip")
+    _wide_id = insert_alias_state(device_id, wide_host, "confirmed", "ip")
+    _mapped_id = insert_alias_state(device_id, "::ffff:255.255.255.255", "confirmed", "ip")
+    _limited_host_id = insert_alias_state(device_id, "255.255.255.255/32", "detected", "ip")
+    # An explicit /16 decides on its own; the /24 known for eth0 does not apply.
+    _explicit_wide_id = insert_alias_state(device_id, "192.0.2.255/16", "confirmed", "ip")
+
+    dry_report = BroadcastAliasArchive.run(:dry_run, [], nil, actor)
+    assert dry_report.would_archive >= 2
+    assert alias_state(device_id, bcast) == "confirmed"
+
+    manifest_path =
+      Path.join(
+        System.tmp_dir!(),
+        "broadcast-alias-archive-#{suffix}-#{:erlang.unique_integer([:positive])}.ndjson"
+      )
+
+    manifest = Manifest.open(manifest_path, %{test: "broadcast_alias_archive"})
+    exec_report = BroadcastAliasArchive.run(:execute, [], manifest, actor)
+    Manifest.close(manifest)
+
+    assert exec_report.archived_alias_states >= 2
+    assert alias_state(device_id, bcast) == "archived"
+    assert alias_state(device_id, "255.255.255.255") == "archived"
+    assert alias_state(device_id, unicast) == "confirmed"
+    assert alias_state(device_id, wide_host) == "confirmed"
+    assert alias_state(device_id, "::ffff:255.255.255.255") == "archived"
+    assert alias_state(device_id, "255.255.255.255/32") == "archived"
+    assert alias_state(device_id, "192.0.2.255/16") == "confirmed"
+    refute metadata_has_ip_alias?(device_id, bcast)
+    assert metadata_has_ip_alias?(device_id, unicast)
+    assert metadata_has_ip_alias?(device_id, wide_host)
+
+    %{rows: [[eth0_ips]]} =
+      Repo.query!(
+        """
+        SELECT ip_addresses
+        FROM platform.discovered_interfaces
+        WHERE device_id = $1 AND interface_uid = 'ifindex:2'
+        """,
+        [device_id]
+      )
+
+    assert eth0_ips == [unicast]
+
+    # The /24 inferred from the 192.0.2.10 + 192.0.2.255 pair outlives its
+    # evidence, so a later bare 192.0.2.255 alias is still recognised.
+    %{rows: [[eth0_cidrs]]} =
+      Repo.query!(
+        """
+        SELECT metadata->>'ip_cidrs'
+        FROM platform.discovered_interfaces
+        WHERE device_id = $1 AND interface_uid = 'ifindex:2'
+        """,
+        [device_id]
+      )
+
+    assert eth0_cidrs == "192.0.2.0/24"
+
+    _late_bcast_id = insert_alias_state(device_id, bcast, "detected", "interface_ip")
+    rerun_manifest = Manifest.open(manifest_path <> ".rerun", %{test: "broadcast_alias_archive"})
+    rerun = BroadcastAliasArchive.run(:execute, [], rerun_manifest, actor)
+    Manifest.close(rerun_manifest)
+
+    assert rerun.archived_alias_states >= 1
+    assert alias_states(device_id, bcast) == ["archived", "archived"]
   end
 
   defp seed_pathology do
@@ -194,6 +304,20 @@ defmodule ServiceRadar.Inventory.Remediation.LinkLocalAliasArchiveTest do
       )
 
     exists
+  end
+
+  defp alias_states(device_id, value) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT state FROM platform.device_alias_states
+        WHERE device_id = $1 AND alias_value = $2
+        ORDER BY state
+        """,
+        [device_id, value]
+      )
+
+    List.flatten(rows)
   end
 
   defp metadata_has_ip_alias?(device_id, ip) do

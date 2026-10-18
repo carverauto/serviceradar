@@ -10,6 +10,10 @@ defmodule ServiceRadar.Identity.Validations.AliasValue do
   This lives on the resource so a producer that forgets to call the policy
   still cannot persist `fe80::/10` as identity evidence. GitHub #4022:
   grep for the attribute, not the call site.
+
+  It runs on every action that creates or activates an alias (detection,
+  sightings, confirmation, reactivation), so an alias detected before its
+  subnet was known cannot be confirmed once the subnet is (GitHub #5743).
   """
 
   use Ash.Resource.Validation
@@ -22,12 +26,14 @@ defmodule ServiceRadar.Identity.Validations.AliasValue do
   def validate(changeset, _opts, _context) do
     type = Ash.Changeset.get_attribute(changeset, :alias_type)
     value = Ash.Changeset.get_attribute(changeset, :alias_value)
+    device_id = Ash.Changeset.get_attribute(changeset, :device_id)
+    metadata = Ash.Changeset.get_attribute(changeset, :metadata) || %{}
 
     cond do
       type not in @address_types ->
         :ok
 
-      AliasPolicy.valid_alias_ip?(value) ->
+      AliasPolicy.valid_alias_ip_for_device?(value, device_id, metadata) ->
         :ok
 
       true ->

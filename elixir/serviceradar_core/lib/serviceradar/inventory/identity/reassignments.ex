@@ -257,7 +257,10 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
 
   defp carry_confirmation(%{state: state}, %{state: survivor_state} = survivor, actor)
        when state in [:confirmed, :updated] and survivor_state in [:detected, :stale] do
-    survivor |> DeviceAliasState.confirm_from_sweep(actor: actor) |> to_ok()
+    case DeviceAliasState.confirm_from_sweep(survivor, actor: actor) do
+      {:error, %Ash.Error.Invalid{}} -> :ok
+      result -> to_ok(result)
+    end
   end
 
   defp carry_confirmation(_row, _survivor, _actor), do: :ok

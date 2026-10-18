@@ -61,7 +61,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records = build_interface_records(updates),
-         resolved_records = resolve_device_ids(records, actor),
+         resolved_records =
+           records |> resolve_device_ids(actor) |> drop_persisted_broadcast_ips(),
          :ok <- register_interface_macs(resolved_records, actor),
          :ok <- process_mapper_alias_updates(resolved_records, actor) do
       classified_records = InterfaceClassifier.classify_interfaces(resolved_records, actor)
@@ -953,6 +954,27 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reverse()
   end
 
+  # normalize_interface/1 only knows the subnets the incoming interface reports.
+  # Once each record names its device, the subnets already persisted for that
+  # device decide too.
+  defp drop_persisted_broadcast_ips(records) do
+    persisted_cidrs =
+      records
+      |> Enum.map(& &1.device_id)
+      |> AliasPolicy.known_cidrs_by_device_ids()
+
+    Enum.map(records, fn record ->
+      case Map.get(persisted_cidrs, record.device_id, []) do
+        [] ->
+          record
+
+        cidrs ->
+          ips = Enum.reject(record.ip_addresses, &AliasPolicy.broadcast_ip?(&1, cidrs))
+          %{record | ip_addresses: ips}
+      end
+    end)
+  end
+
   defp process_mapper_alias_updates([], _actor), do: :ok
 
   defp process_mapper_alias_updates(records, actor) do
@@ -993,11 +1015,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp build_grouped_alias_update(device_id, grouped) do
     latest_ts = grouped_latest_timestamp(grouped)
     partition = grouped_partition(grouped)
-    current_ip = primary_device_ip(grouped)
-    role = infer_device_role(grouped, current_ip)
-    stable_interface_ips = grouped_stable_interface_ips(grouped, current_ip)
-    mismatched_device_ips = grouped_mismatched_device_ips(grouped, current_ip)
-    alias_ips = alias_ips_for_role(role.role, current_ip, stable_interface_ips)
+    known_cidrs = grouped_known_cidrs(grouped)
+    current_ip = primary_device_ip(grouped, known_cidrs)
+    role = infer_device_role(grouped, current_ip, known_cidrs)
+    stable_interface_ips = grouped_stable_interface_ips(grouped, current_ip, known_cidrs)
+    mismatched_device_ips = grouped_mismatched_device_ips(grouped, current_ip, known_cidrs)
+    alias_ips = alias_ips_for_role(role.role, current_ip, stable_interface_ips, known_cidrs)
 
     candidate_ips =
       candidate_ips_for_role(role.role, stable_interface_ips, mismatched_device_ips, alias_ips)
@@ -1041,20 +1064,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> List.first() || "default"
   end
 
-  defp grouped_stable_interface_ips(grouped, current_ip) do
+  defp grouped_known_cidrs(grouped) do
+    grouped
+    |> Enum.flat_map(fn record ->
+      AliasPolicy.interface_known_cidrs(
+        Map.get(record, :ip_addresses),
+        Map.get(record, :metadata)
+      )
+    end)
+    |> Enum.uniq()
+  end
+
+  defp grouped_stable_interface_ips(grouped, current_ip, known_cidrs) do
     grouped
     |> Enum.filter(&(normalize_alias_ip(&1.device_ip) == current_ip))
     |> Enum.flat_map(&List.wrap(&1.ip_addresses))
     |> Enum.map(&normalize_alias_ip/1)
-    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.filter(&valid_alias_ip?(&1, known_cidrs))
     |> Enum.reject(&(&1 == current_ip))
     |> Enum.uniq()
   end
 
-  defp grouped_mismatched_device_ips(grouped, current_ip) do
+  defp grouped_mismatched_device_ips(grouped, current_ip, known_cidrs) do
     grouped
     |> Enum.map(&normalize_alias_ip(&1.device_ip))
-    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.filter(&valid_alias_ip?(&1, known_cidrs))
     |> Enum.reject(&(&1 == current_ip))
     |> Enum.uniq()
   end
@@ -1123,21 +1157,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   Which addresses become identity (`:ip`) aliases for a mapper-discovered device.
 
   Public as a testable seam: this is the mapper producer of alias evidence.
-  GitHub #4022 requires this path to be proven independently of `AliasPolicy`
+  GitHub #4022 / #5743 require this path to be proven independently of `AliasPolicy`
   and of `AliasEvents.process_and_persist/2`. A test of `valid_alias_ip?/1`
   alone does not prove the mapper still consults it here.
   """
-  def alias_ips_for_role(role, current_ip, stable_interface_ips),
-    do: do_alias_ips_for_role(role, current_ip, stable_interface_ips)
+  def alias_ips_for_role(role, current_ip, stable_interface_ips, known_cidrs \\ []),
+    do: do_alias_ips_for_role(role, current_ip, stable_interface_ips, known_cidrs)
 
-  defp do_alias_ips_for_role("router", current_ip, stable_interface_ips) do
+  defp do_alias_ips_for_role("router", current_ip, stable_interface_ips, known_cidrs) do
     [current_ip | stable_interface_ips]
-    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.filter(&valid_alias_ip?(&1, known_cidrs))
     |> Enum.uniq()
   end
 
-  defp do_alias_ips_for_role(_role, current_ip, _stable_interface_ips) do
-    if valid_alias_ip?(current_ip), do: [current_ip], else: []
+  defp do_alias_ips_for_role(_role, current_ip, _stable_interface_ips, known_cidrs) do
+    if valid_alias_ip?(current_ip, known_cidrs), do: [current_ip], else: []
   end
 
   @doc """
@@ -1219,25 +1253,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp normalize_alias_ip(value) when is_binary(value), do: String.trim(value)
   defp normalize_alias_ip(_), do: nil
 
-  defp primary_device_ip(records) do
+  defp primary_device_ip(records, known_cidrs) do
     records
     |> Enum.map(&normalize_alias_ip(&1.device_ip))
-    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.filter(&valid_alias_ip?(&1, known_cidrs))
     |> Enum.frequencies()
     |> Enum.max_by(fn {_ip, count} -> count end, fn -> {nil, 0} end)
     |> elem(0)
   end
 
-  defp infer_device_role(grouped, current_ip) do
+  defp infer_device_role(grouped, current_ip, known_cidrs) do
     grouped
-    |> device_role_metrics(current_ip)
+    |> device_role_metrics(current_ip, known_cidrs)
     |> role_for_metrics()
   end
 
   @doc """
   Scores the role candidates for an already-computed metrics map.
 
-  Public as a testable seam: `infer_device_role/2` needs a set of interface
+  Public as a testable seam: `infer_device_role/3` needs a set of interface
   records to derive metrics from, which makes the scoring rules themselves
   awkward to pin down. The rules are a cliff-edged heuristic where the
   interesting behaviour lives at exact boundaries, so they are worth asserting
@@ -1254,31 +1288,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp device_role_metrics(grouped, current_ip) do
+  defp device_role_metrics(grouped, current_ip, known_cidrs) do
     stable_records = Enum.filter(grouped, &(normalize_alias_ip(&1.device_ip) == current_ip))
 
     %{
-      device_ip_count: device_ip_count(grouped),
-      stable_l3_alias_count: stable_l3_alias_count(stable_records, current_ip),
+      device_ip_count: device_ip_count(grouped, known_cidrs),
+      stable_l3_alias_count: stable_l3_alias_count(stable_records, current_ip, known_cidrs),
       bridge_like_count: count_interface_kinds(grouped, ["bridge", "virtual", "tunnel"]),
       physical_like_count: count_interface_kinds(grouped, ["physical", "aggregate"]),
       wireless_like_count: wireless_like_count(grouped)
     }
   end
 
-  defp device_ip_count(grouped) do
+  defp device_ip_count(grouped, known_cidrs) do
     grouped
     |> Enum.map(&normalize_alias_ip(&1.device_ip))
-    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.filter(&valid_alias_ip?(&1, known_cidrs))
     |> Enum.uniq()
     |> length()
   end
 
-  defp stable_l3_alias_count(stable_records, current_ip) do
+  defp stable_l3_alias_count(stable_records, current_ip, known_cidrs) do
     stable_records
     |> Enum.flat_map(&List.wrap(&1.ip_addresses))
     |> Enum.map(&normalize_alias_ip/1)
-    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.filter(&valid_alias_ip?(&1, known_cidrs))
     |> Enum.reject(&(&1 == current_ip))
     |> Enum.uniq()
     |> length()
@@ -1593,7 +1627,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   AliasEvents producer so both enforce one rule. Kept public because tests and
   callers in this module reference it directly.
   """
-  defdelegate valid_alias_ip?(value), to: AliasPolicy
+  def valid_alias_ip?(value, known_cidrs \\ []),
+    do: AliasPolicy.valid_alias_ip?(value, known_cidrs)
 
   # Resolve each polled device to its record.
   #
@@ -3770,10 +3805,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   @doc false
   def normalize_interface(update) when is_map(update) do
+    raw_ip_addresses = get_list(update, ["ip_addresses", :ip_addresses])
+
     metadata =
       update
       |> get_map(["metadata", :metadata])
       |> sanitize_interface_metadata(update)
+
+    known_cidrs = AliasPolicy.interface_known_cidrs(raw_ip_addresses, metadata)
+    ip_addresses = Enum.reject(raw_ip_addresses, &AliasPolicy.broadcast_ip?(&1, known_cidrs))
+    metadata = maybe_put_inferred_ip_cidrs(metadata, known_cidrs)
 
     if_type =
       get_integer(update, ["if_type", :if_type]) ||
@@ -3802,7 +3843,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       if_speed: if_speed,
       speed_bps: speed_bps || if_speed,
       if_phys_address: get_string(update, ["if_phys_address", :if_phys_address]),
-      ip_addresses: get_list(update, ["ip_addresses", :ip_addresses]),
+      ip_addresses: ip_addresses,
       if_admin_status: get_integer(update, ["if_admin_status", :if_admin_status]),
       if_oper_status: get_integer(update, ["if_oper_status", :if_oper_status]),
       if_type: if_type,
@@ -3822,6 +3863,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   def normalize_interface(_update), do: nil
+
+  defp maybe_put_inferred_ip_cidrs(metadata, []), do: metadata
+
+  defp maybe_put_inferred_ip_cidrs(metadata, known_cidrs) when is_map(metadata) do
+    if Map.has_key?(metadata, "ip_cidrs") or Map.has_key?(metadata, :ip_cidrs) do
+      metadata
+    else
+      Map.put(metadata, "ip_cidrs", Enum.join(known_cidrs, ","))
+    end
+  end
 
   defp sanitize_interface_metadata(metadata, update) when is_map(metadata) do
     source =

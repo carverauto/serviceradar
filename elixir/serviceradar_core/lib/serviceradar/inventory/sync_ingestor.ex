@@ -531,6 +531,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     reactivation =
       SourceReactivation.reissue_targets(reactivation, updates_with_ids, resolved_updates)
 
+    resolved_updates = Normalize.drop_broadcast_addresses(resolved_updates)
     timestamp = DateTime.truncate(DateTime.utc_now(), :second)
     device_records = DeviceRecords.build_device_upsert_records(resolved_updates, timestamp)
     identifier_records = IdentifierRecords.build_identifier_records(resolved_updates)
