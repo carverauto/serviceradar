@@ -115,6 +115,7 @@ enum WireViewRow<'a> {
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
 fn bitmap_query_row_overlay<'a>(
     env: Env<'a>,
     query: ResourceArc<BitmapQueryResource>,
@@ -329,6 +330,7 @@ fn bitmap_index_acknowledge_reconcile(
     Ok(index.0.acknowledge_reconcile(observed_generation)?.into())
 }
 #[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
 fn bitmap_index_query<'a>(
     env: Env<'a>,
     index: ResourceArc<BitmapIndexResource>,

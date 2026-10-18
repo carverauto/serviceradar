@@ -366,11 +366,15 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorkerPurgeTest do
       ordinal = assert_purged_identity!(uid)
       lineage = Map.delete(metadata, "private_payload")
 
-      assert %{rows: [["site-a", ^reason, ~N[2020-01-01 00:00:00], ^lineage, nil]]} =
+      assert %{
+               rows: [["site-a", ^reason, deleted_at, ^lineage, nil]]
+             } =
                Repo.query!(
                  "SELECT partition, deleted_reason, deleted_at, metadata, hostname FROM platform.ocsf_devices WHERE uid = $1",
                  [uid]
                )
+
+      assert NaiveDateTime.compare(deleted_at, ~N[2020-01-01 00:00:00]) == :eq
 
       %{rows: [[last_value]]} =
         Repo.query!("SELECT currval('platform.device_fleet_ordinals_ordinal_seq')")

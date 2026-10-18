@@ -5,7 +5,7 @@
 use super::{bitmap_bytes, check_time, Bitmap, Budget, Charge, Error};
 use roaring::RoaringBitmap;
 use std::cmp::Ordering;
-use std::mem::size_of;
+use std::mem::{size_of, size_of_val};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -61,7 +61,7 @@ impl<const N: usize, const REVERSE: bool> Tree<N, REVERSE> {
         budget: &Arc<Budget>,
     ) -> Result<(), Error> {
         for chunk in entries.chunks(LEAF_ROWS) {
-            let charge = budget.reserve(128 + size_of::<Entry<N>>() * chunk.len())?;
+            let charge = budget.reserve(128 + size_of_val(chunk))?;
             Self::append(
                 leaves,
                 Arc::new(Leaf {
@@ -93,7 +93,7 @@ impl<const N: usize, const REVERSE: bool> Tree<N, REVERSE> {
                 total
             };
             for chunk in entries.chunks(width) {
-                let charge = budget.reserve(128 + size_of::<Entry<N>>() * chunk.len())?;
+                let charge = budget.reserve(128 + size_of_val(chunk))?;
                 leaves.push(Arc::new(Leaf {
                     entries: chunk.into(),
                     charge,
@@ -386,11 +386,11 @@ pub(super) fn ranges(op: u8, bytes: &[u8], prefix: u16) -> Result<Vec<Range>, Er
             high,
         }]);
     }
-    if op != 9 || prefix != 0 || bytes.len() % 33 != 0 || bytes.len() / 33 > MAX_RANGES {
+    if op != 9 || prefix != 0 || !bytes.len().is_multiple_of(33) || bytes.len() / 33 > MAX_RANGES {
         return Err("invalid_expression");
     }
     let mut ranges: Vec<Range> = Vec::with_capacity(bytes.len() / 33);
-    for record in bytes.chunks_exact(33) {
+    for record in bytes.as_chunks::<33>().0 {
         let range = Range {
             family: record[0],
             low: record[1..17].try_into().unwrap(),

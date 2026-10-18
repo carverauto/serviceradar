@@ -1329,8 +1329,10 @@ mod tests {
         assert_eq!(availability, [2, 0, 1, 2, 2, 0, 2]);
         assert_eq!(
             counts
-                .chunks_exact(4)
-                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| u32::from_le_bytes(*b))
                 .collect::<Vec<_>>(),
             [0, 1, 1, 1, 3, 1, 0]
         );

@@ -4629,12 +4629,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     {task, backend}
   end
 
+  # The checkout pid is not always the backend that waits: the fence query can
+  # run on another pool connection. Count sessions this transaction is blocking.
   defp await_blocked_sweeps!(backends, deadline) do
     %{rows: [[blocked]]} =
       Repo.query!(
-        "SELECT count(*) = cardinality($1::int[]) FROM pg_stat_activity " <>
-          "WHERE pid = ANY($1::int[]) AND pg_backend_pid() = ANY(pg_blocking_pids(pid))",
-        [backends]
+        """
+        SELECT count(DISTINCT pid) >= $1
+        FROM pg_stat_activity
+        WHERE pid <> pg_backend_pid()
+          AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+        """,
+        [length(backends)]
       )
 
     if !blocked do

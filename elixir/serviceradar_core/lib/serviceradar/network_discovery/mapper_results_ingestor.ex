@@ -1932,7 +1932,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         actor
       )
 
-    publish_deferred_management(existing, restored, parent_ips, context)
+    publish_deferred_management(existing, restored, identity_purged, parent_ips, context)
 
     kept ++ restored_entries ++ written
   end
@@ -3157,12 +3157,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp publish_deferred_management(existing, restored, parent_ips, context) do
+  defp publish_deferred_management(existing, restored, identity_purged, parent_ips, context) do
+    # Rehydration has committed, so an identity-purged row is live again. Its
+    # stored parent is still the pre-restore link and uses the same repair.
     candidates =
       Enum.flat_map(existing, fn {:existing, entry, device} ->
         [{entry, device}]
       end) ++
-        Enum.map(restored, fn {entry, device, _purged?} -> {entry, device} end)
+        Enum.map(restored, fn {entry, device, _purged?} -> {entry, device} end) ++
+        identity_purged
 
     live_parents = live_management_parent_uids(candidates)
 

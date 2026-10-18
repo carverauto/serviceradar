@@ -333,8 +333,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     plans = Map.new(dry.plans, &{&1.agent_uid, &1})
     assert plans[agent_a].action == :keep
     assert plans[agent_a].target_device_uid == chimera.uid
-    assert plans[agent_b].action == :restore
-    assert plans[agent_b].target_device_uid == dev_b.uid
+    # A merged tombstone is not a restore target. Host B gets a fresh device.
+    assert plans[agent_b].action == :create
+    planned_b = plans[agent_b].target_device_uid
+    refute planned_b in [dev_b.uid, chimera.uid]
     assert plans[agent_c].action == :create
     assert plans[agent_b].stale_device_agent_links == [stale_b.uid]
     assert plans[agent_c].stale_device_agent_links == [stale_c.uid]
@@ -362,16 +364,20 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert {:ok, %Agent{device_uid: agent_a_device}} = Agent.get_by_uid(agent_a, actor: actor)
     assert agent_a_device == chimera.uid
 
-    # Agent B was repointed at its restored per-host device.
+    # Agent B was repointed at a fresh per-host device. The merged tombstone stays deleted.
     assert {:ok, %Agent{device_uid: agent_b_device}} = Agent.get_by_uid(agent_b, actor: actor)
-    assert agent_b_device == dev_b.uid
-    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(dev_b.uid, false, actor: actor)
+    assert agent_b_device == planned_b
+    assert {:ok, %Device{deleted_at: %DateTime{}}} =
+             Device.get_by_uid(dev_b.uid, true, actor: actor)
+    assert {:ok, %Device{} = created_b} = Device.get_by_uid(agent_b_device, false, actor: actor)
+    assert created_b.hostname == host_b
+    assert created_b.agent_id == agent_b
     assert {:ok, %Device{agent_id: nil}} = Device.get_by_uid(stale_b.uid, false, actor: actor)
 
-    # Agent B's identifier moved off the chimera onto the restored device.
+    # Agent B's identifier moved off the chimera onto the fresh device.
     assert [identifier] = agent_identifiers(actor, agent_b)
-    assert identifier.device_id == dev_b.uid
-    assert live_device_agent_links(actor, agent_b) == [dev_b.uid]
+    assert identifier.device_id == agent_b_device
+    assert live_device_agent_links(actor, agent_b) == [agent_b_device]
 
     # Agent C got a freshly created per-host device.
     assert {:ok, %Agent{device_uid: agent_c_device}} = Agent.get_by_uid(agent_c, actor: actor)
@@ -386,12 +392,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert {:ok, %DeviceAliasState{state: :stale}} =
              Ash.get(DeviceAliasState, alias_state.id, actor: actor)
 
-    assert {:ok, audits} = MergeAudit.get_by_device(dev_b.uid, actor: actor)
+    assert {:ok, audits} = MergeAudit.get_by_device(chimera.uid, actor: actor)
 
     assert Enum.any?(
              audits,
              &(&1.reason == "unmerge" and &1.from_device_id == chimera.uid and
-                 &1.to_device_id == dev_b.uid)
+                 &1.to_device_id == agent_b_device)
            )
 
     assert {:ok, %Device{ip: nil}} = Device.get_by_uid(literal_device.uid, false, actor: actor)
