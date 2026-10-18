@@ -340,8 +340,8 @@ the kernel event.
 
 - **Monitored sides**: a flow side is monitored when its address has presence (`A`), or when
   it matches the public VIP map and any of its mapped backend addresses has presence. For a
-  VIP side, the backend keys are the side's keys for hold, enrollment, home-shard placement
-  and watches below, alongside its original keys, so a backend lease that arrives after the
+  VIP side, the backend keys are the side's keys for hold, enrollment and home-shard
+  placement, and join the watch set below, alongside its original keys, so a backend lease that arrives after the
   flow still attributes it under the same precedence (public-endpoint rank, below any
   original-endpoint candidate).
 - **Hold**: if a side is monitored but no lease matches,
@@ -367,13 +367,21 @@ the kernel event.
   - *State*: the flow is recorded once, in the **home shard** (the shard of its source side's
     bucket, or of the destination's when only the destination is monitored; for a monitored
     VIP side that is not an agent address, the shard of its first mapped backend), as a
-    decision state `(flow id, flow time, both sides' keys, published decision)`. Each other
-    monitored side's shard keeps only a watch `(key, flow id, home shard)`, including the
-    shard of every mapped backend key of a monitored VIP side. The candidate set itself is not
+    decision state `(flow id, flow time, both sides' keys, published decision)`.
+  - *Watch set*: an enrolled flow watches **every key it could be attributed through**,
+    whether or not a candidate exists for that key yet and whether or not that side is
+    monitored. For each side `s` with other side `o`, that is the endpoint key
+    `E(s.ip, s.port)` (connected, listener and expanded wildcard leases), the exact peer key
+    `X(s.ip, s.port, o.ip, o.port)`, and the relaxed peer key `R(s.ip, o.ip, o.port)` (relaxed
+    UDP and node SNAT; `R(s.ip, o.ip, 0)` for ICMP); for a side that matches the VIP map, the
+    same three keys for every mapped backend endpoint as well. All keys of one side (or one
+    backend) hash to one bucket, so registration sends one message per side or backend to the
+    shard that owns that bucket, and that shard routes every notification back to the flow's
+    home shard. Watches live exactly as long as the decision state. The candidate set itself is not
     copied: it is the index's history for the flow's keys at the flow time, which the history
     horizon keeps for longer than the window.
-  - *Decision*: any change to a watched key's candidate set during the window notifies the
-    home shard: a lease that starts to cover the flow's time (`OPEN`, `RENEW`), a validity
+  - *Decision*: any change to the candidate set of a key in the watch set during the window
+    notifies the home shard: a lease that starts to cover the flow's time (`OPEN`, `RENEW`), a validity
     interval that shrinks so it no longer covers it (a delayed `CLOSE`, a `SNAPSHOT` that
     closes an omitted lease), a history entry removed by horizon expiry or the per-key cap, and
     an owner-attribute change to a lease that covers the flow's time (an enrichment `OPEN` with
@@ -402,11 +410,14 @@ the kernel event.
     does not re-open the flow; the shard counts it as `late_conflict`.
   - *Bound*: a decision state is at most 128 bytes (a 16-byte flow id, a 4-byte flow time, two
     packed endpoint keys of about 20 bytes each, the published decision, sequence and owner id,
-    and table overhead), and a watch at most 48 bytes. At 1M enrolled flows/s, the 5-minute
-    window holds 300M states, about 38 GB across all shards plus watches (about 2.4 GB per
-    shard at the default 16 shards). Each shard has a decision-state budget, by default 3 GB
-    at 16 shards, sized so that early finalization does not occur at the stated targets; the
-    window and the shard count are the sizing levers.
+    and table overhead). A watch registration is one index entry per watched key, at most
+    24 bytes (key hash and flow reference); a flow without VIP sides registers six (three per
+    side), and each VIP backend adds three. At 1M enrolled flows/s, the 5-minute window holds
+    300M states: about 38 GB of states and about 43 GB of watch entries across all shards,
+    about 81 GB in total (about 5.1 GB per shard at the default 16 shards). Each shard has a
+    decision-state budget covering states and watches, by default 6 GB at 16 shards, sized so
+    that early finalization does not occur at the stated targets; the window and the shard
+    count are the sizing levers.
   - *Budget degradation*: if the budget binds anyway, the oldest states finalize early with
     their last decision. The home shard publishes one last update for each, setting the
     SRQL-visible flag `attribution_finalized_early` on the flow row, and counts every early
@@ -553,6 +564,7 @@ deferred.
 | Competing claim arriving after a flow's late window closed | Not re-stamped. The shard counts the overlapping claim when it applies the lease (`late_conflict`). Deferred: whether such a claim should re-open recent flows. |
 | Validity shrinking after the window closed (a `CLOSE` or `SNAPSHOT` delayed beyond the window) | Not re-stamped; the last published decision stands and the shrink is counted as `late_conflict`. Deferred: whether such a shrink should re-open recent flows. |
 | History evidence expiring inside a window (a flow whose time is close to the history horizon when it is enrolled) | The expiry triggers a recomputation, which can lower the decision or return it to unattributed; counted with history evictions. |
+| Flow with no monitored side whose addresses gain presence only after the flow is written | Not enrolled, so it stays `unmonitored`; the hold covers the usual race because address leases are published from netprobe start. Deferred: enrolling unmonitored flows. |
 | Decision-state budget forces early finalization | The oldest states finalize with their last decision, flagged `attribution_finalized_early` on the row and counted `decision_finalized_early` per shard. Outside the arrival-order guarantee; the budget is sized so it does not occur at the stated targets. |
 | Overlapping address spaces inside one partition (reused pod CIDRs) | Treated as the ambiguous case above. Deferred: whether to reject it as a configuration error (Open Questions). |
 | NAT beyond node SNAT and Kubernetes public endpoints (edge SNAT, CGNAT, cloud NAT gateways) | Deferred; the flow side is `no_owner` or `unmonitored`. |
@@ -578,7 +590,7 @@ Load is generated from invented data in 192.0.2.0/24, 198.51.100.0/24, 203.0.113
 | Added latency | p99 <= 250 ms per flow batch for flows whose owner is present |
 | Hold | flows written within the hold window (default 5 s, maximum 30 s) |
 | Late decision update | published within 60 s of the late ownership event |
-| Late decision state | <= 128 bytes per enrolled flow, each shard within its decision-state budget, for the full 5-minute window at 1M enrolled flows/s, with zero early finalizations |
+| Late decision state | <= 128 bytes per enrolled flow plus <= 24 bytes per watched key, each shard within its decision-state budget, for the full 5-minute window at 1M enrolled flows/s, with zero early finalizations |
 | Rebuild | a shard of 2.5M keys is ready within 2 minutes of start |
 | Connection summaries | 20k simulated agents at the per-agent budget (2,000 rows per minute) for 1 hour, no unacknowledged loss, every over-budget interval merged and counted |
 
