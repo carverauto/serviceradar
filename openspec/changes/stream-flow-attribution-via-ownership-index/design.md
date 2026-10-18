@@ -377,7 +377,12 @@ the kernel event.
     same three keys for every mapped backend endpoint as well. All keys of one side (or one
     backend) hash to one bucket, so registration sends one message per side or backend to the
     shard that owns that bucket, and that shard routes every notification back to the flow's
-    home shard. Watches live exactly as long as the decision state. The candidate set itself is not
+    home shard. Registration is **subscribe-with-snapshot**: the owning shard, in one step,
+    records the watch and returns the key's candidate state at the flow time as of that
+    moment, and the home shard recomputes the decision when each registration
+    acknowledgement arrives. A lease applied before registration is therefore in the
+    snapshot, and one applied after it produces a notification; neither can be missed.
+    Watches live exactly as long as the decision state. The candidate set itself is not
     copied: it is the index's history for the flow's keys at the flow time, which the history
     horizon keeps for longer than the window.
   - *Decision*: any change to the candidate set of a key in the watch set during the window
@@ -405,8 +410,15 @@ the kernel event.
     the row converges on the latest complete decision and an obsolete higher-precedence stamp
     cannot survive. Only the home shard publishes for a flow; no two shards ever write the
     same flow independently, so the sequence is a total order per flow.
-  - *Close*: when the window ends (default 5 minutes) the state is dropped and the last
-    published decision is final. A claim or a validity shrink that arrives after the window
+  - *Close*: when the window ends (default 5 minutes) the home shard unregisters every watch
+    with the same snapshot semantics: each owning shard, in one step, removes the watch and
+    returns the key's current candidate state, so every mutation it accepted before that
+    point is included. The home shard makes one final recompute once all unregistrations, and
+    any registrations still outstanding, are acknowledged, publishes it if it differs, and
+    drops the state; that decision is final. If acknowledgements have not arrived by the
+    closing deadline (default 10 s after the window ends), the deadline wins: the home shard
+    closes with the decision computed from what it has and counts the case
+    (`decision_closed_unreconciled`). A claim or a validity shrink that arrives after the window
     does not re-open the flow; the shard counts it as `late_conflict`.
   - *Bound*: a decision state is at most 128 bytes (a 16-byte flow id, a 4-byte flow time, two
     packed endpoint keys of about 20 bytes each, the published decision, sequence and owner id,
@@ -485,7 +497,7 @@ pid, cmdline or partition labels):
   shard state (`warming`, `ready`, `standby`), rebuild duration, ambiguous count, and `late_conflict` (a claim overlapping another owner's lease on a key).
 - Enrichment: flows by outcome (`attributed` by strategy, `held`, `late_stamped`,
   `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, `error`), hold buffer depth and
-  overflow, decision state count and bytes, early finalizations (`decision_finalized_early`), evictions, applied
+  overflow, decision state count and bytes, early finalizations (`decision_finalized_early`), unreconciled closes (`decision_closed_unreconciled`), evictions, applied
   and evidence-only updates, lookup latency per batch, and
   agent budget drops by reason (reported by netprobe).
 - Connection summaries: rows per interval, rows merged by the budget and the level they were
@@ -574,6 +586,19 @@ deferred.
 | Ownership event lost on the way (dropped `CLOSE`) | Bounded by the lease TTL; the lease expires on its own. |
 | Accepted socket whose owner differs from its listener but the difference is invisible to the agent | Attributed to the listener's owner (Risks). |
 | Connection summaries over budget | Staged aggregation down to overflow rows, counted (Decision 9). |
+
+**Distributed ordering.** Registration and closure snapshots make each shard's own
+mutations race-free with respect to one flow. The remaining cross-shard races are deferred to
+implementation, with this intended handling:
+
+- *Shard rebalancing mid-window*: a bucket range moves with its watches; the receiving shard
+  acknowledges a moved watch with a fresh snapshot, so the home shard recomputes as on
+  registration.
+- *Home-shard failover*: decision states are in memory on the home shard and are not
+  rebuilt by replay. Flows whose state is lost keep their last published decision and are
+  flagged and counted like budget-forced early finalization. Deferred: replicating open
+  decision states to the warm standby.
+- *Closing deadline reached*: covered above (`decision_closed_unreconciled`).
 
 ## Capacity targets
 
