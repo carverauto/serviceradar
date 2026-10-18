@@ -55,8 +55,8 @@ lookups before their single StarRocks write.
 - **Bounded late binding.** A flow whose endpoint is monitored (an agent address, or a public
   VIP whose mapped backend is) but has no owner yet is
   held for a few seconds. If it is still unmatched it is written unattributed and kept in a
-  bounded late-stamp set; a flow written with a fallback owner that a later exact lease could
-  still beat is kept there too. A late ownership event stamps those flows through the existing
+  bounded set of per-flow decision states; every flow with a monitored side, attributed or
+  not, keeps its decision state open for the late window. A late ownership event stamps those flows through the existing
   `events.flow.attribution` update. Nothing re-scans flows.
 - **Host-observed connection summaries.** Because accepted connections collapse onto their
   listener's lease, netprobe also emits bounded per-interval summaries per process, local
@@ -65,9 +65,12 @@ lookups before their single StarRocks write.
   for spotting network-observed connections no host saw (#5745). Over a per-agent budget they
   are merged in stages down to a per-direction overflow row, so the cap is strict, and every
   merge is counted; nothing is silently dropped. The ownership index does not use them.
-- **Late stamps follow precedence, not arrival order.** Updates carry their
-  `(rank, side, owner order)` precedence, where owner order is the index's deterministic
-  tie-break, and are applied only when at least as good as the stored attribution.
+- **Late decisions do not depend on arrival order.** The final decision for a flow is a
+  function of the candidates seen within its late window. The home shard recomputes it from
+  the full candidate set on each covering lease and publishes whenever it changes, including
+  evidence-only updates for newly found ambiguity. Updates carry a decision key of
+  `(rank, side, owner order)` precedence and ambiguity evidence, and are applied only when at
+  least as good as the stored decision.
 - **Agent-local attribution stays primary** for flows an agent produces itself. The index serves
   flows from routers and other exporters.
 - **Ownership history for incident response** moves from the sighting table to an append-only

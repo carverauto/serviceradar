@@ -25,7 +25,7 @@
 
 ## 3. Ownership index
 - [ ] 3.1 Shard store: endpoint keys, exact (5-tuple) and relaxed peer keys, address presence, a time-bounded validity history with a per-key cap and counted in-horizon evictions, an interned owner table, and workload identity resolved per owner record from the CNPG cache.
-- [ ] 3.2 Time-T lookup with skew tolerance and the deterministic owner-order tie-break with ambiguous counting; mark contested keys, and count `late_conflict` when a lease overlaps another owner's on a key.
+- [ ] 3.2 Time-T lookup with skew tolerance and the deterministic owner-order tie-break with ambiguous counting; and count `late_conflict` when a lease overlaps another owner's on a key after the affected flows' late windows closed.
 - [ ] 3.3 Expiry through a timer wheel; history horizon for closed and expired leases; `SNAPSHOT` closes the agent's omitted leases at the snapshot time without deleting them.
 - [ ] 3.4 Entry and byte budgets per shard, with ordered refusal and counters.
 - [ ] 3.5 Shard ownership and placement on top of the existing lease and coordinator machinery: active owner, optional warm standby, bucket-range rebalancing; single-node and small installs place every shard on one node.
@@ -38,8 +38,8 @@
 - [ ] 4.2 Public endpoint map cache from `public_endpoints_current`, refreshed on change.
 - [ ] 4.3 Attribution step in `Processors.Flows`: keys for both sides on their original endpoints plus VIP backend keys in the same batch (backend candidates only below the original's ranks 0-2), batched lookups, the precedence table, the cross-side tie-break, and a single write with `attributed_flow` and owner columns. Keep agent-provided attribution for the side the agent owns.
 - [ ] 4.4 Monitored-side classification (address presence, or a VIP side with a monitored mapped backend, whose backend keys join hold, enrollment, home-shard placement and watches). Hold buffer with item and byte caps, deadline below `ack_wait`, shard notification on `OPEN`, and no hold for unmonitored flows.
-- [ ] 4.5 Late-stamp set per home shard (window, entry cap, eviction counters) with watches on the other monitored side's shard; the home shard re-evaluates both sides under the ingest precedence and publishes an update carrying the `(rank, side, owner order)` precedence on `events.flow.attribution` only on strictly better precedence, keeping the entry pending until the precedence is final (uncontested winner) or the window ends, with versions fetched in batches. Enroll unattributed flows and ingest winners at a non-final precedence while a side is monitored; never enroll final or agent-attributed flows.
-- [ ] 4.6 Add `attribution_precedence` to `ocsf_network_activity` as one totally ordered encoding of `(rank, side, owner order)` (lowest for unattributed rows, set on ingest), confirm the conditional update compares that encoding, and make `FlowAttributionUpdates` apply an update only when its precedence is at least the stored one (StarRocks conditional partial update), not by highest version.
+- [ ] 4.5 Late decision per home shard: enroll every flow with a monitored side (never agent-attributed flows) for the late window (default 5 minutes) with no early finalization; watches on the other monitored side's and VIP backend shards; on each covering lease recompute the decision from the full candidate set (winner by `(rank, side, owner order)`, ambiguity evidence, full-tuple ties leave the side ambiguous) and publish whenever it differs from the last published decision, including evidence-only updates; versions fetched in batches; per-shard entry and byte budget (<= 128 bytes per state) with counted early closes; `late_conflict` after window close.
+- [ ] 4.6 Add `attribution_decision` to `ocsf_network_activity` as one totally ordered encoding of `(precedence, ambiguity evidence count)` (lowest for unattributed rows, set on ingest), confirm the conditional update compares that encoding, and make `FlowAttributionUpdates` apply an update only when its decision key is at least the stored one (StarRocks conditional partial update), not by highest version.
 - [ ] 4.7 Tests per scenario of *Flows Are Attributed On Ingest By Key Lookup*, *Late Binding Is Bounded And Never Rescans Flows*, *Agent-Local Attribution Takes Precedence* and the modified *Correlation Is Protocol-Aware And Exact-First*.
 
 ## 5. Lease history and connection summaries
@@ -59,7 +59,7 @@
 - [ ] 7.2 Throughput run: >= 1M flows/s at the attribution stage, and >= 1.6x when flow-tier nodes are doubled, up to the warehouse write limit.
 - [ ] 7.3 Ownership ingest run: 20k simulated agents for 1 hour; zero acknowledged loss; lag p99 <= 5 s.
 - [ ] 7.4 Memory run: 40M active keys at <= 200 bytes per key, with every shard within budget; rebuild of a 2.5M-key shard <= 2 minutes.
-- [ ] 7.5 Latency run: p99 added latency <= 250 ms per batch; holds within the window; late stamps within 60 s.
+- [ ] 7.5 Latency run: p99 added latency <= 250 ms per batch; holds within the window; late decision updates within 60 s; decision state within 128 bytes per enrolled flow and each shard within its budget across a full window.
 - [ ] 7.6 Connection summary run: 20k simulated agents at the per-agent cap for 1 hour; zero acknowledged loss; every over-budget interval merged and counted; no agent emits more than its cap, including agents with more processes than the cap.
 
 ## 8. Cutover and removal (same release as 1-6)

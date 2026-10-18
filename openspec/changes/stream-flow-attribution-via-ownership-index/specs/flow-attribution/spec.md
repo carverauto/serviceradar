@@ -136,8 +136,8 @@ The original endpoint of every flow side SHALL be looked up. A side that matches
 - **AND** neither flow is attributed to the listener's owner
 
 ### Requirement: Late Binding Is Bounded And Never Rescans Flows
-A flow side SHALL be monitored when its address has address presence, or when it matches the public endpoint map and any mapped backend address has address presence; the backend keys of a monitored VIP side SHALL be used for hold, late-stamp enrollment, home-shard placement and watches alongside its original keys. The flow processor SHALL hold a flow with a monitored side without a matching lease for at most the configured hold window (default 5 seconds, maximum 30 seconds, and always below the consumer acknowledgement deadline), and MUST NOT hold a flow that has no monitored side.
-A flow still unmatched after the hold, or one written because the hold buffer reached its item or byte cap, SHALL be written unattributed and recorded once, in the late-stamp set of its home shard (the shard of its source side, or of its destination when only the destination is monitored; for a monitored VIP side that is not an agent address, the shard of its first mapped backend), for the late-stamp window (default 10 minutes) under an entry cap, with evictions counted. Precedence SHALL be the full ordering tuple of rank, side and owner order, with the source side ahead of the destination side at equal rank and the index's deterministic owner tie-break (container id present, most recent `first_seen`, `agent_id`, `pid`) as the owner order, applied identically on ingest and in late stamps; an unattributed flow SHALL have the lowest precedence. The choice between tying owners MUST NOT depend on the order in which their leases arrived. A precedence is final when no monitored side can produce a better candidate: exact on the source side, or exact on the destination side when the source is not monitored, and the winning key was not contested by another owner with overlapping validity when the decision was made; a contested winner SHALL stay pending until the window ends. A flow written on ingest with an owner at a non-final precedence while one of its sides is monitored SHALL also be recorded in the late-stamp set, and a flow written at a final precedence or carrying agent-provided attribution MUST NOT be recorded. When a lease arrives that covers a recorded flow's time on any shard, the home shard SHALL re-evaluate both sides of the flow under that precedence and SHALL publish an update on `events.flow.attribution` carrying the winner's precedence only when it is strictly better than the flow's current precedence. The entry SHALL stay pending until the flow's precedence is final or the window ends, so the result MUST NOT depend on the order in which leases arrive. EventWriter SHALL apply an update as a partial primary-key update only when its precedence is at least the row's stored precedence, and MUST NOT let a higher version replace a better-precedence attribution. Late stamps for one flow MUST be published only by its home shard. The system MUST NOT read stored flows back to find unattributed ones.
+A flow side SHALL be monitored when its address has address presence, or when it matches the public endpoint map and any mapped backend address has address presence; the backend keys of a monitored VIP side SHALL be used for hold, late-decision enrollment, home-shard placement and watches alongside its original keys. The flow processor SHALL hold a flow with a monitored side without a matching lease for at most the configured hold window (default 5 seconds, maximum 30 seconds, and always below the consumer acknowledgement deadline), and MUST NOT hold a flow that has no monitored side.
+A flow still unmatched after the hold, or one written because the hold buffer reached its item or byte cap, SHALL be written unattributed. Every flow written with a monitored side, attributed or not, SHALL be enrolled once for a late decision in its home shard (the shard of its source side, or of its destination when only the destination is monitored; for a monitored VIP side that is not an agent address, the shard of its first mapped backend) for the late window (default 5 minutes); a flow carrying agent-provided attribution MUST NOT be enrolled, and there MUST NOT be any early finalization within the window. Precedence SHALL be the full ordering tuple of rank, side and owner order, with the source side ahead of the destination side at equal rank and the index's deterministic owner tie-break (container id present, most recent `first_seen`, `agent_id`, `pid`) as the owner order, applied identically on ingest and in late decisions; an unattributed flow SHALL have the lowest precedence. The final decision for a flow MUST be a function of the set of candidates seen for it within its late window, independent of the order in which they arrived. Whenever a lease covering an enrolled flow's time arrives on any shard, the home shard SHALL recompute the decision from the full candidate set of both sides: the winner by full precedence and, as ambiguity evidence, the number of other owners tying with it on rank and side; distinct owners tying on the full tuple SHALL leave the side ambiguous with no owner. The home shard SHALL publish an update on `events.flow.attribution` whenever the decision differs in any way from the last published one, including a change between unambiguous and ambiguous and new ambiguity evidence with an unchanged winner, and each update SHALL carry its decision key of precedence and ambiguity evidence. EventWriter SHALL apply an update as a partial primary-key update only when its decision key is at least the row's stored decision key, and MUST NOT let a higher version replace a better or more complete decision. At window close the last published decision SHALL be final. Late decisions for one flow MUST be published only by its home shard. Each decision state SHALL take at most 128 bytes, and each shard SHALL bound decision state by an entry and byte budget; when the budget binds, the oldest state SHALL close early with its last published decision and the early close MUST be counted. The system MUST NOT read stored flows back to find unattributed ones.
 
 #### Scenario: Flow races its ownership event
 - **GIVEN** a flow from 192.0.2.20:40002 arrives 2 seconds before the agent's `OPEN` for that key
@@ -152,7 +152,7 @@ A flow still unmatched after the hold, or one written because the hold buffer re
 
 #### Scenario: Ownership arrives after the hold
 - **GIVEN** a flow involving monitored address 192.0.2.20 was written unattributed after its hold expired
-- **WHEN** a lease covering the flow's time arrives within the late-stamp window
+- **WHEN** a lease covering the flow's time arrives within the late window
 - **THEN** the shard publishes a versioned update on `events.flow.attribution`
 - **AND** the flow row becomes `attributed_flow`
 
@@ -165,30 +165,43 @@ A flow still unmatched after the hold, or one written because the hold buffer re
 
 #### Scenario: Destination exact lease arrives before the source exact lease
 - **GIVEN** a flow from 192.0.2.20:40005 to 192.0.2.10:8080 was written unattributed after its hold expired
-- **AND** an exact peer entry `(tcp, 192.0.2.10, 8080, 192.0.2.20, 40005)` arrives first, and later in the late-stamp window a `connected` lease for `(tcp, 192.0.2.20, 40005)` whose remote is 192.0.2.10:8080 arrives
+- **AND** an exact peer entry `(tcp, 192.0.2.10, 8080, 192.0.2.20, 40005)` arrives first, and later in the late window a `connected` lease for `(tcp, 192.0.2.20, 40005)` whose remote is 192.0.2.10:8080 arrives
 - **WHEN** the late stamps are decided
-- **THEN** the home shard first publishes the destination owner and keeps the entry pending
+- **THEN** the home shard first publishes the destination owner and keeps the decision state open
 - **AND** it then publishes the source owner, which EventWriter applies because its precedence is better
 - **AND** the flow row ends with the source-side owner
 
 #### Scenario: Exact worker lease arrives after a listener attribution on ingest
 - **GIVEN** the index holds a `bound` lease for `(tcp, 192.0.2.10, 8080)` owned by the listener process
 - **AND** a flow from 198.51.100.7:51002 to 192.0.2.10:8080 is written on ingest with the listener's owner
-- **WHEN** an exact peer entry `(tcp, 192.0.2.10, 8080, 198.51.100.7, 51002)` owned by a worker process arrives seconds later, within the late-stamp window
+- **WHEN** an exact peer entry `(tcp, 192.0.2.10, 8080, 198.51.100.7, 51002)` owned by a worker process arrives seconds later, within the late window
 - **THEN** the home shard publishes the worker's attribution with exact precedence
 - **AND** the flow row ends with the worker as its owner
 
-#### Scenario: Tying owners resolve by owner order in either arrival order
+#### Scenario: The same candidates in either arrival order give the same final decision
 - **GIVEN** agents A and B both hold `bound` leases for `(tcp, 192.0.2.10, 443)` with overlapping validity, A from 10:00 and B from 10:05, and neither carries a container id
 - **AND** a flow from 198.51.100.7:51005 to 192.0.2.10:443 at 10:06 is written on ingest while only one of the two leases has arrived
-- **WHEN** the other lease arrives within the late-stamp window
-- **THEN** the flow row ends with B's owner whichever lease arrived first
-- **AND** the result is counted as ambiguous and recorded as ambiguous in the flow's match evidence
+- **WHEN** the run is repeated once with A arriving first and once with B arriving first, the other lease arriving within the late window each time
+- **THEN** both runs end with B as the owner and the flow recorded as ambiguous with one competing owner
+- **AND** in the run where B arrived first, the update after A arrives is evidence-only and keeps B as the owner
 
-#### Scenario: Final ingest attribution is not enrolled
-- **GIVEN** a flow is written on ingest with an exact source-side owner
-- **WHEN** the flow processor finishes the batch
-- **THEN** the flow is not recorded in the late-stamp set
+#### Scenario: Exact source attribution on ingest stays open for a competing claim
+- **GIVEN** a flow from 192.0.2.20:40006 to 198.51.100.9:443 is written on ingest with agent A's exact source-side `connected` lease for `(tcp, 192.0.2.20, 40006)`, with `first_seen` 10:00
+- **WHEN** agent B's overlapping exact lease for the same key, with `first_seen` 10:01, arrives within the late window
+- **THEN** the home shard publishes B as the owner, because B is earlier in owner order
+- **AND** the final decision matches the one made had B's lease arrived first
+
+#### Scenario: Owners that tie on the full tuple leave the side ambiguous
+- **GIVEN** two distinct owners hold candidates for one flow side that tie on rank, side and owner order
+- **WHEN** the decision is computed
+- **THEN** that side carries no owner and is recorded as ambiguous
+- **AND** the result is the same in either arrival order
+
+#### Scenario: Decision state budget binds
+- **GIVEN** a shard's decision state is at its entry or byte budget
+- **WHEN** another flow is enrolled
+- **THEN** the oldest state closes early with its last published decision
+- **AND** the early-close counter increments
 
 #### Scenario: A higher version does not override better precedence
 - **GIVEN** a flow row carries an exact source-side attribution
@@ -198,15 +211,15 @@ A flow still unmatched after the hold, or one written because the hold buffer re
 #### Scenario: Backend lease arrives after a flow to a public VIP
 - **GIVEN** the public endpoint map sends 203.0.113.80:443/TCP to the backend 192.0.2.60:8443, and 192.0.2.60 has address presence
 - **AND** a flow from 198.51.100.7:51004 to 203.0.113.80:443 is written unattributed after its hold expired
-- **WHEN** a `bound` lease for `(tcp, 192.0.2.60, 8443)` arrives within the late-stamp window
+- **WHEN** a `bound` lease for `(tcp, 192.0.2.60, 8443)` arrives within the late window
 - **THEN** the flow's home shard, the shard of 192.0.2.60, publishes the backend's owner with public-endpoint precedence
 - **AND** the flow row becomes `attributed_flow` with the public endpoint context
 
-#### Scenario: Late-stamp set is full
-- **GIVEN** a shard's late-stamp set is at its entry cap
-- **WHEN** another unmatched flow is recorded
-- **THEN** the oldest entry is evicted and counted
-- **AND** no stored flows are read to recover it
+#### Scenario: Late window closes
+- **GIVEN** a flow's late window has ended
+- **WHEN** a lease covering the flow's time arrives
+- **THEN** the flow's last published decision stays final
+- **AND** no stored flows are read to revisit it
 
 ### Requirement: Agent-Local Attribution Takes Precedence
 When a flow arrives already attributed by the agent that produced it, the flow processor SHALL keep that attribution and MUST NOT replace it with an index lookup for the side the agent owns. Flows from routers, switches and other exporters SHALL be attributed through the ownership index. This requirement MUST NOT reintroduce central-to-agent flow replay.
@@ -286,7 +299,7 @@ Flow attribution SHALL sustain at least 1M flows/s attributed across horizontall
 
 ### Requirement: Ownership Index And Enrichment Health Is Observable
 The ownership index and the flow attribution stage SHALL publish their health as metrics through the JetStream metrics pipeline, with labels that MUST NOT include agent identifiers, process identifiers, IP addresses, ports, command lines, partition names, or other unbounded payload-derived values.
-Index metrics SHALL include entries and bytes per shard, budget refusals, evictions, history evictions inside the horizon, ownership consumer lag, shard state (`warming`, `ready`, `standby`), rebuild duration, ambiguous lookups, and late conflicts (a lease applied that overlaps another owner's lease on the same key). Enrichment metrics SHALL include flows by outcome and strategy, hold buffer depth and overflow, late-stamp set size, evictions and applied stamps, and lookup latency per batch. Connection summary metrics SHALL include rows per interval, merged rows by aggregation level, intervals that reached the overflow level, and summary consumer lag.
+Index metrics SHALL include entries and bytes per shard, budget refusals, evictions, history evictions inside the horizon, ownership consumer lag, shard state (`warming`, `ready`, `standby`), rebuild duration, ambiguous lookups, and late conflicts (a lease applied that overlaps another owner's lease on the same key). Enrichment metrics SHALL include flows by outcome and strategy, hold buffer depth and overflow, decision state count and bytes, early closes, applied and evidence-only updates, and lookup latency per batch. Connection summary metrics SHALL include rows per interval, merged rows by aggregation level, intervals that reached the overflow level, and summary consumer lag.
 
 #### Scenario: Index falls behind
 - **GIVEN** ownership events arrive faster than a shard applies them
@@ -379,7 +392,7 @@ The flow attribution stage SHALL publish one bounded diagnostic per reporting in
 
 #### Scenario: Candidates are considered but no row is stamped
 - **GIVEN** a flow side is a monitored address
-- **WHEN** no lease matches after the hold and the late-stamp window
+- **WHEN** no lease matches after the hold and the late window
 - **THEN** the flow counts as `no_owner`
 - **AND** an operator can tell this apart from an index that was warming or a stage that did not run
 

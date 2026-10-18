@@ -206,8 +206,7 @@ deterministically by the **owner order**: container id first, then the most rece
 `first_seen`, then `agent_id`, then `pid`. That is the current tie-break. It is a property of
 the candidate leases, never of their arrival order, and it is the third component of
 precedence (Decision 4), so the ingest path and the late path pick the same owner. Count the
-result as `ambiguous`; the flow row's match evidence records it as ambiguous. A key on which
-two owners hold overlapping validity is **contested**.
+result as `ambiguous`; the flow row's match evidence records it as ambiguous.
 
 **Sharding**: keys hash on `(partition, ip)` into 256 fixed **buckets**. E, X and R (hashed on
 their first ip), and A for one address therefore live in one bucket, so one lookup answers
@@ -255,7 +254,7 @@ inside this contract: a shed renewal only lets a lease expire at the validity it
 already granted, and a `SNAPSHOT` closes the agent's omitted leases at the snapshot's time
 instead of deleting them, so neither shortens an interval a running shard holds. Both are
 events in the stream, so a replay reproduces the same result. While a shard
-is warming, its lookups return `index_warming` and the affected flows enter the late-stamp set
+is warming, its lookups return `index_warming` and the affected flows are enrolled for a late decision
 (Decision 4). A warm standby makes failover immediate.
 
 - Alternatives considered:
@@ -351,46 +350,58 @@ the kernel event.
   matching `OPEN` arrives, and otherwise the flow is retried once at the deadline. A flow with
   no monitored side is never held: it is written immediately with outcome
   `unmonitored`. The hold buffer has an item cap and a byte cap. On overflow the flow is
-  written immediately and goes to the late-stamp set.
-- **Late stamp**: **precedence** is the full ordering tuple `(rank, side, owner order)` with
-  the source side ahead of the destination, the same total order the ingest path applies
-  (Decisions 2 and 3); an unattributed flow has the lowest precedence. A flow's precedence is
-  **final** when no monitored side can still produce a better candidate: its `(rank, side)` is
-  `(exact, source)`, or `(exact, destination)` when the source is not monitored, and the
-  winning key was not contested when the decision was made. A contested winner keeps the
-  entry pending until the window ends, so a competing claimant that arrives later in the
-  window is compared by owner order exactly as it would have been on ingest. Every flow written with a
-  non-final precedence while one of its sides is monitored enters the late-stamp
-  set, whether it was written without an owner or with an ingest winner that a later lease
-  could still beat (a listener, relaxed, node-SNAT or public-endpoint candidate, or a
-  destination exact owner while the source is monitored). A flow attributed by its agent
-  (Decision 5) does not enter it, so a late stamp never replaces agent-local attribution. The
-  flow is recorded once, in the late-stamp set of its **home shard** (the shard of its source
-  side's bucket, or of the destination's when only the destination is monitored; for a
-  monitored VIP side that is not an agent address, the shard of its first mapped backend), as
-  `(flow id, flow time, both sides' keys, current precedence)`. Each other monitored side's shard
-  keeps only a watch `(key, flow id, home shard)`, including the shard of every mapped backend key of a monitored VIP side. Entries and watches live for the late-stamp
-  window (default 10 minutes) under an entry cap, and the oldest is evicted with a counter.
-  When a lease arrives that covers a recorded flow's time, the shard that applied it notifies
-  the home shard, which re-runs the lookup for both sides under the same precedence as on
-  ingest (including the VIP rule) and makes one decision for the flow. It publishes an update
-  on `events.flow.attribution` only when the winner's precedence is strictly better than the
-  flow's current precedence. The entry stays pending while a strictly better candidate is
-  still possible, so it retires only when the flow's precedence becomes final or the window
-  ends. A destination exact owner stamped first is therefore still replaced by a source exact
-  owner that arrives later in the window, a listener owner chosen on ingest is replaced by an
-  exact worker lease that arrives seconds later, and the outcome does not depend on which
-  lease arrived first. When two owners tie on `(rank, side)`, the owner order decides in
-  either arrival order. The entry cap bounds the set however many flows are enrolled; an
-  evicted entry keeps the attribution it was written with, and the eviction is counted. Every update carries its precedence, and
-  `FlowAttributionUpdates` applies it as a partial primary-key update only when that
-  precedence is at least the row's stored `attribution_precedence` (a StarRocks conditional
-  update on that column), so better precedence wins rather than the higher version. Only the
-  home shard publishes for a flow; no two shards ever write the same flow independently. Versions come from
-  `flow_attribution_update_version` in batches, and only late stamps consume them.
+  written immediately and is enrolled for a late decision.
+- **Late decision**: **precedence** is the full ordering tuple `(rank, side, owner order)`
+  with the source side ahead of the destination, the same total order the ingest path applies
+  (Decisions 2 and 3); an unattributed flow has the lowest precedence. One rule covers every
+  arrival order: **the final decision for a flow is a function of the set of candidates seen
+  for it within its late window, independent of the order in which they arrived.**
+  - *Enrollment*: every flow with a monitored side is enrolled when it is written, whether it
+    was written without an owner or with an ingest winner. There is no early finalization: an
+    exact source-side winner is enrolled like any other, because a competing claimant can
+    still arrive. A flow attributed by its agent (Decision 5) is not enrolled, so a late
+    decision never replaces agent-local attribution. A flow with no monitored side can have
+    no candidate and is not enrolled.
+  - *State*: the flow is recorded once, in the **home shard** (the shard of its source side's
+    bucket, or of the destination's when only the destination is monitored; for a monitored
+    VIP side that is not an agent address, the shard of its first mapped backend), as a
+    decision state `(flow id, flow time, both sides' keys, published decision)`. Each other
+    monitored side's shard keeps only a watch `(key, flow id, home shard)`, including the
+    shard of every mapped backend key of a monitored VIP side. The candidate set itself is not
+    copied: it is the index's history for the flow's keys at the flow time, which the history
+    horizon keeps for longer than the window.
+  - *Decision*: when a lease arrives that covers an enrolled flow's time, the shard that
+    applied it notifies the home shard, which recomputes the decision from the full candidate
+    set of both sides (including the VIP rule): the winner by full precedence, plus the number
+    of other owners that tie with it on `(rank, side)` as ambiguity evidence. Two distinct
+    owners that tie on the full tuple cannot be separated, so the side is then `ambiguous` and
+    carries no owner.
+  - *Publication*: the home shard publishes an update on `events.flow.attribution` whenever the
+    decision differs in any way from the one last published: a different winner, a change
+    between unambiguous and ambiguous, or new ambiguity evidence with the same winner (an
+    evidence-only update). Each update carries its **decision key**, `(precedence, ambiguity
+    evidence count)`. Because the candidate set only grows within the window, successive
+    decision keys never decrease. `FlowAttributionUpdates` applies an update as a partial
+    primary-key update only when its decision key is at least the row's stored
+    `attribution_decision` (a StarRocks conditional update on that column), so the better and
+    more complete decision wins, not the higher version. Only the home shard publishes for a
+    flow; no two shards ever write the same flow independently.
+  - *Close*: when the window ends (default 5 minutes) the state is dropped and the last
+    published decision is final. A claim that arrives after the window does not re-open the
+    flow; the shard counts it as `late_conflict` when it overlaps another owner's lease.
+  - *Bound*: a decision state is at most 128 bytes (a 16-byte flow id, a 4-byte flow time, two
+    packed endpoint keys of about 20 bytes each, a 16-byte decision key and owner id, and
+    table overhead), and a watch at most 48 bytes. At 1M enrolled flows/s, the 5-minute window
+    holds 300M states, about 38 GB across all shards plus watches (about 2.4 GB per shard
+    at the default 16 shards); the window and the shard count are the sizing levers. Each
+    shard has an entry and byte budget for this state. When it binds, the oldest state closes
+    early with its last published decision, and the early close is counted
+    (`decision_closed_early`), so pressure never silently changes a decision rule.
+  - Versions come from `flow_attribution_update_version` in batches, and only late decisions
+    consume them.
 - **Never a full re-scan**: nothing reads stored flows back to find unattributed or
-  fallback-attributed ones. The late-stamp set is the only memory of flows whose attribution
-  can still improve, and it is bounded.
+  fallback-attributed ones. The decision states are the only memory of flows whose
+  attribution can still change, and they are bounded.
 
 - Alternatives considered:
   - *No hold, only late stamp.* Simpler, but every flow that races its ownership event becomes a
@@ -447,7 +458,8 @@ pid, cmdline or partition labels):
   shard state (`warming`, `ready`, `standby`), rebuild duration, ambiguous count, and `late_conflict` (a claim overlapping another owner's lease on a key).
 - Enrichment: flows by outcome (`attributed` by strategy, `held`, `late_stamped`,
   `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, `error`), hold buffer depth and
-  overflow, late-stamp set size, evictions and applied stamps, lookup latency per batch, and
+  overflow, decision state count and bytes, early closes (`decision_closed_early`), evictions, applied
+  and evidence-only updates, lookup latency per batch, and
   agent budget drops by reason (reported by netprobe).
 - Connection summaries: rows per interval, rows merged by the budget and the level they were
   merged to, intervals that reached the `overflow` level (reported by netprobe), and summary
@@ -521,8 +533,9 @@ deferred.
 
 | Case | Handling |
 | --- | --- |
-| Ambiguous multi-owner endpoint (two agents claim one key with overlapping validity) | Owner order decides, identically on ingest and late; counted `ambiguous` and recorded in match evidence. A contested winner stays pending for the late-stamp window. |
-| Competing claim arriving after a flow's attribution became final and retired | Not re-stamped. The shard counts the overlapping claim when it applies the lease (`late_conflict`). Deferred: whether such a claim should re-open recent flows. |
+| Ambiguous multi-owner endpoint (two agents claim one key with overlapping validity) | Owner order decides, identically on ingest and late; counted `ambiguous` and recorded in match evidence, with an evidence-only update when the competing claim arrives second. Owners that tie on the full tuple leave the side `ambiguous` with no owner. |
+| Competing claim arriving after a flow's late window closed | Not re-stamped. The shard counts the overlapping claim when it applies the lease (`late_conflict`). Deferred: whether such a claim should re-open recent flows. |
+| Decision-state budget reached | The oldest state closes early with its last published decision; counted `decision_closed_early`. |
 | Overlapping address spaces inside one partition (reused pod CIDRs) | Treated as the ambiguous case above. Deferred: whether to reject it as a configuration error (Open Questions). |
 | NAT beyond node SNAT and Kubernetes public endpoints (edge SNAT, CGNAT, cloud NAT gateways) | Deferred; the flow side is `no_owner` or `unmonitored`. |
 | IPv6 privacy address rotation | Address leases and wildcard re-expansion follow address changes. Deferred: prefix matching for privacy addresses. |
@@ -546,7 +559,8 @@ Load is generated from invented data in 192.0.2.0/24, 198.51.100.0/24, 203.0.113
 | Index memory | <= 200 bytes per active key on average; each shard stays within its configured budget |
 | Added latency | p99 <= 250 ms per flow batch for flows whose owner is present |
 | Hold | flows written within the hold window (default 5 s, maximum 30 s) |
-| Late stamp | applied within 60 s of the late ownership event |
+| Late decision update | published within 60 s of the late ownership event |
+| Late decision state | <= 128 bytes per enrolled flow, each shard within its decision-state budget, for the full 5-minute window at the tested enrolled-flow rate |
 | Rebuild | a shard of 2.5M keys is ready within 2 minutes of start |
 | Connection summaries | 20k simulated agents at the per-agent budget (2,000 rows per minute) for 1 hour, no unacknowledged loss, every over-budget interval merged and counted |
 
@@ -607,7 +621,7 @@ observation table is recreated by its DDL.
   practical source of translation state to put in front of the index the way the VIP map is?
 - **IPv6 privacy addresses**: temporary addresses rotate. Do address leases and wildcard
   re-expansion keep up, or should wildcard listeners match by prefix for privacy addresses?
-- **Sampled flows**: sampling does not change the lookup. Should late-stamp and hold caps be
+- **Sampled flows**: sampling does not change the lookup. Should decision-state and hold caps be
   sized by sampled or by estimated flow rate?
 - **Overlapping address spaces within one partition** (for example, two clusters that reuse
   the same pod CIDR under one partition): today's tie-break picks one owner and counts it
