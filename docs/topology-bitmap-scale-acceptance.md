@@ -194,6 +194,8 @@ Each server samples once per second and reports:
 - Repo telemetry query counts, returned rows, query/decode/queue microseconds,
   grouped by address cursor, dictionary, inventory, authority and other work.
   These are client-observed database costs, not database CPU or physical I/O.
+  Each report states whether the telemetry handler is still attached; a
+  detached handler fails the run instead of passing on stale counters.
 
 The final record includes accepted-frame bytes, watch-to-first-accepted-frame
 latency percentiles, all
