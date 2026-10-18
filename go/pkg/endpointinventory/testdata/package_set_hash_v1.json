@@ -1,6 +1,40 @@
 {
   "cases": [
     {
+      "components": [
+        {
+          "name": "zlib1g",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/zlib1g@1%3A1.2.13.dfsg-1?arch=amd64&distro=debian-12",
+          "type": "library",
+          "version": "1:1.2.13.dfsg-1"
+        },
+        {
+          "name": "libexample2",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/libexample2@2:0.9.1-3?arch=amd64",
+          "type": "library",
+          "version": "2:0.9.1-3"
+        }
+      ],
       "expected_hash": "4d32c30e80cd5ecff9c2e2a093a149b806169fe7da309c2c6721306496619c67",
       "expected_package_count": 2,
       "expected_purls": [
@@ -29,6 +63,56 @@
       ]
     },
     {
+      "components": [
+        {
+          "name": "libwidget++1",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/libwidget%2B%2B1@4.2.0-7%2Bdeb12u1?arch=amd64",
+          "type": "library",
+          "version": "4.2.0-7+deb12u1"
+        },
+        {
+          "name": "gadget-tools",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "arm64"
+            }
+          ],
+          "purl": "pkg:deb/debian/gadget-tools@1.0+b2?arch=arm64",
+          "type": "library",
+          "version": "1.0+b2"
+        },
+        {
+          "name": "sprocket",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/sprocket@3%3A5.1%2Bdfsg-2?arch=amd64&distro=debian+12",
+          "type": "library",
+          "version": "3:5.1+dfsg-2"
+        }
+      ],
       "expected_hash": "c7d6d9f6289ead426b13e532d66a2519e71a27861c6467fee3ce5047ee0f691e",
       "expected_package_count": 3,
       "expected_purls": [
@@ -63,6 +147,40 @@
       ]
     },
     {
+      "components": [
+        {
+          "name": "bash",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "rpm"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "x86_64"
+            }
+          ],
+          "purl": "pkg:rpm/rpm/bash@5.1.8-6.el9?epoch=0&Distro=el-9&arch=x86_64",
+          "type": "library",
+          "version": "5.1.8-6.el9"
+        },
+        {
+          "name": "coreutils",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "rpm"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "aarch64"
+            }
+          ],
+          "purl": "pkg:rpm/rpm/coreutils@8.32-34.el9?distro=el-9&arch=aarch64&repository_url=https%3A%2F%2Fmirror.example.com%2Frepo",
+          "type": "library",
+          "version": "8.32-34.el9"
+        }
+      ],
       "expected_hash": "0d8a0956be10813f17d76e73a911d807da2fc8497d6b4f12d05255f71d03f9ca",
       "expected_package_count": 2,
       "expected_purls": [
@@ -90,13 +208,82 @@
       ]
     },
     {
-      "expected_hash": "eb3e8588d6217e2324bbbac0467e18ef539d74f859f74825dba126c013d0542c",
+      "components": [
+        {
+          "name": "tzdata",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "all"
+            }
+          ],
+          "type": "library",
+          "version": "2024a-0+deb12u1"
+        },
+        {
+          "name": "busybox",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "apk"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "x86_64"
+            }
+          ],
+          "type": "library",
+          "version": "1.36.1-r15"
+        },
+        {
+          "name": "glibc",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "rpm"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "x86_64"
+            }
+          ],
+          "type": "library",
+          "version": "2.34-100.el9"
+        },
+        {
+          "name": "requests",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "pip"
+            }
+          ],
+          "type": "library",
+          "version": "2.31.0"
+        },
+        {
+          "name": "left-pad",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "npm"
+            }
+          ],
+          "type": "library",
+          "version": "1.3.0"
+        }
+      ],
+      "expected_hash": "ccb153a82c41b98d7a2afe58f516e6baccc4ff4a72df7bf0faf18976c3bec623",
       "expected_package_count": 5,
       "expected_purls": [
-        "pkg:debian/debian/tzdata@2024a-0%2Bdeb12u1?arch=all",
+        "pkg:deb/debian/tzdata@2024a-0%2Bdeb12u1?arch=all",
         "pkg:apk/alpine/busybox@1.36.1-r15?arch=x86_64",
         "pkg:rpm/rpm/glibc@2.34-100.el9?arch=x86_64",
-        "pkg:pypi/pypi/requests@2.31.0",
+        "pkg:pip/requests@2.31.0",
         "pkg:npm/left-pad@1.3.0"
       ],
       "name": "missing_purl_fallback",
@@ -134,316 +321,6 @@
         }
       ]
     },
-    {
-      "expected_hash": "b8fd346a3f5692abaae3709b5d893b6207be2c81b0184372d574a516ac82b407",
-      "expected_package_count": 3,
-      "expected_purls": [
-        "pkg:apk/alpine/musl@1.2.4-r2?arch=x86_64&distro=3.19.1",
-        "pkg:apk/alpine/ca-certificates@20240226-r0?arch=aarch64",
-        "pkg:rpm/rpm/openssl-libs@3.0.7-27.el9?arch=x86_64&epoch=1"
-      ],
-      "name": "apk_and_rpm_purls",
-      "note": "apk and rpm PURLs, one apk PURL with no namespace that takes the default.",
-      "packages": [
-        {
-          "architecture": "x86_64",
-          "manager": "apk",
-          "name": "musl",
-          "purl": "pkg:apk/alpine/musl@1.2.4-r2?arch=x86_64&distro=3.19.1",
-          "version": "1.2.4-r2"
-        },
-        {
-          "architecture": "aarch64",
-          "manager": "apk",
-          "name": "ca-certificates",
-          "purl": "pkg:apk/ca-certificates@20240226-r0",
-          "version": "20240226-r0"
-        },
-        {
-          "architecture": "x86_64",
-          "manager": "rpm",
-          "name": "openssl-libs",
-          "purl": "pkg:rpm/rpm/openssl-libs@3.0.7-27.el9?arch=x86_64&epoch=1",
-          "version": "3.0.7-27.el9"
-        }
-      ]
-    },
-    {
-      "expected_hash": "b81ab6898890017e5a509ad478c0c197e891c6d97ed4da8b6746b99998f37425",
-      "expected_package_count": 4,
-      "expected_purls": [
-        "pkg:deb/debian/libalpha@1.0-1?arch=i386",
-        "pkg:deb/debian/libbeta@2.0-1?arch=arm64",
-        "pkg:deb/debian/libgamma@3.0-1?arch=armhf",
-        "pkg:deb/debian/libdelta@4.0-1?arch=s390x"
-      ],
-      "name": "arch_qualifier_vs_field",
-      "note": "Architecture as a PURL qualifier wins over the field; a field fills a missing qualifier; a field alone becomes the qualifier.",
-      "packages": [
-        {
-          "architecture": "amd64",
-          "manager": "dpkg",
-          "name": "libalpha",
-          "purl": "pkg:deb/debian/libalpha@1.0-1?arch=i386",
-          "version": "1.0-1"
-        },
-        {
-          "architecture": "arm64",
-          "manager": "dpkg",
-          "name": "libbeta",
-          "purl": "pkg:deb/debian/libbeta@2.0-1",
-          "version": "2.0-1"
-        },
-        {
-          "architecture": "armhf",
-          "manager": "dpkg",
-          "name": "libgamma",
-          "version": "3.0-1"
-        },
-        {
-          "manager": "dpkg",
-          "name": "libdelta",
-          "purl": "pkg:deb/debian/libdelta@4.0-1?arch=s390x",
-          "version": "4.0-1"
-        }
-      ]
-    },
-    {
-      "expected_hash": "dc048216cd647804aba397b1d4f0585701bbf99bd71f6dc08f9da95d185b8564",
-      "expected_package_count": 3,
-      "expected_purls": [
-        "pkg:deb/debian/Curl@7.88.1-10?arch=AMD64",
-        "pkg:apk/alpine/nbsp-tool@1.0",
-        "pkg:generic/%20/spaced@1.0"
-      ],
-      "name": "whitespace_and_case",
-      "note": "Surrounding whitespace is trimmed from every field; case is kept in fields, lowered in the PURL type, namespace and qualifier keys.",
-      "packages": [
-        {
-          "architecture": " AMD64 ",
-          "ecosystem": " Debian ",
-          "manager": " DPKG ",
-          "name": "  Curl  ",
-          "purl": "  pkg:DEB/Debian/Curl@7.88.1-10?Arch=AMD64  ",
-          "version": " 7.88.1-10 "
-        },
-        {
-          "manager": "apk",
-          "name": "\u00A0nbsp-tool\u00A0",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "spaced",
-          "purl": "pkg:generic/%20/spaced@1.0",
-          "version": "1.0"
-        }
-      ]
-    },
-    {
-      "expected_hash": "b790c8da3809d9eeff2787e60162ba16c27c750d7f5991f0be11bb2eaf7bce26",
-      "expected_package_count": 2,
-      "expected_purls": [
-        "pkg:deb/debian/dup@1.0?arch=amd64",
-        "pkg:deb/debian/dup@1.0?arch=amd64",
-        "pkg:deb/debian/same@2.0",
-        "pkg:deb/debian/same@2.0"
-      ],
-      "name": "exact_duplicates",
-      "note": "Exact duplicates collapse to one. Two entries that canonicalize to the same PURL also collapse, and the first one in input order wins.",
-      "packages": [
-        {
-          "architecture": "amd64",
-          "manager": "dpkg",
-          "name": "dup",
-          "version": "1.0"
-        },
-        {
-          "architecture": "amd64",
-          "manager": "dpkg",
-          "name": "dup",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "first-wins",
-          "purl": "pkg:deb/debian/same@2.0",
-          "version": "2.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "second-loses",
-          "purl": "pkg:deb/debian/same@2.0",
-          "version": "2.0"
-        }
-      ]
-    },
-    {
-      "expected_hash": "7e2272e732e494f1b6e1eaf41da509a48097f45acd99a1db7ed86b345b3aa506",
-      "expected_package_count": 4,
-      "expected_purls": [
-        "pkg:deb/debian/libcaf%C3%A9-%C3%BCtil@1.0?arch=amd64",
-        "pkg:deb/debian/odd%E2%80%A8line%E2%80%A9name@0.1",
-        "pkg:deb/debian/angle%3Cb%3E%26amp@1.0",
-        "pkg:deb/debian/ctl%09tab%7Fdel%2Fslash%22quote%5Cback@1.0"
-      ],
-      "name": "non_ascii_and_line_separator",
-      "note": "A non-ASCII name and a name containing U+2028 and U+2029, which the JSON line keeps raw. HTML-significant characters are not escaped either.",
-      "packages": [
-        {
-          "architecture": "amd64",
-          "manager": "dpkg",
-          "name": "libcaf\u00E9-\u00FCtil",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "odd\u2028line\u2029name",
-          "version": "0.1"
-        },
-        {
-          "manager": "dpkg",
-          "name": "angle<b>&amp",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "ctl\ttab\u007Fdel/slash\"quote\\back",
-          "version": "1.0"
-        }
-      ]
-    },
-    {
-      "expected_hash": "f25c752940510fcad6be55bea76118415622904874ca07859274742f666c806e",
-      "expected_package_count": 3,
-      "expected_purls": [
-        "pkg:npm/%40acme/widget@1.2.3",
-        "pkg:golang/example.com/mod@v1.0.0#sub/dir",
-        "pkg:deb/debian/trailing-at@"
-      ],
-      "name": "rightmost_at_and_subpath",
-      "note": "The version follows the RIGHTMOST '@', so a raw '@' in the namespace stays in the path. A '#subpath' is kept.",
-      "packages": [
-        {
-          "manager": "npm",
-          "name": "widget",
-          "purl": "pkg:npm/@acme/widget@1.2.3",
-          "version": "1.2.3"
-        },
-        {
-          "manager": "go",
-          "name": "mod",
-          "purl": "pkg:golang/example.com/mod@v1.0.0#sub/dir",
-          "version": "v1.0.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "trailing-at",
-          "purl": "pkg:deb/debian/trailing-at@",
-          "version": "9.9"
-        }
-      ]
-    },
-    {
-      "expected_hash": "66b4056cd7062520d820d176c76069c5a81a266fc1ef11a727fe66bdc7bf27ee",
-      "expected_package_count": 4,
-      "expected_purls": [
-        "pkg:deb/debian/dupqual@1.0?arch=amd64",
-        "pkg:deb/debian/badescape@1.0",
-        "pkg:rpm/rpm/nopath@1.0",
-        "pkg:rpm/rpm/notapurl@1.0"
-      ],
-      "name": "rejected_purl_falls_back",
-      "note": "PURLs the parser rejects -- a duplicate qualifier, a broken percent escape, no path -- are replaced by the fallback PURL.",
-      "packages": [
-        {
-          "architecture": "amd64",
-          "manager": "dpkg",
-          "name": "dupqual",
-          "purl": "pkg:deb/debian/dupqual@1.0?arch=amd64&arch=i386",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "badescape",
-          "purl": "pkg:deb/debian/badescape@1.0%2",
-          "version": "1.0"
-        },
-        {
-          "manager": "rpm",
-          "name": "nopath",
-          "purl": "pkg:rpm",
-          "version": "1.0"
-        },
-        {
-          "manager": "rpm",
-          "name": "notapurl",
-          "purl": "https://example.com/notapurl",
-          "version": "1.0"
-        }
-      ]
-    },
-    {
-      "expected_hash": "7b7907d4c5eafc86ea5fac11283548058afd951b66b76f654681dafa89abc21f",
-      "expected_package_count": 2,
-      "expected_purls": [
-        "pkg:deb/debian/emptyq@1.0",
-        "pkg:deb/debian/spacevalue@1.0?distro=%20"
-      ],
-      "name": "empty_qualifier_values",
-      "note": "A qualifier with an empty value or no '=' is dropped. Because the 'arch' key was present, the architecture field does NOT fill it. A whitespace value is kept.",
-      "packages": [
-        {
-          "architecture": "amd64",
-          "manager": "dpkg",
-          "name": "emptyq",
-          "purl": "pkg:deb/debian/emptyq@1.0?arch=&distro",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "spacevalue",
-          "purl": "pkg:deb/debian/spacevalue@1.0?distro=%20",
-          "version": "1.0"
-        }
-      ]
-    },
-    {
-      "expected_hash": "ddb4ff629e339790bb4b33e2543919aaf0e70edac048b4f9961892d9adb8de6c",
-      "expected_package_count": 1,
-      "expected_purls": [
-        "pkg:deb/debian/kept@1.0",
-        null,
-        null,
-        null
-      ],
-      "name": "entries_without_name_or_manager",
-      "note": "Entries with no name or no manager are left out of the hash entirely.",
-      "packages": [
-        {
-          "manager": "dpkg",
-          "name": "kept",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "",
-          "version": "1.0"
-        },
-        {
-          "manager": "dpkg",
-          "name": "   ",
-          "version": "1.0"
-        },
-        {
-          "manager": "",
-          "name": "nomanager",
-          "version": "1.0"
-        }
-      ]
-    }
-  ],
-  "cyclonedx_cases": [
     {
       "components": [
         {
@@ -496,10 +373,842 @@
         }
       ],
       "expected_hash": "b8fd346a3f5692abaae3709b5d893b6207be2c81b0184372d574a516ac82b407",
-      "name": "cyclonedx_mirrors_apk_and_rpm_purls",
-      "note": "sbom.components carrying the apk_and_rpm_purls packages; core only."
+      "expected_package_count": 3,
+      "expected_purls": [
+        "pkg:apk/alpine/musl@1.2.4-r2?arch=x86_64&distro=3.19.1",
+        "pkg:apk/alpine/ca-certificates@20240226-r0?arch=aarch64",
+        "pkg:rpm/rpm/openssl-libs@3.0.7-27.el9?arch=x86_64&epoch=1"
+      ],
+      "name": "apk_and_rpm_purls",
+      "note": "apk and rpm PURLs, one apk PURL with no namespace that takes the default.",
+      "packages": [
+        {
+          "architecture": "x86_64",
+          "manager": "apk",
+          "name": "musl",
+          "purl": "pkg:apk/alpine/musl@1.2.4-r2?arch=x86_64&distro=3.19.1",
+          "version": "1.2.4-r2"
+        },
+        {
+          "architecture": "aarch64",
+          "manager": "apk",
+          "name": "ca-certificates",
+          "purl": "pkg:apk/ca-certificates@20240226-r0",
+          "version": "20240226-r0"
+        },
+        {
+          "architecture": "x86_64",
+          "manager": "rpm",
+          "name": "openssl-libs",
+          "purl": "pkg:rpm/rpm/openssl-libs@3.0.7-27.el9?arch=x86_64&epoch=1",
+          "version": "3.0.7-27.el9"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "libalpha",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/libalpha@1.0-1?arch=i386",
+          "type": "library",
+          "version": "1.0-1"
+        },
+        {
+          "name": "libbeta",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "arm64"
+            }
+          ],
+          "purl": "pkg:deb/debian/libbeta@2.0-1",
+          "type": "library",
+          "version": "2.0-1"
+        },
+        {
+          "name": "libgamma",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "armhf"
+            }
+          ],
+          "type": "library",
+          "version": "3.0-1"
+        },
+        {
+          "name": "libdelta",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:deb/debian/libdelta@4.0-1?arch=s390x",
+          "type": "library",
+          "version": "4.0-1"
+        }
+      ],
+      "expected_hash": "b81ab6898890017e5a509ad478c0c197e891c6d97ed4da8b6746b99998f37425",
+      "expected_package_count": 4,
+      "expected_purls": [
+        "pkg:deb/debian/libalpha@1.0-1?arch=i386",
+        "pkg:deb/debian/libbeta@2.0-1?arch=arm64",
+        "pkg:deb/debian/libgamma@3.0-1?arch=armhf",
+        "pkg:deb/debian/libdelta@4.0-1?arch=s390x"
+      ],
+      "name": "arch_qualifier_vs_field",
+      "note": "Architecture as a PURL qualifier wins over the field; a field fills a missing qualifier; a field alone becomes the qualifier.",
+      "packages": [
+        {
+          "architecture": "amd64",
+          "manager": "dpkg",
+          "name": "libalpha",
+          "purl": "pkg:deb/debian/libalpha@1.0-1?arch=i386",
+          "version": "1.0-1"
+        },
+        {
+          "architecture": "arm64",
+          "manager": "dpkg",
+          "name": "libbeta",
+          "purl": "pkg:deb/debian/libbeta@2.0-1",
+          "version": "2.0-1"
+        },
+        {
+          "architecture": "armhf",
+          "manager": "dpkg",
+          "name": "libgamma",
+          "version": "3.0-1"
+        },
+        {
+          "manager": "dpkg",
+          "name": "libdelta",
+          "purl": "pkg:deb/debian/libdelta@4.0-1?arch=s390x",
+          "version": "4.0-1"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "  Curl  ",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": " DPKG "
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": " AMD64 "
+            }
+          ],
+          "purl": "  pkg:DEB/Debian/Curl@7.88.1-10?Arch=AMD64  ",
+          "type": "library",
+          "version": " 7.88.1-10 "
+        },
+        {
+          "name": "\u00A0nbsp-tool\u00A0",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "apk"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "spaced",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:generic/%20/spaced@1.0",
+          "type": "library",
+          "version": "1.0"
+        }
+      ],
+      "expected_hash": "dc048216cd647804aba397b1d4f0585701bbf99bd71f6dc08f9da95d185b8564",
+      "expected_package_count": 3,
+      "expected_purls": [
+        "pkg:deb/debian/Curl@7.88.1-10?arch=AMD64",
+        "pkg:apk/alpine/nbsp-tool@1.0",
+        "pkg:generic/%20/spaced@1.0"
+      ],
+      "name": "whitespace_and_case",
+      "note": "Surrounding whitespace is trimmed from every field; case is kept in fields, lowered in the PURL type, namespace and qualifier keys.",
+      "packages": [
+        {
+          "architecture": " AMD64 ",
+          "ecosystem": " Debian ",
+          "manager": " DPKG ",
+          "name": "  Curl  ",
+          "purl": "  pkg:DEB/Debian/Curl@7.88.1-10?Arch=AMD64  ",
+          "version": " 7.88.1-10 "
+        },
+        {
+          "manager": "apk",
+          "name": "\u00A0nbsp-tool\u00A0",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "spaced",
+          "purl": "pkg:generic/%20/spaced@1.0",
+          "version": "1.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "dup",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "dup",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "first-wins",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:deb/debian/same@2.0",
+          "type": "library",
+          "version": "2.0"
+        },
+        {
+          "name": "second-loses",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:deb/debian/same@2.0",
+          "type": "library",
+          "version": "2.0"
+        }
+      ],
+      "expected_hash": "b790c8da3809d9eeff2787e60162ba16c27c750d7f5991f0be11bb2eaf7bce26",
+      "expected_package_count": 2,
+      "expected_purls": [
+        "pkg:deb/debian/dup@1.0?arch=amd64",
+        "pkg:deb/debian/dup@1.0?arch=amd64",
+        "pkg:deb/debian/same@2.0",
+        "pkg:deb/debian/same@2.0"
+      ],
+      "name": "exact_duplicates",
+      "note": "Exact duplicates collapse to one. Two entries that canonicalize to the same PURL also collapse, and the first one in input order wins.",
+      "packages": [
+        {
+          "architecture": "amd64",
+          "manager": "dpkg",
+          "name": "dup",
+          "version": "1.0"
+        },
+        {
+          "architecture": "amd64",
+          "manager": "dpkg",
+          "name": "dup",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "first-wins",
+          "purl": "pkg:deb/debian/same@2.0",
+          "version": "2.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "second-loses",
+          "purl": "pkg:deb/debian/same@2.0",
+          "version": "2.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "libcaf\u00E9-\u00FCtil",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "odd\u2028line\u2029name",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "type": "library",
+          "version": "0.1"
+        },
+        {
+          "name": "angle<b>&amp",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "ctl\ttab\u007Fdel/slash\"quote\\back",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        }
+      ],
+      "expected_hash": "7e2272e732e494f1b6e1eaf41da509a48097f45acd99a1db7ed86b345b3aa506",
+      "expected_package_count": 4,
+      "expected_purls": [
+        "pkg:deb/debian/libcaf%C3%A9-%C3%BCtil@1.0?arch=amd64",
+        "pkg:deb/debian/odd%E2%80%A8line%E2%80%A9name@0.1",
+        "pkg:deb/debian/angle%3Cb%3E%26amp@1.0",
+        "pkg:deb/debian/ctl%09tab%7Fdel%2Fslash%22quote%5Cback@1.0"
+      ],
+      "name": "non_ascii_and_line_separator",
+      "note": "A non-ASCII name and a name containing U+2028 and U+2029, which the JSON line keeps raw. HTML-significant characters are not escaped either.",
+      "packages": [
+        {
+          "architecture": "amd64",
+          "manager": "dpkg",
+          "name": "libcaf\u00E9-\u00FCtil",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "odd\u2028line\u2029name",
+          "version": "0.1"
+        },
+        {
+          "manager": "dpkg",
+          "name": "angle<b>&amp",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "ctl\ttab\u007Fdel/slash\"quote\\back",
+          "version": "1.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "widget",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "npm"
+            }
+          ],
+          "purl": "pkg:npm/@acme/widget@1.2.3",
+          "type": "library",
+          "version": "1.2.3"
+        },
+        {
+          "name": "mod",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "go"
+            }
+          ],
+          "purl": "pkg:golang/example.com/mod@v1.0.0#sub/dir",
+          "type": "library",
+          "version": "v1.0.0"
+        },
+        {
+          "name": "trailing-at",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:deb/debian/trailing-at@",
+          "type": "library",
+          "version": "9.9"
+        }
+      ],
+      "expected_hash": "f25c752940510fcad6be55bea76118415622904874ca07859274742f666c806e",
+      "expected_package_count": 3,
+      "expected_purls": [
+        "pkg:npm/%40acme/widget@1.2.3",
+        "pkg:golang/example.com/mod@v1.0.0#sub/dir",
+        "pkg:deb/debian/trailing-at@"
+      ],
+      "name": "rightmost_at_and_subpath",
+      "note": "The version follows the RIGHTMOST '@', so a raw '@' in the namespace stays in the path. A '#subpath' is kept.",
+      "packages": [
+        {
+          "manager": "npm",
+          "name": "widget",
+          "purl": "pkg:npm/@acme/widget@1.2.3",
+          "version": "1.2.3"
+        },
+        {
+          "manager": "go",
+          "name": "mod",
+          "purl": "pkg:golang/example.com/mod@v1.0.0#sub/dir",
+          "version": "v1.0.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "trailing-at",
+          "purl": "pkg:deb/debian/trailing-at@",
+          "version": "9.9"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "dupqual",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/dupqual@1.0?arch=amd64&arch=i386",
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "badescape",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:deb/debian/badescape@1.0%2",
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "nopath",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "rpm"
+            }
+          ],
+          "purl": "pkg:rpm",
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "notapurl",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "rpm"
+            }
+          ],
+          "purl": "https://example.com/notapurl",
+          "type": "library",
+          "version": "1.0"
+        }
+      ],
+      "expected_hash": "66b4056cd7062520d820d176c76069c5a81a266fc1ef11a727fe66bdc7bf27ee",
+      "expected_package_count": 4,
+      "expected_purls": [
+        "pkg:deb/debian/dupqual@1.0?arch=amd64",
+        "pkg:deb/debian/badescape@1.0",
+        "pkg:rpm/rpm/nopath@1.0",
+        "pkg:rpm/rpm/notapurl@1.0"
+      ],
+      "name": "rejected_purl_falls_back",
+      "note": "PURLs the parser rejects -- a duplicate qualifier, a broken percent escape, no path -- are replaced by the fallback PURL.",
+      "packages": [
+        {
+          "architecture": "amd64",
+          "manager": "dpkg",
+          "name": "dupqual",
+          "purl": "pkg:deb/debian/dupqual@1.0?arch=amd64&arch=i386",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "badescape",
+          "purl": "pkg:deb/debian/badescape@1.0%2",
+          "version": "1.0"
+        },
+        {
+          "manager": "rpm",
+          "name": "nopath",
+          "purl": "pkg:rpm",
+          "version": "1.0"
+        },
+        {
+          "manager": "rpm",
+          "name": "notapurl",
+          "purl": "https://example.com/notapurl",
+          "version": "1.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "emptyq",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/debian/emptyq@1.0?arch=&distro",
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "spacevalue",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "purl": "pkg:deb/debian/spacevalue@1.0?distro=%20",
+          "type": "library",
+          "version": "1.0"
+        }
+      ],
+      "expected_hash": "7b7907d4c5eafc86ea5fac11283548058afd951b66b76f654681dafa89abc21f",
+      "expected_package_count": 2,
+      "expected_purls": [
+        "pkg:deb/debian/emptyq@1.0",
+        "pkg:deb/debian/spacevalue@1.0?distro=%20"
+      ],
+      "name": "empty_qualifier_values",
+      "note": "A qualifier with an empty value or no '=' is dropped. Because the 'arch' key was present, the architecture field does NOT fill it. A whitespace value is kept.",
+      "packages": [
+        {
+          "architecture": "amd64",
+          "manager": "dpkg",
+          "name": "emptyq",
+          "purl": "pkg:deb/debian/emptyq@1.0?arch=&distro",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "spacevalue",
+          "purl": "pkg:deb/debian/spacevalue@1.0?distro=%20",
+          "version": "1.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "kept",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "   ",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        },
+        {
+          "name": "nomanager",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": ""
+            }
+          ],
+          "type": "library",
+          "version": "1.0"
+        }
+      ],
+      "expected_hash": "ddb4ff629e339790bb4b33e2543919aaf0e70edac048b4f9961892d9adb8de6c",
+      "expected_package_count": 1,
+      "expected_purls": [
+        "pkg:deb/debian/kept@1.0",
+        null,
+        null,
+        null
+      ],
+      "name": "entries_without_name_or_manager",
+      "note": "Entries with no name or no manager are left out of the hash entirely.",
+      "packages": [
+        {
+          "manager": "dpkg",
+          "name": "kept",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "",
+          "version": "1.0"
+        },
+        {
+          "manager": "dpkg",
+          "name": "   ",
+          "version": "1.0"
+        },
+        {
+          "manager": "",
+          "name": "nomanager",
+          "version": "1.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "padded-arch",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": " dpkg "
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "  arm64 "
+            }
+          ],
+          "purl": "pkg:deb/debian/padded-arch@1.0-1",
+          "type": "library",
+          "version": "1.0-1"
+        },
+        {
+          "name": "padded-fallback",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "rpm "
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": " x86_64"
+            }
+          ],
+          "type": "library",
+          "version": "2.0"
+        }
+      ],
+      "expected_hash": "bcf2b9433d15e7c810aad607e81793508de20d1ced5f4a66a185eca603d0d0a5",
+      "expected_package_count": 2,
+      "expected_purls": [
+        "pkg:deb/debian/padded-arch@1.0-1?arch=arm64",
+        "pkg:rpm/rpm/padded-fallback@2.0?arch=x86_64"
+      ],
+      "name": "padded_fields_without_purl_qualifier",
+      "note": "Padded architecture and manager with no arch qualifier in the PURL. The architecture fills the qualifier trimmed, whether it arrives as a package field or as a CycloneDX property.",
+      "packages": [
+        {
+          "architecture": "  arm64 ",
+          "manager": " dpkg ",
+          "name": "padded-arch",
+          "purl": "pkg:deb/debian/padded-arch@1.0-1",
+          "version": "1.0-1"
+        },
+        {
+          "architecture": " x86_64",
+          "manager": "rpm ",
+          "name": "padded-fallback",
+          "version": "2.0"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "name": "example-requests",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "pip"
+            }
+          ],
+          "purl": "pkg:pypi/example-requests@2.0.0",
+          "type": "library",
+          "version": "2.0.0"
+        },
+        {
+          "name": "example-left-pad",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "npm"
+            }
+          ],
+          "purl": "pkg:npm/example-left-pad@1.0.0",
+          "type": "library",
+          "version": "1.0.0"
+        },
+        {
+          "name": "example-widget",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "dpkg"
+            },
+            {
+              "name": "serviceradar:architecture",
+              "value": "amd64"
+            }
+          ],
+          "purl": "pkg:deb/example-widget@3.1-2",
+          "type": "library",
+          "version": "3.1-2"
+        },
+        {
+          "name": "example-gem",
+          "properties": [
+            {
+              "name": "serviceradar:package_manager",
+              "value": "gem"
+            }
+          ],
+          "type": "library",
+          "version": "0.4.1"
+        }
+      ],
+      "expected_hash": "9da8a0d960343664bcbb2321c05011f8b61a3b4f6885d4835e5d45c8fcfb5f38",
+      "expected_package_count": 4,
+      "expected_purls": [
+        "pkg:pypi/example-requests@2.0.0",
+        "pkg:npm/example-left-pad@1.0.0",
+        "pkg:deb/debian/example-widget@3.1-2?arch=amd64",
+        "pkg:gem/example-gem@0.4.1"
+      ],
+      "name": "ecosystem_is_not_an_input",
+      "note": "Ecosystem never reaches the CycloneDX anchor core hashes, so it must not change the canonical PURL: a PURL without a namespace keeps none, and a fallback PURL takes its type from the package manager.",
+      "packages": [
+        {
+          "ecosystem": "pypi",
+          "manager": "pip",
+          "name": "example-requests",
+          "purl": "pkg:pypi/example-requests@2.0.0",
+          "version": "2.0.0"
+        },
+        {
+          "ecosystem": "npm",
+          "manager": "npm",
+          "name": "example-left-pad",
+          "purl": "pkg:npm/example-left-pad@1.0.0",
+          "version": "1.0.0"
+        },
+        {
+          "architecture": "amd64",
+          "ecosystem": "deb",
+          "manager": "dpkg",
+          "name": "example-widget",
+          "purl": "pkg:deb/example-widget@3.1-2",
+          "version": "3.1-2"
+        },
+        {
+          "ecosystem": "RubyGems",
+          "manager": "gem",
+          "name": "example-gem",
+          "version": "0.4.1"
+        }
+      ]
     }
   ],
-  "description": "Shared package_set_hash (sha256-v1) vectors. Expected values were generated from the authoritative Elixir implementation (ServiceRadar.Inventory.EndpointInventoryPackageSet); go/pkg/endpointinventory and serviceradar_core both test against this file. All data is invented. The empty set is deliberately absent: core treats it as no hash (nil) while the producer reports a digest, and core never compares the two.",
+  "description": "Shared package_set_hash (sha256-v1) vectors. Expected values were generated from the authoritative Elixir implementation (ServiceRadar.Inventory.EndpointInventoryPackageSet); go/pkg/endpointinventory and serviceradar_core both test against this file. Each case carries the packages and the CycloneDX components BuildCycloneDX uploads for them; core must hash both forms to expected_hash, and the Go producer must hash the packages to it and emit exactly those components. All data is invented. The empty set is deliberately absent: core treats it as no hash (nil) while the producer reports a digest, and core never compares the two.",
   "hash_algorithm": "sha256-v1"
 }

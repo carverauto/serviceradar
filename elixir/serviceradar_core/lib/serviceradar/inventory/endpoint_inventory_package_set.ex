@@ -82,8 +82,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   Applies a normalized delta (added/removed/changed lists of normalized
   packages) to the current package set and returns the reconstructed target set.
 
-  Packages are aligned by `identity_key/1` (manager+name+arch+ecosystem), which
-  is version independent, so a `changed` entry replaces the prior coordinate and
+  Packages are aligned by `identity_key/1` (manager+name+arch), which is version
+  independent, so a `changed` entry replaces the prior coordinate and
   an `added` entry whose coordinate already exists also replaces it (idempotent).
   The caller MUST verify the reconstructed set's `server_package_set_hash/1`
   matches the delta's declared target hash before trusting it; this function does
@@ -477,11 +477,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
 
   defp normalize_component(_component), do: nil
 
+  # The canonical PURL, and so package_set_hash, reads only fields that every
+  # upload form carries: name, version, architecture, package manager and the raw
+  # PURL. Ecosystem is deliberately not an input. The CycloneDX anchor the
+  # producer uploads has no ecosystem, so a canonical form that read it would
+  # hash a `packages` payload or delta entry differently from the same package
+  # arriving as an SBOM component.
   defp canonical_purl(package, package_manager, properties \\ %{}) do
     attrs = %{
       package_manager: package_manager,
-      ecosystem:
-        Payload.string_value(package, :ecosystem) || Map.get(properties, "serviceradar:ecosystem"),
       name: Payload.string_value(package, :name),
       version: Payload.string_value(package, :version),
       architecture:
@@ -521,7 +525,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   end
 
   defp fallback_purl(attrs) do
-    type = purl_type(attrs.ecosystem, attrs.package_manager)
+    type = purl_type(nil, attrs.package_manager)
     namespace = normalize_namespace([], type, attrs)
     qualifiers = Payload.compact_map(%{"arch" => attrs.architecture})
 
@@ -536,8 +540,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   defp normalize_namespace([], type, attrs) do
     namespace =
       Map.get(@package_manager_namespaces, type) ||
-        Map.get(@package_manager_namespaces, normalize_token(attrs.package_manager)) ||
-        normalize_token(attrs.ecosystem)
+        Map.get(@package_manager_namespaces, normalize_token(attrs.package_manager))
 
     if namespace, do: [namespace], else: []
   end
@@ -611,8 +614,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
       [
         normalized_coordinate_value(package.package_manager),
         normalized_coordinate_value(package.name),
-        normalized_coordinate_value(package.architecture),
-        normalized_coordinate_value(package.ecosystem)
+        normalized_coordinate_value(package.architecture)
       ],
       <<0>>
     )
@@ -667,16 +669,28 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
     end
   end
 
+  # Property values are trimmed and blank ones dropped, exactly as
+  # Payload.string_value/2 treats the same field on a `packages` entry, so a
+  # package hashes the same whichever form it arrives in.
   defp properties(map) do
     map
     |> Payload.list_value(:properties)
-    |> Map.new(fn
-      %{"name" => name, "value" => value} -> {name, value}
-      %{name: name, value: value} -> {name, value}
-      _ -> {nil, nil}
+    |> Enum.flat_map(fn
+      %{"name" => name, "value" => value} -> property(name, value)
+      %{name: name, value: value} -> property(name, value)
+      _ -> []
     end)
-    |> Map.delete(nil)
+    |> Map.new()
   end
+
+  defp property(name, value) when is_binary(name) do
+    case Payload.string_value(%{value: value}, :value) do
+      nil -> []
+      value -> [{name, value}]
+    end
+  end
+
+  defp property(_name, _value), do: []
 
   defp component_cpes(component) do
     cpes = Payload.string_list_value(component, :cpes)

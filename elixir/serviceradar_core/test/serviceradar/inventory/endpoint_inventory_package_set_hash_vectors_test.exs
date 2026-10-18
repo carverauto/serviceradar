@@ -4,7 +4,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSetHashVectorsTest do
 
   `go/pkg/endpointinventory/testdata/package_set_hash_v1.json` was generated
   from this module's implementation, and `go/pkg/endpointinventory` tests its
-  ComputePackageSetHash against the same file. Ingest compares the reported hash
+  ComputePackageSetHash and BuildCycloneDX against the same file. Ingest compares the reported hash
   with the one recomputed here and forces a full re-upload on any difference, so
   a change that fails this test breaks every agent's delta uploads. Regenerate
   the vectors and change the Go side in the same commit, or bump the hash
@@ -47,12 +47,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSetHashVectorsTest do
     end
   end
 
-  test "an SBOM component payload hashes like the equivalent package payload" do
-    %{"cyclonedx_cases" => [_ | _] = cases} = vectors!()
+  # The producer hashes its packages but uploads them as CycloneDX components,
+  # and ingest recomputes the hash from those components. Every case therefore
+  # has to hash identically in both forms, or every upload is a mismatch.
+  test "the uploaded CycloneDX components hash like the packages they encode" do
+    %{"cases" => [_ | _] = cases} = vectors!()
 
-    for %{"name" => name, "components" => components, "expected_hash" => expected} <- cases do
+    for %{"name" => name, "components" => [_ | _] = components} = vector <- cases do
       normalized = PackageSet.normalize_packages(%{"sbom" => %{"components" => components}})
-      assert PackageSet.server_package_set_hash(normalized) == expected, name
+
+      assert length(normalized) == vector["expected_package_count"], name
+      assert PackageSet.server_package_set_hash(normalized) == vector["expected_hash"], name
     end
   end
 end

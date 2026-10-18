@@ -78,6 +78,58 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSetDeltaTest do
     assert [%{name: "bash", version: "5.2"}] = reconstructed
   end
 
+  # Core's current rows come from the CycloneDX anchor, which carries no
+  # ecosystem, while the producer's delta entries do. The delta must still line
+  # up with those rows, or it can never reach its target hash.
+  test "a delta with ecosystems applies to rows stored from a CycloneDX anchor" do
+    anchor = fn packages ->
+      components =
+        Enum.map(packages, fn {name, version} ->
+          %{
+            "type" => "library",
+            "name" => name,
+            "version" => version,
+            "purl" => "pkg:deb/debian/#{name}@#{version}?arch=amd64",
+            "properties" => [
+              %{"name" => "serviceradar:package_manager", "value" => "dpkg"},
+              %{"name" => "serviceradar:architecture", "value" => "amd64"}
+            ]
+          }
+        end)
+
+      PackageSet.normalize_packages(%{"sbom" => %{"components" => components}})
+    end
+
+    entry = fn name, version ->
+      [package] =
+        PackageSet.normalize_delta_packages([
+          %{
+            "name" => name,
+            "version" => version,
+            "architecture" => "amd64",
+            "manager" => "dpkg",
+            "ecosystem" => "deb",
+            "purl" => "pkg:deb/debian/#{name}@#{version}?arch=amd64"
+          }
+        ])
+
+      package
+    end
+
+    current = anchor.([{"bash", "5.1"}, {"curl", "7.80"}, {"openssl", "3.0"}])
+
+    delta = %{
+      added: [entry.("nginx", "1.24")],
+      removed: [entry.("openssl", "3.0")],
+      changed: [entry.("curl", "7.81")]
+    }
+
+    target = anchor.([{"bash", "5.1"}, {"curl", "7.81"}, {"nginx", "1.24"}])
+
+    assert current |> PackageSet.apply_delta(delta) |> PackageSet.server_package_set_hash() ==
+             PackageSet.server_package_set_hash(target)
+  end
+
   test "empty delta reproduces the current set" do
     current = [normalized("bash", "5.1"), normalized("curl", "7.80")]
     delta = %{added: [], removed: [], changed: []}

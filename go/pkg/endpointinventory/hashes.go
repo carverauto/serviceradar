@@ -59,6 +59,11 @@ type artifactHashProperty struct {
 // testdata/package_set_hash_v1.json holds vectors generated from the Elixir
 // code, and core tests against the same file.
 //
+// Core hashes the package set it reads back out of the uploaded CycloneDX
+// anchor, so the identity uses only fields BuildCycloneDX puts on the wire:
+// name, version, architecture, package manager and the raw PURL. Ecosystem is
+// not uploaded and is therefore not an input.
+//
 // Unlike core, an empty set still hashes (to the digest of the version byte);
 // core treats an empty set as having no hash and never compares it.
 func ComputePackageSetHash(packages []Package) string {
@@ -227,12 +232,11 @@ func packageSetIdentities(packages []Package) []packageHashIdentity {
 // core trims each string field.
 func normalizeHashPackage(pkg Package) Package {
 	return Package{
-		Name:      hashField(pkg.Name),
-		Version:   hashField(pkg.Version),
-		Arch:      hashField(pkg.Arch),
-		Manager:   hashField(pkg.Manager),
-		Ecosystem: hashField(pkg.Ecosystem),
-		PURL:      hashField(pkg.PURL),
+		Name:    hashField(pkg.Name),
+		Version: hashField(pkg.Version),
+		Arch:    hashField(pkg.Arch),
+		Manager: hashField(pkg.Manager),
+		PURL:    hashField(pkg.PURL),
 	}
 }
 
@@ -353,7 +357,7 @@ func fallbackPackagePURL(pkg Package) string {
 		return ""
 	}
 
-	purlTypeValue := purlType(pkg.Ecosystem, pkg.Manager)
+	purlTypeValue := purlType("", pkg.Manager)
 	qualifiers := map[string]string{}
 	if pkg.Arch != "" {
 		qualifiers["arch"] = pkg.Arch
@@ -382,9 +386,6 @@ func defaultPURLNamespace(purlTypeValue string, pkg Package) []string {
 	namespace := packageManagerNamespace(purlTypeValue)
 	if namespace == "" {
 		namespace = packageManagerNamespace(normalizePURLToken(pkg.Manager))
-	}
-	if namespace == "" {
-		namespace = normalizePURLToken(pkg.Ecosystem)
 	}
 	if namespace == "" {
 		return nil
