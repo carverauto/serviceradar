@@ -143,7 +143,7 @@ describe("topology device filter controls", () => {
     expect(panel.apply.disabled).toBe(true)
     panel.update({enabled: false, capability, query: {all: []}, pending: false, total: 4})
     expect(panel.button.textContent).toBe("Filters")
-    expect(panel.status.textContent).toContain("filtering disabled")
+    expect(panel.status.textContent).toContain("membership protocol is not available")
     expect(panel.status.textContent).not.toContain("matching")
     click("Clear filters")
     expect(onApply).toHaveBeenLastCalledWith(null)

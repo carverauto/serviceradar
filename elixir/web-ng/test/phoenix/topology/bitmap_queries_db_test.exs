@@ -46,12 +46,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     previous =
       Map.new(
-        [:god_view_enabled, :topology_bitmap_enabled, :bitmap_tag_keys],
+        [:god_view_enabled, :bitmap_tag_keys],
         &{&1, Application.fetch_env(:serviceradar_web_ng, &1)}
       )
 
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
-    Application.put_env(:serviceradar_web_ng, :topology_bitmap_enabled, true)
     Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, ["rack"])
 
     on_exit(fn ->
@@ -292,7 +291,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert {:error, :forbidden} = BitmapQueries.run(scope, params)
 
     {:ok, snapshot} = BitmapIndex.snapshot()
-    Application.put_env(:serviceradar_web_ng, :topology_bitmap_enabled, false)
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
     assert {:error, :bitmap_disabled} = BitmapIndex.snapshot()
     assert {:ok, %{ready: false, cardinality: 0}} = Native.bitmap_index_status(snapshot.device)
   end

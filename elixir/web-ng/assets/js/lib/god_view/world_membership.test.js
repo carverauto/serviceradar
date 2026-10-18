@@ -670,7 +670,7 @@ describe("binary admitted-row membership", () => {
       return rest
     }],
     ["sets bitmap_membership_protocol to 0", manifest => ({...manifest, bitmap_membership_protocol: 0})],
-  ])("shows the unfiltered map when a filter event arrives and the manifest %s", async (_label, disable) => {
+  ])("keeps a requested filter pending when the manifest %s", async (_label, disable) => {
     const admitted = {...decodeWorldTile(worldTileIpc(), worldTileKey), generation: 1}
     const base = {layout_version: worldTileKey.layout_version, generation: 1, zmax: 1, extent: 2 ** 24,
       node_count: 2, relation_count: 0, bitmap_membership_protocol: 1}
@@ -699,22 +699,22 @@ describe("binary admitted-row membership", () => {
       await renderer.refreshManifest()
       const unfiltered = glyphRadius()
       expect(renderer.membershipEnabled).toBe(false)
-      expect(unfiltered.layer.props.membershipEnabled).toBe(false)
-      expect(unfiltered.layer.props.membershipPending).toBe(false)
+      expect(unfiltered.layer.props.membershipEnabled).toBe(true)
+      expect(unfiltered.layer.props.membershipPending).toBe(true)
       expect(unfiltered.layer.props.membership).toBeNull()
-      expect(unfiltered.radius).toBeGreaterThan(0)
-      expect(renderer.summary.textContent).toBe("Topology query unavailable: filtering is disabled and this filter is not applied")
+      expect(unfiltered.radius).toBe(0)
+      expect(renderer.summary.textContent).toBe("Topology query unavailable: membership protocol is not available")
       expect(renderer.summary.textContent).not.toContain("matching")
-      expect(renderer.queryParams({device_id: "synthetic-device"})).not.toHaveProperty("query")
+      expect(() => renderer.queryParams({device_id: "synthetic-device"})).toThrow("pending")
       renderer.setBitmapQuery({facet: "vlan", value: "20"})
       const stale = glyphRadius()
       expect(renderer.bitmapQuery).toEqual({facet: "vlan", value: "20"})
-      expect(stale.layer.props.membershipEnabled).toBe(false)
-      expect(stale.layer.props.membershipPending).toBe(false)
+      expect(stale.layer.props.membershipEnabled).toBe(true)
+      expect(stale.layer.props.membershipPending).toBe(true)
       expect(stale.layer.props.membership).toBeNull()
-      expect(stale.radius).toBeGreaterThan(0)
-      expect(renderer.summary.textContent).toBe("Topology query unavailable: filtering is disabled and this filter is not applied")
-      expect(renderer.queryParams({device_id: "synthetic-device"})).not.toHaveProperty("query")
+      expect(stale.radius).toBe(0)
+      expect(renderer.summary.textContent).toBe("Topology query unavailable: membership protocol is not available")
+      expect(() => renderer.queryParams({device_id: "synthetic-device"})).toThrow("pending")
       await renderer.refreshManifest()
       const enabled = glyphRadius()
       expect(renderer.membershipEnabled).toBe(true)

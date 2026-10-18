@@ -19,8 +19,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   def init(_opts), do: Supervisor.init([{Task.Supervisor, name: @tasks, max_children: 8}], strategy: :one_for_one)
 
   def enabled? do
-    Application.get_env(:serviceradar_web_ng, :god_view_enabled, false) == true and
-      Application.get_env(:serviceradar_web_ng, :topology_bitmap_enabled, false) == true
+    Application.get_env(:serviceradar_web_ng, :god_view_enabled, false) == true
   end
 
   @doc "Each page evaluates current membership; the cursor carries only an authorized ordinal position."

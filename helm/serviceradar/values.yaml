@@ -1422,9 +1422,9 @@ webNg:
   # do not use an in-cluster Service name.
   publicUrl: ""
   godViewEnabled: "true"
-  # Bitmap filtering requires God View. Disabled until explicitly rolled out.
-  topologyBitmapEnabled: false
   # Literal Device.tags keys exposed by the filter builder (at most 25, 1..60 UTF-8 bytes).
+  # Filtering follows godViewEnabled. topologyBitmapEnabled and
+  # SERVICERADAR_TOPOLOGY_BITMAP_ENABLED are retired and ignored.
   topologyBitmapTagKeys: []
   # MCP server at /mcp. Off by default. extraEnv.SERVICERADAR_MCP_ENABLED is ignored.
   mcpEnabled: "false"

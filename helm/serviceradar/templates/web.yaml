@@ -399,8 +399,6 @@ spec:
           value: {{ if kindIs "invalid" $webNg.checkOrigin }}"true"{{ else }}{{ default "true" (toString $webNg.checkOrigin) | quote }}{{ end }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
           value: {{ include "serviceradar.boolDefaultTrue" (list $webNg "godViewEnabled") | quote }}
-        - name: SERVICERADAR_TOPOLOGY_BITMAP_ENABLED
-          value: {{ default false $webNg.topologyBitmapEnabled | quote }}
         - name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
           value: {{ default (list) $webNg.topologyBitmapTagKeys | toJson | quote }}
         {{/* First-class flags cannot be shadowed through extraEnv. */}}

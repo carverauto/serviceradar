@@ -38,7 +38,6 @@ defmodule ServiceRadarWebNG.Topology.Scale.Replica do
     end
 
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
-    Application.put_env(:serviceradar_web_ng, :topology_bitmap_enabled, true)
     Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, ["cohort", "scale"])
     endpoint = Application.fetch_env!(:serviceradar_web_ng, Endpoint)
     Application.put_env(:serviceradar_web_ng, Endpoint, Keyword.merge(endpoint, server: false, check_origin: false))

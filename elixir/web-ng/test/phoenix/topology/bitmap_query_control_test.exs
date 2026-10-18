@@ -199,7 +199,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   end
 
   test "a timed-out membership task keeps its slot until the task exits" do
-    keys = [:god_view_enabled, :topology_bitmap_enabled]
+    keys = [:god_view_enabled]
     previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
     for key <- keys, do: Application.put_env(:serviceradar_web_ng, key, true)
 
@@ -389,7 +389,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert {:error, :unauthorized} = BitmapQueries.run(nil, %{})
     assert {:error, :unauthorized} = BitmapQueries.prefix_tags(%Scope{}, %{"source" => "synthetic"})
 
-    flags = [:god_view_enabled, :topology_bitmap_enabled]
+    flags = [:god_view_enabled]
     previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
     previous_authorization = Application.get_env(:serviceradar_web_ng, :current_user_authorization_module)
     Enum.each(flags, &Application.put_env(:serviceradar_web_ng, &1, true))
@@ -432,7 +432,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   end
 
   test "multipart uploads receive HTTP 400 before query admission" do
-    flags = [:god_view_enabled, :topology_bitmap_enabled]
+    flags = [:god_view_enabled]
     previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
     Enum.each(flags, &Application.put_env(:serviceradar_web_ng, &1, true))
 

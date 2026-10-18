@@ -240,6 +240,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
   defp delivered_identity(%{identity: identity}) when is_map(identity), do: {:ok, identity}
   defp delivered_identity(_result), do: :stale
 
+  # Named prefix frames stay fresh because catalog label expiry is wall-clock
+  # while the snapshot identity is source version only.
   defp named_prefix_query?(%{prefix_sources: sources}) when is_map(sources), do: map_size(sources) > 0
   defp named_prefix_query?(_metadata), do: false
 

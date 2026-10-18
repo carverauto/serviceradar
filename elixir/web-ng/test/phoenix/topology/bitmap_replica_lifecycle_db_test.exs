@@ -37,12 +37,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     previous =
       Map.new(
-        [:god_view_enabled, :topology_bitmap_enabled, :bitmap_tag_keys],
+        [:god_view_enabled, :bitmap_tag_keys],
         &{&1, Application.fetch_env(:serviceradar_web_ng, &1)}
       )
 
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
-    Application.put_env(:serviceradar_web_ng, :topology_bitmap_enabled, true)
     Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, [])
 
     on_exit(fn ->

@@ -59,7 +59,7 @@ test("binary overlays survive refinement, reconnect and device teardown", async 
   expect(retained.membershipRetainedBytes + retained.overlayChargedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
   expect(retained.errors).toEqual([])
   await page.getByRole("button", {name: "Toggle binary", exact: true}).click()
-  await expect(page.getByRole("status")).toContainText("filtering is disabled")
+  await expect(page.getByRole("status")).toContainText("membership protocol is not available")
   expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().membershipRetainedBytes)).toBe(0)
   await page.getByRole("button", {name: "Teardown renderer", exact: true}).click()
   await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)

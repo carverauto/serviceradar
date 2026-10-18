@@ -134,7 +134,7 @@ export class WorldFilterPanel {
     this.button.textContent = this.state.query && this.state.enabled ? "Filters active" : "Filters"
     this.help.hidden = !this.state.query
     this.status.textContent = !descriptor ? "Device filtering is unavailable on this server." :
-      !ready ? `Filters are unavailable: ${this.state.capability?.reason?.replaceAll("_", " ") || (this.state.enabled ? "index preparing" : "filtering disabled")}.` :
+      !ready ? `Filters are unavailable: ${this.state.capability?.reason?.replaceAll("_", " ") || (this.state.enabled ? "index preparing" : "membership protocol is not available")}.` :
         this.state.error ? `Filter unavailable: ${this.state.error.replaceAll("_", " ")}.` :
           this.state.query && this.state.pending ? "Updating matching devices…" :
             this.state.query && this.state.total !== null && this.state.total !== undefined ? `Applied filter: ${new Intl.NumberFormat().format(this.state.total)} matching devices` :

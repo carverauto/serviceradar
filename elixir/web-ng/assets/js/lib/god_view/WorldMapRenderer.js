@@ -613,14 +613,18 @@ export default class WorldMapRenderer {
   render() {
     if (!this.deck || !this.cache.manifest || this.destroyed || this.rendererFailed) return
     this.flushPendingCommands()
-    const membershipApplied = this.membershipEnabled && this.bitmapQuery !== null
+    const filterRequested = this.bitmapQuery !== null
+    const membershipBlocked = filterRequested && !this.membershipEnabled
+    if (membershipBlocked) this.membership.pending = true
+    const membershipApplied = this.membershipEnabled && filterRequested
     this.deck.setProps({layers: [new WorldTileLayer({
       id: `god-view-world-${this.cache.manifest.layout_version}`, visible: !this.detailRenderer,
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
       membership: membershipApplied ? this.membership.entries : null, membershipRevision: this.membershipRevision,
-      membershipEnabled: membershipApplied, membershipPending: membershipApplied && this.membership.pending,
+      membershipEnabled: membershipApplied || membershipBlocked,
+      membershipPending: (membershipApplied && this.membership.pending) || membershipBlocked,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
@@ -794,8 +798,9 @@ export default class WorldMapRenderer {
   }
 
   queryParams(params) {
+    const blocked = this.bitmapQuery !== null && !this.membershipEnabled
     const query = this.membershipEnabled && this.bitmapQuery !== null ? JSON.stringify(this.bitmapQuery) : null
-    if (query !== null && this.membership.pending) {
+    if (blocked || (query !== null && this.membership.pending)) {
       throw new Error("Topology filter pending; try again when the map is ready")
     }
     if (params.query && params.query !== query) throw new Error("Topology query changed; select the item again")
@@ -830,7 +835,7 @@ export default class WorldMapRenderer {
   }
 
   mapSummary(tiles) {
-    if (this.bitmapQuery !== null && !this.membershipEnabled) return "Topology query unavailable: filtering is disabled and this filter is not applied"
+    if (this.bitmapQuery !== null && !this.membershipEnabled) return "Topology query unavailable: membership protocol is not available"
     if (this.bitmapQuery !== null && this.membershipError) return `Topology query unavailable: ${this.membershipError}`
     if (this.bitmapQuery !== null && (this.membership.pending || this.membership.total === null)) return "Topology filter pending…"
     const summary = this.bitmapQuery === null ? `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles` :

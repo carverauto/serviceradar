@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
 
   @tag timeout: 5_000
   test "an exhausted response deadline admits no query work" do
-    keys = [:god_view_enabled, :topology_bitmap_enabled]
+    keys = [:god_view_enabled]
     previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
     for key <- keys, do: Application.put_env(:serviceradar_web_ng, key, true)
 
@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
   test "release configuration drives enabled state and the bounded filter-builder allowlist" do
     names = ~w(SERVICERADAR_GOD_VIEW_ENABLED SERVICERADAR_TOPOLOGY_BITMAP_ENABLED SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS)
     previous = Map.new(names, &{&1, System.get_env(&1)})
-    config_keys = [:god_view_enabled, :topology_bitmap_enabled, :bitmap_tag_keys]
+    config_keys = [:god_view_enabled, :bitmap_tag_keys]
     previous_config = Map.new(config_keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
 
     on_exit(fn ->
@@ -69,11 +69,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
     Enum.each(names, &System.delete_env/1)
     runtime = Path.expand("../../../config/runtime.exs", __DIR__)
     config = Config.Reader.read!(runtime, env: :test, target: :host)[:serviceradar_web_ng]
-    assert config[:topology_bitmap_enabled] == false
+    refute Keyword.has_key?(config, :topology_bitmap_enabled)
     assert config[:bitmap_tag_keys] == []
 
     System.put_env("SERVICERADAR_GOD_VIEW_ENABLED", "true")
-    System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "true")
+    System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "false")
     System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", ~s(["role","zone,group"]))
     config = Config.Reader.read!(runtime, env: :test, target: :host)[:serviceradar_web_ng]
     for key <- config_keys, do: Application.put_env(:serviceradar_web_ng, key, config[key])
@@ -102,12 +102,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapRuntimeConfigTest do
     end
 
     System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_ENABLED", "false")
+    System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", "not-json")
 
-    for value <- ["not-json", ~s("role")] do
-      System.put_env("SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS", value)
-      config = Config.Reader.read!(runtime, env: :test, target: :host)[:serviceradar_web_ng]
-      assert config[:topology_bitmap_enabled] == false
-      assert config[:bitmap_tag_keys] == []
+    assert_raise ArgumentError, ~r/SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS/, fn ->
+      Config.Reader.read!(runtime, env: :test, target: :host)
     end
   end
 end
