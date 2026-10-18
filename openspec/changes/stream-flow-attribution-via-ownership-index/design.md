@@ -375,16 +375,18 @@ the kernel event.
   - *Decision*: any change to a watched key's candidate set during the window notifies the
     home shard: a lease that starts to cover the flow's time (`OPEN`, `RENEW`), a validity
     interval that shrinks so it no longer covers it (a delayed `CLOSE`, a `SNAPSHOT` that
-    closes an omitted lease), and a history entry removed by horizon expiry or the per-key cap.
-    The shard that applied the mutation checks the flow time against the interval before and
-    after it and notifies only when coverage changed. The home shard then recomputes the
+    closes an omitted lease), a history entry removed by horizon expiry or the per-key cap, and
+    an owner-attribute change to a lease that covers the flow's time (an enrichment `OPEN` with
+    the same key and `first_seen` that adds the cmdline, container id or workload identity).
+    The shard that applied the mutation notifies when coverage of the flow time changed or
+    when the owner record of a covering lease changed. The home shard then recomputes the
     decision from the full candidate set of both sides (including the VIP rule): the winner by full precedence, plus the number
     of other owners that tie with it on `(rank, side)` as ambiguity evidence. Two distinct
     owners that tie on the full tuple cannot be separated, so the side is then `ambiguous` and
     carries no owner.
   - *Publication*: the home shard publishes an update on `events.flow.attribution` whenever the
     decision differs in any way from the one last published: a different winner, a lower
-    winner after a candidate lost coverage, a return to unattributed, a change between
+    winner after a candidate lost coverage, changed owner context for the same winning lease, a return to unattributed, a change between
     unambiguous and ambiguous, or new ambiguity evidence with the same winner (an
     evidence-only update). Each update carries the decision's precedence and ambiguity
     evidence, and a per-flow **decision sequence** that the home shard increments with every
@@ -556,7 +558,7 @@ deferred.
 | NAT beyond node SNAT and Kubernetes public endpoints (edge SNAT, CGNAT, cloud NAT gateways) | Deferred; the flow side is `no_owner` or `unmonitored`. |
 | IPv6 privacy address rotation | Address leases and wildcard re-expansion follow address changes. Deferred: prefix matching for privacy addresses. |
 | Exporters with very long active timeouts | The time-T lookup uses the flow time within the skew tolerance and the history horizon. Deferred: which flow timestamp to use, and whether the horizon follows the exporter's timeout. |
-| Late-stamp entry or history evicted by its cap | The flow keeps the attribution it was written with; evictions are counted. |
+| History entry evicted by its per-key cap during an enrolled flow's window | The eviction triggers a recomputation like any other candidate-set change; evictions are counted. |
 | Ownership event lost on the way (dropped `CLOSE`) | Bounded by the lease TTL; the lease expires on its own. |
 | Accepted socket whose owner differs from its listener but the difference is invisible to the agent | Attributed to the listener's owner (Risks). |
 | Connection summaries over budget | Staged aggregation down to overflow rows, counted (Decision 9). |
