@@ -64,7 +64,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
       )
       |> Ash.create()
 
-    devices = insert_high_uid_before_low_uid!(unique, partition, actor)
+    {devices, _reversed_pairs} = insert_high_uid_before_low_uid!(unique, partition, actor)
     uids = Enum.map(devices, & &1.uid)
 
     [low_uid, high_uid] =
@@ -147,12 +147,20 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
 
     prepare_fsm_backward_jump!(filler_partition, context.actor)
 
-    [high_device, low_device] =
+    {[high_device, low_device], reversed_pairs} =
       insert_high_uid_before_low_uid!(
         System.unique_integer([:positive]),
         target_partition,
         context.actor
       )
+
+    assert reversed_pairs >= 1,
+           "setup must make the first target pair land in reversed physical order"
+
+    assert Repo.query!(
+             "SELECT uid FROM platform.ocsf_devices WHERE partition = $1 ORDER BY uid",
+             [target_partition]
+           ).rows == [[low_device.uid], [high_device.uid]]
 
     assert high_device.uid > low_device.uid
 
@@ -327,7 +335,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
         Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [discarded_uids])
       end
 
-      [prev, curr]
+      {[prev, curr], length(discarded)}
     else
       advance_until_high_before_low!(unique, partition, actor, curr, seq - 1, [prev | discarded])
     end
@@ -368,39 +376,47 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
     unique = System.unique_integer([:positive])
     Repo.query!("VACUUM platform.ocsf_devices")
 
-    first_row = {_u0, b0} = insert_filler_with_block!(unique, partition, actor, 999)
-
-    {next_seq, b1, first_b1_row, b0_rows} =
-      Enum.reduce_while(998..1//-1, [first_row], fn seq, acc ->
-        {_u, b} = row = insert_filler_with_block!(unique, partition, actor, seq)
-        if b > b0, do: {:halt, {seq, b, row, Enum.reverse(acc)}}, else: {:cont, [row | acc]}
-      end)
-
-    {last_seq, b2, b1_rows} =
-      Enum.reduce_while((next_seq - 1)..1//-1, [first_b1_row], fn seq, acc ->
-        {_u, b} = row = insert_filler_with_block!(unique, partition, actor, seq)
-        if b > b1, do: {:halt, {seq, b, Enum.reverse(acc)}}, else: {:cont, [row | acc]}
-      end)
+    {next_seq, b2, b0_uids, b1_uid} =
+      fill_three_increasing_blocks!(unique, partition, actor, 999, [])
 
     Repo.query!(
       "DELETE FROM platform.ocsf_devices WHERE partition = $1 AND (ctid::text::point)[0]::int = $2",
       [partition, b2]
     )
 
-    [{b1_uid, _} | _] = b1_rows
-    [{b0_uid1, _}, {b0_uid2, _}, {b0_uid3, _} | _] = b0_rows
-
-    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [
-      [b1_uid, b0_uid1, b0_uid2, b0_uid3]
-    ])
+    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1)", [[b1_uid | b0_uids]])
 
     Repo.query!("VACUUM platform.ocsf_devices")
 
     fn ->
-      insert_filler_with_block!(unique, partition, actor, last_seq - 1)
+      insert_filler_with_block!(unique, partition, actor, next_seq)
     end
     |> Task.async()
     |> Task.await(@wait_ms)
+  end
+
+  defp fill_three_increasing_blocks!(_unique, _partition, _actor, seq, _rows) when seq < 1 do
+    flunk("filler rows never spanned three increasing heap blocks")
+  end
+
+  defp fill_three_increasing_blocks!(unique, partition, actor, seq, rows) do
+    {_uid, b2} = row = insert_filler_with_block!(unique, partition, actor, seq)
+
+    case backward_jump_blocks(rows, b2) do
+      {b0_uids, b1_uid} -> {seq - 1, b2, b0_uids, b1_uid}
+      nil -> fill_three_increasing_blocks!(unique, partition, actor, seq - 1, rows ++ [row])
+    end
+  end
+
+  defp backward_jump_blocks(earlier_rows, b2) do
+    uids_by_block = Enum.group_by(earlier_rows, &elem(&1, 1), &elem(&1, 0))
+
+    with [b1 | lower] when b1 < b2 <- uids_by_block |> Map.keys() |> Enum.sort(:desc),
+         b0 when is_integer(b0) <- Enum.find(lower, &(length(uids_by_block[&1]) >= 3)) do
+      {Enum.take(uids_by_block[b0], 3), hd(uids_by_block[b1])}
+    else
+      _ -> nil
+    end
   end
 
   defp insert_filler_with_block!(unique, partition, actor, seq) do
