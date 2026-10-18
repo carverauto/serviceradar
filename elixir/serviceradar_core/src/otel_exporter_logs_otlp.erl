@@ -22,7 +22,8 @@
          shutdown/1,
          merge_with_environment/1,
          sanitize_logs_for_export/1,
-         prepare_logs_for_export/1]).
+         prepare_logs_for_export/1,
+         build_request/2]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -35,12 +36,12 @@
 -define(ENSURE_COOLDOWN_MS, 10000).
 -define(MAX_METADATA_BYTES, 2048).
 -define(MAX_REPORT_BYTES, 8192).
+-define(TRUNCATION_MARKER, <<"...[truncated]">>).
 %% Words, not bytes. `io_lib:format("~0P", ...)` walks the whole term before
 %% truncate_binary/2 can cap it; a multi-megabyte Logger report (protobuf
 %% structs, agent config JSON) pinned the handler in inspect_term/2 while
 %% 90k casts piled up in the mailbox.
 -define(MAX_TERM_WORDS, 4096).
--define(MAX_CHARLIST_ANY_VALUES, 4096).
 -define(MAX_EXPORT_EVENTS, 256).
 -define(MAX_REPORT_ATTRS, 16).
 
@@ -138,10 +139,7 @@ export(Logs, Resource, #state{protocol=http_protobuf,
                       [Type, Error]),
             error;
         Address ->
-            {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
-            Batch = prepare_logs_for_export(Batch0),
-            RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
-            RequestMap = normalize_request_map(RequestMap0),
+            RequestMap = build_request(Logs, Resource),
             Body = opentelemetry_exporter_logs_service_pb:encode_msg(RequestMap, export_logs_service_request),
             otel_exporter_otlp:export_http(Address, Headers, Body, Compression, SSLOptions, HttpcProfile)
     end;
@@ -154,10 +152,7 @@ export(Logs, Resource, #state{protocol=grpc,
                               retry_max_attempts=MaxAttempts,
                               retry_base_delay_ms=BaseDelay,
                               retry_max_delay_ms=MaxDelay}) ->
-    {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
-    Batch = prepare_logs_for_export(Batch0),
-    RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
-    RequestMap = normalize_request_map(RequestMap0),
+    RequestMap = build_request(Logs, Resource),
     export_grpc_with_retry(opentelemetry_logs_service,
                            Metadata,
                            RequestMap,
@@ -175,6 +170,12 @@ export(logs, Logs, Resource, State) ->
     export(Logs, Resource, State);
 export(_Kind, _Logs, _Resource, _State) ->
     {error, unimplemented}.
+
+%% @doc Build the OTLP LogsService request map both transports encode.
+build_request(Logs, Resource) ->
+    {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
+    Batch = prepare_logs_for_export(Batch0),
+    normalize_request_map(otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig)).
 
 %% Keep OTLP log export tolerant of Logger reports and metadata that contain
 %% nested structs, protobuf messages, pids, stacktraces, or improper lists.
@@ -385,11 +386,28 @@ inspect_term(Value, MaxBytes) ->
             end
     end.
 
+%% The marker counts toward MaxBytes so a truncated value passes a second cap
+%% (normalize_log_batch/1 and sanitize_logs_for_export/1 both apply one)
+%% unchanged instead of having its marker cut.
 truncate_binary(Binary, MaxBytes) when is_binary(Binary), byte_size(Binary) =< MaxBytes ->
     Binary;
 truncate_binary(Binary, MaxBytes) when is_binary(Binary) ->
-    <<Prefix:MaxBytes/binary, _Rest/binary>> = Binary,
-    <<Prefix/binary, "...[truncated]">>.
+    Cut = MaxBytes - byte_size(?TRUNCATION_MARKER),
+    Prefix = binary:part(Binary, 0, utf8_boundary(Binary, Cut, 3)),
+    <<Prefix/binary, ?TRUNCATION_MARKER/binary>>.
+
+%% A cut inside a multi-byte UTF-8 sequence leaves the body invalid, and the
+%% OTLP encoder's `~ts` then decodes every byte of it as Latin-1. Back the cut
+%% off the continuation bytes (at most three) to the start of the character.
+utf8_boundary(Binary, Cut, Steps) when Cut > 0, Steps > 0 ->
+    case binary:at(Binary, Cut) of
+        Byte when Byte band 16#C0 =:= 16#80 ->
+            utf8_boundary(Binary, Cut - 1, Steps - 1);
+        _ ->
+            Cut
+    end;
+utf8_boundary(_Binary, Cut, _Steps) ->
+    Cut.
 
 normalize_logs_arg({Batch, HandlerConfig}) when is_map(Batch), is_map(HandlerConfig) ->
     {Batch, HandlerConfig};
@@ -497,7 +515,10 @@ report_cb_chardata(_Report, _ReportCb) ->
 %% commonly charlists (e.g. "Hello" as [72,101,108,108,111]).
 %%
 %% Downstream core-elx log processors expect `body` to be a string, so convert
-%% charlist-like any_value arrays back into OTLP `string_value`.
+%% charlist-like any_value arrays back into OTLP `string_value`. Do this at any
+%% length: prepare_logs_for_export/1 already bounded the body, and to_proto has
+%% already built this array, so a length cap here only exported long messages
+%% as arrays of character codes.
 normalize_request_map(#{resource_logs := ResourceLogs}=Req) when is_list(ResourceLogs) ->
     Req#{resource_logs := [normalize_resource_log(RL) || RL <- ResourceLogs]};
 normalize_request_map(Req) ->
@@ -519,10 +540,8 @@ normalize_log_record(LR) ->
     LR.
 
 normalize_any_value(#{value := {array_value, #{values := Values}}}=AnyValue) when is_list(Values) ->
-    case charlist_from_any_values(Values) of
-        {ok, Chars} ->
-            %% Use unicode conversion so non-ASCII survives.
-            Bin = unicode:characters_to_binary(Chars),
+    case text_from_any_values(Values) of
+        {ok, Bin} ->
             #{value => {string_value, Bin}};
         error ->
             AnyValue
@@ -530,14 +549,12 @@ normalize_any_value(#{value := {array_value, #{values := Values}}}=AnyValue) whe
 normalize_any_value(AnyValue) ->
     AnyValue.
 
-charlist_from_any_values(Values) when length(Values) > ?MAX_CHARLIST_ANY_VALUES ->
-    error;
-charlist_from_any_values(Values) ->
+text_from_any_values(Values) ->
     try
         Chars = [I || #{value := {int_value, I}} <- Values],
         case length(Chars) =:= length(Values) of
             true ->
-                {ok, Chars};
+                chardata_to_binary(Chars);
             false ->
                 error
         end
