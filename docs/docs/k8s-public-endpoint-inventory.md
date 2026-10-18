@@ -508,7 +508,9 @@ do set it, it must be `v<chart-version>`.
 
    Inventory (`in:public_endpoints`) remains the control-plane source of truth
    and drill-down surface; you should not need a second ad-hoc query for the
-   common IR path once correlation has run (correlator interval is ~2 minutes).
+   common IR path once correlation has run. See the
+   [netprobe troubleshooting guide](./netprobe.md#no-attributed-flows) for correlator
+   timing and failure retries.
 
 ## Build and test (Bazel)
 

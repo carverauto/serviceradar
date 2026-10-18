@@ -11,6 +11,10 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   StarRocks a pass is a no-op (`{:ok, :not_applicable}`); otherwise every pass,
   successful or not, reports its health through `PassMetrics`.
 
+  Failed passes use `ServiceRadar.Backoff`. Operator-facing retry timing and
+  failure logging are documented in `docs/docs/netprobe.md`, under
+  "No attributed flows".
+
   A runtime kill switch (`FLOW_ATTRIBUTION_CORRELATOR_ENABLED`, or the
   `:flow_attribution_correlator_enabled` app env) lets operators pause just this
   loop without disabling the rest of the EventWriter.
@@ -18,6 +22,7 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
 
   use GenServer
 
+  alias ServiceRadar.Backoff
   alias ServiceRadar.FlowAttribution.Correlation
   alias ServiceRadar.FlowAttribution.PassMetrics
 
@@ -30,25 +35,39 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   # FLOW_ATTRIBUTION_CORRELATOR_INTERVAL_MS or :flow_attribution_correlator_interval_ms.
   @default_interval_ms 120_000
 
+  @doc """
+  Options (tests): `:name`, and `:pass_opts` / `:report_opts`, passed to
+  `Correlation.run_pass/1` and `PassMetrics.report/4`.
+  """
   def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    {name, opts} = Keyword.pop(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     Process.send_after(self(), :correlate, @initial_delay_ms)
-    {:ok, %{}}
+
+    {:ok,
+     %{
+       pass_opts: Keyword.get(opts, :pass_opts, []),
+       report_opts: Keyword.get(opts, :report_opts, []),
+       failing: nil
+     }}
   end
 
   @impl true
   def handle_info(:correlate, state) do
-    if enabled?() do
-      run_once()
-    end
+    {delay_ms, state} =
+      if enabled?() do
+        state |> run_once() |> next_delay()
+      else
+        {interval_ms(), state}
+      end
 
     # Schedule the next tick only after the current pass completes so a slow pass
     # cannot leave a backlog of :correlate messages that then run back-to-back.
-    Process.send_after(self(), :correlate, interval_ms())
+    Process.send_after(self(), :correlate, delay_ms)
     {:noreply, state}
   end
 
@@ -69,28 +88,55 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
     end
   end
 
-  defp run_once do
+  defp run_once(state) do
     started_at = System.monotonic_time(:millisecond)
-    {result, matches_by_rank} = Correlation.run_pass()
+    {result, matches_by_rank} = Correlation.run_pass(state.pass_opts)
     duration_ms = System.monotonic_time(:millisecond) - started_at
 
-    case result do
-      {:ok, :not_applicable} ->
-        :ok
+    if result != {:ok, :not_applicable} do
+      PassMetrics.report(result, duration_ms, matches_by_rank, state.report_opts)
+    end
 
-      {:ok, count} when count > 0 ->
+    {result, state}
+  end
+
+  defp next_delay({{:error, reason}, %{failing: nil} = state}) do
+    Logger.warning(
+      "FlowAttribution.Correlator correlate failed, backing off until a pass succeeds: " <>
+        inspect(reason)
+    )
+
+    # A pass reads the flows of the last window, so a retry later than that
+    # would skip flows entirely; the backoff stops there, or at the interval
+    # when that is configured longer.
+    interval = interval_ms()
+    max_ms = max(Correlation.flows_window_minutes() * 60_000, interval)
+    backoff = Backoff.new(base_ms: min(2 * interval, max_ms), max_ms: max_ms, jitter: 0.0)
+    failed({1, backoff}, state)
+  end
+
+  defp next_delay({{:error, _reason}, %{failing: {passes, backoff}} = state}),
+    do: failed({passes + 1, backoff}, state)
+
+  defp next_delay({result, state}) do
+    with {passes, _backoff} <- state.failing do
+      Logger.info("FlowAttribution.Correlator recovered after #{passes} failed pass(es)")
+    end
+
+    case result do
+      {:ok, count} when is_integer(count) and count > 0 ->
         Logger.info("FlowAttribution.Correlator stamped #{count} flow(s) as attributed")
 
-      {:ok, _count} ->
+      _ ->
         :ok
-
-      {:error, reason} ->
-        Logger.warning("FlowAttribution.Correlator correlate failed: #{inspect(reason)}")
     end
 
-    if result != {:ok, :not_applicable} do
-      PassMetrics.report(result, duration_ms, matches_by_rank)
-    end
+    {interval_ms(), %{state | failing: nil}}
+  end
+
+  defp failed({passes, backoff}, state) do
+    {delay_ms, backoff} = Backoff.next(backoff)
+    {delay_ms, %{state | failing: {passes, backoff}}}
   end
 
   defp enabled? do

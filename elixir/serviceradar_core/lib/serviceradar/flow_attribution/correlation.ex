@@ -49,6 +49,34 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
   @query_timeout_ms 120_000
 
+  # How close an observation is to the flow it matched: whole seconds apart
+  # ascending, then newest first. The second term counts down from 10^17 in
+  # microseconds since 2000-01-01 (positive until the year 5000), so it never
+  # reaches into the seconds term and the value is never negative. Plain
+  # datetime arithmetic, so the session time zone does not enter.
+  @nearness "CAST(abs(seconds_diff(f.`time`, a.observed_at)) AS LARGEINT) * 100000000000000000 + " <>
+              "(100000000000000000 - CAST(seconds_diff(a.observed_at, CAST('2000-01-01 00:00:00' AS DATETIME)) AS LARGEINT) * 1000000 - " <>
+              "CAST(date_format(a.observed_at, '%f') AS INT))"
+
+  # The whole candidate precedence as one string whose byte order is the
+  # ranking order: match rank, container-scoped before host-only, nearness,
+  # then agent id and pid (NULL first) and the public endpoint as tie-breaks.
+  # Fixed-width digits compare numerically; the agent id is hex-encoded and
+  # followed by a space, which sorts below every hex digit, so a shorter id
+  # sorts before a longer one it prefixes, as in a plain string comparison.
+  @precedence """
+  concat(
+    lpad(CAST(c.match_rank AS STRING), 2, '0'),
+    IF(c.host_only, '1', '0'),
+    lpad(CAST(c.nearness AS STRING), 21, '0'),
+    IF(c.agent_id IS NULL, '0', concat('1', hex(c.agent_id))), ' ',
+    IF(c.pid IS NULL, '0', concat('1', lpad(CAST(c.pid AS STRING), 10, '0'))), ' ',
+    lpad(CAST(coalesce(c.endpoint_ordinal, 0) AS STRING), 10, '0')
+  )
+  """
+
+  @winner_columns ~w(match_rank endpoint_ordinal agent_id pid host_only attribution_key observed_at)
+
   @flows_table "ocsf_network_activity"
   @observations_table "flow_process_attribution_observations"
 
@@ -261,7 +289,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
     batch_limit = Keyword.get(opts, :batch_limit, @batch_limit)
     agent_values = values(agent_ips, &agent_ip_row/1)
-    backend_values = values(backends, &backend_row/1)
+    backend_values = values(backends, &backend_row/1, numbered: true)
 
     ctes =
       Enum.reject(
@@ -271,29 +299,60 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
           agent_values && "agent_ips AS (SELECT * FROM (#{agent_values}) AS t(agent_id, ip))",
           backend_values &&
             "endpoint_backends AS (SELECT * FROM (#{backend_values}) AS " <>
-              "t(proto_num, vip_ip_norm, vip_port, backend_ip_norm, backend_port, exposure_rank, public_endpoint))",
+              "t(ordinal, proto_num, vip_ip_norm, vip_port, backend_ip_norm, backend_port, exposure_rank, public_endpoint))",
+          backend_values && public_endpoint_flows_cte(),
           "candidates AS (\n#{Enum.join(candidate_branches(agent_values, backend_values), "\nUNION ALL\n")}\n)",
+          # Each flow's winner is a streaming aggregate over its candidates, so
+          # memory follows the number of flows read, not the number of
+          # candidates. A socket is re-observed many times inside the window and
+          # a public endpoint can have many backends; a sort over every
+          # candidate grows with both.
           """
-          ranked AS (
-            SELECT c.*,
+          winners AS (
+            SELECT id, `time`, attribution_version, `partition`,
+                   #{Enum.map_join(@winner_columns, ",\n       ", &"min_by(#{&1}, precedence) AS #{&1}")}
+            FROM (SELECT c.*, #{@precedence} AS precedence FROM candidates AS c) AS ranked
+            GROUP BY id, `time`, attribution_version, `partition`
+          )
+          """,
+          # The process details of each winner, read back from the observation
+          # it was ranked on. The same process at the same instant can appear
+          # on more than one socket; any of them carries the same details.
+          """
+          stamped AS (
+            SELECT w.*, a.uid, a.comm, a.cmdline, a.container_id, a.workload_identity,
                    ROW_NUMBER() OVER (
-                     PARTITION BY c.id
-                     ORDER BY c.match_rank, c.container_id IS NULL, c.time_delta_seconds,
-                              c.observed_at DESC, c.agent_id, c.pid
-                   ) AS rn
-            FROM candidates AS c
+                     PARTITION BY w.id ORDER BY a.uid, a.comm, a.cmdline, a.container_id
+                   ) AS dup
+            FROM winners AS w
+            JOIN observations AS a
+              ON a.`partition` = w.`partition`
+             AND a.attribution_key = w.attribution_key
+             AND a.observed_at = w.observed_at
+             AND a.pid = w.pid
+             AND (a.container_id IS NULL) = w.host_only
+            WHERE w.pid IS NOT NULL
           )
           """
         ],
         &is_nil/1
       )
 
+    {public_endpoint_column, public_endpoint_join} =
+      if backend_values,
+        do:
+          {"pe.public_endpoint",
+           "LEFT JOIN endpoint_backends AS pe ON pe.ordinal = s.endpoint_ordinal"},
+        else: {"NULL", ""}
+
     """
     WITH #{Enum.join(ctes, ",\n")}
-    SELECT id, `time`, attribution_version, `partition`, agent_id, pid, uid, comm, cmdline,
-           container_id, workload_identity, public_endpoint, match_rank
-    FROM ranked
-    WHERE rn = 1 AND pid IS NOT NULL
+    SELECT s.id, s.`time`, s.attribution_version, s.`partition`, s.agent_id, s.pid, s.uid, s.comm,
+           s.cmdline, s.container_id, s.workload_identity,
+           #{public_endpoint_column} AS public_endpoint, s.match_rank
+    FROM stamped AS s
+    #{public_endpoint_join}
+    WHERE s.dup = 1
     """
   end
 
@@ -318,8 +377,8 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   defp observations_cte(table) do
     """
     observations AS (
-      SELECT observed_at, `partition`, agent_id, proto, local_ip, local_port, remote_ip,
-             remote_port, pid, uid, comm, cmdline, container_id, workload_identity,
+      SELECT observed_at, `partition`, agent_id, attribution_key, proto, local_ip, local_port,
+             remote_ip, remote_port, pid, uid, comm, cmdline, container_id, workload_identity,
              #{ip_norm("local_ip")} AS local_norm,
              #{ip_norm("remote_ip")} AS remote_norm
       FROM #{table}
@@ -433,7 +492,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
     public =
       if backend_values do
-        [public_vip_branch("dst", "src"), public_vip_branch("src", "dst")]
+        [public_vip_branch()]
       else
         []
       end
@@ -443,36 +502,53 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
   # A public VIP on one side of the flow mapped to the backend socket that
   # served it; the socket's peer is the flow's other side or a wildcard.
-  defp public_vip_branch(vip_side, peer_side) do
-    {"3 + pe.exposure_rank",
-     [
-       """
-       JOIN endpoint_backends AS pe
-         ON pe.proto_num = f.protocol_num
-        AND pe.vip_ip_norm = f.#{vip_side}_norm
-        AND pe.vip_port = f.#{vip_side}_endpoint_port
-       """
-     ],
+  #
+  # Every branch must tie the observation's address to the flow relation it
+  # joins directly. A three-way join of flows, backends and observations does
+  # not: the planner may join observations to flows first, on partition and
+  # protocol alone, and filter on the backend afterwards, which pairs every
+  # flow with every observation in the window. `public_endpoint_flows` resolves
+  # the backend per flow first (its UNION ALL keeps that join on its own), so
+  # the observation join is keyed on the backend address and port.
+  defp public_endpoint_flows_cte do
+    side = fn vip_side, peer_side ->
+      """
+      SELECT f.id, f.`time`, f.attribution_version, f.`partition`, f.protocol_num,
+             pe.backend_ip_norm, pe.backend_port, pe.exposure_rank, pe.ordinal,
+             f.#{peer_side}_norm AS peer_norm, f.#{peer_side}_endpoint_port AS peer_port
+      FROM recent_flows AS f
+      JOIN endpoint_backends AS pe
+        ON pe.proto_num = f.protocol_num
+       AND pe.vip_ip_norm = f.#{vip_side}_norm
+       AND pe.vip_port = f.#{vip_side}_endpoint_port
+      """
+    end
+
+    "public_endpoint_flows AS (\n#{side.("dst", "src")}UNION ALL\n#{side.("src", "dst")})"
+  end
+
+  defp public_vip_branch do
+    {"3 + f.exposure_rank", [],
      [
        @not_icmp,
-       "a.local_norm = pe.backend_ip_norm",
-       "a.local_port = pe.backend_port",
-       "((#{@wildcard_remote}) OR (a.remote_norm = f.#{peer_side}_norm AND " <>
-         "(a.remote_port = f.#{peer_side}_endpoint_port OR a.remote_port = 0)))"
-     ], "pe.public_endpoint"}
+       "a.local_norm = f.backend_ip_norm",
+       "a.local_port = f.backend_port",
+       "((#{@wildcard_remote}) OR (a.remote_norm = f.peer_norm AND " <>
+         "(a.remote_port = f.peer_port OR a.remote_port = 0)))"
+     ], "f.ordinal", "public_endpoint_flows"}
   end
 
   defp branch_sql({rank, joins, conditions}) do
-    branch_sql({rank, joins, conditions, "NULL"})
+    branch_sql({rank, joins, conditions, "NULL", "recent_flows"})
   end
 
-  defp branch_sql({rank, joins, conditions, public_endpoint}) do
+  defp branch_sql({rank, joins, conditions, endpoint_ordinal, flows}) do
     """
-    SELECT f.id, f.`time`, f.attribution_version, f.`partition`, a.agent_id, a.pid, a.uid, a.comm,
-           a.cmdline, a.container_id, a.workload_identity, #{public_endpoint} AS public_endpoint,
-           #{rank} AS match_rank,
-           abs(seconds_diff(f.`time`, a.observed_at)) AS time_delta_seconds, a.observed_at
-    FROM recent_flows AS f
+    SELECT f.id, f.`time`, f.attribution_version, f.`partition`, #{rank} AS match_rank,
+           #{endpoint_ordinal} AS endpoint_ordinal, a.agent_id, a.pid,
+           a.container_id IS NULL AS host_only, #{@nearness} AS nearness,
+           a.attribution_key, a.observed_at
+    FROM #{flows} AS f
     #{Enum.join(joins, "\n")}
     JOIN observations AS a
       ON a.`partition` = f.`partition` AND a.proto = f.protocol_num
@@ -482,8 +558,17 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
     """
   end
 
-  defp values(rows, row_fun) do
-    case rows |> Enum.map(row_fun) |> Enum.reject(&is_nil/1) |> Enum.uniq() do
+  # `numbered: true` prefixes each row with its 1-based ordinal, so a row can be
+  # referred to by number instead of carrying its values through the statement.
+  defp values(rows, row_fun, opts \\ []) do
+    literals = rows |> Enum.map(row_fun) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    literals =
+      if Keyword.get(opts, :numbered, false),
+        do: literals |> Enum.with_index(1) |> Enum.map(fn {row, ordinal} -> [ordinal | row] end),
+        else: literals
+
+    case literals do
       [] -> nil
       literals -> "VALUES " <> Enum.map_join(literals, ", ", &"(#{Enum.join(&1, ", ")})")
     end

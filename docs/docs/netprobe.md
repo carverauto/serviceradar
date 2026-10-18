@@ -282,6 +282,14 @@ updates.
 
 ### No attributed flows
 
+The correlator normally waits two minutes after each pass completes before
+starting the next pass. `FLOW_ATTRIBUTION_CORRELATOR_INTERVAL_MS` overrides this
+interval. Failed passes retry after twice the interval, doubling on consecutive
+failures up to the larger of the 15-minute flow lookback window and the configured
+interval. The first retry is also capped at that limit. A successful pass resets
+the delay. The correlator logs one warning per failure streak and one recovery
+message; pass health metrics continue on every applicable pass, including failures.
+
 Confirm:
 
 - NetFlow data is arriving for the same time range.
@@ -425,8 +433,8 @@ one, and a correlator log line is supporting evidence rather than the success ga
    ```
 
    A stamped-count log without this row is not success. Re-run the final query after
-   the next correlator pass (every two minutes) to catch partial or stale
-   observations.
+   the next correlator pass to catch partial or stale observations; see
+   [No attributed flows](#no-attributed-flows) for normal and failure retry timing.
 
 ### Missing container or workload fields
 
