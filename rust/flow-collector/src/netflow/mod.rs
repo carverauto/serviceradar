@@ -783,11 +783,11 @@ mod tests {
 
         assert_eq!(decoded_rate(&handler, &ipfix_flow(7, 256, &[]), peer), 5);
 
-        // selectorId, flowSelectorAlgorithm (3 = random n-out-of-N),
-        // samplingSize 1 of samplingPopulation 512.
+        // selectorId, selectorAlgorithm (3 = random n-out-of-N packet
+        // sampling), samplingSize 1 of samplingPopulation 512.
         let options = ipfix_sampling_options(
             7,
-            &[ie(302, 8, 9), ie(390, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
+            &[ie(302, 8, 9), ie(304, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
         );
         assert!(
             handler
@@ -975,18 +975,13 @@ mod tests {
         let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
         let handler = netflow_handler(None, Some(4096), &metrics);
         let peer: SocketAddr = "192.0.2.2:4739".parse().unwrap();
-        let cases: [(&str, Vec<Element>, u64); 7] = [
+        let cases: [(&str, Vec<Element>, u64); 6] = [
             ("samplingInterval", vec![ie(34, 4, 256)], 256),
             ("samplerRandomInterval", vec![ie(50, 4, 100)], 100),
             (
                 "samplingPacketInterval selected, samplingPacketSpace skipped",
                 vec![ie(305, 4, 1), ie(306, 4, 99)],
                 100,
-            ),
-            (
-                "samplingFlowInterval selected, samplingFlowSpacing skipped",
-                vec![ie(396, 4, 2), ie(397, 4, 1998)],
-                1000,
             ),
             (
                 "samplingSize out of samplingPopulation",
@@ -1014,6 +1009,66 @@ mod tests {
             );
         }
         assert_eq!(metrics.sampling_rate_clamped.load(Ordering::Relaxed), 1);
+    }
+
+    /// Flow selection and hash or property filtering export whole flows with
+    /// complete counters, so the selection ratio they declare must not scale
+    /// the records: each flow publishes rate 1, not the fallback and not N.
+    #[test]
+    fn ipfix_options_selection_of_whole_flows_is_not_scaled() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:4739".into()));
+        let handler = netflow_handler(Some(5), None, &metrics);
+        let peer: SocketAddr = "192.0.2.5:4739".parse().unwrap();
+        let cases: [(&str, Vec<Element>, Vec<Element>); 4] = [
+            (
+                "flowSelectorAlgorithm 3, samplingSize 1 of samplingPopulation 512",
+                vec![ie(302, 8, 4), ie(390, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
+                vec![ie(302, 8, 4)],
+            ),
+            (
+                "selectorAlgorithm 6 (hash-based filtering), samplingInterval 512",
+                vec![ie(304, 1, 6), ie(34, 4, 512)],
+                vec![],
+            ),
+            (
+                "hashSelectedRangeMax with samplingInterval 512 and no algorithm",
+                vec![ie(332, 8, 127), ie(34, 4, 512)],
+                vec![],
+            ),
+            (
+                "samplingFlowInterval selected, samplingFlowSpacing skipped",
+                vec![ie(396, 4, 1), ie(397, 4, 511)],
+                vec![],
+            ),
+        ];
+        for (domain, (case, options, flow)) in (1u32..).zip(cases) {
+            let packet = ipfix_sampling_options(domain, &options);
+            handler.parse_datagram(&packet, packet.len(), peer);
+            assert_eq!(
+                decoded_rate(&handler, &ipfix_flow(domain, 256, &flow), peer),
+                1,
+                "{case}"
+            );
+        }
+
+        // A selector that switches from packet sampling to flow selection.
+        let packet_sampling = ipfix_sampling_options(
+            9,
+            &[ie(302, 8, 4), ie(304, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
+        );
+        handler.parse_datagram(&packet_sampling, packet_sampling.len(), peer);
+        let flow = ipfix_flow(9, 256, &[ie(302, 8, 4)]);
+        assert_eq!(decoded_rate(&handler, &flow, peer), 512);
+        let flow_selection = ipfix_sampling_options(
+            9,
+            &[ie(302, 8, 4), ie(390, 1, 3), ie(309, 4, 1), ie(310, 4, 512)],
+        );
+        handler.parse_datagram(&flow_selection, flow_selection.len(), peer);
+        assert_eq!(
+            decoded_rate(&handler, &flow, peer),
+            1,
+            "flow selection replaces the selector's packet sampling rate"
+        );
     }
 
     /// Several selectors with different rates: a flow naming its selector gets

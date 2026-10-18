@@ -175,6 +175,16 @@ names no sampler and whose scope is an interface (IPFIX `ingressInterface` or
 `egressInterface`, v9 interface scope) stores the rate for that interface
 index. A system or observation-domain scope stores the domain rate.
 
+Only packet sampling scales records. A record that names flow selection
+(`flowSelectorAlgorithm`), property-match or hash-based filtering
+(`selectorAlgorithm` 5-9), hash parameters (`hash*` elements), or flow
+intervals (`samplingFlowInterval`/`samplingFlowSpacing`) without a packet
+sampling algorithm exports whole flows with complete counters. The collector
+publishes those flows with rate 1, whatever selection ratio the exporter
+declares, because analytics multiply each record by its rate and a
+whole-flow record multiplied by N reports N times the bytes that flow carried.
+The declared ratio is not stored.
+
 A flow record's rate is resolved in this order: its own sampling fields; the
 learned rate of the sampler or selector it names; the interface rate for its
 input interface, or its output interface when the input has no entry; the

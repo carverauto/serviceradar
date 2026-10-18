@@ -402,6 +402,11 @@ fn interface_index(bytes: &[u8]) -> Option<u32> {
 /// Exporters express a rate several ways (RFC 5477, RFC 7015): directly as
 /// 1-in-N, as selected/skipped runs of packets or flows, as n out of a
 /// population of N, or as a probability.
+///
+/// Only packet sampling makes a record's counters a sample. Flow selection
+/// (RFC 7014) and property-match or hash-based filtering (RFC 5475) choose
+/// whole flows or packets, and every record they export carries complete
+/// counters, so their selection ratio is not a per-record multiplier.
 #[derive(Default)]
 struct SamplingFields {
     sampler_id: Option<u64>,
@@ -413,6 +418,10 @@ struct SamplingFields {
     size: Option<u64>,
     population: Option<u64>,
     probability: Option<f64>,
+    /// The record names a packet sampling algorithm.
+    packet_sampling: bool,
+    /// The record names flow selection, filtering, or hash parameters.
+    complete_selection: bool,
 }
 
 impl SamplingFields {
@@ -436,6 +445,36 @@ impl SamplingFields {
                 self.probability = Some(field_value_to_f64(value));
                 return true;
             }
+            IANAIPFixField::SelectorAlgorithm => {
+                // RFC 5477 registry: 1-4 sample packets; 5 is property-match
+                // filtering, 6-8 hash-based filtering, 9 flow-state selection.
+                match field_value_to_u64(value) {
+                    1..=4 => self.packet_sampling = true,
+                    5..=9 => self.complete_selection = true,
+                    _ => {}
+                }
+                return true;
+            }
+            IANAIPFixField::SamplingAlgorithm | IANAIPFixField::SamplerMode => {
+                // 1 deterministic, 2 random: both sample packets.
+                if matches!(field_value_to_u64(value), 1 | 2) {
+                    self.packet_sampling = true;
+                }
+                return true;
+            }
+            IANAIPFixField::FlowSelectorAlgorithm
+            | IANAIPFixField::HashIppayloadOffset
+            | IANAIPFixField::HashIppayloadSize
+            | IANAIPFixField::HashOutputRangeMin
+            | IANAIPFixField::HashOutputRangeMax
+            | IANAIPFixField::HashSelectedRangeMin
+            | IANAIPFixField::HashSelectedRangeMax
+            | IANAIPFixField::HashDigestOutput
+            | IANAIPFixField::HashInitialiserValue
+            | IANAIPFixField::HashFlowDomain => {
+                self.complete_selection = true;
+                return true;
+            }
             _ => return false,
         };
         *slot = nonzero_u64(field_value_to_u64(value));
@@ -453,13 +492,21 @@ impl SamplingFields {
         true
     }
 
-    /// The 1-in-N rate these fields declare, if any.
+    /// The 1-in-N packet sampling rate these fields declare, if any.
     ///
-    /// A lone interval (packet or flow) is read as 1-in-N, as exporters that
-    /// send it without a spacing use it; with a spacing it is the RFC run
-    /// length, and the rate is (selected + skipped) / selected.
+    /// A selection that keeps complete counters (flow selection, filtering,
+    /// hash parameters, or flow intervals without a packet sampling
+    /// algorithm) declares 1, so it also replaces a rate learned earlier.
+    ///
+    /// A lone packet interval is read as 1-in-N, as exporters that send it
+    /// without a spacing use it; with a spacing it is the RFC run length, and
+    /// the rate is (selected + skipped) / selected.
     fn rate(&self) -> Option<u64> {
-        let runs = |selected: Option<u64>, skipped: Option<u64>| match (selected, skipped) {
+        let flow_level = self.flow_interval.is_some() || self.flow_spacing.is_some();
+        if !self.packet_sampling && (self.complete_selection || flow_level) {
+            return Some(1);
+        }
+        let packet_interval = match (self.packet_interval, self.packet_space) {
             (Some(selected), Some(skipped)) => {
                 rounded_ratio(u128::from(selected) + u128::from(skipped), selected)
             }
@@ -467,8 +514,7 @@ impl SamplingFields {
         };
         self.interval
             .or_else(|| rounded_ratio(u128::from(self.population?), self.size?))
-            .or_else(|| runs(self.packet_interval, self.packet_space))
-            .or_else(|| runs(self.flow_interval, self.flow_spacing))
+            .or(packet_interval)
             .or_else(|| sampling_rate_from_probability(self.probability?))
     }
 }
