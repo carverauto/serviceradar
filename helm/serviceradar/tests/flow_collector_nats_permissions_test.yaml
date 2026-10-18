@@ -6,6 +6,14 @@ templates:
   - templates/flow-collector-bootstrap-job.yaml
 release:
   namespace: serviceradar-test
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
   - it: limits collector identities to their data subjects streams and reply inboxes
     template: templates/nats.yaml

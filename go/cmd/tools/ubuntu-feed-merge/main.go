@@ -4,6 +4,7 @@ package main
 
 import (
 	"archive/tar"
+	"bufio"
 	"container/heap"
 	"crypto/sha256"
 	"encoding/binary"
@@ -35,6 +36,9 @@ const (
 	maxRunDecoderWindowBytes        = 8 << 20
 	minRunDecoderResidentBytes      = 16 << 20
 	mergeWriterResidentBytes        = 16 << 20
+	runFileBufferBytes              = 32 << 10
+	runDecoderBufferBytes           = 32 << 10
+	runReaderBufferBytes            = runFileBufferBytes + runDecoderBufferBytes
 	osvKind                         = "osv"
 	vexKind                         = "vex"
 	legacyTarRegularType       byte = 0
@@ -181,7 +185,9 @@ func validateLimits(lim limits) error {
 	if lim.totalBytes > math.MaxInt64-memberOverhead-(1<<20) ||
 		lim.fileBytes > math.MaxInt64-lim.chunkBytes-(16<<20) ||
 		lim.fileBytes > math.MaxInt64-lim.pathBytes ||
-		lim.fileBytes+lim.pathBytes > math.MaxInt64-lim.decoderBytes {
+		lim.fileBytes+lim.pathBytes > math.MaxInt64-lim.decoderBytes ||
+		lim.pathBytes > math.MaxInt64-runReaderBufferBytes ||
+		runReaderBufferBytes+lim.pathBytes > math.MaxInt64-lim.decoderBytes {
 		return newDiagnostic("invalid helper limits")
 	}
 	return nil
@@ -488,7 +494,8 @@ func prepareOne(input *archiveInput, kind, outDir string, lim limits, budget *wo
 	hasher := sha256.New()
 	limited := &io.LimitedReader{R: input.file, N: input.size}
 	hashed := io.TeeReader(limited, hasher)
-	xr, err := (xz.ReaderConfig{DictCap: lim.dictBytes}).NewReader(hashed)
+	buffered := bufio.NewReaderSize(hashed, runReaderBufferBytes)
+	xr, err := (xz.ReaderConfig{DictCap: lim.dictBytes}).NewReader(buffered)
 	if err != nil {
 		return inv, fmt.Errorf("open %s xz: %w", kind, err)
 	}
@@ -501,7 +508,7 @@ func prepareOne(input *archiveInput, kind, outDir string, lim limits, budget *wo
 	if _, err := io.Copy(io.Discard, capped); err != nil {
 		return inv, fmt.Errorf("finish %s xz stream: %w", kind, err)
 	}
-	if _, err := io.Copy(io.Discard, hashed); err != nil || limited.N != 0 {
+	if _, err := io.Copy(io.Discard, buffered); err != nil || limited.N != 0 {
 		return inv, diagnosticf("%s archive changed during preparation", kind)
 	}
 	consumedInfo, err := input.file.Stat()
@@ -538,6 +545,12 @@ func prepareOne(input *archiveInput, kind, outDir string, lim limits, budget *wo
 }
 
 func writeRunAtomic(destination string, budget *workBudget, produce func(func(runRecord) error) error) (int64, error) {
+	return writeRunStreamAtomic(destination, budget, func(zw io.Writer) error {
+		return produce(func(record runRecord) error { return writeRunRecord(zw, record) })
+	})
+}
+
+func writeRunStreamAtomic(destination string, budget *workBudget, write func(io.Writer) error) (int64, error) {
 	return writeAtomic(destination, budget, func(w io.Writer) error {
 		zw, err := zstd.NewWriter(w,
 			zstd.WithEncoderLevel(zstd.SpeedDefault),
@@ -549,10 +562,10 @@ func writeRunAtomic(destination string, budget *workBudget, produce func(func(ru
 		if err != nil {
 			return err
 		}
-		produceErr := produce(func(record runRecord) error { return writeRunRecord(zw, record) })
+		writeErr := write(zw)
 		closeErr := zw.Close()
-		if produceErr != nil {
-			return produceErr
+		if writeErr != nil {
+			return writeErr
 		}
 		return closeErr
 	})
@@ -661,15 +674,14 @@ func collapseRuns(kind, outDir string, runs []runFile, lim limits, budget *workB
 }
 
 // mergeResidentCapacity returns the number of run readers that fit while
-// reserving each decoder, every heap cursor at its maximum legal size, one
-// transient replacement cursor, and the merge writer. The deliberately
-// conservative replacement reservation prevents a read of the next record
-// from temporarily exceeding the cap before the prior cursor becomes dead.
+// reserving each decoder, each cursor's buffered reader and maximum-length CVE
+// key, one shared payload-copy and replacement reservation, and the merge
+// writer.
 func mergeResidentCapacity(lim limits) (int64, error) {
 	if err := validateLimits(lim); err != nil {
 		return 0, err
 	}
-	cursorBytes := lim.fileBytes + lim.pathBytes
+	cursorBytes := runReaderBufferBytes + lim.pathBytes
 	if lim.residentBytes <= mergeWriterResidentBytes || cursorBytes > lim.residentBytes-mergeWriterResidentBytes {
 		return 0, errResidentCap
 	}
@@ -720,10 +732,10 @@ func mergeRunGroup(destination string, sources []runFile, lim limits, budget *wo
 		readers = append(readers, r)
 	}
 	defer closeRunReaders(readers)
-	size, err := writeRunAtomic(destination, budget, func(yield func(runRecord) error) error {
+	size, err := writeRunStreamAtomic(destination, budget, func(zw io.Writer) error {
 		queue := make(runHeap, 0, len(readers))
 		for i, reader := range readers {
-			record, err := reader.next(lim)
+			record, err := reader.nextHeader(lim)
 			if errors.Is(err, io.EOF) {
 				continue
 			}
@@ -732,6 +744,7 @@ func mergeRunGroup(destination string, sources []runFile, lim limits, budget *wo
 			}
 			heap.Push(&queue, runCursor{record: record, source: i})
 		}
+		scratch := make([]byte, runReaderBufferBytes)
 		lastCVE := ""
 		for queue.Len() > 0 {
 			cursor := heap.Pop(&queue).(runCursor)
@@ -739,10 +752,10 @@ func mergeRunGroup(destination string, sources []runFile, lim limits, budget *wo
 				return diagnosticf("duplicate CVE %s", cursor.record.CVE)
 			}
 			lastCVE = cursor.record.CVE
-			if err := yield(cursor.record); err != nil {
+			if err := readers[cursor.source].copyRecord(zw, cursor.record, scratch); err != nil {
 				return err
 			}
-			record, err := readers[cursor.source].next(lim)
+			record, err := readers[cursor.source].nextHeader(lim)
 			if err == nil {
 				heap.Push(&queue, runCursor{record: record, source: cursor.source})
 			} else if !errors.Is(err, io.EOF) {
@@ -766,8 +779,14 @@ func mergeRunGroup(destination string, sources []runFile, lim limits, budget *wo
 	return runFile{path: destination, size: size}, nil
 }
 
+type runRecordHeader struct {
+	CVE       string
+	rawLength int64
+	header    [runHeaderBytes]byte
+}
+
 type runCursor struct {
-	record runRecord
+	record runRecordHeader
 	source int
 }
 
@@ -793,6 +812,7 @@ func (h *runHeap) Pop() any {
 type runReader struct {
 	file         *os.File
 	decoder      *zstd.Decoder
+	reader       *bufio.Reader
 	recordLimit  int64
 	records      int64
 	decodedBytes int64
@@ -827,11 +847,16 @@ func openRunWithRecordLimit(filename string, lim limits, recordLimit int64) (*ru
 		_ = f.Close()
 		return nil, err
 	}
-	return &runReader{file: f, decoder: decoder, recordLimit: recordLimit}, nil
+	return &runReader{
+		file:        f,
+		decoder:     decoder,
+		reader:      bufio.NewReaderSize(decoder, runDecoderBufferBytes),
+		recordLimit: recordLimit,
+	}, nil
 }
 
 func newRunDecoder(r io.Reader, lim limits) (*zstd.Decoder, error) {
-	return zstd.NewReader(r,
+	return zstd.NewReader(bufio.NewReaderSize(r, runFileBufferBytes),
 		zstd.WithDecoderConcurrency(1),
 		zstd.WithDecoderLowmem(true),
 		zstd.WithDecoderMaxWindow(maxRunDecoderWindowBytes),
@@ -850,53 +875,102 @@ func closeRunReaders(readers []*runReader) {
 	}
 }
 
-func (r *runReader) next(lim limits) (runRecord, error) {
+func (r *runReader) nextHeader(lim limits) (runRecordHeader, error) {
 	var header [runHeaderBytes]byte
-	n, err := io.ReadFull(r.decoder, header[:])
+	n, err := io.ReadFull(r.reader, header[:])
 	if err != nil {
 		if errors.Is(err, io.EOF) && n == 0 {
-			return runRecord{}, io.EOF
+			return runRecordHeader{}, io.EOF
 		}
-		return runRecord{}, fmt.Errorf("truncated sort run header: %w", err)
+		return runRecordHeader{}, fmt.Errorf("truncated sort run header: %w", err)
 	}
 	cveLength := int64(binary.BigEndian.Uint32(header[0:4]))
 	rawLength := int64(binary.BigEndian.Uint32(header[4:8]))
 	if cveLength <= 0 || cveLength > lim.pathBytes || rawLength < 0 || rawLength > lim.fileBytes {
-		return runRecord{}, newDiagnostic("invalid sort run record length")
+		return runRecordHeader{}, newDiagnostic("invalid sort run record length")
 	}
 	if r.records >= r.recordLimit {
-		return runRecord{}, newDiagnostic("sort run record cap exceeded")
+		return runRecordHeader{}, newDiagnostic("sort run record cap exceeded")
 	}
 	remaining := lim.decodedBytes - r.decodedBytes
 	if remaining < int64(runHeaderBytes) {
-		return runRecord{}, newDiagnostic("sort run decoded byte cap exceeded")
+		return runRecordHeader{}, newDiagnostic("sort run decoded byte cap exceeded")
 	}
 	remaining -= int64(runHeaderBytes)
 	if cveLength > remaining {
-		return runRecord{}, newDiagnostic("sort run decoded byte cap exceeded")
+		return runRecordHeader{}, newDiagnostic("sort run decoded byte cap exceeded")
 	}
 	remaining -= cveLength
 	if rawLength > remaining {
-		return runRecord{}, newDiagnostic("sort run decoded byte cap exceeded")
+		return runRecordHeader{}, newDiagnostic("sort run decoded byte cap exceeded")
 	}
 	r.decodedBytes += int64(runHeaderBytes) + cveLength + rawLength
 	r.records++
 	cve := make([]byte, int(cveLength))
-	raw := make([]byte, int(rawLength))
-	if _, err := io.ReadFull(r.decoder, cve); err != nil {
-		return runRecord{}, fmt.Errorf("truncated sort run CVE: %w", err)
-	}
-	if _, err := io.ReadFull(r.decoder, raw); err != nil {
-		return runRecord{}, fmt.Errorf("truncated sort run payload: %w", err)
+	if _, err := io.ReadFull(r.reader, cve); err != nil {
+		return runRecordHeader{}, fmt.Errorf("truncated sort run CVE: %w", err)
 	}
 	if !cveName.Match(cve) {
-		return runRecord{}, newDiagnostic("invalid sort run CVE")
+		return runRecordHeader{}, newDiagnostic("invalid sort run CVE")
+	}
+	return runRecordHeader{
+		CVE:       string(cve),
+		rawLength: rawLength,
+		header:    header,
+	}, nil
+}
+
+func (r *runReader) copyRecord(w io.Writer, record runRecordHeader, scratch []byte) error {
+	if err := writeAll(w, record.header[:]); err != nil {
+		return err
+	}
+	if err := writeAll(w, []byte(record.CVE)); err != nil {
+		return err
+	}
+	return r.copyPayload(w, record, scratch)
+}
+
+func (r *runReader) copyPayload(w io.Writer, record runRecordHeader, scratch []byte) error {
+	hasher := sha256.New()
+	remaining := record.rawLength
+	for remaining > 0 {
+		chunk := scratch
+		if int64(len(chunk)) > remaining {
+			chunk = chunk[:int(remaining)]
+		}
+		if _, err := io.ReadFull(r.reader, chunk); err != nil {
+			return fmt.Errorf("truncated sort run payload: %w", err)
+		}
+		_, _ = hasher.Write(chunk)
+		if w != nil {
+			if err := writeAll(w, chunk); err != nil {
+				return err
+			}
+		}
+		remaining -= int64(len(chunk))
+	}
+	var digest [sha256.Size]byte
+	hasher.Sum(digest[:0])
+	if !equalBytes(record.header[8:], digest[:]) {
+		return newDiagnostic("sort run digest mismatch")
+	}
+	return nil
+}
+
+func (r *runReader) next(lim limits) (runRecord, error) {
+	record, err := r.nextHeader(lim)
+	if err != nil {
+		return runRecord{}, err
+	}
+	raw := make([]byte, int(record.rawLength))
+	if _, err := io.ReadFull(r.reader, raw); err != nil {
+		return runRecord{}, fmt.Errorf("truncated sort run payload: %w", err)
 	}
 	digest := sha256.Sum256(raw)
-	if !equalBytes(header[8:], digest[:]) {
+	if !equalBytes(record.header[8:], digest[:]) {
 		return runRecord{}, newDiagnostic("sort run digest mismatch")
 	}
-	return runRecord{CVE: string(cve), Raw: raw}, nil
+	return runRecord{CVE: record.CVE, Raw: raw}, nil
 }
 
 func equalBytes(a, b []byte) bool {
@@ -920,13 +994,17 @@ func scanRun(filename string, expected int64, lim limits) ([]ref, error) {
 	}
 	defer r.close()
 	refs := make([]ref, 0, int(expected))
+	scratch := make([]byte, runReaderBufferBytes)
 	lastCVE := ""
 	for {
-		record, err := r.next(lim)
+		record, err := r.nextHeader(lim)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err := r.copyPayload(nil, record, scratch); err != nil {
 			return nil, err
 		}
 		if record.CVE <= lastCVE {

@@ -64,42 +64,11 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
       )
       |> Ash.create()
 
-    # The higher uid is written first so it sits ahead of the lower one in physical order.
-    # Other fixture suites insert and delete ocsf_devices at the same time. A slot they
-    # free between these two inserts is the first place the second row lands, which
-    # puts the lower uid ahead of the higher one. Hold the table across both inserts
-    # so that slot cannot appear between them.
-    #
-    # `Repo.transaction!/1` does not open a SQL transaction: AshPostgres runs the
-    # function and matches its result. `LOCK TABLE` is rejected outside a
-    # transaction block, so this has to be `Repo.transaction/1`.
-    {:ok, devices} =
-      Repo.transaction(fn ->
-        Repo.query!("SET LOCAL lock_timeout = '#{@wait_ms}ms'")
-
-        Repo.query!("LOCK TABLE platform.ocsf_devices IN SHARE ROW EXCLUSIVE MODE")
-
-        for {suffix, ip} <- [{"b", "198.51.100.12"}, {"a", "198.51.100.11"}] do
-          {:ok, device} =
-            Device
-            |> Ash.Changeset.for_create(
-              :create,
-              %{
-                uid: "sweep-lock-order-#{unique}-#{suffix}",
-                ip: ip,
-                partition: partition,
-                hostname: "lock-order-#{suffix}.example.com",
-                discovery_sources: ["netbox"],
-                is_available: false,
-                metadata: %{}
-              },
-              actor: actor
-            )
-            |> Ash.create()
-
-          device
-        end
-      end)
+    {devices, _reversed_pairs} =
+      insert_high_uid_before_low_uid!(
+        "platform.ocsf_devices",
+        &create_lock_order_device!(unique, partition, actor, &1)
+      )
 
     uids = Enum.map(devices, & &1.uid)
 
@@ -113,11 +82,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
 
     # Without this the sweep would reach the lower row first under any plan, and the case
     # could not tell ordered locking from plan-ordered locking.
-    physical_order =
-      Repo.query!(
-        "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) ORDER BY ctid",
-        [uids]
-      ).rows
+    physical_order = physical_uid_order("platform.ocsf_devices", uids)
 
     assert physical_order == [[high_uid], [low_uid]],
            "setup must place the higher uid ahead of the lower one in physical order, got #{inspect(physical_order)}"
@@ -173,6 +138,56 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
         end
       end
     end
+  end
+
+  # A private temp table on one pinned connection gives a heap layout no other writer can
+  # disturb. Block 0 keeps room for one small row but not a large one, so the large fillers
+  # extend into block 1 and leave room for exactly one small row there. The first target
+  # insert takes that slot; the second asks the FSM, whose only candidate is block 0.
+  test "insert_high_uid_before_low_uid!/2 recovers when the FSM wraps from a later block to an earlier block" do
+    Repo.checkout(fn ->
+      Repo.query!("CREATE TEMP TABLE lock_order_fsm (uid text NOT NULL, pad text NOT NULL)")
+
+      try do
+        Repo.query!("ALTER TABLE lock_order_fsm ALTER COLUMN pad SET STORAGE PLAIN")
+
+        for n <- 1..8, do: insert_fsm_row!("fill-#{n}", 900)
+        Repo.query!("DELETE FROM lock_order_fsm WHERE uid = 'fill-1'")
+        Repo.query!("VACUUM lock_order_fsm")
+
+        for n <- 9..11, do: insert_fsm_row!("fill-#{n}", 1900)
+        insert_fsm_row!("fill-12", 900)
+
+        assert fsm_blocks() == %{0 => 7, 1 => 4},
+               "setup must leave one small slot in block 0 and one in block 1, got #{inspect(fsm_blocks())}"
+
+        {[high, low], reversed_pairs} =
+          insert_high_uid_before_low_uid!("lock_order_fsm", fn seq ->
+            uid = "target-#{seq}"
+            insert_fsm_row!(uid, 900)
+            %{uid: uid}
+          end)
+
+        assert reversed_pairs == 1,
+               "the first target pair must land in reversed physical order, got #{reversed_pairs}"
+
+        assert high.uid > low.uid
+
+        assert Repo.query!(
+                 "SELECT uid FROM lock_order_fsm WHERE uid LIKE 'target-%' ORDER BY uid"
+               ).rows == [
+                 [low.uid],
+                 [high.uid]
+               ]
+
+        assert physical_uid_order("lock_order_fsm", [high.uid, low.uid]) == [
+                 [high.uid],
+                 [low.uid]
+               ]
+      after
+        Repo.query!("DROP TABLE IF EXISTS lock_order_fsm")
+      end
+    end)
   end
 
   # Holds the lower row in its own transaction exactly as the identity fence does
@@ -304,6 +319,91 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
         Task.shutdown(task, :brutal_kill)
       end
     end
+  end
+
+  # Inserts descending-uid rows into `table` inside a single table-locked transaction until two
+  # consecutive inserts satisfy `ctid(higher_uid) < ctid(lower_uid)`.
+  #
+  # Locking the table prevents concurrent transactions from interleaving,
+  # but a single backend's first insert can still fill the last free slot on its cached
+  # `smgr_targblock` (a higher block number) and force the second insert to query the
+  # Free Space Map (FSM), which may return an earlier vacuumed block (`ctid(second) < ctid(first)`).
+  # Keeping earlier attempts in the heap until a pair lands in increasing `ctid` order prevents
+  # the FSM from reusing those slots and guarantees termination in well-founded `ctid` order.
+  defp insert_high_uid_before_low_uid!(table, insert!) do
+    {:ok, result} =
+      Repo.transaction(fn ->
+        Repo.query!("LOCK TABLE #{table} IN SHARE ROW EXCLUSIVE MODE")
+        advance_until_high_before_low!(table, insert!, insert!.(999), 998, [])
+      end)
+
+    result
+  end
+
+  defp advance_until_high_before_low!(_table, _insert!, _prev, seq, _discarded) when seq < 1 do
+    flunk("failed to place a higher uid before a lower uid in physical order after 999 attempts")
+  end
+
+  defp advance_until_high_before_low!(table, insert!, prev, seq, discarded) do
+    curr = insert!.(seq)
+
+    if physical_uid_order(table, [prev.uid, curr.uid]) == [[prev.uid], [curr.uid]] do
+      if discarded != [] do
+        discarded_uids = Enum.map(discarded, & &1.uid)
+        Repo.query!("DELETE FROM #{table} WHERE uid = ANY($1)", [discarded_uids])
+      end
+
+      {[prev, curr], length(discarded)}
+    else
+      advance_until_high_before_low!(table, insert!, curr, seq - 1, [prev | discarded])
+    end
+  end
+
+  defp create_lock_order_device!(unique, partition, actor, seq) do
+    seq_tag = seq |> Integer.to_string() |> String.pad_leading(4, "0")
+    third_octet = div(1000 - seq, 250)
+    fourth_octet = rem(1000 - seq, 250) + 1
+
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        uid: "sr:lock-order-#{unique}-#{seq_tag}",
+        ip: "198.18.#{third_octet}.#{fourth_octet}",
+        partition: partition,
+        is_available: true,
+        metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create!(return_notifications?: true)
+    |> case do
+      {device, _notifications} -> device
+      device -> device
+    end
+  end
+
+  defp physical_uid_order(table, uids) do
+    Repo.query!("SELECT uid FROM #{table} WHERE uid = ANY($1) ORDER BY ctid", [uids]).rows
+  end
+
+  defp insert_fsm_row!(uid, pad_bytes) do
+    Repo.query!("INSERT INTO lock_order_fsm (uid, pad) VALUES ($1, repeat('x', $2))", [
+      uid,
+      pad_bytes
+    ])
+  end
+
+  defp fsm_blocks do
+    Map.new(
+      Repo.query!("SELECT (ctid::text::point)[0]::int, count(*) FROM lock_order_fsm GROUP BY 1").rows,
+      fn [
+           block,
+           count
+         ] ->
+        {block, count}
+      end
+    )
   end
 
   # Everything the case commits hangs off its own partition, so cleanup needs no state from a

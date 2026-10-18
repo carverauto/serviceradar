@@ -200,15 +200,22 @@ defmodule ServiceRadar.BGP.Ingestor do
       $2,
       $3,
       $4,
-      $5,
-      $6,
+      ($5::text)::inet,
+      ($6::text)::inet,
       $7,
       $8,
       $9,
       $10,
       NOW()
     )
-    ON CONFLICT ON CONSTRAINT idx_bgp_routing_dedup
+    ON CONFLICT (
+      timestamp,
+      source_protocol,
+      as_path,
+      COALESCE(bgp_communities, ARRAY[]::integer[]),
+      COALESCE(src_ip::text, ''),
+      COALESCE(dst_ip::text, '')
+    )
     DO UPDATE SET
       total_bytes = bgp_routing_info.total_bytes + EXCLUDED.total_bytes,
       total_packets = bgp_routing_info.total_packets + EXCLUDED.total_packets,
@@ -221,8 +228,8 @@ defmodule ServiceRadar.BGP.Ingestor do
       attrs[:source_protocol],
       attrs[:as_path],
       attrs[:bgp_communities] || [],
-      attrs[:src_ip],
-      attrs[:dst_ip],
+      normalize_ip(attrs[:src_ip]),
+      normalize_ip(attrs[:dst_ip]),
       bytes,
       packets,
       flow_count,
@@ -241,6 +248,14 @@ defmodule ServiceRadar.BGP.Ingestor do
         Logger.error("BGP observation upsert failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp normalize_ip(nil), do: nil
+  defp normalize_ip(""), do: nil
+  defp normalize_ip(ip) when is_binary(ip), do: ip
+
+  defp normalize_ip(%Postgrex.INET{address: address}) do
+    address |> :inet.ntoa() |> to_string()
   end
 
   defp process_batch(observations) do

@@ -1,9 +1,10 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeedSourcePresence do
   @moduledoc """
-  Narrow ledger of source objects observed in complete advisory generations.
+  Legacy ledger of source objects observed in complete advisory generations.
 
-  Presence is intentionally separate from advisory content so an unchanged
-  snapshot can prove completeness without rewriting the advisory corpus.
+  The advisory feed loader no longer writes or reads this table; a run tracks
+  observed advisories in memory with `AdvisoryFeeds.OrdinalSet`. The table is
+  retained until no deployed release writes it, then dropped.
   """
 
   use Ash.Resource,

@@ -405,8 +405,10 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
               raise "hostile IOC flow query failed: #{inspect(reason)}"
           end
 
+        # Flows are stored only in the warehouse, so without it there is no
+        # flow evidence to correlate and no hit.
         {:error, :starrocks_required} ->
-          fetch_flow_pages(opts, page_size, nil, [])
+          []
       end
     end
   end
@@ -434,90 +436,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         page.(opts, page_size, after_key)
 
       _ ->
-        # Cut over, read the attributed flows from the warehouse with the same
-        # keyset page. Not cut over (warehouse disabled, or an operator's
-        # explicit cutover list that omits flows), keep the CNPG query: it
-        # serves an installation without the warehouse, which still writes
-        # and reads flows there.
-        case flow_history_backend() do
-          :starrocks -> query_flow_page_warehouse_sql(opts, page_size, after_key)
-          {:error, :starrocks_required} -> query_flow_page_sql(opts, page_size, after_key)
-        end
-    end
-  end
-
-  defp query_flow_page_sql(opts, page_size, after_key) do
-    window_seconds =
-      opts
-      |> Keyword.get(:window_seconds, @default_window_seconds)
-      |> max(60)
-
-    {after_time, after_row_key} = after_key || {nil, nil}
-
-    sql = """
-    SELECT page.*
-    FROM (
-      SELECT
-        base.*,
-        format(
-          '%L,%L,%L,%L,%L,%L,%L',
-          base.device_uid, base.agent_id, base.hostile_ip, base.dst_ip,
-          base.dst_port, base.comm, base.cmdline
-        ) AS row_key
-      FROM (
-        SELECT
-          COALESCE(a.device_uid, di.device_id) AS device_uid,
-          f.ocsf_payload->>'agent_id' AS agent_id,
-          lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i')) AS hostile_ip,
-          lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i')) AS dst_ip,
-          f.dst_endpoint_port AS dst_port,
-          f.ocsf_payload->'attribution'->>'comm' AS comm,
-          COALESCE(
-            f.ocsf_payload->'attribution'->>'redacted_cmdline',
-            f.ocsf_payload->'attribution'->>'cmdline'
-          ) AS cmdline,
-          f.time AS observed_at,
-          t.sources AS ioc_sources,
-          t.max_severity AS ioc_severity
-        FROM platform.ocsf_network_activity AS f
-        JOIN platform.ip_threat_intel_cache AS t
-          ON t.matched = true
-         AND t.expires_at > $1::timestamptz
-         AND lower(regexp_replace(coalesce(t.ip, ''), '^::ffff:', '', 'i'))
-           = lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i'))
-        LEFT JOIN platform.ocsf_agents AS a
-          ON a.uid = f.ocsf_payload->>'agent_id'
-        LEFT JOIN LATERAL (
-          SELECT di.device_id
-          FROM platform.device_identifiers AS di
-          WHERE di.identifier_type = 'ip'
-            AND lower(di.identifier_value)
-              = lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i'))
-          LIMIT 1
-        ) AS di ON a.device_uid IS NULL
-        WHERE f.time > $1::timestamptz - make_interval(secs => $2)
-          AND f.time <= $1::timestamptz
-          AND ($4::timestamptz IS NULL OR f.time <= $4::timestamptz)
-          AND f.ocsf_payload->>'event_type' = 'attributed_flow'
-          AND COALESCE(a.device_uid, di.device_id) IS NOT NULL
-      ) AS base
-    ) AS page
-    WHERE $4::timestamptz IS NULL
-       OR (page.observed_at, page.row_key) < ($4::timestamptz, $5::text)
-    ORDER BY page.observed_at DESC, page.row_key DESC
-    LIMIT $3
-    """
-
-    params = [Keyword.fetch!(opts, :as_of), window_seconds, page_size, after_time, after_row_key]
-
-    query = Keyword.get(opts, :cnpg_query, &SQL.query(Repo, &1, &2))
-
-    case query.(sql, params) do
-      {:ok, %{columns: columns, rows: rows}} ->
-        Enum.map(rows, &flow_row(columns, &1))
-
-      {:error, reason} ->
-        raise "hostile IOC flow query failed: #{inspect(reason)}"
+        query_flow_page_warehouse_sql(opts, page_size, after_key)
     end
   end
 
@@ -779,27 +698,6 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         prefix: "platform"
       )
     end
-  end
-
-  defp flow_row(columns, values) do
-    row =
-      columns
-      |> Enum.zip(values)
-      |> Map.new(fn {column, value} -> {column, value} end)
-
-    %{
-      device_uid: row["device_uid"],
-      agent_id: row["agent_id"],
-      hostile_ip: row["hostile_ip"],
-      dst_ip: row["dst_ip"],
-      dst_port: row["dst_port"],
-      comm: row["comm"],
-      cmdline: row["cmdline"],
-      observed_at: row["observed_at"],
-      ioc_sources: List.wrap(row["ioc_sources"]),
-      ioc_severity: row["ioc_severity"],
-      row_key: row["row_key"]
-    }
   end
 
   defp alias_overlap?(comm, package) do

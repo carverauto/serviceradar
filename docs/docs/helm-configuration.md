@@ -545,14 +545,15 @@ Operational notes:
 
 `analytics.starrocks.*` enables an opt-in telemetry warehouse for flows, scalar
 metrics, logs, event history, and further append-only datasets, including BMP
-routing events. It is off by default, and NetFlow collection
-does not depend on it (`flowCollector.enabled` is independent). BMP routing
-events are warehouse-only while StarRocks is enabled; the table and retention
-contract is in `k8s/starrocks/README.md`. Metric, log and
-event reads stay on CNPG until the dataset is named in
-`analytics.starrocks.cutoverDatasets`. Flow routing,
-required delivery and the historical-attribution limitation are documented in
+routing events. It is off by default. NetFlow requires it: the chart refuses
+to render `flowCollector.enabled` unless `analytics.starrocks.enabled` is set.
+Flow storage, acknowledgement and the historical-attribution limitation are
+documented in
 [NetFlow: Flow cutover and delivery](./netflow.md#flow-cutover-and-delivery).
+BMP routing events are warehouse-only while StarRocks is enabled; the table
+and retention contract is in `k8s/starrocks/README.md`. Metric, log and
+event reads stay on CNPG until the dataset is named in
+`analytics.starrocks.cutoverDatasets`.
 
 web-ng and core read these settings once at boot, so the chart stamps a digest
 of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the

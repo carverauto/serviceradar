@@ -261,6 +261,17 @@ identified devices.
   lowest device id. The mapper ranks by alias state first and, within a
   state, in the same order. The sweep's fallback to a pending alias prefers
   the most sightings.
+- When a declarative source (hypervisor enrichment, NetBox, AWX, generic
+  integrations) replaces a device's own primary address, the replaced address
+  is kept as a `detected` alias of the device (metadata `source`
+  `replaced_primary_address`, `replaced_by` the new address), in the same
+  transaction as the write, so a sweep that reaches the old address still
+  attributes it to the device. The source of the batch's last update for the
+  device decides. It is not kept when that update is an observed source (the
+  old address is the stale side of a move), when the device was redirected or
+  withheld, when another live device in its partition now holds the address,
+  or when the device already has an alias row for the address (an invalidated
+  alias is not revived). Which address becomes primary is unchanged.
 
 ## Merge policy and stability
 

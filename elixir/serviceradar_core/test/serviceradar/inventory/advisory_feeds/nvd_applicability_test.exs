@@ -248,6 +248,63 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
       assert {:ok, %{coordinates: []}} = NvdApplicability.normalize(malformed_negate)
     end
 
+    test "a reference to a missing configuration evaluates unknown, never applicable" do
+      configurations = [
+        %{"cpeMatch" => [%{"vulnerable" => true, "criteria" => curl_cpe()}]}
+      ]
+
+      assert {:ok, %{coordinates: [coordinate]} = normalized} =
+               NvdApplicability.normalize(configurations)
+
+      current = ubuntu_curl()
+      facts = EndpointNvdFacts.build(current, [current])
+
+      assert %{result: true} =
+               NvdApplicability.evaluate(resolved_expression(normalized, coordinate), facts)
+
+      assert %{result: :unknown} =
+               NvdApplicability.evaluate(
+                 resolved_expression(%{normalized | configurations: %{}}, coordinate),
+                 facts
+               )
+    end
+
+    # A reference written against other configurations than the advisory now
+    # stores must not resolve against whatever occupies its index today.
+    test "a reference whose configurations digest differs evaluates unknown, never applicable" do
+      written = [%{"cpeMatch" => [%{"vulnerable" => true, "criteria" => curl_cpe()}]}]
+      other = "cpe:2.3:a:example:other_app:1.0:*:*:*:*:*:*:*"
+      rewritten = [%{"cpeMatch" => [%{"vulnerable" => true, "criteria" => other}]} | written]
+
+      assert {:ok, %{coordinates: [coordinate]}} = NvdApplicability.normalize(written)
+
+      assert {:ok, %{configurations_digest: rewritten_digest} = rewritten_normalized} =
+               NvdApplicability.normalize(rewritten)
+
+      current = ubuntu_curl()
+      facts = EndpointNvdFacts.build(current, [current])
+
+      assert NvdApplicability.stale_configuration_reference?(
+               coordinate.metadata,
+               rewritten_digest
+             )
+
+      assert %{result: :unknown} =
+               NvdApplicability.evaluate(
+                 resolved_expression(rewritten_normalized, coordinate),
+                 facts
+               )
+
+      assert %{result: :unknown} =
+               NvdApplicability.evaluate(
+                 resolved_expression(
+                   %{rewritten_normalized | configurations_digest: nil},
+                   coordinate
+                 ),
+                 facts
+               )
+    end
+
     test "rejects ambiguous and non-string version bounds as unsupported" do
       malformed_bounds = [
         %{
@@ -301,10 +358,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
         }
       ]
 
-      assert {:ok, %{coordinates: [coordinate]}} =
+      assert {:ok, %{coordinates: [coordinate]} = normalized} =
                NvdApplicability.normalize(configurations)
 
-      expression = coordinate.metadata["nvd_applicability"]["expression"]
+      expression = resolved_expression(normalized, coordinate)
       assert [_, %{"kind" => "unsupported", "negate" => nil}] = expression["children"]
 
       assert %{result: false, unknown_terms: [_ | _]} =
@@ -315,7 +372,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
       excluding = bounded_configuration("exclude", false)
       including = bounded_configuration("include", true)
 
-      assert {:ok, %{coordinates: [forward]}} =
+      assert {:ok, %{coordinates: [forward]} = forward_normalized} =
                NvdApplicability.normalize([excluding, including])
 
       assert {:ok, %{coordinates: [reverse]}} =
@@ -326,7 +383,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
       assert reverse.version_start_inclusive == true
       assert reverse.version_end_inclusive == true
 
-      assert forward.metadata["nvd_applicability"]["expression"]
+      assert forward_normalized
+             |> resolved_expression(forward)
              |> expression_terms()
              |> MapSet.new(fn term ->
                {term["term_id"], term["bounds"]["version_start_inclusive"],
@@ -456,23 +514,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
         }
       ]
 
-      assert {:ok, %{coordinates: coordinates}} = NvdApplicability.normalize(configurations)
-      by_product = Map.new(coordinates, &{&1.cpe_product, &1})
+      assert {:ok, %{coordinates: coordinates} = normalized} =
+               NvdApplicability.normalize(configurations)
+
+      by_product = Map.new(coordinates, &{&1.cpe_product, resolved_expression(normalized, &1)})
 
       current = %{name: "openssl", version: "3.0.13", cpes: [openssl]}
       facts = EndpointNvdFacts.build(current, [current])
 
       assert %{result: false} =
-               NvdApplicability.evaluate(
-                 by_product["curl"].metadata["nvd_applicability"]["expression"],
-                 facts
-               )
+               NvdApplicability.evaluate(by_product["curl"], facts)
 
       assert %{result: true} =
-               NvdApplicability.evaluate(
-                 by_product["openssl"].metadata["nvd_applicability"]["expression"],
-                 facts
-               )
+               NvdApplicability.evaluate(by_product["openssl"], facts)
     end
 
     test "applies source negation before the current-coordinate guard" do
@@ -502,13 +556,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
         }
       ]
 
-      assert {:ok, %{coordinates: coordinates}} = NvdApplicability.normalize(configurations)
+      assert {:ok, %{coordinates: coordinates} = normalized} =
+               NvdApplicability.normalize(configurations)
+
       curl = Enum.find(coordinates, &(&1.cpe_product == "curl"))
       openssl = %{name: "openssl", version: "3.0.13", cpes: [openssl_cpe]}
 
       assert %{result: false, contradicted_terms: contradicted} =
                NvdApplicability.evaluate(
-                 curl.metadata["nvd_applicability"]["expression"],
+                 resolved_expression(normalized, curl),
                  EndpointNvdFacts.build(openssl, [openssl])
                )
 
@@ -854,7 +910,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
         }
       ]
 
-      assert {:ok, %{coordinates: coordinates}} = NvdApplicability.normalize(configurations)
+      assert {:ok, %{coordinates: coordinates} = normalized} =
+               NvdApplicability.normalize(configurations)
+
       curl = Enum.find(coordinates, &(&1.cpe_product == "curl"))
 
       current = ubuntu_curl()
@@ -863,7 +921,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
 
       assert %{result: true} =
                NvdApplicability.evaluate(
-                 curl.metadata["nvd_applicability"]["expression"],
+                 resolved_expression(normalized, curl),
                  facts
                )
     end
@@ -994,6 +1052,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
   defp parsed_cpe!(value) do
     assert {:ok, parsed} = ServiceRadar.Inventory.AdvisoryFeeds.Cpe.parse(value)
     parsed
+  end
+
+  defp resolved_expression(
+         %{configurations: configurations, configurations_digest: digest},
+         coordinate
+       ) do
+    coordinate.metadata
+    |> NvdApplicability.resolve_metadata(configurations, digest)
+    |> get_in(["nvd_applicability", "expression"])
   end
 
   defp expression_terms(%{"kind" => "cpe"} = term), do: [term]

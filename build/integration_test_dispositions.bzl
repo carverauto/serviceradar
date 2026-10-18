@@ -22,6 +22,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/automation/callback_grants/ash_store_db_test.exs",
     "test/serviceradar/automation/northbound/catalog_test.exs",
     "test/serviceradar/automation/northbound/history_test.exs",
+    "test/serviceradar/bgp/ingestor_db_test.exs",
     "test/serviceradar/cold_tier/registry_drift_test.exs",
     "test/serviceradar/composite_checks/verdict_event_writer_test.exs",
     "test/serviceradar/credentials/credential_broker_grant_db_test.exs",
@@ -176,6 +177,7 @@ ASYNC_INTEGRATION_SRCS = [
 SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/integration/advisory_feed_loader_integration_test.exs": 1,
     "test/integration/advisory_feed_loader_products_integration_test.exs": 1,
+    "test/integration/advisory_ordinal_backfill_worker_integration_test.exs": 1,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 1,
     "test/integration/audit_history_retention_integration_test.exs": 1,
     "test/integration/netflow_ingestion_integration_test.exs": 1,
@@ -239,6 +241,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/event_writer/processors/analytics_signals_test.exs": 1,
     "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/falco_events_integration_test.exs": 1,
+    "test/serviceradar/event_writer/processors/flows_warehouse_only_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/k8s_nodes_ordering_test.exs": 1,
     "test/serviceradar/event_writer/processors/k8s_public_endpoints_binding_test.exs": 1,
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 1,
@@ -409,6 +412,5 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
-    "test/integration/netflow_ingestion_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 ]

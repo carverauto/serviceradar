@@ -2,6 +2,14 @@ suite: flow collector probes and service isolation
 templates:
   - templates/flow-collector.yaml
   - templates/serviceradar-servicemonitors.yaml
+# NetFlow requires StarRocks: the flow-collector templates refuse to render
+# without it (serviceradar.requireStarRocksForNetFlow).
+set:
+  analytics:
+    starrocks:
+      enabled: true
+      catalog:
+        fePasswordSecretName: sr-fe-password
 tests:
   - it: uses an exec readiness probe against the ready marker file
     template: templates/flow-collector.yaml

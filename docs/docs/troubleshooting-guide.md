@@ -141,8 +141,9 @@ kubectl logs -l app=serviceradar-flow-collector | grep "Received.*bytes from"
 # 4. Check NATS stream
 nats stream info events
 
-# 5. Query database directly
-psql -c "SELECT COUNT(*) FROM ocsf_network_activity WHERE time > NOW() - INTERVAL '5 minutes';"
+# 5. Query the warehouse directly (flows are stored only in StarRocks)
+mysql -h <STARROCKS_FE_HOST> -P 9030 -u root -p \
+  -e "SELECT COUNT(*) FROM serviceradar.ocsf_network_activity WHERE time > NOW() - INTERVAL 5 MINUTE;"
 ```
 
 **Common Causes:**
@@ -522,13 +523,13 @@ docker stats netflow-collector
 # NATS stream info
 nats stream info events > nats-stream-info.txt
 
-# Database flow count
-psql -c "SELECT
+# Warehouse flow count (flows are stored only in StarRocks)
+mysql -h <STARROCKS_FE_HOST> -P 9030 -u root -p -e "SELECT
   DATE_TRUNC('hour', time) as hour,
   COUNT(*) as flow_count,
   COUNT(DISTINCT src_endpoint_ip) as unique_sources
-FROM ocsf_network_activity
-WHERE time > NOW() - INTERVAL '24 hours'
+FROM serviceradar.ocsf_network_activity
+WHERE time > NOW() - INTERVAL 24 HOUR
 GROUP BY hour
 ORDER BY hour DESC;" > flow-stats.txt
 

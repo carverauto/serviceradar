@@ -1,18 +1,17 @@
 ## ADDED Requirements
 
 ### Requirement: StarRocks is the optional telemetry warehouse switch
-The system SHALL treat StarRocks as an optional warehouse for flows, scalar metrics, logs and event history, SHALL keep NetFlow collection independently gated, and SHALL keep every telemetry dataset working on CNPG when StarRocks analytics is disabled.
+The system SHALL treat StarRocks as an optional warehouse for scalar metrics, logs and event history and as the only store for flows, SHALL require StarRocks for NetFlow collection, and SHALL keep every telemetry dataset except flows working on CNPG when StarRocks analytics is disabled.
 
 #### Scenario: Install without StarRocks
 - **WHEN** an operator leaves StarRocks analytics disabled
-- **THEN** NetFlow collection can still be enabled
-- **AND** flows, logs and other remaining telemetry persist to CNPG hypertables
-- **AND** Helm does not fail closed for the missing warehouse
+- **THEN** logs, metrics and the other remaining telemetry persist to CNPG hypertables
+- **AND** NetFlow collection cannot be enabled and no flow is stored
 
 #### Scenario: NetFlow without StarRocks
 - **WHEN** an operator enables NetFlow collection without enabling StarRocks analytics
-- **THEN** chart rendering succeeds and the collector workload is deployed
-- **AND** EventWriter persists flows to CNPG hypertables
+- **THEN** chart rendering fails closed before the collector workload is deployed
+- **AND** EventWriter stores no flow in CNPG
 
 #### Scenario: StarRocks without NetFlow still warehouses other telemetry
 - **WHEN** an operator enables StarRocks analytics and leaves NetFlow collection disabled

@@ -851,6 +851,56 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     end
   end
 
+  describe "an address replaced by a sync" do
+    # The replaced address is kept as an alias in the transaction that replaces it. Had the
+    # replacement committed without its alias, the old address would be recorded nowhere, and a
+    # replay would read the new address as the held one. The alias table refuses inserts here,
+    # and a trigger is DDL, so this case runs in this serial module.
+    test "an alias write that fails rolls the replacement back", %{actor: actor} do
+      integration_id = "integration-#{System.unique_integer([:positive])}"
+      {held_ip, declared_ip} = doc_ip_pair()
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [integration_update(integration_id, held_ip, "node03")],
+                 actor: actor
+               )
+
+      uid = device_uid_for_integration!(integration_id, actor)
+      refuse_alias_inserts!()
+
+      assert {:error, _reason} =
+               SyncIngestor.ingest_updates(
+                 [integration_update(integration_id, declared_ip, "node03")],
+                 actor: actor
+               )
+
+      assert {:ok, %Device{ip: ^held_ip}} = Device.get_by_uid(uid, false, actor: actor)
+      assert {:ok, []} = DeviceAliasState.lookup_for_device(uid, :ip, held_ip, actor: actor)
+    end
+  end
+
+  # The trigger is created in the test's sandbox transaction, which is rolled back. The on_exit
+  # drop runs before that, pass or fail, and removes it even where the test is not sandboxed.
+  defp refuse_alias_inserts! do
+    name = "refuse_alias_insert_#{System.unique_integer([:positive])}"
+
+    Repo.query!("""
+    CREATE FUNCTION platform.#{name}() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'alias insert refused'; END $$
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER #{name} BEFORE INSERT ON platform.device_alias_states
+    FOR EACH ROW EXECUTE FUNCTION platform.#{name}()
+    """)
+
+    on_exit(fn ->
+      Repo.query!("DROP TRIGGER IF EXISTS #{name} ON platform.device_alias_states")
+      Repo.query!("DROP FUNCTION IF EXISTS platform.#{name}()")
+    end)
+  end
+
   # `sweep` is a mapper_like_source?, so SourcePolicy.include_mac_identifier?/1
   # only admits the MAC when identity_mac_kind names a real chassis address --
   # without it the MAC is an observation and no device is keyed by it.

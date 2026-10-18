@@ -5,16 +5,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   CNPG remains the serving authority while shadowing. Each destination is
   tracked independently: a partial success retries only the missing destination
   with the same stable identities. Shadow failure does not fail JetStream ACK
-  until the dataset is listed in `cutover_datasets` -- or, for flows, whenever
-  the warehouse is enabled (see `warehouse_required?/1`); from then on Stream
-  Load Success or durable quarantine is required before ACK.
+  until the dataset is listed in `cutover_datasets`; from then on Stream Load
+  Success or durable quarantine is required before ACK.
 
-  MTR traces and hops (`:mtr_traces`, `:mtr_hops`), OTel metrics
-  (`:otel_metrics`, `:otel_metric_points`), OTel spans (`:otel_traces`) and
-  flow process attribution observations (`:flow_attribution_observations`)
-  are not shadowed: while
-  StarRocks is enabled they are written to the warehouse only, through
-  `persist_warehouse/3`, and a failed load fails the ACK.
+  Flows (`:flows`), scalar metrics (`:metrics`), MTR traces and hops
+  (`:mtr_traces`, `:mtr_hops`), OTel metrics (`:otel_metrics`,
+  `:otel_metric_points`), OTel spans (`:otel_traces`) and flow process
+  attribution observations (`:flow_attribution_observations`) are not
+  shadowed: while StarRocks is enabled they are written to the warehouse only,
+  through `persist_warehouse/3`, and a failed load fails the ACK. Flows have no
+  CNPG write at all; without StarRocks they are not stored.
 
   ## Load sizing
 
@@ -148,10 +148,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   @doc """
   After a CNPG insert, persist to StarRocks.
 
-  When the dataset's reads are cut over -- or, for flows, whenever the
-  warehouse is enabled (see `warehouse_required?/1`) -- Stream Load Success
-  or durable quarantine is required and a failure fails the EventWriter ACK,
-  so JetStream redelivers the batch. Otherwise shadow writes stay best-effort.
+  When the dataset's reads are cut over, Stream Load Success or durable
+  quarantine is required and a failure fails the EventWriter ACK, so JetStream
+  redelivers the batch. Otherwise shadow writes stay best-effort.
   """
   @spec persist_after_cnpg(dataset(), [map()], keyword()) ::
           {:ok, map()} | {:ok, :disabled} | {:error, term()}
@@ -160,7 +159,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   def persist_after_cnpg(_dataset, [], _opts), do: {:ok, :disabled}
 
   def persist_after_cnpg(dataset, rows, opts) when is_list(rows) do
-    if warehouse_required?(dataset) do
+    if Readers.mode_for(dataset) == "starrocks" do
       persist_shadow(
         dataset,
         rows,
@@ -180,39 +179,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
         other ->
           other
-      end
-    end
-  end
-
-  # The cutover list routes reads; required flow delivery follows warehouse
-  # enablement so an outage cannot silently skip warehouse writes before cutover.
-  # Redelivery reuses the stable identity for CNPG conflict handling and warehouse
-  # upserts. Success or durable quarantine satisfies the ACK boundary above.
-  defp warehouse_required?(:flows), do: Readers.enabled?()
-
-  defp warehouse_required?(dataset), do: Readers.mode_for(dataset) == "starrocks"
-
-  @doc """
-  Insert into CNPG then apply `persist_after_cnpg/3`. The insert function is
-  the processor's existing CNPG writer.
-
-  Stream Load performs bounded warehouse-only retries within this call, after
-  the CNPG insert has finished. If those exhaust, JetStream redelivery replays
-  the processor's idempotent insert and the same warehouse identities. This is
-  not a durable completion ledger across separate JetStream deliveries.
-  """
-  @spec ack_cnpg_batch(
-          dataset(),
-          [map()],
-          ([map()] -> {:ok, non_neg_integer()} | {:error, term()}),
-          keyword()
-        ) ::
-          {:ok, non_neg_integer()} | {:error, term()}
-  def ack_cnpg_batch(dataset, rows, insert_fun, opts \\ []) when is_function(insert_fun, 1) do
-    with {:ok, count} <- insert_fun.(rows) do
-      case persist_after_cnpg(dataset, rows, opts) do
-        {:ok, _} -> {:ok, count}
-        {:error, reason} -> {:error, reason}
       end
     end
   end

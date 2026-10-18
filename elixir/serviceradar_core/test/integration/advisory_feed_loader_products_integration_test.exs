@@ -476,13 +476,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderProductsIntegrationTest do
 
   defp cleanup_unboxed_feeds(feed_keys) do
     Repo.delete_all(
-      from(presence in "advisory_feed_source_presence",
-        where: presence.provider == ^@provider and presence.feed_key in ^feed_keys
-      ),
-      prefix: @schema
-    )
-
-    Repo.delete_all(
       from(advisory in "vulnerability_advisories",
         where: advisory.provider == ^@provider and advisory.feed_key in ^feed_keys
       ),

@@ -1000,8 +1000,8 @@ maintained count tables, not ad hoc `GROUP BY`.
 | `title` | | Advisory title |
 | `cpe` / `cpe_vendor` / `cpe_product` | | EXISTS against `advisory_coordinates` |
 
-`time:` filters `published_at`. Projection omits `raw` and
-`affected_coordinates`. `stats:count()` groups by `severity`, `kev`,
+`time:` filters `published_at`. Projection omits `raw`,
+`affected_coordinates`, and `nvd_configurations`. `stats:count()` groups by `severity`, `kev`,
 `provider`, `feed_key`, `cve_id`. No `downsample` / `rollup_stats`.
 Positive CPE component filters must match the same coordinate row. Negated CPE
 component filters exclude an advisory when any of its coordinates matches that

@@ -279,6 +279,18 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
+{{/*
+NetFlow, sFlow and IPFIX flows are stored only in StarRocks: EventWriter has no
+CNPG flow write, so a collector without the warehouse would deliver flows that
+are acknowledged and dropped. Refuse to render it instead.
+*/}}
+{{- define "serviceradar.requireStarRocksForNetFlow" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if not $sr.enabled }}
+{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow, sFlow and IPFIX flows are stored only in StarRocks" }}
+{{- end }}
+{{- end -}}
+
 {{- define "serviceradar.starrocksShadowDatasets" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- $shadow := $sr.shadowDatasets | default list -}}
