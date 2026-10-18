@@ -410,16 +410,14 @@ the kernel event.
     the row converges on the latest complete decision and an obsolete higher-precedence stamp
     cannot survive. Only the home shard publishes for a flow; no two shards ever write the
     same flow independently, so the sequence is a total order per flow.
-  - *Close*: when the window ends (default 5 minutes) the home shard unregisters every watch
-    with the same snapshot semantics: each owning shard, in one step, removes the watch and
-    returns the key's current candidate state, so every mutation it accepted before that
-    point is included. The home shard makes one final recompute once all unregistrations, and
-    any registrations still outstanding, are acknowledged, publishes it if it differs, and
-    drops the state; that decision is final. If acknowledgements have not arrived by the
-    closing deadline (default 10 s after the window ends), the deadline wins: the home shard
-    closes with the decision computed from what it has and counts the case
-    (`decision_closed_unreconciled`). A claim or a validity shrink that arrives after the window
-    does not re-open the flow; the shard counts it as `late_conflict`.
+  - *Close*: the window has one cutoff, its end (default 5 minutes after enrollment). At the
+    cutoff the decision last computed by the home shard is final; it uses only the
+    registration acknowledgements and notifications the home shard processed by then. If any
+    registration is still unacknowledged at the cutoff, the case is counted
+    (`decision_closed_unreconciled`). The home shard then drops the state and unregisters its
+    watches; unregistration is cleanup only and never adds candidates. A notification, claim
+    or validity shrink that reaches the home shard after the cutoff does not re-open the flow
+    and is counted as `late_conflict`.
   - *Bound*: a decision state is at most 128 bytes (a 16-byte flow id, a 4-byte flow time, two
     packed endpoint keys of about 20 bytes each, the published decision, sequence and owner id,
     and table overhead). A watch registration is one index entry per watched key, at most
@@ -587,8 +585,8 @@ deferred.
 | Accepted socket whose owner differs from its listener but the difference is invisible to the agent | Attributed to the listener's owner (Risks). |
 | Connection summaries over budget | Staged aggregation down to overflow rows, counted (Decision 9). |
 
-**Distributed ordering.** Registration and closure snapshots make each shard's own
-mutations race-free with respect to one flow. The remaining cross-shard races are deferred to
+**Distributed ordering.** Registration snapshots make each shard's own mutations race-free
+with respect to one flow up to the window's single cutoff. The remaining cross-shard races are deferred to
 implementation, with this intended handling:
 
 - *Shard rebalancing mid-window*: a bucket range moves with its watches; the receiving shard
@@ -598,7 +596,8 @@ implementation, with this intended handling:
   rebuilt by replay. Flows whose state is lost keep their last published decision and are
   flagged and counted like budget-forced early finalization. Deferred: replicating open
   decision states to the warm standby.
-- *Closing deadline reached*: covered above (`decision_closed_unreconciled`).
+- *Registration still unacknowledged at the cutoff*: covered above
+  (`decision_closed_unreconciled`).
 
 ## Capacity targets
 
