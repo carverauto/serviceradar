@@ -315,8 +315,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   # Splits a chunk into `{record, ordinal}` pairs that are skipped and records
   # that are written. A skipped record still has to be observed, so it needs the
-  # ordinal of its current row. State read by `existing_comparison_state/2`
-  # carries it; for state that does not (a caller-supplied map), the ordinal is
+  # ordinal of its current row. State read by `existing_comparison_state/2` or
+  # `existing_comparison_table/2` carries it; for state that does not (a
+  # caller-supplied map, or a row not yet numbered by the backfill), the ordinal is
   # read from the current row. A record that matches the comparison state but
   # has no current numbered row is written, which numbers it (see
   # `number_unnumbered/1`): skipping it would leave it unobserved.
@@ -361,7 +362,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   defp state_ordinal(state, source_object_id) do
-    case Map.fetch(state, source_object_id) do
+    case stored_state(state, source_object_id) do
       {:ok, %{ordinal: ordinal}} when is_integer(ordinal) -> ordinal
       _ -> nil
     end
@@ -582,31 +583,30 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   @doc "Number of live rows whose state can participate in the feed's skip guard."
   @spec comparable_count(String.t(), map() | :ets.tid()) :: non_neg_integer()
-  def comparable_count(feed_key, existing_state) when is_map(existing_state) do
-    state_key = comparable_state_key(feed_key)
+  def comparable_count(feed_key, existing_state) do
+    state_key =
+      if comparison_for_feed(feed_key) == :content_hash, do: :content_hash, else: :modified_at
 
-    existing_state
-    |> normalize_existing_state()
-    |> Enum.count(fn {_source_object_id, state} ->
-      not is_nil(Map.get(state, state_key))
+    fold_stored_states(existing_state, 0, fn state, count ->
+      if is_nil(Map.get(state, state_key)), do: count, else: count + 1
     end)
   end
 
-  def comparable_count(feed_key, table) do
-    state_key = comparable_state_key(feed_key)
-
-    :ets.foldl(
-      fn {_source_object_id, state}, count ->
-        if is_nil(Map.get(state, state_key)), do: count, else: count + 1
-      end,
-      0,
-      table
-    )
+  # Comparison state is a map (caller-supplied or `existing_comparison_state/2`)
+  # or a table from `existing_comparison_table/2`. Read it only through
+  # `stored_state/2` and `fold_stored_states/3`, which take either and yield
+  # normalized entries; direct map access breaks on the table.
+  defp fold_stored_states(state, acc, fun) when is_map(state) do
+    Enum.reduce(state, acc, fn {_source_object_id, value}, acc ->
+      fun.(normalize_state_entry(value), acc)
+    end)
   end
 
-  defp comparable_state_key(feed_key) do
-    if comparison_for_feed(feed_key) == :content_hash, do: :content_hash, else: :modified_at
+  defp fold_stored_states(table, acc, fun) when is_reference(table) do
+    :ets.foldl(fn {_source_object_id, state}, acc -> fun.(state, acc) end, acc, table)
   end
+
+  defp fold_stored_states(_state, acc, _fun), do: acc
 
   defp stored_state(state, source_object_id) when is_map(state) do
     case Map.fetch(state, source_object_id) do
