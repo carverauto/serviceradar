@@ -56,7 +56,8 @@ lookups before their single StarRocks write.
   VIP whose mapped backend is) but has no owner yet is
   held for a few seconds. If it is still unmatched it is written unattributed and kept in a
   bounded set of per-flow decision states; every flow with a monitored side, attributed or
-  not, keeps its decision state open for the late window. A late ownership event stamps those flows through the existing
+  not, keeps its decision state open for the late window, except under the flagged
+  budget degradation. A late ownership event stamps those flows through the existing
   `events.flow.attribution` update. Nothing re-scans flows.
 - **Host-observed connection summaries.** Because accepted connections collapse onto their
   listener's lease, netprobe also emits bounded per-interval summaries per process, local
@@ -65,12 +66,12 @@ lookups before their single StarRocks write.
   for spotting network-observed connections no host saw (#5745). Over a per-agent budget they
   are merged in stages down to a per-direction overflow row, so the cap is strict, and every
   merge is counted; nothing is silently dropped. The ownership index does not use them.
-- **Late decisions do not depend on arrival order.** The final decision for a flow is a
-  function of the candidates seen within its late window. The home shard recomputes it from
-  the full candidate set on each covering lease and publishes whenever it changes, including
-  evidence-only updates for newly found ambiguity. Updates carry a decision key of
-  `(rank, side, owner order)` precedence and ambiguity evidence, and are applied only when at
-  least as good as the stored decision.
+- **Late decisions do not depend on arrival order.** For a flow whose decision state lasts
+  its full late window, the final decision is a function of the candidate set when the window
+  closes. The home shard recomputes it on every change to that set (new leases, delayed
+  closes, expiry) and publishes whenever it changes, including evidence-only updates for newly
+  found ambiguity; updates are ordered by a per-flow decision sequence. If the decision-state
+  budget binds, the oldest states finalize early and are flagged and counted.
 - **Agent-local attribution stays primary** for flows an agent produces itself. The index serves
   flows from routers and other exporters.
 - **Ownership history for incident response** moves from the sighting table to an append-only

@@ -354,11 +354,13 @@ the kernel event.
 - **Late decision**: **precedence** is the full ordering tuple `(rank, side, owner order)`
   with the source side ahead of the destination, the same total order the ingest path applies
   (Decisions 2 and 3); an unattributed flow has the lowest precedence. One rule covers every
-  arrival order: **the final decision for a flow is a function of the set of candidates seen
-  for it within its late window, independent of the order in which they arrived.**
+  arrival order: **for a flow whose decision state is retained for its full late window, the
+  final decision is a function of the candidate set as it stands when the window closes,
+  independent of the order in which lease events arrived.** Budget-forced early finalization
+  (*Bound* below) is the one specified exception, and it is flagged on the flow.
   - *Enrollment*: every flow with a monitored side is enrolled when it is written, whether it
-    was written without an owner or with an ingest winner. There is no early finalization: an
-    exact source-side winner is enrolled like any other, because a competing claimant can
+    was written without an owner or with an ingest winner. Nothing finalizes a decision early
+    except the budget degradation below: an exact source-side winner is enrolled like any other, because a competing claimant can
     still arrive. A flow attributed by its agent (Decision 5) is not enrolled, so a late
     decision never replaces agent-local attribution. A flow with no monitored side can have
     no candidate and is not enrolled.
@@ -370,33 +372,45 @@ the kernel event.
     shard of every mapped backend key of a monitored VIP side. The candidate set itself is not
     copied: it is the index's history for the flow's keys at the flow time, which the history
     horizon keeps for longer than the window.
-  - *Decision*: when a lease arrives that covers an enrolled flow's time, the shard that
-    applied it notifies the home shard, which recomputes the decision from the full candidate
-    set of both sides (including the VIP rule): the winner by full precedence, plus the number
+  - *Decision*: any change to a watched key's candidate set during the window notifies the
+    home shard: a lease that starts to cover the flow's time (`OPEN`, `RENEW`), a validity
+    interval that shrinks so it no longer covers it (a delayed `CLOSE`, a `SNAPSHOT` that
+    closes an omitted lease), and a history entry removed by horizon expiry or the per-key cap.
+    The shard that applied the mutation checks the flow time against the interval before and
+    after it and notifies only when coverage changed. The home shard then recomputes the
+    decision from the full candidate set of both sides (including the VIP rule): the winner by full precedence, plus the number
     of other owners that tie with it on `(rank, side)` as ambiguity evidence. Two distinct
     owners that tie on the full tuple cannot be separated, so the side is then `ambiguous` and
     carries no owner.
   - *Publication*: the home shard publishes an update on `events.flow.attribution` whenever the
-    decision differs in any way from the one last published: a different winner, a change
-    between unambiguous and ambiguous, or new ambiguity evidence with the same winner (an
-    evidence-only update). Each update carries its **decision key**, `(precedence, ambiguity
-    evidence count)`. Because the candidate set only grows within the window, successive
-    decision keys never decrease. `FlowAttributionUpdates` applies an update as a partial
-    primary-key update only when its decision key is at least the row's stored
-    `attribution_decision` (a StarRocks conditional update on that column), so the better and
-    more complete decision wins, not the higher version. Only the home shard publishes for a
-    flow; no two shards ever write the same flow independently.
+    decision differs in any way from the one last published: a different winner, a lower
+    winner after a candidate lost coverage, a return to unattributed, a change between
+    unambiguous and ambiguous, or new ambiguity evidence with the same winner (an
+    evidence-only update). Each update carries the decision's precedence and ambiguity
+    evidence, and a per-flow **decision sequence** that the home shard increments with every
+    publication (the row written on ingest is sequence 0). Because the candidate set can
+    shrink, precedence alone cannot order decisions: `FlowAttributionUpdates` applies an
+    update as a partial primary-key update only when its decision sequence is greater than the
+    row's stored `attribution_decision_seq` (a StarRocks conditional update on that column), so
+    the row converges on the latest complete decision and an obsolete higher-precedence stamp
+    cannot survive. Only the home shard publishes for a flow; no two shards ever write the
+    same flow independently, so the sequence is a total order per flow.
   - *Close*: when the window ends (default 5 minutes) the state is dropped and the last
-    published decision is final. A claim that arrives after the window does not re-open the
-    flow; the shard counts it as `late_conflict` when it overlaps another owner's lease.
+    published decision is final. A claim or a validity shrink that arrives after the window
+    does not re-open the flow; the shard counts it as `late_conflict`.
   - *Bound*: a decision state is at most 128 bytes (a 16-byte flow id, a 4-byte flow time, two
-    packed endpoint keys of about 20 bytes each, a 16-byte decision key and owner id, and
-    table overhead), and a watch at most 48 bytes. At 1M enrolled flows/s, the 5-minute window
-    holds 300M states, about 38 GB across all shards plus watches (about 2.4 GB per shard
-    at the default 16 shards); the window and the shard count are the sizing levers. Each
-    shard has an entry and byte budget for this state. When it binds, the oldest state closes
-    early with its last published decision, and the early close is counted
-    (`decision_closed_early`), so pressure never silently changes a decision rule.
+    packed endpoint keys of about 20 bytes each, the published decision, sequence and owner id,
+    and table overhead), and a watch at most 48 bytes. At 1M enrolled flows/s, the 5-minute
+    window holds 300M states, about 38 GB across all shards plus watches (about 2.4 GB per
+    shard at the default 16 shards). Each shard has a decision-state budget, by default 3 GB
+    at 16 shards, sized so that early finalization does not occur at the stated targets; the
+    window and the shard count are the sizing levers.
+  - *Budget degradation*: if the budget binds anyway, the oldest states finalize early with
+    their last decision. The home shard publishes one last update for each, setting the
+    SRQL-visible flag `attribution_finalized_early` on the flow row, and counts every early
+    finalization per shard (`decision_finalized_early`). The arrival-order guarantee covers
+    only flows whose state was retained for the full window; a flagged flow is the documented
+    exception.
   - Versions come from `flow_attribution_update_version` in batches, and only late decisions
     consume them.
 - **Never a full re-scan**: nothing reads stored flows back to find unattributed or
@@ -458,7 +472,7 @@ pid, cmdline or partition labels):
   shard state (`warming`, `ready`, `standby`), rebuild duration, ambiguous count, and `late_conflict` (a claim overlapping another owner's lease on a key).
 - Enrichment: flows by outcome (`attributed` by strategy, `held`, `late_stamped`,
   `unmonitored`, `no_owner`, `ambiguous`, `index_warming`, `error`), hold buffer depth and
-  overflow, decision state count and bytes, early closes (`decision_closed_early`), evictions, applied
+  overflow, decision state count and bytes, early finalizations (`decision_finalized_early`), evictions, applied
   and evidence-only updates, lookup latency per batch, and
   agent budget drops by reason (reported by netprobe).
 - Connection summaries: rows per interval, rows merged by the budget and the level they were
@@ -535,7 +549,9 @@ deferred.
 | --- | --- |
 | Ambiguous multi-owner endpoint (two agents claim one key with overlapping validity) | Owner order decides, identically on ingest and late; counted `ambiguous` and recorded in match evidence, with an evidence-only update when the competing claim arrives second. Owners that tie on the full tuple leave the side `ambiguous` with no owner. |
 | Competing claim arriving after a flow's late window closed | Not re-stamped. The shard counts the overlapping claim when it applies the lease (`late_conflict`). Deferred: whether such a claim should re-open recent flows. |
-| Decision-state budget reached | The oldest state closes early with its last published decision; counted `decision_closed_early`. |
+| Validity shrinking after the window closed (a `CLOSE` or `SNAPSHOT` delayed beyond the window) | Not re-stamped; the last published decision stands and the shrink is counted as `late_conflict`. Deferred: whether such a shrink should re-open recent flows. |
+| History evidence expiring inside a window (a flow whose time is close to the history horizon when it is enrolled) | The expiry triggers a recomputation, which can lower the decision or return it to unattributed; counted with history evictions. |
+| Decision-state budget forces early finalization | The oldest states finalize with their last decision, flagged `attribution_finalized_early` on the row and counted `decision_finalized_early` per shard. Outside the arrival-order guarantee; the budget is sized so it does not occur at the stated targets. |
 | Overlapping address spaces inside one partition (reused pod CIDRs) | Treated as the ambiguous case above. Deferred: whether to reject it as a configuration error (Open Questions). |
 | NAT beyond node SNAT and Kubernetes public endpoints (edge SNAT, CGNAT, cloud NAT gateways) | Deferred; the flow side is `no_owner` or `unmonitored`. |
 | IPv6 privacy address rotation | Address leases and wildcard re-expansion follow address changes. Deferred: prefix matching for privacy addresses. |
@@ -560,7 +576,7 @@ Load is generated from invented data in 192.0.2.0/24, 198.51.100.0/24, 203.0.113
 | Added latency | p99 <= 250 ms per flow batch for flows whose owner is present |
 | Hold | flows written within the hold window (default 5 s, maximum 30 s) |
 | Late decision update | published within 60 s of the late ownership event |
-| Late decision state | <= 128 bytes per enrolled flow, each shard within its decision-state budget, for the full 5-minute window at the tested enrolled-flow rate |
+| Late decision state | <= 128 bytes per enrolled flow, each shard within its decision-state budget, for the full 5-minute window at 1M enrolled flows/s, with zero early finalizations |
 | Rebuild | a shard of 2.5M keys is ready within 2 minutes of start |
 | Connection summaries | 20k simulated agents at the per-agent budget (2,000 rows per minute) for 1 hour, no unacknowledged loss, every over-budget interval merged and counted |
 
