@@ -11,11 +11,9 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   StarRocks a pass is a no-op (`{:ok, :not_applicable}`); otherwise every pass,
   successful or not, reports its health through `PassMetrics`.
 
-  A failing pass backs off: the next one waits twice the interval, doubling
-  per consecutive failure up to the correlation window, so a statement the
-  warehouse cannot run is not retried at full cost every tick. The failure is
-  logged once when passes start failing and once when they recover, not on
-  every pass.
+  Failed passes use `ServiceRadar.Backoff`. Operator-facing retry timing and
+  failure logging are documented in `docs/docs/netprobe.md`, under
+  "No attributed flows".
 
   A runtime kill switch (`FLOW_ATTRIBUTION_CORRELATOR_ENABLED`, or the
   `:flow_attribution_correlator_enabled` app env) lets operators pause just this
