@@ -102,7 +102,7 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
     assert sql =~ ~S|('agent-o\'brien\\', '192.0.2.1')|
 
     assert sql =~
-             ~s|(6, '198.51.100.10', 443, '192.0.2.30', 8443, 0, '{"service_name":"example-service"}')|
+             ~s|(1, 6, '198.51.100.10', 443, '192.0.2.30', 8443, 0, '{"service_name":"example-service"}')|
 
     # Workload identity is looked up for the matched container only.
     assert_received {:cnpg, workload_sql, [["default"], ["agent-a"], ["c1"]]}
@@ -136,6 +136,35 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
                query: fn _sql -> {:error, {:starrocks_mysql, "timeout"}} end,
                publish: fn _update -> flunk("published after a failed pass") end
              )
+  end
+
+  # A branch whose only equalities between observations and flows are
+  # partition and protocol lets the planner pair every flow with every
+  # observation in the window before any address filter applies; with a few
+  # thousand flows that exhausted warehouse memory on every pass.
+  test "every candidate branch equates an observation address with the flows it joins" do
+    sql =
+      Correlation.correlation_sql(
+        [["agent-a", "192.0.2.1"]],
+        [[6, "198.51.100.10", 443, "192.0.2.30", 8443, 0, "{}"]],
+        flows_table: "flows",
+        observations_table: "observation_rows"
+      )
+
+    [_, candidates] = String.split(sql, "candidates AS (\n", parts: 2)
+    [candidates, _] = String.split(candidates, "\n),", parts: 2)
+
+    for branch <- String.split(candidates, "\nUNION ALL\n") do
+      [_, flows] = Regex.run(~r/\bFROM \w+ AS (\w+)/, branch)
+      [_, observation] = Regex.run(~r/\bJOIN observations AS (\w+)/, branch)
+      [_, where] = String.split(branch, ~r/\bWHERE\b/, parts: 2)
+      address_key = ~r/^#{observation}\.(local|remote)_(ip|norm) = #{flows}\.\w+$/
+
+      assert where
+             |> String.split(~r/\n\s*AND\s+/)
+             |> Enum.any?(&Regex.match?(address_key, String.trim(&1))),
+             "no top-level address equality between observations and flows in:\n#{branch}"
+    end
   end
 
   test "without StarRocks the pass touches neither store" do
