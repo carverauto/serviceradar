@@ -38,7 +38,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   were observed in the promoted snapshot.
 
   Advisories upsert on `(provider, feed_key, source_object_id)`; coordinates on
-  the coordinate identity.
+  the coordinate identity. An NVD advisory row stores each referenced
+  configuration expression once (`nvd_configurations`) and its coordinates
+  reference it by index, so a record's write volume stays linear in its
+  coordinate count plus its configuration size.
 
   Bounded memory: only one chunk of rows is resident at a time, independent of
   total feed size.
@@ -863,6 +866,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
              :raw,
              :generation,
              :metadata,
+             :nvd_configurations,
              :updated_at
            ]},
         conflict_target: [:provider, :feed_key, :source_object_id],
@@ -881,9 +885,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       )
     end
 
+    # Coordinates come from the same record whose advisory row won the dedupe:
+    # NVD coordinates reference configurations stored on that advisory row, so
+    # a losing duplicate's coordinates would reference configurations that were
+    # never written.
     coordinate_rows =
-      Enum.flat_map(chunk, fn %{advisory: advisory} = record ->
-        source_object_id = advisory[:source_object_id] || advisory["source_object_id"]
+      chunk
+      |> last_record_per_source()
+      |> Enum.flat_map(fn %{advisory: advisory} = record ->
+        source_object_id = fetch(advisory, :source_object_id)
 
         case Map.get(id_by_source, source_object_id) do
           nil ->
@@ -1732,6 +1742,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     |> Map.values()
   end
 
+  # Same last-wins choice as `dedupe_advisory_rows/1`, applied to whole records.
+  defp last_record_per_source(records) do
+    records
+    |> Enum.reduce(%{}, fn %{advisory: advisory} = record, acc ->
+      Map.put(acc, fetch(advisory, :source_object_id), record)
+    end)
+    |> Map.values()
+  end
+
   # `:generation` is deliberately absent from the replace list below.
   # advisory_coordinates_generation_idx indexes that column, so replacing it
   # makes every upsert a non-HOT update that re-inserts all six indexes —
@@ -1791,6 +1810,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       generation: generation,
       current: false,
       metadata: fetch(advisory, :metadata) || %{},
+      nvd_configurations: fetch(advisory, :nvd_configurations),
       inserted_at: now,
       updated_at: now
     }
@@ -1806,11 +1826,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       |> Enum.map(&:erlang.term_to_binary(&1, [:deterministic]))
       |> Enum.sort()
 
-    {normalized_advisory_tuple(advisory), coordinate_binaries}
+    advisory
+    |> fetch(:nvd_configurations)
+    |> hashed_content(normalized_advisory_tuple(advisory), coordinate_binaries)
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  # Configurations are hashed only when present so records without them (every
+  # hash-compared feed today) keep their stored hashes and are not rewritten.
+  defp hashed_content(nil, advisory_tuple, coordinates), do: {advisory_tuple, coordinates}
+
+  defp hashed_content(configurations, advisory_tuple, coordinates),
+    do: {advisory_tuple, coordinates, configurations}
 
   defp normalized_advisory_tuple(advisory) do
     @advisory_content_fields

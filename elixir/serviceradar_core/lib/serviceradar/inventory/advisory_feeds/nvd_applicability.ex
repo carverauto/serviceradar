@@ -4,12 +4,31 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
 
   Evaluation uses strong Kleene three-valued logic. An absent endpoint fact is
   therefore `:unknown`; it is never silently promoted to true or contradicted.
+
+  ## Storage shape
+
+  `normalize/1` returns each referenced configuration expression ONCE, keyed by
+  its configuration index, for the advisory row. A coordinate carries only
+  `configuration_refs` (`configuration_index` plus the term the alternative
+  requires). Embedding the whole expression in every coordinate made one
+  record's coordinate metadata grow with coordinates x expression size, which
+  for large NVD records reached tens of megabytes per record. Readers call
+  `resolve_metadata/3` with the advisory's configurations to get the evaluable
+  `expression` back. Rows written by expression version 2 and earlier embed the
+  expression and resolve unchanged.
+
+  Every reference also carries `configurations_digest`, the digest of the
+  configurations its advisory was written with. A reference whose digest does
+  not match the advisory's stored digest is stale and resolves to an
+  unsupported node, so it evaluates `:unknown` rather than against a different
+  configuration that now occupies the same index.
   """
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Cpe
   alias ServiceRadar.Inventory.AdvisoryFeeds.VersionRange
 
-  @expression_version 2
+  @expression_version 3
+  @alternatives_id "coordinate-alternatives"
   @cpe_fields ~w(part vendor product version update edition language sw_edition target_sw target_hw other)a
 
   @type truth :: true | false | :unknown
@@ -52,43 +71,204 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
   def merge_metadata(_left, right) when is_map(right), do: deterministic_map_merge(%{}, right)
   def merge_metadata(_left, _right), do: %{}
 
+  @doc """
+  Normalize NVD `configurations` into affected coordinates plus the
+  configuration expressions they reference.
+
+  `configurations` maps a configuration index (as a string, the JSON object key)
+  to its normalized expression. Only configurations that yield at least one
+  affected application coordinate are kept; nothing else can reference them.
+  """
   @spec normalize(term()) ::
-          {:ok, %{coordinates: [map()], expression_version: pos_integer()}} | {:error, term()}
+          {:ok,
+           %{
+             coordinates: [map()],
+             configurations: %{optional(String.t()) => map()},
+             configurations_digest: String.t(),
+             expression_version: pos_integer()
+           }}
+          | {:error, term()}
   def normalize(%{"configurations" => configurations}), do: normalize(configurations)
 
   def normalize(configurations) when is_list(configurations) do
-    alternatives =
+    per_configuration =
       configurations
       |> Enum.with_index()
-      |> Enum.flat_map(fn
+      |> Enum.map(fn
         {configuration, index} when is_map(configuration) ->
           path = "configurations/#{index}"
           expression = normalize_group(configuration, path, "and", "configuration_id")
 
-          expression
-          |> terms()
-          |> Enum.filter(&(&1["role"] == "affected"))
-          |> Enum.flat_map(fn term ->
-            case coordinate(term) do
-              nil -> []
-              coordinate -> [{coordinate, term, require_term(expression, term["term_id"])}]
-            end
-          end)
+          occurrences =
+            expression
+            |> terms()
+            |> Enum.filter(&(&1["role"] == "affected"))
+            |> Enum.flat_map(fn term ->
+              case coordinate(term) do
+                nil -> []
+                coordinate -> [{coordinate, term, configuration_ref(index, term["term_id"])}]
+              end
+            end)
 
-        _ ->
-          []
+          {index, expression, occurrences}
+
+        {_invalid, index} ->
+          {index, nil, []}
       end)
 
+    referenced =
+      for {index, expression, [_ | _]} <- per_configuration,
+          into: %{},
+          do: {Integer.to_string(index), expression}
+
+    digest = configurations_digest(referenced)
+
     coordinates =
-      alternatives
-      |> Enum.group_by(fn {coordinate, _term, _expression} -> coordinate_identity(coordinate) end)
-      |> Enum.map(fn {_identity, occurrences} -> merge_occurrences(occurrences) end)
+      per_configuration
+      |> Enum.flat_map(fn {_index, _expression, occurrences} -> occurrences end)
+      |> Enum.group_by(fn {coordinate, _term, _ref} -> coordinate_identity(coordinate) end)
+      |> Enum.map(fn {_identity, occurrences} -> merge_occurrences(occurrences, digest) end)
       |> Enum.sort_by(&coordinate_identity/1)
 
-    {:ok, %{coordinates: coordinates, expression_version: @expression_version}}
+    {:ok,
+     %{
+       coordinates: coordinates,
+       configurations: referenced,
+       configurations_digest: digest,
+       expression_version: @expression_version
+     }}
   end
 
   def normalize(_configurations), do: {:error, :invalid_configurations}
+
+  @doc """
+  Resolve a coordinate's `configuration_refs` against its advisory's stored
+  configurations and their digest, returning metadata whose
+  `nvd_applicability` carries the evaluable `expression`.
+
+  Metadata that already embeds an `expression` (expression version 2 and
+  earlier) or carries no applicability is returned unchanged. A reference whose
+  configuration is missing, or whose digest differs from `digest`, resolves to
+  an unsupported node, so it evaluates `:unknown` instead of being silently
+  dropped or resolved against another configuration.
+  """
+  @spec resolve_metadata(map() | nil, map() | nil, String.t() | nil) :: map() | nil
+  def resolve_metadata(metadata, configurations, digest) when is_map(metadata) do
+    with %{} = applicability <- metadata_value(metadata, "nvd_applicability"),
+         refs when is_list(refs) <- metadata_value(applicability, "configuration_refs") do
+      expression =
+        if stale_configuration_reference?(metadata, digest),
+          do: stale_reference(),
+          else: referenced_expression(refs, configurations || %{})
+
+      resolved =
+        applicability
+        |> Map.drop([
+          :configuration_refs,
+          "configuration_refs",
+          :configurations_digest,
+          "configurations_digest"
+        ])
+        |> Map.put("expression", expression)
+
+      metadata
+      |> Map.delete(:nvd_applicability)
+      |> Map.put("nvd_applicability", resolved)
+    else
+      _embedded_or_absent -> metadata
+    end
+  end
+
+  def resolve_metadata(metadata, _configurations, _digest), do: metadata
+
+  @doc """
+  True when coordinate metadata references configurations written with a
+  different digest than `digest`, the one stored on its advisory now.
+  """
+  @spec stale_configuration_reference?(map() | nil, String.t() | nil) :: boolean()
+  def stale_configuration_reference?(metadata, digest) do
+    references_configurations?(metadata) and
+      (not is_binary(digest) or
+         metadata_value(metadata_value(metadata, "nvd_applicability"), "configurations_digest") !=
+           digest)
+  end
+
+  @doc "True when coordinate metadata references advisory configurations."
+  @spec references_configurations?(map() | nil) :: boolean()
+  def references_configurations?(metadata) when is_map(metadata) do
+    case metadata_value(metadata, "nvd_applicability") do
+      %{} = applicability -> is_list(metadata_value(applicability, "configuration_refs"))
+      _absent -> false
+    end
+  end
+
+  def references_configurations?(_metadata), do: false
+
+  defp configurations_digest(configurations) do
+    :sha256
+    |> :crypto.hash(:erlang.term_to_binary(configurations, [:deterministic]))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp stale_reference do
+    %{
+      "kind" => "unsupported",
+      "node_id" => "stale-configuration-reference",
+      "path" => "stale-configuration-reference"
+    }
+  end
+
+  defp configuration_ref(index, term_id) do
+    %{"configuration_index" => index, "required_term_ids" => [term_id]}
+  end
+
+  # Rebuilds exactly the expression version 2 embedded per coordinate: the
+  # configuration with the required term pinned, OR-ed across alternatives in
+  # reference order.
+  defp referenced_expression(refs, configurations) do
+    case refs |> Enum.map(&referenced_alternative(&1, configurations)) |> Enum.uniq() do
+      [single] -> single
+      alternatives -> alternatives_group(alternatives)
+    end
+  end
+
+  defp referenced_alternative(ref, configurations) when is_map(ref) do
+    index = Map.get(ref, "configuration_index")
+    required = Map.get(ref, "required_term_ids")
+
+    case is_integer(index) && Map.get(configurations, Integer.to_string(index)) do
+      %{} = expression ->
+        Map.put(expression, "required_term_ids", required)
+
+      _missing ->
+        path = "configurations/#{inspect(index)}"
+
+        %{
+          "kind" => "unsupported",
+          "node_id" => path,
+          "path" => path,
+          "required_term_ids" => required
+        }
+    end
+  end
+
+  defp referenced_alternative(_ref, _configurations),
+    do: %{
+      "kind" => "unsupported",
+      "node_id" => "invalid-reference",
+      "path" => "invalid-reference"
+    }
+
+  defp alternatives_group(children) do
+    %{
+      "kind" => "group",
+      "node_id" => @alternatives_id,
+      "path" => @alternatives_id,
+      "op" => "or",
+      "negate" => false,
+      "children" => children
+    }
+  end
 
   @spec evaluate(map(), map()) :: %{
           result: truth(),
@@ -257,44 +437,25 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
     {coordinate.value, coordinate.version_start, coordinate.version_end}
   end
 
-  defp require_term(expression, term_id) do
-    Map.put(expression, "required_term_ids", [term_id])
-  end
-
-  defp merge_occurrences([{first_coordinate, _term, _expression} | _] = occurrences) do
+  defp merge_occurrences([{first_coordinate, _term, _ref} | _] = occurrences, digest) do
     coordinate =
-      Enum.reduce(occurrences, first_coordinate, fn {candidate, _term, _expression}, acc ->
+      Enum.reduce(occurrences, first_coordinate, fn {candidate, _term, _ref}, acc ->
         merge_coordinate_prefilter(acc, candidate)
       end)
 
-    expressions = occurrences |> Enum.map(&elem(&1, 2)) |> Enum.uniq()
+    refs = occurrences |> Enum.map(&elem(&1, 2)) |> Enum.uniq()
 
     term_ids =
       occurrences
-      |> Enum.map(fn {_coordinate, term, _expression} -> term["term_id"] end)
+      |> Enum.map(fn {_coordinate, term, _ref} -> term["term_id"] end)
       |> Enum.uniq()
-
-    expression =
-      case expressions do
-        [single] ->
-          single
-
-        alternatives ->
-          %{
-            "kind" => "group",
-            "node_id" => "coordinate-alternatives",
-            "path" => "coordinate-alternatives",
-            "op" => "or",
-            "negate" => false,
-            "children" => alternatives
-          }
-      end
 
     metadata =
       Map.put(coordinate.metadata, "nvd_applicability", %{
         "expression_version" => @expression_version,
         "affected_term_ids" => term_ids,
-        "expression" => expression
+        "configuration_refs" => refs,
+        "configurations_digest" => digest
       })
 
     %{coordinate | metadata: metadata}
@@ -714,14 +875,36 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
 
     left
     |> deterministic_map_merge(right)
-    |> Map.delete(:expression_version)
-    |> Map.delete(:expression_versions)
-    |> Map.delete(:affected_term_ids)
-    |> Map.delete(:expression)
+    |> Map.drop([:expression_version, :expression_versions, :affected_term_ids, :expression])
+    |> Map.delete(:configuration_refs)
     |> Map.put("expression_versions", expression_versions)
     |> Map.put("expression_version", compatible_expression_version(expression_versions))
     |> Map.put("affected_term_ids", merged_term_ids(left, right))
-    |> Map.put("expression", merge_expressions(left_expression, right_expression))
+    |> put_merged_expression(left_expression, right_expression)
+    |> put_merged_refs(left, right)
+  end
+
+  # Unresolved rows carry no expression; do not invent an empty alternative.
+  defp put_merged_expression(applicability, nil, nil), do: Map.delete(applicability, "expression")
+
+  defp put_merged_expression(applicability, left, right),
+    do: Map.put(applicability, "expression", merge_expressions(left, right))
+
+  defp put_merged_refs(applicability, left, right) do
+    case Enum.flat_map([left, right], &configuration_refs/1) do
+      [] ->
+        Map.delete(applicability, "configuration_refs")
+
+      refs ->
+        Map.put(applicability, "configuration_refs", refs |> Enum.uniq() |> Enum.sort())
+    end
+  end
+
+  defp configuration_refs(applicability) do
+    case metadata_value(applicability, "configuration_refs") do
+      refs when is_list(refs) -> refs
+      _absent -> []
+    end
   end
 
   defp compatible_expression_version(versions) do
@@ -766,20 +949,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
         single
 
       children ->
-        %{
-          "kind" => "group",
-          "node_id" => "coordinate-alternatives",
-          "path" => "coordinate-alternatives",
-          "op" => "or",
-          "negate" => false,
-          "children" => children
-        }
+        alternatives_group(children)
     end
   end
 
   defp expression_alternatives(%{
          "kind" => "group",
-         "node_id" => "coordinate-alternatives",
+         "node_id" => @alternatives_id,
          "op" => "or",
          "negate" => false,
          "children" => children

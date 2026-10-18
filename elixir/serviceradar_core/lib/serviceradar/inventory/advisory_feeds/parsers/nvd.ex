@@ -5,7 +5,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
 
   Each input is one decoded `vulnerabilities[]` element: `%{"cve" => %{...}}`.
   This module maps that to a normalized advisory map plus a list of CPE
-  coordinate maps (one per `cpeMatch`), extracting version bounds.
+  coordinate maps (one per `cpeMatch`), extracting version bounds. The
+  advisory carries each referenced configuration expression once
+  (`nvd_configurations`); coordinates reference it by configuration index.
 
   Pure module — no DB, no IO. The streaming layer is responsible for decoding
   one record at a time off disk and handing it here.
@@ -52,8 +54,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
           references: references(cve),
           metadata: %{
             "cwes" => Cwes.from_nvd_cve(cve),
-            "normalization_version" => normalized.expression_version
+            "normalization_version" => normalized.expression_version,
+            "nvd_configurations_digest" => normalized.configurations_digest
           },
+          nvd_configurations: stored_configurations(normalized.configurations),
           raw: record
         }
 
@@ -65,6 +69,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   end
 
   def parse_record(_record, _opts), do: :skip
+
+  # Coordinates reference these by configuration index; NULL when none do.
+  defp stored_configurations(configurations) when map_size(configurations) == 0, do: nil
+  defp stored_configurations(configurations), do: configurations
 
   defp english_description(cve) do
     cve
