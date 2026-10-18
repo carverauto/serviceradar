@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.FleetIdentity
+  alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Native, as: PrefixNative
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
@@ -542,10 +543,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     scope = Scope.for_user(user)
     start_supervised!({Endpoint, []})
     tasks = start_supervised!({Task.Supervisor, name: TileWatchTasks, max_children: 8})
+    Store.put_rows(source, [%{prefix: "198.51.100.0/24", tags: ["startup"]}])
     start_supervised!({BitmapIndex, name: BitmapIndex, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     start_supervised!(BitmapQueries)
     start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     {:ok, snapshot} = await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
+    await_catalog(source, ["startup"])
     _world = install_world([included], snapshot.dictionary_epoch)
     {:ok, key} = TileKey.new(@version, 16, 0, 0)
     {:ok, tile} = WorldCache.fetch(key)
@@ -621,7 +624,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       %{prefix: "192.0.2.0/25", tags: ["office"], expires_at: expires_at}
     ])
 
-    assert {:ok, :ready} = BitmapPrefixTags.prepare(source, System.monotonic_time(:millisecond) + 5_000)
+    Phoenix.PubSub.broadcast(ServiceRadar.PubSub, Loader.pubsub_topic(), {:prefix_tags_snapshot_changed, %{}})
+    await_catalog(source, ["office"])
     {:ok, %{version: version, trie: trie}} = Store.capture(source)
     assert {:ok, live_ranges} = PrefixNative.label_ranges(trie, "office", 8, 4_096, 1_000)
     assert byte_size(live_ranges) > 0
@@ -654,6 +658,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_push "membership:frame", {:binary, _expired_refresh}, 5_000
     {:ok, after_prefix} = BitmapIndex.snapshot()
     assert after_prefix.progress.index_revision == stable.progress.index_revision
+  end
+
+  defp await_catalog(source, labels) do
+    await(
+      fn -> BitmapPrefixTags.page(%{"source" => source}, <<61::256>>, System.monotonic_time(:millisecond) + 1_000) end,
+      &match?({:ok, %{labels: ^labels}}, &1)
+    )
   end
 
   defp stream_identity(socket) do

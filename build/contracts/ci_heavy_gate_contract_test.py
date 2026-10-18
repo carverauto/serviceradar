@@ -223,6 +223,77 @@ def integration_only_branch() -> str:
     return source[start:end]
 
 
+# Replaces only external Bazel work, the observer process and the clock, so a
+# workflow lifecycle shell runs its real assignments, traps and validators.
+LIFECYCLE_STUBS = r"""
+set -o pipefail
+SERVICERADAR_DIAGNOSTIC_START_FILE="$TEST_TMP/diagnostic-start"
+echo 900 > "$SERVICERADAR_DIAGNOSTIC_START_FILE"
+date() {
+  if [[ "$1" == "+%s%N" ]]; then echo 950000000000; else echo 1000; fi
+}
+timeout() {
+  local spec="$1 $2 $3"
+  shift 3
+  local arg target=""
+  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg"; done
+  echo "timeout $spec $target" >> "$LIFECYCLE_LOG"
+  "$@"
+}
+observe() {
+  touch "$READY_FILE"
+  while [[ ! -e "$SUITE_COMPLETE_FILE" ]]; do sleep 0.1; done
+  touch "$QUIESCENT_FILE"
+  while [[ ! -e "$STOP_FILE" ]]; do sleep 0.1; done
+  return "$OBSERVER_FAILURE"
+}
+bazel() {
+  local arg target="" targets=()
+  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg" && targets+=("$arg"); done
+  if [[ "$1" == build ]]; then
+    echo "build ${targets[*]}" >> "$LIFECYCLE_LOG"
+    return "$BUILD_FAILURE"
+  fi
+  echo "$1 $target" >> "$LIFECYCLE_LOG"
+  if [[ "$1" == test && ( " $* " != *" --nocache_test_results "* || " $* " != *" --noremote_upload_local_results "* ) ]]; then
+    return 98
+  fi
+  local digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case "$target" in
+    //:buildbuddy_setup_fixture_env) echo "SERVICERADAR_TEST_ENV_FLAGS=" > "$SERVICERADAR_FIXTURE_ENV_FILE" ;;
+    //rust/integration-db:cleanup_generations) echo '[]' ;;
+    //rust/integration-db:prepare_generation)
+      local status=needs_migration
+      if [[ -e "$TEST_TMP/prepared" ]]; then status=ready; fi
+      touch "$TEST_TMP/prepared"
+      printf '{"builder_token":1,"database":"sr_tpl_%s","digest":"%s","status":"%s"}\n' "${digest:0:48}" "$digest" "$status"
+      ;;
+    //elixir/serviceradar_core:migrate_generation) return "$MIGRATE_FAILURE" ;;
+    //rust/integration-db:provision_generation*)
+      printf '{"digest":"%s","lease_id":"%s","status":"cloned"}\n' "$digest" "$RUN_DATABASE"
+      ;;
+    //rust/integration-db:observe_connections) observe ;;
+    //rust/integration-db:teardown_db) return "$TEARDOWN_FAILURE" ;;
+    //rust/integration-db:release_generation)
+      printf '{"digest":"%s","lease_id":"%s","status":"released"}\n' "$digest" "$RUN_DATABASE"
+      return "$RELEASE_FAILURE"
+      ;;
+  esac
+}
+"""
+
+
+def run_lifecycle(lifecycle: str, tmp: str, **env: str) -> subprocess.CompletedProcess:
+    defaults = {"MIGRATE_FAILURE": "0", "BUILD_FAILURE": "0", "TEARDOWN_FAILURE": "0",
+                "RELEASE_FAILURE": "0", "OBSERVER_FAILURE": "0", "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": ""}
+    return subprocess.run(
+        ["bash", "-euc", LIFECYCLE_STUBS + lifecycle + "\nexit 0\n"],
+        text=True, capture_output=True, timeout=20,
+        env={"PATH": os.environ["PATH"], "TMPDIR": tmp, "TEST_TMP": tmp,
+             "LIFECYCLE_LOG": str(Path(tmp, "lifecycle.log")), **defaults, **env},
+    )
+
+
 def named_action(name: str) -> str:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     match = re.search(
@@ -416,21 +487,6 @@ def run_step_shell_lines(action: str) -> tuple[str, ...]:
         if rest:
             lines_out.append(" ".join(rest.split()))
     return tuple(lines_out)
-
-
-def executable_bazel_commands(action: str, verb: str) -> tuple[str, ...]:
-    """Every executable ``bazel <verb>`` command, in workflow order."""
-    commands = []
-    pattern = re.compile(rf"(?:command\s+)?bazel\s+{re.escape(verb)}\b")
-    for line in run_step_shell_lines(action):
-        for segment in shell_command_segments(line):
-            match = pattern.search(segment)
-            if not match or not is_executable_bazel_test(segment, match.start()):
-                continue
-            command = segment[match.start() :]
-            command = re.sub(r"^command\s+", "", command, count=1)
-            commands.append(" ".join(command.split()))
-    return tuple(commands)
 
 
 def normalized_bazel_test_commands(action: str) -> tuple[str, ...]:
@@ -989,19 +1045,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
-    # Same run id and build selection as the suite, before the clone. The manual
-    # netprobe, world worker, and websocket transport targets are named because
-    # a wildcard skips them. The transport target is compiled only; its
-    # measurement stays unexecuted. $FLAGS stays off:
-    # bazel build rejects the test-only options that string carries.
-    integration_compile = (
-        "bazel build -c opt --config=ci --//build:enable_integration_tests "
-        "--//build:run_id=$RUN_ID --build_tests_only "
-        "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
-        "//... //rust/netprobe:loaded_tcp_attribution_test "
-        "//rust/dgraph-topology:world_worker_test "
-        "//elixir/web-ng:bitmap_websocket_transport_test"
-    )
     unit_suite = (
         "scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests "
         "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
@@ -1553,23 +1596,39 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 if "$FLAGS" in command and "//..." in command
             ),
         )
-        # The integration compile is the only bazel build in this action. It
-        # runs after schema preflight and before the measured clock, so a
-        # compile break fails before provision_generation and does not consume
-        # the observer budget. LargeIngestionGate keeps its own world build.
-        shell_lines = normalized_shell_lines(database_lifecycle_shell(action))
-        compile_at = shell_lines.index(self.integration_compile)
-        preflight = (
-            "echo \"SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready "
-            "digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED\""
+        # The integration compile runs after schema preflight and before the
+        # observer and provision_generation, so a compile break never clones a
+        # database or consumes the observer budget. Manual targets a wildcard
+        # skips are named; the transport measurement is compiled, not executed.
+        shell = database_lifecycle_shell(action)
+        lifecycle = shell[shell.index("\nRUN_ID=") + 1:]
+        compile_line = (
+            "build //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test "
+            "//elixir/web-ng:bitmap_websocket_transport_test"
         )
-        self.assertLess(shell_lines.index(preflight), compile_at)
-        self.assertLess(compile_at, shell_lines.index('START_NS="$(date +%s%N)"'))
-        self.assertLess(compile_at, shell_lines.index(self.ordinary_provision))
-        self.assertEqual(
-            (self.integration_compile,),
-            executable_bazel_commands(action, "build"),
-        )
+        provision = "run //rust/integration-db:provision_generation"
+        observer = "run //rust/integration-db:observe_connections"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_lifecycle(lifecycle, tmp)
+            self.assertEqual(0, result.returncode, result.stderr)
+            calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(1, sum(call.startswith("build ") for call in calls))
+            self.assertLess(calls.index("run //rust/integration-db:prepare_generation"), calls.index(compile_line))
+            self.assertLess(calls.index(compile_line), calls.index(observer))
+            self.assertLess(calls.index(observer), calls.index(provision))
+            self.assertLess(calls.index(provision), calls.index("test //..."))
+            self.assertIn("test //elixir/web-ng:topology_atlas_db_test", calls)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_lifecycle(lifecycle, tmp, BUILD_FAILURE="5")
+            self.assertEqual(5, result.returncode, result.stderr)
+            calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+            self.assertIn(compile_line, calls)
+            self.assertNotIn(provision, calls)
+            self.assertNotIn(observer, calls)
+            self.assertEqual(
+                ["test //rust/integration-db:teardown_db", "run //rust/integration-db:release_generation"],
+                calls[-2:],
+            )
         self.assertEqual(1, run_step_shell_lines(action).count(self.unit_suite))
 
     def test_scale_opt_in_uses_the_existing_dispatch_only_diagnostic_lifecycle(self):
@@ -1723,56 +1782,6 @@ wait_for_observer_ready() { return 0; }
         # external Bazel work, the observer process and the clock are replaced,
         # so an early preparation failure reaches cleanup in production order.
         lifecycle = shell[shell.index('SCALE_VARIANT=""'):shell.index('PROVISION_JSON="$(bazel run')]
-        stubs = r"""
-set -o pipefail
-SERVICERADAR_DIAGNOSTIC_START_FILE="$TEST_TMP/diagnostic-start"
-echo 900 > "$SERVICERADAR_DIAGNOSTIC_START_FILE"
-date() {
-  if [[ "$1" == "+%s%N" ]]; then echo 950000000000; else echo 1000; fi
-}
-timeout() {
-  local spec="$1 $2 $3"
-  shift 3
-  local arg target=""
-  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg"; done
-  echo "timeout $spec $target" >> "$LIFECYCLE_LOG"
-  "$@"
-}
-observe() {
-  touch "$READY_FILE"
-  while [[ ! -e "$SUITE_COMPLETE_FILE" ]]; do sleep 0.1; done
-  touch "$QUIESCENT_FILE"
-  while [[ ! -e "$STOP_FILE" ]]; do sleep 0.1; done
-  return "$OBSERVER_FAILURE"
-}
-bazel() {
-  local arg target=""
-  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg"; done
-  echo "$1 $target" >> "$LIFECYCLE_LOG"
-  if [[ "$1" == test && ( " $* " != *" --nocache_test_results "* || " $* " != *" --noremote_upload_local_results "* ) ]]; then
-    return 98
-  fi
-  local digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  case "$target" in
-    //:buildbuddy_setup_fixture_env) echo "SERVICERADAR_TEST_ENV_FLAGS=" > "$SERVICERADAR_FIXTURE_ENV_FILE" ;;
-    //rust/integration-db:cleanup_generations) echo '[]' ;;
-    //rust/integration-db:prepare_generation)
-      local status=needs_migration
-      if [[ -e "$TEST_TMP/prepared" ]]; then status=ready; fi
-      touch "$TEST_TMP/prepared"
-      printf '{"builder_token":1,"database":"sr_tpl_%s","digest":"%s","status":"%s"}\n' "${digest:0:48}" "$digest" "$status"
-      ;;
-    //elixir/serviceradar_core:migrate_generation) return "$MIGRATE_FAILURE" ;;
-    //elixir/web-ng:topology_bitmap_scale_*) return "$BUILD_FAILURE" ;;
-    //rust/integration-db:observe_connections) observe ;;
-    //rust/integration-db:teardown_db) return "$TEARDOWN_FAILURE" ;;
-    //rust/integration-db:release_generation)
-      printf '{"digest":"%s","lease_id":"%s","status":"released"}\n' "$digest" "$RUN_DATABASE"
-      return "$RELEASE_FAILURE"
-      ;;
-  esac
-}
-"""
         preparation = [
             "run //:buildbuddy_setup_fixture_env",
             "test //rust/integration-db:sweep_stale_dbs",
@@ -1798,20 +1807,20 @@ bazel() {
             with self.subTest(selected=selected, migrate=migrate, build=build, teardown=teardown_failure,
                               release=release_failure, observer=observer), tempfile.TemporaryDirectory() as tmp:
                 log = Path(tmp, "lifecycle.log")
-                result = subprocess.run(
-                    ["bash", "-euc", stubs + lifecycle + "\nexit 0\n"],
-                    text=True, capture_output=True, timeout=20,
-                    env={"PATH": os.environ["PATH"], "TMPDIR": tmp, "TEST_TMP": tmp, "LIFECYCLE_LOG": str(log),
-                         "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected, "MIGRATE_FAILURE": str(migrate),
-                         "BUILD_FAILURE": str(build), "TEARDOWN_FAILURE": str(teardown_failure),
-                         "RELEASE_FAILURE": str(release_failure), "OBSERVER_FAILURE": str(observer)},
+                result = run_lifecycle(
+                    lifecycle, tmp, SERVICERADAR_TOPOLOGY_BITMAP_SCALE=selected, MIGRATE_FAILURE=str(migrate),
+                    BUILD_FAILURE=str(build), TEARDOWN_FAILURE=str(teardown_failure),
+                    RELEASE_FAILURE=str(release_failure), OBSERVER_FAILURE=str(observer),
                 )
                 self.assertEqual(status, result.returncode, result.stderr)
                 scale = selected != ""
                 expected = list(preparation)
                 if reached != "migrate":
                     expected.append("run //rust/integration-db:prepare_generation")
-                    expected.append(f"build //elixir/web-ng:topology_bitmap_scale_{selected}_acceptance")
+                    expected.append(
+                        "build //elixir/web-ng:networks_live_db_test //elixir/web-ng:plugin_config_cli_db_test "
+                        f"//elixir/web-ng:topology_bitmap_scale_{selected}_acceptance"
+                    )
                 if reached == "observer":
                     expected.append("timeout --signal=TERM --kill-after=5s 3295s //rust/integration-db:observe_connections")
                     expected.append("run //rust/integration-db:observe_connections")

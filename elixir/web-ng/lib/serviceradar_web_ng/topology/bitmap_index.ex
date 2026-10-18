@@ -64,8 +64,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
        hint_bytes: 0,
        dirty: [],
        rescan: true,
-       scan_due: 0,
-       catalog_due: 0,
+       scan_due: nil,
+       catalog_due: nil,
        catalog_sources: [],
        catalog_pending: MapSet.new(),
        catalog_turn: 0,
@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   def handle_info(:devices_rescan, state), do: {:noreply, wake(%{state | rescan: true})}
 
-  def handle_info({:prefix_tags_snapshot_changed, _metadata}, state), do: {:noreply, wake(%{state | catalog_due: 0})}
+  def handle_info({:prefix_tags_snapshot_changed, _metadata}, state), do: {:noreply, wake(%{state | catalog_due: nil})}
 
   def handle_info({:bitmap_finished, token, result}, %{active: %{token: token, timed_out: false}} = state) do
     work = state.active.work
@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   defp start_scan(%{cursor: nil} = state, status) do
-    if state.rescan or status.rescan_needed or state.scan_due <= now() do
+    if state.rescan or status.rescan_needed or due?(state.scan_due) do
       %{
         state
         | cursor: 0,
@@ -226,7 +226,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
       turn == 2 and not is_nil(state.cursor) ->
         launch(next, {:scan, state.cursor, state.mode, state.scan_generation, state.scan_skipped})
 
-      turn == 3 and state.catalog_due <= now() ->
+      turn == 3 and due?(state.catalog_due) ->
         catalog_work(next)
 
       true ->
@@ -463,7 +463,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         else: MapSet.delete(state.catalog_pending, source)
 
     cycle_done = rem(state.catalog_turn, max(length(state.catalog_sources), 1)) == 0
-    due = if cycle_done and MapSet.size(pending) == 0, do: now() + @scan_interval, else: 0
+    due = if cycle_done and MapSet.size(pending) == 0, do: now() + @scan_interval
     %{state | catalog_pending: pending, catalog_due: due}
   end
 
@@ -534,7 +534,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         _ -> nil
       end
 
-    %{state | current: current, catalog_sources: catalogs, catalog_due: 0}
+    %{state | current: current, catalog_sources: catalogs, catalog_due: nil}
   end
 
   defp drain(state, deadline) do
@@ -581,6 +581,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
     Process.demonitor(state.active.ref, [:flush])
     %{state | active: nil}
   end
+
+  defp due?(nil), do: true
+  defp due?(at), do: at <= now()
 
   defp now, do: System.monotonic_time(:millisecond)
 end
