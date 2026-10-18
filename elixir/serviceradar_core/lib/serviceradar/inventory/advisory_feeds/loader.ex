@@ -41,12 +41,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   advisory it already committed keeps its new, self-consistent content, and its
   assertions carry the unpromoted generation.
 
-  Every advisory row has a dense bigint `ordinal`. The run records the ordinal
-  of every source object it observes, written or skipped, in an in-memory
-  `OrdinalSet`; nothing is written for an unchanged object. Finalization runs
-  only after the observed count matches the validated snapshot count: it
-  promotes the run's new rows and withdraws the feed's current rows whose
-  ordinal was not observed, each in bounded batches that commit separately.
+  Every advisory row has a bigint `ordinal` from a sequence. The run records
+  the ordinal of every source object it observes, written or skipped, in an
+  in-memory `OrdinalSet`; nothing is written for an unchanged object.
+  Finalization runs only after the observed count matches the validated
+  snapshot count: it promotes the run's new rows and withdraws the feed's
+  current rows whose ordinal was not observed, each in bounded batches that
+  commit separately.
 
   `current` remains the matcher liveness bit. Skipped rows retain their content
   generation and timestamps.
@@ -319,7 +320,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # ordinal of its current row. State read by `existing_comparison_state/2`
   # carries it; for state that does not (a caller-supplied map), the ordinal is
   # read from the current row. A record that matches the comparison state but
-  # has no current row is written: skipping it would leave it unobserved.
+  # has no current numbered row is written, which numbers it (see
+  # `number_unnumbered/1`): skipping it would leave it unobserved.
   defp classify_chunk(chunk, context) do
     classified =
       Enum.map(chunk, fn record ->
@@ -373,7 +375,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     from(a in "vulnerability_advisories",
       where:
         a.provider == ^provider and a.feed_key == ^feed_key and a.current == true and
-          a.source_object_id in ^source_object_ids,
+          not is_nil(a.ordinal) and a.source_object_id in ^source_object_ids,
       select: {a.source_object_id, a.ordinal}
     )
     |> Repo.all(prefix: @schema)
@@ -457,7 +459,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
             content_hash: String.t() | nil,
             normalization_version: integer() | nil,
             projection_digest: String.t() | nil,
-            ordinal: pos_integer()
+            ordinal: pos_integer() | nil
           }
         }
   def existing_comparison_state(provider, feed_key) do
@@ -497,7 +499,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
             content_hash: String.t() | nil,
             normalization_version: integer() | nil,
             projection_digest: String.t() | nil,
-            ordinal: pos_integer()
+            ordinal: pos_integer() | nil
           }
         }
   def existing_advisory_state(provider, feed_key),
@@ -729,7 +731,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     |> Enum.chunk_every(batch_size)
     |> Enum.each(&withdraw_batch(&1, provider, feed_key, generation, timeout_ms))
 
-    :ok
+    withdraw_unnumbered(provider, feed_key, generation, batch_size, timeout_ms)
   end
 
   defp promote_generation(provider, feed_key, generation, batch_size, timeout_ms) do
@@ -785,6 +787,38 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
         {Enum.reject(page, &OrdinalSet.member?(seen, &1)), next}
     end)
     |> Enum.concat()
+  end
+
+  # A current row still without an ordinal was not observed: every row a run
+  # observes is numbered (skipped rows already were, written rows are numbered
+  # by `number_unnumbered/1`). Such rows exist only until the backfill migration
+  # completes; the unique ordinal index answers this probe once it does.
+  defp withdraw_unnumbered(provider, feed_key, generation, batch_size, timeout_ms) do
+    %{num_rows: withdrawn} =
+      bounded_statement(
+        """
+        UPDATE platform.vulnerability_advisories
+        SET current = FALSE
+        WHERE id IN (
+          SELECT id
+          FROM platform.vulnerability_advisories
+          WHERE provider = $1
+            AND feed_key = $2
+            AND ordinal IS NULL
+            AND current = TRUE
+            AND generation <> $3
+          LIMIT $4
+        )
+        """,
+        [provider, feed_key, generation, batch_size],
+        timeout_ms
+      )
+
+    if withdrawn > 0 do
+      withdraw_unnumbered(provider, feed_key, generation, batch_size, timeout_ms)
+    else
+      :ok
+    end
   end
 
   # `generation <> $4` never withdraws a row this run wrote.
@@ -1026,7 +1060,37 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     reap_stale_assertions(advisory_refs, generation)
 
     {length(advisory_rows), coordinates_upserted, assertions_upserted,
-     Enum.map(returned, & &1.ordinal)}
+     number_unnumbered(returned)}
+  end
+
+  # A row that predates the ordinal column keeps a NULL ordinal until the
+  # backfill migration numbers it, and an upsert never assigns the column
+  # default to an existing row. Number such a row here, in its chunk's
+  # transaction, so every written advisory is observed.
+  defp number_unnumbered(returned) do
+    {numbered, unnumbered} = Enum.split_with(returned, &is_integer(&1.ordinal))
+
+    assigned =
+      case Enum.map(unnumbered, & &1.id) do
+        [] ->
+          []
+
+        ids ->
+          %{rows: rows} =
+            Repo.query!(
+              """
+              UPDATE platform.vulnerability_advisories
+              SET ordinal = COALESCE(ordinal, nextval('platform.vulnerability_advisories_ordinal_seq'))
+              WHERE id = ANY($1::uuid[])
+              RETURNING ordinal
+              """,
+              [ids]
+            )
+
+          Enum.map(rows, &hd/1)
+      end
+
+    Enum.map(numbered, & &1.ordinal) ++ assigned
   end
 
   # History is deliberately append-only and separate from the authoritative

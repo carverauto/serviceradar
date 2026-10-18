@@ -32,8 +32,13 @@ produced hundreds of thousands of rows of WAL to record that nothing changed.
 
 - Affected specs: `advisory-feed-producers`
 - Affected code: `AdvisoryFeeds.Loader`, new `AdvisoryFeeds.OrdinalSet`,
-  `AdvisoryFeeds.FeedWorker`, SRQL `vulnerability_advisories`, one migration.
-- The migration backfills `ordinal` for every existing advisory row once.
+  `AdvisoryFeeds.FeedWorker`, SRQL `vulnerability_advisories`, two migrations.
+- Two migrations add `ordinal` without rewriting the table in one statement:
+  a metadata-only column and sequence default, then a backfill of existing
+  rows in 5,000-row batches, a concurrently built unique index, and NOT NULL
+  established through a validated check constraint. Until the backfill
+  finishes, the loader numbers an unnumbered row it writes and withdraws an
+  unnumbered current row it did not observe.
 - A changed Ubuntu advisory committed by a run that later fails keeps its new
   assertions, which carry the unpromoted generation and read as stale rather
   than fresh until a later run promotes.

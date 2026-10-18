@@ -1592,7 +1592,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     withdrawal_statements =
       :withdrawal_query
       |> drain_queries([])
-      |> Enum.filter(&String.contains?(&1, "SET current = FALSE"))
+      |> Enum.filter(&String.contains?(&1, "ordinal = ANY"))
 
     assert result.advisories_skipped == 2
 
@@ -1605,6 +1605,40 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     for absent <- [absent_a, absent_b, absent_c] do
       assert advisory_id(feed_key, absent.advisory.source_object_id)
     end
+  end
+
+  test "rows the ordinal backfill has not reached are numbered when observed and withdrawn when absent",
+       %{feed_key: feed_key} do
+    [observed, absent | _] = all_records()
+    load(feed_key, [observed, absent])
+
+    # The state between adding the column and the backfill migration finishing.
+    Repo.query!(
+      "ALTER TABLE platform.vulnerability_advisories ALTER COLUMN ordinal DROP NOT NULL"
+    )
+
+    Repo.update_all(
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^@provider and a.feed_key == ^feed_key
+      ),
+      [set: [ordinal: nil]],
+      prefix: @schema
+    )
+
+    {result, _generation} = load(feed_key, [observed])
+
+    assert result.source_objects_seen == 1
+    assert current_source_ids(feed_key) == [observed.advisory.source_object_id]
+
+    assert Repo.one!(
+             from(a in "vulnerability_advisories",
+               where:
+                 a.provider == ^@provider and a.feed_key == ^feed_key and
+                   a.source_object_id == ^observed.advisory.source_object_id,
+               select: not is_nil(a.ordinal)
+             ),
+             prefix: @schema
+           )
   end
 
   test "empty, partial, corrupt, errored, and incomplete generations cannot demote", %{
