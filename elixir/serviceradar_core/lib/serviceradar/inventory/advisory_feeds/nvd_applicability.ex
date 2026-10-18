@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability do
   requires). Embedding the whole expression in every coordinate made one
   record's coordinate metadata grow with coordinates x expression size, which
   for large NVD records reached tens of megabytes per record. Readers call
-  `resolve_metadata/2` with the advisory's configurations to get the evaluable
+  `resolve_metadata/3` with the advisory's configurations to get the evaluable
   `expression` back. Rows written by expression version 2 and earlier embed the
   expression and resolve unchanged.
 

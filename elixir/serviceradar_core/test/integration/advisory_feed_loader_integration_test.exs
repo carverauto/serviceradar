@@ -535,18 +535,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     parsed =
       load_nvd.("cpe:2.3:o:exampleos:atlas_linux:10:*:*:*:*:*:*:*", "2099-02-01T00:00:00.000")
 
-    stored_configurations =
+    {stored_configurations, stored_digest} =
       Repo.one!(
         from(a in "vulnerability_advisories",
           where:
             a.provider == ^@provider and a.feed_key == ^feed_key and
               a.source_object_id == ^cve_id,
-          select: a.nvd_configurations
+          select: {a.nvd_configurations, a.metadata["nvd_configurations_digest"]}
         ),
         prefix: @schema
       )
 
     assert stored_configurations == parsed.advisory.nvd_configurations
+    assert stored_digest == parsed.advisory.metadata["nvd_configurations_digest"]
 
     stored = stored_coordinates(feed_key)
     assert length(stored) == 2
@@ -556,7 +557,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
       criteria =
         metadata
-        |> NvdApplicability.resolve_metadata(stored_configurations)
+        |> NvdApplicability.resolve_metadata(stored_configurations, stored_digest)
         |> get_in(["nvd_applicability", "expression"])
         |> expression_criteria()
 
