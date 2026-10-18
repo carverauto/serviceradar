@@ -49,7 +49,7 @@ const (
 	ProducerID = "serviceradar.scalibr.endpoint_inventory"
 	// ProducerVersion keys the agent's inventory cache, so bumping it discards
 	// cached hashes. Bump it whenever package_set_hash changes.
-	ProducerVersion       = "0.1.6"
+	ProducerVersion       = "0.1.7"
 	DefaultScannerID      = "osv-scalibr"
 	DefaultScannerVersion = "v0.5.2"
 	defaultCadence        = "24h"

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -150,11 +151,12 @@ func TestComputeArtifactHashSortsComponentProperties(t *testing.T) {
 type packageSetHashVectors struct {
 	HashAlgorithm string `json:"hash_algorithm"`
 	Cases         []struct {
-		Name                 string    `json:"name"`
-		Packages             []Package `json:"packages"`
-		ExpectedPURLs        []*string `json:"expected_purls"`
-		ExpectedPackageCount int       `json:"expected_package_count"`
-		ExpectedHash         string    `json:"expected_hash"`
+		Name                 string          `json:"name"`
+		Packages             []Package       `json:"packages"`
+		Components           json.RawMessage `json:"components"`
+		ExpectedPURLs        []*string       `json:"expected_purls"`
+		ExpectedPackageCount int             `json:"expected_package_count"`
+		ExpectedHash         string          `json:"expected_hash"`
 	} `json:"cases"`
 }
 
@@ -192,7 +194,33 @@ func TestPackageSetHashMatchesCoreVectors(t *testing.T) {
 			if got := ComputePackageSetHash(vector.Packages); got != vector.ExpectedHash {
 				t.Errorf("ComputePackageSetHash() = %s, want %s", got, vector.ExpectedHash)
 			}
+			assertUploadsVectorComponents(t, vector.Packages, vector.Components)
 		})
+	}
+}
+
+// Core recomputes the hash from the CycloneDX components in the upload, not
+// from the producer's packages. The vectors record the components core hashes
+// to expected_hash; BuildCycloneDX must emit exactly those, or the producer's
+// hash describes something core never receives.
+func assertUploadsVectorComponents(t *testing.T, packages []Package, want json.RawMessage) {
+	t.Helper()
+
+	bom := BuildCycloneDX(Config{}, time.Unix(0, 0).UTC(), OSInfo{}, packages)
+	encoded, err := json.Marshal(bom.Components)
+	if err != nil {
+		t.Fatalf("marshal components: %v", err)
+	}
+
+	var got, expected []any
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatalf("decode uploaded components: %v", err)
+	}
+	if err := json.Unmarshal(want, &expected); err != nil {
+		t.Fatalf("decode vector components: %v", err)
+	}
+	if !reflect.DeepEqual(got, expected) {
+		t.Errorf("BuildCycloneDX components = %s, want %s", encoded, want)
 	}
 }
 

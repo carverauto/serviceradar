@@ -45,7 +45,7 @@ cases = [
        purl: "pkg:rpm/rpm/coreutils@8.32-34.el9?distro=el-9&arch=aarch64&repository_url=https%3A%2F%2Fmirror.example.com%2Frepo")
    ]},
   {"missing_purl_fallback",
-   "No PURL at all: the canonical PURL is built from manager, ecosystem, name, version and architecture.",
+   "No PURL at all: the canonical PURL is built from the package manager, name, version, and architecture. Ecosystem is not an input.",
    [
      pkg.(name: "tzdata", version: "2024a-0+deb12u1", architecture: "all", manager: "dpkg", ecosystem: "debian"),
      pkg.(name: "busybox", version: "1.36.1-r15", architecture: "x86_64", manager: "apk"),
@@ -127,6 +127,24 @@ cases = [
      pkg.(name: "", version: "1.0", manager: "dpkg"),
      pkg.(name: "   ", version: "1.0", manager: "dpkg"),
      pkg.(name: "nomanager", version: "1.0", manager: "")
+   ]},
+  {"padded_fields_without_purl_qualifier",
+   "Padded architecture and manager with no arch qualifier in the PURL. The architecture fills the qualifier trimmed, whether it arrives as a package field or as a CycloneDX property.",
+   [
+     pkg.(name: "padded-arch", version: "1.0-1", architecture: "  arm64 ", manager: " dpkg ",
+       purl: "pkg:deb/debian/padded-arch@1.0-1"),
+     pkg.(name: "padded-fallback", version: "2.0", architecture: " x86_64", manager: "rpm ")
+   ]},
+  {"ecosystem_is_not_an_input",
+   "Ecosystem never reaches the CycloneDX anchor core hashes, so it must not change the canonical PURL: a PURL without a namespace keeps none, and a fallback PURL takes its type from the package manager.",
+   [
+     pkg.(name: "example-requests", version: "2.0.0", manager: "pip", ecosystem: "pypi",
+       purl: "pkg:pypi/example-requests@2.0.0"),
+     pkg.(name: "example-left-pad", version: "1.0.0", manager: "npm", ecosystem: "npm",
+       purl: "pkg:npm/example-left-pad@1.0.0"),
+     pkg.(name: "example-widget", version: "3.1-2", architecture: "amd64", manager: "dpkg", ecosystem: "deb",
+       purl: "pkg:deb/example-widget@3.1-2"),
+     pkg.(name: "example-gem", version: "0.4.1", manager: "gem", ecosystem: "RubyGems")
    ]}
 ]
 
@@ -137,52 +155,51 @@ canonical_purl = fn p ->
   end
 end
 
+# The CycloneDX components go/pkg/endpointinventory BuildCycloneDX emits for a
+# package, as encoding/json writes them. This is what core actually hashes on
+# ingest. The Go test checks BuildCycloneDX against these components, so this
+# mirror cannot drift from the producer unnoticed.
+component = fn p ->
+  arch = Map.get(p, "architecture", "")
+
+  props =
+    [%{"name" => "serviceradar:package_manager", "value" => Map.get(p, "manager", "")}] ++
+      if arch != "", do: [%{"name" => "serviceradar:architecture", "value" => arch}], else: []
+
+  [{"type", "library"}, {"name", Map.get(p, "name", "")}, {"version", Map.get(p, "version", "")},
+   {"purl", Map.get(p, "purl", "")}, {"properties", props}]
+  |> Enum.reject(fn {k, v} -> k in ["version", "purl"] and v == "" end)
+  |> Map.new()
+end
+
 case_json =
   Enum.map(cases, fn {name, note, pkgs} ->
     normalized = PS.normalize_packages(%{"packages" => pkgs})
+    hash = PS.server_package_set_hash(normalized)
+    components = Enum.map(pkgs, component)
+
+    sbom_hash =
+      PS.server_package_set_hash(PS.normalize_packages(%{"sbom" => %{"components" => components}}))
+
+    if sbom_hash != hash,
+      do: raise("#{name}: CycloneDX hash #{sbom_hash} != packages hash #{hash}")
 
     %{
       "name" => name,
       "note" => note,
       "packages" => pkgs,
+      "components" => components,
       "expected_purls" => Enum.map(pkgs, canonical_purl),
       "expected_package_count" => length(normalized),
-      "expected_hash" => PS.server_package_set_hash(normalized)
+      "expected_hash" => hash
     }
   end)
-
-# The same packages as a CycloneDX document (core only; the Go producer always
-# sends `packages`). Its hash must equal the packages case it mirrors.
-{_, _, sbom_source} = Enum.find(cases, fn {n, _, _} -> n == "apk_and_rpm_purls" end)
-
-components =
-  Enum.map(sbom_source, fn p ->
-    props =
-      [{"serviceradar:package_manager", p["manager"]}, {"serviceradar:architecture", p["architecture"]},
-       {"serviceradar:ecosystem", p["ecosystem"]}]
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-      |> Enum.map(fn {k, v} -> %{"name" => k, "value" => v} end)
-
-    %{"type" => "library", "name" => p["name"], "version" => p["version"], "purl" => p["purl"], "properties" => props}
-  end)
-
-sbom_hash = PS.server_package_set_hash(PS.normalize_packages(%{"sbom" => %{"components" => components}}))
-pkg_hash = Enum.find(case_json, &(&1["name"] == "apk_and_rpm_purls"))["expected_hash"]
-if sbom_hash != pkg_hash, do: raise("cyclonedx hash #{sbom_hash} != packages hash #{pkg_hash}")
 
 doc = %{
   "description" =>
-    "Shared package_set_hash (sha256-v1) vectors. Expected values were generated from the authoritative Elixir implementation (ServiceRadar.Inventory.EndpointInventoryPackageSet); go/pkg/endpointinventory and serviceradar_core both test against this file. All data is invented. The empty set is deliberately absent: core treats it as no hash (nil) while the producer reports a digest, and core never compares the two.",
+    "Shared package_set_hash (sha256-v1) vectors. Expected values were generated from the authoritative Elixir implementation (ServiceRadar.Inventory.EndpointInventoryPackageSet); go/pkg/endpointinventory and serviceradar_core both test against this file. Each case carries the packages and the CycloneDX components BuildCycloneDX uploads for them; core must hash both forms to expected_hash, and the Go producer must hash the packages to it and emit exactly those components. All data is invented. The empty set is deliberately absent: core treats it as no hash (nil) while the producer reports a digest, and core never compares the two.",
   "hash_algorithm" => "sha256-v1",
-  "cases" => case_json,
-  "cyclonedx_cases" => [
-    %{
-      "name" => "cyclonedx_mirrors_apk_and_rpm_purls",
-      "note" => "sbom.components carrying the apk_and_rpm_purls packages; core only.",
-      "components" => components,
-      "expected_hash" => sbom_hash
-    }
-  ]
+  "cases" => case_json
 }
 
 # :unicode_safe keeps the file ASCII except DEL, which Jason never escapes.
