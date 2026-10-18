@@ -100,8 +100,9 @@ account key, so credentials stay valid) before NATS starts.
 
 ## Optional profiles: StarRocks warehouse and NetFlow collector
 
-The default stack does **not** start StarRocks or the NetFlow collector, and
-all telemetry stays on CNPG hypertables. Optional profiles:
+The default stack does **not** start StarRocks or the NetFlow collector.
+For telemetry storage routing, see [Data Pipeline](docs/docs/data-pipeline.md).
+Optional profiles:
 
 ```bash
 # Every StarRocks command below needs STARROCKS_ROOT_PASSWORD in .env first;

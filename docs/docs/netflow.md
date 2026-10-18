@@ -126,7 +126,8 @@ Without it EventWriter acknowledges flow batches without storing them, and the
 dashboard NetFlow panel and `in:flows` are refused.
 
 The trap, flow, and BMP collectors together start with
-`docker compose --profile network-ingest up -d`. Its bounded JetStream
+`STARROCKS_ENABLED=true docker compose --profile starrocks --profile network-ingest up -d`.
+Its bounded JetStream
 reservations are KV 2 GiB + objects 2 GiB + events 2 GiB + flows 1 GiB + BMP
 128 MiB = 7.125 GiB. That leaves 896 MiB of account headroom under the generated
 8 GiB platform-account quota, which itself stays below the NATS server's 10G
@@ -477,7 +478,10 @@ that file. If you abandon the downgrade, re-apply the current chart/values so th
 current image rehomes the subjects forward to `flows`; do not leave the live
 ConfigMap different from the desired release.
 
-### 5. Query Database
+### 5. Query the Warehouse
+
+Run these queries on the StarRocks Frontend (MySQL protocol, port 9030),
+using your configured warehouse database (`serviceradar` by default).
 
 ```sql
 -- Check recent flows
@@ -490,7 +494,7 @@ SELECT
   bytes_total,
   packets_total
 FROM ocsf_network_activity
-WHERE time > NOW() - INTERVAL '5 minutes'
+WHERE time > NOW() - INTERVAL 5 MINUTE
 ORDER BY time DESC
 LIMIT 20;
 
@@ -500,7 +504,7 @@ SELECT
   COUNT(*) as flow_count,
   SUM(bytes_total) as total_bytes
 FROM ocsf_network_activity
-WHERE time > NOW() - INTERVAL '1 hour'
+WHERE time > NOW() - INTERVAL 1 HOUR
 GROUP BY src_endpoint_ip
 ORDER BY total_bytes DESC
 LIMIT 10;

@@ -15,12 +15,9 @@
 **The data plane question has a clean answer; the harder finding is what it
 *doesn't* give you.**
 
-1. **The single point where everything converges is the CNPG database**
-   (CloudNativePG / Postgres + TimescaleDB + Apache AGE graph + pgvector).
-   Anything that arrives over NATS is written to CNPG near-instantly, except
-   flows, which are stored only in StarRocks
-   ([NetFlow](./netflow.md#flow-cutover-and-delivery)). There is no reason to
-   integrate against NATS. CNPG remains the uniform plane for the other data.
+1. **Telemetry storage routing is described in [Data Pipeline](./data-pipeline.md).**
+   CNPG is not a convergence point for all telemetry. For the flow storage and
+   delivery contract, see [NetFlow](./netflow.md#flow-cutover-and-delivery).
 
 2. **The uniform API over it is SRQL** (ServiceRadar Query Language) — and,
    critically for you, **SRQL already exists as an embeddable Rust crate**
@@ -75,7 +72,7 @@ The CNPG database (schema `platform`) carries:
   `device_identifiers`, `device_groups`, `virtualization_*` (Proxmox/hypervisor
   inventory), `interface_settings`, etc.
 
-The **uniform semantic model** within CNPG is **OCSF** (Open Cybersecurity
+The **uniform semantic model** is **OCSF** (Open Cybersecurity
 Schema Framework): heterogeneous inputs (syslog, SNMP traps, OTEL logs,
 internal health transitions, BMP/SIEM signals) are normalized into
 `ocsf_events` / `ocsf_network_activity` / `ocsf_devices` with consistent fields
