@@ -164,9 +164,9 @@ The system SHALL admit internet-scoped peer addresses from host connection summa
 - **THEN** the peer is looked up once
 
 ### Requirement: Network-Only Connections To Fully Covered Hosts Raise An Evasion Signal
-The system SHALL raise a `network_only` discrepancy signal when a network-observed connection side, after address translation, maps to exactly one agent-managed host whose agent attested complete, event-driven capture coverage for the connection's interval plus tolerance, and no host-observed connection or ownership lease matches it within the tolerance window. A candidate SHALL be evaluated only after the flow's late window has reached its cutoff with a final `no_owner` decision, as defined by *Late Binding Is Bounded And Never Rescans Flows*, and not before the evaluation point of its summary interval. Flows finalized early SHALL NOT produce candidates.
+The system SHALL raise a `network_only` discrepancy signal when a network-observed connection side, after address translation, maps to exactly one agent-managed host whose agent attested complete, event-driven capture coverage for the connection's interval plus tolerance, and no host-observed connection or ownership lease matches it within the tolerance window. A candidate SHALL be evaluated only after the flow's late window has reached its cutoff with a final `no_owner` decision, as defined by *Late Binding Is Bounded And Never Rescans Flows*, and not before the evaluation point of its hour, the hour containing the flow's end plus tolerance. Flows finalized early SHALL NOT produce candidates.
 
-**Evaluation point.** Both `network_only` and `host_only` evaluation of an interval ending at `e` SHALL run at `max(e + exporter active timeout, e + maximum accepted flow delay + late window)` plus the network-evidence write target, and SHALL use one read of the host and network evidence taken at that point.
+**Evaluation point.** `network_only` and `host_only` SHALL share one evaluation interval, the UTC hour. Both SHALL be evaluated for an hour ending at `e` at `max(e + exporter active timeout, e + maximum accepted flow delay + late window)` plus the network-evidence write target, and SHALL use the same single read of the host and network evidence taken at that point.
 
 #### Scenario: Hidden connection is signalled
 - **GIVEN** an agent attests complete event-driven coverage for 12:00-12:05 on a host with address `192.0.2.10`
@@ -353,7 +353,7 @@ The evaluator SHALL record every evaluated candidate that does not become a sign
 - **THEN** a zero candidate count and a high `coverage_unknown` count are distinguishable
 
 ### Requirement: Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions
-The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Each transition SHALL carry the complete after-image of every fact column except the snapshot generation, never only the changed fields, and SHALL be applied only when its `transition_seq`, which increases per fact in commit order, is greater than the stored one, so that duplicate or reordered transitions converge to the latest complete state. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL be a state change, never a delete: a resolved fact SHALL remain as a tombstone, and its key, state and `transition_seq` SHALL be kept permanently as the fact's sequence watermark. A compaction SHALL clear only the payload columns of tombstones resolved more than 7 days ago. Correctness SHALL NOT depend on a delivery horizon. The age of the oldest unrelayed outbox row (bound 10 minutes) and the transitions stream's message age (`max_age` 7 days) SHALL be bounded, and exceeding either SHALL raise a health alert.
+The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Each transition SHALL carry the complete after-image of every fact column except the snapshot generation, never only the changed fields, and SHALL be applied only when its `transition_seq`, which increases per fact in commit order, is greater than the stored one, so that duplicate or reordered transitions converge to the latest complete state. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL be a state change, never a delete. Deletion and retirement SHALL arrive as transitions with a new, greater `transition_seq` and an explicit `resolved` or `retired` state, never at the key's last sequence. A device retirement SHALL set every fact of the ordinal to `retired` and record the ordinal permanently as retired; any transition for a retired ordinal SHALL be dropped and counted at the ingestion boundary, including one for a fact that was never delivered before the retirement. A resolved or retired fact SHALL remain as a tombstone, and its key, state and `transition_seq` SHALL be kept permanently as the fact's sequence watermark. A compaction SHALL clear only the payload columns of tombstones resolved more than 7 days ago. Correctness SHALL NOT depend on a delivery horizon. The age of the oldest unrelayed outbox row (bound 10 minutes) and the transitions stream's message age (`max_age` 7 days) SHALL be bounded, and exceeding either SHALL raise a health alert.
 
 #### Scenario: Reordered transitions keep the newest state
 - **GIVEN** transitions with sequence 10 (resolved) and 9 (active) for the same fact are delivered in the order 10, 9
@@ -411,8 +411,13 @@ Device ordinals SHALL come from `platform.device_fleet_ordinals`. CVE ordinals f
 #### Scenario: Merge retires the losing ordinal
 - **GIVEN** device A merges into device B, and A's ordinal is tombstoned
 - **WHEN** the merge completes
-- **THEN** every fact for A's ordinal is resolved and A's address intervals are closed
+- **THEN** every fact for A's ordinal is retired and A's address intervals are closed
 - **AND** B's assessments are published under B's ordinal
+
+#### Scenario: Retirement protects a fact not yet delivered
+- **GIVEN** A's ordinal is retired at sequence 50
+- **WHEN** an active transition with sequence 45 for an A fact that StarRocks has never held is delivered afterwards
+- **THEN** the transition is dropped and counted, and no fact row for that key becomes active
 
 ### Requirement: Flows And Host Evidence Map To Devices Through An Address Dimension
 The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)` to `device_ord` with validity intervals, address source, a shared flag, an agent-attested flag, and the prefix tags and site of the address. It SHALL be fed from inventory address changes and agent address leases through JetStream. Each interval publication SHALL be the complete interval row with an `interval_seq`, applied only when greater than the stored one. The EventWriter flow tier SHALL hold a bounded in-memory validity history per address, fed from the same stream and retained for the maximum accepted flow delay plus the late window. It SHALL resolve each flow endpoint against the intervals covering the flow's observation time, never against the address's current holder, and stamp per-side device ordinals and resolutions at ingest. An endpoint whose observation interval is covered by more than one device SHALL be `ambiguous`, and one older than the retained history SHALL be `outside_history` and counted; neither SHALL carry an ordinal. Device stamping SHALL participate in the same late window as attribution: while a flow's window is open, an address-validity update for an address one of its sides resolved through SHALL re-resolve that side with the same time-based lookup and publish a decision update when the result changes. After the cutoff the stamp SHALL be final, and an address update that would have changed it SHALL be counted, not applied to flows.
@@ -470,7 +475,7 @@ Exposure queries SHALL obtain device names, VLAN, owner, device tags and the age
 - **AND** names are not silently left empty
 
 ### Requirement: Exposure Is Rebuildable And Reconciled Against The Assessment Store
-The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit a watermark carrying the last sequence for every other fact key CNPG knows in `V`, including keys whose assessment row was deleted, which CNPG records with their last sequence in the deleting transaction. A snapshot row SHALL be applied when its sequence is greater than or equal to the stored one; at equal sequence only the snapshot generation changes. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
+The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit a terminal watermark for every other fact key CNPG knows in `V`, including keys whose assessment row was deleted, which carry the new sequence the deleting transaction drew, and a retirement marker for every tombstoned ordinal. A snapshot row SHALL be compared with the stored row on `(transition_seq, state)`: a greater sequence SHALL be applied; an equal sequence with an equal state SHALL change only the snapshot generation; an equal sequence with a different state SHALL be counted as a mismatch and the snapshot's state applied. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of `(cve_ord, pkg_ord)` between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
 
 #### Scenario: Snapshot removes stale facts and keeps live updates
 - **GIVEN** StarRocks holds a fact that CNPG no longer considers actionable
@@ -484,6 +489,12 @@ The system SHALL rebuild exposure facts through a generation snapshot of all act
 - **AND** an active transition with sequence 10 for the fact is still awaiting redelivery
 - **WHEN** snapshot generation G completes and sequence 10 is delivered, in either order
 - **THEN** the fact ends resolved at sequence 11
+
+#### Scenario: Deleted assessment overrides a stale active warehouse row
+- **GIVEN** the warehouse holds a fact active at sequence 10
+- **AND** CNPG deleted that assessment row, drawing sequence 11 and recording `resolved` at 11
+- **WHEN** snapshot generation G completes
+- **THEN** the fact is resolved at sequence 11
 
 #### Scenario: Transaction in flight during the snapshot keeps its result
 - **GIVEN** a resolving transaction for an active fact has drawn its `transition_seq` but has not committed when the snapshot records `V`
@@ -511,7 +522,7 @@ The system SHALL meet these p99 freshness targets:
 - a fact is reflected in the bitmap views within 180 seconds;
 - an address change or address lease reaches the address dimension and the flow-tier validity history within 60 seconds;
 - host evidence is visible within 120 seconds of its summary interval closing;
-- a discrepancy record exists within 300 seconds of its interval's evaluation point;
+- a discrepancy record exists within 300 seconds of the evaluation point of its hour;
 - the daily snapshot completes within 15 minutes of UTC midnight.
 Every exposure SRQL response SHALL carry an `as_of` timestamp for each source it read.
 

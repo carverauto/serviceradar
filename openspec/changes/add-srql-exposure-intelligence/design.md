@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
   cve_ord             BIGINT    NOT NULL,
   pkg_ord             BIGINT    NOT NULL,   -- version-independent package identity
   pkgver_ord          BIGINT    NOT NULL,   -- identity + installed version
-  state               TINYINT   NOT NULL,   -- 1 active (actionable), 0 resolved
+  state               TINYINT   NOT NULL,   -- 1 active (actionable), 0 resolved, 2 retired
   source_scope        VARCHAR(32),
   severity_rank       TINYINT,              -- 0 none, 1 low, 2 medium, 3 high, 4 critical
   cvss_score          DECIMAL(3,1),
@@ -166,7 +166,10 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
 - **"Active" is the exact actionable predicate:** `status = active AND assessment =
   confirmed AND disposition = affected`. This is the triple
   `add-srql-advisory-cpe-entities` defines. Candidates are not exposure.
-- **Resolution is a state change, never a delete.**
+- **Resolution is a state change, never a delete.** Deletion and retirement are transitions
+  too: each draws a **new** `transition_seq`, greater than the key's last one, and carries
+  an explicit terminal state (`resolved` or `retired`). A terminal transition never reuses
+  the key's last sequence.
   - Every transition carries the complete after-image of every fact column except
     `snapshot_generation`, never only the changed fields. It is applied only when its
     `transition_seq` is greater than the stored one, so out-of-order delivery converges to
@@ -245,10 +248,15 @@ carries an `as_of` for each source it read.
   - Allocation widens from endpoint-inventory devices to every non-service device the
     address publisher emits, so agentless devices can carry network evidence and act as
     blast-radius members.
-  - When a merge tombstones an ordinal, the publisher emits a `device_retired` transition.
-    Its `transition_seq` is drawn in the transaction that tombstones the ordinal, and no
-    later transition is produced for that ordinal, so the retirement resolves every fact
-    for the old ordinal at that sequence and closes its address intervals. The survivor's assessments then re-emit under the survivor's ordinal.
+  - When a merge or deletion tombstones an ordinal, the publisher emits a `device_retired`
+    transition with a new `transition_seq` `R`, drawn in the transaction that tombstones the
+    ordinal and recorded on the ordinal row (`retired_seq`); it is greater than every
+    sequence the ordinal's facts carry. No later transition is produced for that ordinal.
+    EventWriter sets every fact of the ordinal to `state = 2` (retired) at `R`, closes its
+    address intervals, and records the ordinal in the permanent
+    `serviceradar.exposure_retired_ordinals`. The shared transition-ingestion boundary drops
+    and counts any transition for a retired ordinal, so a fact whose first transition is
+    delivered after the retirement never appears. The survivor's assessments then re-emit under the survivor's ordinal.
 - **`cve_ord`.**
   - For `CVE-YYYY-N` with `N < 10^7`, the ordinal is `YYYY * 10^7 + N` (for example
     `CVE-2024-0001` -> `20240000001`). It is deterministic, needs no lookup on the hot
@@ -524,8 +532,8 @@ membership bitmap. This is documented as current membership (open question 3).
    candidates. The side's device resolution at the flow's observation time must be
    `resolved`, to exactly one agent-managed device with `agent_attested = true`. Candidates are deduplicated per
    `(device_ord, peer, port, proto, minute)`.
-2. The sharded evaluator holds each candidate until the evaluation point of its summary
-   interval (below) has passed, attestations cover `[flow_start - tolerance, flow_end +
+2. The sharded evaluator holds each candidate until the evaluation point of its hour (the
+   hour containing `flow_end + tolerance`, below) has passed, attestations cover `[flow_start - tolerance, flow_end +
    tolerance]`, and the host-summary stream for that agent has been consumed past that
    range. If the attestations do not arrive within a deadline after the evaluation point
    (default 10 minutes), the candidate is recorded as suppressed with `coverage_unknown`.
@@ -565,12 +573,13 @@ The `network_only` incident threshold defaults to 0.85. Signals below the thresh
 stored and queryable but do not alert. The score is a pure function of stored inputs, so
 it can be recomputed in tests and investigations.
 
-**Evaluation point.** Both directions are evaluated at the same point for an interval `I`
-ending at `e` (the summary interval for `network_only`, the hour for `host_only`):
+**Evaluation point.** Both directions use one evaluation interval, the UTC hour, and are
+evaluated together at one point per hour `I` ending at `e`:
 `E(I) = max(e + exporter active timeout, e + maximum accepted flow delay + late window) +
 60 s`. That is the later of the exporter's last possible export and the late-window cutoff
-of every flow observed in `I`, plus the network-evidence write target. Each evaluation
-uses one read of the host and network evidence taken at `E(I)`. With the defaults
+of every flow observed in `I`, plus the network-evidence write target. One read of the host
+and network evidence taken at `E(I)` serves both the `network_only` candidates of that
+hour and its `host_only` evaluation. With the defaults
 (15-minute maximum flow delay, 5-minute late window) an hour is evaluated about 21 minutes
 after it closes. Example: a contact at 12:59:50 is reported by the host at 13:01; the flow
 is ingested at 13:00:30 and its network evidence is written after its cutoff at 13:05:30.
@@ -622,7 +631,7 @@ and do not create new alerts.
 | Inventory address change or address lease -> address dimension and flow-tier validity history | <= 60 s |
 | Summary interval close -> host evidence visible | <= 120 s |
 | Flow's late-window cutoff -> network evidence visible | <= 60 s |
-| Interval evaluation point `E(I)` (Decision 12) -> discrepancy record | <= 300 s; incident <= 60 s later |
+| Hour evaluation point `E(I)` (Decision 12) -> discrepancy record | <= 300 s; incident <= 60 s later |
 | UTC midnight -> daily snapshot | <= 15 min |
 
 The upstream bound from an inventory scan to a transition belongs to #5748 and is not
@@ -640,13 +649,21 @@ snapshots.
     read in that transaction sees exactly `V`.
   - It emits every actionable assessment visible in `V` as a `SNAPSHOT` upsert carrying the
     row's complete after-image, last `transition_seq` and `transition_xid`. It also emits
-    a `SNAPSHOT` watermark (key, `state = 0`, sequence) for every other fact key known to
-    CNPG in `V`: non-actionable assessment rows carry their last sequence, and
-    `platform.exposure_fact_watermarks` (key and last sequence, written in the same
-    transaction that physically deletes an assessment row) covers deleted ones. It then
-    emits `SNAPSHOT_END(G, V)`.
-  - A snapshot row is applied when its sequence is greater than the stored one, or equal
-    to it, in which case only `snapshot_generation` changes.
+    a `SNAPSHOT` watermark (key, terminal state, sequence) for every other fact key known
+    to CNPG in `V`: non-actionable assessment rows carry their last sequence, and
+    `platform.exposure_fact_watermarks` covers deleted ones. That table holds the key, the
+    `resolved` state and the **new** sequence that the deleting transaction drew and
+    published. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
+    ordinal. It then emits `SNAPSHOT_END(G, V)`.
+  - A snapshot row is compared with the stored row on `(transition_seq, state)`. A greater
+    sequence is applied. An equal sequence with an equal state changes only
+    `snapshot_generation`. An equal sequence with a different state cannot be produced by
+    one transition, so it is counted as a reconciliation mismatch and the snapshot's state
+    is applied.
+  - Example (deletion): an active fact at sequence 10 has its assessment row deleted; the
+    deleting transaction draws sequence 11 and records `resolved` at 11. A warehouse still
+    holding the fact active at 10 receives the watermark at 11, which is greater, so the
+    fact ends resolved.
   - The outbox keeps relaying live transitions throughout. A transition whose
     `transition_xid` is not visible in `V` (in flight or committed after `V` was taken) is
     applied normally whenever it arrives. Its per-row sequence is above the one the
@@ -788,6 +805,20 @@ Refresh budgets:
    - removing the processors stops writes;
    - the flow columns stay (nullable);
    - CNPG assessments are untouched throughout.
+
+## Known edge cases and deferred decisions
+
+| Case | Intended handling |
+|---|---|
+| A transition for a retired ordinal arrives after the retirement | Dropped at the ingestion boundary and counted; the ordinal's facts stay retired. |
+| A deleted assessment key is re-created later | The re-creating transaction draws a new sequence above the deletion's and removes the key's row from `platform.exposure_fact_watermarks` in the same transaction. |
+| A transitions-stream message expires (`max_age`) before it is consumed | Freshness is lost and the stream-age health alert fires; the daily reconciliation finds the device mismatched and a per-device snapshot repairs it. Watermarks still prevent any older state from winning. |
+| A warehouse is restored from a backup taken after compaction | Compacted tombstones in the backup still carry their watermark; the snapshot supplies every newer watermark. |
+| A `network_only` candidate's tolerance range crosses an hour boundary | It is evaluated with the later hour, the hour containing `flow_end + tolerance`. |
+| A flow arrives later than the maximum accepted flow delay | Its sides are `outside_history` and counted; the exporter's hour counts as unhealthy, so it cannot produce a `host_only` gap. |
+| An address update arrives after a flow's late-window cutoff | The flow keeps its stamp and `address_update_after_cutoff` is counted. |
+| A snapshot row and the stored row share a sequence but differ in state | Counted as a reconciliation mismatch; the snapshot's state is applied. |
+| Watermark growth | Kept permanently (about 24 bytes per key ever seen). Deferred: revisit a retirement-scoped expiry if the key count exceeds the capacity model by an order of magnitude. |
 
 ## Open Questions
 
