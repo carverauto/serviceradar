@@ -40,7 +40,7 @@ row per statement/product membership.
 - **AND** raw source documents and complete raw VEX product arrays SHALL neither enter the BEAM nor be stored in advisory raw JSON
 - **AND** Elixir SHALL independently validate canonical PURLs, exact name-version pairs, IDs, digests, counts, and references before insertion
 
-#### Scenario: Unchanged source object is observed without a write
+#### Scenario: Unchanged source object is presence only
 
 - **GIVEN** a source object's modification state and normalization version match the current complete advisory
 - **WHEN** the next atomic pair is consumed
