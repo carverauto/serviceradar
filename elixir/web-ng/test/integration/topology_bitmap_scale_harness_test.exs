@@ -135,13 +135,31 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert gap > 30_000 and failures >= 1
     assert_receive :progress, 2_000
 
-    # No read has ever succeeded, so nothing establishes the held revision.
-    empty = sampler(failing, :empty)
+    # No read has succeeded since sampling began over 30 seconds ago, so even a
+    # frame received just now has never been shown current.
+    empty = sampler(failing, :empty, old)
+    held_now = %{viewer.(empty, "synthetic-epoch-a") | held_since: now}
 
-    assert {:stop, {:no_progress, %{basis: :unobserved, sampler: %{last_read_age_ms: nil}}}, _} =
-             Client.handle_info(:progress, viewer.(empty, "synthetic-epoch-a"))
+    assert {:stop, {:no_progress, %{basis: :unobserved, gap_ms: gap, sampler: %{last_read_age_ms: nil}}}, _} =
+             Client.handle_info(:progress, held_now)
 
+    assert gap > 30_000
     assert_receive :progress, 2_000
+
+    # The last successful read is over 30 seconds old and saw another epoch.
+    # Frames that keep arriving for the unseen epoch do not renew coverage.
+    lapsed = sampler(failing, :lapsed)
+    :ok = Revisions.observe(lapsed, "synthetic-epoch-a", 7, old)
+
+    for held_since <- [now - 2_000, now] do
+      unseen = %{viewer.(lapsed, "synthetic-epoch-b") | held_since: held_since}
+
+      assert {:stop, {:no_progress, %{basis: :unobserved, gap_ms: gap}}, _} =
+               Client.handle_info(:progress, unseen)
+
+      assert gap > 30_000
+      assert_receive :progress, 2_000
+    end
 
     # Reads succeed, but never for the epoch this viewer holds.
     unknown = sampler(fn -> {:ok, {"synthetic-epoch-c", 3}} end, :unknown)
@@ -152,11 +170,14 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert gap > 30_000
     assert_receive :progress, 2_000
 
-    # A frame the sampler has not reached yet is a bounded race, not a stall.
-    fresh = %{viewer.(unknown, "synthetic-epoch-z") | held_since: now}
-    assert {:noreply, %{stats: %{max_normal_gap_ms: lag}}} = Client.handle_info(:progress, fresh)
-    assert lag < 30_000
-    assert_receive :progress, 2_000
+    # A frame the sampler has not reached yet is a bounded race, not a stall,
+    # while reads succeed or sampling has only just begun.
+    for table <- [unknown, sampler(failing, :starting)] do
+      fresh = %{viewer.(table, "synthetic-epoch-z") | held_since: now}
+      assert {:noreply, %{stats: %{max_normal_gap_ms: lag}}} = Client.handle_info(:progress, fresh)
+      assert lag < 30_000
+      assert_receive :progress, 2_000
+    end
   end
 
   test "a stopped viewer fails the driver at once with only its own bounded report" do
@@ -402,8 +423,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
   end
 
   # The sampler's first read runs before it answers, so its table always holds
-  # at least one read outcome.
-  defp sampler(read, id \\ :revisions) do
-    {Revisions, read} |> Supervisor.child_spec(id: id) |> start_supervised!() |> Revisions.table()
+  # at least one read outcome. `since` dates the start of sampling.
+  defp sampler(read, id \\ :revisions, since \\ System.monotonic_time(:millisecond)) do
+    {Revisions, {read, since}} |> Supervisor.child_spec(id: id) |> start_supervised!() |> Revisions.table()
   end
 end

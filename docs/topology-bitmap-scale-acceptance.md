@@ -140,7 +140,8 @@ than 30 seconds. A sampler records when each server published each revision,
 dated from the previous read so that sampling never shortens a measured lag. A
 held revision counts as current only as of the sampler's last successful read,
 so failed or missing reads, or an epoch the sampler never saw, cannot certify a
-viewer for more than 30 seconds; the failure report carries the basis and the
+viewer for more than 30 seconds, and new frames for an unseen epoch do not
+renew that coverage; the failure report carries the basis and the
 sampler's failure count and read age. A
 viewer that stops now fails the driver on its next step with the viewer's own
 bounded report. The bound and the workload are unchanged.

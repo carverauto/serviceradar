@@ -9,12 +9,17 @@ defmodule ServiceRadarWebNG.Topology.Scale.Revisions do
 
   @interval 250
 
-  def start_link(read) when is_function(read, 0), do: GenServer.start_link(__MODULE__, read)
+  def start_link(read) when is_function(read, 0), do: start_link({read, now()})
+
+  def start_link({read, since} = arg) when is_function(read, 0) and is_integer(since),
+    do: GenServer.start_link(__MODULE__, arg)
+
   def table(pid), do: GenServer.call(pid, :table)
 
   @impl true
-  def init(read) do
+  def init({read, since}) do
     table = :ets.new(__MODULE__, [:ordered_set, :public, read_concurrency: true])
+    :ets.insert(table, {:sampling_since, since})
     send(self(), :sample)
     {:ok, %{read: read, table: table}}
   end
@@ -67,13 +72,17 @@ defmodule ServiceRadarWebNG.Topology.Scale.Revisions do
   What the observations establish about a viewer holding `{epoch, revision}`:
   `{:behind, since}` once the replica published anything newer (later epochs
   are newer), `{:current, read_at}` when the latest successful read, started at
-  `read_at`, found nothing newer, or `:unobserved` when no successful read has
-  seen that epoch.
+  `read_at`, found nothing newer, or `{:unobserved, covered}` when no successful
+  read has seen that epoch. `covered` is when the latest successful read, or
+  failing one sampling itself, began; frames arriving later do not renew it.
   """
   def freshness(table, epoch, revision) do
     case :ets.lookup(table, {:epoch, epoch}) do
       [] ->
-        :unobserved
+        case :ets.lookup(table, :last_read) do
+          [{_, started}] -> {:unobserved, started}
+          [] -> {:unobserved, :ets.lookup_element(table, :sampling_since, 2)}
+        end
 
       [{_, order}] ->
         case :ets.next(table, {:revision, order, revision}) do

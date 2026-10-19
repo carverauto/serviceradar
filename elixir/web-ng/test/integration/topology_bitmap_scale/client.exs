@@ -307,12 +307,13 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
   end
 
   # Since when the viewer's membership has not been shown to be current. A held
-  # revision the sampler has not seen yet is a bounded race while reads succeed.
+  # revision the sampler has not seen yet is a bounded race while reads succeed;
+  # once successful reads lapse, newly arriving frames cannot extend it.
   defp unproven_since(%{blank_since: since}) when not is_nil(since), do: {:blank, since}
 
   defp unproven_since(%{revisions: table, stats: %{last_revision: {epoch, revision}}} = state) do
     case Revisions.freshness(table, epoch, String.to_integer(revision)) do
-      :unobserved -> {:unobserved, state.held_since}
+      {:unobserved, covered} -> {:unobserved, min(state.held_since, covered)}
       basis_since -> basis_since
     end
   end
