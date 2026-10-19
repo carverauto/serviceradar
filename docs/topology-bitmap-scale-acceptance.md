@@ -91,8 +91,10 @@ at p50, p95 and p99. The run then failed during churn. Churn writes took 10.5 to
 that cadence was not achieved. Thirty-nine normal viewers stopped on the
 30-second progress check: 24 after tick 16, 1 after tick 31, 2 after tick 32
 and 12 after tick 34. The driver did not notice and ran to tick 60, where it
-failed calling a stopped viewer, so no restart, replacement, reconnect or
-revocation phase ran. All 60 fifty-facet HTTP queries answered 200. Native
+failed calling a stopped viewer. The mapping replacement started at tick 30,
+but the driver failed before collecting its completion, so the run reports no
+replacement result and does not validate it. The restart, reconnect and
+revocation phases never ran. All 60 fifty-facet HTTP queries answered 200. Native
 memory peaked at 101,036,506 bytes, pins at 8 of 8 and server RSS near 1.28 GB.
 Busy origins were aggregate ordinals 90 and admission expiry 819 on the first
 server, and 34 and 207 on the second. The hosted clone cleanup finished with
@@ -124,7 +126,8 @@ that join together refresh as one burst on every tick, and first-come
 admission serves that burst in the same order each time. The admission wait
 histogram is consistent with bursts: in the first server's final sample,
 admitted waits were either under 16 ms (3,257) or 256 to 1,023 ms (7,087), with
-only 35 in between. The burst order is inferred from the code, not measured.
+only 39 in between (28 at 16 to 31 ms, 4 at 32 to 63 ms, 4 at 64 to 127 ms
+and 3 at 128 to 255 ms). The burst order is inferred from the code, not measured.
 
 The binding recheck now gets its own one-second budget, so a transient refresh
 failure keeps the frame and the next tick retries. Each socket's first refresh
@@ -135,6 +138,10 @@ harness now judges each normal viewer against its own server: it fails when the
 viewer shows no membership, or holds a revision the server superseded, for more
 than 30 seconds. A sampler records when each server published each revision,
 dated from the previous read so that sampling never shortens a measured lag. A
+held revision counts as current only as of the sampler's last successful read,
+so failed or missing reads, or an epoch the sampler never saw, cannot certify a
+viewer for more than 30 seconds; the failure report carries the basis and the
+sampler's failure count and read age. A
 viewer that stops now fails the driver on its next step with the viewer's own
 bounded report. The bound and the workload are unchanged.
 Whether the
@@ -290,8 +297,9 @@ is checked on a five-second tick, with one second of scheduling allowance.
 During ready churn, a normal client may neither show no membership nor hold
 a revision its own server has superseded for more than 30 seconds. Each client
 checks this even while the driver is blocked, against a sampler that dates
-each server revision from the previous read; the driver fails on its next step
-when any client stops.
+each server revision from the previous read. A held revision is current only
+as of the sampler's last successful read, so lost sampling also fails the
+bound. The driver fails on its next step when any client stops.
 Cold restart is a separately bounded recovery phase; every client must
 recover to the final SQL-derived population. Reconnects, cross-replica live
 pagination, oversized-facet-value refusal and authority revocation are required

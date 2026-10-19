@@ -55,43 +55,49 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
   end
 
   test "a churning normal viewer must not stay blank or behind its replica's published revision for 30 seconds" do
-    {:ok, sampler} = Revisions.start_link(fn -> :error end)
-    table = Revisions.table(sampler)
+    table = sampler(fn -> {:error, :synthetic_unreachable} end)
     now = System.monotonic_time(:millisecond)
     old = now - 31_000
     :ok = Revisions.observe(table, "synthetic-epoch-a", 7, old - 1_000)
     :ok = Revisions.observe(table, "synthetic-epoch-a", 7, old)
+    # A newer revision is dated from the previous read, not from when it was seen.
+    :ok = Revisions.observe(table, "synthetic-epoch-a", 8, now - 500)
 
     stats = %{last_revision: {"synthetic-epoch-a", "7"}, max_normal_gap_ms: 0, frames: 1}
-    viewer = %{slow: false, phase: :churn, phase_since: old, blank_since: nil, revisions: table, stats: stats}
 
-    # An unhinted replica publishes nothing between reconciliation passes; a
-    # viewer holding its latest revision is current, however old that frame is.
-    assert {:noreply, %{stats: %{max_normal_gap_ms: 0}}} = Client.handle_info(:progress, viewer)
-    assert_receive :progress, 2_000
+    viewer = %{
+      slow: false,
+      phase: :churn,
+      phase_since: old,
+      blank_since: nil,
+      held_since: old,
+      revisions: table,
+      stats: stats
+    }
 
-    # A newer revision is dated from the previous read, not from when it was seen.
-    :ok = Revisions.observe(table, "synthetic-epoch-a", 8, now - 5_000)
-
-    assert {:stop, {:no_progress, %{gap_ms: gap, blank: false, held_revision: ["synthetic-epoch-a", "7"]}}, _} =
+    assert {:stop, {:no_progress, %{gap_ms: gap, basis: :behind, held_revision: ["synthetic-epoch-a", "7"]}}, _} =
              Client.handle_info(:progress, viewer)
 
     assert gap > 30_000
     assert_receive :progress, 2_000
 
+    # An unhinted replica publishes nothing between reconciliation passes; a
+    # viewer holding its latest revision is current, however old that frame is,
+    # for as long as a recent read confirms it.
     caught_up = put_in(viewer.stats.last_revision, {"synthetic-epoch-a", "8"})
-    assert {:noreply, %{stats: %{max_normal_gap_ms: 0}}} = Client.handle_info(:progress, caught_up)
+    assert {:noreply, %{stats: %{max_normal_gap_ms: lag}}} = Client.handle_info(:progress, caught_up)
+    assert lag in 500..2_000
     assert_receive :progress, 2_000
 
     # A later index epoch supersedes every revision of the earlier one.
     :ok = Revisions.observe(table, "synthetic-epoch-b", 1, now)
-    assert {:noreply, %{stats: %{max_normal_gap_ms: lag}}} = Client.handle_info(:progress, caught_up)
-    assert lag in 5_000..30_000
+    assert Revisions.freshness(table, "synthetic-epoch-a", 8) == {:behind, now - 500}
+    assert {:noreply, _} = Client.handle_info(:progress, caught_up)
     assert_receive :progress, 2_000
 
     # A reset viewer shows no membership, even when its replica is idle.
     blank = %{caught_up | blank_since: old, stats: %{caught_up.stats | last_revision: {"synthetic-epoch-b", "1"}}}
-    assert {:stop, {:no_progress, %{blank: true}}, _} = Client.handle_info(:progress, blank)
+    assert {:stop, {:no_progress, %{basis: :blank}}, _} = Client.handle_info(:progress, blank)
     assert_receive :progress, 2_000
 
     for exempt <- [%{blank | slow: true}, %{blank | phase: :steady}] do
@@ -100,8 +106,67 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     end
   end
 
+  test "lost revision sampling does not certify a held frame as current for more than 30 seconds" do
+    now = System.monotonic_time(:millisecond)
+    old = now - 31_000
+    failing = fn -> {:error, :synthetic_unreachable} end
+
+    viewer = fn table, epoch ->
+      stats = %{last_revision: {epoch, "7"}, max_normal_gap_ms: 0, frames: 1}
+
+      %{
+        slow: false,
+        phase: :churn,
+        phase_since: old,
+        blank_since: nil,
+        held_since: old,
+        revisions: table,
+        stats: stats
+      }
+    end
+
+    # Reads confirmed revision 7 long ago and every read since has failed.
+    stale = sampler(failing, :stale)
+    :ok = Revisions.observe(stale, "synthetic-epoch-a", 7, old)
+
+    assert {:stop, {:no_progress, %{basis: :current, gap_ms: gap, sampler: %{failures: failures}}}, _} =
+             Client.handle_info(:progress, viewer.(stale, "synthetic-epoch-a"))
+
+    assert gap > 30_000 and failures >= 1
+    assert_receive :progress, 2_000
+
+    # No read has ever succeeded, so nothing establishes the held revision.
+    empty = sampler(failing, :empty)
+
+    assert {:stop, {:no_progress, %{basis: :unobserved, sampler: %{last_read_age_ms: nil}}}, _} =
+             Client.handle_info(:progress, viewer.(empty, "synthetic-epoch-a"))
+
+    assert_receive :progress, 2_000
+
+    # Reads succeed, but never for the epoch this viewer holds.
+    unknown = sampler(fn -> {:ok, {"synthetic-epoch-c", 3}} end, :unknown)
+
+    assert {:stop, {:no_progress, %{basis: :unobserved, gap_ms: gap}}, _} =
+             Client.handle_info(:progress, viewer.(unknown, "synthetic-epoch-z"))
+
+    assert gap > 30_000
+    assert_receive :progress, 2_000
+
+    # A frame the sampler has not reached yet is a bounded race, not a stall.
+    fresh = %{viewer.(unknown, "synthetic-epoch-z") | held_since: now}
+    assert {:noreply, %{stats: %{max_normal_gap_ms: lag}}} = Client.handle_info(:progress, fresh)
+    assert lag < 30_000
+    assert_receive :progress, 2_000
+  end
+
   test "a stopped viewer fails the driver at once with only its own bounded report" do
-    report = %{gap_ms: 30_500, blank: false, held_revision: ["synthetic-epoch", "7"], stats: %{frames: 4}}
+    report = %{
+      gap_ms: 30_500,
+      basis: :behind,
+      sampler: %{failures: 0, last_read_age_ms: 200},
+      held_revision: ["synthetic-epoch", "7"],
+      stats: %{frames: 4}
+    }
 
     viewers =
       for {id, reason} <- [{0, {:no_progress, report}}, {1, {%RuntimeError{message: "synthetic-cookie-value"}, []}}] do
@@ -120,7 +185,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
             %{
               "kind" => "no_progress",
               "gap_ms" => 30_500,
-              "blank" => false,
+              "basis" => "behind",
+              "sampler" => %{"failures" => 0, "last_read_age_ms" => 200},
               "held_revision" => ["synthetic-epoch", "7"],
               "stats" => %{"frames" => 4}
             },
@@ -333,5 +399,11 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     <<value::binary-size(length), rest::binary>> = rest
     {tail, rest} = drop_texts(rest, count - 1)
     {<<length::little-16, value::binary, tail::binary>>, rest}
+  end
+
+  # The sampler's first read runs before it answers, so its table always holds
+  # at least one read outcome.
+  defp sampler(read, id \\ :revisions) do
+    {Revisions, read} |> Supervisor.child_spec(id: id) |> start_supervised!() |> Revisions.table()
   end
 end

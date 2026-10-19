@@ -88,6 +88,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
       slow: Keyword.get(opts, :slow, false),
       revisions: Keyword.fetch!(opts, :revisions),
       blank_since: now(),
+      held_since: nil,
       started: nil,
       awaiting: nil,
       ref: 1,
@@ -200,7 +201,8 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
 
         if state.retry_timer, do: Process.cancel_timer(state.retry_timer)
         Process.send_after(self(), {:ack, decoded.sequence, decoded.digest}, if(state.slow, do: 25_000, else: 0))
-        state = %{state | retry_attempt: 0, retry_timer: nil}
+        held_since = if decoded.revision == state.stats.last_revision, do: state.held_since, else: now
+        state = %{state | retry_attempt: 0, retry_timer: nil, held_since: held_since}
 
         {:noreply, %{state | started: nil, awaiting: decoded.sequence, blank_since: nil, stats: stats}}
     end
@@ -245,22 +247,19 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
   def handle_info({:ack, _, _}, state), do: {:noreply, state}
 
   # A churning normal viewer may neither show no membership nor hold a revision
-  # its replica has superseded for more than 30 seconds. It stops with its own
-  # bounded report so the driver can fail at once with the cause.
+  # its replica has superseded for more than 30 seconds, and a held revision
+  # counts as current only as of the last successful replica read. It stops
+  # with its own bounded report so the driver can fail at once with the cause.
   def handle_info(:progress, state) do
     Process.send_after(self(), :progress, 1_000)
 
     if not state.slow and state.phase == :churn do
-      gap =
-        case stale_since(state) do
-          nil -> 0
-          since -> now() - max(since, state.phase_since)
-        end
-
+      {basis, since} = unproven_since(state)
+      gap = max(now() - max(since, state.phase_since), 0)
       state = update_in(state.stats.max_normal_gap_ms, &max(&1, gap))
 
       if gap > 30_000,
-        do: {:stop, {:no_progress, progress_report(state, gap)}, state},
+        do: {:stop, {:no_progress, progress_report(state, basis, gap)}, state},
         else: {:noreply, state}
     else
       {:noreply, state}
@@ -307,15 +306,22 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
     %{state | retry_timer: Process.send_after(self(), :watch, delay)}
   end
 
-  defp stale_since(%{blank_since: since}) when not is_nil(since), do: since
+  # Since when the viewer's membership has not been shown to be current. A held
+  # revision the sampler has not seen yet is a bounded race while reads succeed.
+  defp unproven_since(%{blank_since: since}) when not is_nil(since), do: {:blank, since}
 
-  defp stale_since(%{revisions: table, stats: %{last_revision: {epoch, revision}}}),
-    do: Revisions.behind_since(table, epoch, String.to_integer(revision))
+  defp unproven_since(%{revisions: table, stats: %{last_revision: {epoch, revision}}} = state) do
+    case Revisions.freshness(table, epoch, String.to_integer(revision)) do
+      :unobserved -> {:unobserved, state.held_since}
+      basis_since -> basis_since
+    end
+  end
 
-  defp progress_report(state, gap) do
+  defp progress_report(state, basis, gap) do
     %{
       gap_ms: gap,
-      blank: not is_nil(state.blank_since),
+      basis: basis,
+      sampler: Revisions.coverage(state.revisions),
       held_revision: state.stats.last_revision && Tuple.to_list(state.stats.last_revision),
       stats: Map.drop(state.stats, [:latency_ms, :last_frame_at, :last_revision])
     }

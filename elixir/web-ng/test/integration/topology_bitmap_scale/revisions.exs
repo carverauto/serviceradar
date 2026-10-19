@@ -3,7 +3,8 @@ defmodule ServiceRadarWebNG.Topology.Scale.Revisions do
   # Records, on the driver's clock, when one replica published each index
   # revision. A viewer is then judged against what its replica had actually
   # published: an unhinted replica legitimately publishes nothing between
-  # reconciliation passes, and a current viewer is not stalled.
+  # reconciliation passes, and a current viewer is not stalled. Currency is
+  # only as recent as the last successful read; failed reads are counted.
   use GenServer
 
   @interval 250
@@ -27,7 +28,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Revisions do
 
     case read(state.read) do
       {:ok, {epoch, revision}} -> observe(state.table, epoch, revision, started)
-      _ -> :ok
+      _ -> :ets.update_counter(state.table, :failures, 1, {:failures, 0})
     end
 
     Process.send_after(self(), :sample, @interval)
@@ -63,17 +64,40 @@ defmodule ServiceRadarWebNG.Topology.Scale.Revisions do
   end
 
   @doc """
-  When the replica first published anything newer than `{epoch, revision}`, or
-  nil when that is still its latest observed revision. Later epochs are newer.
+  What the observations establish about a viewer holding `{epoch, revision}`:
+  `{:behind, since}` once the replica published anything newer (later epochs
+  are newer), `{:current, read_at}` when the latest successful read, started at
+  `read_at`, found nothing newer, or `:unobserved` when no successful read has
+  seen that epoch.
   """
-  def behind_since(table, epoch, revision) do
-    with [{_, order}] <- :ets.lookup(table, {:epoch, epoch}),
-         {:revision, _, _} = next <- :ets.next(table, {:revision, order, revision}),
-         [{_, since}] <- :ets.lookup(table, next) do
-      since
-    else
-      _ -> nil
+  def freshness(table, epoch, revision) do
+    case :ets.lookup(table, {:epoch, epoch}) do
+      [] ->
+        :unobserved
+
+      [{_, order}] ->
+        case :ets.next(table, {:revision, order, revision}) do
+          {:revision, _, _} = next -> {:behind, :ets.lookup_element(table, next, 2)}
+          _ -> {:current, :ets.lookup_element(table, :last_read, 2)}
+        end
     end
+  end
+
+  @doc "Bounded numeric sampler health for a failure report."
+  def coverage(table) do
+    read_at =
+      case :ets.lookup(table, :last_read) do
+        [{_, started}] -> started
+        [] -> nil
+      end
+
+    failures =
+      case :ets.lookup(table, :failures) do
+        [{_, count}] -> count
+        [] -> 0
+      end
+
+    %{failures: failures, last_read_age_ms: read_at && now() - read_at}
   end
 
   defp read(read) do
