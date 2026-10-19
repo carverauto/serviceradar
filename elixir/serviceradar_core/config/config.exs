@@ -84,7 +84,7 @@ config :serviceradar_core, Oban,
        {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
         queue: :alert_recovery},
        # Merged device availability (stage b): drains the invalidation log and re-resolves
-       # devices whose evidence aged out. Both return at once outside `shadow` mode. Kept
+       # devices whose evidence aged out. Neither resolves outside `shadow` mode. Kept
        # in step with serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
        {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},

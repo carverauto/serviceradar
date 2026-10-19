@@ -1698,7 +1698,7 @@ if config_env() == :prod do
            # Kept in step with serviceradar_core_elx's runtime.exs, as above.
            {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
            # Merged device availability (stage b): drains the invalidation log and re-resolves
-           # devices whose evidence aged out. Both return at once outside `shadow` mode. Kept
+           # devices whose evidence aged out. Neither resolves outside `shadow` mode. Kept
            # in step with serviceradar_core_elx's runtime.exs and config.exs.
            {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
