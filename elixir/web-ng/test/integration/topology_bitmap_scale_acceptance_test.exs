@@ -120,6 +120,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         end
       end)
 
+    scans_before_churn = ready_scans(first)
+
     tick_samples =
       for tick <- 0..99 do
         Wait.viewers_alive!(clients, diagnose(clients, replicas))
@@ -178,12 +180,11 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         %{write_ms: write_ms, query_ms: latency, status: status, probe: probe}
       end
 
+    assert ready_scans(first) > scans_before_churn
     probes = for %{probe: probe} <- tick_samples, probe, do: Task.await(probe, 65_000)
     assert length(probes) == 10
     emit("commit_probes", %{replica: first.id, samples: probes})
-    hinted = call(first, :report)
-    assert hinted.publisher.hint_overflow == %{}
-    assert Enum.any?(hinted.publisher.work, &match?(%{mode: :ready, work: :scan, outcome: :ok, count: n} when n > 0, &1))
+    assert call(first, :report).publisher.hint_overflow == %{}
 
     {mapping_ms, mapping} = Task.await(replacement, 600_000)
     emit("mapping_replacement", %{ms: mapping_ms, mapping: mapping, replicas: metrics([first, second])})
@@ -491,6 +492,12 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   end
 
   defp reports(clients), do: Enum.map(clients, &Client.report(&1.pid))
+
+  defp ready_scans(replica) do
+    work = call(replica, :report).publisher.work
+    Enum.sum(for %{mode: :ready, work: :scan, outcome: :ok, count: count} <- work, do: count)
+  end
+
   defp metrics(replicas), do: Enum.map(replicas, &Map.put(call(&1, :report), :replica, &1.id))
 
   defp timed(fun) do
