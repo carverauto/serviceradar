@@ -195,6 +195,65 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     refute_receive {:northbound_event, _}, 100
   end
 
+  describe "versioned assessment findings apply in version order, not arrival order" do
+    setup do
+      event_id = "assessment-versioned-#{System.unique_integer([:positive])}"
+      first_seen_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
+      opened = DateTime.shift(first_seen_at, second: 1)
+
+      message = fn status, version ->
+        versioned_assessment_message(event_id, status, version, first_seen_at)
+      end
+
+      row = AnalyticsSignals.parse_message(message.("open", opened))
+      delete_event!(row)
+      on_exit(fn -> delete_event!(row) end)
+
+      {:ok, message: message, row: row, opened: opened}
+    end
+
+    test "a close processed before its open keeps the finding closed", ctx do
+      closed = DateTime.shift(ctx.opened, second: 1)
+
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("resolved", closed)])
+      assert event_lifecycle(ctx.row) == ["resolved", 3, "Close"]
+
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("open", ctx.opened)])
+      assert event_count(ctx.row) == 1
+      assert event_lifecycle(ctx.row) == ["resolved", 3, "Close"]
+    end
+
+    test "a stale open delivered after the close cannot reopen it", ctx do
+      closed = DateTime.shift(ctx.opened, second: 1)
+
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("open", ctx.opened)])
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("resolved", closed)])
+      assert event_lifecycle(ctx.row) == ["resolved", 3, "Close"]
+
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("open", ctx.opened)])
+      assert event_lifecycle(ctx.row) == ["resolved", 3, "Close"]
+
+      # Both in one batch, the open delivered last.
+      assert {:ok, 2} =
+               AnalyticsSignals.process_batch([
+                 ctx.message.("resolved", closed),
+                 ctx.message.("open", ctx.opened)
+               ])
+
+      assert event_lifecycle(ctx.row) == ["resolved", 3, "Close"]
+    end
+
+    test "a newer open after a close reopens the finding", ctx do
+      closed = DateTime.shift(ctx.opened, second: 1)
+      reopened = DateTime.shift(closed, second: 1)
+
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("resolved", closed)])
+      assert {:ok, 1} = AnalyticsSignals.process_batch([ctx.message.("open", reopened)])
+      assert event_count(ctx.row) == 1
+      assert event_lifecycle(ctx.row) == ["open", 2, "Update"]
+    end
+  end
+
   test "real durable admission preserves distinct transitions sharing an event row" do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
@@ -639,14 +698,36 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     }
   end
 
-  defp assessment_message(event_id, finding_status, assessment_status, assessment, disposition) do
+  defp versioned_assessment_message(event_id, finding_status, version, first_seen_at) do
+    {assessment_status, disposition} =
+      if finding_status == "open", do: {"active", "affected"}, else: {"resolved", "fixed"}
+
+    assessment_message(event_id, finding_status, assessment_status, "confirmed", disposition,
+      timestamp: first_seen_at,
+      version: version
+    )
+  end
+
+  defp assessment_message(
+         event_id,
+         finding_status,
+         assessment_status,
+         assessment,
+         disposition,
+         opts \\ []
+       ) do
+    timestamp =
+      Keyword.get_lazy(opts, :timestamp, fn ->
+        DateTime.truncate(DateTime.utc_now(), :microsecond)
+      end)
+
     payload = %{
       "event_id" => event_id,
       "signal_type" => "inventory",
       "event_type" => "vulnerability_assessment",
       "finding_type" => "vulnerability",
-      "timestamp" =>
-        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601(),
+      "finding_version" => opts |> Keyword.get(:version) |> encode_version(),
+      "timestamp" => DateTime.to_iso8601(timestamp),
       "device_uid" => "sr:assessment-lifecycle-device",
       "cve_id" => "CVE-2099-9001",
       "status" => finding_status,
@@ -669,6 +750,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       }
     }
   end
+
+  defp encode_version(nil), do: nil
+  defp encode_version(%DateTime{} = version), do: DateTime.to_iso8601(version)
 
   defp anomaly_message(
          series_key,

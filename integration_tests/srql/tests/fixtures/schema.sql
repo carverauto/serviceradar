@@ -2,6 +2,7 @@
 -- The harness drops tables before creation so each test starts cleanly.
 
 DROP TABLE IF EXISTS device_agent_availability;
+DROP TABLE IF EXISTS endpoint_vulnerability_device_evaluations;
 DROP TABLE IF EXISTS endpoint_vulnerability_assessments;
 DROP TABLE IF EXISTS endpoint_vulnerability_matches;
 DROP TABLE IF EXISTS advisory_package_assertions;
@@ -284,6 +285,11 @@ CREATE TABLE endpoint_vulnerability_matches (
     metadata                JSONB       NOT NULL DEFAULT '{}',
     inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_vulnerability_device_evaluations (
+    device_uid              TEXT        PRIMARY KEY,
+    evaluated_at            TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE endpoint_vulnerability_assessments (

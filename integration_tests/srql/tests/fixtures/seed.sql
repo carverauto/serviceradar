@@ -8,6 +8,7 @@ TRUNCATE endpoint_vulnerability_assessments, endpoint_vulnerability_matches,
     advisory_package_assertions, advisory_coordinates, vulnerability_advisories,
     endpoint_inventory_packages, endpoint_packages;
 TRUNCATE endpoint_inventory_scans;
+TRUNCATE endpoint_vulnerability_device_evaluations;
 TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
 TRUNCATE endpoint_inventory_package_counts_hourly;
@@ -788,7 +789,8 @@ INSERT INTO endpoint_vulnerability_assessments (
     metadata,
     first_seen_at,
     last_seen_at,
-    resolved_at
+    resolved_at,
+    updated_at
 )
 SELECT
     'eeeeeeee-1111-4111-8111-111111111111'::uuid,
@@ -835,7 +837,8 @@ SELECT
     '{"due_date":"2026-02-01","epss_score":0.84,"ransomware_use":"unknown"}'::jsonb,
     base.now_ts - INTERVAL '1 day',
     base.now_ts - INTERVAL '20 minutes',
-    NULL::timestamptz
+    NULL::timestamptz,
+    base.now_ts - INTERVAL '20 minutes'
 FROM base
 UNION ALL
 SELECT
@@ -886,7 +889,8 @@ SELECT
     '{"epss_score":0.72}'::jsonb,
     base.now_ts - INTERVAL '3 hours',
     base.now_ts - INTERVAL '3 hours',
-    NULL::timestamptz
+    NULL::timestamptz,
+    base.now_ts - INTERVAL '3 hours'
 FROM base
 UNION ALL
 SELECT
@@ -933,6 +937,7 @@ SELECT
     'active:confirmed:affected:to:resolved:confirmed:fixed',
     '{}'::jsonb,
     base.now_ts - INTERVAL '10 days',
+    base.now_ts - INTERVAL '3 days',
     base.now_ts - INTERVAL '2 days',
     base.now_ts - INTERVAL '2 days'
 FROM base;
@@ -2887,3 +2892,12 @@ FROM sample_time CROSS JOIN (VALUES
     ('process.memory_usage', 'sysmon.process', 4096.0, '{"pid":"123","name":"worker","status":"running","start_time":"2025-01-01T00:00:00Z"}'),
     ('process.count', 'sysmon.process', 8.0, '{}')
 ) AS samples(metric_name, metric_type, value, tags);
+
+-- The matcher's latest evaluation of each device. It confirms device-alpha's
+-- active assessment after the row last changed; device-gamma's evaluation is
+-- older than its row, and device-beta's only assessment is resolved.
+INSERT INTO endpoint_vulnerability_device_evaluations (device_uid, evaluated_at)
+VALUES
+    ('device-alpha', NOW() - INTERVAL '1 minute'),
+    ('device-beta', NOW() - INTERVAL '1 minute'),
+    ('device-gamma', NOW() - INTERVAL '5 hours');
