@@ -798,7 +798,9 @@ MAC sibling, fallback; `AliasGuard` only on the strong-match branch); `SyncInges
 distinct"); `MergeEngine.provisional_topology_merge_violation/3` (the distinct-MAC veto applies
 only to provisional topology sightings, which the resolution model does not create); that the sweep
 ingestor creates a provisional address-seeded record only when no live device holds the
-address (`SweepResultsIngestor.create_available_unknown_devices/5`); and that `AliasEvents` records the update's current
+address AND the address is inside the group's static targets AND the group's
+`discover_new_devices` flag is on (`SweepResultsIngestor.create_available_unknown_devices/5`,
+`SweepJobs.DiscoveryScope`); and that `AliasEvents` records the update's current
 address (`_alias_last_seen_ip`) as an `:ip` alias while interface addresses are
 `:interface_ip`. Fix any mismatch in the model before continuing.
 
