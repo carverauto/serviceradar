@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.InventoryIngestor
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -594,6 +595,67 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert host_device.agent_id == agent_id
       assert camera_device.type == "camera"
       assert is_nil(camera_device.ip)
+    end
+
+    test "camera inventory update retains a replaced primary IP as a detected alias", %{
+      actor: actor
+    } do
+      seed = System.unique_integer([:positive, :monotonic])
+      old_ip = "192.0.2.#{rem(seed, 250) + 1}"
+      new_ip = "198.51.100.#{rem(seed, 250) + 1}"
+      camera_uid = "sr:camera-replaced-ip-#{seed}"
+
+      {:ok, _camera_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: camera_uid,
+            type: "camera",
+            type_id: 7,
+            name: "Yard Camera",
+            ip: old_ip,
+            discovery_sources: ["camera_plugin"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      payload = %{
+        "camera_descriptors" => [
+          %{
+            "device_uid" => camera_uid,
+            "vendor" => "axis",
+            "camera_id" => "yard-cam-#{seed}",
+            "display_name" => "Yard Camera",
+            "ip" => new_ip,
+            "stream_profiles" => [%{"profile_name" => "main", "codec_hint" => "h264"}]
+          }
+        ]
+      }
+
+      assert :ok =
+               InventoryIngestor.ingest(payload, %{},
+                 actor: actor,
+                 resolve_device_uid: fn _descriptor, _status, _actor -> camera_uid end,
+                 source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+                 profile_upsert: fn attrs, _actor -> {:ok, attrs} end
+               )
+
+      assert {:ok, %Device{ip: ^new_ip}} = Device.get_by_uid(camera_uid, false, actor: actor)
+
+      assert {:ok,
+              [
+                %DeviceAliasState{
+                  state: :detected,
+                  alias_type: :ip,
+                  alias_value: ^old_ip,
+                  metadata: %{
+                    "source" => "replaced_primary_address",
+                    "replaced_by" => ^new_ip
+                  }
+                }
+              ]} = DeviceAliasState.lookup_for_device(camera_uid, :ip, old_ip, actor: actor)
     end
   end
 

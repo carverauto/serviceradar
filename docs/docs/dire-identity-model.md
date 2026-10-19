@@ -272,6 +272,10 @@ identified devices.
   withheld, when another live device in its partition now holds the address,
   or when the device already has an alias row for the address (an invalidated
   alias is not revived). Which address becomes primary is unchanged.
+  The same retention, with the same partition and existing-row exclusions,
+  applies when camera inventory updates an existing camera device to a new
+  address and when source succession moves the successor's address onto the
+  survivor.
 
 ## Merge policy and stability
 

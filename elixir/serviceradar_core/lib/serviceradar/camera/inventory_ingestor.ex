@@ -10,10 +10,13 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Identity.AliasPolicy
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Sync.Aliases
 
   require Ash.Query
   require Logger
@@ -541,13 +544,25 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp update_camera_device_attrs(device, attrs, actor) do
     case {device, attrs} do
       {%Device{} = device, attrs} when is_map(attrs) ->
-        update_attrs = camera_device_update_attrs(device, attrs)
-
-        device
-        |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
-        |> Ash.update()
+        [Device, DeviceAliasState]
+        |> Ash.transact(fn ->
+          with {:ok, locked} <- lock_camera_device(device.uid, actor),
+               held = held_device_address(locked),
+               {:ok, _device} <-
+                 locked
+                 |> Ash.Changeset.for_update(
+                   :update,
+                   camera_device_update_attrs(locked, attrs),
+                   actor: actor
+                 )
+                 |> Ash.update() do
+            held
+            |> Aliases.replaced_addresses(%{})
+            |> Aliases.retain_replaced_addresses(actor)
+          end
+        end)
         |> case do
-          {:ok, _device} ->
+          {:ok, :ok} ->
             if camera_classified_device?(device) do
               register_camera_identifiers(device.uid, attrs, actor)
             end
@@ -562,6 +577,30 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         {:error, {:invalid_camera_update_target, device, attrs}}
     end
   end
+
+  defp lock_camera_device(uid, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(uid == ^uid)
+    |> Ash.Query.lock("FOR NO KEY UPDATE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %Device{} = locked} -> {:ok, locked}
+      {:ok, nil} -> {:error, {:camera_device_not_found, uid}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp held_device_address(%Device{uid: uid, ip: ip, partition: partition, deleted_at: nil})
+       when is_binary(ip) do
+    if AliasPolicy.valid_alias_ip?(ip) do
+      %{uid => %{ip: ip, partition: partition}}
+    else
+      %{}
+    end
+  end
+
+  defp held_device_address(_device), do: %{}
 
   defp camera_device_update_attrs(%Device{} = device, attrs) when is_map(attrs) do
     common_attrs = %{
