@@ -789,7 +789,8 @@ INSERT INTO endpoint_vulnerability_assessments (
     metadata,
     first_seen_at,
     last_seen_at,
-    resolved_at
+    resolved_at,
+    updated_at
 )
 SELECT
     'eeeeeeee-1111-4111-8111-111111111111'::uuid,
@@ -836,7 +837,8 @@ SELECT
     '{"due_date":"2026-02-01","epss_score":0.84,"ransomware_use":"unknown"}'::jsonb,
     base.now_ts - INTERVAL '1 day',
     base.now_ts - INTERVAL '20 minutes',
-    NULL::timestamptz
+    NULL::timestamptz,
+    base.now_ts - INTERVAL '20 minutes'
 FROM base
 UNION ALL
 SELECT
@@ -887,7 +889,8 @@ SELECT
     '{"epss_score":0.72}'::jsonb,
     base.now_ts - INTERVAL '3 hours',
     base.now_ts - INTERVAL '3 hours',
-    NULL::timestamptz
+    NULL::timestamptz,
+    base.now_ts - INTERVAL '3 hours'
 FROM base
 UNION ALL
 SELECT
@@ -934,6 +937,7 @@ SELECT
     'active:confirmed:affected:to:resolved:confirmed:fixed',
     '{}'::jsonb,
     base.now_ts - INTERVAL '10 days',
+    base.now_ts - INTERVAL '3 days',
     base.now_ts - INTERVAL '2 days',
     base.now_ts - INTERVAL '2 days'
 FROM base;

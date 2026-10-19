@@ -338,7 +338,23 @@ async fn comprehensive_queries_match_fixtures() {
                     .collect::<Vec<_>>();
                 assert_eq!(devices, ["device-alpha", "device-gamma", "device-beta"]);
                 let beta = &body["results"][2];
-                assert_eq!(beta["last_seen_at"], beta["last_changed_at"]);
+                assert_ne!(beta["last_seen_at"], beta["last_changed_at"]);
+                assert_eq!(beta["last_changed_at"], beta["resolved_at"]);
+            })),
+        },
+        TestCase {
+            // last_changed_at is the row's last write; resolving beta two days
+            // ago is later than its last confirmation three days ago.
+            query: "in:endpoint_vulnerability_assessments sort:last_changed:asc",
+            expected_count: 3,
+            validator: Some(Box::new(|body| {
+                let devices = body["results"]
+                    .as_array()
+                    .expect("results")
+                    .iter()
+                    .map(|row| row["device_uid"].as_str().expect("device_uid"))
+                    .collect::<Vec<_>>();
+                assert_eq!(devices, ["device-beta", "device-gamma", "device-alpha"]);
             })),
         },
         TestCase {
