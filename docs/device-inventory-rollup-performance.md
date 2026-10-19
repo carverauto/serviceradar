@@ -8,11 +8,17 @@ statements.
 
 The batch rollup migration aggregates old and new contributions from PostgreSQL
 transition tables. Each statement writes each changed counter once; zero net
-changes write nothing. All writers use the same table/key order, and dimension
-cleanup checks only a changed key. A 500-device availability batch updates at
-most two status counters, with no total/type/vendor writes or cleanup deletes.
-The 22-batch tick needs at most 44 counter writes plus 66 aggregate reads of the
-statement's changed rows.
+changes write nothing. Dimension cleanup checks only a changed key.
+
+An upsert fires separate UPDATE and INSERT statement triggers, so sorting keys
+inside one trigger cannot order counter locks across both. Each trigger with a
+net change therefore takes one transaction-scoped advisory lock before its first
+counter write. Writers that change counts serialize until commit; the previous
+trigger already serialized every insert, delete and availability change on the
+total counter row. Statements with no net change take no lock. A 500-device
+availability batch updates at most two status counters, with no
+total/type/vendor writes or cleanup deletes. The 22-batch tick needs at most 44
+counter writes plus 66 aggregate reads of the statement's changed rows.
 
 Counts remain transactional. The existing active-device definition
 (`deleted_at IS NULL AND source_retired_at IS NULL`), null availability,
@@ -43,9 +49,12 @@ the actual migration through Ecto's migration runner.
 
 These are three-sample observations on shared infrastructure, not tail-latency
 guarantees. Client times include network and workstation scheduling. The
-measurement isolates this trigger's cost; it does not establish five-second
-churn cadence with 1.1 million devices, concurrent bitmap refreshes and 100 map
-viewers. That requires rerunning the compact and sparse Atlas acceptance suites.
+measurement predates the advisory lock and was not repeated; the lock adds one
+acquisition per changing trigger and serializes concurrent changing writers,
+which this sequential probe does not exercise. It isolates this trigger's cost;
+it does not establish five-second churn cadence with 1.1 million devices,
+concurrent bitmap refreshes and 100 map viewers. That requires rerunning the
+compact and sparse Atlas acceptance suites.
 
 ## Regression boundary
 
@@ -55,4 +64,6 @@ Its availability assertion failed against the old trigger with the redundant
 total/type/vendor operations. It covers one-row and 500-row batches, cancelling
 changes, no-ops, mixed insert/upsert, reclassification, source retirement,
 soft-delete/restore, hard delete, bulk bypass/refresh, transaction rollback,
-and migration rollback/reapply. Tests and profiling data are synthetic.
+migration rollback/reapply, and an upsert racing a concurrent insert on separate
+connections, which deadlocked before the advisory lock. Tests and profiling
+data are synthetic.

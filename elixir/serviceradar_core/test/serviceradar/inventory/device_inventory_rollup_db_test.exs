@@ -13,7 +13,14 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
   @external_resource @migration_path
   Code.require_file(@migration_path)
 
-  setup do
+  @wait_ms 15_000
+
+  setup :observe_rollup_writes
+
+  # Sessions on their own connections must not queue behind the sandbox owner's refresh.
+  defp observe_rollup_writes(%{separate_sessions: true}), do: :ok
+
+  defp observe_rollup_writes(_context) do
     Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
     Repo.query!("CREATE TEMP TABLE rollup_writes (relation text, operation text, key text)")
 
@@ -48,7 +55,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
       """)
     end
 
-    %{prefix: "serviceradar:rollup-#{Ecto.UUID.generate()}-"}
+    %{prefix: prefix()}
   end
 
   test "availability batches write each changed status counter once", %{prefix: prefix} do
@@ -71,7 +78,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
       clear_writes()
 
       Repo.query!(
-        "UPDATE platform.ocsf_devices SET is_available = false, ip = '192.0.2.10' WHERE starts_with(uid, $1)",
+        "UPDATE platform.ocsf_devices SET is_available = false, hostname = 'host01.example.com' WHERE starts_with(uid, $1)",
         [batch]
       )
 
@@ -200,6 +207,132 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
            ]
 
     assert_counts()
+  end
+
+  # An upsert fires its UPDATE trigger before its INSERT trigger. Here the UPDATE makes an
+  # available switch an unavailable router, and stops at the router counter another session
+  # holds. A concurrent insert of an unavailable device takes the total and waits for the
+  # unavailable counter. Released, the upsert's INSERT trigger asks for the total: a
+  # deadlock, unless the triggers serialize before their first counter write. Nothing commits.
+  @tag :separate_sessions
+  test "an upsert's update and insert triggers do not deadlock with a concurrent insert" do
+    prefix = prefix()
+
+    holder =
+      start_session([
+        {"""
+         INSERT INTO platform.device_inventory_type_counts (type, count, updated_at)
+         VALUES ('router', 0, now())
+         ON CONFLICT (type) DO UPDATE SET count = platform.device_inventory_type_counts.count
+         """, []}
+      ])
+
+    assert {:ran, :ok} = await_session(holder)
+
+    upsert =
+      start_session([
+        {"SET LOCAL platform.skip_inventory_rollup = 'on'", []},
+        {"""
+         INSERT INTO platform.ocsf_devices (uid, is_available, type, vendor_name)
+         VALUES ($1, true, 'switch', 'Example Devices')
+         """, ["#{prefix}existing"]},
+        {"SET LOCAL platform.skip_inventory_rollup = 'off'", []},
+        {"""
+         INSERT INTO platform.ocsf_devices (uid, is_available, type, vendor_name)
+         VALUES ($1, false, 'router', 'Example Devices'), ($2, true, 'switch', 'Example Devices')
+         ON CONFLICT (uid) DO UPDATE SET is_available = EXCLUDED.is_available, type = EXCLUDED.type
+         """, ["#{prefix}existing", "#{prefix}new"]}
+      ])
+
+    await_lock_wait(upsert)
+
+    insert =
+      start_session([
+        {"""
+         INSERT INTO platform.ocsf_devices (uid, is_available, type, vendor_name)
+         VALUES ($1, false, 'switch', 'Example Devices')
+         """, ["#{prefix}concurrent"]}
+      ])
+
+    await_lock_wait(insert)
+    release_session(holder)
+
+    assert {:ran, :ok} = await_session(upsert)
+    release_session(upsert)
+    assert {:ran, :ok} = await_session(insert)
+    release_session(insert)
+  end
+
+  defp prefix, do: "serviceradar:rollup-#{Ecto.UUID.generate()}-"
+
+  # Runs the statements in a transaction on a connection of its own, reports the outcome
+  # and rolls back when released.
+  defp start_session(statements) do
+    parent = self()
+    config = Keyword.drop(Repo.config(), [:pool, :pool_size, :name])
+
+    session =
+      Task.async(fn ->
+        {:ok, conn} = Postgrex.start_link(Keyword.put(config, :pool_size, 1))
+
+        Postgrex.transaction(conn, fn tx ->
+          %{rows: [[backend]]} = Postgrex.query!(tx, "SELECT pg_backend_pid()", [])
+          send(parent, {:backend, self(), backend})
+          send(parent, {:ran, self(), run_statements(tx, statements)})
+
+          receive do
+            :release -> Postgrex.rollback(tx, :released)
+          end
+        end)
+      end)
+
+    task_pid = session.pid
+    assert_receive {:backend, ^task_pid, backend}, @wait_ms
+    {session, backend}
+  end
+
+  defp run_statements(tx, statements) do
+    Enum.reduce_while(statements, :ok, fn {sql, params}, :ok ->
+      case Postgrex.query(tx, sql, params) do
+        {:ok, _result} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp await_session({session, _backend}) do
+    pid = session.pid
+    assert_receive {:ran, ^pid, result}, @wait_ms
+    {:ran, result}
+  end
+
+  defp release_session({session, _backend}) do
+    send(session.pid, :release)
+    assert {:error, :released} = Task.await(session, @wait_ms)
+  end
+
+  defp await_lock_wait({session, backend}, attempts \\ 150) do
+    pid = session.pid
+
+    receive do
+      {:ran, ^pid, result} -> flunk("session finished without waiting: #{inspect(result)}")
+    after
+      0 -> :ok
+    end
+
+    query = "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1"
+
+    case Repo.query!(query, [backend]).rows do
+      [["Lock"]] ->
+        :ok
+
+      _other when attempts > 0 ->
+        Process.sleep(100)
+        await_lock_wait({session, backend}, attempts - 1)
+
+      other ->
+        flunk("session never waited on a lock: #{inspect(other)}")
+    end
   end
 
   defp insert_batch(prefix, size) do

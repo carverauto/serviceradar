@@ -8,6 +8,13 @@ defmodule ServiceRadar.Repo.Migrations.BatchDeviceInventoryRollups do
     {"delete", "OLD TABLE AS inventory_old", [{"inventory_old", -1}]}
   ]
 
+  @serialize_sql """
+  IF NOT serialized THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+    serialized := true;
+  END IF;
+  """
+
   def up do
     execute("DROP TRIGGER trg_ocsf_devices_inventory_rollup ON platform.ocsf_devices")
 
@@ -55,13 +62,16 @@ defmodule ServiceRadar.Repo.Migrations.BatchDeviceInventoryRollups do
     RETURNS trigger LANGUAGE plpgsql AS $$
     DECLARE
       change record;
+      serialized boolean := false;
     BEGIN
       IF current_setting('platform.skip_inventory_rollup', true) = 'on' THEN
         RETURN NULL;
       END IF;
 
-      -- Only the statement's changed rows are read. Lock counter keys in the same
-      -- order for inserts, updates and deletes, including ON CONFLICT updates.
+      -- Only the statement's changed rows are read. An upsert fires its UPDATE and
+      -- INSERT triggers separately, so sorting keys within one trigger cannot order
+      -- locks across them. Every trigger takes one transaction lock before its first
+      -- counter write; a statement with no net change takes none.
       FOR change IN
         WITH changes AS (#{changes})
         SELECT key, SUM(delta)::bigint AS delta
@@ -71,6 +81,7 @@ defmodule ServiceRadar.Repo.Migrations.BatchDeviceInventoryRollups do
         ) AS counters(key)
         GROUP BY key HAVING SUM(delta) <> 0 ORDER BY key
       LOOP
+        #{@serialize_sql}
         INSERT INTO platform.device_inventory_counts (key, value, updated_at)
         VALUES (change.key, change.delta, now())
         ON CONFLICT (key) DO UPDATE
@@ -94,6 +105,7 @@ defmodule ServiceRadar.Repo.Migrations.BatchDeviceInventoryRollups do
       FROM changes
       GROUP BY #{projected_key} HAVING SUM(delta) <> 0 ORDER BY #{projected_key}
     LOOP
+      #{@serialize_sql}
       INSERT INTO platform.device_inventory_#{dimension}_counts (#{column}, count, updated_at)
       VALUES (change.key, change.delta, now())
       ON CONFLICT (#{column}) DO UPDATE
