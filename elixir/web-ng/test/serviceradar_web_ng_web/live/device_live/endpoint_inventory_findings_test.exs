@@ -141,6 +141,67 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindingsTest do
            } = EndpointInventoryFindings.partition([confirmed, candidate, history])
   end
 
+  test "projects last_seen_at as last confirmation and last_changed_at as the row write timestamp" do
+    first_seen = ~U[2099-01-01 01:00:00Z]
+    row_seen = ~U[2099-01-02 01:00:00Z]
+    confirmed_eval = ~U[2099-01-05 01:00:00Z]
+    unconfirmed_eval = ~U[2099-01-06 01:00:00Z]
+    resolved_at = ~U[2099-01-07 01:00:00Z]
+
+    active_confirmed =
+      assessment(%{
+        id: "active-confirmed",
+        cve_id: "CVE-2099-424210",
+        status: "active",
+        first_seen_at: first_seen,
+        last_seen_at: row_seen,
+        updated_at: row_seen,
+        evaluated_at: unconfirmed_eval
+      })
+
+    active_unconfirmed =
+      assessment(%{
+        id: "active-unconfirmed",
+        cve_id: "CVE-2099-424211",
+        status: "active",
+        first_seen_at: first_seen,
+        last_seen_at: row_seen,
+        updated_at: unconfirmed_eval,
+        evaluated_at: resolved_at,
+        metadata: %{
+          "unconfirmed_since" => "2099-01-06T01:00:00.000000",
+          "last_confirmed_at" => "2099-01-05T01:00:00.000000"
+        }
+      })
+
+    resolved =
+      assessment(%{
+        id: "resolved-1",
+        cve_id: "CVE-2099-424212",
+        status: "resolved",
+        disposition: "fixed",
+        first_seen_at: first_seen,
+        last_seen_at: row_seen,
+        updated_at: resolved_at,
+        resolved_at: resolved_at,
+        evaluated_at: resolved_at
+      })
+
+    findings =
+      [active_confirmed, active_unconfirmed, resolved]
+      |> EndpointInventoryFindings.group([])
+      |> Map.new(&{&1.id, &1})
+
+    assert findings["active-confirmed"].last_seen_at == unconfirmed_eval
+    assert findings["active-confirmed"].last_changed_at == row_seen
+
+    assert DateTime.compare(findings["active-unconfirmed"].last_seen_at, confirmed_eval) == :eq
+    assert findings["active-unconfirmed"].last_changed_at == unconfirmed_eval
+
+    assert findings["resolved-1"].last_seen_at == row_seen
+    assert findings["resolved-1"].last_changed_at == resolved_at
+  end
+
   defp assessment(overrides \\ %{}) do
     Map.merge(
       %{

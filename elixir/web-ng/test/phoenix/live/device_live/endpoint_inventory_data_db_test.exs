@@ -149,6 +149,130 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryDataDbTest do
     assert support.advisory.description == "Raw detail enrichment only"
   end
 
+  test "overlays device evaluation timestamp onto active unmarked assessments while keeping unconfirmed and resolved confirmation times" do
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:endpoint-eval-device-#{unique}"
+    row_seen_at = ~U[2099-01-02 01:00:00.000000Z]
+    prior_confirmed_at = ~U[2099-01-04 01:00:00.000000Z]
+    evaluated_at = ~U[2099-01-06 01:00:00.000000Z]
+    scope = SystemActor.system(:endpoint_inventory_data_db_test)
+
+    scan =
+      EndpointInventoryScan
+      |> Ash.Changeset.for_create(:upsert, %{
+        device_uid: device_uid,
+        agent_id: "agent-eval-#{unique}",
+        last_scan_at: evaluated_at,
+        reported_package_count: 1,
+        stored_package_count: 1,
+        coverage_state: "complete",
+        current: true
+      })
+      |> Ash.create!(scope: scope)
+
+    endpoint_package =
+      EndpointPackage
+      |> Ash.Changeset.for_create(:upsert, %{
+        coordinate_hash: "coord-eval-#{unique}",
+        package_manager: "dpkg",
+        ecosystem: "ubuntu",
+        name: "libstarling-fetch3",
+        version: "3.2.1-1ubuntu7.4",
+        architecture: "amd64",
+        purl_canonical:
+          "pkg:deb/ubuntu/libstarling-fetch3@3.2.1-1ubuntu7.4?distro=noble&source=starling-fetch&sourceversion=3.2.1-1ubuntu7.4",
+        cpes: ["cpe:2.3:a:example:starling_fetch:3.2.1:*:*:*:*:*:*:*"],
+        first_seen_at: row_seen_at,
+        last_seen_at: row_seen_at
+      })
+      |> Ash.create!(scope: scope)
+
+    _inventory_package =
+      EndpointInventoryPackage
+      |> Ash.Changeset.for_create(:upsert, %{
+        device_uid: device_uid,
+        package_identity_key: "pkgid:v1:dpkg:ubuntu:libstarling-fetch3:amd64",
+        scan_ref: scan.id,
+        endpoint_package_ref: endpoint_package.id,
+        package_manager: "dpkg",
+        ecosystem: "ubuntu",
+        name: "libstarling-fetch3",
+        version: "3.2.1-1ubuntu7.4",
+        architecture: "amd64",
+        purl_canonical: endpoint_package.purl_canonical,
+        cpes: endpoint_package.cpes,
+        current: true,
+        first_seen_at: row_seen_at,
+        last_seen_at: row_seen_at
+      })
+      |> Ash.create!(scope: scope)
+
+    _active_confirmed =
+      create_assessment!(scope, endpoint_package.id, device_uid, row_seen_at,
+        id_suffix: "eval-active-confirmed",
+        cve_id: "CVE-2099-#{unique}-0001",
+        assessment: "confirmed",
+        disposition: "affected",
+        authority: "fixture:SYNTH-EVAL-1",
+        applicability_reason: "confirmed and still active",
+        freshness: "fresh"
+      )
+
+    _active_unconfirmed =
+      create_assessment!(scope, endpoint_package.id, device_uid, row_seen_at,
+        id_suffix: "eval-active-unconfirmed",
+        cve_id: "CVE-2099-#{unique}-0002",
+        assessment: "confirmed",
+        disposition: "affected",
+        authority: "fixture:SYNTH-EVAL-2",
+        applicability_reason: "awaiting complete scan",
+        freshness: "fresh",
+        metadata: %{
+          "unconfirmed_since" => DateTime.to_iso8601(evaluated_at),
+          "last_confirmed_at" => NaiveDateTime.to_iso8601(DateTime.to_naive(prior_confirmed_at))
+        }
+      )
+
+    _resolved =
+      create_assessment!(scope, endpoint_package.id, device_uid, row_seen_at,
+        id_suffix: "eval-resolved",
+        cve_id: "CVE-2099-#{unique}-0003",
+        status: "resolved",
+        assessment: "confirmed",
+        disposition: "fixed",
+        authority: "fixture:SYNTH-EVAL-3",
+        applicability_reason: "fixed in scan",
+        freshness: "fresh",
+        resolved_at: evaluated_at
+      )
+
+    ServiceRadar.Repo.insert_all(
+      "endpoint_vulnerability_device_evaluations",
+      [%{device_uid: device_uid, evaluated_at: evaluated_at}],
+      prefix: "platform"
+    )
+
+    inventory = EndpointInventoryData.load(scope, device_uid)
+    confirmed_by_cve = Map.new(inventory.vulnerability_assessments.confirmed.rows, &{&1.cve_id, &1})
+    [resolved_row] = inventory.vulnerability_assessments.history.rows
+
+    assert confirmed_by_cve["CVE-2099-#{unique}-0001"].last_seen_at == evaluated_at
+    assert confirmed_by_cve["CVE-2099-#{unique}-0002"].last_seen_at == prior_confirmed_at
+    assert resolved_row.last_seen_at == row_seen_at
+
+    details =
+      EndpointInventoryData.load_package_vulnerabilities(
+        scope,
+        device_uid,
+        to_string(endpoint_package.id)
+      )
+
+    details_by_cve = Map.new(details.assessments, &{&1.cve_id, &1})
+    assert details_by_cve["CVE-2099-#{unique}-0001"].last_seen_at == evaluated_at
+    assert details_by_cve["CVE-2099-#{unique}-0002"].last_seen_at == prior_confirmed_at
+    assert details_by_cve["CVE-2099-#{unique}-0003"].last_seen_at == row_seen_at
+  end
+
   defp create_assessment!(scope, endpoint_package_ref, device_uid, now, opts) do
     attrs = %{
       device_uid: device_uid,
@@ -176,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryDataDbTest do
       cvss_score: 7.5,
       supporting_match_ids: Keyword.get(opts, :supporting_match_ids, []),
       evidence: %{},
-      metadata: %{},
+      metadata: Keyword.get(opts, :metadata, %{}),
       transition_reason: Keyword.get(opts, :transition_reason),
       first_seen_at: now,
       last_seen_at: now,

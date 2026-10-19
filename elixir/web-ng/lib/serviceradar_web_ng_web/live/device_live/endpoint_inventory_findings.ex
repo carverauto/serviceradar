@@ -114,7 +114,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings do
       unknown_terms: unknown_terms(assessment),
       transition_reason: field(assessment, :transition_reason),
       first_seen_at: field(assessment, :first_seen_at),
-      last_seen_at: field(assessment, :last_seen_at),
+      last_seen_at:
+        EndpointVulnerabilityAssessment.effective_last_seen_at(
+          assessment,
+          field(assessment, :evaluated_at)
+        ),
+      last_changed_at:
+        field(assessment, :last_changed_at) || field(assessment, :updated_at) ||
+          field(assessment, :last_seen_at),
       resolved_at: field(assessment, :resolved_at),
       advisory: field(descriptive_match, :advisory) || %{},
       sources: sources(assessment, supporting_matches),

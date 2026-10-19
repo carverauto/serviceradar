@@ -189,6 +189,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   def apply_nvd_metrics(match, _metrics_by_cve), do: match
 
   defp read_package_assessments(scope, device_uid, endpoint_package_ref) do
+    evaluated_at = EndpointVulnerabilityAssessment.device_evaluated_at(device_uid)
+
     EndpointVulnerabilityAssessment
     |> Ash.Query.for_read(
       :by_device_and_package,
@@ -199,6 +201,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
     |> case do
       {:ok, assessments} ->
         assessments
+        |> Enum.map(&EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
+        |> sort_assessments(:by_device_and_package)
 
       {:error, reason} ->
         Logger.warning(
@@ -363,18 +367,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   end
 
   defp read_assessment_pages(scope, device_uid) do
+    evaluated_at = EndpointVulnerabilityAssessment.device_evaluated_at(device_uid)
+
     %{
-      confirmed: read_assessment_page(scope, device_uid, :actionable_by_device),
-      candidates: read_assessment_page(scope, device_uid, :candidates_by_device),
-      history: read_assessment_page(scope, device_uid, :history_by_device)
+      confirmed: read_assessment_page(scope, device_uid, :actionable_by_device, evaluated_at),
+      candidates: read_assessment_page(scope, device_uid, :candidates_by_device, evaluated_at),
+      history: read_assessment_page(scope, device_uid, :history_by_device, evaluated_at)
     }
   end
 
-  defp read_assessment_page(scope, device_uid, action) do
+  defp read_assessment_page(scope, device_uid, action, evaluated_at) do
     query = Ash.Query.for_read(EndpointVulnerabilityAssessment, action, %{device_uid: device_uid}, scope: scope)
 
     with {:ok, total} <- Ash.count(query, scope: scope),
          {:ok, rows} <- query |> Ash.Query.limit(@assessment_limit) |> Ash.read(scope: scope) do
+      rows =
+        rows
+        |> Enum.map(&EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
+        |> sort_assessments(action)
+
       %{
         rows: rows,
         total: total,
@@ -388,6 +399,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         empty_assessment_page()
     end
   end
+
+  defp sort_assessments(rows, :history_by_device) do
+    Enum.sort_by(rows, fn row ->
+      {-unix_microsecond(field(row, :last_seen_at)), to_string(field(row, :cve_id) || "")}
+    end)
+  end
+
+  defp sort_assessments(rows, _action) do
+    Enum.sort_by(rows, fn row ->
+      {
+        if(field(row, :kev) == true, do: 0, else: 1),
+        if(field(row, :exploit_available) == true, do: 0, else: 1),
+        -cvss_sort_score(field(row, :cvss_score)),
+        -unix_microsecond(field(row, :last_seen_at)),
+        to_string(field(row, :cve_id) || "")
+      }
+    end)
+  end
+
+  defp cvss_sort_score(score) when is_number(score), do: score * 1.0
+  defp cvss_sort_score(_score), do: -1.0
+
+  defp unix_microsecond(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+
+  defp unix_microsecond(%NaiveDateTime{} = ndt) do
+    ndt
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_unix(:microsecond)
+  end
+
+  defp unix_microsecond(_other), do: 0
 
   defp empty_assessment_page do
     %{rows: [], total: 0, limit: @assessment_limit, truncated?: false}
