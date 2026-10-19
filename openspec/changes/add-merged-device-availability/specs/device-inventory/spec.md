@@ -60,7 +60,7 @@ The ranked classes, highest first, are `operator_policy`, `self_report`, `managi
 ### Requirement: Canonical Device Availability Resolution
 The system SHALL derive each device's `availability_state` by selecting the governing class (the highest-ranked authority class with any fresh, eligible, non-excluded record), deciding from that class when it has a decisive record and keeping the previous state when it has only records awaiting confirmation; within the deciding class the state SHALL be `available` when any decisive record is `up` and `unavailable` otherwise.
 When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents SHALL be excluded from the decision and retained for display. Records whose reporter is not eligible, and unreachable per-agent results from negative-control agents, SHALL be excluded from the decision. A cross-class `up` from a lower class SHALL NOT override a higher class's decision; it SHALL mark the device as having conflicting evidence. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
-Every mutation that can change a resolution SHALL cause the affected devices to be re-resolved through the same resolver without waiting for expiry: per-agent ledger writes from any writer, changes to a device's `availability_source_agent_id` or to an availability source profile, and changes to negative-control vantage expectations.
+Every mutation that can change a resolution SHALL cause the affected devices to be re-resolved through the same resolver without waiting for expiry: per-agent ledger writes from any writer, changes to a device's `availability_source_agent_id` or to an availability source profile, and changes to negative-control vantage expectations. Recording such a mutation SHALL be an append that never waits on the resolver or on another writer, and an invalidation committed while a device is being resolved SHALL cause one more resolution of that device.
 
 #### Scenario: Controller up outranks failing probes
 - **GIVEN** a device with fresh `managing_controller` evidence `up`
@@ -227,6 +227,13 @@ Each transition SHALL name the deciding source kind, authority class, reporter a
 
 ### Requirement: Availability Follows Device Identity Operations
 The system SHALL move a merged-away device's evidence records to the surviving device and re-resolve the survivor in the merge transaction, SHALL leave per-agent ledger reassignment behavior unchanged, and SHALL re-resolve a restored device in the restoring transaction without that re-resolution clearing any tombstone.
+
+#### Scenario: Merge does not wait on background resolution
+- **GIVEN** a merge transaction that holds the surviving device's lock and reassigns per-agent results
+- **AND** background resolution is waiting for the same device
+- **WHEN** both run
+- **THEN** the merge SHALL commit without waiting on background resolution
+- **AND** background resolution SHALL then resolve the survivor from the merged inputs
 
 #### Scenario: Merge re-resolves the survivor
 - **GIVEN** two devices with availability evidence

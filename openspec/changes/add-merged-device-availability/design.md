@@ -166,8 +166,8 @@ gets the same counter without any change to its code:
   `checked_at`, the backfill), the value the statement wrote is kept, which
   is the old value unless the statement sets it.
 
-A separate `AFTER INSERT OR UPDATE` trigger marks the device dirty for
-resolution (Decision 1, "Invalidation"). Because it runs on the row that was
+A separate `AFTER INSERT OR UPDATE` trigger appends the device to the
+invalidation log (Decision 1, "Invalidation"). Because it runs on the row that was
 actually inserted or updated, an `INSERT ... ON CONFLICT DO UPDATE` that ends
 in the update branch is judged as an update, and one whose `WHERE` rejects the
 update fires nothing. It enqueues on an insert, on a change of `is_available`
@@ -220,8 +220,8 @@ That pass already pages through each enabled check's scope and loads its
 vantage inputs, so it adds no new scope query. For each device in scope and
 each vantage input with an `expected` value, it writes one row. Disabling or
 deleting a check, or a device leaving the scope, removes the rows. Every
-insert, update or delete of an expectation row marks its device dirty for
-resolution (Decision 1, "Invalidation").
+insert, update or delete of an expectation row appends its device to the
+invalidation log (Decision 1, "Invalidation").
 
 This reuses the existing negative-control notion; it does not invent a
 parallel one. The `expected` value on a vantage input means "this agent
@@ -324,82 +324,75 @@ same transaction. Both paths then run the same steps, in batches of at most
    class comes from the registration, never from the caller (Decision 2).
 2. Upsert evidence write-on-change (Decision 7). Ledger rows were already
    written by their own writer.
-3. Claim the devices' dirty entries in ascending uid order (`SELECT ...
-   ORDER BY device_uid FOR UPDATE`, then `DELETE ... RETURNING`), before
-   locking any device row and before reading any input. Inline resolution
-   claims with `SKIP LOCKED` (see "Lock order").
-4. `SELECT ... FOR NO KEY UPDATE` the device rows in uid order. Then load the
+3. `SELECT ... FOR NO KEY UPDATE` the device rows in uid order. Then load the
    devices' ledger rows, evidence rows and vantage expectations, and run the
-   pure `Availability.Resolver.resolve/3`.
-5. Run `UPDATE ocsf_devices ... WHERE` any of `availability_state`,
+   pure `Availability.Resolver.resolve/3`. Resolution never reads, locks or
+   waits on the invalidation log.
+4. Run `UPDATE ocsf_devices ... WHERE` any of `availability_state`,
    `availability_decided_by`, `availability_conflict` or
    `availability_agents` `IS DISTINCT FROM` the new value. The returned old
    and new values determine whether this is a state transition (Decision 8)
    or a display-only change.
-6. Insert state transitions into the existing outbox (the pattern from
+5. Insert state transitions into the existing outbox (the pattern from
    #4733) in the same transaction, so a rollback publishes nothing.
    Display-only changes broadcast a UI invalidation and emit no event.
 
-**Invalidation.** Every mutation that can change a resolution enqueues the
-affected devices in `device_availability_dirty (device_uid PK, enqueued_at)`
-with `ON CONFLICT (device_uid) DO UPDATE SET enqueued_at = now()`, so a device
-is queued at most once and every enqueue takes the entry's row lock:
+**Invalidation.** Every mutation that can change a resolution appends one
+row per affected device to an append-only log,
+`availability_invalidations (id bigserial PK, device_uid, enqueued_at)`. The
+append is a plain `INSERT`: no `ON CONFLICT`, no read and no lock on any
+existing row. A plain insert of a new key never waits on another
+transaction's row locks, so no writer (sweep, validation scans, merge
+reassignment, pins, expectations) is coupled to the worker or to another
+writer through the log, whatever device locks it already holds. Sources:
 
-- ledger writes, through the ledger trigger (Tier 1a). This is how
+- ledger writes, through the ledger's `AFTER` trigger (Tier 1a). This is how
   validation scans (W18) and merge reassignment (W19) reach the resolver
   with no change to their code;
-- a change of a device's `availability_source_agent_id`, and a change to an
-  availability source profile, which enqueues every device that uses the
-  profile. The Ash actions that make these changes enqueue the affected
-  devices in uid order before they update any device row (not from an
-  `ocsf_devices` trigger, which would run after the device row lock);
-- a change to a vantage expectation (Tier 1c), whose writer holds no device
-  row lock.
+- a change of a device's `availability_source_agent_id`, through an `AFTER
+  UPDATE` trigger on that column, and a change to an availability source
+  profile, which appends a row for every device that uses the profile;
+- a change to a vantage expectation (Tier 1c), through a trigger on that
+  table.
 
-A bounded resolver worker (Oban, batches of at most 500 in uid order) drains
-the dirty set through `resolve_devices/2`, so it takes the same locks, writes
-on change only, and is the same single emitter of transitions. It follows
-the mode: it does nothing in `legacy` and writes the shadow table in
-`shadow`. Writers that already resolve in their own transaction (the sweep
-ingestor, `record_evidence/2`) consume their own entries in step 3, so the
-worker only sees the rest. Expiry stays a separate sweep (Decision 4).
+**The worker.** A bounded resolver worker (Oban) drains the log. Each pass,
+in one transaction:
 
-**Lock order.** Every path at the writer/resolver boundary takes locks in
-one global order: dirty entries first, then device rows, each set in
-ascending device uid order.
+1. Claims the oldest visible log rows: `DELETE FROM availability_invalidations
+   WHERE id IN (SELECT id ... ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED)
+   RETURNING device_uid`. Rows inserted by transactions that have not
+   committed are invisible to the claim and are not consumed, so gaps in the
+   id sequence need no special handling; those rows are claimed by a later
+   pass once they commit. `SKIP LOCKED` only lets concurrent passes share
+   the log; writers never lock log rows.
+2. Deduplicates the claimed uids, takes at most 500 devices, and resolves
+   them through steps 3-5 of the resolution steps above, locking device rows in uid order. Any
+   claimed uid beyond the batch limit is appended again before commit.
+3. Commits. A rollback restores the claimed rows.
 
-- The worker claims its whole batch of dirty entries in uid order (step 3)
-  before it locks any device row (step 4).
-- A writer transaction issues its ledger and evidence writes in ascending
-  device uid order, so its `AFTER` trigger enqueues take dirty entry locks in
-  that order. It takes device row locks only afterwards: through
-  `resolve_devices/2` and, in `legacy` and `shadow`, the legacy column writes
-  (W1, W2), which run after its ledger writes. A ledger insert's foreign-key
-  check takes only `FOR KEY SHARE` on the device row, which does not conflict
-  with `FOR NO KEY UPDATE`.
-- Inline resolution already holds the entries its own writes enqueued. It
-  claims any other entry for its batch with `FOR UPDATE SKIP LOCKED`, so it
-  never waits on a dirty entry while holding a later one; a skipped entry
-  stays queued for the worker.
-- Pin and profile changes enqueue before touching device rows (above).
+The worker follows the mode: it consumes rows without resolving in `legacy`
+and writes the shadow table in `shadow`. It writes on change only and is the
+same single emitter of transitions. Expiry stays a separate sweep
+(Decision 4).
 
-Because no path waits on a dirty entry while holding a device row lock, or on
-a lower-uid lock while holding a higher one, writer and worker cannot
-deadlock on the same device.
+No invalidation is lost:
 
-No invalidation is lost, because the claim in step 3 consumes the entry
-atomically before any input is read, inside the resolving transaction:
+- A writer that committed before the claim is visible to the input reads (resolution step 3),
+  which run after the claim in later statements (each takes a new snapshot).
+- A writer that commits after the claim left its own log row unclaimed, so
+  the next pass re-resolves the device from the newer inputs.
+- A resolution that reads inputs which already include a not-yet-claimed
+  invalidation is simply repeated by the next pass, as a write-on-change
+  no-op.
 
-- An invalidating writer that committed before the claim is visible to the
-  reads that follow it (each statement takes a new snapshot).
-- If a writer still in flight holds the entry's row lock from its upsert,
-  the worker's claim waits on it. The worker holds no device row lock at that
-  point, so nothing the writer needs is blocked; once the writer's
-  transaction ends, the claim proceeds and reads its rows.
-- A writer that enqueues after the claim blocks on the claimed (deleted)
-  entry until the resolving transaction ends, then inserts a new entry, which
-  the next pass resolves. The writer holds no device row lock while it waits.
-- A resolving transaction that rolls back restores its claimed entries.
+**Inline resolution is optional.** A writer that wants the summary current
+in its own transaction (the sweep ingestor, `record_evidence/2`, the merge
+transaction) calls `resolve_devices/2`, which follows steps 3-5 and never
+touches the log. Its log rows stay for the worker, whose later pass is a
+write-on-change no-op. The only lock ordering that remains is the existing
+one on device rows (uid order). Exact lock behavior, including merge
+reassignment against the worker, is verified by implementation-phase
+concurrency tests (tasks 5.6a and 5.6b).
 
 Alternatives considered:
 
@@ -544,7 +537,7 @@ An expiry job (Oban, once a minute, paged on `expires_at` and on ledger
 last run. It runs through the same function and takes the same locks. It is
 the only path that changes a decision by the passage of time alone, and it
 is bounded by the number of expirations. Mutations that change a decision
-without new evidence (pins, expectations) go through the dirty set
+without new evidence (pins, expectations) go through the invalidation log
 (Decision 1).
 
 ### Decision 5: Hysteresis and "available wins" are preserved
@@ -808,7 +801,9 @@ the rollback path.
 - **Merge.** The ledger reassignment (W19) is unchanged, so per-agent
   consumers see the same rows as today. Evidence rows move to the survivor
   (on a collision, the later `observed_at` wins), and the survivor is
-  re-resolved inside the merge transaction.
+  re-resolved inside the merge transaction, under the device locks the merge
+  already holds. The ledger reassignment appends to the invalidation log
+  without waiting on anything, so the merge never waits on the worker.
 
   Note a latent behavior that this change deliberately leaves alone: W19
   keeps the survivor's ledger row even when the merged-away device's row is
