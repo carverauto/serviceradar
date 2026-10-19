@@ -28,9 +28,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   require Logger
 
   @batch_size 500
-  # Two hint/publication pairs per scan/catalog turn. The single worker, batch
-  # size and delay still bound database work; cold repair retains a fixed turn.
-  @turns {:hints, :dirty, :hints, :dirty, :scan, :catalog}
+  # Hint resolution is cheap and moves retained UIDs into compact native dirty
+  # state, so it precedes every other turn. Each cycle still serves two
+  # publication batches, one scan page and the catalog: recovery is never starved.
+  @turns {:hints, :dirty, :hints, :dirty, :hints, :scan, :hints, :catalog}
   @task_timeout 10_000
   @step_interval 25
   @scan_interval 30_000
@@ -149,7 +150,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
     case result do
       {:ok, result} ->
-        {:noreply, state |> accept(work, result) |> Map.put(:retry_at, nil) |> schedule(@step_interval)}
+        state = state |> accept(work, result) |> Map.put(:retry_at, nil)
+        # Waiting hints hold memory under the admission bound; serve them without a pause.
+        {:noreply, schedule(state, if(BitmapHints.count(state.hints) > 0, do: 0, else: @step_interval))}
 
       {:error, :dictionary_changed} ->
         {:noreply, state |> disable() |> schedule(0)}

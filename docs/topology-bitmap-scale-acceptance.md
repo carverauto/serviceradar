@@ -33,10 +33,42 @@ comparison remain open.
 
 The follow-up replaces count admission with a 3.5-MiB conservative live-term
 budget plus the existing 512-KiB owned-payload bound. FIFO resolution retains
-one charged 500-UID batch across retries. A cycle gives two hint/publication
-pairs to each scan/catalog turn, keeping one worker, 500-row reads and the
-25-ms success delay. Hosted compact and sparse comparison results for this
-change are not yet available.
+one charged 500-UID batch across retries.
+
+Its first scheduler gave two hint/publication pairs to each scan/catalog turn,
+with a 25-ms pause after every successful step. At 183be181f4 compact
+([42d33632](https://carverauto.buildbuddy.io/invocation/42d33632-1eb2-4782-9670-c384612ff227))
+refused no hints. Its ten committed-device probes took 1,168-2,133 ms to the
+query and 6,167-7,072 ms to every normal hinted viewer. After churn, the
+hinted query/wire bounds were 157/17,192 ms, against 130,208/138,726 ms
+before. One complete tick took 5,155 ms (a 4,993-ms write/hint phase and a
+155-ms query), so compact did not keep all 100 ticks under five seconds.
+
+Sparse at the same commit
+([51375701](https://carverauto.buildbuddy.io/invocation/51375701-3351-47e8-866b-bf69ce30207b))
+failed the zero-refusal check. Every tick finished in under five seconds
+(maximum 4,205 ms), and the ten probes took 1,397-3,913 ms to the query and
+6,393-9,422 ms to all 45 normal hinted viewers. The hinted peer still refused
+23,286 of 1,100,000 hint attempts at its 3,670,016-byte retained-memory bound:
+393 at tick 60, then 4,000-5,000 in each of ticks 66-70. Tick 60 is the cold
+restart of the unhinted peer. The oldest queued hint reached 11,134 ms and the
+retained charge 3,669,960 bytes. The mailbox peaked at 17, and the publisher
+reported no work failures or contention. In ticks 67-69 the peer completed only
+12-13 hint/dirty batches per five seconds. Each dirty publication took 196-251
+ms and each scan page 174-227 ms, against about 75 ms for a dirty batch in
+stable ticks. Resolving a batch costs about 8 ms, so most of each cycle went
+to publications, scan pages and pauses. The UIDs waiting behind that work held
+the retained-memory budget.
+
+The scheduler now resolves hints before every other turn, giving four
+resolutions, two 500-row publications, one scan page and the catalog to each
+cycle. A successful step reschedules without the 25-ms pause while hints are
+waiting. Resolution moves UIDs into the native Roaring dirty set, which keeps
+its own 512-KiB serialized bound and requests a rescan on overflow, so a
+publication backlog no longer consumes the UID budget. There is still one
+worker and one 500-row read at a time. Scan and catalog service stays at one
+turn per eight. Compact and sparse have not yet been rerun with this change,
+so the throughput fix is not verified.
 
 ## Earlier runs
 
