@@ -53,10 +53,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   # into DDL below, which is the same pattern the rest of this module uses.
   @cagg_cold_windows [
     {"ocsf_events_hourly_stats", 90},
-    {"traces_stats_5m", 90},
-    {"ocsf_network_activity_hourly_proto", 90},
-    {"ocsf_network_activity_hourly_talkers", 90},
-    {"ocsf_network_activity_hourly_ports", 90}
+    {"traces_stats_5m", 90}
   ]
 
   @doc """

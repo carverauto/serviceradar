@@ -3643,11 +3643,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     @tag :web_ng_shared_fixture_db
-    test "hides flows tab without the warehouse even when CNPG has device-scoped flows", %{
+    test "hides flows tab without the warehouse", %{
       conn: conn,
       device_uid: device_uid
     } do
-      insert_test_flow!(device_uid, "192.0.2.42")
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
       render_async(view, 10_000)
 
@@ -3664,11 +3663,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     @tag :web_ng_shared_fixture_db
     test "flow details report the warehouse requirement instead of displaying CNPG enrichment", %{
       conn: conn,
-      device_uid: device_uid,
       scope: scope
     } do
       device_ip = "192.0.2.42"
-      insert_test_flow!(device_uid, device_ip)
 
       q =
         "in:flows time:last_24h src_endpoint_ip:#{device_ip} dst_endpoint_ip:198.51.100.61 src_endpoint_port:24001 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1"
@@ -4762,26 +4759,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         if_admin_status: 1,
         speed_bps: nil,
         if_index: 2
-      }
-    ])
-  end
-
-  defp insert_test_flow!(device_uid, device_ip) do
-    ts = DateTime.truncate(DateTime.utc_now(), :second)
-
-    Repo.insert_all("ocsf_network_activity", [
-      %{
-        time: ts,
-        src_endpoint_ip: device_ip,
-        src_endpoint_port: 24_001,
-        dst_endpoint_ip: "198.51.100.61",
-        dst_endpoint_port: 443,
-        protocol_num: 6,
-        protocol_name: "tcp",
-        bytes_total: 2_048,
-        packets_total: 4,
-        ocsf_payload: %{"device_id" => device_uid},
-        created_at: ts
       }
     ])
   end

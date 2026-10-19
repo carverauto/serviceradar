@@ -17,7 +17,7 @@ defmodule ServiceRadar.ColdTier.RegistryTest do
     "text[]"
   ]
 
-  test "v1 registry covers exactly the seven offload tables" do
+  test "v1 registry covers exactly the six offload tables" do
     assert Enum.sort(Registry.table_names()) ==
              Enum.sort([
                "logs",
@@ -25,8 +25,7 @@ defmodule ServiceRadar.ColdTier.RegistryTest do
                "otel_metrics",
                "otel_metric_points",
                "timeseries_metrics",
-               "ocsf_events",
-               "ocsf_network_activity"
+               "ocsf_events"
              ])
   end
 

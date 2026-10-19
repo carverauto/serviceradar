@@ -726,63 +726,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::pg::sql_types::Array;
-    use diesel::sql_types::*;
-
-    ocsf_network_activity (time) {
-        time -> Timestamptz,
-        class_uid -> Int4,
-        category_uid -> Int4,
-        activity_id -> Int4,
-        type_uid -> Int4,
-        severity_id -> Int4,
-        start_time -> Nullable<Timestamptz>,
-        end_time -> Nullable<Timestamptz>,
-        src_endpoint_ip -> Nullable<Text>,
-        src_endpoint_port -> Nullable<Int4>,
-        src_as_number -> Nullable<Int4>,
-        dst_endpoint_ip -> Nullable<Text>,
-        dst_endpoint_port -> Nullable<Int4>,
-        dst_as_number -> Nullable<Int4>,
-        protocol_num -> Nullable<Int4>,
-        protocol_name -> Nullable<Text>,
-        protocol_source -> Nullable<Text>,
-        tcp_flags -> Nullable<Int4>,
-        tcp_flags_labels -> Nullable<Array<Text>>,
-        tcp_flags_source -> Nullable<Text>,
-        dst_service_label -> Nullable<Text>,
-        dst_service_source -> Nullable<Text>,
-        bytes_total -> Int8,
-        packets_total -> Int8,
-        bytes_in -> Nullable<Int8>,
-        bytes_out -> Nullable<Int8>,
-        packets_in -> Nullable<Int8>,
-        packets_out -> Nullable<Int8>,
-        sampling_rate -> Int8,
-        direction_label -> Nullable<Text>,
-        direction_source -> Nullable<Text>,
-        src_hosting_provider -> Nullable<Text>,
-        src_hosting_provider_source -> Nullable<Text>,
-        dst_hosting_provider -> Nullable<Text>,
-        dst_hosting_provider_source -> Nullable<Text>,
-        src_mac -> Nullable<Text>,
-        dst_mac -> Nullable<Text>,
-        src_mac_vendor -> Nullable<Text>,
-        src_mac_vendor_source -> Nullable<Text>,
-        dst_mac_vendor -> Nullable<Text>,
-        dst_mac_vendor_source -> Nullable<Text>,
-        src_prefix_tags -> Nullable<Jsonb>,
-        dst_prefix_tags -> Nullable<Jsonb>,
-        src_prefix_tags_source -> Nullable<Text>,
-        dst_prefix_tags_source -> Nullable<Text>,
-        sampler_address -> Nullable<Text>,
-        ocsf_payload -> Jsonb,
-        partition -> Nullable<Text>,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
 
     source_fact_disagreements (id) {

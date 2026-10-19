@@ -11,17 +11,12 @@ fn stats_aliases_are_bound_as_json_keys() {
         "TOTAL_BYTES",
     ];
 
-    for (entity, group, filter, window) in [
-        (
-            "threat_intel_matches",
-            "source",
-            "source:synthetic_feed",
-            "last_1h",
-        ),
-        ("flows", "src_endpoint_ip", "proto:6", "last_1h"),
-        ("flows", "protocol_num", "proto:6", "last_24h"),
-        ("attributed_flows", "src_endpoint_ip", "proto:6", "last_1h"),
-    ] {
+    for (entity, group, filter, window) in [(
+        "threat_intel_matches",
+        "source",
+        "source:synthetic_feed",
+        "last_1h",
+    )] {
         for alias in aliases {
             for grouped in [false, true] {
                 let by = if grouped {
@@ -29,14 +24,8 @@ fn stats_aliases_are_bound_as_json_keys() {
                 } else {
                     String::new()
                 };
-                let aggregation = if entity == "threat_intel_matches" {
-                    "count()"
-                } else {
-                    "count(*)"
-                };
-                let query = format!(
-                    "in:{entity} time:{window} {filter} stats:\"{aggregation} as {alias}{by}\""
-                );
+                let query =
+                    format!("in:{entity} time:{window} {filter} stats:\"count() as {alias}{by}\"");
                 let response = translate_request(&test_config(), request_for(&query))
                     .expect("translate alias");
                 assert!(
@@ -44,11 +33,7 @@ fn stats_aliases_are_bound_as_json_keys() {
                     "alias became SQL: {}",
                     response.sql
                 );
-                let expected = if entity == "threat_intel_matches" {
-                    alias.to_ascii_lowercase()
-                } else {
-                    alias.to_string()
-                };
+                let expected = alias.to_ascii_lowercase();
                 assert!(
                     matches!(&response.params[0], BindParam::Text(value) if value == &expected),
                     "alias must be first bound JSON key: {:?}",
@@ -92,51 +77,6 @@ fn otel_stats_aliases_are_bound_as_json_keys() {
                 response.params
             );
             assert!(response.sql.contains("$1::text"));
-            assert_eq!(max_dollar_placeholder(&response.sql), response.params.len());
-        }
-    }
-}
-
-#[test]
-fn multiple_stats_aliases_remain_data_in_rollup_branches() {
-    let aliases = ["x'||(SELECT/**/'synthetic_probe')||'x", "bytes?"];
-    for entity in ["flows", "attributed_flows"] {
-        for other in [false, true] {
-            let query = format!(
-                "in:{entity} time:last_1h proto:6 stats:\"count(*) as {}, sum(bytes_total) as {} by src_endpoint_ip\" sort:src_endpoint_ip:asc limit:5 other:{other}",
-                aliases[0], aliases[1]
-            );
-            let response =
-                translate_request(&test_config(), request_for(&query)).expect("translate rollup");
-            assert!(
-                !response.sql.contains("synthetic_probe"),
-                "alias became SQL: {}",
-                response.sql
-            );
-            let filter_start = if other { 0 } else { aliases.len() };
-            assert!(matches!(
-                response.params[filter_start],
-                BindParam::Timestamptz(_)
-            ));
-            assert!(matches!(
-                response.params[filter_start + 1],
-                BindParam::Timestamptz(_)
-            ));
-            assert!(matches!(
-                response.params[filter_start + 2],
-                BindParam::Int(6)
-            ));
-            let alias_start = if other { 3 } else { 0 };
-            let copies = if other { 2 } else { 1 };
-            for copy in 0..copies {
-                for (offset, alias) in aliases.iter().enumerate() {
-                    let index = alias_start + copy * aliases.len() + offset;
-                    assert!(
-                        matches!(&response.params[index], BindParam::Text(value) if value == alias)
-                    );
-                    assert!(response.sql.contains(&format!("${}::text", index + 1)));
-                }
-            }
             assert_eq!(max_dollar_placeholder(&response.sql), response.params.len());
         }
     }
@@ -953,179 +893,6 @@ fn translate_downsample_respects_value_field() {
 }
 
 #[test]
-fn translate_flows_downsample_emits_time_bucket_query() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total limit:25"
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-
-    assert!(
-        sql.contains("from ocsf_network_activity"),
-        "expected flows downsample to query ocsf_network_activity, got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains("to_timestamp(floor("),
-        "expected floor-based time bucketing in SQL, got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains(
-            "sum((bytes_total::double precision * greatest(coalesce(sampling_rate, 1), 1)::double precision))"
-        ),
-        "expected sampling-rate weighted sum(bytes_total), got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains("group by 1, 2"),
-        "expected group by bucket+series, got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains("order by 1 asc, 2 asc nulls first"),
-        "expected stable downsample ordering by bucket+series, got: {}",
-        response.sql
-    );
-
-    let viz = response.viz.expect("viz metadata should be present");
-    assert_eq!(viz.columns.len(), 3);
-    assert!(
-        viz.suggestions
-            .iter()
-            .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
-        "expected timeseries suggestion, got: {:?}",
-        viz.suggestions
-    );
-}
-
-#[test]
-fn translate_flows_app_filter_binds_value_and_correlates_override_rules() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: "in:flows app:dusk time:last_24h sort:time:desc".to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("app filter should translate");
-    let sql = response.sql.to_lowercase();
-
-    assert!(
-        response
-            .params
-            .iter()
-            .any(|param| matches!(param, BindParam::Text(value) if value == "dusk")),
-        "expected the app filter value to be bound: {:?}",
-        response.params
-    );
-    assert!(
-        sql.contains("netflow_app_classification_rules")
-            && sql.contains("r.partition = baseline.flow_partition")
-            && sql.contains("r.protocol_num = baseline.flow_protocol_num"),
-        "override rules must correlate to the outer flow row: {}",
-        response.sql
-    );
-    assert!(
-        !sql.contains("r.partition = partition") && !sql.contains("r.protocol_num = protocol_num"),
-        "unqualified rule comparisons can resolve to the rule row itself: {}",
-        response.sql
-    );
-}
-
-#[test]
-fn translate_flows_downsample_30d_reads_prescaled_cagg() {
-    // §26.4: a long-window downsample (bucket:1h over 30d) routes to a pre-scaled flow CAGG
-    // through the closed-vs-current UNION (fj #33). Pin that scaling is applied exactly once
-    // on each side: the materialized (closed-bucket) CAGG side reads the pre-scaled
-    // `bytes_total` column WITHOUT re-applying sampling_rate (no double-scaling — the CAGG
-    // rebuild baked bytes * sampling_rate in at materialization), while the raw current-bucket
-    // side DOES apply sampling_rate exactly once (raw rows are unscaled).
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total limit:25"
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-
-    assert!(
-        sql.contains("from flow_traffic_1h"),
-        "expected the long-window 1h bucket to route to the pre-scaled flow_traffic_1h CAGG: {sql}"
-    );
-    // Closed buckets read the pre-scaled column directly (NOT re-scaled).
-    assert!(
-        sql.contains("bytes_total::double precision as weighted_sum"),
-        "CAGG (closed-bucket) side must read pre-scaled bytes_total without re-applying sampling_rate: {sql}"
-    );
-    // The current open bucket comes from raw and scales exactly once.
-    assert!(
-        sql.contains(
-            "sum((bytes_total::double precision * greatest(coalesce(sampling_rate, 1), 1)::double precision)) as weighted_sum"
-        ) && sql.contains("from ocsf_network_activity"),
-        "raw current-bucket side must apply sampling_rate exactly once: {sql}"
-    );
-    assert!(
-        sql.contains("sum(weighted_sum) as value"),
-        "expected the outer sum over pre-scaled volume: {sql}"
-    );
-}
-
-#[test]
-fn translate_flows_downsample_can_filter_by_input_snmp() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query:
-            "in:flows time:last_1h sampler_address:192.0.2.10 input_snmp:12 bucket:5m agg:sum value_field:bytes_total limit:25"
-                .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-
-    assert!(
-        sql.contains("'{connection_info,input_snmp}'"),
-        "expected input_snmp extraction in SQL, got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains("= $4"),
-        "expected bound input_snmp equality after time and sampler params, got: {}",
-        response.sql
-    );
-    assert!(
-        sql.contains(
-            "sum((bytes_total::double precision * greatest(coalesce(sampling_rate, 1), 1)::double precision))"
-        ),
-        "expected sampling-rate weighted sum(bytes_total), got: {}",
-        response.sql
-    );
-    assert_eq!(response.params.len(), 6);
-}
-
-#[test]
 fn translate_rate_downsample_orders_by_bucket_and_series() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
@@ -1542,7 +1309,7 @@ fn translate_downsample_sort_desc_truncates_from_the_newest_bucket() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
         query:
-            "in:flows time:last_30d bucket:5m agg:sum value_field:bytes_total series:app dst_ip:34.98.126.170 sort:time:desc limit:100"
+            "in:timeseries_metrics metric_type:snmp metric_name:ifInOctets time:last_30d bucket:5m agg:sum value_field:value series:device_id sort:time:desc limit:100"
                 .to_string(),
         limit: None,
         cursor: None,
@@ -1571,7 +1338,7 @@ fn translate_downsample_sort_desc_truncates_from_the_newest_bucket() {
 fn translate_downsample_without_sort_keeps_ascending_truncation() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
-        query: "in:flows time:last_30d bucket:5m agg:sum value_field:bytes_total series:app dst_ip:34.98.126.170 limit:100"
+        query: "in:timeseries_metrics metric_type:snmp metric_name:ifInOctets time:last_30d bucket:5m agg:sum value_field:value series:device_id limit:100"
             .to_string(),
         limit: None,
         cursor: None,
@@ -1597,15 +1364,15 @@ fn translate_downsample_without_sort_keeps_ascending_truncation() {
     );
 }
 
-// The flow CAGG union path and the rate path build their SQL separately from the standard
+// The metric CAGG union path and the rate path build their SQL separately from the standard
 // aggregation path, so each needs its own proof that `sort:` reaches the tail.
 #[test]
 fn translate_downsample_sort_desc_applies_on_cagg_and_rate_paths() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
 
     for query in [
-        // Routes to flow_traffic_1h via build_flow_cagg_union_sql (no filters, no series).
-        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total sort:time:desc limit:25",
+        // Routes to timeseries_metrics_hourly via build_cagg_union_sql.
+        "in:timeseries_metrics metric_type:snmp metric_name:ifInOctets time:last_30d bucket:1h agg:avg value_field:value sort:time:desc limit:25",
         // Routes to the rate CTE path.
         "in:snmp time:last_1h bucket:5m agg:rate series:if_index sort:time:desc limit:25",
     ] {
@@ -1633,211 +1400,10 @@ fn translate_downsample_sort_desc_applies_on_cagg_and_rate_paths() {
     }
 }
 
-// `ip:` / `cidr:` match EITHER flow endpoint, mirroring the bare `near:` form
-// (`NearSide::Either`). Without them "all traffic for host X" needs two queries,
-// because SRQL has no cross-field OR and every other IP filter is one-sided.
-#[test]
-fn translate_flows_bidirectional_ip_matches_either_endpoint() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: "in:flows time:last_30d ip:34.98.126.170 sort:time:desc limit:100".to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-
-    assert!(
-        sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip") && sql.contains(" or "),
-        "ip: must OR both endpoints: {sql}"
-    );
-    // The bind must be collected once per side or the LIMIT/OFFSET binds shift.
-    assert_eq!(
-        response
-            .params
-            .iter()
-            .filter(|param| matches!(param, BindParam::Text(v) if v == "34.98.126.170"))
-            .count(),
-        2,
-        "expected one bind per endpoint: {:?}",
-        response.params
-    );
-    assert_eq!(
-        super::max_dollar_placeholder(&response.sql),
-        response.params.len(),
-        "sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
-        response.sql,
-        response.params
-    );
-}
-
-// "Neither endpoint is X" is the AND of the two per-side negatives (De Morgan).
-// ORing them would match every row whose two endpoints merely differ.
-#[test]
-fn translate_flows_negated_bidirectional_ip_requires_both_sides_to_miss() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-    let request = QueryRequest {
-        query: "in:flows time:last_1h !ip:10.0.0.1 limit:10".to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-
-    assert!(
-        sql.contains(" and "),
-        "negated ip: must AND the per-side negatives, not OR them: {sql}"
-    );
-    assert!(
-        sql.contains("is null"),
-        "each side must stay NULL-safe: {sql}"
-    );
-}
-
-#[test]
-fn translate_flows_bidirectional_cidr_matches_either_endpoint() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-
-    // Raw path: CIDR literals are inlined (validated by normalize_cidr_literal), no binds.
-    let request = QueryRequest {
-        query: "in:flows time:last_1h cidr:203.0.113.0/24 limit:10".to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-    let response = translate_request(&config, request).expect("translation should succeed");
-    let sql = response.sql.to_lowercase();
-    assert!(
-        sql.contains("try_inet(nullif(src_endpoint_ip, '')) <<= '203.0.113.0/24'::cidr")
-            && sql.contains("try_inet(nullif(dst_endpoint_ip, '')) <<= '203.0.113.0/24'::cidr"),
-        "cidr: must test containment on both endpoints: {sql}"
-    );
-
-    // Stats path binds the literal instead, once per side.
-    let request = QueryRequest {
-        query: "in:flows time:last_24h cidr:203.0.113.0/24 stats:sum(bytes_total) as bytes by app"
-            .to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-    let response = translate_request(&config, request).expect("translation should succeed");
-    assert_eq!(
-        response
-            .params
-            .iter()
-            .filter(|param| matches!(param, BindParam::Text(v) if v == "203.0.113.0/24"))
-            .count(),
-        2,
-        "stats cidr: needs one bind per endpoint: {:?}",
-        response.params
-    );
-    assert_eq!(
-        super::max_dollar_placeholder(&response.sql),
-        response.params.len(),
-        "sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
-        response.sql,
-        response.params
-    );
-}
-
-// `ip` is already on the parser's implicit-LIKE allowlist, so the wildcard form has to
-// work on the chart path too -- that path builds its filters independently.
-#[test]
-fn translate_flows_bidirectional_ip_works_on_stats_and_downsample_paths() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-
-    for query in [
-        "in:flows time:last_24h ip:34.98.126.170 stats:sum(bytes_total) as bytes by app",
-        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total ip:34.98.126.170 limit:1000",
-        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total ip:%34.98.126.% limit:1000",
-    ] {
-        let request = QueryRequest {
-            query: query.to_string(),
-            limit: None,
-            cursor: None,
-            direction: QueryDirection::Next,
-            mode: None,
-            permitted_signals: None,
-        };
-
-        let response = translate_request(&config, request).expect("translation should succeed");
-        let sql = response.sql.to_lowercase();
-
-        assert!(
-            sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip"),
-            "{query} must reference both endpoints: {sql}"
-        );
-        assert_eq!(
-            super::max_dollar_placeholder(&response.sql),
-            response.params.len(),
-            "{query}: sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
-            response.sql,
-            response.params
-        );
-    }
-}
-
-// Chart queries (`bucket:` / downsample) previously rejected `cidr:` even though
-// the row and stats paths already accepted it (and bare `cidr:` is in the catalog).
-#[test]
-fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
-    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
-
-    for query in [
-        "in:flows time:last_1h cidr:10.0.0.0/8 stats:sum(bytes_total) as bytes by app",
-        "in:flows time:last_1h bucket:5m agg:avg value_field:bytes_total series:app cidr:10.0.0.0/8 sort:time:desc limit:100",
-        "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total src_cidr:10.0.0.0/8 limit:100",
-        "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total dst_cidr:192.168.0.0/16 limit:100",
-    ] {
-        let request = QueryRequest {
-            query: query.to_string(),
-            limit: None,
-            cursor: None,
-            direction: QueryDirection::Next,
-            mode: None,
-            permitted_signals: None,
-        };
-
-        let response = translate_request(&config, request)
-            .unwrap_or_else(|err| panic!("translation should succeed for {query}: {err:?}"));
-        let sql = response.sql.to_lowercase();
-
-        assert!(
-            sql.contains("<<= ") || sql.contains("<<="),
-            "{query} must emit a CIDR containment clause: {sql}"
-        );
-        assert!(
-            sql.contains("src_endpoint_ip") || sql.contains("dst_endpoint_ip"),
-            "{query} must reference an endpoint IP column: {sql}"
-        );
-        assert_eq!(
-            super::max_dollar_placeholder(&response.sql),
-            response.params.len(),
-            "{query}: sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
-            response.sql,
-            response.params
-        );
-    }
-}
-
-/// `src_cidr:<n>` groups by the subnet, not the host: CNPG clears the host bits with
-/// `network()`, which `set_masklen` alone keeps, and both dialects name the column with its
+/// `src_cidr:<n>` groups by the subnet, not the host, and names the column with its
 /// prefix length. Past 32 bits an IPv4 address is masked at its own width.
 #[test]
-fn translate_flows_cidr_grouping_names_one_subnet_column_on_both_dialects() {
+fn translate_flows_cidr_grouping_names_one_subnet_column_on_starrocks() {
     let config = test_config();
     let sql_for = |query: &str, mode: Option<&str>| {
         translate_request(
@@ -1856,24 +1422,6 @@ fn translate_flows_cidr_grouping_names_one_subnet_column_on_both_dialects() {
     };
     let query = r#"in:flows time:last_1h stats:"sum(bytes_total) as total_bytes by src_cidr:24, dst_cidr:48" sort:total_bytes:desc"#;
 
-    let cnpg = sql_for(query, None);
-    assert!(
-        cnpg.contains(
-            "COALESCE(network(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), 24))::text, 'Unknown') AS group_value_0"
-        ),
-        "{cnpg}"
-    );
-    assert!(
-        cnpg.contains(
-            "COALESCE(network(set_masklen(try_inet(NULLIF(dst_endpoint_ip, '')), CASE WHEN family(try_inet(NULLIF(dst_endpoint_ip, ''))) = 4 THEN 32 ELSE 48 END))::text, 'Unknown') AS group_value_1"
-        ),
-        "{cnpg}"
-    );
-    assert!(
-        cnpg.contains("'src_cidr_24', group_value_0, 'dst_cidr_48', group_value_1"),
-        "{cnpg}"
-    );
-
     let starrocks = sql_for(query, Some("starrocks"));
     assert!(
         starrocks.contains("f.src_cidr_24 AS src_cidr_24, f.dst_cidr_48 AS dst_cidr_48"),
@@ -1885,7 +1433,7 @@ fn translate_flows_cidr_grouping_names_one_subnet_column_on_both_dialects() {
         "{starrocks}"
     );
 
-    for mode in [None, Some("starrocks")] {
+    for mode in [Some("starrocks"), Some("starrocks_raw")] {
         let err = translate_request(
             &config,
             QueryRequest {
@@ -1904,6 +1452,38 @@ fn translate_flows_cidr_grouping_names_one_subnet_column_on_both_dialects() {
                 .contains("CIDR prefix length must be <= 128 (got 129)"),
             "{mode:?}: {err}"
         );
+    }
+}
+
+#[test]
+fn cnpg_rejects_flows_and_attributed_flows_across_all_shapes() {
+    let config = test_config();
+    for entity in ["flows", "attributed_flows"] {
+        for shape in [
+            "limit:5",
+            "stats:sum(bytes_total) as bytes by app",
+            "rollup_stats:traffic",
+            "bucket:5m agg:sum value_field:bytes_total",
+        ] {
+            let query = format!("in:{entity} time:last_1h {shape}");
+            let err = translate_request(
+                &config,
+                QueryRequest {
+                    query: query.clone(),
+                    limit: None,
+                    cursor: None,
+                    direction: QueryDirection::Next,
+                    mode: None,
+                    permitted_signals: None,
+                },
+            )
+            .expect_err(&format!("CNPG mode must reject {query}"));
+            assert!(
+                err.to_string()
+                    .contains("flows require the StarRocks telemetry warehouse"),
+                "{query}: {err}"
+            );
+        }
     }
 }
 

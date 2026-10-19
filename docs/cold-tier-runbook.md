@@ -192,8 +192,7 @@ head is cheaper to diagnose than a half-live pipeline).
 
 Once the tier is enabled, the retention worker widens the continuous aggregates
 whose windows are shorter than a cold deployment can usefully look back
-(`ocsf_events_hourly_stats`, `traces_stats_5m`,
-`ocsf_network_activity_hourly_{proto,talkers,ports}`) to 90 days. Raw history
+(`ocsf_events_hourly_stats` and `traces_stats_5m`) to 90 days. Raw history
 past the hot window comes from cold objects, but the stats surfaces over that
 same range are served by these in-database rollups, so a 24-hour rollup under a
 90-day cold window leaves them blank.
@@ -210,6 +209,27 @@ SELECT add_retention_policy('platform.ocsf_events_hourly_stats', INTERVAL '1 day
 
 A CAGG with no retention policy at all is left alone -- installing one would
 delete everything past the window.
+
+## Retired tables (`ocsf_network_activity`)
+
+Flow storage moved exclusively to the StarRocks telemetry warehouse, and the
+CNPG `platform.ocsf_network_activity` hypertable and its continuous aggregates
+have been dropped:
+
+- The migration removes the `platform.cold_tier_boundaries` row and any
+  un-verified (`pending` / `quarantined`) `platform.cold_chunk_exports` rows for
+  `ocsf_network_activity`.
+- On the next exporter run, `ColdTier.Head.ensure_setup/1` drops the retired
+  `platform."ocsf_network_activity"` stitched view,
+  `fdw_primary."ocsf_network_activity"` foreign table, and head-side boundary
+  entry.
+- Existing `verified` manifest rows in `platform.cold_chunk_exports` and their
+  Parquet objects under `cold/v1/ocsf_network_activity/` are preserved as an
+  audit record and are ignored by the exporter, pruner, and health checks. To
+  reclaim bucket storage once historical CNPG flow archives are no longer
+  needed, delete the `cold/v1/ocsf_network_activity/` prefix in the object store
+  and remove the corresponding `table_name = 'ocsf_network_activity'` rows from
+  `platform.cold_chunk_exports`.
 
 ## Disabling the cold tier (two-phase)
 

@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Observability.TelemetryHypertableCompressionDbTest do
   @moduledoc """
-  Catalog proof that the two largest raw hypertables are compressed behind
-  their continuous-aggregate refresh windows.
+  Catalog proof that the largest raw hypertable is compressed behind its
+  continuous-aggregate refresh window.
   """
 
   use ServiceRadar.DataCase, async: true
@@ -11,17 +11,11 @@ defmodule ServiceRadar.Observability.TelemetryHypertableCompressionDbTest do
 
   @moduletag :integration
 
-  test "compresses metrics after 6 days and flows after 32 days" do
+  test "compresses metrics after 6 days" do
     assert compression("timeseries_metrics") == %{
              segmentby: ["device_id", "metric_type", "metric_name"],
              orderby: ["timestamp", "gateway_id", "series_key"],
              compress_after: "6 days"
-           }
-
-    assert compression("ocsf_network_activity") == %{
-             segmentby: ["partition", "protocol_num"],
-             orderby: ["time", "flow_uid"],
-             compress_after: "32 days"
            }
   end
 

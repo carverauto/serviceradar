@@ -801,29 +801,6 @@ pub fn flows(anchor: Anchor) -> Vec<FlowRow> {
     rows
 }
 
-/// TCP flag names in the order `ServiceRadar.EventWriter.FlowEnrichment.decode_tcp_flags/1`
-/// writes `tcp_flags_labels` to CNPG: most significant bit first, `nil` -> `[]`.
-pub fn tcp_flag_labels(flags: Option<i32>) -> Vec<&'static str> {
-    const BITS: [(i32, &str); 8] = [
-        (128, "CWR"),
-        (64, "ECE"),
-        (32, "URG"),
-        (16, "ACK"),
-        (8, "PSH"),
-        (4, "RST"),
-        (2, "SYN"),
-        (1, "FIN"),
-    ];
-    match flags {
-        Some(flags) if flags >= 0 => BITS
-            .iter()
-            .filter(|(bit, _)| flags & bit != 0)
-            .map(|(_, name)| *name)
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
 /// A deterministic, obviously synthetic UUID: `kind` names the dataset, `n` the row.
 pub fn synthetic_uuid(kind: u16, n: u64) -> String {
     format!("00000000-0000-4000-8{kind:03x}-{n:012x}")
@@ -917,52 +894,28 @@ pub fn metric_inserts(rows: &[MetricRow], backend: Backend, qualifier: &str) -> 
         .collect()
 }
 
-/// The `netflow_app_classification_rules` rows the harness seeds into CNPG.
-/// The fixture's warehouse `app` stamp mirrors exactly these rules (see
-/// `APP_RULES`), so CNPG's query-time classifier and the stamped column answer
-/// with one vocabulary. The rules table is read only by the CNPG dialect; the
-/// warehouse has no counterpart.
-pub fn app_rule_inserts() -> Vec<String> {
-    vec![
-        "INSERT INTO platform.netflow_app_classification_rules \
-         (id, partition, enabled, priority, protocol_num, dst_port, src_port, src_cidr, dst_cidr, app_label, notes, inserted_at, updated_at) VALUES
-         ('018f9b2c-0000-7000-8000-000000000001', NULL, true, 100, 17, 443, NULL, NULL, NULL, 'quic', 'parity seed', now(), now()),
-         ('018f9b2c-0000-7000-8000-000000000002', NULL, true, 50, NULL, NULL, NULL, '2001:db8::/32', NULL, 'lab-v6', 'parity seed', now(), now()),
-         ('018f9b2c-0000-7000-8000-000000000003', NULL, true, 50, 6, NULL, NULL, NULL, '203.0.113.0/24', 'synth-egress', 'parity seed', now(), now()),
-         ('018f9b2c-0000-7000-8000-000000000004', NULL, true, 10, NULL, 22, NULL, NULL, NULL, 'secure-shell', 'parity seed', now(), now()),
-         ('018f9b2c-0000-7000-8000-000000000005', 'default', true, 5, NULL, 8080, NULL, NULL, NULL, 'http-alt', 'parity seed', now(), now())"
-            .to_string(),
-    ]
-}
-
 pub(crate) fn json_literal(value: Option<&str>) -> String {
     value
         .map(|json| format!("{}::jsonb", text(json)))
         .unwrap_or_else(|| "NULL".into())
 }
 
-/// `INSERT` statements loading `rows` into `<qualifier>.ocsf_network_activity`.
-pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<String> {
-    let shared = "start_time, end_time, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, \
-                  dst_endpoint_port, protocol_num, protocol_name, tcp_flags, bytes_total, \
-                  packets_total, bytes_in, bytes_out, packets_in, packets_out, dst_service_label, \
-                  sampling_rate";
-    let columns = match backend {
-        // `ocsf_payload` is NOT NULL on CNPG; `tcp_flags_labels` is what its label query reads.
-        Backend::Cnpg => format!("\"time\", {shared}, tcp_flags_labels, ocsf_payload"),
-        Backend::StarRocks => format!(
-            "`time`, {shared}, id, device_uid, event_type, app, agent_id, flow_source, input_snmp, output_snmp, pid, uid, comm, cmdline, container_id, workload_identity, public_endpoint"
-        ),
-    };
+/// `INSERT` statements loading `rows` into StarRocks `<qualifier>.ocsf_network_activity`.
+pub fn flow_inserts(rows: &[FlowRow], qualifier: &str) -> Vec<String> {
+    let columns = "`time`, start_time, end_time, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, \
+                   dst_endpoint_port, protocol_num, protocol_name, tcp_flags, bytes_total, \
+                   packets_total, bytes_in, bytes_out, packets_in, packets_out, dst_service_label, \
+                   sampling_rate, id, device_uid, event_type, app, agent_id, flow_source, input_snmp, \
+                   output_snmp, pid, uid, comm, cmdline, container_id, workload_identity, public_endpoint";
     rows.chunks(BATCH_ROWS)
         .map(|chunk| {
             let values: Vec<String> = chunk
                 .iter()
                 .map(|row| {
                     let mut fields = vec![
-                        instant(row.time, backend),
-                        opt_instant(row.start_time, backend),
-                        opt_instant(row.end_time, backend),
+                        instant(row.time, Backend::StarRocks),
+                        opt_instant(row.start_time, Backend::StarRocks),
+                        opt_instant(row.end_time, Backend::StarRocks),
                         text(row.src_endpoint_ip),
                         text(row.dst_endpoint_ip),
                         row.src_endpoint_port.to_string(),
@@ -977,68 +930,35 @@ pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<
                         opt_num(row.packets_in),
                         opt_num(row.packets_out),
                         opt_text(row.dst_service_label),
+                        opt_num(row.sampling_rate),
+                        text(&row.id),
+                        text(DEVICE_A),
+                        if row.attributed {
+                            text("attributed_flow")
+                        } else {
+                            "NULL".into()
+                        },
+                        text(row.app),
+                        text(AGENT_1),
+                        text(row.flow_source),
+                        row.input_snmp.to_string(),
+                        row.output_snmp.to_string(),
                     ];
-                    match backend {
-                        Backend::Cnpg => {
-                            fields.push(
-                                row.sampling_rate
-                                    .map(|rate| rate.to_string())
-                                    .unwrap_or_else(|| "DEFAULT".into()),
-                            );
-                            let labels: Vec<String> = tcp_flag_labels(row.tcp_flags)
-                                .into_iter()
-                                .map(text)
-                                .collect();
-                            fields.push(format!("ARRAY[{}]::text[]", labels.join(", ")));
-                            let mut payload = serde_json::json!({
-                                "flow_source": row.flow_source,
-                                "agent_id": AGENT_1,
-                                "connection_info": {
-                                    "input_snmp": row.input_snmp,
-                                    "output_snmp": row.output_snmp
-                                }
-                            });
-                            if row.attributed {
-                                payload["event_type"] = "attributed_flow".into();
-                            }
-                            if let Some(attribution) = &row.attribution {
-                                payload["attribution"] = attribution.clone();
-                            }
-                            fields.push(json_literal(Some(&payload.to_string())));
-                        }
-                        Backend::StarRocks => {
-                            fields.push(opt_num(row.sampling_rate));
-                            fields.push(text(&row.id));
-                            fields.push(text(DEVICE_A));
-                            fields.push(if row.attributed {
-                                text("attributed_flow")
-                            } else {
-                                "NULL".into()
-                            });
-                            fields.push(text(row.app));
-                            fields.push(text(AGENT_1));
-                            fields.push(text(row.flow_source));
-                            fields.push(row.input_snmp.to_string());
-                            fields.push(row.output_snmp.to_string());
-                            for key in [
-                                "pid",
-                                "uid",
-                                "comm",
-                                "redacted_cmdline",
-                                "container_id",
-                                "workload_identity",
-                                "public_endpoint",
-                            ] {
-                                fields.push(
-                                    match row.attribution.as_ref().and_then(|a| a.get(key)) {
-                                        Some(value) if value.is_number() => value.to_string(),
-                                        Some(serde_json::Value::String(value)) => text(value),
-                                        Some(value) => text(&value.to_string()),
-                                        None => "NULL".into(),
-                                    },
-                                );
-                            }
-                        }
+                    for key in [
+                        "pid",
+                        "uid",
+                        "comm",
+                        "redacted_cmdline",
+                        "container_id",
+                        "workload_identity",
+                        "public_endpoint",
+                    ] {
+                        fields.push(match row.attribution.as_ref().and_then(|a| a.get(key)) {
+                            Some(value) if value.is_number() => value.to_string(),
+                            Some(serde_json::Value::String(value)) => text(value),
+                            Some(value) => text(&value.to_string()),
+                            None => "NULL".into(),
+                        });
                     }
                     format!("({})", fields.join(", "))
                 })
@@ -1234,25 +1154,13 @@ mod tests {
     }
 
     #[test]
-    fn tcp_flag_labels_follow_the_writer() {
-        assert_eq!(tcp_flag_labels(Some(18)), vec!["ACK", "SYN"]);
-        assert!(tcp_flag_labels(Some(0)).is_empty());
-        assert!(tcp_flag_labels(None).is_empty());
-    }
-
-    #[test]
-    fn a_missing_sampling_rate_is_the_column_default_on_cnpg_and_null_on_starrocks() {
+    fn a_missing_sampling_rate_is_null_on_starrocks() {
         let rows = flows(anchor());
         let unsampled: Vec<FlowRow> = rows
             .into_iter()
             .filter(|r| r.sampling_rate.is_none())
             .take(1)
             .collect();
-        assert!(
-            flow_inserts(&unsampled, Backend::Cnpg, "platform")[0].contains(", DEFAULT, ARRAY[")
-        );
-        assert!(
-            flow_inserts(&unsampled, Backend::StarRocks, "db")[0].contains(", NULL, 'parity-flow-")
-        );
+        assert!(flow_inserts(&unsampled, "db")[0].contains(", NULL, 'parity-flow-"));
     }
 }

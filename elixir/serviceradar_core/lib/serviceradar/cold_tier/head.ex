@@ -132,6 +132,16 @@ defmodule ServiceRadar.ColdTier.Head do
     )
     """)
 
+    # Clean up head-side objects for retired registry tables whose primary
+    # hypertables have been dropped.
+    query!(conn, ~s(DROP VIEW IF EXISTS platform."ocsf_network_activity"))
+    query!(conn, ~s(DROP FOREIGN TABLE IF EXISTS #{@fdw_schema}."ocsf_network_activity"))
+
+    query!(
+      conn,
+      "DELETE FROM platform.cold_tier_boundaries WHERE table_name = 'ocsf_network_activity'"
+    )
+
     ensure_s3_secret(conn, s3)
     :ok
   end

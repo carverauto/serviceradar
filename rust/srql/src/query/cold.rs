@@ -97,7 +97,6 @@ pub(crate) fn cold_table_for_entity(entity: &Entity) -> Option<&'static str> {
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
             Some("timeseries_metrics")
         }
-        Entity::Flows => Some("ocsf_network_activity"),
         _ => None,
     }
 }

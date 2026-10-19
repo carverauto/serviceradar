@@ -182,10 +182,6 @@ fn cagg_column_mappings_cover_metric_entities() {
         cagg_column_for_entity(&Entity::TimeseriesMetrics, "sum", "value"),
         None
     );
-    assert_eq!(
-        cagg_column_for_entity(&Entity::Flows, "sum", "bytes_total"),
-        Some("bytes_total")
-    );
 }
 
 #[test]

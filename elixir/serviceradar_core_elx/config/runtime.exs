@@ -1002,17 +1002,11 @@ if config_env() == :prod do
 
   logs_retention_days = "SERVICERADAR_LOGS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
-  ocsf_network_activity_retention_days =
-    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
-
   otel_traces_chunk_interval_hours =
     "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
 
   logs_chunk_interval_hours =
     "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
-
-  ocsf_network_activity_chunk_interval_hours =
-    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
   # Enable AshOban scheduler - core-elx is the only service that should run schedulers
   ash_oban_scheduler_enabled =
@@ -1293,10 +1287,8 @@ if config_env() == :prod do
     trace_summary_retention_days: trace_summary_retention_days,
     otel_traces_retention_days: otel_traces_retention_days,
     logs_retention_days: logs_retention_days,
-    ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
-    ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
     timeseries_metrics_retention_days: "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     timeseries_metrics_compress_after_hours:
       "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" |> parse_int_env.(2) |> max(1),

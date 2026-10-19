@@ -4,29 +4,23 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
   Flow attribution reads are warehouse-only: `in:attributed_flows` answers
   `{:error, :starrocks_required}` when StarRocks is disabled, and the page must
-  render its honest empty state rather than crash or fall back to CNPG flow
-  rows. Each test seeds a CNPG flow row (inside the sandbox) as a negative
-  control that must never appear.
+  render its honest empty state rather than crash.
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ExUnit.CaptureLog
   import Phoenix.LiveViewTest
 
-  alias Ecto.Adapters.SQL
   alias ServiceRadarWebNG.AshTestHelpers
 
   @moduletag :web_ng_shared_fixture_db
 
-  @repo ServiceRadar.Repo
-
-  # Endpoints of the CNPG-only negative-control rows.
+  # Endpoints used as negative-control assertions.
   @cnpg_attributed_endpoint "192.0.2.41:24001"
   @cnpg_unmatched_endpoint "192.0.2.43:24003"
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
-    seed_cnpg_flow_rows!()
 
     %{conn: log_in_user(conn, user)}
   end
@@ -132,79 +126,4 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
   # Waits for the async load started by the latest navigation; raises if the
   # LiveView crashed.
   defp settle(view), do: render_async(view, 10_000)
-
-  # CNPG flow rows the page must never show: one attributed, one unmatched, one
-  # with workload identity. They live in the test's sandbox transaction.
-  defp seed_cnpg_flow_rows! do
-    now = DateTime.utc_now() |> DateTime.shift(minute: -1) |> DateTime.truncate(:second)
-
-    insert_flow!(now, %{
-      src_ip: "192.0.2.41",
-      src_port: 24_001,
-      dst_ip: "198.51.100.60",
-      dst_port: 8443,
-      protocol_num: 6,
-      protocol_name: "tcp",
-      attribution: %{"pid" => "101", "comm" => "fixture-web"},
-      agent_id: "fixture-agent-tcp"
-    })
-
-    insert_flow!(now, %{
-      src_ip: "192.0.2.42",
-      src_port: 24_002,
-      dst_ip: "198.51.100.61",
-      dst_port: 8125,
-      protocol_num: 17,
-      protocol_name: "udp",
-      attribution: %{
-        "pid" => "202",
-        "comm" => "fixture-metrics",
-        "workload_identity" => %{"pod_namespace" => "fixture-system", "pod_name" => "fixture-metrics-01"}
-      },
-      agent_id: "fixture-agent-udp"
-    })
-
-    insert_flow!(now, %{
-      src_ip: "192.0.2.43",
-      src_port: 24_003,
-      dst_ip: "198.51.100.62",
-      dst_port: 8080,
-      protocol_num: 6,
-      protocol_name: "tcp",
-      attribution: nil,
-      agent_id: "fixture-agent-unmatched"
-    })
-  end
-
-  defp insert_flow!(time, attrs) do
-    payload =
-      maybe_put_attribution(
-        %{"event_type" => "attributed_flow", "agent_id" => attrs.agent_id, "partition" => "default"},
-        attrs.attribution
-      )
-
-    SQL.query!(
-      @repo,
-      """
-      INSERT INTO platform.ocsf_network_activity (
-        time, src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port,
-        protocol_num, protocol_name, bytes_total, packets_total, ocsf_payload, partition, created_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 1024, 8, $8::jsonb, 'default', $1)
-      """,
-      [
-        time,
-        attrs.src_ip,
-        attrs.src_port,
-        attrs.dst_ip,
-        attrs.dst_port,
-        attrs.protocol_num,
-        attrs.protocol_name,
-        payload
-      ]
-    )
-  end
-
-  defp maybe_put_attribution(payload, nil), do: payload
-  defp maybe_put_attribution(payload, attribution), do: Map.put(payload, "attribution", attribution)
 end

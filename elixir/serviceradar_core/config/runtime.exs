@@ -585,7 +585,6 @@ if config_env() == :prod do
   #   otel_metrics (span samples)    30 days
   #   otel_metric_points (OTLP)      30 days
   #   ocsf_events                    14 days
-  #   ocsf_network_activity          90 days
   trace_summary_retention_days =
     "SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS" |> parse_int_env.(3) |> max(1)
 
@@ -602,9 +601,6 @@ if config_env() == :prod do
 
   ocsf_events_retention_days =
     "SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS" |> parse_int_env.(14) |> max(1)
-
-  ocsf_network_activity_retention_days =
-    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
   timeseries_metrics_retention_days =
     "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
@@ -649,9 +645,6 @@ if config_env() == :prod do
 
   ocsf_events_chunk_interval_hours =
     "SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
-
-  ocsf_network_activity_chunk_interval_hours =
-    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
   netflow_security_refresh_reschedule_seconds =
     "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
@@ -1281,7 +1274,6 @@ if config_env() == :prod do
     otel_metrics_retention_days: otel_metrics_retention_days,
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
-    ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
     timeseries_metrics_retention_days: timeseries_metrics_retention_days,
     timeseries_metrics_compress_after_hours: timeseries_metrics_compress_after_hours,
     timeseries_metrics_chunk_interval_hours: timeseries_metrics_chunk_interval_hours,
@@ -1291,7 +1283,6 @@ if config_env() == :prod do
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
     otel_metric_points_chunk_interval_hours: otel_metric_points_chunk_interval_hours,
     ocsf_events_chunk_interval_hours: ocsf_events_chunk_interval_hours,
-    ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
     sweep_host_result_retention_days:
       "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     sweep_execution_retention_days:

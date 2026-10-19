@@ -3,7 +3,7 @@ use super::{
     alerts, bmp_events, build_query_plan, camera_sources, capacity_forecasts, composite_results,
     dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, downsample,
     endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
-    endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
+    endpoint_vulnerability_matches, events, field_survey, gateways, graph_cypher, graph_dql,
     identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces,
     otel_metric_points, otel_metrics, otel_services, public_endpoints, security_events, services,
     source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     config::AppConfig,
-    error::Result,
+    error::{Result, ServiceError},
     pagination::encode_cursor,
     parser::{self, Entity},
 };
@@ -43,6 +43,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         // bucketed query would fall through to the CNPG downsample builder.
         let compiled = starrocks::translate_raw(&plan, &config.starrocks_database)?;
         (compiled.sql, compiled.params)
+    } else if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
+        return Err(ServiceError::InvalidRequest(
+            "flows require the StarRocks telemetry warehouse".into(),
+        ));
     } else if matches!(plan.entity, Entity::OtelServices) {
         // Ahead of the downsample branch: this entity's access check lives in its
         // own builder, so no other builder may ever compile it.
@@ -101,7 +105,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::WifiRadiusGroups
             | Entity::WifiFleetHistory
             | Entity::WifiSiteReferences => wifi_map::to_sql_and_params(&plan)?,
-            Entity::Flows | Entity::AttributedFlows => flows::to_sql_and_params(&plan)?,
+            Entity::Flows | Entity::AttributedFlows => {
+                unreachable!("flows require the StarRocks telemetry warehouse")
+            }
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,
             Entity::Gateways => gateways::to_sql_and_params(&plan)?,

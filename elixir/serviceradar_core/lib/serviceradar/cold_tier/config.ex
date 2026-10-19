@@ -43,8 +43,7 @@ defmodule ServiceRadar.ColdTier.Config do
             otel_metrics: cold_window("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS"),
             otel_metric_points: cold_window("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS"),
             timeseries: cold_window("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS"),
-            events: cold_window("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS"),
-            flows: cold_window("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS")
+            events: cold_window("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS")
           ],
           fn {_class, days} -> is_nil(days) end
         )

@@ -201,7 +201,9 @@ defmodule ServiceRadar.ColdTier.Health do
            timeout: 30_000
          ) do
       {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [table, count] -> %{table: table, chunks: count} end)
+        for [table, count] <- rows, Registry.member?(table) do
+          %{table: table, chunks: count}
+        end
 
       _ ->
         []
