@@ -18,13 +18,24 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
+)
+
+var (
+	errSweepTargetNotAddress = errors.New("not an IP address, CIDR, or first-last range")
+	errSweepRangeBound       = errors.New("range bound is not an IP address")
+	errSweepRangeFamilies    = errors.New("range bounds are different address families")
+	errSweepRangeReversed    = errors.New("range starts after it ends")
+	errSweepRangeTooLarge    = errors.New("IPv6 range expands above the sweep target limit")
 )
 
 type gatewayConfigPayload struct {
@@ -356,6 +367,8 @@ func parseDurationValue(raw string) (Duration, error) {
 	return Duration(duration), nil
 }
 
+// normalizeTargets converts static targets into the CIDR entries the sweeper
+// expands. An entry that cannot be read is dropped with one warning naming it.
 func normalizeTargets(targets []string, log logger.Logger) []string {
 	normalized := make([]string, 0, len(targets))
 	for _, target := range targets {
@@ -364,40 +377,177 @@ func normalizeTargets(targets []string, log logger.Logger) []string {
 			continue
 		}
 
-		network, ok := normalizeSweepNetwork(target, log)
-		if ok {
-			normalized = append(normalized, network)
+		networks, err := normalizeSweepNetwork(target)
+		if err != nil {
+			log.Warn().Err(err).Str("target", target).Msg("Skipping invalid sweep target")
 			continue
 		}
 
-		if !strings.Contains(target, "/") {
-			log.Warn().Str("target", target).Msg("Skipping invalid sweep target")
-		}
+		normalized = append(normalized, networks...)
 	}
 
 	return normalized
 }
 
-func normalizeSweepNetwork(network string, log logger.Logger) (string, bool) {
-	if strings.Contains(network, "/") {
+// normalizeSweepNetwork returns the CIDR entries that sweep exactly the
+// addresses of one target: a CIDR as written, a single IP as a host prefix, or
+// an inclusive first-last range.
+func normalizeSweepNetwork(network string) ([]string, error) {
+	switch {
+	case strings.Contains(network, "/"):
 		if _, _, err := net.ParseCIDR(network); err != nil {
-			log.Warn().Err(err).Str("network", network).Msg("Skipping invalid sweep CIDR")
-			return "", false
+			return nil, err
 		}
 
-		return network, true
+		return []string{network}, nil
+	case strings.Contains(network, "-"):
+		return sweepRangeNetworks(network)
 	}
 
 	ip := net.ParseIP(network)
 	if ip == nil {
-		return "", false
+		return nil, errSweepTargetNotAddress
 	}
 
 	if ipv4 := ip.To4(); ipv4 != nil {
-		return ipv4.String() + "/32", true
+		return []string{ipv4.String() + "/32"}, nil
 	}
 
-	return ip.String() + "/128", true
+	return []string{ip.String() + "/128"}, nil
+}
+
+// sweepRangeNetworks converts an inclusive first-last range into CIDR entries
+// built from the fewest prefixes that hold it, not one entry per address. An
+// IPv6 range is held to the limit the sweeper applies to one IPv6 network.
+func sweepRangeNetworks(network string) ([]string, error) {
+	firstText, lastText, _ := strings.Cut(network, "-")
+
+	first, err := parseSweepRangeBound(firstText)
+	if err != nil {
+		return nil, err
+	}
+
+	last, err := parseSweepRangeBound(lastText)
+	if err != nil {
+		return nil, err
+	}
+
+	if first.Is4() != last.Is4() {
+		return nil, errSweepRangeFamilies
+	}
+
+	if first.Compare(last) > 0 {
+		return nil, errSweepRangeReversed
+	}
+
+	prefixes := rangePrefixes(first, last)
+	if first.Is6() && prefixesExceed(prefixes, sweeper.MaxIPv6NetworkHosts) {
+		return nil, fmt.Errorf("%w of %d addresses", errSweepRangeTooLarge, sweeper.MaxIPv6NetworkHosts)
+	}
+
+	return sweepNetworksForPrefixes(prefixes), nil
+}
+
+// parseSweepRangeBound parses one end of a range. An IPv4-mapped IPv6 bound
+// reads as IPv4, as a single mapped IP does.
+func parseSweepRangeBound(text string) (netip.Addr, error) {
+	text = strings.TrimSpace(text)
+
+	addr, err := netip.ParseAddr(text)
+	if err != nil || addr.Zone() != "" {
+		return netip.Addr{}, fmt.Errorf("%w: %q", errSweepRangeBound, text)
+	}
+
+	return addr.Unmap(), nil
+}
+
+// rangePrefixes returns the fewest prefixes that together hold exactly the
+// addresses first through last. Both are the same family and first <= last.
+func rangePrefixes(first, last netip.Addr) []netip.Prefix {
+	var prefixes []netip.Prefix
+
+	for {
+		bits := first.BitLen()
+		for bits > 0 {
+			wider := netip.PrefixFrom(first, bits-1)
+			if wider.Masked().Addr() != first || prefixLastAddr(wider).Compare(last) > 0 {
+				break
+			}
+
+			bits--
+		}
+
+		prefix := netip.PrefixFrom(first, bits)
+		prefixes = append(prefixes, prefix)
+
+		end := prefixLastAddr(prefix)
+		if end.Compare(last) >= 0 {
+			return prefixes
+		}
+
+		first = end.Next()
+	}
+}
+
+// prefixLastAddr returns the highest address in prefix.
+func prefixLastAddr(prefix netip.Prefix) netip.Addr {
+	octets := prefix.Masked().Addr().AsSlice()
+	for i := range octets {
+		switch hostBits := (i+1)*8 - prefix.Bits(); {
+		case hostBits >= 8:
+			octets[i] = 0xff
+		case hostBits > 0:
+			octets[i] |= byte(0xff >> (8 - hostBits))
+		}
+	}
+
+	last, _ := netip.AddrFromSlice(octets)
+
+	return last
+}
+
+// prefixesExceed reports whether prefixes hold more than limit addresses.
+func prefixesExceed(prefixes []netip.Prefix, limit uint64) bool {
+	var total uint64
+
+	for _, prefix := range prefixes {
+		hostBits := prefix.Addr().BitLen() - prefix.Bits()
+		if hostBits >= 64 {
+			return true
+		}
+
+		total += 1 << hostBits
+		if total > limit {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sweepNetworksForPrefixes writes a range's prefixes as sweeper CIDR entries.
+// The sweeper skips the first and last address of an IPv4 CIDR other than /32
+// as its network and broadcast address. A range lists every address it holds,
+// so each multi-address IPv4 prefix also gets its two ends as /32 entries, and
+// a /31, which the sweeper would expand to nothing, is written as two /32s.
+func sweepNetworksForPrefixes(prefixes []netip.Prefix) []string {
+	networks := make([]string, 0, len(prefixes))
+
+	for _, prefix := range prefixes {
+		if !prefix.Addr().Is4() || prefix.IsSingleIP() {
+			networks = append(networks, prefix.String())
+			continue
+		}
+
+		networks = append(networks, netip.PrefixFrom(prefix.Addr(), 32).String())
+		if prefix.Bits() < 31 {
+			networks = append(networks, prefix.String())
+		}
+
+		networks = append(networks, netip.PrefixFrom(prefixLastAddr(prefix), 32).String())
+	}
+
+	return networks
 }
 
 func parseSweepModes(modes []string, log logger.Logger) []models.SweepMode {
@@ -436,23 +586,53 @@ func convertDeviceTargets(targets []gatewayDeviceTarget, log logger.Logger) []mo
 			continue
 		}
 
-		normalized, ok := normalizeSweepNetwork(network, log)
-		if !ok {
-			if !strings.Contains(network, "/") {
-				log.Warn().Str("network", t.Network).Msg("Skipping invalid device target network")
-			}
-
+		networks, err := normalizeSweepNetwork(network)
+		if err != nil {
+			log.Warn().Err(err).Str("network", t.Network).Msg("Skipping invalid device target network")
 			continue
 		}
 
-		converted = append(converted, models.DeviceTarget{
-			Network:    normalized,
-			SweepModes: parseSweepModes(t.SweepModes, log),
-			QueryLabel: t.QueryLabel,
-			Source:     t.Source,
-			Metadata:   t.Metadata,
-		})
+		sweepModes := parseSweepModes(t.SweepModes, log)
+		for _, normalized := range networks {
+			converted = append(converted, models.DeviceTarget{
+				Network:    normalized,
+				SweepModes: sweepModes,
+				QueryLabel: t.QueryLabel,
+				Source:     t.Source,
+				Metadata:   t.Metadata,
+			})
+		}
 	}
 
 	return converted
+}
+
+// normalizeDeviceTargets normalizes device target networks the way
+// convertDeviceTargets does, for device targets that did not arrive in a
+// gateway payload. A range becomes one device target per CIDR entry.
+func normalizeDeviceTargets(targets []models.DeviceTarget, log logger.Logger) []models.DeviceTarget {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	normalized := make([]models.DeviceTarget, 0, len(targets))
+	for _, target := range targets {
+		network := strings.TrimSpace(target.Network)
+		if network == "" {
+			continue
+		}
+
+		networks, err := normalizeSweepNetwork(network)
+		if err != nil {
+			log.Warn().Err(err).Str("network", target.Network).Msg("Skipping invalid device target network")
+			continue
+		}
+
+		for _, entry := range networks {
+			target.Network = entry
+			normalized = append(normalized, target)
+		}
+	}
+
+	return normalized
 }

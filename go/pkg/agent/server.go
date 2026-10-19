@@ -164,11 +164,14 @@ func buildSweepModelConfigFromGroup(cfg *ServerConfig, group SweepGroupConfig, l
 		return nil, ErrAgentIDRequired
 	}
 
+	// Groups from sweep.json and from UpdateConfig reach the sweeper only
+	// through here, so their targets are normalized here. Gateway groups were
+	// normalized when parsed, and normalizing again leaves them unchanged.
 	return &models.Config{
-		Networks:      group.Networks,
+		Networks:      normalizeTargets(group.Networks, log),
 		Ports:         group.Ports,
 		SweepModes:    group.SweepModes,
-		DeviceTargets: group.DeviceTargets,
+		DeviceTargets: normalizeDeviceTargets(group.DeviceTargets, log),
 		BannerGrab:    toModelBannerGrab(group.BannerGrab),
 		Interval:      time.Duration(group.Interval),
 		Concurrency:   group.Concurrency,

@@ -187,8 +187,8 @@ func validateCIDRExpansion(cidr string, hostCount int) error {
 		return err
 	}
 
-	if baseIP.To4() == nil && hostCount > defaultTargetBatch {
-		return fmt.Errorf("%w: %s expands to %d hosts, above limit %d", errIPv6CIDRTooLarge, cidr, hostCount, defaultTargetBatch)
+	if baseIP.To4() == nil && hostCount > MaxIPv6NetworkHosts {
+		return fmt.Errorf("%w: %s expands to %d hosts, above limit %d", errIPv6CIDRTooLarge, cidr, hostCount, MaxIPv6NetworkHosts)
 	}
 
 	return nil
