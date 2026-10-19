@@ -3,10 +3,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryAdmission do
   First-come admission to the eight bitmap query tasks.
 
   A response waits for a free task only until its own deadline, and reports
-  `:query_busy` if none frees in time. Rejecting every arrival that found all
-  tasks busy made admission a race decided within milliseconds: viewers whose
-  retries coincided with other sockets' periodic refreshes lost it on every
-  attempt and never received a frame.
+  `:query_busy` if none frees in time. It also reports `:query_busy` at once
+  when 64 live, unexpired requests are already waiting. Rejecting every
+  arrival that found all tasks busy made admission a race decided within
+  milliseconds, so viewers whose retries coincided with other sockets'
+  periodic refreshes could lose it on every attempt.
   """
   use GenServer
 

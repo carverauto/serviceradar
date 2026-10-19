@@ -281,8 +281,10 @@ finishes, even after replacement, unwatch or reset. Cancelled results are discar
 Repeated watches receive `query_busy` without spawning more inner work; no global
 per-owner registry is introduced. A query waits first-come for one of the eight
 workers only until its own deadline, and receives `query_busy` if none frees.
-Refusing every arrival that met a full pool let aligned channel ticks and retries
-starve the same viewers. Missing users are rejected before query-pool admission. Query and tile-selection HTTP endpoints share bitmap error
+At most 64 queries wait; an arrival that finds 64 live, unexpired waiters receives
+`query_busy` immediately. Refusing every arrival that met a full pool could let
+channel ticks and retries starve the same viewers; that alignment is inferred
+from code and a database-free reproduction, not measured on the hosted run. Missing users are rejected before query-pool admission. Query and tile-selection HTTP endpoints share bitmap error
 statuses, with no retry header on invalid or unsupported predicates.
 
 For current authorized live universe U, compute R = U AND expression.

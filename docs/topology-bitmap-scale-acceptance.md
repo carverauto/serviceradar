@@ -7,8 +7,11 @@ world persistence, or upstream discovery ingestion. Geometry is an invented
 native world installed through `WorldCache`; canonical mappings still come
 from the real paged dictionary reader.
 
-The compact workload has run twice against the hosted database and has not
-passed; sparse has not run. The latest compact attempt
+The compact workload has not passed against the hosted database; sparse has
+not run. Earlier compact attempts stopped before any viewer started: one at a
+refused diagnostic time budget, others at HTTP 403 upgrades caused by missing
+role profiles and then by a pinned connection pool, each since corrected. The
+two latest attempts reached the viewers and failed. The latest compact attempt
 ([BuildBuddy a692930f](https://carverauto.buildbuddy.io/invocation/a692930f-82b4-4b06-8143-b1956cac1a56),
 commit 472387c7e9) seeded 1,100,000 synthetic devices with 2,200,000 addresses,
 started both four-scheduler peers, upgraded 50 concurrent authenticated
@@ -28,17 +31,21 @@ its 120-second statement timeout. Cleanup now skips the per-row inventory
 rollup trigger and recounts once at the end, as the seed does; the bounded
 report from a692930f does not show whether that cleanup completed.
 
-The public reason does not say which admission point refused each watch.
-The code shows one that matches the report. The eight-task query admission
-refused, without waiting, every query that arrived while all eight tasks were
-busy. Each server socket schedules its 5-second refresh tick from its join,
-and the viewers join together, so those ticks are aligned. The client backoff
-(1, 2, 4 and 8 seconds, then 10; the browser uses the same schedule) puts
-every later retry on one of those ticks. A viewer without a frame therefore
-kept retrying into the refreshes of viewers already served, and could lose
-that race on every attempt. Admission is now first-come: a query waits for
-one of the same eight tasks until its own one-second deadline, and answers
-`query_busy` only when no task frees in time. A database-free test
+The public reason does not say which admission point refused each watch,
+and no hosted measurement attributes every rejection. The code shows one cause
+consistent with the report and with the database-free negative control below.
+The eight-task query admission refused, without waiting, every query that
+arrived while all eight tasks were busy. Each server socket schedules its
+5-second refresh tick from its join, and the viewers join together, so those
+ticks are likely aligned. The client backoff (1, 2, 4 and 8 seconds, then 10;
+the browser uses the same schedule) would put every later retry on one of
+those ticks. That alignment is inferred, not measured. A viewer without a
+frame could therefore keep retrying into the refreshes of viewers already
+served and lose that race on every attempt. Admission is now first-come: a
+query waits for one of the same eight tasks until its own one-second deadline
+and answers `query_busy` when no task frees in time. It also answers
+`query_busy` immediately when all 64 waiting places hold live, unexpired
+requests. A database-free test
 reproduces the starvation (all 24 newcomers refused on the old admission)
 and passes with the change. The earlier native fix, where admitted readers
 wait out the index's short bookkeeping sections instead of failing as busy,
