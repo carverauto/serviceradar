@@ -171,8 +171,11 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
           pending_dirty: snapshot.progress.pending_dirty,
           pending_hints: snapshot.progress.pending_hints,
           pending_hint_bytes: snapshot.progress.pending_hint_bytes,
+          pending_hint_retained_bytes: snapshot.progress.pending_hint_retained_bytes,
+          pending_hint_age_ms: snapshot.progress.pending_hint_age_ms,
           pending_native: snapshot.progress.pending_native,
           pending_publish: snapshot.progress.pending_publish,
+          pending_publish_age_ms: snapshot.progress.pending_publish_age_ms,
           native_unavailable: 0
         }
       else

@@ -7,9 +7,42 @@ world persistence, or upstream discovery ingestion. Geometry is an invented
 native world installed through `WorldCache`; canonical mappings still come
 from the real paged dictionary reader.
 
+## Measured baseline after inventory rollup repair
+
+Both distributions passed at d0505085a4 (merged in PR #5796):
+[compact](https://carverauto.buildbuddy.io/invocation/5df517e0-c14a-4ac3-8bd0-32567213f953)
+and [sparse](https://carverauto.buildbuddy.io/invocation/5ff088e3-e3a9-4e27-90b9-c2dc135320a0).
+Each completed all 100 synthetic 11,000-device updates at the five-second
+cadence. The respective mean write times were 863 and 849 ms; maxima were
+1,762 and 1,825 ms. Both hosted lifecycles completed observer, teardown and
+generation release with status zero.
+
+The 5,000-entry replica UID inbox refused hints in all 100 bursts: 405,500
+attempts in compact (36.86%) and 426,500 in sparse (38.77%). No payload-byte
+overflow occurred; sampled queued payload peaked at 110,000 of 524,288 bytes.
+That payload measurement excludes BEAM metadata. Ready hinted worker means
+were 89/90 ms per dirty publication, 8.6/9.2 ms per resolution and 72/75 ms per
+scan page. There was no recorded publisher contention or source error.
+
+After churn, hinted query/wire observation bounds were 130,208/138,726 ms
+for compact and 138,656/152,186 ms for sparse. The missed-hints/restarted peer
+took 136,689/146,711 and 139,725/149,745 ms respectively. These are recovery
+measurements; they do not establish normal commit-to-visible latency.
+Task 4.2a is complete, while normal freshness and the intake/scheduling
+comparison remain open.
+
+The follow-up replaces count admission with a 3.5-MiB conservative live-term
+budget plus the existing 512-KiB owned-payload bound. FIFO resolution retains
+one charged 500-UID batch across retries. A cycle gives two hint/publication
+pairs to each scan/catalog turn, keeping one worker, 500-row reads and the
+25-ms success delay. Hosted compact and sparse comparison results for this
+change are not yet available.
+
+## Earlier runs
+
 The compact workload passed against the hosted database at commit 1887ee528e
 (described at the end of this section). The sparse workload failed at that
-commit and has not passed since. Earlier compact attempts stopped before any viewer started: one at
+commit; the later passing baseline is above. Earlier compact attempts stopped before any viewer started: one at
 diagnostic time admission, one at tile receipt authorization (an HTTP 403 on
 `GET /topology/tiles/:version/3/:x/:y`) because role profiles were absent, and
 one during concurrent WebSocket upgrades because the Sandbox pool was pinned,
@@ -241,9 +274,9 @@ most 128 rows, within the call's 8,192-ID bound. Row order, the
 `device_ordinals_busy` origin and the `source_changed` mapping are unchanged,
 and so are the 30-second progress bound, the one-second query deadline, the
 eight query tasks and 64 waiters, the two ordinal readers, the eight pins,
-the memory limits and the workload. Whether this clears the sparse stall is
-unproven until the hosted sparse run passes. OpenSpec task 4.2 remains
-unchecked until both distributions pass on one commit. The database-free
+the memory limits and the workload. That change's later compact and sparse
+results are recorded above. OpenSpec task 4.2 remains open for the wider
+freshness and performance acceptance. The database-free
 harness target compiles the complete scenario and checks its independent
 frame consumer, native geometry partition and isolated VM measurements.
 
@@ -475,23 +508,49 @@ Publisher diagnostics are separate from query admission and database counters:
   Elapsed time includes worker execution and owner delivery delay, excludes
   scheduled idle time, and is not database CPU time. Contention, failure,
   capacity deferral, timeout and cancellation are not successful publication.
-- `publisher.hint_overflow` counts refused hint attempts by count or byte
+- `publisher.hint_overflow` counts refused hint attempts by memory or payload byte
   limit, using `[:serviceradar, :topology, :bitmap_index, :hint_overflow]`.
   Events include the configured bound and reconciliation outcome, never device
   identities. Repeated refused IDs can be counted more than once. The meter
   survives index restarts and reports detached handlers as uninstrumented.
 - Ready snapshot samples split `pending_dirty` into `pending_hints`,
-  `pending_native` and `pending_publish`, and include `pending_hint_bytes`.
+  `pending_native` and `pending_publish`, and include `pending_hint_bytes`
+  and the conservative `pending_hint_retained_bytes` admission charge.
   These are queue entries, not a distinct-device count: a device can be present
-  in more than one stage. The active hint-resolution batch is outside these
-  queues. A high sample just after a write burst does not establish sustained
+  in more than one stage. The active hint-resolution batch remains counted
+  and charged until successful resolution. `pending_hint_age_ms` includes
+  that batch; `pending_publish_age_ms` dates the held publication batch from
+  ordinal dequeue. Native Roaring does not store per-ordinal age, so neither
+  metric is the oldest work across the entire pipeline or a commit clock.
+  A high sample just after a write burst does not establish sustained
   lag or overflow; use overflow events and work timings to investigate it.
 
 Task 4.2 remains open. The next performance comparison must retain the same
 five-second write cadence, separate hinted updates from reconciliation and
-restart recovery, and run both compact and sparse distributions. Direct
-database-commit-to-index/accepted-overlay latency and pending-work age still
-need dedicated measurements; these diagnostics do not claim that evidence.
+restart recovery, and run both compact and sparse distributions.
+
+The new `commit_probe` records (collected in `commit_probes`) sample the first committed batch every tenth
+tick on the hinted replica without blocking the write cadence. It brackets
+commit between statement submission and successful database acknowledgement
+on the driver's monotonic clock. An authorized query must return the specific
+device's expected ordinal at its newly assigned /128 address and unavailable
+state; a growing total cannot conceal its missed update. Query observation
+includes the rest of that tick's write burst and 500-ms polling.
+
+All normal viewers of the hinted replica must then have accepted a frame
+with the same index epoch and a revision at least as new as that query.
+This implication uses the fixture's monotonic, one-write-per-device membership
+and the fact that this replica never restarts. Wire time uses accepted-frame
+timestamps on the driver's clock. It is an all-viewer observation bound,
+not first-frame latency or browser/GPU evidence. Slow viewers and the
+deliberately unhinted/restarted replica retain their separate recovery checks.
+Both observations must fit 60 seconds from commit acknowledgement. Report
+elapsed time from both acknowledgement and statement submission; the actual
+database commit falls between those origins. These ten probes do not measure
+every device's freshness.
+The hinted peer must refuse no hints during this workload and must publish
+ready scan pages while churn runs; a faster visible result cannot hide inbox
+overflow or removal of reconciliation service.
 
 Memory terms are intentionally separate. Native reservations include active
 scratch work; they are not pure retained index memory. A sample's current
@@ -503,6 +562,12 @@ BEAM binaries, socket buffers, existing prefix tries and allocator overhead
 are included in whole-process RSS, not in that component budget. The cluster
 RSS sample sums the two latest readings; the sum of their kernel high-water
 values is a conservative upper bound, not a simultaneous observed peak.
+The UID inbox adds at most 3,670,016 charged bytes, bringing those steady
+component limits to 199,973,184 bytes before the small fixed owner metadata.
+Its per-entry charge includes 256 bytes of queue/set/batch overhead plus
+word-rounded owned payload; executable coverage compares the charge with
+the VM's conservative live-term size. GC high-water and mailbox/worker copies
+remain part of whole-process RSS.
 
 Publish both successful and rejected counts. Do not describe a target that
 only compiled, a native microbenchmark, or this Gun server workload as a full

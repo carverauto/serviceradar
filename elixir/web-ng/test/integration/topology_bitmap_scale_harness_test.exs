@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
 
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.BitmapFrame
+  alias ServiceRadarWebNG.Topology.BitmapHints
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
@@ -370,7 +371,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     refute Meter.report().instrumented
   end
 
-  test "hint overflow is measured before readiness, with bounded counts and no device identifiers" do
+  test "hint overflow is measured before readiness without refusing a normal burst or exposing identifiers" do
     {:ok, _} = Application.ensure_all_started(:telemetry)
     previous = Application.fetch_env(:serviceradar_web_ng, :god_view_enabled)
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
@@ -393,7 +394,9 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     topic = ServiceRadar.Inventory.DevicePubSub.invalidation_topic()
     oversized = String.duplicate("synthetic-", 60_000)
     :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, [oversized]})
-    ids = Enum.map(1..6_000, &"synthetic-#{&1}")
+    # A normal scale tick fits the payload and retained-memory budgets. The
+    # old count cap discarded 6,000 of these while the payload was still small.
+    ids = Enum.map(1..11_000, &"synthetic-#{&1}")
     :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, ids})
     # An already accepted duplicate does not count as overflow.
     :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, ["synthetic-1"]})
@@ -401,14 +404,64 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     report = Meter.report()
 
     assert report.publisher.hint_overflow == %{
-             bytes: %{count: 1, limit: 524_288},
-             count: %{count: 1_000, limit: 5_000}
+             bytes: %{count: 1, limit: 524_288}
            }
 
+    pressure = Enum.map(11_001..40_000, &"synthetic-#{&1}")
+    :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, pressure})
+    assert {:error, :index_not_ready} = BitmapIndex.snapshot(owner)
+    report = Meter.report()
+    assert %{count: refused, limit: 3_670_016} = report.publisher.hint_overflow.memory
+    assert refused > 0
     refute inspect(report.publisher) =~ "synthetic"
     assert report.instrumented
     :ok = :telemetry.detach(Meter.Publisher)
     refute Meter.report().instrumented
+  end
+
+  test "FIFO hints retain failed work and its age while newer invalidations remain readable" do
+    parent = String.duplicate("synthetic-", 20_000)
+    id = binary_part(parent, 0, 80)
+    assert :binary.referenced_byte_size(id) > byte_size(id)
+    {hints, %{bytes: 0, memory: 0}} = BitmapHints.put(BitmapHints.new(), [id, "b", "c", id, nil, ""], 0)
+    {[owned], hints} = BitmapHints.take(hints, 1)
+    assert owned == id
+    assert :binary.referenced_byte_size(owned) == byte_size(owned)
+
+    # An in-flight ID must be queued again: the first database read may have
+    # started before the second write committed. A queued duplicate coalesces.
+    {hints, %{bytes: 0, memory: 0}} = BitmapHints.put(hints, [id, "b", "d"], 50)
+    assert BitmapHints.count(hints) == 5
+    assert BitmapHints.age_ms(hints, 100) == 100
+    assert {[owned], ^hints} = BitmapHints.take(hints, 500)
+    assert owned == id
+    hints = BitmapHints.complete(hints)
+    {ids, hints} = BitmapHints.take(hints, 500)
+    assert ids == ["b", "c", id, "d"]
+    hints = BitmapHints.complete(hints)
+    assert BitmapHints.count(hints) == 0
+    assert hints.payload_bytes == 0
+    assert hints.retained_bytes == 0
+    assert BitmapHints.age_ms(hints, 100) == 0
+  end
+
+  test "hint memory admission covers retained terms and the active batch until successful resolution" do
+    ids = Enum.map(1..40_000, &"n#{&1}")
+    {hints, overflow} = BitmapHints.put(BitmapHints.new(), ids, 0)
+    assert overflow.bytes == 0
+    assert overflow.memory > 0
+    assert hints.retained_bytes <= BitmapHints.limit(:memory)
+    # flat_size overcounts shared terms; adding the payload also covers owned
+    # off-heap binaries. The charge must dominate this conservative live size.
+    assert :erts_debug.flat_size(hints) * :erlang.system_info(:wordsize) + hints.payload_bytes <= hints.retained_bytes
+    {batch, active} = BitmapHints.take(hints, 500)
+    assert batch == Enum.take(ids, 500)
+    assert active.retained_bytes == hints.retained_bytes
+    {full, %{memory: 1}} = BitmapHints.put(active, ["new"], 20)
+    assert BitmapHints.count(full) == BitmapHints.count(active)
+    assert {^batch, ^full} = BitmapHints.take(full, 500)
+    {freed, %{memory: 0, bytes: 0}} = full |> BitmapHints.complete() |> BitmapHints.put(["new"], 30)
+    assert freed.retained_bytes < full.retained_bytes
   end
 
   test "isolated peer VMs load declared harness beams and expose actual Linux RSS" do

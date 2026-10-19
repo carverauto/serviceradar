@@ -97,6 +97,15 @@ The system SHALL maintain rebuildable native attribute indexes through bounded c
 - **AND** a pass with capacity-deferred pages SHALL NOT seed readiness or acknowledge reconciliation
 - **AND** capacity staleness SHALL remain visible until a full pass publishes without deferrals
 
+#### Scenario: Bursts and retry pressure
+- **GIVEN** a committed hint burst fits the replica's declared payload and retained-memory budgets
+- **WHEN** it exceeds 5,000 identities
+- **THEN** the replica SHALL admit it without a separate entry-count refusal
+- **AND** queued hints SHALL preserve arrival order and coalesce repeated queued identities
+- **AND** an active resolver batch SHALL remain charged and retryable at its original age until success
+- **AND** invalidation during resolution SHALL permit a subsequent read of that identity
+- **AND** bounded hint processing SHALL retain service turns for reconciliation and catalog refresh
+
 #### Scenario: Filtering follows Atlas availability
 - **GIVEN** Atlas is enabled and the viewer has the existing analytics and device view permissions
 - **WHEN** the viewer opens the map
@@ -321,3 +330,5 @@ The system SHALL validate the index with independently synthetic benchmarks and 
 - **AND** Arrow attributes SHALL remain typed binary columns with copies measured at each boundary
 - **AND** GPU buffers SHALL remain alive while queued commands reference them
 - **AND** software-GPU results SHALL NOT be presented as actual-hardware performance or end-to-end zero-copy proof
+- **AND** normal committed-device membership and accepted-overlay observation latency SHALL be reported separately from post-churn, missed-hint and restart recovery
+- **AND** queue-stage ages SHALL NOT be presented as database commit timestamps or complete pipeline age
