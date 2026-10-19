@@ -120,10 +120,10 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         end
       end)
 
-    scans_before_churn = ready_scans(first)
-
     {:ok, pending_before_churn} =
       await(fn -> call(first, :pending) end, &match?({:ok, _}, &1), 15_000, "A pending status")
+
+    scans_before_churn = ready_scans(first)
 
     tick_samples =
       for tick <- 0..99 do
