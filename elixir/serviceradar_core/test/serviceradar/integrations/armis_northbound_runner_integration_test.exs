@@ -38,9 +38,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     source_a = create_source!(actor, "armis-source-a")
     source_b = create_source!(actor, "armis-source-b")
 
-    ingest_armis_update(actor, source_a.id, "192.0.2.10", "armis-a-1", true)
-    ingest_armis_update(actor, source_a.id, "192.0.2.11", "armis-a-2", false)
-    ingest_armis_update(actor, source_b.id, "192.0.2.12", "armis-b-1", true)
+    ingest_armis_update(actor, source_a.id, unique_ip(), "armis-a-1", true)
+    ingest_armis_update(actor, source_a.id, unique_ip(), "armis-a-2", false)
+    ingest_armis_update(actor, source_b.id, unique_ip(), "armis-b-1", true)
 
     assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source_a)
 
@@ -55,7 +55,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     source = create_source!(actor, "armis-metadata-only")
 
     update = %{
-      "ip" => "192.0.2.13",
+      "ip" => unique_ip(),
       "mac" => unique_mac(),
       "hostname" => "armis-metadata-only-1",
       "source" => "armis",
@@ -80,8 +80,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   test "legacy candidate queries accept only matching scoped metadata", %{actor: actor} do
     source = create_source!(actor, "scoped-source")
-    ingest_armis_update(actor, source.id, "192.0.2.19", "301", true)
-    {:ok, device} = Device.get_by_ip("192.0.2.19", false, actor: actor)
+    ip = unique_ip()
+    ingest_armis_update(actor, source.id, ip, "301", true)
+    {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
     device = single_result(device)
     create_agent_availability!(actor, device.uid, "agent-scoped", true)
 
@@ -118,9 +119,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   } do
     source = create_source!(actor, "armis-stale-metadata")
 
-    ingest_armis_update(actor, source.id, "192.0.2.14", "armis-current", true)
+    ip = unique_ip()
+    ingest_armis_update(actor, source.id, ip, "armis-current", true)
 
-    {:ok, device} = Device.get_by_ip("192.0.2.14", false, actor: actor)
+    {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
     device = single_result(device)
 
     update_device_metadata!(actor, device, %{
@@ -144,7 +146,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       create_device!(actor, %{
         uid: "sr:" <> Ecto.UUID.generate(),
         hostname: "generic-only-armis",
-        ip: "192.0.2.15",
+        ip: unique_ip(),
         is_available: false,
         discovery_sources: ["armis"],
         metadata: %{
@@ -169,13 +171,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     source = create_source!(actor, "armis-split-generic")
     armis_id = "armis-split-#{System.unique_integer([:positive])}"
 
-    ingest_armis_update(actor, source.id, "192.0.2.16", armis_id, true)
+    ingest_armis_update(actor, source.id, unique_ip(), armis_id, true)
 
     generic_device =
       create_device!(actor, %{
         uid: "sr:" <> Ecto.UUID.generate(),
         hostname: "split-generic-armis",
-        ip: "192.0.2.17",
+        ip: unique_ip(),
         is_available: false,
         discovery_sources: ["armis"],
         metadata: %{
@@ -200,11 +202,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
         northbound_availability_source_agent_id: "agent-northbound"
       )
 
-    ingest_armis_update(actor, source.id, "192.0.2.20", "armis-agent-1", false)
-    ingest_armis_update(actor, source.id, "192.0.2.21", "armis-agent-2", true)
+    ip_a = unique_ip()
+    ip_b = unique_ip()
+    ingest_armis_update(actor, source.id, ip_a, "armis-agent-1", false)
+    ingest_armis_update(actor, source.id, ip_b, "armis-agent-2", true)
 
-    {:ok, device_a} = Device.get_by_ip("192.0.2.20", false, actor: actor)
-    {:ok, device_b} = Device.get_by_ip("192.0.2.21", false, actor: actor)
+    {:ok, device_a} = Device.get_by_ip(ip_a, false, actor: actor)
+    {:ok, device_b} = Device.get_by_ip(ip_b, false, actor: actor)
     device_a = single_result(device_a)
     device_b = single_result(device_b)
 
@@ -225,7 +229,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
         northbound_availability_source_agent_id: "agent-empty"
       )
 
-    ingest_armis_update(actor, source.id, "192.0.2.22", "armis-agent-empty-1", true)
+    ingest_armis_update(actor, source.id, unique_ip(), "armis-agent-empty-1", true)
 
     assert {:error, {:missing_agent_availability, "agent-empty"}} =
              ArmisNorthboundRunner.load_candidates(source)
@@ -265,7 +269,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     devices =
       Enum.map(1..3, fn index ->
         armis_id = "armis-accounted-#{index}"
-        ip = "192.0.2.#{30 + index}"
+        ip = unique_ip()
         ingest_armis_update(actor, source.id, ip, armis_id, rem(index, 2) == 0)
         {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
         {armis_id, single_result(device)}
@@ -542,6 +546,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     |> Ash.create!(actor: actor)
   end
 
+  defp unique_ip do
+    <<second, third, fourth, _rest::binary>> =
+      :crypto.hash(:sha256, Ash.UUID.generate())
+
+    "10.#{1 + rem(second, 254)}.#{1 + rem(third, 254)}.#{1 + rem(fourth, 254)}"
+  end
+
   defp unique_mac do
     suffix =
       [:positive]
@@ -643,7 +654,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     test "a run with a configured export sends the verdict alongside availability", %{
       actor: actor
     } do
-      device = nb_device!(actor, "192.0.2.90", "armis-composite-1")
+      device = nb_device!(actor, unique_ip(), "armis-composite-1")
       check = composite_check!(actor, "NB Verdict #{System.unique_integer([:positive])}")
       composite_result!(actor, device.uid, check, "not_isolated", :down)
 
@@ -677,7 +688,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     end
 
     test "a run with the status form sends the status enum", %{actor: actor} do
-      device = nb_device!(actor, "192.0.2.91", "armis-composite-2")
+      device = nb_device!(actor, unique_ip(), "armis-composite-2")
       check = composite_check!(actor, "NB Status #{System.unique_integer([:positive])}")
       composite_result!(actor, device.uid, check, "not_isolated", :down)
 
@@ -711,7 +722,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     end
 
     test "a device with no result sends no composite key at all", %{actor: actor} do
-      device = nb_device!(actor, "192.0.2.92", "armis-composite-3")
+      device = nb_device!(actor, unique_ip(), "armis-composite-3")
       check = composite_check!(actor, "NB Absent #{System.unique_integer([:positive])}")
 
       source =
@@ -748,7 +759,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     end
 
     test "a source with no export configured sends availability only", %{actor: actor} do
-      device = nb_device!(actor, "192.0.2.93", "armis-composite-4")
+      device = nb_device!(actor, unique_ip(), "armis-composite-4")
       source = create_source!(actor, "armis-composite-none")
 
       candidates = [
