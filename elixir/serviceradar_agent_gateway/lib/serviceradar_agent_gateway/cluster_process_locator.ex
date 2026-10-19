@@ -19,6 +19,11 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
   empty answer is kept for five seconds (and forgotten as soon as a node connects),
   so a core outage does not turn every lookup into a full sweep.
 
+  The same table holds positive admission protocol probe results per
+  `{node, module}`. A node's results are dropped when it connects or disconnects,
+  or when a located process on it exits, and a probe that raced such an event
+  cannot publish its stale result.
+
   Without a running locator (the application is not started), lookups probe all
   connected nodes concurrently and cache nothing.
   """
@@ -49,9 +54,42 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
     end
   end
 
+  @doc """
+  Returns a cached positive admission protocol probe result for `{node, module}`.
+
+  On a miss, returns the node's current lifecycle generation; pass it to
+  `cache_admission_protocol/4` so a probe that raced a node or handler
+  lifecycle change can never publish a result that reads as valid.
+  """
+  @spec cached_admission_protocol(node(), module()) :: {:ok, atom()} | {:miss, non_neg_integer()}
+  def cached_admission_protocol(node, module) when is_atom(node) and is_atom(module) do
+    entry = :ets.lookup(@table, {:admission_protocol, node, module})
+    generation = admission_generation(node)
+
+    case entry do
+      [{_key, protocol, ^generation}] -> {:ok, protocol}
+      _other -> {:miss, generation}
+    end
+  rescue
+    ArgumentError -> {:miss, 0}
+  end
+
+  @doc """
+  Caches a positive admission protocol probe result for `{node, module}`, valid
+  only while the node's lifecycle generation still equals `generation`.
+  """
+  @spec cache_admission_protocol(node(), module(), atom(), non_neg_integer()) :: :ok
+  def cache_admission_protocol(node, module, protocol, generation)
+      when is_atom(node) and is_atom(module) and is_atom(protocol) and is_integer(generation) do
+    :ets.insert(@table, {{:admission_protocol, node, module}, protocol, generation})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   @impl true
   def init(_opts) do
-    :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
+    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
     :ok = :net_kernel.monitor_nodes(true)
     {:ok, %{waiters: %{}, probes: %{}, probe_refs: %{}, monitors: %{}}}
   end
@@ -83,15 +121,33 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
   end
 
   # A node that just connected may run what every other node lacks.
-  def handle_info({:nodeup, _node}, state) do
+  def handle_info({:nodeup, node}, state) do
     :ets.match_delete(@table, {{:absent, :_}, :_})
+    invalidate_admission_protocol(node)
     {:noreply, state}
   end
 
-  # Monitors on located processes report the disconnect themselves.
-  def handle_info({:nodedown, _node}, state), do: {:noreply, state}
+  # Monitors on located processes report the disconnect themselves; also evict
+  # any cached per-node admission protocol probe result.
+  def handle_info({:nodedown, node}, state) do
+    invalidate_admission_protocol(node)
+    {:noreply, state}
+  end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp admission_generation(node) do
+    case :ets.lookup(@table, {:admission_generation, node}) do
+      [{_key, generation}] -> generation
+      [] -> 0
+    end
+  end
+
+  defp invalidate_admission_protocol(node) do
+    key = {:admission_generation, node}
+    :ets.update_counter(@table, key, 1, {key, 0})
+    :ets.match_delete(@table, {{:admission_protocol, node, :_}, :_, :_})
+  end
 
   defp cached(name) do
     case located_nodes(name) do
@@ -232,6 +288,7 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
     case Map.pop(state.monitors, ref) do
       {{name, pid}, monitors} ->
         :ets.delete(@table, {:located, name, pid})
+        invalidate_admission_protocol(node(pid))
         %{state | monitors: monitors}
 
       {nil, _monitors} ->

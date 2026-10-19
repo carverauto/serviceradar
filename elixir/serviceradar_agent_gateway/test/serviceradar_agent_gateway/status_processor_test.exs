@@ -153,6 +153,129 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert Task.await(pending, 1_000) == :ok
   end
 
+  test "reserved forwarding tolerates a slow admission probe, caches positive results per node, and invalidates on nodedown" do
+    Application.delete_env(:serviceradar_agent_gateway, :reserved_core_admission)
+    previous_handler_env = Application.fetch_env(:serviceradar_core, ServiceRadar.StatusHandler)
+    previous_probe_module = Application.get_env(:serviceradar_agent_gateway, :admission_protocol_module)
+    previous_probe_test_pid = Application.get_env(:serviceradar_agent_gateway, :admission_probe_test_pid)
+    previous_probe_delay = Application.get_env(:serviceradar_agent_gateway, :admission_probe_delay_ms)
+    parent = self()
+
+    if !Process.whereis(ServiceRadarAgentGateway.ClusterProcessLocator) do
+      start_supervised!(ServiceRadarAgentGateway.ClusterProcessLocator)
+    end
+
+    reset_admission_protocol_cache()
+
+    tasks = start_supervised!({Task.Supervisor, []})
+
+    plugin =
+      start_reserved_lane!(tasks, :retained_plugin, fn status ->
+        send(parent, {:plugin_committed, status.message})
+        :ok
+      end)
+
+    Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, retained_plugin_lane: plugin)
+    Application.put_env(:serviceradar_agent_gateway, :admission_protocol_module, __MODULE__.SlowAdmissionProbeStub)
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_test_pid, parent)
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 80)
+
+    on_exit(fn ->
+      case previous_handler_env do
+        {:ok, value} -> Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, value)
+        :error -> Application.delete_env(:serviceradar_core, ServiceRadar.StatusHandler)
+      end
+
+      restore_env(:admission_protocol_module, previous_probe_module)
+      restore_env(:admission_probe_test_pid, previous_probe_test_pid)
+      restore_env(:admission_probe_delay_ms, previous_probe_delay)
+      reset_admission_protocol_cache()
+    end)
+
+    start_supervised!({ServiceRadar.StatusHandler, []})
+
+    status = plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
+
+    # First status takes an 80ms probe (> old 50ms limit) and succeeds instead of
+    # being misclassified as :core_admission_protocol_unavailable.
+    assert :ok = StatusProcessor.process(status)
+    assert_receive :admission_probe_called, 1_000
+    assert_receive {:plugin_committed, _message}, 1_000
+
+    # Even if a subsequent probe would exceed the probe timeout, the cached
+    # :reserved_v1 result for the node avoids re-probing on the hot path.
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 500)
+    assert :ok = StatusProcessor.process(status)
+    refute_receive :admission_probe_called, 50
+    assert_receive {:plugin_committed, _message}, 1_000
+
+    # Node disconnect invalidates the cached admission protocol entry.
+    send(ServiceRadarAgentGateway.ClusterProcessLocator, {:nodedown, node()})
+    _ = :sys.get_state(ServiceRadarAgentGateway.ClusterProcessLocator)
+
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 10)
+    assert :ok = StatusProcessor.process(status)
+    assert_receive :admission_probe_called, 1_000
+    assert_receive {:plugin_committed, _message}, 1_000
+  end
+
+  test "reserved forwarding distinguishes admission probe timeout from unsupported protocol and never falls back to legacy" do
+    Application.delete_env(:serviceradar_agent_gateway, :reserved_core_admission)
+    previous_probe_module = Application.get_env(:serviceradar_agent_gateway, :admission_protocol_module)
+    previous_probe_test_pid = Application.get_env(:serviceradar_agent_gateway, :admission_probe_test_pid)
+    previous_probe_delay = Application.get_env(:serviceradar_agent_gateway, :admission_probe_delay_ms)
+    parent = self()
+
+    if !Process.whereis(ServiceRadarAgentGateway.ClusterProcessLocator) do
+      start_supervised!(ServiceRadarAgentGateway.ClusterProcessLocator)
+    end
+
+    reset_admission_protocol_cache()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", _from, {:status_update, status}} ->
+            send(parent, {:unexpected_legacy_call, status})
+
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:unexpected_legacy_cast, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    Application.put_env(:serviceradar_agent_gateway, :admission_protocol_module, __MODULE__.SlowAdmissionProbeStub)
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_test_pid, parent)
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 400)
+
+    on_exit(fn ->
+      StatusHandlerTestHelpers.kill_and_await(handler_pid)
+      restore_env(:admission_protocol_module, previous_probe_module)
+      restore_env(:admission_probe_test_pid, previous_probe_test_pid)
+      restore_env(:admission_probe_delay_ms, previous_probe_delay)
+      reset_admission_protocol_cache()
+    end)
+
+    status = plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
+
+    assert {:error, :core_admission_probe_timeout} = StatusProcessor.process(status)
+    refute_receive {:unexpected_legacy_call, _status}, 50
+    refute_receive {:unexpected_legacy_cast, _status}, 50
+
+    # Unsupported core module (missing admission_protocol/0) still fails closed
+    # with :core_admission_protocol_unavailable.
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :admission_protocol_module,
+      __MODULE__.UnsupportedAdmissionProbeStub
+    )
+
+    assert {:error, :core_admission_protocol_unavailable} = StatusProcessor.process(status)
+    refute_receive {:unexpected_legacy_call, _status}, 50
+    refute_receive {:unexpected_legacy_cast, _status}, 50
+  end
+
   defp start_reserved_lane!(tasks, type, processor) do
     start_supervised!(
       Supervisor.child_spec(
@@ -1145,6 +1268,15 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     end
   end
 
+  defp reset_admission_protocol_cache do
+    if locator = Process.whereis(ServiceRadarAgentGateway.ClusterProcessLocator) do
+      send(locator, {:nodedown, node()})
+      _ = :sys.get_state(locator)
+    end
+
+    :ok
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
 
@@ -1426,4 +1558,26 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingOtlpRelayPublisher
 
     {:error, {:otlp_relay_publish_failed, :nats_down}}
   end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.SlowAdmissionProbeStub do
+  @moduledoc false
+  def admission_protocol do
+    send(
+      Application.fetch_env!(:serviceradar_agent_gateway, :admission_probe_test_pid),
+      :admission_probe_called
+    )
+
+    delay_ms = Application.get_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 0)
+
+    if is_integer(delay_ms) and delay_ms > 0 do
+      Process.sleep(delay_ms)
+    end
+
+    :reserved_v1
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.UnsupportedAdmissionProbeStub do
+  @moduledoc false
 end
