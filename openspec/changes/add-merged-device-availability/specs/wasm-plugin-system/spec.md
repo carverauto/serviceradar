@@ -2,7 +2,7 @@
 
 ### Requirement: Plugins Declare Availability Authority
 A plugin that reports device availability in discovery records SHALL declare its availability authority class in its package manifest, and core SHALL use that declaration, lowered by the plugin assignment's configuration when set, as the class of the plugin's availability evidence.
-A plugin that reports availability without declaring a class SHALL have its evidence treated as `inventory_declared`. A per-record class MUST NOT exceed the manifest's class.
+A plugin that reports availability without declaring a class SHALL have its evidence treated as `inventory_declared`. A discovery record SHALL NOT carry its own authority class; the class SHALL derive solely from the manifest and the assignment-level lowering.
 
 #### Scenario: Hypervisor plugin declares managing controller
 - **GIVEN** a plugin manifest that declares availability authority `managing_controller`

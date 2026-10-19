@@ -166,8 +166,12 @@ gets the same counter without any change to its code:
   `checked_at`, the backfill), the value the statement wrote is kept, which
   is the old value unless the statement sets it.
 
-The trigger does not touch `is_available`, `checked_at` or `updated_at`, so
-the ledger's value and timestamp semantics are unchanged. It carries the
+The same trigger also marks the device dirty for resolution (Decision 1,
+"Invalidation") on an insert, on a change of `is_available` or
+`consecutive_down`, or when the previous observation was already stale. A
+steady renewal of a fresh, unchanged result marks nothing. The trigger does
+not touch `is_available`, `checked_at` or `updated_at`, so the ledger's value
+and timestamp semantics are unchanged. It carries the
 hysteresis count that today lives in the device row's metadata. Existing
 readers select named columns or Ash attributes, so the column is invisible to
 them.
@@ -212,7 +216,9 @@ It is materialized write-on-change by the composite-check evaluation pass.
 That pass already pages through each enabled check's scope and loads its
 vantage inputs, so it adds no new scope query. For each device in scope and
 each vantage input with an `expected` value, it writes one row. Disabling or
-deleting a check, or a device leaving the scope, removes the rows.
+deleting a check, or a device leaving the scope, removes the rows. Every
+insert, update or delete of an expectation row marks its device dirty for
+resolution (Decision 1, "Invalidation").
 
 This reuses the existing negative-control notion; it does not invent a
 parallel one. The `expected` value on a vantage input means "this agent
@@ -327,6 +333,28 @@ same transaction. Both paths then run the same steps, in batches of at most
 6. Insert state transitions into the existing outbox (the pattern from
    #4733) in the same transaction, so a rollback publishes nothing.
    Display-only changes broadcast a UI invalidation and emit no event.
+7. Delete the resolved devices' rows from the dirty set in the same
+   transaction.
+
+**Invalidation.** Every mutation that can change a resolution enqueues the
+affected devices in `device_availability_dirty (device_uid PK, enqueued_at)`
+with `ON CONFLICT DO NOTHING`, so a device is queued at most once:
+
+- ledger writes, through the ledger trigger (Tier 1a). This is how
+  validation scans (W18) and merge reassignment (W19) reach the resolver
+  with no change to their code;
+- a change of a device's `availability_source_agent_id`, through a trigger
+  on that column, and a change to an availability source profile, which
+  enqueues every device that uses the profile;
+- a change to a vantage expectation (Tier 1c).
+
+A bounded resolver worker (Oban, batches of at most 500 in uid order) drains
+the dirty set through `resolve_devices/2`, so it takes the same locks, writes
+on change only, and is the same single emitter of transitions. It follows
+the mode: it does nothing in `legacy` and writes the shadow table in
+`shadow`. Writers that already resolve in their own transaction (the sweep
+ingestor, `record_evidence/2`) clear their own entries in step 7, so the
+worker only sees the rest. Expiry stays a separate sweep (Decision 4).
 
 Alternatives considered:
 
@@ -469,8 +497,10 @@ supplied by the source and bounded by its registration. Defaults:
 An expiry job (Oban, once a minute, paged on `expires_at` and on ledger
 `checked_at` thresholds) re-resolves devices whose evidence expired since the
 last run. It runs through the same function and takes the same locks. It is
-the only path that changes a decision without new evidence, and it is bounded
-by the number of expirations.
+the only path that changes a decision by the passage of time alone, and it
+is bounded by the number of expirations. Mutations that change a decision
+without new evidence (pins, expectations) go through the dirty set
+(Decision 1).
 
 ### Decision 5: Hysteresis and "available wins" are preserved
 
@@ -480,7 +510,7 @@ by the number of expirations.
 | Recovery is immediate (W1) | An `up` row is decisive at once |
 | "Available wins" across agents, with a window of one sweep interval (W2) | Step 6, with the ledger freshness TTL as the window |
 | Reporter expectation gates who may write | Step 1 (eligibility) |
-| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger; the metadata keys remain only for the legacy computation and are removed at stage d |
+| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger; the metadata keys remain only for the legacy computation and are stripped at stage e |
 
 ### Decision 6: Unknown is a state; the boolean is a compatibility projection
 
@@ -528,7 +558,7 @@ Proposed:
   (Decision 3, step 8).
 - **Sweep metadata.** The legacy writers keep the `metadata.sweep_*` keys
   until stage d, because the compatibility computation needs them
-  (Decision 13); stage d stops writing them. `last_seen_time` behavior is
+  (Decision 13); stage d stops writing them and stage e strips them. `last_seen_time` behavior is
   unchanged in this change, as the "Device re-sighting" scenario requires.
   Coalescing re-sighting writes is decided for a follow-up change (Open
   Question 10).
@@ -605,9 +635,10 @@ that lock exclusively, so the switch waits for in-flight writers to finish
 **Phasing.** Phase 1 is stages a and b: evidence capture plus shadow mode with
 the divergence report, with no behavior change. It ships first and is
 reviewed on demo. Phase 2 (stage c cutover, then stage d writer removal)
-begins only after that review.
+begins only after that review. Destructive cleanup is a separate stage e,
+after the stage-d rollback window.
 
-Three mode-aware pieces exist from stage a until stage d, so that every stage
+Three mode-aware pieces exist from stage a until stage e, so that every stage
 and every rollback keeps readers, rollups, publishers and Armis consistent:
 
 - **The mirror.** A `BEFORE INSERT OR UPDATE` trigger on `ocsf_devices`
@@ -700,16 +731,32 @@ reading the same compatibility table, which the legacy writers never stopped
 maintaining. The ledger and the evidence are untouched.
 
 **(d) Removal.** Gated on Decision 13 having no Armis source left in
-`legacy` semantics. Stage d removes:
-- the legacy writers W1, W2 and W5-W11, the compatibility table and the
-  mirror;
+`legacy` semantics. Stage d removes code only:
+- the legacy writers W1, W2 and W5-W11;
 - `is_available` from the Device accept lists, and `:set_availability`;
-- `effective_availability/2`, W16 and W20;
-- the `metadata.sweep_*` keys (a paged migration);
-- the mode setting.
+- `effective_availability/2`, W16 and W20.
 
-It also adds the backstop trigger (Open Question 7).
-Rollback: revert the PR. The schema is compatible.
+Its only migration is additive: the backstop trigger (Open Question 7),
+whose down migration drops it. Stage d keeps the compatibility table, the
+mode setting, the mirror and the `metadata.sweep_*` keys intact through an
+explicit rollback window of at least one release.
+
+Rollback within the window: revert the stage-d release, including the down
+migration. The stage-c writers resume against the retained table, mode
+setting, mirror and metadata keys. Compatibility values for devices the
+removed writers would have touched are refreshed on each writer's next cycle,
+within one sweep and one sync interval, before an optional further rollback
+to `legacy` (Decision 10, stage c rollback).
+
+**(e) Cleanup.** Runs only after the stage-d rollback window closes. **This is
+the point of no easy return:** once it runs, the legacy values and the
+sweep counters are gone and no release can restore legacy behavior. Stage e:
+- strips the `metadata.sweep_*` keys (a paged migration);
+- drops `device_availability_legacy`, the mirror trigger and the mode
+  setting.
+
+Rollback: none beyond restoring a database backup; the window before it is
+the rollback path.
 
 ### Decision 11: Identity operations
 
@@ -947,7 +994,9 @@ composite inputs are untouched. Armis is covered by Decision 13.
    - run the reconciliation job, which is the only bulk write to
      `ocsf_devices` (it also replaces any NULL `is_available` with false).
 4. **Stage d:**
-   - add the backstop trigger and the violations table;
+   - add the backstop trigger and the violations table (dropped by the down
+     migration).
+5. **Stage e** (after the stage-d rollback window of at least one release):
    - strip the `metadata.sweep_*` keys in pages;
    - drop `device_availability_legacy`, the mirror trigger and the mode
      setting.

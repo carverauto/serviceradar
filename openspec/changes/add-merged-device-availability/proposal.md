@@ -89,7 +89,10 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
   - (c) cut over through a `cutover` mode that drains legacy writers and
     suppresses every transition side effect until reconciliation finishes;
   - (d) remove the direct writers and the web-ng override. Stage d is gated
-    on no Armis source remaining in `legacy`.
+    on no Armis source remaining in `legacy`, and keeps the compatibility
+    objects through a rollback window of at least one release;
+  - (e) after that window, drop the compatibility objects and the sweep
+    metadata, the point of no easy return.
   - Phase 1 (stages a and b, no behavior change) ships and is reviewed on
     demo before phase 2 (stages c and d) begins.
 - **BREAKING (after stage c):**

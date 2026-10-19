@@ -60,6 +60,7 @@ The ranked classes, highest first, are `operator_policy`, `self_report`, `managi
 ### Requirement: Canonical Device Availability Resolution
 The system SHALL derive each device's `availability_state` by selecting the governing class (the highest-ranked authority class with any fresh, eligible, non-excluded record), deciding from that class when it has a decisive record and keeping the previous state when it has only records awaiting confirmation; within the deciding class the state SHALL be `available` when any decisive record is `up` and `unavailable` otherwise.
 When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents SHALL be excluded from the decision and retained for display. Records whose reporter is not eligible, and unreachable per-agent results from negative-control agents, SHALL be excluded from the decision. A cross-class `up` from a lower class SHALL NOT override a higher class's decision; it SHALL mark the device as having conflicting evidence. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
+Every mutation that can change a resolution SHALL cause the affected devices to be re-resolved through the same resolver without waiting for expiry: per-agent ledger writes from any writer, changes to a device's `availability_source_agent_id` or to an availability source profile, and changes to negative-control vantage expectations.
 
 #### Scenario: Controller up outranks failing probes
 - **GIVEN** a device with fresh `managing_controller` evidence `up`
@@ -81,6 +82,11 @@ When the device has an `availability_source_agent_id` (set directly or by an ava
 - **WHEN** availability is resolved
 - **THEN** `availability_state` SHALL be `unavailable`
 - **AND** agent B's result SHALL remain visible on the device
+
+#### Scenario: Changing the pin re-resolves the device
+- **GIVEN** a device resolved `available` from agent B's reachable result while agent A reports it confirmed unreachable
+- **WHEN** an operator sets the device's `availability_source_agent_id` to agent A
+- **THEN** the device SHALL be re-resolved `unavailable` without new evidence
 
 #### Scenario: Ineligible reporter does not decide
 - **GIVEN** a sweep result from an agent that is not an expected reporter for the device's sweep group
@@ -106,6 +112,12 @@ The policy-violation signal SHALL be the composite check's existing verdict and 
 - **AND** the device SHALL report a policy violation
 - **AND** the composite check's verdict for the device SHALL be unchanged by this resolution
 
+#### Scenario: New negative-control expectation re-resolves the device
+- **GIVEN** a device resolved `unavailable` from agent B's confirmed unreachable result and no other fresh evidence
+- **WHEN** an enabled composite check starts expecting agent B to be blocked for the device
+- **THEN** the device SHALL be re-resolved without new evidence
+- **AND** agent B's result SHALL be counted as a verified block and not as `unavailable`
+
 ### Requirement: Availability Hysteresis Is Preserved
 The system SHALL treat a `down` record as decisive only after the number of consecutive `down` observations from that source reaches its authority class's confirmation threshold, SHALL treat an `up` record as decisive immediately, and SHALL keep a device's previous state while its governing class holds only records awaiting confirmation.
 The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold. The per-agent counter SHALL be maintained at the ledger write boundary for every ledger writer, SHALL advance only for an observation newer than the stored one, and SHALL NOT change the stored result or its timestamps.
@@ -130,7 +142,7 @@ The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL 
 - **GIVEN** a device resolved `available` whose only eligible agent result comes from validation scans
 - **WHEN** two consecutive validation scans from that agent report it unreachable
 - **THEN** that agent's counter SHALL reach the threshold
-- **AND** `availability_state` SHALL become `unavailable`
+- **AND** `availability_state` SHALL become `unavailable` without waiting for the result to expire
 
 #### Scenario: Reassigning a ledger row does not count a failure
 - **GIVEN** an agent result with one recorded failure
