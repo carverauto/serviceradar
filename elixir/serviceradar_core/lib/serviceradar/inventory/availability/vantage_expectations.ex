@@ -47,13 +47,14 @@ defmodule ServiceRadar.Inventory.Availability.VantageExpectations do
   end
 
   defp persisted_state(check) do
-    from(c in "composite_checks",
-      prefix: "platform",
-      where: c.id == type(^check.id, Ecto.UUID),
-      lock: "FOR SHARE",
-      select: c.state
+    Repo.one(
+      from(c in "composite_checks",
+        prefix: "platform",
+        where: c.id == type(^check.id, Ecto.UUID),
+        lock: "FOR SHARE",
+        select: c.state
+      )
     )
-    |> Repo.one()
   end
 
   defp reconcile(check, inputs, device_uids) do
