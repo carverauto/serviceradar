@@ -15,3 +15,9 @@ GHSA-g2wm-735q-3f56
 # row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
 # gun 2.6.0 still carries that cowboy range, so no current gun release satisfies it.
 GHSA-w4f7-4cxr-rv3c
+
+# EEF-CVE-2026-95105 / CVE-2026-95105 / Cloak AES-CTR lacks ciphertext authentication
+# Shared Cloak waiver rationale: ../serviceradar_core/.deps_audit_ignore.
+# ServiceRadar.Vault (elixir/serviceradar_core/lib/serviceradar/vault.ex:37)
+# configures Cloak.Ciphers.AES.GCM exclusively; Cloak.Ciphers.AES.CTR is unused.
+EEF-CVE-2026-95105
