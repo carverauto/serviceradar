@@ -1,11 +1,14 @@
 defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureIO
+
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.BitmapFrame
   alias ServiceRadarWebNG.Topology.Scale.Client
   alias ServiceRadarWebNG.Topology.Scale.Fixture
   alias ServiceRadarWebNG.Topology.Scale.Meter
+  alias ServiceRadarWebNG.Topology.Scale.Wait
 
   test "the network consumer rejects stale receipts and inconsistent population totals" do
     metadata = %{
@@ -97,6 +100,51 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert log =~ "upgrade_refused"
     refute log =~ "synthetic-cookie-value"
     refute log =~ "synthetic-csrf-value"
+  end
+
+  test "a failed read reports every viewer within one budget and keeps the original exit" do
+    live =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, :report} -> GenServer.reply(from, %{frames: 3, last_revision: "synthetic-revision"})
+        end
+      end)
+
+    dead = spawn(fn -> :ok end)
+    stalled = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(stalled, :kill) end)
+    ref = Process.monitor(dead)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+
+    viewers =
+      for {pid, id} <- [{stalled, 0}, {dead, 1}, {live, 2}], do: %{id: id, pid: pid, opts: [slow: id == 0]}
+
+    replicas = [{:a, fn -> exit(:peer_down) end}, {:b, fn -> Process.sleep(:infinity) end}]
+    diagnose = fn -> Wait.diagnostics(viewers, replicas, 300) end
+    started = System.monotonic_time(:millisecond)
+
+    output =
+      capture_io(fn ->
+        assert catch_exit(Wait.until(fn -> GenServer.call(dead, :report) end, & &1, started + 60_000, "views", diagnose)) ==
+                 {:noproc, {GenServer, :call, [dead, :report, 5_000]}}
+      end)
+
+    assert System.monotonic_time(:millisecond) - started < 5_000
+    assert ["TOPOLOGY_BITMAP_SCALE " <> json] = String.split(output, "\n", trim: true)
+    record = Jason.decode!(json)
+    assert record["phase"] == "wait_failed" and record["wait"] == "views"
+    assert [stalled_row, dead_row, live_row] = record["viewers"]
+    assert stalled_row == %{"viewer" => 0, "slow" => true, "timed_out" => true}
+    assert dead_row == %{"viewer" => 1, "slow" => false, "down" => true}
+    assert live_row == %{"viewer" => 2, "slow" => false, "frames" => 3}
+    assert record["replicas"] == [%{"replica" => "a", "unavailable" => "exit"}, %{"replica" => "b", "timed_out" => true}]
+
+    broken = fn -> raise "synthetic diagnostic failure" end
+
+    capture_io(fn ->
+      assert catch_throw(Wait.until(fn -> throw(:read_failed) end, & &1, started + 60_000, "views", broken)) ==
+               :read_failed
+    end)
   end
 
   test "synthetic geometry really partitions admitted leaf and aggregate rows" do

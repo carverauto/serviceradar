@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   alias ServiceRadarWebNG.Topology.Scale.Client
   alias ServiceRadarWebNG.Topology.Scale.Fixture
   alias ServiceRadarWebNG.Topology.Scale.Replica
+  alias ServiceRadarWebNG.Topology.Scale.Wait
 
   @moduletag :topology_bitmap_scale
   # Leave one minute for peer teardown inside the hosted 2,700-second test budget.
@@ -183,7 +184,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
             fn -> query(session) end,
             &match?({200, %{"total" => ^expected}}, &1),
             600_000,
-            "final database convergence"
+            "final database convergence",
+            diagnose(clients, replicas)
           )
         end
       end)
@@ -242,7 +244,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         fn -> query(session, %{"expression" => expression}) end,
         &match?({200, %{"total" => ^total}}, &1),
         30_000,
-        "complete primary-address replacement"
+        "complete primary-address replacement",
+        diagnose(clients, replicas)
       )
     end
 
@@ -254,7 +257,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         fn -> request_query(session, unavailable) end,
         &match?({422, %{"error" => "facet_unavailable"}}, &1),
         600_000,
-        "oversized facet value refusal"
+        "oversized facet value refusal",
+        diagnose(clients, replicas)
       )
     end
 
@@ -318,7 +322,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         end,
         &(&1 in [401, 403]),
         15_000,
-        "authority revocation"
+        "authority revocation",
+        diagnose(clients, replicas)
       )
     end
 
@@ -395,55 +400,14 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   end
 
   defp await(read, predicate, timeout, label, diagnose \\ nil),
-    do: await_until(read, predicate, now() + timeout, label, diagnose)
+    do: Wait.until(read, predicate, now() + timeout, label, diagnose)
 
-  defp await_until(read, predicate, deadline, label, diagnose) do
-    result = read.()
-
-    cond do
-      predicate.(result) ->
-        result
-
-      now() >= deadline ->
-        if diagnose, do: emit("wait_failed", Map.put(diagnose.(), :wait, label))
-        flunk("#{label} did not complete: #{inspect(result, limit: 20)}")
-
-      true ->
-        Process.sleep(500)
-        await_until(read, predicate, deadline, label, diagnose)
-    end
-  end
-
-  # Every viewer's own counters and both replicas' meters, so a failed wait shows
-  # which views stalled and why. Reports carry no session, cookie or CSRF value.
   defp diagnose(clients, replicas) do
-    fn ->
-      %{
-        viewers:
-          Enum.map(clients, fn client ->
-            try do
-              client.pid
-              |> Client.report()
-              |> Map.drop([:latency_ms, :last_revision, :last_frame_at, :last_fresh_at])
-              |> Map.merge(%{viewer: client.id, slow: client.opts[:slow]})
-            catch
-              :exit, _ -> %{viewer: client.id, down: true}
-            end
-          end),
-        replicas:
-          Enum.map(replicas, fn replica ->
-            try do
-              Map.put(call(replica, :report), :replica, replica.id)
-            catch
-              :exit, _ -> %{replica: replica.id, unavailable: true}
-            end
-          end)
-      }
-    end
+    fn -> Wait.diagnostics(clients, Enum.map(replicas, &{&1.id, fn -> call(&1, :report) end}), 15_000) end
   end
 
   defp now, do: System.monotonic_time(:millisecond)
-  defp emit(phase, values), do: IO.puts("TOPOLOGY_BITMAP_SCALE " <> Jason.encode!(Map.put(values, :phase, phase)))
+  defp emit(phase, values), do: Wait.emit(phase, values)
 
   defp percentiles(values) do
     sorted = Enum.sort(values)
