@@ -171,8 +171,13 @@ invalidation log (Decision 1, "Invalidation"). Because it runs on the row that w
 actually inserted or updated, an `INSERT ... ON CONFLICT DO UPDATE` that ends
 in the update branch is judged as an update, and one whose `WHERE` rejects the
 update fires nothing. It enqueues on an insert, on a change of `is_available`
-or `consecutive_down`, or when the previous observation was already stale. A
-steady renewal of a fresh, unchanged result enqueues nothing. Neither trigger
+or `consecutive_down`, or on an unchanged renewal whose previous
+`OLD.checked_at` is older than half the row's freshness TTL. A steady renewal
+of a comfortably fresh, unchanged result enqueues nothing, so each
+device-agent pair appends at most once per half-TTL while steady. A renewal
+that lands near expiry therefore always appends, and the worker re-resolves
+the device even if the expiry job resolved it from the older committed row
+before the renewal committed. Neither trigger
 touches `is_available`, `checked_at` or `updated_at`, so the ledger's value
 and timestamp semantics are unchanged. It carries the
 hysteresis count that today lives in the device row's metadata. Existing
@@ -344,7 +349,10 @@ append is a plain `INSERT`: no `ON CONFLICT`, no read and no lock on any
 existing row. A plain insert of a new key never waits on another
 transaction's row locks, so no writer (sweep, validation scans, merge
 reassignment, pins, expectations) is coupled to the worker or to another
-writer through the log, whatever device locks it already holds. Sources:
+writer through the log, whatever device locks it already holds. The log
+carries only mutations whose writer does not resolve inline; writers that
+resolve inline (below) are not producers, apart from the ledger trigger,
+which cannot tell its writers apart. Sources:
 
 - ledger writes, through the ledger's `AFTER` trigger (Tier 1a). This is how
   validation scans (W18) and merge reassignment (W19) reach the resolver
@@ -385,11 +393,13 @@ No invalidation is lost:
   invalidation is simply repeated by the next pass, as a write-on-change
   no-op.
 
-**Inline resolution is optional.** A writer that wants the summary current
-in its own transaction (the sweep ingestor, `record_evidence/2`, the merge
-transaction) calls `resolve_devices/2`, which follows steps 3-5 and never
-touches the log. Its log rows stay for the worker, whose later pass is a
-write-on-change no-op. The only lock ordering that remains is the existing
+**Inline resolution is part of the contract.** The sweep ingestor,
+`record_evidence/2` and the merge transaction always resolve their devices
+in their own transaction through `resolve_devices/2`, which follows steps
+3-5 and never touches the log. Generic evidence writes go only through
+`record_evidence/2`, so they are never left unresolved and append nothing to
+the log. Ledger-trigger rows appended by an inline-resolving writer stay for
+the worker, whose later pass is a write-on-change no-op. The only lock ordering that remains is the existing
 one on device rows (uid order). Exact lock behavior, including merge
 reassignment against the worker, is verified by implementation-phase
 concurrency tests (tasks 5.6a and 5.6b).
@@ -534,7 +544,12 @@ supplied by the source and bounded by its registration. Defaults:
 
 An expiry job (Oban, once a minute, paged on `expires_at` and on ledger
 `checked_at` thresholds) re-resolves devices whose evidence expired since the
-last run. It runs through the same function and takes the same locks. It is
+last run. It runs through the same function and takes the same locks:
+for each candidate it takes the device row lock first, then reads the
+current committed ledger rows and evidence and re-checks freshness under
+that lock, so a renewal that committed before the lock is honored. A renewal
+that commits after the expiry pass appended an invalidation (Tier 1a), so the
+worker corrects the result. It is
 the only path that changes a decision by the passage of time alone, and it
 is bounded by the number of expirations. Mutations that change a decision
 without new evidence (pins, expectations) go through the invalidation log
@@ -917,7 +932,7 @@ Each reader below gets one of four dispositions:
 | Reader | Today | Change |
 |---|---|---|
 | `device_live/index_data/availability.ex:40-125` `effective_availability/2` -> `index_view/rows.ex:5-14` -> `badges.ex` | ledger rows fresh within 2 h: the pin, else any agent up, else the column | delete at stage d. Badge from state; "N of M agents" from `availability_agents` |
-| `index_data/stats.ex`, `index_view/stats.ex:69`, `index_view/filters.ex:15-24` | rollup counts; `is_available:true/false` links | switch to `availability:` links; add Unknown and policy-violation cards |
+| `index_data/stats.ex`, `index_view/stats.ex:69`, `index_view/filters.ex:15-24` | rollup counts; `is_available:true/false` links | switch to `availability:` links; add an Unknown card |
 | `device_live/availability_components.ex`, `availability_data.ex:154-163` (per-agent tab, primary-source selector) | ledger | **untouched** apart from the added role labels |
 | `device_live/availability_data.ex:104-125` timeline fallback | current bit | switch to state |
 | `device_live/device_tab_runtime.ex:201` | `Map.get(row,"is_available") \|\| Map.get(row,:is_available)` **turns false into nil** | fix |

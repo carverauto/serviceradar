@@ -15,7 +15,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - the mode-aware mirror trigger that keeps `availability_state` equal to the projection of `is_available` in `legacy` and `shadow`;
   - the Armis source attribute `northbound_availability_semantics`, with existing sources set to `legacy`.
 - [ ] 1.2 Source registration descriptors `{source_kind, authority_class, default_ttl, min_ttl, max_ttl}`, and Ash resources for the new tables.
-- [ ] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances. A separate `AFTER INSERT OR UPDATE` trigger appends the device to the invalidation log only when the stored result can change a decision (insert, changed value or counter, previously stale row). W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
+- [ ] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances. A separate `AFTER INSERT OR UPDATE` trigger appends the device to the invalidation log only when the stored result can change a decision (insert, changed value or counter, or an unchanged renewal whose previous `checked_at` is older than half the row's freshness TTL). W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
 - [ ] 1.4 `Availability.record_evidence/2`, write-on-change, with decision-bearing fields written immediately and lease coalescing for unchanged observations.
 - [ ] 1.5 Submit evidence from every non-ledger writer:
   - Wi-Fi map (W5; a missing status submits nothing);
@@ -41,7 +41,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 - [ ] 2.1 `Availability.Resolver.resolve/3`, a pure function implementing Decisions 3, 5, 6 and 12.
 - [ ] 2.2 Transactional resolution: device rows locked in uid order, batches of at most 500, a shadow write on change only; resolution never reads or waits on the invalidation log.
 - [ ] 2.3 The expiry job, paged.
-- [ ] 2.3a The bounded resolver worker: in one transaction it claims the oldest visible log rows (`DELETE ... WHERE id IN (SELECT ... ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED) RETURNING`), deduplicates by device uid, resolves at most 500 devices in uid order (re-appending any overflow), and commits; rows from uncommitted writers stay for a later pass. It consumes without resolving in `legacy` and writes shadow rows in `shadow`. Inline resolution in writer transactions is optional and never touches the log.
+- [ ] 2.3a The bounded resolver worker: in one transaction it claims the oldest visible log rows (`DELETE ... WHERE id IN (SELECT ... ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED) RETURNING`), deduplicates by device uid, resolves at most 500 devices in uid order (re-appending any overflow), and commits; rows from uncommitted writers stay for a later pass. It consumes without resolving in `legacy` and writes shadow rows in `shadow`. The sweep ingestor, `record_evidence/2` and the merge transaction always resolve inline in their own transaction and never touch the log.
 - [ ] 2.4 Re-resolution on merge, unmerge and restore, with evidence moving on merge (Decision 11). Ledger reassignment unchanged.
 - [ ] 2.5 Divergence report:
   - counts by legacy value, legacy badge, shadow state, `source_kind` and `authority_class`;
@@ -78,7 +78,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - the badge from state;
   - "up from N of M agents" and the partial-reachability marker;
   - the negative-control indicators;
-  - an Unknown card and a policy-violation card;
+  - an Unknown card;
   - the evidence section and the agent role labels on the device page;
   - the API JSON and `openapi.json`;
   - the MCP cookbook.
@@ -125,7 +125,8 @@ Each contract has one owner-boundary test. No contract is replayed at another la
 - [ ] 5.3 **Ledger losslessness and counter** (DB tier). After resolution and after the expiry job, every agent's row (up, down and stale) is unchanged in value and `checked_at`. Through the real writers, two validation-scan failures (W18) advance `consecutive_down` to the threshold, and a merge reassignment (W19) leaves it unchanged.
 - [ ] 5.4 **Sweep ingestion regression** (DB tier). Must fail on today's code. A device with controller `up` evidence and repeated sweep failures keeps a stable state, and its row is not rewritten per sweep.
 - [ ] 5.5 **Armis agent path** (DB tier, in the existing runner suite). `candidates_query/1` with an agent selected returns identical rows whether or not availability resolution has run, including for a should-be-blocked agent. Canonical `legacy` reads the compatibility table, including for a device seeded at cutover that no legacy writer touches afterwards; canonical `merged` withholds unknown.
-- [ ] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched.
+- [ ] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched. The expiry pass re-checks freshness under the device lock from current committed rows.
+- [ ] 5.6c **Renewal vs expiry** (DB tier, real concurrent transactions). A validation scan renews an unchanged `up` ledger row just before its TTL ends while the expiry job resolves the same device from the older committed row; in both commit orders the device ends `available` after the next worker pass, and a steady renewal of a row fresher than half its TTL appends no log row.
 - [ ] 5.6a **Invalidation** (DB tier). With `write_canonical_availability` off, two validation-scan failures (W18, unchanged code) re-resolve the device to `unavailable` before expiry; changing the pin and adding a negative-control expectation each re-resolve the device without new evidence; a steady fresh renewal through the real sweep upsert (`INSERT ... ON CONFLICT DO UPDATE`) appends no log row; and a ledger write that commits while the worker is resolving the same device (claim taken, inputs already read) leaves its log row unclaimed, so the next pass resolves the device from the newer result.
 - [ ] 5.6b **Writer-vs-worker concurrency** (DB tier, real concurrent transactions). Each of these, run concurrently with the worker on the same devices in both interleavings (worker claims first; writer appends first), completes without a deadlock error, never waits on the invalidation log, and leaves the device resolved from the newest committed inputs: a sweep transaction that writes ledger rows and resolves inline; a MergeEngine merge that holds the device locks and reassigns ledger rows (W19); a validation scan (W18); and a pin change.
 - [ ] 5.7 **Merge** (DB tier, in the existing merge-engine suite). The survivor holds both devices' evidence and is re-resolved; ledger reassignment is unchanged.
