@@ -1111,7 +1111,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     :exit, reason ->
       maybe_unregister_control_session(agent_id, pid, metadata)
-      {:error, {:control_session_exit, reason}}
+      {:error, {:control_session_exit, call_exit_reason(reason)}}
   end
 
   defp call_exact_control_session(pid, request) do
@@ -1124,8 +1124,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, :control_session_unavailable}
 
     :exit, reason ->
-      {:error, {:control_session_exit, reason}}
+      {:error, {:control_session_exit, call_exit_reason(reason)}}
   end
+
+  # A GenServer.call exit is `{reason, {GenServer, :call, [pid, request, timeout]}}`.
+  # The request can be a full agent config with device credentials, and callers
+  # log or render this error, so only the exit reason may leave this module.
+  defp call_exit_reason({reason, {GenServer, :call, _args}}), do: reason
+  defp call_exit_reason(reason), do: reason
 
   defp ensure_dispatch_capacity(
          agent_id,
