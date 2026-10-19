@@ -646,9 +646,11 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
       end
 
     assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-shared-reader-layout", 16)
+
     for batch <- Enum.chunk_every(nodes, 500) do
       assert :ok = TopologyAtlas.add_positions(builder, batch)
     end
+
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
     assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
     assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<77::128>>)
