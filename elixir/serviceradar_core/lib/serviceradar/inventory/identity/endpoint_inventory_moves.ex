@@ -33,17 +33,31 @@ defmodule ServiceRadar.Inventory.Identity.EndpointInventoryMoves do
       when is_binary(agent_id) and is_binary(device_uid) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    case repo.transaction(fn ->
-           with :ok <- ensure_endpoint_inventory_survivor_ordinal(device_uid, repo: repo),
-                :ok <-
-                  backfill_endpoint_inventory_null_device_uid_rows(repo, [agent_id], device_uid) do
-             :ok
-           else
-             {:error, reason} -> repo.rollback(reason)
-           end
-         end) do
-      {:ok, :ok} -> :ok
-      {:error, reason} -> {:error, reason}
+    case null_device_uid_tables(repo, [agent_id]) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, tables} ->
+        case repo.transaction(fn ->
+               with :ok <- ensure_endpoint_inventory_survivor_ordinal(device_uid, repo: repo),
+                    :ok <-
+                      backfill_endpoint_inventory_null_device_uid_tables(
+                        repo,
+                        tables,
+                        [agent_id],
+                        device_uid
+                      ) do
+                 :ok
+               else
+                 {:error, reason} -> repo.rollback(reason)
+               end
+             end) do
+          {:ok, :ok} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -120,7 +134,46 @@ defmodule ServiceRadar.Inventory.Identity.EndpointInventoryMoves do
       when is_list(agent_ids) do
     agent_ids = Enum.filter(agent_ids, &Ids.present_id?/1)
 
-    Enum.reduce_while(@endpoint_inventory_current_device_uid_tables, :ok, fn table, :ok ->
+    case null_device_uid_tables(repo, agent_ids) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, tables} ->
+        backfill_endpoint_inventory_null_device_uid_tables(repo, tables, agent_ids, device_uid)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp null_device_uid_tables(_repo, []), do: {:ok, []}
+
+  defp null_device_uid_tables(repo, agent_ids) do
+    @endpoint_inventory_current_device_uid_tables
+    |> Enum.reduce_while({:ok, []}, fn table, {:ok, acc} ->
+      sql = """
+      SELECT EXISTS (
+        SELECT 1
+        FROM platform.#{table}
+        WHERE agent_id = ANY($1)
+          AND device_uid IS NULL
+      )
+      """
+
+      case SQL.query(repo, sql, [agent_ids]) do
+        {:ok, %{rows: [[true]]}} -> {:cont, {:ok, [table | acc]}}
+        {:ok, %{rows: [[false]]}} -> {:cont, {:ok, acc}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, tables} -> {:ok, Enum.reverse(tables)}
+      error -> error
+    end
+  end
+
+  defp backfill_endpoint_inventory_null_device_uid_tables(repo, tables, agent_ids, device_uid) do
+    Enum.reduce_while(tables, :ok, fn table, :ok ->
       sql = """
       UPDATE platform.#{table}
       SET device_uid = $2

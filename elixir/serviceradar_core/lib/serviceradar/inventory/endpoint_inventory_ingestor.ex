@@ -460,6 +460,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         [
           Payload.string_value(payload, :device_uid),
           resolve_agent_device_uid(agent_id, actor),
+          resolve_device_identifier_uid(agent_id),
+          resolve_device_by_agent_id(agent_id),
           existing_scan_device_uid(agent_id)
         ],
         &canonical_device_uid/1
@@ -1296,6 +1298,36 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       _ ->
         nil
     end
+  end
+
+  defp resolve_device_identifier_uid(agent_id) do
+    query =
+      from(di in "device_identifiers",
+        join: d in "ocsf_devices",
+        on: d.uid == di.device_id and is_nil(d.deleted_at),
+        where: di.identifier_type == "agent_id" and di.identifier_value == ^agent_id,
+        select: d.uid,
+        order_by: [desc_nulls_last: di.last_seen, desc: di.id],
+        limit: 1
+      )
+
+    Repo.one(query, prefix: "platform")
+  end
+
+  defp resolve_device_by_agent_id(agent_id) do
+    query =
+      from(d in "ocsf_devices",
+        where: d.agent_id == ^agent_id and is_nil(d.deleted_at),
+        select: d.uid,
+        order_by: [
+          desc_nulls_last: d.last_seen_time,
+          desc_nulls_last: d.modified_time,
+          desc: d.uid
+        ],
+        limit: 1
+      )
+
+    Repo.one(query, prefix: "platform")
   end
 
   defp existing_scan_device_uid(agent_id) do
