@@ -162,8 +162,9 @@ two servers' summed RSS high-water upper bound was 2,542,952,448 bytes. These
 are server measurements over Gun; they exclude the browser, GPU, layout and
 discovery. The test then failed in its own exit hook: deleting the 1,100,000
 seeded devices from the shared `serial_0` clone hit the 120-second statement
-timeout (PostgreSQL 57014), even with the inventory rollup skipped, because
-every row still ran its foreign-key and trigger work. The body took 2,139.5
+timeout (PostgreSQL 57014), even with the inventory rollup skipped. The
+code suggests per-row foreign-key and trigger work as the cause; that
+attribution was not profiled separately. The body took 2,139.5
 seconds and the test 2,274.5 seconds. The hosted lifecycle's clone drop
 finished with suite status 3 and observer, teardown and release status 0.
 
@@ -171,9 +172,9 @@ Both variants now seed the run's dedicated `serial_1` clone, which
 `teardown_db` drops on success or failure, and the per-test delete, the
 ordinal-sequence rewind and the user delete are gone. The ordinary cases keep
 an untouched `serial_0`. No statement timeout, deadline or workload limit
-changed.
-Whether the
-stall clears is unproven until the hosted compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
+changed. The compact workload assertions now pass, but a full compact run,
+including its cleanup, and a sparse run have not yet succeeded on this
+layout. OpenSpec task 4.2 remains unchecked until both
 distributions finish and their numbers and failures are reviewed. The
 database-free harness target compiles the complete scenario and checks its
 independent frame consumer, native geometry partition and isolated VM

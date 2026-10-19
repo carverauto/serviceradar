@@ -493,13 +493,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   #
   #   * `deletes` -- `{table, predicate}` pairs, deepest first, for every table
   #     whose rows would block deleting the selected devices. `$1` is the
-  #     caller's bind value. The default predicate is `uid = ANY($1)`.
+  #     array of device uids.
   #   * `retained` -- the direct device foreign keys from @retained_children.
   #
   # CASCADE children are deleted explicitly so retained identity parents get the
   # same cleanup. Direct SET NULL/DEFAULT links are detached after scrubbing.
-  @spec purge_plan(String.t()) :: map()
-  def purge_plan(root_predicate \\ "uid = ANY($1)") do
+  @spec purge_plan() :: map()
+  def purge_plan do
     edges = blocking_foreign_keys()
 
     {retained, followed} =
@@ -509,7 +509,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     {detached, followed} = Enum.split_with(followed, &(&1.delete_action in ["n", "d"]))
 
     deletes =
-      collect_deletes(followed, "platform.ocsf_devices", root_predicate, MapSet.new(), 0)
+      collect_deletes(followed, "platform.ocsf_devices", "uid = ANY($1)", MapSet.new(), 0)
 
     retained =
       retained
