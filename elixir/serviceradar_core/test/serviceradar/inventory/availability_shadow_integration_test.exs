@@ -162,6 +162,30 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
       assert invalidation_uids() == [created.uid, legacy.uid]
     end
 
+    test "a sweep group's interval change appends its devices outside legacy only",
+         %{actor: actor} do
+      device = create_device!(actor, "192.0.2.124")
+      {group, agent_id} = sweep_group!(actor)
+      sweep!(actor, group, agent_id, "192.0.2.124", true, minutes_ago(1))
+
+      set_interval = fn interval ->
+        Repo.query!(~s(UPDATE platform.sweep_groups SET "interval" = $1 WHERE id::text = $2), [
+          interval,
+          group.id
+        ])
+      end
+
+      set_interval.("5m")
+      assert invalidation_uids() == []
+
+      set_mode!("shadow")
+      set_interval.("5m")
+      assert invalidation_uids() == []
+
+      set_interval.("2h")
+      assert invalidation_uids() == [device.uid]
+    end
+
     test "a pass resolves at most 500 devices and re-appends the rest; legacy only consumes",
          %{actor: actor} do
       set_mode!("shadow")
@@ -383,7 +407,7 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
 
       assert {:ok, %{from: :legacy, to: :shadow}} = Mode.enter_shadow()
       assert {:ok, %{from: :shadow, to: :shadow}} = Mode.enter_shadow()
-      assert entry_jobs() == ["resolve", "seed_legacy"]
+      assert entry_jobs() == [{"resolve", "scheduled"}, {"seed_legacy", "available"}]
 
       perform_job(ShadowEntryWorker, %{"phase" => "resolve"})
       assert :ok = perform_job(ShadowEntryWorker, %{"phase" => "seed_legacy"})
@@ -846,12 +870,12 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
     %{rows: rows} =
       Repo.query!(
         """
-        SELECT args ->> 'phase' FROM platform.oban_jobs
-        WHERE worker = $1 AND state = 'available' ORDER BY 1
+        SELECT args ->> 'phase', state FROM platform.oban_jobs
+        WHERE worker = $1 AND state IN ('available', 'scheduled') ORDER BY 1
         """,
         [inspect(ShadowEntryWorker)]
       )
 
-    Enum.map(rows, &hd/1)
+    Enum.map(rows, &List.to_tuple/1)
   end
 end

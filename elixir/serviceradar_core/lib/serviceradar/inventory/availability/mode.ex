@@ -20,9 +20,26 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   full, paged resolution of every device plus the seeding of the compatibility table
   (`ServiceRadar.Inventory.Availability.ShadowEntryWorker`); the invalidation log is
   empty in `legacy`, so nothing else would resolve devices that see no new evidence.
+  Entering from `legacy` first drops shadow rows left by an earlier shadow period.
   It is idempotent: in `shadow` it only enqueues the full pass again, which writes on
   change. `enter_legacy/0` is the stage-b rollback: mode `legacy`, and the shadow rows
   are dropped. `cutover` and `authoritative` belong to stage c and are refused here.
+
+  Other nodes keep their cached `legacy` for up to `cache_ms/0` after the switch and
+  skip inline resolution meanwhile, so the full pass is scheduled to start only after
+  every node's cache has expired (`ShadowEntryWorker.enqueue/0`); what a stale node
+  wrote before then is resolved by that pass.
+
+  ## The switch lock
+
+  A switch takes one advisory lock exclusively for its transaction; every resolving
+  transaction takes it shared before it reads the mode (`admit/1`). A resolver admitted
+  under `shadow` therefore finishes its shadow write before a rollback's TRUNCATE can
+  commit, and none is admitted mid-switch. The switch uses `pg_try_advisory_xact_lock`
+  in a bounded retry loop (100 tries, 100 ms apart, then `{:error, :mode_switch_busy}`) and never the blocking form: a queued
+  exclusive request would make an inline resolver that already holds device locks (a
+  merge) queue behind it while an admitted resolver waits on those device locks, a
+  deadlock. Holding the lock, the switch waits on no device row.
   """
 
   alias ServiceRadar.Inventory.Availability.ShadowEntryWorker
@@ -32,12 +49,26 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
   @cache_key {__MODULE__, :mode}
   @default_cache_ms 30_000
+  @switch_lock "hashtextextended('serviceradar:availability-mode', 0)"
+  @switch_lock_tries 100
+  @switch_lock_retry_ms 100
   @modes %{
     "legacy" => :legacy,
     "shadow" => :shadow,
     "cutover" => :cutover,
     "authoritative" => :authoritative
   }
+
+  @doc """
+  Admits a resolving transaction: takes the mode-switch lock shared, held until the
+  transaction ends, then returns `current/1`. The caller may write shadow rows while the
+  result is `:shadow`; no switch can commit before its transaction ends.
+  """
+  @spec admit(keyword()) :: t()
+  def admit(query_opts \\ []) do
+    Repo.query!("SELECT pg_advisory_xact_lock_shared(#{@switch_lock})", [], query_opts)
+    current(query_opts)
+  end
 
   @doc "The mode as the database has it now. Inside a transaction, as that transaction sees it."
   @spec current(keyword()) :: t()
@@ -80,6 +111,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   def enter_shadow do
     switch(fn
       from when from in [:legacy, :shadow] ->
+        # Rows left by an earlier shadow period are stale.
+        if from == :legacy, do: Repo.query!("TRUNCATE platform.device_availability_shadow")
+
         # Entering from legacy starts the expiry window now; a repeat keeps it.
         Repo.query!("""
         UPDATE platform.availability_settings
@@ -125,6 +159,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
     result =
       Repo.transaction(fn ->
         Repo.query!("SET LOCAL lock_timeout = '5s'")
+        if not switch_locked?(@switch_lock_tries), do: Repo.rollback(:mode_switch_busy)
 
         Repo.query!("""
         INSERT INTO platform.availability_settings (singleton) VALUES (true)
@@ -146,6 +181,22 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
     result
   end
 
+  defp switch_locked?(tries) do
+    %{rows: [[locked?]]} = Repo.query!("SELECT pg_try_advisory_xact_lock(#{@switch_lock})")
+
+    cond do
+      locked? ->
+        true
+
+      tries <= 1 ->
+        false
+
+      true ->
+        Process.sleep(@switch_lock_retry_ms)
+        switch_locked?(tries - 1)
+    end
+  end
+
   defp refresh(now, cached) do
     # Inside a caller's transaction the read runs in a savepoint, so a failure cannot
     # abort the caller's write.
@@ -160,7 +211,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
       end
   end
 
-  defp cache_ms do
+  @doc "How long a node keeps its cached mode, in milliseconds."
+  @spec cache_ms() :: pos_integer()
+  def cache_ms do
     :serviceradar_core
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:cache_ms, @default_cache_ms)

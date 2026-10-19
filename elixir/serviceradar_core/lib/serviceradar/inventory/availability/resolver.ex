@@ -292,7 +292,8 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
     disagreeing = if state == :available, do: :down, else: :up
 
     Enum.any?(candidates, fn candidate ->
-      candidate.decisive? and candidate.state == disagreeing and
+      not Map.get(candidate, :control?, false) and candidate.decisive? and
+        candidate.state == disagreeing and
         ((candidate.role == :decision and candidate.class != governing) or
            candidate.role == :pinned_out)
     end)

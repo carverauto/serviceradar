@@ -14,9 +14,14 @@ defmodule ServiceRadar.Repo.Migrations.AddMergedAvailabilityShadow do
     or a restored tombstone is appended to the invalidation log. Every restore path
     (the `:restore` and `:gateway_restore` actions and the raw upsert that clears a
     tombstone) updates `deleted_at`, so the trigger reaches all of them.
+  * `trg_sweep_groups_availability_interval_invalidate`: outside `legacy`, changing a
+    sweep group's interval changes the freshness window of every ledger row in that
+    group, so every device with a ledger row in the group is appended to the
+    invalidation log. The expiry job cannot catch it: a shortened window can move an
+    expiry behind its watermark, and a lengthened one makes stale rows fresh.
 
-  Locking: the new trigger appends with a plain INSERT, which waits on no other
-  transaction's row locks; it adds no lock edge.
+  Locking: the new triggers append with plain INSERTs, which wait on no other
+  transaction's row locks; they add no lock edge.
   """
 
   use Ecto.Migration
@@ -64,10 +69,42 @@ defmodule ServiceRadar.Repo.Migrations.AddMergedAvailabilityShadow do
     FOR EACH ROW WHEN (OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL)
     EXECUTE FUNCTION #{@prefix}.trg_ocsf_devices_availability_lifecycle_invalidate()
     """)
+
+    execute("""
+    CREATE FUNCTION #{@prefix}.trg_sweep_groups_availability_interval_invalidate()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF #{@prefix}.availability_mode() = 'legacy' THEN
+        RETURN NULL;
+      END IF;
+
+      INSERT INTO #{@prefix}.availability_invalidations (device_uid)
+      SELECT DISTINCT device_uid FROM #{@prefix}.device_agent_availability
+      WHERE sweep_group_id = NEW.id;
+
+      RETURN NULL;
+    END;
+    $$
+    """)
+
+    execute("""
+    CREATE TRIGGER trg_sweep_groups_availability_interval_invalidate
+    AFTER UPDATE OF "interval" ON #{@prefix}.sweep_groups
+    FOR EACH ROW WHEN (OLD."interval" IS DISTINCT FROM NEW."interval")
+    EXECUTE FUNCTION #{@prefix}.trg_sweep_groups_availability_interval_invalidate()
+    """)
   end
 
   def down do
     execute("SET LOCAL lock_timeout = '5s'")
+
+    execute(
+      "DROP TRIGGER IF EXISTS trg_sweep_groups_availability_interval_invalidate ON #{@prefix}.sweep_groups"
+    )
+
+    execute(
+      "DROP FUNCTION IF EXISTS #{@prefix}.trg_sweep_groups_availability_interval_invalidate()"
+    )
 
     for trigger <- [
           "trg_ocsf_devices_availability_insert_invalidate",

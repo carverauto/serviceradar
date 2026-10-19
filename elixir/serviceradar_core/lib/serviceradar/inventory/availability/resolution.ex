@@ -7,8 +7,9 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
   1. The device rows are locked `FOR NO KEY UPDATE` in uid order, the order every device
      writer locks in. Tombstoned devices are neither locked nor resolved.
-  2. Their per-agent ledger rows, evidence and vantage expectations are read under that
-     lock, so a write that committed before the lock is seen.
+  2. Their stored shadow rows, per-agent ledger rows, evidence and vantage expectations
+     are read under that lock, by later statements, so a write that committed before the
+     lock (another resolution's shadow row included) is seen.
   3. `ServiceRadar.Inventory.Availability.Resolver.resolve/3` decides each device.
   4. Stage b: the decision is written to `device_availability_shadow`, only for a
      device whose state, provenance, conflict flag or agent counters differ from the
@@ -18,6 +19,14 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   locks are device rows (uid order) and then their shadow rows, which no other writer
   touches, so it adds no lock-order edge beyond the device-row order the legacy status
   writers already use.
+
+  Every resolving transaction first takes the mode-switch advisory lock shared
+  (`Mode.admit/1`), then reads the mode, so the mode check and the shadow
+  write are one unit that `Mode.enter_legacy/0` cannot interleave: the switch takes the
+  same key exclusively and only commits its TRUNCATE once no admitted resolver is left.
+  The switch only ever *tries* that lock and never queues for it, so a resolver that
+  already holds device locks (an inline merge) waits at most for a switch that holds no
+  device lock, and no resolver waits behind a queued switch.
 
   Only `shadow` writes. `resolve_devices/1` is the inline entry point for write paths;
   in `legacy` it returns before issuing any query (`Mode.cached/0`).
@@ -35,14 +44,18 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   @batch_size 500
 
   @lock_devices """
-  SELECT d.uid, d.availability_source_agent_id, d.availability_state, d.availability_changed_at,
-         s.device_uid IS NOT NULL, s.availability_state, s.decided_by, s.conflict, s.agents,
-         s.changed_at, clock_timestamp() AT TIME ZONE 'utc'
-  FROM platform.ocsf_devices AS d
-  LEFT JOIN platform.device_availability_shadow AS s ON s.device_uid = d.uid
-  WHERE d.uid = ANY($1::text[]) AND d.deleted_at IS NULL
-  ORDER BY d.uid
-  FOR NO KEY UPDATE OF d
+  SELECT uid, availability_source_agent_id, availability_state, availability_changed_at
+  FROM platform.ocsf_devices
+  WHERE uid = ANY($1::text[]) AND deleted_at IS NULL
+  ORDER BY uid
+  FOR NO KEY UPDATE
+  """
+
+  @stored """
+  SELECT u.uid, s.device_uid IS NOT NULL, s.availability_state, s.decided_by, s.conflict,
+         s.agents, s.changed_at, clock_timestamp() AT TIME ZONE 'utc'
+  FROM unnest($1::text[]) AS u(uid)
+  LEFT JOIN platform.device_availability_shadow AS s ON s.device_uid = u.uid
   """
 
   @ledger """
@@ -119,13 +132,15 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   batches of at most #{@batch_size} in uid order. Raises on failure, so the caller's
   transaction rolls back; used by the resolver worker, the expiry job and the full pass.
 
-  The mode is read inside the transaction: anything but `shadow` resolves nothing.
+  The mode is read inside the transaction, after the shared mode-switch lock is taken:
+  anything but `shadow` resolves nothing, and a switch cannot commit between that read
+  and the shadow write.
   """
   @spec resolve_locked([String.t()], keyword()) :: result()
   def resolve_locked(device_uids, query_opts \\ []) do
     uids = normalize_uids(device_uids)
 
-    if uids != [] and Mode.current(query_opts) == :shadow do
+    if uids != [] and Mode.admit(query_opts) == :shadow do
       uids
       |> Enum.chunk_every(@batch_size)
       |> Enum.reduce(%{resolved: 0, written: 0}, &add(&2, resolve_batch(&1, query_opts)))
@@ -198,12 +213,14 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
       rows ->
         locked = Enum.map(rows, &hd/1)
-        now = rows |> Enum.map(&List.last/1) |> Enum.max(NaiveDateTime) |> to_datetime()
+        %{rows: stored_rows} = Repo.query!(@stored, [locked], query_opts)
+        stored = Map.new(stored_rows, fn [uid | rest] -> {uid, rest} end)
+        now = stored_rows |> Enum.map(&List.last/1) |> Enum.max(NaiveDateTime) |> to_datetime()
         inputs = load_inputs(locked, query_opts)
 
         changed =
-          Enum.flat_map(rows, fn row ->
-            {device, stored} = device_and_stored(row)
+          Enum.flat_map(rows, fn [uid | _] = row ->
+            {device, stored} = device_and_stored(row ++ Map.fetch!(stored, uid))
             decision = Resolver.resolve(device, Map.get(inputs, device.uid, empty_inputs()), now)
             if changed?(stored, decision), do: [{device.uid, decision}], else: []
           end)

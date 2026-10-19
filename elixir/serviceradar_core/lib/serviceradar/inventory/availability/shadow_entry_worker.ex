@@ -7,6 +7,10 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
       transaction, through `Resolution.resolve_locked/2`. The invalidation log is empty
       in `legacy`, so without this a device that sees no new evidence would never get a
       shadow decision. Shadow rows are written on change, so a repeat costs reads only.
+      It is scheduled to start `Mode.cache_ms/0` plus 5 seconds after the switch: until
+      then a node may still hold a cached `legacy` and skip inline resolution, and a
+      pass that read a device before that node's evidence or merge would leave it
+      stale. Starting after every cache has expired, the pass covers those writes.
     * `"seed_legacy"`: copies every device's current `is_available` into
       `device_availability_legacy`, write-on-change, so the divergence report's Armis
       section has a value for devices no legacy writer has touched since stage a. Each
@@ -31,6 +35,7 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
   @phases ["resolve", "seed_legacy"]
   @seed_page_size 1_000
   @retry_seconds 60
+  @cache_margin_ms 5_000
 
   @live_page """
   SELECT uid FROM platform.ocsf_devices
@@ -83,11 +88,21 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
         |> where([j], fragment("?->>'phase' = ?", j.args, ^phase))
         |> Repo.exists?(prefix: "platform")
 
-      if not waiting?, do: Repo.insert!(new(%{"phase" => phase}), prefix: "platform")
+      if not waiting?,
+        do: Repo.insert!(new(%{"phase" => phase}, job_opts(phase)), prefix: "platform")
     end
 
     :ok
   end
+
+  defp job_opts("resolve") do
+    [
+      scheduled_at:
+        DateTime.add(DateTime.utc_now(), Mode.cache_ms() + @cache_margin_ms, :millisecond)
+    ]
+  end
+
+  defp job_opts(_phase), do: []
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"phase" => "resolve"}}) do

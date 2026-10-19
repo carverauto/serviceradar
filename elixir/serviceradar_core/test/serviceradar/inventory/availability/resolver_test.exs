@@ -186,6 +186,19 @@ defmodule ServiceRadar.Inventory.Availability.ResolverTest do
        decided: {"agent_probe", "agent-control"},
        agents: %{"policy_violation" => 1, "total" => 0}
      }},
+    {"a negative control's up against a controller's down is a policy violation, not a conflict",
+     %{},
+     %{
+       ledger: [{:probe, "agent-control", true}],
+       evidence: [{:evidence, "wifi_map", :managing_controller, :down}],
+       expectations: %{"agent-control" => :blocked}
+     },
+     %{
+       state: :unavailable,
+       decided: {"wifi_map", "SITE01-src"},
+       conflict: false,
+       agents: %{"policy_violation" => 1, "total" => 0}
+     }},
     {"a negative control with no fresh result is inconclusive", %{},
      %{
        ledger: [{:probe, "agent-a", true}, {:probe, "agent-control", false, minutes_ago: 120}],
