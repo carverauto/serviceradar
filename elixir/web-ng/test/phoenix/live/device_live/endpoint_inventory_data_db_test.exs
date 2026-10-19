@@ -149,6 +149,95 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryDataDbTest do
     assert support.advisory.description == "Raw detail enrichment only"
   end
 
+  test "overlays device evaluation timestamp onto active unmarked assessments while keeping unconfirmed and resolved confirmation times",
+       %{scope: scope} do
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:endpoint-eval-device-#{unique}"
+    row_seen_at = ~U[2099-01-02 01:00:00.000000Z]
+    prior_confirmed_at = ~U[2099-01-04 01:00:00.000000Z]
+    evaluated_at = ~U[2099-01-06 01:00:00.000000Z]
+
+    endpoint_package =
+      EndpointPackage
+      |> Ash.Changeset.for_create(:create, %{
+        coordinate_key: "pkg:deb/ubuntu/libstarling-fetch3@3.2.1-1ubuntu7.#{unique}?distro=noble",
+        purl_canonical: "pkg:deb/ubuntu/libstarling-fetch3@3.2.1-1ubuntu7.#{unique}?distro=noble",
+        package_manager: "dpkg",
+        name: "libstarling-fetch3",
+        version: "3.2.1-1ubuntu7.#{unique}",
+        architecture: "amd64",
+        ecosystem: "deb",
+        source_scope: "host",
+        metadata: %{}
+      })
+      |> Ash.create!(scope: scope)
+
+    _active_confirmed =
+      create_assessment!(scope, endpoint_package.id, device_uid, row_seen_at,
+        id_suffix: "eval-active-confirmed",
+        cve_id: "CVE-2099-#{unique}-0001",
+        assessment: "confirmed",
+        disposition: "affected",
+        authority: "fixture:SYNTH-EVAL-1",
+        applicability_reason: "confirmed and still active",
+        freshness: "fresh"
+      )
+
+    _active_unconfirmed =
+      create_assessment!(scope, endpoint_package.id, device_uid, row_seen_at,
+        id_suffix: "eval-active-unconfirmed",
+        cve_id: "CVE-2099-#{unique}-0002",
+        assessment: "confirmed",
+        disposition: "affected",
+        authority: "fixture:SYNTH-EVAL-2",
+        applicability_reason: "awaiting complete scan",
+        freshness: "fresh",
+        metadata: %{
+          "unconfirmed_since" => DateTime.to_iso8601(evaluated_at),
+          "last_confirmed_at" => NaiveDateTime.to_iso8601(DateTime.to_naive(prior_confirmed_at))
+        }
+      )
+
+    _resolved =
+      create_assessment!(scope, endpoint_package.id, device_uid, row_seen_at,
+        id_suffix: "eval-resolved",
+        cve_id: "CVE-2099-#{unique}-0003",
+        status: "resolved",
+        assessment: "confirmed",
+        disposition: "fixed",
+        authority: "fixture:SYNTH-EVAL-3",
+        applicability_reason: "fixed in scan",
+        freshness: "fresh",
+        resolved_at: evaluated_at
+      )
+
+    ServiceRadar.Repo.insert_all(
+      "endpoint_vulnerability_device_evaluations",
+      [%{device_uid: device_uid, evaluated_at: DateTime.to_naive(evaluated_at)}],
+      prefix: "platform"
+    )
+
+    inventory = EndpointInventoryData.load(scope, device_uid)
+    confirmed_by_cve = Map.new(inventory.vulnerability_assessments.confirmed.rows, &{&1.cve_id, &1})
+    [resolved_row] = inventory.vulnerability_assessments.history.rows
+
+    assert confirmed_by_cve["CVE-2099-#{unique}-0001"].last_seen_at == evaluated_at
+    assert confirmed_by_cve["CVE-2099-#{unique}-0002"].last_seen_at == prior_confirmed_at
+    assert resolved_row.last_seen_at == row_seen_at
+
+    details =
+      EndpointInventoryData.load_package_vulnerabilities(
+        scope,
+        device_uid,
+        to_string(endpoint_package.id)
+      )
+
+    details_by_cve = Map.new(details.assessments, &{&1.cve_id, &1})
+    assert details_by_cve["CVE-2099-#{unique}-0001"].last_seen_at == evaluated_at
+    assert details_by_cve["CVE-2099-#{unique}-0002"].last_seen_at == prior_confirmed_at
+    assert details_by_cve["CVE-2099-#{unique}-0003"].last_seen_at == row_seen_at
+  end
+
   defp create_assessment!(scope, endpoint_package_ref, device_uid, now, opts) do
     attrs = %{
       device_uid: device_uid,
@@ -176,7 +265,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryDataDbTest do
       cvss_score: 7.5,
       supporting_match_ids: Keyword.get(opts, :supporting_match_ids, []),
       evidence: %{},
-      metadata: %{},
+      metadata: Keyword.get(opts, :metadata, %{}),
       transition_reason: Keyword.get(opts, :transition_reason),
       first_seen_at: now,
       last_seen_at: now,
