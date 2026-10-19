@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -28,6 +29,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.Sync.Aliases
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Repo
@@ -506,7 +508,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
              ),
            {:ok, _} <- tombstone_merged_device(from_device, actor),
            # After the tombstone, which frees the successor's address when it is the merged record.
-           :ok <- take_successor_address(succession_details, to_device_id),
+           :ok <- take_successor_address(succession_details, to_device, actor),
            # The survivor's identity composition changed: it now owns the
            # merged-away device's identifiers. Once here, not per reassigned
            # record -- the reassignments above are bulk updates, and a
@@ -672,11 +674,30 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   defp take_successor_address(
          %{"ip_transferred" => true, "survivor_after" => %{"ip" => ip}},
-         uid
-       ),
-       do: set_address(uid, ip)
+         %Device{} = survivor,
+         actor
+       ) do
+    held = held_device_address(survivor)
 
-  defp take_successor_address(_succession_details, _uid), do: :ok
+    with :ok <- set_address(survivor.uid, ip) do
+      held
+      |> Aliases.replaced_addresses(%{})
+      |> Aliases.retain_replaced_addresses(actor)
+    end
+  end
+
+  defp take_successor_address(_succession_details, _survivor, _actor), do: :ok
+
+  defp held_device_address(%Device{uid: uid, ip: ip, partition: partition, deleted_at: nil})
+       when is_binary(ip) do
+    if AliasPolicy.valid_alias_ip?(ip) do
+      %{uid => %{ip: ip, partition: partition}}
+    else
+      %{}
+    end
+  end
+
+  defp held_device_address(_device), do: %{}
 
   defp put_succession_details(details, nil), do: details
   defp put_succession_details(details, succession), do: Map.put(details, "succession", succession)

@@ -10,10 +10,13 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Identity.AliasPolicy
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Sync.Aliases
 
   require Ash.Query
   require Logger
@@ -542,12 +545,21 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     case {device, attrs} do
       {%Device{} = device, attrs} when is_map(attrs) ->
         update_attrs = camera_device_update_attrs(device, attrs)
+        held = held_device_address(device)
 
-        device
-        |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
-        |> Ash.update()
+        [Device, DeviceAliasState]
+        |> Ash.transact(fn ->
+          with {:ok, _device} <-
+                 device
+                 |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
+                 |> Ash.update() do
+            held
+            |> Aliases.replaced_addresses(%{})
+            |> Aliases.retain_replaced_addresses(actor)
+          end
+        end)
         |> case do
-          {:ok, _device} ->
+          {:ok, :ok} ->
             if camera_classified_device?(device) do
               register_camera_identifiers(device.uid, attrs, actor)
             end
@@ -562,6 +574,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         {:error, {:invalid_camera_update_target, device, attrs}}
     end
   end
+
+  defp held_device_address(%Device{uid: uid, ip: ip, partition: partition, deleted_at: nil})
+       when is_binary(ip) do
+    if AliasPolicy.valid_alias_ip?(ip) do
+      %{uid => %{ip: ip, partition: partition}}
+    else
+      %{}
+    end
+  end
+
+  defp held_device_address(_device), do: %{}
 
   defp camera_device_update_attrs(%Device{} = device, attrs) when is_map(attrs) do
     common_attrs = %{

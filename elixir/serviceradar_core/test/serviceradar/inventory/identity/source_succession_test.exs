@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DireTrace
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -206,6 +207,38 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     assert [%{"field" => "first_seen"}] = audit.details["corroboration"]
     assert [%{"collection_ids" => [_ | _]}] = audit.details["retired_ids"]
     assert audit.details["succession"]["ip_transferred"]
+  end
+
+  test "retains the survivor's replaced primary address as a detected alias when taking the successor's address",
+       %{actor: actor} do
+    world = rekeyed(actor)
+    old_ip = "192.0.2.#{rem(System.unique_integer([:positive, :monotonic]), 250) + 1}"
+    successor_ip = device(world.successor, actor).ip
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.ocsf_devices SET ip = $1 WHERE uid = $2",
+               [old_ip, world.predecessor]
+             )
+
+    assert {:ok, %{merged: 1, skipped: 0, deferred: 0}} =
+             SourceSuccession.run(actor: actor, max_successions: 10)
+
+    survivor = device(world.predecessor, actor)
+    assert survivor.ip == successor_ip
+
+    assert {:ok,
+            [
+              %DeviceAliasState{
+                state: :detected,
+                alias_type: :ip,
+                alias_value: ^old_ip,
+                metadata: %{
+                  "source" => "replaced_primary_address",
+                  "replaced_by" => ^successor_ip
+                }
+              }
+            ]} = DeviceAliasState.lookup_for_device(world.predecessor, :ip, old_ip, actor: actor)
   end
 
   test "a successor created first survives, keeping the current id and its address",
