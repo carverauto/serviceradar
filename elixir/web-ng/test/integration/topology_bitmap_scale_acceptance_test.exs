@@ -122,6 +122,9 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
 
     scans_before_churn = ready_scans(first)
 
+    {:ok, pending_before_churn} =
+      await(fn -> call(first, :pending) end, &match?({:ok, _}, &1), 15_000, "A pending status")
+
     tick_samples =
       for tick <- 0..99 do
         Wait.viewers_alive!(clients, diagnose(clients, replicas))
@@ -283,6 +286,23 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         diagnose(clients, replicas)
       )
     end
+
+    # Zero refused UID hints proves nothing if the loss moved downstream: native
+    # pending overflow clears its Roaring set and advances this generation.
+    # B restarts and misses hints by design, so only hinted A must avoid it.
+    %{index_epoch: epoch, rescan_generation: generation} = pending_before_churn
+
+    {:ok, drained} =
+      await(
+        fn -> call(first, :pending) end,
+        &match?({:ok, %{drained: true}}, &1),
+        60_000,
+        "A hinted work drained",
+        diagnose(clients, replicas)
+      )
+
+    emit("native_pending", %{replica: first.id, before_churn: pending_before_churn, after_drain: drained})
+    assert %{index_epoch: ^epoch, rescan_generation: ^generation} = drained
 
     Fixture.oversize_facet_value()
     unavailable = %{"expression" => %{"facet" => "tag:cohort", "value" => "cohort-0"}, "limit" => 1}

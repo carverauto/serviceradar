@@ -127,7 +127,10 @@ hint/dirty pairs per scan/catalog turn and an unconditional 25-ms pause
 refused 23,286 hints. A successful step skips the 25-ms pause only while hints
 wait. Keep the 500-row batch. Scan and catalog keep a fixed one-in-eight turn,
 with no concurrent publishers. Cold replicas without hints continue scanning
-at the same rate.
+at the same rate. Because native dirty-set overflow clears the set and
+advances its rescan generation without refusing anything, the scale workload
+also requires the hinted replica to keep the same index epoch and rescan
+generation from before churn until its work drains.
 The publisher owner retains its one drained batch, at most 500 ordinals, until
 publication succeeds. Native contention retries preserve that work without
 requiring another queue write, setting a source error, or starting a full scan.

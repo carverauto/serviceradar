@@ -111,6 +111,20 @@ defmodule ServiceRadarWebNG.Topology.Scale.Replica do
     end
   end
 
+  # The native pending queue's overflow generation, bound to the index epoch
+  # it belongs to, read directly from production status rather than a sample.
+  def pending do
+    with {:ok, snapshot} <- BitmapIndex.snapshot(),
+         {:ok, status} <- Native.bitmap_index_status(snapshot.device) do
+      {:ok,
+       %{
+         index_epoch: Ecto.UUID.load!(snapshot.index_epoch),
+         rescan_generation: status.pending.rescan_generation,
+         drained: snapshot.progress.pending_dirty == 0 and status.pending.pending_count == 0
+       }}
+    end
+  end
+
   def install_geometry do
     world = Fixture.world(@version)
     manifest = %{layout_version: @version, generation: 1, zmax: 24}

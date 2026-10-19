@@ -548,6 +548,10 @@ Publisher diagnostics are separate from query admission and database counters:
 - Ready snapshot samples split `pending_dirty` into `pending_hints`,
   `pending_native` and `pending_publish`, and include `pending_hint_bytes`
   and the conservative `pending_hint_retained_bytes` admission charge.
+  `pending_native_bytes`, `pending_native_serialized_bytes` and
+  `pending_native_rescan_generation` come from native index status; a
+  generation increase on a hinted replica means hints were folded into a
+  rescan rather than refused.
   These are queue entries, not a distinct-device count: a device can be present
   in more than one stage. The active hint-resolution batch remains counted
   and charged until successful resolution. `pending_hint_age_ms` includes
@@ -582,7 +586,13 @@ database commit falls between those origins. These ten probes do not measure
 every device's freshness.
 The hinted peer must refuse no hints during this workload and must publish
 ready scan pages while churn runs; a faster visible result cannot hide inbox
-overflow or removal of reconciliation service.
+overflow or removal of reconciliation service. Native pending overflow is a
+second loss path that refuses nothing: past 512 KiB serialized the Roaring
+dirty set is cleared and its rescan generation advances. After final
+convergence, and before the oversized-facet mutation, the hinted peer's
+hinted, native and publication work must drain within 60 seconds while it
+keeps the index epoch and rescan generation it had before churn. The
+unhinted peer restarts and misses hints by design, so it is not held to this.
 
 Memory terms are intentionally separate. Native reservations include active
 scratch work; they are not pure retained index memory. A sample's current
