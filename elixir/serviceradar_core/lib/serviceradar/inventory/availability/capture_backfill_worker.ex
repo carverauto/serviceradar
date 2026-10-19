@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.Availability.CaptureBackfillWorker do
   @moduledoc """
   One-off backfill for stage a of `add-merged-device-availability`, enqueued once by
-  migration `20261019170000_add_merged_availability_capture`.
+  migration `20261019180000_add_merged_availability_capture`.
 
   1. Projects `ocsf_devices.availability_state` from `is_available` for every existing
      device, the value the mirror trigger keeps for every later write.

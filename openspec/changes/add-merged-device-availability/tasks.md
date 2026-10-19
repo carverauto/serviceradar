@@ -8,7 +8,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 
 ## 1. Stage a: capture (mode `legacy`, no behavior change)
 
-- [x] 1.1 Migration (`20261019170000_add_merged_availability_capture`; existing rows are projected by the enqueued `CaptureBackfillWorker`, because a migration may not run a synchronous backfill):
+- [x] 1.1 Migration (`20261019180000_add_merged_availability_capture`; existing rows are projected by the enqueued `CaptureBackfillWorker`, because a migration may not run a synchronous backfill):
   - `device_agent_availability.consecutive_down` (additive, default 0);
   - `device_availability_evidence`, `device_vantage_expectations`, `device_availability_shadow`, `device_availability_legacy` and the `inventory.availability_mode` setting (`legacy`);
   - the `ocsf_devices.availability_*` columns, populated from the projection of `is_available`;
