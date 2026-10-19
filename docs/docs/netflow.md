@@ -54,7 +54,7 @@ lookups remain in CNPG.
 NetFlow, sFlow and IPFIX flows are stored only in the warehouse. EventWriter
 never writes them to CNPG: the legacy CNPG `platform.ocsf_network_activity`
 hypertable and its continuous aggregates are dropped by migration
-`20261019150000_drop_cnpg_flow_hypertable_and_caggs`. Flow
+`20261019160000_drop_cnpg_flow_hypertable_and_caggs`. Flow
 Stream Load success or durable quarantine is required before JetStream ACK,
 independently of the read-cutover list. Warehouse failures backpressure
 ingestion; JetStream retention bounds how long unacknowledged data remains
