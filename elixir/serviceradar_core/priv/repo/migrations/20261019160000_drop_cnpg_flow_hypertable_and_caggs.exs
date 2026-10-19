@@ -20,7 +20,6 @@ defmodule ServiceRadar.Repo.Migrations.DropCnpgFlowHypertableAndCaggs do
   @flow_caggs [
     "platform.flow_traffic_1d",
     "platform.flow_traffic_1h",
-    "platform.ocsf_network_activity_hourly_app_dimensions",
     "platform.ocsf_network_activity_hourly_conversations",
     "platform.ocsf_network_activity_hourly_listeners",
     "platform.ocsf_network_activity_hourly_ports",
