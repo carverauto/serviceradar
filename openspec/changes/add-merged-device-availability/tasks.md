@@ -15,7 +15,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - the mode-aware mirror trigger that keeps `availability_state` equal to the projection of `is_available` in `legacy` and `shadow`;
   - the Armis source attribute `northbound_availability_semantics`, with existing sources set to `legacy`.
 - [ ] 1.2 Source registration descriptors `{source_kind, authority_class, default_ttl, min_ttl, max_ttl}`, and Ash resources for the new tables.
-- [ ] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances, and marks the device dirty for resolution when the result can change a decision, so W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
+- [ ] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances. A separate `AFTER INSERT OR UPDATE` trigger marks the device dirty only when the stored result can change a decision (insert, changed value or counter, previously stale row). W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
 - [ ] 1.4 `Availability.record_evidence/2`, write-on-change, with decision-bearing fields written immediately and lease coalescing for unchanged observations.
 - [ ] 1.5 Submit evidence from every non-ledger writer:
   - Wi-Fi map (W5; a missing status submits nothing);
@@ -29,7 +29,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 - [ ] 1.5a Legacy writers (W1-W3, W5-W11, the W14 create default) also maintain `device_availability_legacy`, write-on-change, with their full computation; legacy publishers emit only in `legacy` and `shadow`.
 - [ ] 1.5b Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom, and `inventory_declared` for the awx `enabled` flag, before shadow collection starts.
 - [ ] 1.6 The composite evaluation pass materializes vantage expectations, write-on-change; every expectation change marks its device dirty.
-- [ ] 1.6a `device_availability_dirty`, plus the triggers that enqueue devices on `availability_source_agent_id` changes, and the profile update path that enqueues every device using a changed availability source profile.
+- [ ] 1.6a `device_availability_dirty`, enqueued with `ON CONFLICT DO UPDATE` so every enqueue takes the entry's row lock, plus the triggers that enqueue devices on `availability_source_agent_id` changes, and the profile update path that enqueues every device using a changed availability source profile.
 - [ ] 1.7 Backfill:
   - `consecutive_down` from `metadata.sweep_consecutive_failures`, capped;
   - vantage expectations;
@@ -41,7 +41,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 - [ ] 2.1 `Availability.Resolver.resolve/3`, a pure function implementing Decisions 3, 5, 6 and 12.
 - [ ] 2.2 Transactional resolution: uid-ordered locks, batches of at most 500, a shadow write on change only.
 - [ ] 2.3 The expiry job, paged.
-- [ ] 2.3a The bounded resolver worker that drains the dirty set through `resolve_devices/2` (no-op in `legacy`, shadow writes in `shadow`); in-transaction resolution clears its own dirty entries.
+- [ ] 2.3a The bounded resolver worker that drains the dirty set through `resolve_devices/2` (no-op in `legacy`, shadow writes in `shadow`). Every resolution, worker or in-transaction, claims its devices' dirty entries with `DELETE ... RETURNING` before reading any input; an invalidation after the claim re-enqueues for another pass.
 - [ ] 2.4 Re-resolution on merge, unmerge and restore, with evidence moving on merge (Decision 11). Ledger reassignment unchanged.
 - [ ] 2.5 Divergence report:
   - counts by legacy value, legacy badge, shadow state, `source_kind` and `authority_class`;
@@ -126,7 +126,7 @@ Each contract has one owner-boundary test. No contract is replayed at another la
 - [ ] 5.4 **Sweep ingestion regression** (DB tier). Must fail on today's code. A device with controller `up` evidence and repeated sweep failures keeps a stable state, and its row is not rewritten per sweep.
 - [ ] 5.5 **Armis agent path** (DB tier, in the existing runner suite). `candidates_query/1` with an agent selected returns identical rows whether or not availability resolution has run, including for a should-be-blocked agent. Canonical `legacy` reads the compatibility table, including for a device seeded at cutover that no legacy writer touches afterwards; canonical `merged` withholds unknown.
 - [ ] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched.
-- [ ] 5.6a **Invalidation** (DB tier). With `write_canonical_availability` off, two validation-scan failures (W18, unchanged code) re-resolve the device to `unavailable` before expiry; changing the pin and adding a negative-control expectation each re-resolve the device without new evidence; a steady fresh renewal enqueues nothing.
+- [ ] 5.6a **Invalidation** (DB tier). With `write_canonical_availability` off, two validation-scan failures (W18, unchanged code) re-resolve the device to `unavailable` before expiry; changing the pin and adding a negative-control expectation each re-resolve the device without new evidence; a steady fresh renewal through the real sweep upsert (`INSERT ... ON CONFLICT DO UPDATE`) leaves no dirty entry; and a ledger write that commits while the worker is resolving the same device (claim taken, inputs not yet committed) leaves the device queued, so the next pass resolves it from the newer result.
 - [ ] 5.7 **Merge** (DB tier, in the existing merge-engine suite). The survivor holds both devices' evidence and is re-resolved; ledger reassignment is unchanged.
 - [ ] 5.8 **Cutover and rollback** (DB tier). During `cutover`, ingestion plus reconciliation publish no per-device events, and a legacy writer started before the switch cannot land after it. One summary event is published. Down evidence ingested during `cutover` is not overwritten by reconciliation from an older shadow `available`. After a rollback to `legacy`, `is_available` equals the compatibility value and `availability_state` its projection.
 - [ ] 5.9 **SRQL** (Rust; extends the existing device query tables):

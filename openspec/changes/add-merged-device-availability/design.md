@@ -166,11 +166,14 @@ gets the same counter without any change to its code:
   `checked_at`, the backfill), the value the statement wrote is kept, which
   is the old value unless the statement sets it.
 
-The same trigger also marks the device dirty for resolution (Decision 1,
-"Invalidation") on an insert, on a change of `is_available` or
-`consecutive_down`, or when the previous observation was already stale. A
-steady renewal of a fresh, unchanged result marks nothing. The trigger does
-not touch `is_available`, `checked_at` or `updated_at`, so the ledger's value
+A separate `AFTER INSERT OR UPDATE` trigger marks the device dirty for
+resolution (Decision 1, "Invalidation"). Because it runs on the row that was
+actually inserted or updated, an `INSERT ... ON CONFLICT DO UPDATE` that ends
+in the update branch is judged as an update, and one whose `WHERE` rejects the
+update fires nothing. It enqueues on an insert, on a change of `is_available`
+or `consecutive_down`, or when the previous observation was already stale. A
+steady renewal of a fresh, unchanged result enqueues nothing. Neither trigger
+touches `is_available`, `checked_at` or `updated_at`, so the ledger's value
 and timestamp semantics are unchanged. It carries the
 hysteresis count that today lives in the device row's metadata. Existing
 readers select named columns or Ash attributes, so the column is invisible to
@@ -323,8 +326,10 @@ same transaction. Both paths then run the same steps, in batches of at most
    written by their own writer.
 3. `SELECT ... FOR NO KEY UPDATE` the device rows in uid order. This is the
    same lock ordering the sweep ingestor already uses.
-4. Load the devices' ledger rows, evidence rows and vantage expectations, and
-   run the pure `Availability.Resolver.resolve/3`.
+4. Claim the devices' dirty entries with `DELETE FROM
+   device_availability_dirty WHERE device_uid = ANY(...) RETURNING`, before
+   reading any input. Then load the devices' ledger rows, evidence rows and
+   vantage expectations, and run the pure `Availability.Resolver.resolve/3`.
 5. Run `UPDATE ocsf_devices ... WHERE` any of `availability_state`,
    `availability_decided_by`, `availability_conflict` or
    `availability_agents` `IS DISTINCT FROM` the new value. The returned old
@@ -333,12 +338,11 @@ same transaction. Both paths then run the same steps, in batches of at most
 6. Insert state transitions into the existing outbox (the pattern from
    #4733) in the same transaction, so a rollback publishes nothing.
    Display-only changes broadcast a UI invalidation and emit no event.
-7. Delete the resolved devices' rows from the dirty set in the same
-   transaction.
 
 **Invalidation.** Every mutation that can change a resolution enqueues the
 affected devices in `device_availability_dirty (device_uid PK, enqueued_at)`
-with `ON CONFLICT DO NOTHING`, so a device is queued at most once:
+with `ON CONFLICT (device_uid) DO UPDATE SET enqueued_at = now()`, so a device
+is queued at most once and every enqueue takes the entry's row lock:
 
 - ledger writes, through the ledger trigger (Tier 1a). This is how
   validation scans (W18) and merge reassignment (W19) reach the resolver
@@ -353,8 +357,20 @@ the dirty set through `resolve_devices/2`, so it takes the same locks, writes
 on change only, and is the same single emitter of transitions. It follows
 the mode: it does nothing in `legacy` and writes the shadow table in
 `shadow`. Writers that already resolve in their own transaction (the sweep
-ingestor, `record_evidence/2`) clear their own entries in step 7, so the
+ingestor, `record_evidence/2`) consume their own entries in step 4, so the
 worker only sees the rest. Expiry stays a separate sweep (Decision 4).
+
+No invalidation is lost, because the claim in step 4 consumes the entry
+atomically before any input is read, inside the resolving transaction:
+
+- An invalidating writer that committed before the claim is visible to the
+  reads that follow it (each statement takes a new snapshot).
+- A writer still in flight holds the entry's row lock from its upsert, so the
+  claim waits for it to commit and then reads its rows.
+- A writer that enqueues after the claim blocks on the claimed (deleted)
+  entry until the resolving transaction ends, then inserts a new entry, which
+  the next pass resolves.
+- A resolving transaction that rolls back restores its claimed entries.
 
 Alternatives considered:
 
