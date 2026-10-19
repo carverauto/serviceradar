@@ -19,6 +19,11 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
   empty answer is kept for five seconds (and forgotten as soon as a node connects),
   so a core outage does not turn every lookup into a full sweep.
 
+  The same table holds positive admission protocol probe results per
+  `{node, module}`. A node's results are dropped when it connects or disconnects,
+  or when a located process on it exits, and a probe that raced such an event
+  cannot publish its stale result.
+
   Without a running locator (the application is not started), lookups probe all
   connected nodes concurrently and cache nothing.
   """
