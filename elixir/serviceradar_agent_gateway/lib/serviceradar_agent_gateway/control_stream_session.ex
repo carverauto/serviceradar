@@ -285,6 +285,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:retry_config_push_sync, version, attempt}, state) do
     case state.config_push_sync do
       %{version: ^version, attempt: ^attempt} ->
