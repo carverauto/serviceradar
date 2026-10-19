@@ -181,8 +181,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   @doc """
   Counts one public `query_busy` by its origin, so a saturated deployment can
-  tell admission, stream, task-pool, tile-cache and native budget refusals
-  apart. Sources are a fixed atom set; the event carries no request data.
+  tell admission, stream, task-pool, projection-step (tile cache, device
+  ordinals, aggregate selection and ordinals) and native budget refusals apart. Sources are a fixed atom set; the event carries no request data.
   """
   def busy(source) when is_atom(source),
     do: :telemetry.execute([:serviceradar, :topology, :bitmap_query, :busy], %{count: 1}, %{source: source})
