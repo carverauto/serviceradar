@@ -1,7 +1,3 @@
-use crate::query::flows::{
-    FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
-    FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
-};
 use crate::{
     error::{Result, ServiceError},
     parser::{DownsampleAgg, Entity},
@@ -24,15 +20,8 @@ pub(super) fn resolve_value_column(
                     "unsupported value_field '{other}' for timeseries_metrics_hourly"
                 ))),
             },
-            Entity::Flows => match field {
-                None | Some("bytes_total") => Ok("bytes_total".to_string()),
-                Some("packets_total") => Ok("packets_total".to_string()),
-                Some(other) => Err(ServiceError::InvalidRequest(format!(
-                    "unsupported value_field '{other}' for flow CAGG (supported: bytes_total|packets_total)"
-                ))),
-            },
             _ => Err(ServiceError::InvalidRequest(
-                "hourly CAGG routing is only supported for metric entities and flows".into(),
+                "hourly CAGG routing is only supported for metric entities".into(),
             )),
         };
     }
@@ -44,33 +33,10 @@ pub(super) fn resolve_value_column(
                 "unsupported value_field '{other}' for timeseries metrics"
             ))),
         },
-        Entity::Flows => match field {
-            None | Some("bytes_total") => Ok(flow_value_column("bytes_total", false)),
-            Some("packets_total") => Ok(flow_value_column("packets_total", false)),
-            Some("bytes_in") => Ok(flow_value_column("bytes_in", true)),
-            Some("bytes_out") => Ok(flow_value_column("bytes_out", true)),
-            Some("packets_in") => Ok(flow_value_column("packets_in", true)),
-            Some("packets_out") => Ok(flow_value_column("packets_out", true)),
-            Some(other) => Err(ServiceError::InvalidRequest(format!(
-                "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out|packets_in|packets_out)"
-            ))),
-        },
         _ => Err(ServiceError::InvalidRequest(
-            "downsample is only supported for metric entities and flows".into(),
+            "downsample is only supported for metric entities".into(),
         )),
     }
-}
-
-fn flow_value_column(column: &str, nullable: bool) -> String {
-    let value = if nullable {
-        format!("COALESCE({column}, 0)")
-    } else {
-        column.to_string()
-    };
-
-    format!(
-        "({value}::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)"
-    )
 }
 
 pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
@@ -119,30 +85,9 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 }
             }
         }
-        Entity::Flows => match series.as_str() {
-            "src_endpoint_ip" | "src_ip" => "src_endpoint_ip".to_string(),
-            "dst_endpoint_ip" | "dst_ip" => "dst_endpoint_ip".to_string(),
-            "protocol_name" => "protocol_name".to_string(),
-            "protocol_num" | "proto" => "protocol_num::text".to_string(),
-            "protocol_group" | "proto_group" => format!("({})", FLOW_PROTOCOL_GROUP_EXPR),
-            "app" => format!("({})", FLOW_APP_EXPR),
-            "dst_endpoint_port" | "dst_port" => "dst_endpoint_port::text".to_string(),
-            "src_endpoint_port" | "src_port" => "src_endpoint_port::text".to_string(),
-            "sampler_address" => "sampler_address".to_string(),
-            "exporter_name" => format!("({})", FLOW_EXPORTER_NAME_EXPR),
-            "in_if_name" => format!("({})", FLOW_IN_IF_NAME_EXPR),
-            "out_if_name" => format!("({})", FLOW_OUT_IF_NAME_EXPR),
-            "in_if_speed_bps" => format!("({})::text", FLOW_IN_IF_SPEED_BPS_EXPR),
-            "out_if_speed_bps" => format!("({})::text", FLOW_OUT_IF_SPEED_BPS_EXPR),
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "unsupported series field '{other}' for {table}"
-                )));
-            }
-        },
         _ => {
             return Err(ServiceError::InvalidRequest(
-                "downsample is only supported for metric entities and flows".into(),
+                "downsample is only supported for metric entities".into(),
             ));
         }
     };
@@ -181,17 +126,4 @@ pub(super) fn rate_bucket_combine(agg: DownsampleAgg) -> &'static str {
 /// Check if the aggregation type requires special rate-based query structure
 pub(super) fn is_rate_agg(agg: DownsampleAgg) -> bool {
     matches!(agg, DownsampleAgg::Rate | DownsampleAgg::RateSum)
-}
-
-pub(super) fn flow_cagg_for_bucket(bucket_seconds: i64) -> &'static str {
-    const ONE_HOUR: i64 = 3600;
-    const ONE_DAY: i64 = 86400;
-
-    if bucket_seconds >= ONE_DAY {
-        "flow_traffic_1d"
-    } else if bucket_seconds >= ONE_HOUR {
-        "flow_traffic_1h"
-    } else {
-        "ocsf_network_activity_5m_traffic"
-    }
 }

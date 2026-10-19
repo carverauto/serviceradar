@@ -79,8 +79,8 @@ fi
 # TimescaleDB's continuous-aggregate catalog registration either, only (an
 # unmarked) materialized view if any at all. Recreate every current cagg from
 # its own view_definition, in dependency order (a cagg built on another cagg's
-# materialization hypertable, such as flow_traffic_1d on flow_traffic_1h, must
-# be created after its dependency), then restore each one's own refresh policy.
+# materialization hypertable must be created after its dependency), then restore
+# each one's own refresh policy.
 # pg_dump already emitted every cagg's outer name as a plain CREATE VIEW
 # (relkind reads 'v' for a continuous aggregate's user-facing name, same as
 # any other view) and its three internal objects (the materialization table,

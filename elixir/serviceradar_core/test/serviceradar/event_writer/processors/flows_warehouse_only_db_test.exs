@@ -2,16 +2,16 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
   @moduledoc """
   NetFlow, sFlow and IPFIX flows are stored in StarRocks or not at all.
 
-  With the warehouse enabled a flow batch is Stream Loaded to it and no row
-  reaches the CNPG `ocsf_network_activity` hypertable. Without the warehouse the
-  batch is acknowledged, stored nowhere, and the refusal is logged once rather
-  than per batch.
+  With the warehouse enabled a flow batch is Stream Loaded to it and the legacy
+  CNPG `ocsf_network_activity` hypertable does not exist. Without the warehouse
+  the batch is acknowledged, stored nowhere, and the refusal is logged once
+  rather than per batch.
   """
   use ServiceRadar.DataCase, async: false
 
-  import Ecto.Query
   import ExUnit.CaptureLog
 
+  alias Ecto.Adapters.SQL
   alias Flowpb.FlowMessage
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.EventWriter.Processors.Flows
@@ -45,7 +45,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
     assert_receive {:wire_request, [row]}, 5_000
     assert row["src_endpoint_ip"] == @src_ip
     assert row["dst_endpoint_ip"] == @dst_ip
-    assert cnpg_flow_rows() == 0
+    refute cnpg_flow_table_present?()
   end
 
   test "without StarRocks a flow batch is acknowledged, stored nowhere, and refused once" do
@@ -59,7 +59,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
       end)
 
     assert log |> String.split(@refusal) |> length() == 2
-    assert cnpg_flow_rows() == 0
+    refute cnpg_flow_table_present?()
   end
 
   defp put_starrocks(overrides) do
@@ -88,11 +88,11 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsWarehouseOnlyDBTest do
     %{data: FlowMessage.encode(flow), metadata: %{subject: "flows.raw.netflow"}}
   end
 
-  defp cnpg_flow_rows do
-    Repo.aggregate(
-      from(f in "ocsf_network_activity", where: f.src_endpoint_ip == ^@src_ip),
-      :count
-    )
+  defp cnpg_flow_table_present? do
+    %{rows: [[present?]]} =
+      SQL.query!(Repo, "SELECT to_regclass('platform.ocsf_network_activity') IS NOT NULL", [])
+
+    present?
   end
 
   # A StarRocks FE that accepts every Stream Load and reports each row loaded.

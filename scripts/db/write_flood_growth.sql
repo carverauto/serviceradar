@@ -33,21 +33,6 @@ targets AS (
     (SELECT COUNT(*) FROM platform.capacity_forecasts c, params p WHERE c.forecasted_at >= p.observed_at - p.long_window)::numeric AS rows_24h,
     (SELECT COUNT(*) FROM platform.capacity_forecasts c, params p WHERE c.inserted_at >= p.observed_at - p.short_window)::numeric AS ingested_1h,
     (SELECT COUNT(*) FROM platform.capacity_forecasts c, params p WHERE c.status = 'projected' AND c.forecasted_at >= p.observed_at - p.short_window)::numeric AS logical_volume_1h
-
-  UNION ALL
-
-  SELECT
-    'ocsf_network_activity'::text AS target,
-    'F39 sampled flow scaling'::text AS fix_scope,
-    'platform.ocsf_network_activity'::regclass AS relation_oid,
-    (SELECT COUNT(*) FROM platform.ocsf_network_activity f, params p WHERE f.time >= p.observed_at - p.short_window)::numeric AS rows_1h,
-    (SELECT COUNT(*) FROM platform.ocsf_network_activity f, params p WHERE f.time >= p.observed_at - p.long_window)::numeric AS rows_24h,
-    (SELECT COUNT(*) FROM platform.ocsf_network_activity f, params p WHERE f.created_at >= p.observed_at - p.short_window)::numeric AS ingested_1h,
-    (
-      SELECT COALESCE(SUM(COALESCE(f.bytes_total, 0)::numeric * GREATEST(COALESCE(f.sampling_rate, 1), 1)), 0)
-      FROM platform.ocsf_network_activity f, params p
-      WHERE f.time >= p.observed_at - p.short_window
-    ) AS logical_volume_1h
 )
 SELECT
   p.observed_at,

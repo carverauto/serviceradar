@@ -106,11 +106,10 @@ psql "$DATABASE_URL" -f scripts/db/write_flood_growth.sql
 
 Run the query before deployment, immediately after deployment, and then hourly
 for at least 24 hours. The output reports current table bytes plus 1-hour and
-24-hour row rates for `platform.ocsf_events`, `platform.capacity_forecasts`, and
-`platform.ocsf_network_activity`. The expected post-fix signal is a sustained
-drop in `ocsf_events` and `capacity_forecasts` rows per hour. Flows are stored
-only in StarRocks, so `platform.ocsf_network_activity` should report no new
-rows at all; a non-zero flow row rate there means a CNPG flow writer is back.
+24-hour row rates for `platform.ocsf_events` and `platform.capacity_forecasts`.
+The expected post-fix signal is a sustained drop in rows per hour for both.
+Flows are stored only in StarRocks; the CNPG `platform.ocsf_network_activity`
+hypertable has been dropped, so it is not tracked here.
 
 ## Query and pgx Error Watch
 

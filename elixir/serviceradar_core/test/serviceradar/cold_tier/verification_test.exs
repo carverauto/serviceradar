@@ -2,12 +2,29 @@ defmodule ServiceRadar.ColdTier.VerificationTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.ColdTier.Registry
+  alias ServiceRadar.ColdTier.Registry.Table
   alias ServiceRadar.ColdTier.Verification
 
   test "checksum columns fall back to content columns when no unique key exists" do
-    flows = Registry.fetch!("ocsf_network_activity")
+    keyless = %Table{
+      table: "synthetic_keyless",
+      time_column: "time",
+      signal_class: :events,
+      retention_config_key: :ocsf_events_retention_days,
+      default_hot_days: 14,
+      chunk_interval_key: :ocsf_events_chunk_interval_hours,
+      default_chunk_hours: 6,
+      update_prone: false,
+      tiebreakers: [],
+      columns: [
+        {"src_endpoint_ip", "text", :none},
+        {"dst_endpoint_ip", "text", :none},
+        {"bytes_total", "bigint", :none},
+        {"time", "timestamptz", :none}
+      ]
+    }
 
-    assert Verification.checksum_columns(flows) == [
+    assert Verification.checksum_columns(keyless) == [
              "src_endpoint_ip",
              "dst_endpoint_ip",
              "bytes_total"

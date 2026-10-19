@@ -17,8 +17,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorkerTest do
           {"otel_metric_points", ":otel_metric_points_retention_days",
            ":otel_metric_points_chunk_interval_hours"},
           {"ocsf_events", ":ocsf_events_retention_days", ":ocsf_events_chunk_interval_hours"},
-          {"ocsf_network_activity", ":ocsf_network_activity_retention_days",
-           ":ocsf_network_activity_chunk_interval_hours"},
           {"capacity_forecasts", ":capacity_forecasts_retention_days",
            ":capacity_forecasts_chunk_interval_hours"}
         ] do

@@ -628,13 +628,17 @@ async fn run_entry(
                 "recorded as a shape CNPG refuses, and CNPG now compiles it: compare it".into(),
             );
         }
-        (Ok(ok), Expect::StarrocksJoinsCatalog) => {
-            let _ = writeln!(detail, "cnpg SQL:\n{}\nstarrocks SQL:\n{sr_sql}", ok.sql);
+        (cnpg_res, Expect::StarrocksJoinsCatalog) => {
+            match cnpg_res {
+                Ok(ok) => {
+                    let _ = writeln!(detail, "cnpg SQL:\n{}\nstarrocks SQL:\n{sr_sql}", ok.sql);
+                }
+                Err(err) => {
+                    let _ = writeln!(detail, "cnpg refuses: {err}\nstarrocks SQL:\n{sr_sql}");
+                }
+            }
             return if sr_sql.contains(CNPG_CATALOG_REFERENCE) {
-                Outcome::Pass(
-                    "both dialects compile; the StarRocks SQL joins cnpg_platform, not executed"
-                        .into(),
-                )
+                Outcome::Pass("the StarRocks SQL joins cnpg_platform, not executed".into())
             } else {
                 Outcome::Fail(
                     "recorded as joining the cnpg_platform catalog, and the StarRocks SQL no \
@@ -792,7 +796,6 @@ async fn seed(
 
     let cnpg_statements = [
         fixture::metric_inserts(&metrics, Backend::Cnpg, "platform"),
-        fixture::flow_inserts(&flows, Backend::Cnpg, "platform"),
         fixture::logs::inserts(&logs, Backend::Cnpg, "platform"),
         fixture::events::inserts(&events, Backend::Cnpg, "platform"),
         fixture::mtr::trace_inserts(&traces, Backend::Cnpg, "platform"),
@@ -802,9 +805,6 @@ async fn seed(
         fixture::traces::span_inserts(&spans, Backend::Cnpg, "platform"),
         fixture::traces::summary_inserts(&trace_summaries, Backend::Cnpg, "platform"),
         fixture::bmp::inserts(&bmp, Backend::Cnpg, "platform"),
-        // The app classification rules the warehouse `app` stamp mirrors;
-        // CNPG's query-time classifier reads them live (issue #4851).
-        fixture::app_rule_inserts(),
     ];
     for statement in cnpg_statements.iter().flatten() {
         cnpg.batch_execute(statement)
@@ -821,7 +821,7 @@ async fn seed(
 
     let sr_statements = [
         fixture::metric_inserts(&metrics, Backend::StarRocks, database),
-        fixture::flow_inserts(&flows, Backend::StarRocks, database),
+        fixture::flow_inserts(&flows, database),
         fixture::logs::inserts(&logs, Backend::StarRocks, database),
         fixture::events::inserts(&events, Backend::StarRocks, database),
         fixture::mtr::trace_inserts(&traces, Backend::StarRocks, database),
@@ -843,14 +843,21 @@ async fn seed(
         .await?;
     }
 
+    let sr_flow_count: Option<i64> = sr
+        .query_first(format!(
+            "SELECT COUNT(*) FROM {database}.ocsf_network_activity"
+        ))
+        .await?;
+    if sr_flow_count != Some(flows.len() as i64) {
+        bail!(
+            "ocsf_network_activity: seeded {} rows, StarRocks holds {sr_flow_count:?}",
+            flows.len()
+        );
+    }
+
     // Row counts, so a silently filtered load cannot pass as agreement.
     for (table, cnpg_table, expected) in [
         ("timeseries_metrics", "timeseries_metrics", metrics.len()),
-        (
-            "ocsf_network_activity",
-            "ocsf_network_activity",
-            flows.len(),
-        ),
         ("logs", "logs", logs.len()),
         ("events", "ocsf_events", events.len()),
         ("mtr_traces", "mtr_traces", traces.len()),

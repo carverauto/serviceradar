@@ -49,7 +49,6 @@ pub(crate) fn supports_hourly_cagg(entity: &Entity) -> bool {
             | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics
             | Entity::RperfMetrics
-            | Entity::Flows
     )
 }
 
@@ -60,7 +59,6 @@ pub(crate) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
         }
         Entity::TimeseriesMetricInterfaceHourly => Some("timeseries_metrics_interface_hourly"),
         Entity::TimeseriesMetricDiskHourly => Some("timeseries_metrics_disk_hourly"),
-        Entity::Flows => Some("ocsf_network_activity_5m_traffic"),
         _ => None,
     }
 }
@@ -87,12 +85,6 @@ pub(crate) fn cagg_column_for_entity(
             }
             _ => None,
         },
-        Entity::Flows => match (agg.as_str(), field.as_str()) {
-            ("sum", "bytes_total") => Some("bytes_total"),
-            ("sum", "packets_total") => Some("packets_total"),
-            ("count", "*") => Some("flow_count"),
-            _ => None,
-        },
         _ => None,
     }
 }
@@ -107,7 +99,7 @@ pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
     } else if matches!(
         ast.entity,
         Entity::TimeseriesMetricInterfaceHourly | Entity::TimeseriesMetricDiskHourly
-    ) || (super::sysmon::is_entity(&ast.entity)
+    ) || ((super::sysmon::is_entity(&ast.entity) || matches!(ast.entity, Entity::Flows))
         && (ast.stats.is_some() || ast.downsample.is_some()))
         || is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some())
     {
@@ -131,9 +123,7 @@ pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
 ///   The test is start-based, so a sub-threshold window can straddle the
 ///   horizon (start beyond it, end inside it); such a window is served wholly
 ///   from the hourly CAGG at hourly grain, giving complete coverage instead of
-///   a partially-empty raw read. Flows are excluded from this arm: CNPG netflow
-///   is deprecated in favour of the StarRocks migration, so the flow path keeps
-///   its span-only routing unchanged.
+///   a partially-empty raw read.
 pub(crate) fn should_route_to_hourly_cagg(
     entity: &Entity,
     time_range: Option<&TimeRange>,
@@ -152,10 +142,6 @@ pub(crate) fn should_route_to_hourly_cagg(
     let span = time_range.end.signed_duration_since(time_range.start);
     if span.ge(&ChronoDuration::hours(CAGG_ROUTING_THRESHOLD_HOURS)) {
         return true;
-    }
-
-    if matches!(entity, Entity::Flows) {
-        return false;
     }
 
     time_range

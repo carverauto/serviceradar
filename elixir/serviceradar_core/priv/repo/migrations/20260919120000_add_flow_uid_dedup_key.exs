@@ -35,17 +35,22 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowUidDedupKey do
   @table "ocsf_network_activity"
 
   def up do
-    execute("ALTER TABLE #{@schema}.#{@table} ADD COLUMN IF NOT EXISTS flow_uid text")
-
     execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ocsf_network_activity_flow_uid
-    ON #{@schema}.#{@table} (flow_uid, time)
-    WHERE flow_uid IS NOT NULL
+    DO $$
+    BEGIN
+      IF to_regclass('#{@schema}.#{@table}') IS NOT NULL THEN
+        ALTER TABLE #{@schema}.#{@table} ADD COLUMN IF NOT EXISTS flow_uid text;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ocsf_network_activity_flow_uid
+        ON #{@schema}.#{@table} (flow_uid, time)
+        WHERE flow_uid IS NOT NULL;
+      END IF;
+    END
+    $$;
     """)
   end
 
   def down do
     execute("DROP INDEX IF EXISTS #{@schema}.idx_ocsf_network_activity_flow_uid")
-    execute("ALTER TABLE #{@schema}.#{@table} DROP COLUMN IF EXISTS flow_uid")
+    execute("ALTER TABLE IF EXISTS #{@schema}.#{@table} DROP COLUMN IF EXISTS flow_uid")
   end
 end

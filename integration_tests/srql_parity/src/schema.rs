@@ -206,7 +206,6 @@ pub fn dump_statements(sql: &str) -> Vec<String> {
 /// Relations taken from the baseline by name: `CREATE TABLE platform.<name> (`.
 pub const CNPG_BASELINE_TABLES: &[&str] = &[
     "timeseries_metrics",
-    "ocsf_network_activity",
     "logs",
     "ocsf_events",
     "mtr_traces",
@@ -216,9 +215,6 @@ pub const CNPG_BASELINE_TABLES: &[&str] = &[
     "otel_traces",
     "otel_trace_summaries",
     "bmp_routing_events",
-    // Read by the CNPG flow `app` classifier; left empty, so both dialects fall back to the
-    // same port-based labels.
-    "netflow_app_classification_rules",
 ];
 
 /// Functions the CNPG dialect's SQL or the continuous aggregates below call.
@@ -227,12 +223,6 @@ pub const CNPG_BASELINE_FUNCTIONS: &[&str] = &["try_inet", "serviceradar_log_sev
 /// `(table, column, type, migration)`: columns added after the baseline was cut. `ADD COLUMN IF
 /// NOT EXISTS`, so a regenerated baseline that already has them is a no-op here.
 pub const POST_BASELINE_COLUMNS: &[(&str, &str, &str, &str)] = &[
-    (
-        "ocsf_network_activity",
-        "flow_uid",
-        "text",
-        "20260919120000_add_flow_uid_dedup_key",
-    ),
     (
         "mtr_hops",
         "target_ip",
@@ -390,7 +380,6 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
     // 20260909105000_ensure_timeseries_metrics_hypertable.exs
     "SELECT create_hypertable('platform.timeseries_metrics', 'timestamp', \
      create_default_indexes => false, if_not_exists => true)",
-    "SELECT create_hypertable('platform.ocsf_network_activity', 'time', if_not_exists => true)",
     "SELECT create_hypertable('platform.logs', 'timestamp', if_not_exists => true)",
     "SELECT create_hypertable('platform.otel_traces', 'timestamp', if_not_exists => true)",
     "CREATE MATERIALIZED VIEW platform.timeseries_metrics_disk_hourly
@@ -422,40 +411,6 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
        COUNT(*)::bigint AS sample_count
      FROM platform.timeseries_metrics
      GROUP BY 1, 2, 3, 4
-     WITH NO DATA",
-    // 20260621143000_rebuild_flow_caggs_with_sampling_rate.exs (the sampled definitions).
-    "CREATE MATERIALIZED VIEW platform.ocsf_network_activity_5m_traffic
-     WITH (timescaledb.continuous) AS
-     SELECT
-       time_bucket('5 minutes', time) AS bucket,
-       COALESCE(SUM(bytes_total::numeric * GREATEST(COALESCE(sampling_rate, 1), 1)::numeric), 0)::bigint AS bytes_total,
-       COALESCE(SUM(packets_total::numeric * GREATEST(COALESCE(sampling_rate, 1), 1)::numeric), 0)::bigint AS packets_total,
-       COALESCE(COUNT(*), 0)::bigint AS flow_count
-     FROM platform.ocsf_network_activity
-     GROUP BY 1
-     WITH NO DATA",
-    "CREATE MATERIALIZED VIEW platform.ocsf_network_activity_hourly_talkers
-     WITH (timescaledb.continuous) AS
-     SELECT
-       time_bucket('1 hour', time) AS bucket,
-       COALESCE(src_endpoint_ip, 'Unknown') AS src_endpoint_ip,
-       COALESCE(SUM(bytes_total::numeric * GREATEST(COALESCE(sampling_rate, 1), 1)::numeric), 0)::bigint AS bytes_total,
-       COALESCE(SUM(packets_total::numeric * GREATEST(COALESCE(sampling_rate, 1), 1)::numeric), 0)::bigint AS packets_total,
-       COALESCE(COUNT(*), 0)::bigint AS flow_count
-     FROM platform.ocsf_network_activity
-     GROUP BY 1, 2
-     WITH NO DATA",
-    // 20260621143000 create_hierarchical_flow_caggs/0: the hourly traffic rollup CNPG reads
-    // for a >= 1h flow chart bucket, built over the 5-minute one.
-    "CREATE MATERIALIZED VIEW platform.flow_traffic_1h
-     WITH (timescaledb.continuous) AS
-     SELECT
-       time_bucket('1 hour', bucket) AS bucket,
-       SUM(bytes_total)::bigint AS bytes_total,
-       SUM(packets_total)::bigint AS packets_total,
-       SUM(flow_count)::bigint AS flow_count
-     FROM platform.ocsf_network_activity_5m_traffic
-     GROUP BY 1
      WITH NO DATA",
     // 20260812140000_ensure_logs_severity_stats_5m_cagg.exs (the classifier is the baseline's
     // `serviceradar_log_severity_bucket`, as redefined by 20260818180000).
@@ -520,10 +475,6 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
 pub const CNPG_CONTINUOUS_AGGREGATES: &[&str] = &[
     "platform.timeseries_metrics_hourly",
     "platform.timeseries_metrics_disk_hourly",
-    // Before flow_traffic_1h, which is built over it.
-    "platform.ocsf_network_activity_5m_traffic",
-    "platform.flow_traffic_1h",
-    "platform.ocsf_network_activity_hourly_talkers",
     "platform.logs_severity_stats_5m",
     "platform.traces_stats_5m",
     "platform.spans_red_1h",

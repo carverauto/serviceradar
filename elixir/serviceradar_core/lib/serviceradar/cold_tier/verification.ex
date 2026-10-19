@@ -29,9 +29,6 @@ defmodule ServiceRadar.ColdTier.Verification do
   per-table content fallback for tables without a unique key.
   """
   @spec checksum_columns(Table.t()) :: [String.t()]
-  def checksum_columns(%Table{tiebreakers: [], table: "ocsf_network_activity"}),
-    do: ["src_endpoint_ip", "dst_endpoint_ip", "bytes_total"]
-
   def checksum_columns(%Table{tiebreakers: [], columns: columns}),
     do: columns |> Enum.take(3) |> Enum.map(fn {name, _t, _c} -> name end)
 

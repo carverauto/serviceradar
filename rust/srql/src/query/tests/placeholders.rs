@@ -7,7 +7,7 @@
 //! execution path.
 
 use super::{
-    camera_sources, field_survey, flows, plan_for, public_endpoints, threat_intel_matches, wifi_map,
+    camera_sources, field_survey, plan_for, public_endpoints, threat_intel_matches, wifi_map,
 };
 use diesel::{debug_query, pg::Pg};
 
@@ -33,15 +33,6 @@ fn raw_sql_execute_queries_use_postgres_placeholders() {
         (
             "threat_intel_matches",
             threat_intel_matches::execution_query(&plan_for("in:threat_intel_matches limit:10")),
-        ),
-        // Flows stats builds its own SQL rather than sharing an entity `build_sql`, and
-        // `time:last_1h` is what puts `?::timestamptz` into it -- the clause the execute
-        // path shipped unrewritten until this case was added.
-        (
-            "flows_stats",
-            flows::execution_query(&plan_for(
-                "in:flows time:last_1h stats:sum(bytes_total) as bytes by app",
-            )),
         ),
     ];
 

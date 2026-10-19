@@ -31,11 +31,7 @@ defmodule ServiceRadar.ColdTier.RetentionDdlFenceTest do
     20260203120000_create_ocsf_events.exs
     20260203193000_add_ocsf_events_hourly_stats.exs
     20260203204000_ensure_ocsf_events_hourly_stats.exs
-    20260207090000_add_ocsf_network_activity_retention_policy.exs
-    20260207093000_add_ocsf_network_activity_rollups.exs
-    20260207112000_ensure_ocsf_network_activity_rollups.exs
     20260220110000_add_srql_metric_hourly_caggs.exs
-    20260301120000_add_flow_traffic_hierarchical_caggs.exs
     20260315120000_ensure_ocsf_events_hourly_stats_cagg.exs
     20260429220000_update_observability_retention_policies.exs
     20260605210000_reconcile_observability_retention_chunks.exs
@@ -44,7 +40,6 @@ defmodule ServiceRadar.ColdTier.RetentionDdlFenceTest do
     20260611060000_create_otel_metric_points.exs
     20260613070000_add_capacity_forecast_retention_policy.exs
     20260620120000_add_remaining_high_volume_retention_policies.exs
-    20260621143000_rebuild_flow_caggs_with_sampling_rate.exs
     20260622183000_fix_timeseries_series_identity_cardinality.exs
     20260622202000_shrink_ocsf_events_chunk_interval.exs
     20260716210000_clamp_cagg_refresh_windows.exs

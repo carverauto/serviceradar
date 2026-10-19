@@ -1,230 +1,327 @@
-//! Query execution for OCSF network_activity (flows) entity.
+//! Shared literal normalizers for flow queries (`in:flows` and `in:attributed_flows`
+//! compile exclusively through the StarRocks dialect).
 
-mod expressions;
-mod filters;
-pub(super) mod literals;
-mod order;
-mod params;
-mod query;
-mod row;
-mod scope;
-mod snmp;
-mod stats;
+pub(super) mod literals {
+    use crate::error::{Result, ServiceError};
 
-#[cfg(test)]
-mod tests;
+    /// Normalize and validate a CIDR string (e.g. `10.0.0.0/8`).
+    pub(crate) fn normalize_cidr_literal(input: &str) -> Result<String> {
+        let s = input.trim();
+        let (ip_raw, prefix_raw) = s
+            .split_once('/')
+            .ok_or_else(|| ServiceError::InvalidRequest("CIDR must be like 10.0.0.0/24".into()))?;
 
-pub(super) use self::expressions::*;
-pub(crate) use self::literals::normalize_cidr_literal;
-use self::{
-    filters::apply_filter,
-    literals::{NearSide, near_exists_sql, normalize_device_uid_literal, normalize_near_literal},
-    order::apply_ordering,
-    params::collect_filter_params,
-    query::build_query,
-    row::{FlowRow, FlowRowLegacy},
-    scope::flow_device_scope_expr,
-    snmp::apply_snmp_index_filter,
-    stats::{execute_stats, to_sql_and_params_stats},
-};
-use super::{BindParam, QueryPlan};
+        let ip: std::net::IpAddr = ip_raw.trim().parse().map_err(|_| {
+            ServiceError::InvalidRequest("CIDR must contain a valid IPv4/IPv6 address".into())
+        })?;
 
-// The query object `execute_stats` loads, so the placeholder guard can render the
-// real execution path with `debug_query`; see `query/tests/placeholders.rs`.
-use crate::{
-    error::{Result, ServiceError},
-    parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
-    schema::ocsf_network_activity::dsl::*,
-    time::TimeRange,
-};
-use diesel::PgTextExpressionMethods;
-use diesel::dsl::{not, sql};
-use diesel::pg::Pg;
-use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::sql_types::{Bool, Text};
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde_json::Value;
-#[cfg(test)]
-pub(super) use stats::execution_query;
+        let prefix: u8 = prefix_raw.trim().parse().map_err(|_| {
+            ServiceError::InvalidRequest("CIDR must contain a valid prefix length".into())
+        })?;
 
-type FlowsTable = crate::schema::ocsf_network_activity::table;
-type FlowsFromClause = FromClause<FlowsTable>;
-type FlowsQuery<'a> =
-    BoxedSelectStatement<'a, <FlowsTable as AsQuery>::SqlType, FlowsFromClause, Pg>;
-
-pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
-    ensure_entity(plan)?;
-
-    if plan.stats.is_some() {
-        return execute_stats(conn, plan).await;
-    }
-
-    // Prefer the full projection (includes prefix-tag columns). If the
-    // migration has not been applied yet, fall back so plain in:flows stays up.
-    // Classify Diesel errors *before* wrapping in ServiceError::Internal, whose
-    // Display is always "internal error" and would hide column names.
-    match load_flow_rows_full(conn, plan).await {
-        Ok(rows) => Ok(rows),
-        Err(err) if is_missing_prefix_tag_column_diesel(&err) => {
-            load_flow_rows_legacy(conn, plan).await
-        }
-        Err(FullLoadError::Plan(err)) => Err(err),
-        Err(FullLoadError::Diesel(err)) => Err(ServiceError::Internal(err.into())),
-    }
-}
-
-enum FullLoadError {
-    Plan(ServiceError),
-    Diesel(diesel::result::Error),
-}
-
-async fn load_flow_rows_full(
-    conn: &mut AsyncPgConnection,
-    plan: &QueryPlan,
-) -> std::result::Result<Vec<Value>, FullLoadError> {
-    let query = build_query(plan).map_err(FullLoadError::Plan)?;
-    let rows: Vec<FlowRow> = query
-        .select(FlowRow::as_select())
-        .limit(plan.limit)
-        .offset(plan.offset)
-        .load::<FlowRow>(conn)
-        .await
-        .map_err(FullLoadError::Diesel)?;
-    Ok(rows.into_iter().map(FlowRow::into_json).collect())
-}
-
-async fn load_flow_rows_legacy(
-    conn: &mut AsyncPgConnection,
-    plan: &QueryPlan,
-) -> Result<Vec<Value>> {
-    let rows: Vec<FlowRowLegacy> = build_query(plan)?
-        .select(FlowRowLegacy::as_select())
-        .limit(plan.limit)
-        .offset(plan.offset)
-        .load::<FlowRowLegacy>(conn)
-        .await
-        .map_err(|err| ServiceError::Internal(err.into()))?;
-    Ok(rows.into_iter().map(FlowRowLegacy::into_json).collect())
-}
-
-fn is_missing_prefix_tag_column_diesel(err: &FullLoadError) -> bool {
-    match err {
-        FullLoadError::Diesel(diesel::result::Error::DatabaseError(_kind, info)) => {
-            let msg = info.message().to_ascii_lowercase();
-            let col = info.column_name().unwrap_or("").to_ascii_lowercase();
-            let mentions = |s: &str| msg.contains(s) || col == s;
-            mentions("src_prefix_tags")
-                || mentions("dst_prefix_tags")
-                || mentions("src_prefix_tags_source")
-                || mentions("dst_prefix_tags_source")
-                || (msg.contains("does not exist") && msg.contains("prefix_tag"))
-        }
-        _ => false,
-    }
-}
-
-pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
-    ensure_entity(plan)?;
-
-    if plan.stats.is_some() {
-        return to_sql_and_params_stats(plan);
-    }
-
-    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
-    let sql = super::diesel_sql(&query)?;
-
-    let mut params = Vec::new();
-
-    if let Some(TimeRange { start, end }) = &plan.time_range {
-        params.push(BindParam::timestamptz(*start));
-        params.push(BindParam::timestamptz(*end));
-    }
-
-    for filter in &plan.filters {
-        collect_filter_params(&mut params, filter)?;
-    }
-
-    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
-
-    #[cfg(any(test, debug_assertions))]
-    {
-        let bind_count = super::diesel_bind_count(&query)?;
-        if bind_count != params.len() {
-            return Err(ServiceError::Internal(anyhow::anyhow!(
-                "bind count mismatch (diesel {bind_count} vs params {})",
-                params.len()
+        let max = match ip {
+            std::net::IpAddr::V4(_) => 32,
+            std::net::IpAddr::V6(_) => 128,
+        };
+        if prefix > max {
+            return Err(ServiceError::InvalidRequest(format!(
+                "CIDR prefix length must be <= {max}"
             )));
         }
+
+        Ok(format!("{ip}/{prefix}"))
     }
 
-    Ok((sql, params))
-}
+    /// Validate a prefix-tag literal for tag containment filters.
+    ///
+    /// Tags are namespaced strings like `site:austin-dc` or `netbox:tag:iot`.
+    pub(in crate::query) fn normalize_tag_literal(raw: &str) -> Result<String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ServiceError::InvalidRequest("tag literal is empty".into()));
+        }
+        if trimmed.len() > 128 {
+            return Err(ServiceError::InvalidRequest(
+                "tag literal exceeds 128 characters".into(),
+            ));
+        }
+        if !trimmed.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.' | '/' | '@' | '+')
+        }) {
+            return Err(ServiceError::InvalidRequest(format!(
+                "invalid tag literal: {trimmed}"
+            )));
+        }
+        Ok(trimmed.to_string())
+    }
 
-fn ensure_entity(plan: &QueryPlan) -> Result<()> {
-    match plan.entity {
-        Entity::Flows | Entity::AttributedFlows => Ok(()),
-        _ => Err(ServiceError::InvalidRequest(
-            "entity not supported by flows query".into(),
-        )),
+    /// Parsed proximity term: latitude, longitude, radius in meters.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub(in crate::query) struct NearPoint {
+        pub lat: f64,
+        pub lng: f64,
+        pub radius_m: f64,
+    }
+
+    /// Parse `near` filter values like `30.2672,-97.7431,50km` or `30.27,-97.74,5000m`.
+    ///
+    /// Default unit when omitted is kilometers. Supported suffixes: `km`, `m`, `mi`.
+    pub(in crate::query) fn normalize_near_literal(raw: &str) -> Result<NearPoint> {
+        let trimmed = raw.trim().trim_matches('"').trim_matches('\'').trim();
+        if trimmed.is_empty() {
+            return Err(ServiceError::InvalidRequest(
+                "near filter requires lat,lng,radius (e.g. 30.27,-97.74,50km)".into(),
+            ));
+        }
+
+        let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
+        if parts.len() != 3 {
+            return Err(ServiceError::InvalidRequest(
+                "near filter must be lat,lng,radius (exactly three comma-separated fields)".into(),
+            ));
+        }
+
+        let lat: f64 = parts[0].parse().map_err(|_| {
+            ServiceError::InvalidRequest(format!("near latitude is not a number: {}", parts[0]))
+        })?;
+        let lng: f64 = parts[1].parse().map_err(|_| {
+            ServiceError::InvalidRequest(format!("near longitude is not a number: {}", parts[1]))
+        })?;
+
+        if !(-90.0..=90.0).contains(&lat) {
+            return Err(ServiceError::InvalidRequest(
+                "near latitude must be between -90 and 90".into(),
+            ));
+        }
+        if !(-180.0..=180.0).contains(&lng) {
+            return Err(ServiceError::InvalidRequest(
+                "near longitude must be between -180 and 180".into(),
+            ));
+        }
+
+        let radius_m = parse_radius_meters(parts[2])?;
+        if !(radius_m.is_finite() && radius_m > 0.0 && radius_m <= 20_000_000.0) {
+            return Err(ServiceError::InvalidRequest(
+                "near radius must be a positive distance (max ~20000 km)".into(),
+            ));
+        }
+
+        Ok(NearPoint { lat, lng, radius_m })
+    }
+
+    fn parse_radius_meters(raw: &str) -> Result<f64> {
+        let s = raw.trim().to_ascii_lowercase();
+        let (num_str, factor) = if let Some(rest) = s.strip_suffix("km") {
+            (rest.trim(), 1_000.0)
+        } else if let Some(rest) = s.strip_suffix("mi") {
+            (rest.trim(), 1_609.344)
+        } else if let Some(rest) = s.strip_suffix('m') {
+            (rest.trim(), 1.0)
+        } else {
+            // default kilometers
+            (s.as_str(), 1_000.0)
+        };
+
+        let value: f64 = num_str.parse().map_err(|_| {
+            ServiceError::InvalidRequest(format!("near radius is not a number: {raw}"))
+        })?;
+        Ok(value * factor)
     }
 }
+
+pub(crate) use self::literals::normalize_cidr_literal;
 
 #[cfg(test)]
-mod fallback_classifier_tests {
-    use super::{FullLoadError, is_missing_prefix_tag_column_diesel};
-    use diesel::result::{DatabaseErrorKind, Error as DieselError};
-
-    struct FakeDbInfo {
-        message: String,
-        column: Option<String>,
-    }
-
-    impl diesel::result::DatabaseErrorInformation for FakeDbInfo {
-        fn message(&self) -> &str {
-            &self.message
-        }
-        fn details(&self) -> Option<&str> {
-            None
-        }
-        fn hint(&self) -> Option<&str> {
-            None
-        }
-        fn table_name(&self) -> Option<&str> {
-            None
-        }
-        fn column_name(&self) -> Option<&str> {
-            self.column.as_deref()
-        }
-        fn constraint_name(&self) -> Option<&str> {
-            None
-        }
-        fn statement_position(&self) -> Option<i32> {
-            None
+mod tests {
+    #[test]
+    fn flow_detail_and_device_filters_compile_for_starrocks() {
+        let cases = [
+            ("proto", "6", "protocol_num"),
+            ("src_ip", "192.0.2.10", "src_endpoint_ip"),
+            ("dst_ip", "198.51.100.20", "dst_endpoint_ip"),
+            ("src_port", "42000", "src_endpoint_port"),
+            ("dst_port", "443", "dst_endpoint_port"),
+            ("protocol_num", "6", "protocol_num"),
+            ("src_endpoint_ip", "192.0.2.10", "src_endpoint_ip"),
+            ("dst_endpoint_ip", "198.51.100.20", "dst_endpoint_ip"),
+            ("dst_endpoint_port", "443", "dst_endpoint_port"),
+            ("protocol_name", "TCP", "protocol_name"),
+            ("protocol_group", "tcp", "protocol_num"),
+            ("direction_label", "ingress", "direction_label"),
+            ("dst_service_label", "https", "dst_service_label"),
+            ("app", "https", "app"),
+            ("sampler_address", "192.0.2.1", "sampler_address"),
+            ("flow_source", "netflow", "flow_source"),
+            ("collector", "netflow", "flow_source"),
+            ("event_type", "network_activity", "event_type"),
+            ("pid", "42", "pid"),
+            ("container_id", "example-container", "container_id"),
+            ("agent_id", "agent-example", "agent_id"),
+            ("pod_name", "example-pod", "workload_identity"),
+            ("pod_namespace", "example", "workload_identity"),
+            ("pod_uid", "pod-example", "workload_identity"),
+            ("container_name", "example-container", "workload_identity"),
+            ("image", "example/image", "workload_identity"),
+            ("runtime_source", "example-runtime", "workload_identity"),
+            ("service_name", "example-service", "public_endpoint"),
+            ("gateway_name", "example-gateway", "public_endpoint"),
+            ("exposure_class", "public", "public_endpoint"),
+            ("public_endpoint_namespace", "example", "public_endpoint"),
+            ("route_name", "example-route", "public_endpoint"),
+        ];
+        for mode in [Some("starrocks"), Some("starrocks_raw")] {
+            for (field, value, column) in cases {
+                let response = compile_filter_request(&format!("{field}:\"{value}\""), mode);
+                let predicate = response.sql.split_once(" WHERE ").expect("WHERE").1;
+                assert!(predicate.contains(column), "{mode:?} {field}: {predicate}");
+                assert!(predicate.contains(&format!("'{value}'")), "{predicate}");
+            }
+            let details = compile_filter_request(
+                "src_ip:192.0.2.10 dst_ip:198.51.100.20 src_port:42000 dst_port:443 proto:6",
+                mode,
+            );
+            let predicate = details.sql.split(" WHERE ").nth(1).expect("WHERE");
+            for column in [
+                "src_endpoint_ip",
+                "dst_endpoint_ip",
+                "src_endpoint_port",
+                "dst_endpoint_port",
+                "protocol_num",
+            ] {
+                assert!(predicate.contains(column), "{mode:?}: {predicate}");
+            }
         }
     }
 
     #[test]
-    fn classifies_undefined_prefix_tag_column() {
-        let err = FullLoadError::Diesel(DieselError::DatabaseError(
-            DatabaseErrorKind::Unknown,
-            Box::new(FakeDbInfo {
-                message: "column \"src_prefix_tags\" does not exist".into(),
-                column: Some("src_prefix_tags".into()),
-            }),
-        ));
-        assert!(is_missing_prefix_tag_column_diesel(&err));
+    fn flow_interface_and_process_aliases_compile_for_starrocks() {
+        for mode in [Some("starrocks"), Some("starrocks_raw")] {
+            for (field, canonical, value) in [
+                ("in_if_index", "input_snmp", "7"),
+                ("out_if_index", "output_snmp", "9"),
+                ("status", "attribution_status", "attributed"),
+                ("process_pid", "pid", "42"),
+                ("process", "comm", "worker"),
+                ("process_name", "comm", "worker"),
+                ("redacted_cmdline", "cmdline", "worker"),
+                ("namespace", "pod_namespace", "example"),
+                ("image_ref", "image", "example/image"),
+                ("uid", "device_id", "device-example"),
+            ] {
+                let alias = compile_filter_request(&format!("{field}:\"{value}\""), mode);
+                let canonical = compile_filter_request(&format!("{canonical}:\"{value}\""), mode);
+                assert_eq!(alias.sql, canonical.sql, "{mode:?} {field}");
+                assert_eq!(
+                    serde_json::to_value(alias.params).unwrap(),
+                    serde_json::to_value(canonical.params).unwrap(),
+                    "{mode:?} {field}"
+                );
+            }
+        }
     }
 
     #[test]
-    fn ignores_unrelated_database_errors() {
-        let err = FullLoadError::Diesel(DieselError::DatabaseError(
-            DatabaseErrorKind::UniqueViolation,
-            Box::new(FakeDbInfo {
-                message: "duplicate key value".into(),
-                column: None,
-            }),
-        ));
-        assert!(!is_missing_prefix_tag_column_diesel(&err));
+    fn flow_endpoint_and_catalog_filters_compile_for_starrocks() {
+        for mode in [Some("starrocks"), Some("starrocks_raw")] {
+            for (filter, contract) in [
+                ("ip:192.0.2.10", "src_endpoint_ip"),
+                ("endpoint_ip:198.51.100.20", "dst_endpoint_ip"),
+                ("port:443", "src_endpoint_port"),
+                ("endpoint_port:443", "dst_endpoint_port"),
+                ("cidr:192.0.2.0/24", "dst_ip_hex"),
+                ("src_tag:site:example", "src_prefix_tags"),
+                ("dst_tag:site:example", "dst_prefix_tags"),
+                ("tag:site:example", "src_prefix_tags"),
+                ("near:12.34,56.78,5km", "ST_DWithin"),
+                ("src_near:12.34,56.78,5km", "ST_DWithin"),
+                ("dst_near:12.34,56.78,5km", "ST_DWithin"),
+                ("threat_matched:true", "ip_threat_intel_cache"),
+                ("threat_matched:false", "ip_threat_intel_cache"),
+                ("threat_source:example_feed", "ip_threat_intel_cache"),
+                ("threat_observed_ip:192.0.2.10", "ip_threat_intel_cache"),
+                (
+                    "threat_indicator:198.51.100.0/24",
+                    "threat_intel_indicators",
+                ),
+                ("threat_indicator:198.51.100.20", "threat_intel_indicators"),
+                ("threat_severity:>3", "max_severity"),
+            ] {
+                let response = compile_filter_request(filter, mode);
+                let predicate = response.sql.split_once(" WHERE ").expect("WHERE").1;
+                assert!(
+                    predicate.contains(contract),
+                    "{mode:?} {filter}: {predicate}"
+                );
+                if filter.contains("near:") || filter.starts_with("threat_") {
+                    assert!(
+                        predicate.contains("cnpg_platform.native_query("),
+                        "{predicate}"
+                    );
+                    assert!(predicate.contains("COALESCE("), "{predicate}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn flow_port_lists_compile_for_starrocks() {
+        let series = "bucket:1m agg:sum value_field:bytes_total series:dst_endpoint_port";
+        for mode in [Some("starrocks"), Some("starrocks_raw")] {
+            for (field, column) in [
+                ("src_port", "src_endpoint_port"),
+                ("src_endpoint_port", "src_endpoint_port"),
+                ("dst_port", "dst_endpoint_port"),
+                ("dst_endpoint_port", "dst_endpoint_port"),
+            ] {
+                for suffix in ["", series] {
+                    for negated in [false, true] {
+                        let bang = if negated { "!" } else { "" };
+                        let filters = format!("{bang}{field}:(443,8443) {suffix}");
+                        let response = compile_filter_request(&filters, mode);
+                        let predicate = response.sql.split_once("WHERE ").expect("WHERE").1;
+                        let op = if negated { "NOT IN" } else { "IN" };
+                        assert!(
+                            predicate.contains(&format!("{column} {op} (443, 8443)")),
+                            "{mode:?} {filters}: {predicate}"
+                        );
+                        assert_eq!(
+                            predicate.contains("NOT IN"),
+                            negated,
+                            "{mode:?} {filters}: {predicate}"
+                        );
+                    }
+                }
+            }
+            for suffix in ["", series] {
+                let filters = format!("dst_port:(443,https) {suffix}");
+                let error = try_compile_filter_request(&filters, mode)
+                    .expect_err("a non-integer port list item must be rejected");
+                assert!(
+                    error.to_string().contains("integer"),
+                    "{mode:?} {filters}: {error}"
+                );
+            }
+        }
+    }
+
+    fn compile_filter_request(
+        filters: &str,
+        mode: Option<&str>,
+    ) -> crate::query::TranslateResponse {
+        try_compile_filter_request(filters, mode)
+            .unwrap_or_else(|error| panic!("{mode:?} {filters}: {error}"))
+    }
+
+    fn try_compile_filter_request(
+        filters: &str,
+        mode: Option<&str>,
+    ) -> crate::error::Result<crate::query::TranslateResponse> {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".into());
+        let request = serde_json::from_value(serde_json::json!({
+            "query": format!("in:flows time:[2000-01-01T00:00:00Z,2000-01-02T00:00:00Z] {filters} sort:time:desc limit:5"),
+            "mode": mode,
+        }))
+        .expect("request");
+        crate::query::translate_request(&config, request)
     }
 }
