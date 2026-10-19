@@ -266,7 +266,8 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
   defp prefix, do: "serviceradar:rollup-#{Ecto.UUID.generate()}-"
 
   # Runs the statements in a transaction on a connection of its own, reports the outcome
-  # and rolls back when released.
+  # and rolls back when released. The task is linked to the test, so a failed assertion
+  # closes its connection; the lock timeout ends any wait a closed session left behind.
   defp start_session(statements) do
     parent = self()
     config = Keyword.drop(Repo.config(), [:pool, :pool_size, :name])
@@ -276,6 +277,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
         {:ok, conn} = Postgrex.start_link(Keyword.put(config, :pool_size, 1))
 
         Postgrex.transaction(conn, fn tx ->
+          Postgrex.query!(tx, "SET LOCAL lock_timeout = #{@wait_ms}", [])
           %{rows: [[backend]]} = Postgrex.query!(tx, "SELECT pg_backend_pid()", [])
           send(parent, {:backend, self(), backend})
           send(parent, {:ran, self(), run_statements(tx, statements)})
@@ -320,6 +322,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
       0 -> :ok
     end
 
+    Repo.query!("SELECT pg_stat_clear_snapshot()")
     query = "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1"
 
     case Repo.query!(query, [backend]).rows do
