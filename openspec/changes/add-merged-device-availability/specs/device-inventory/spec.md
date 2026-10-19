@@ -1,20 +1,35 @@
 ## ADDED Requirements
 
+### Requirement: Per-Agent Availability Ledger Is Lossless
+The system SHALL keep, for every device and every agent that probes it, that agent's own latest reachability result (available or not) with its own check timestamp, and the merged device availability MUST NOT prune, age out, overwrite or reinterpret those per-agent rows.
+The merged availability is a summary derived from the per-agent ledger and the other evidence. A stale per-agent row SHALL remain stored and readable with its original value and timestamp.
+
+#### Scenario: Blocked agent result is retained
+- **GIVEN** agent A reaches a device and agent B does not
+- **WHEN** the device's merged availability is resolved as available
+- **THEN** agent B's latest result SHALL remain stored as not available with its own check time
+- **AND** agent A's latest result SHALL remain stored as available with its own check time
+
+#### Scenario: Stale agent result is not deleted
+- **GIVEN** an agent stops probing a device
+- **WHEN** that agent's latest result becomes older than its freshness window
+- **THEN** the result SHALL remain stored unchanged
+- **AND** the merged availability SHALL ignore it as stale
+
 ### Requirement: Device Availability Evidence Contract
-The system SHALL accept device availability only as evidence records submitted through a single core interface, and no availability source SHALL write `ocsf_devices.availability_state` or `ocsf_devices.is_available` directly.
-Each evidence record carries the device uid, a source kind, a source instance, an optional reporter agent, an authority class, an observed state of `up` or `down`, an observed-at time, a freshness TTL, a confirmation count, a reporter-eligibility flag, and bounded detail. The system SHALL keep one current evidence record per device, source kind, source instance and reporter agent, separate from the device row.
+The system SHALL accept non-probe availability (controllers, hypervisors, camera managers, agent liveness, passive sightings, plugins, inventory records and operator policy) only as evidence records submitted through a single core interface, and no availability source SHALL write `ocsf_devices.availability_state` or `ocsf_devices.is_available` directly.
+Each evidence record carries the device uid, a source kind, a source instance, an optional reporter agent, an authority class, an observed state of `up` or `down`, an observed-at time, a freshness TTL, a confirmation count, a reporter-eligibility flag, and bounded detail. The system SHALL keep one current evidence record per device, source kind, source instance and reporter agent. Agent reachability probes SHALL be read from the per-agent ledger and SHALL NOT be duplicated into the evidence store.
 
 #### Scenario: Controller and sweep evidence are kept separately
 - **GIVEN** a device that a sweep agent probes and that a managing controller reports on
-- **WHEN** the sweep reports the device down and the controller reports it up
-- **THEN** the system SHALL store one evidence record for the sweep agent and one for the controller
-- **AND** neither submission SHALL overwrite the other's record
+- **WHEN** the sweep reports the device unreachable and the controller reports it up
+- **THEN** the sweep result SHALL be stored in the per-agent ledger and the controller observation SHALL be stored as an evidence record
+- **AND** neither SHALL overwrite the other
 
 #### Scenario: A source with no status submits no evidence
 - **GIVEN** an integration row for a device that carries no operational status
 - **WHEN** the integration is ingested
 - **THEN** the integration SHALL NOT submit an availability evidence record for that device
-- **AND** the device's availability SHALL be decided by the remaining evidence
 
 #### Scenario: Direct writes do not change availability
 - **GIVEN** the availability cutover is complete
@@ -24,12 +39,12 @@ Each evidence record carries the device uid, a source kind, a source instance, a
 
 ### Requirement: Availability Authority Classes Are Declared By Source Registration
 The system SHALL assign each evidence record an authority class taken from the submitting source's registration, and the resolver MUST NOT branch on a source's kind or integration name.
-The ranked classes, highest first, are `operator_policy`, `self_report`, `managing_controller`, `active_probe`, `passive_observation` and `inventory_declared`. A source instance MAY lower the class its type declares but MUST NOT raise it. A source that declares no class SHALL be treated as `inventory_declared`. The classes `self_report` and `passive_observation` SHALL assert only `up`.
+The ranked classes, highest first, are `operator_policy`, `self_report`, `managing_controller`, `active_probe`, `passive_observation` and `inventory_declared`; the per-agent ledger is `active_probe`. A source instance MAY lower the class its type declares but MUST NOT raise it. A source that declares no class SHALL be treated as `inventory_declared`. The classes `self_report` and `passive_observation` SHALL assert only `up`.
 
 #### Scenario: New integration declares its class
 - **GIVEN** a new integration type registered with authority class `managing_controller`
 - **WHEN** it submits evidence for a device
-- **THEN** the resolver SHALL rank that evidence as `managing_controller` without any code change to the resolver
+- **THEN** the resolver SHALL rank that evidence as `managing_controller` without any change to the resolver
 
 #### Scenario: Static import is lowered to declared inventory
 - **GIVEN** an integration type that declares `managing_controller`
@@ -43,43 +58,67 @@ The ranked classes, highest first, are `operator_policy`, `self_report`, `managi
 - **THEN** the evidence SHALL carry `inventory_declared`
 
 ### Requirement: Canonical Device Availability Resolution
-The system SHALL derive each device's `availability_state` from its fresh, eligible, decisive evidence by selecting the highest-ranked authority class that has a decisive record and, within that class, resolving `available` when any decisive record is `up` and `unavailable` otherwise.
-When the device has an `availability_source_agent_id` (set directly or by an availability source profile), `active_probe` evidence from other agents SHALL be excluded from the decision and retained for display. Evidence whose reporter is not eligible SHALL be excluded from the decision.
+The system SHALL derive each device's `availability_state` by selecting the governing class (the highest-ranked authority class with any fresh, eligible, non-excluded record), deciding from that class when it has a decisive record and keeping the previous state when it has only records awaiting confirmation; within the deciding class the state SHALL be `available` when any decisive record is `up` and `unavailable` otherwise.
+When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents SHALL be excluded from the decision and retained for display. Records whose reporter is not eligible, and per-agent results from negative-control agents, SHALL be excluded from the decision. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
 
 #### Scenario: Controller up outranks failing probes
 - **GIVEN** a device with fresh `managing_controller` evidence `up`
-- **AND** fresh, confirmed `active_probe` evidence `down` from two sweep agents
+- **AND** confirmed unreachable results from two sweep agents
 - **WHEN** availability is resolved
-- **THEN** `availability_state` SHALL be `available`
-- **AND** the decision SHALL record `managing_controller` as the deciding class
-- **AND** the device SHALL be marked as having conflicting lower-ranked evidence
+- **THEN** `availability_state` SHALL be `available` decided by `managing_controller`
+- **AND** the device SHALL be marked as having conflicting evidence
 
 #### Scenario: Any reachable vantage point wins within a class
 - **GIVEN** a device with no evidence above `active_probe`
-- **AND** fresh evidence `up` from one eligible sweep agent and confirmed `down` from another
+- **AND** a fresh reachable result from one eligible agent and a confirmed unreachable result from another
 - **WHEN** availability is resolved
 - **THEN** `availability_state` SHALL be `available`
 
 #### Scenario: Pinned agent decides the probe class
 - **GIVEN** a device whose `availability_source_agent_id` is agent A
-- **AND** fresh `active_probe` evidence `down` (confirmed) from agent A and `up` from agent B
+- **AND** a confirmed unreachable result from agent A and a reachable result from agent B
 - **AND** no evidence above `active_probe`
 - **WHEN** availability is resolved
 - **THEN** `availability_state` SHALL be `unavailable`
-- **AND** agent B's evidence SHALL remain visible on the device
+- **AND** agent B's result SHALL remain visible on the device
 
 #### Scenario: Ineligible reporter does not decide
 - **GIVEN** a sweep result from an agent that is not an expected reporter for the device's sweep group
 - **WHEN** availability is resolved
-- **THEN** that agent's evidence SHALL NOT affect `availability_state`
+- **THEN** that agent's result SHALL NOT affect `availability_state`
+
+### Requirement: Negative-Control Vantage Points
+The system SHALL treat an agent that an enabled composite check expects to be blocked for a device as a negative-control vantage point for that device, and SHALL exclude that agent's results from the merged availability decision in both directions.
+An unreachable result from a negative-control agent SHALL be counted as a verified block, and a reachable result SHALL be counted as a policy violation. The policy-violation signal SHALL be the composite check's existing verdict and verdict events, and the merged availability SHALL NOT emit a second event for it.
+
+#### Scenario: Expected block does not pull the device down
+- **GIVEN** agent A is a liveness witness and agent B is expected to be blocked for a device
+- **AND** agent A reaches the device and agent B does not
+- **WHEN** availability is resolved
+- **THEN** `availability_state` SHALL be `available`
+- **AND** the device SHALL report one verified block and no policy violation
+
+#### Scenario: Should-be-blocked agent reaches the device
+- **GIVEN** agent B is expected to be blocked for a device
+- **AND** agent B reaches the device
+- **WHEN** availability is resolved
+- **THEN** agent B's result SHALL NOT be counted as an availability vote
+- **AND** the device SHALL report a policy violation
+- **AND** the composite check's verdict for the device SHALL be unchanged by this resolution
 
 ### Requirement: Availability Hysteresis Is Preserved
-The system SHALL treat a `down` evidence record as decisive only after the number of consecutive `down` observations from that source reaches its authority class's confirmation threshold, and SHALL treat an `up` record as decisive immediately.
-The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be capped at the threshold and SHALL NOT grow without bound.
+The system SHALL treat a `down` record as decisive only after the number of consecutive `down` observations from that source reaches its authority class's confirmation threshold, SHALL treat an `up` record as decisive immediately, and SHALL keep a device's previous state while its governing class holds only records awaiting confirmation.
+The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold.
 
 #### Scenario: Single failed probe does not flip a device
-- **GIVEN** a device resolved `available` from `active_probe` evidence
-- **WHEN** its only eligible sweep agent reports one failed probe
+- **GIVEN** a device resolved `available` from per-agent results
+- **WHEN** its only eligible agent reports one failed probe
+- **THEN** `availability_state` SHALL remain `available`
+
+#### Scenario: Pending failure does not fall through to a lower class
+- **GIVEN** a device resolved `available` from a reachable agent result
+- **AND** fresh `inventory_declared` evidence `down`
+- **WHEN** the agent reports its first failed probe
 - **THEN** `availability_state` SHALL remain `available`
 
 #### Scenario: Second consecutive failure flips the device
@@ -93,7 +132,7 @@ The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL 
 - **THEN** `availability_state` SHALL become `available` in the same ingestion
 
 ### Requirement: Availability Evidence Expires
-The system SHALL ignore evidence whose freshness TTL has elapsed and SHALL re-resolve affected devices when evidence expires, without waiting for new evidence.
+The system SHALL ignore evidence and per-agent results older than their freshness window when resolving availability, and SHALL re-resolve affected devices when they expire without waiting for new evidence.
 TTLs SHALL default per class from the source's cadence and SHALL be bounded by the source registration.
 
 #### Scenario: Agent stops checking in
@@ -103,7 +142,7 @@ TTLs SHALL default per class from the source's cadence and SHALL be bounded by t
 - **AND** if no other evidence exists its state SHALL become `unknown`
 
 ### Requirement: Explicit Unknown Availability State
-The system SHALL represent device availability as `available`, `unavailable` or `unknown`, and SHALL resolve `unknown` when no fresh decisive evidence exists, except that pending, non-decisive `down` evidence SHALL keep the previous state.
+The system SHALL represent device availability as `available`, `unavailable` or `unknown`, and SHALL resolve `unknown` when no fresh, eligible record exists in any class.
 After cutover, `is_available` SHALL be `true` for `available`, `false` for `unavailable` and `NULL` for `unknown`. A device created without evidence SHALL start `unknown`.
 
 #### Scenario: Inventory-only device
@@ -114,35 +153,42 @@ After cutover, `is_available` SHALL be `true` for `available`, `false` for `unav
 
 #### Scenario: All evidence aged out
 - **GIVEN** a device previously resolved `available`
-- **WHEN** all of its evidence expires
+- **WHEN** all of its evidence and per-agent results expire
 - **THEN** `availability_state` SHALL be `unknown`
 - **AND** the previous decision and its time SHALL remain inspectable
 
-### Requirement: Availability Decision Provenance
-The system SHALL record, with each device's availability, the deciding source kind, source instance, reporter agent, authority class and rule, the time the state last changed, and whether fresh lower-ranked evidence disagrees.
+### Requirement: Availability Decision Provenance And Agent Summary
+The system SHALL record, with each device's availability, the deciding source kind, source instance, reporter agent, authority class and rule, the time the state last changed, whether fresh excluded or lower-ranked evidence disagrees, and a per-agent summary counting reachable, unreachable, stale and total non-control agents plus verified blocks, policy violations and inconclusive negative controls.
 
 #### Scenario: Operator inspects why a device is available
 - **GIVEN** a device resolved `available` by a managing controller while sweeps fail
 - **WHEN** an operator reads the device
 - **THEN** the device SHALL expose the controller as the deciding source with class `managing_controller`
 - **AND** SHALL expose that conflicting evidence exists
+- **AND** SHALL expose that zero of its probing agents reach it
 
 ### Requirement: Availability Writes Are Write-On-Change
-The system SHALL write an evidence record only when its state changes, when its confirmation count is below the class threshold, or when its remaining lease is less than half its TTL, and SHALL write the device row only when the resolved state or its provenance changes.
+The system SHALL write an evidence record only when its state, authority class, reporter eligibility or effective expiry changes, when its confirmation count is below the class threshold, or when its remaining lease is less than half its TTL, and SHALL write the device row only when the resolved state, provenance, conflict flag or per-agent summary changes.
 
-#### Scenario: Steady unreachable device stops writing
-- **GIVEN** a device resolved `unavailable` with confirmed probe failures
-- **WHEN** further sweeps report the same failure within the lease
+#### Scenario: Steady disagreement stops writing
+- **GIVEN** a device with controller evidence `up` and confirmed unreachable agent results, both steady
+- **WHEN** the controller sync and the sweep each run again within the lease
 - **THEN** neither the evidence record nor the device row SHALL be rewritten
 
-#### Scenario: Two sources disagree steadily
-- **GIVEN** a device with controller evidence `up` and probe evidence `down`, both steady
-- **WHEN** the controller sync and the sweep each run again
-- **THEN** `availability_state` SHALL NOT change
-- **AND** the device row SHALL NOT be rewritten
+#### Scenario: Eligibility change is written immediately
+- **GIVEN** an evidence record whose reporter becomes ineligible
+- **WHEN** the source submits the same state within the lease
+- **THEN** the evidence record SHALL be rewritten with the new eligibility
+- **AND** the device SHALL be re-resolved
+
+#### Scenario: Conflict change updates the device without a transition
+- **GIVEN** a device resolved `available` by a controller with no conflict
+- **WHEN** a probing agent's failures reach the confirmation threshold
+- **THEN** the device's conflict flag and agent summary SHALL be updated
+- **AND** no availability transition SHALL be emitted
 
 ### Requirement: Availability Transitions Are Emitted Once By The Resolver
-The system SHALL emit `device.available` and `device.unavailable` events and `signals.state.ocsf_devices` availability transitions only from the availability resolver, exactly once per resolved state change, after the resolving transaction commits.
+The system SHALL emit `device.available` and `device.unavailable` events and `signals.state.ocsf_devices` availability transitions only from the availability resolver, exactly once per change of `availability_state`, after the resolving transaction commits.
 Each transition SHALL name the deciding source kind, authority class, reporter agent and previous state. Emission of `device.*` events SHALL remain opt-in.
 
 #### Scenario: One transition per real change
@@ -155,19 +201,18 @@ Each transition SHALL name the deciding source kind, authority class, reporter a
 - **WHEN** the transaction rolls back
 - **THEN** no availability event or state-feed transition SHALL be published
 
-### Requirement: Availability Evidence Follows Device Identity Operations
-The system SHALL move a merged-away device's evidence to the surviving device, keep the record with the later observed-at time on a collision, and re-resolve the survivor in the merge transaction. It SHALL also re-resolve a restored device in the restoring transaction without that re-resolution clearing any tombstone.
+### Requirement: Availability Follows Device Identity Operations
+The system SHALL move a merged-away device's evidence records to the surviving device and re-resolve the survivor in the merge transaction, SHALL leave per-agent ledger reassignment behavior unchanged, and SHALL re-resolve a restored device in the restoring transaction without that re-resolution clearing any tombstone.
 
-#### Scenario: Merge keeps fresher evidence
-- **GIVEN** two devices with evidence from the same sweep agent
-- **AND** the device being merged away holds the more recent observation
-- **WHEN** the devices are merged
-- **THEN** the survivor SHALL keep the more recent observation
-- **AND** the survivor's availability SHALL be re-resolved
+#### Scenario: Merge re-resolves the survivor
+- **GIVEN** two devices with availability evidence
+- **WHEN** they are merged
+- **THEN** the survivor SHALL hold both devices' evidence records
+- **AND** the survivor's availability SHALL be re-resolved before the merge commits
 
 ### Requirement: Staged Availability Cutover
-The system SHALL support availability modes `legacy`, `shadow` and `authoritative`. In `shadow` mode it SHALL publish a divergence report before any device's canonical availability is decided by the resolver.
-The report SHALL count devices by legacy value, legacy badge value, shadow state, deciding source kind and authority class, and SHALL include sample device uids. Entering `authoritative` mode SHALL apply the shadow decisions through a reconciliation pass that suppresses per-device transition events, state-feed messages and UI invalidations and emits one summary event. Returning to `legacy` SHALL restore the legacy writers.
+The system SHALL support availability modes `legacy`, `shadow`, `cutover` and `authoritative`, SHALL drain in-flight writers on every mode change, and SHALL publish a divergence report in `shadow` mode before any device's canonical availability is decided by the resolver.
+The report SHALL count devices by legacy value, legacy badge value, shadow state, deciding source kind and authority class, SHALL count devices that would become unknown, policy violations and invalid pins, SHALL include per-source Armis northbound push changes, and SHALL include sample device uids. In `cutover` mode legacy writers SHALL NOT write device availability and every availability transition side effect SHALL be suppressed while reconciliation applies the shadow decisions; `authoritative` mode SHALL begin only after reconciliation completes. Returning to `legacy` SHALL restore the legacy writers.
 
 #### Scenario: Shadow mode changes nothing visible
 - **GIVEN** availability mode `shadow`
@@ -177,12 +222,13 @@ The report SHALL count devices by legacy value, legacy badge value, shadow state
 
 #### Scenario: Cutover does not storm
 - **GIVEN** a shadow report showing many devices that would change state
-- **WHEN** the mode is switched to `authoritative`
-- **THEN** the reconciliation SHALL apply all changes without emitting per-device `device.available` or `device.unavailable` events
-- **AND** SHALL emit one summary event with the counts per resulting state
+- **WHEN** the mode is switched to `cutover` and reconciliation runs while ingestion continues
+- **THEN** no per-device `device.available` or `device.unavailable` event and no state-feed transition SHALL be emitted until the mode becomes `authoritative`
+- **AND** one summary event with the counts per resulting state SHALL be emitted
+- **AND** no legacy writer SHALL change a reconciled device's availability
 
 #### Scenario: Rollback to legacy
 - **GIVEN** availability mode `authoritative`
 - **WHEN** an operator switches the mode back to `legacy`
 - **THEN** the legacy writers SHALL resume writing `is_available` on their next cycle
-- **AND** stored evidence SHALL be retained
+- **AND** stored evidence and per-agent results SHALL be retained

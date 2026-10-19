@@ -20,6 +20,24 @@ SRQL SHALL expose the device's canonical `availability` (`available`, `unavailab
 - **WHEN** a client sends a grouped stats query filtered with `!is_available:true`
 - **THEN** the grouped result SHALL count only `unavailable` devices, matching the list filter's semantics
 
+### Requirement: Devices Expose Per-Agent Reachability
+SRQL SHALL keep the existing per-agent availability filters (`available_from_agent`, `unavailable_from_agent`, `availability_source_fresh_within`) with unchanged semantics, and SHALL add `agent_reachability:all|partial|none`, `availability_policy:violation|verified|inconclusive`, and the returned fields `agents_up` and `agents_total` derived from the per-agent ledger.
+
+#### Scenario: Find devices unreachable from some agents
+- **GIVEN** a device reachable from one of three probing agents
+- **WHEN** a client sends `in:devices agent_reachability:partial`
+- **THEN** the device SHALL be returned with `agents_up` 1 and `agents_total` 3
+
+#### Scenario: Per-agent filter is unchanged
+- **GIVEN** a device whose merged state is `available` while agent B's latest result is unreachable
+- **WHEN** a client sends `in:devices unavailable_from_agent:B`
+- **THEN** the device SHALL be returned
+
+#### Scenario: Find isolation policy violations
+- **GIVEN** a device reached by an agent that is expected to be blocked
+- **WHEN** a client sends `in:devices availability_policy:violation`
+- **THEN** the device SHALL be returned
+
 ### Requirement: Device Default Order Uses Canonical Availability
 SRQL SHALL order `in:devices` results without an explicit sort by canonical availability rank (`available`, then `unavailable`, then `unknown`), then by IP ascending, then by uid.
 

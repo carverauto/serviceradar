@@ -2,13 +2,14 @@
 
 ### Requirement: Core Processes Sweep Results via DIRE
 
-The core SHALL process sweep results through DIRE and SHALL submit each matched host's reachability to the device availability resolver as `active_probe` evidence, without writing `ocsf_devices.is_available` directly.
+The core SHALL process sweep results through DIRE, SHALL record each matched host's result in the per-agent availability ledger, and SHALL have the device availability resolver re-resolve the matched devices, without writing `ocsf_devices.is_available` directly.
 
 #### Scenario: Update device availability from sweep
 - **GIVEN** sweep results indicating host availability
 - **WHEN** core processes the results
 - **THEN** DIRE SHALL match hosts to existing devices by IP
-- **AND** submit `active_probe` availability evidence for each matched device, carrying the reporting agent, the reporter's eligibility for the sweep group, the observed state and a TTL derived from the sweep interval
+- **AND** upsert the reporting agent's latest result for each matched device into the per-agent ledger, keeping the result whether reachable or not
+- **AND** re-resolve each matched device's availability in the same transaction
 - **AND** the device's availability SHALL change only as decided by the availability resolver
 - **AND** update `ocsf_devices.last_seen_time` for available devices
 - **AND** add "sweep" to `discovery_sources` array
@@ -16,7 +17,7 @@ The core SHALL process sweep results through DIRE and SHALL submit each matched 
 #### Scenario: Sweep failure counters are not stored on the device row
 - **GIVEN** a device that fails consecutive sweeps
 - **WHEN** core processes each failed result
-- **THEN** the consecutive-failure count SHALL be kept on the sweep evidence record, capped at the confirmation threshold
+- **THEN** the consecutive-failure count SHALL be kept on the agent's per-agent ledger row, capped at the confirmation threshold
 - **AND** core SHALL NOT write sweep failure counters into `ocsf_devices.metadata`
 
 #### Scenario: Ignore sweep hosts not in inventory

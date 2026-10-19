@@ -30,83 +30,109 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
 
 ## What Changes
 
-- **Availability evidence contract (new).** Each availability source submits
-  *evidence* through a single core interface,
-  `ServiceRadar.Inventory.Availability.record_evidence/2`. Sources do not
-  write the device column. An evidence record carries the source kind, the
-  source instance, an **authority class**, the observed state, `observed_at`,
-  a freshness TTL, an optional reporter agent, a confirmation count and
-  bounded detail. The authority class is declared by the source's
-  registration (integration instance, plugin manifest or built-in source
-  descriptor). It is never inferred from an integration's name.
-- **One resolver, one place.** A pure function in core,
-  `Availability.Resolver.resolve/3`, derives each device's availability from
-  its fresh evidence. Its precedence depends only on authority class,
-  freshness, confirmation (hysteresis) and the device's
-  `availability_source_agent_id`. Resolution runs in the same transaction as
-  the evidence write. It holds the device row lock and writes the device only
-  when the decision changes.
-- **Explicit unknown state.** A new `availability_state` column
-  (`available | unavailable | unknown`) is the canonical value.
-  `is_available` is kept as a compatibility projection: `true` when the state
-  is available, `false` when it is unavailable, and `NULL` when it is unknown
-  after cutover. The resolver also records the decision's provenance
-  (deciding source kind, authority class, reporter agent, decided_at,
-  changed_at, and a conflict flag).
-- **Consistent readers.** SRQL sort, filters and stats, the inventory rollup
-  counts and the device row badge all read the canonical state. The web-ng
-  badge override is removed. The device detail page keeps the per-agent sweep
-  table and gains an evidence table that explains the decision.
+- **The per-agent ledger stays first-class and lossless.**
+  `device_agent_availability` keeps every agent's latest result per device,
+  including negative results, each with its own timestamp. The merged value
+  is a summary derived from it. It never prunes, ages out or rewrites
+  per-agent rows. The only change to the ledger is one additive hysteresis
+  counter.
+- **An evidence contract for every other source.** Non-probe sources submit
+  *evidence* through one core interface,
+  `ServiceRadar.Inventory.Availability.record_evidence/2`. These are
+  controllers, hypervisors, camera managers, agent liveness, passive
+  sightings, plugins, inventory records and composite-check policy. Each
+  record carries an **authority class** that comes from the source's
+  registration (built-in descriptor, plugin manifest or integration
+  instance). The class is never inferred from an integration's name.
+- **Negative-control vantage points.** An agent that a composite check
+  expects to be blocked for a device reuses the existing vantage input
+  `expected` notion. Its blocked result is a verified block, not "device
+  down". If it can reach the device, that is a policy violation, surfaced
+  through the composite check's existing verdict. In both cases the agent is
+  excluded from the merged up/down decision.
+- **One resolver, one place.** `Availability.Resolver.resolve/3` is a pure
+  function. It derives the canonical `availability_state` (`available |
+  unavailable | unknown`) from four inputs: authority class, freshness,
+  confirmation (hysteresis, including a hold while the governing class has
+  only unconfirmed failures) and `availability_source_agent_id`.
+  - Resolution runs transactionally, holding the device row lock, and writes
+    only on change.
+  - `is_available` becomes a projection of the state: true, false, or `NULL`
+    for unknown.
+  - The device also records the decision's provenance, a conflict flag and a
+    per-agent summary (up, down, stale and total agents; verified blocks;
+    policy violations).
+- **Consistent readers with per-agent visibility.** SRQL sort, filters,
+  stats and the inventory rollups read the canonical state.
+  - The device list badge reads the same state.
+  - The list shows "up from N of M agents" with a partial-reachability
+    marker, so the merged badge never hides a per-agent failure.
+  - The existing per-agent SRQL filters and the device page's per-agent
+    section are unchanged.
+  - The web-ng badge override is removed.
+- **Armis northbound compatibility.**
+  - The agent-selected path reads the unchanged ledger and pushes exactly
+    what it does today.
+  - The canonical path (no agent selected) keeps `legacy` semantics through
+    a compatibility table until an operator selects an agent or adopts
+    merged availability, after seeing a per-source preview.
+  - Nothing that is pushed to Armis changes silently.
 - **Transitions from one emitter.** `device.available` and
-  `device.unavailable` events and the `signals.state.ocsf_devices` transition
-  feed are emitted by the resolver alone, once per real transition, and name
-  the source that decided. Opt-in event emission is preserved.
-- **Staged, measurable rollout.** The rollout has four stages, each with its
-  own rollback:
-  - (a) capture evidence alongside today's writes, with no behavior change;
-  - (b) resolve in shadow and publish a divergence report;
-  - (c) cut over through a reconciliation pass that suppresses transition
-    side effects;
-  - (d) remove the direct writers and the web-ng override.
-- **BREAKING (after stage d):** `is_available` can be `NULL` for devices with
-  no fresh evidence. The Available and Unavailable counts change on existing
-  installs where they were inflated by the `DEFAULT true` column and by stale
-  writes. Direct writes to `is_available` through Ash actions, the
-  `:set_availability` action, or raw SQL stop taking effect.
+  `device.unavailable` events and the `signals.state.ocsf_devices`
+  transitions are emitted by the resolver alone, once per state change.
+  Opt-in emission is preserved.
+- **A staged, measurable rollout** with a rollback at each stage:
+  - (a) capture evidence with no behavior change;
+  - (b) run in shadow and publish a divergence report;
+  - (c) cut over through a `cutover` mode that drains legacy writers and
+    suppresses every transition side effect until reconciliation finishes;
+  - (d) remove the direct writers and the web-ng override. Stage d is gated
+    on no Armis source remaining in `legacy`.
+- **BREAKING (after stage c):**
+  - `is_available` can be `NULL` (unknown).
+  - The Available and Unavailable counts change where they were inflated by
+    `DEFAULT true` or by stale writes.
+  - Direct writes to `is_available` stop taking effect.
 
 ## Impact
 
-- Affected specs: `device-inventory` (ADDED), `sweeper` (MODIFIED
-  "Core Processes Sweep Results via DIRE"), `srql` (ADDED), `build-web-ui`
-  (ADDED), `wasm-plugin-system` (ADDED).
-- Interacts with the pending `add-per-agent-availability` change, which is
-  complete but not archived. That change's "Canonical availability source
-  selection" and "Availability source freshness" requirements are refined
-  here, so archive it before this one. See design.md, "Relationship to
-  pending changes".
+- Affected specs:
+  - `device-inventory` (ADDED);
+  - `sweeper` (MODIFIED "Core Processes Sweep Results via DIRE");
+  - `srql` (ADDED);
+  - `build-web-ui` (ADDED);
+  - `wasm-plugin-system` (ADDED);
+  - `sync-service-integrations` (ADDED, Armis northbound compatibility).
+- Builds on the pending `add-per-agent-availability` change (complete, not
+  archived), which owns the ledger, the pin, the profiles and freshness.
+  Archive that change first. See design.md, "Relationship to pending
+  changes".
 - Affected code (implementation is out of scope for this proposal):
-  - `elixir/serviceradar_core`: new `inventory/availability/*`.
-  - Writers that move onto the evidence interface:
-    - `sweep_jobs/sweep_results_ingestor.ex`
-    - `wifi_map/batch_ingestor.ex`
-    - `edge/agent_gateway_sync.ex`
-    - `inventory/sync/{normalize,device_records,device_writes}.ex`
-    - `inventory/device_discovery_ingestor.ex`
-    - `inventory/hypervisor_enrichment_ingestor.ex`
-    - `camera/inventory_ingestor.ex`
-    - `composite_checks/evaluation.ex`
-  - `inventory/device.ex`, whose accept lists change.
-  - `sweep_jobs/availability_events.ex`, which is generalized.
-  - `inventory/sync/state_events.ex`.
-  - Migrations: an evidence table, device state columns, shadow and audit
-    tables, the rollup trigger and a backstop trigger.
-- `rust/srql`: devices filters, order and stats; `viz/inventory`.
-- `elixir/web-ng`: device list and detail pages, topology availability
-  sources, dashboards, the API device JSON, `priv/static/openapi.json` and
-  `priv/mcp/srql-cookbook.md`.
-- `go/`: mapper publisher, the sweeper `DeviceUpdate` path, the plugin SDK
-  `DiscoveredDevice` (in `serviceradar-sdk-go`, vendored), and the
-  in-repo plugins that set availability (proxmox, starlink, opentext-nom,
-  awx).
-- `rust/correlation-engine`: consumes the transition feed, which carries one
-  transition per real change after cutover.
+  - `elixir/serviceradar_core`:
+    - new: `inventory/availability/*`;
+    - writers: `sweep_jobs/sweep_results_ingestor.ex`,
+      `wifi_map/batch_ingestor.ex`, `edge/agent_gateway_sync.ex`,
+      `inventory/sync/{normalize,device_records,device_writes}.ex`,
+      `inventory/device_discovery_ingestor.ex`,
+      `inventory/hypervisor_enrichment_ingestor.ex`,
+      `camera/inventory_ingestor.ex`, and `composite_checks/evaluation.ex`
+      (which also materializes vantage expectations);
+    - other: `integrations/armis_northbound_runner.ex` (canonical path only),
+      `inventory/device.ex`, `sweep_jobs/availability_events.ex`,
+      `inventory/sync/state_events.ex`;
+    - migrations.
+  - `rust/srql`: devices filters, order and stats; `viz/inventory`.
+  - `elixir/web-ng`:
+    - device list and detail pages;
+    - dashboards;
+    - API device JSON, `priv/static/openapi.json` and
+      `priv/mcp/srql-cookbook.md`.
+  - `go/`: plugin manifests for the in-repo plugins that set availability.
+  - `rust/correlation-engine`: receives one transition per real change.
+- Unchanged by design: every per-agent ledger consumer, namely
+  - composite-check evaluation, the vantage resolver and coverage;
+  - validation scans;
+  - merge reassignment;
+  - the Armis agent path;
+  - the SRQL per-agent filters;
+  - the per-agent device tab.
