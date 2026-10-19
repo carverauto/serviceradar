@@ -48,8 +48,9 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
   expects to be blocked for a device reuses the existing vantage input
   `expected` notion. Its blocked result is a verified block, not "device
   down". If it can reach the device, that is a policy violation, surfaced
-  through the composite check's existing verdict. In both cases the agent is
-  excluded from the merged up/down decision.
+  through the composite check's existing verdict. A blocked result is
+  excluded from the merged decision; a reach counts as liveness and carries
+  the policy-violation flag.
 - **One resolver, one place.** `Availability.Resolver.resolve/3` is a pure
   function. It derives the canonical `availability_state` (`available |
   unavailable | unknown`) from four inputs: authority class, freshness,
@@ -57,8 +58,9 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
   only unconfirmed failures) and `availability_source_agent_id`.
   - Resolution runs transactionally, holding the device row lock, and writes
     only on change.
-  - `is_available` becomes a projection of the state: true, false, or `NULL`
-    for unknown.
+  - `is_available` becomes a compatibility projection of the state: true or
+    false, keeping its last decided value while the device is unknown.
+    Unknown is exposed only through `availability_state`.
   - The device also records the decision's provenance, a conflict flag and a
     per-agent summary (up, down, stale and total agents; verified blocks;
     policy violations).
@@ -88,8 +90,11 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
     suppresses every transition side effect until reconciliation finishes;
   - (d) remove the direct writers and the web-ng override. Stage d is gated
     on no Armis source remaining in `legacy`.
+  - Phase 1 (stages a and b, no behavior change) ships and is reviewed on
+    demo before phase 2 (stages c and d) begins.
 - **BREAKING (after stage c):**
-  - `is_available` can be `NULL` (unknown).
+  - Unknown devices keep their last `is_available` value; readers that need
+    unknown must read `availability_state`.
   - The Available and Unavailable counts change where they were inflated by
     `DEFAULT true` or by stale writes.
   - Direct writes to `is_available` stop taking effect.

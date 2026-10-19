@@ -59,7 +59,7 @@ The ranked classes, highest first, are `operator_policy`, `self_report`, `managi
 
 ### Requirement: Canonical Device Availability Resolution
 The system SHALL derive each device's `availability_state` by selecting the governing class (the highest-ranked authority class with any fresh, eligible, non-excluded record), deciding from that class when it has a decisive record and keeping the previous state when it has only records awaiting confirmation; within the deciding class the state SHALL be `available` when any decisive record is `up` and `unavailable` otherwise.
-When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents SHALL be excluded from the decision and retained for display. Records whose reporter is not eligible, and per-agent results from negative-control agents, SHALL be excluded from the decision. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
+When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents SHALL be excluded from the decision and retained for display. Records whose reporter is not eligible, and unreachable per-agent results from negative-control agents, SHALL be excluded from the decision. A cross-class `up` from a lower class SHALL NOT override a higher class's decision; it SHALL mark the device as having conflicting evidence. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
 
 #### Scenario: Controller up outranks failing probes
 - **GIVEN** a device with fresh `managing_controller` evidence `up`
@@ -88,8 +88,8 @@ When the device has an `availability_source_agent_id` (set directly or by an ava
 - **THEN** that agent's result SHALL NOT affect `availability_state`
 
 ### Requirement: Negative-Control Vantage Points
-The system SHALL treat an agent that an enabled composite check expects to be blocked for a device as a negative-control vantage point for that device, and SHALL exclude that agent's results from the merged availability decision in both directions.
-An unreachable result from a negative-control agent SHALL be counted as a verified block, and a reachable result SHALL be counted as a policy violation. The policy-violation signal SHALL be the composite check's existing verdict and verdict events, and the merged availability SHALL NOT emit a second event for it.
+The system SHALL treat an agent that an enabled composite check expects to be blocked for a device as a negative-control vantage point for that device. An unreachable result from that agent SHALL be excluded from the merged availability decision and counted as a verified block. A reachable result SHALL count as liveness in the decision and SHALL be counted as a policy violation.
+The policy-violation signal SHALL be the composite check's existing verdict and verdict events, and the merged availability SHALL NOT emit a second event for it.
 
 #### Scenario: Expected block does not pull the device down
 - **GIVEN** agent A is a liveness witness and agent B is expected to be blocked for a device
@@ -102,13 +102,13 @@ An unreachable result from a negative-control agent SHALL be counted as a verifi
 - **GIVEN** agent B is expected to be blocked for a device
 - **AND** agent B reaches the device
 - **WHEN** availability is resolved
-- **THEN** agent B's result SHALL NOT be counted as an availability vote
+- **THEN** `availability_state` SHALL be `available` unless a higher authority class decides otherwise
 - **AND** the device SHALL report a policy violation
 - **AND** the composite check's verdict for the device SHALL be unchanged by this resolution
 
 ### Requirement: Availability Hysteresis Is Preserved
 The system SHALL treat a `down` record as decisive only after the number of consecutive `down` observations from that source reaches its authority class's confirmation threshold, SHALL treat an `up` record as decisive immediately, and SHALL keep a device's previous state while its governing class holds only records awaiting confirmation.
-The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold.
+The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold. The per-agent counter SHALL be maintained at the ledger write boundary for every ledger writer, SHALL advance only for an observation newer than the stored one, and SHALL NOT change the stored result or its timestamps.
 
 #### Scenario: Single failed probe does not flip a device
 - **GIVEN** a device resolved `available` from per-agent results
@@ -125,6 +125,17 @@ The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL 
 - **GIVEN** the same device after one failed probe
 - **WHEN** the agent reports a second consecutive failed probe
 - **THEN** `availability_state` SHALL become `unavailable`
+
+#### Scenario: Validation-only witness is confirmed like a sweep agent
+- **GIVEN** a device resolved `available` whose only eligible agent result comes from validation scans
+- **WHEN** two consecutive validation scans from that agent report it unreachable
+- **THEN** that agent's counter SHALL reach the threshold
+- **AND** `availability_state` SHALL become `unavailable`
+
+#### Scenario: Reassigning a ledger row does not count a failure
+- **GIVEN** an agent result with one recorded failure
+- **WHEN** the row is moved to a merge survivor without a new observation
+- **THEN** its failure count and check time SHALL be unchanged
 
 #### Scenario: Recovery is immediate
 - **GIVEN** a device resolved `unavailable` from confirmed probe failures
@@ -143,18 +154,19 @@ TTLs SHALL default per class from the source's cadence and SHALL be bounded by t
 
 ### Requirement: Explicit Unknown Availability State
 The system SHALL represent device availability as `available`, `unavailable` or `unknown`, and SHALL resolve `unknown` when no fresh, eligible record exists in any class.
-After cutover, `is_available` SHALL be `true` for `available`, `false` for `unavailable` and `NULL` for `unknown`. A device created without evidence SHALL start `unknown`.
+After cutover, `is_available` SHALL be `true` for `available` and `false` for `unavailable`, and SHALL keep its last decided value while the device is `unknown`; a device that has never had a decided state SHALL carry `false`. `unknown` SHALL be exposed only through `availability_state`, never as a NULL `is_available`. A device created without evidence SHALL start `unknown`.
 
 #### Scenario: Inventory-only device
 - **GIVEN** a device imported by an inventory sync that reports no availability
 - **WHEN** availability is resolved
 - **THEN** `availability_state` SHALL be `unknown`
-- **AND** `is_available` SHALL be NULL
+- **AND** `is_available` SHALL be `false`
 
 #### Scenario: All evidence aged out
 - **GIVEN** a device previously resolved `available`
 - **WHEN** all of its evidence and per-agent results expire
 - **THEN** `availability_state` SHALL be `unknown`
+- **AND** `is_available` SHALL remain `true`
 - **AND** the previous decision and its time SHALL remain inspectable
 
 ### Requirement: Availability Decision Provenance And Agent Summary
@@ -212,12 +224,13 @@ The system SHALL move a merged-away device's evidence records to the surviving d
 
 ### Requirement: Staged Availability Cutover
 The system SHALL support availability modes `legacy`, `shadow`, `cutover` and `authoritative`, SHALL drain in-flight writers on every mode change, and SHALL publish a divergence report in `shadow` mode before any device's canonical availability is decided by the resolver.
-The report SHALL count devices by legacy value, legacy badge value, shadow state, deciding source kind and authority class, SHALL count devices that would become unknown, policy violations and invalid pins, SHALL include per-source Armis northbound push changes, and SHALL include sample device uids. In `cutover` mode legacy writers SHALL NOT write device availability and every availability transition side effect SHALL be suppressed while reconciliation applies the shadow decisions; `authoritative` mode SHALL begin only after reconciliation completes. Returning to `legacy` SHALL restore the legacy writers.
+The report SHALL count devices by legacy value, legacy badge value, shadow state, deciding source kind and authority class, SHALL count devices that would become unknown, policy violations and invalid pins, SHALL include per-source Armis northbound push changes, and SHALL include sample device uids. In `legacy` and `shadow` modes `availability_state` SHALL equal the projection of `is_available`, and the legacy transition publishers SHALL emit. Until the legacy writers are removed they SHALL maintain the legacy availability value in a compatibility store in every mode, and that store SHALL be seeded from `is_available` under the drained cutover boundary. In `cutover` mode legacy writers SHALL NOT write device availability, and every availability transition side effect SHALL be suppressed while reconciliation re-resolves every device from its current evidence under the device lock; `authoritative` mode SHALL begin only after reconciliation completes. Returning to `legacy` SHALL restore `is_available` from the compatibility store and the legacy writers and publishers.
 
 #### Scenario: Shadow mode changes nothing visible
 - **GIVEN** availability mode `shadow`
 - **WHEN** evidence is ingested and resolved
 - **THEN** `ocsf_devices.is_available` SHALL still be written only by the legacy writers
+- **AND** `availability_state` SHALL equal the projection of `is_available`
 - **AND** the shadow decision SHALL be stored separately
 
 #### Scenario: Cutover does not storm
@@ -227,8 +240,16 @@ The report SHALL count devices by legacy value, legacy badge value, shadow state
 - **AND** one summary event with the counts per resulting state SHALL be emitted
 - **AND** no legacy writer SHALL change a reconciled device's availability
 
+#### Scenario: Reconciliation does not restore a superseded decision
+- **GIVEN** a shadow decision of `available` for a device
+- **AND** ingestion in `cutover` mode records confirmed `down` evidence and resolves the device `unavailable`
+- **WHEN** reconciliation reaches the device
+- **THEN** the device SHALL remain `unavailable`
+
 #### Scenario: Rollback to legacy
 - **GIVEN** availability mode `authoritative`
 - **WHEN** an operator switches the mode back to `legacy`
-- **THEN** the legacy writers SHALL resume writing `is_available` on their next cycle
+- **THEN** `is_available` SHALL be restored from the compatibility store
+- **AND** `availability_state` SHALL equal the projection of the restored `is_available`
+- **AND** the legacy writers and legacy transition publishers SHALL resume
 - **AND** stored evidence and per-agent results SHALL be retained

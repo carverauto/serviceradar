@@ -1,22 +1,21 @@
 ## 0. Preconditions
 
 - [ ] 0.1 Archive `add-per-agent-availability` so that its device-inventory requirements are in `specs/` before this change archives
-- [ ] 0.2 Get the user's decisions on the design.md Open Questions, especially Q2 (reading the vantage `expected` value), Q3 (how unknown projects), Q4 (whether a negative-control reach counts as liveness) and Q12 (the Armis default)
-- [ ] 0.3 Fix the NULL-handling readers marked "fix" in design.md before stage c:
-  - SRQL JSON `unwrap_or(false)`;
-  - grouped `NotEq` including NULL;
-  - `basic_summaries.ex` counting NULL as unavailable;
-  - `device_tab_runtime.ex:201` turning false into nil.
+- [ ] 0.2 Get the user's decisions on the remaining design.md Open Questions (Q5, Q6, Q7 and Q11); Q1-Q4, Q8-Q10 and Q12 are decided
+- [ ] 0.3 Fix the readers marked "fix" in design.md before stage c: `device_tab_runtime.ex:201` turning false into nil, and the `basic_summaries.ex` retired filter.
+
+Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence report, no behavior change). It ships and is reviewed on demo before phase 2 (sections 3 and 4) begins.
 
 ## 1. Stage a: capture (mode `legacy`, no behavior change)
 
 - [ ] 1.1 Migration:
   - `device_agent_availability.consecutive_down` (additive, default 0);
-  - `device_availability_evidence`, `device_vantage_expectations` and `device_availability_shadow`;
-  - the `ocsf_devices.availability_*` columns;
+  - `device_availability_evidence`, `device_vantage_expectations`, `device_availability_shadow`, `device_availability_legacy` and the `inventory.availability_mode` setting (`legacy`);
+  - the `ocsf_devices.availability_*` columns, populated from the projection of `is_available`;
+  - the mode-aware mirror trigger that keeps `availability_state` equal to the projection of `is_available` in `legacy` and `shadow`;
   - the Armis source attribute `northbound_availability_semantics`, with existing sources set to `legacy`.
 - [ ] 1.2 Source registration descriptors `{source_kind, authority_class, default_ttl, min_ttl, max_ttl}`, and Ash resources for the new tables.
-- [ ] 1.3 The sweep ledger upsert maintains `consecutive_down` in the same statement. No other ledger change; the ledger is never pruned or rewritten by availability code.
+- [ ] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances, so W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
 - [ ] 1.4 `Availability.record_evidence/2`, write-on-change, with decision-bearing fields written immediately and lease coalescing for unchanged observations.
 - [ ] 1.5 Submit evidence from every non-ledger writer:
   - Wi-Fi map (W5; a missing status submits nothing);
@@ -27,12 +26,14 @@
   - agent liveness (W10);
   - composite checks (W11);
   - mapper (W12).
+- [ ] 1.5a Legacy writers (W1-W3, W5-W11, the W14 create default) also maintain `device_availability_legacy`, write-on-change, with their full computation; legacy publishers emit only in `legacy` and `shadow`.
+- [ ] 1.5b Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom, and `inventory_declared` for the awx `enabled` flag, before shadow collection starts.
 - [ ] 1.6 The composite evaluation pass materializes vantage expectations, write-on-change.
 - [ ] 1.7 Backfill:
   - `consecutive_down` from `metadata.sweep_consecutive_failures`, capped;
   - vantage expectations;
   - `operator_policy` evidence from composite verdicts.
-- [ ] 1.8 Lab-deployment proof: `is_available`, the badges and the Armis candidate rows match the previous release for a full day. Record WAL bytes per hour as the baseline.
+- [ ] 1.8 Lab-deployment proof: `is_available`, the badges and the Armis candidate rows match the previous release for a full day, and `availability_state` equals the projection of `is_available` for every device. Record WAL bytes per hour as the baseline.
 
 ## 2. Stage b: shadow (mode `shadow`)
 
@@ -47,29 +48,30 @@
   - invalid pins (a pinned agent that is a negative control);
   - per-source Armis canonical push changes;
   - sample uids.
-- [ ] 2.6 Run on demo and the lab deployment, including the Wi-Fi AP split, and review with the user. This is the cutover gate.
+- [ ] 2.6 Run on demo and the lab deployment, including the Wi-Fi AP split, and review with the user. This review ends phase 1 and is the gate for phase 2.
 
 ## 3. Stage c: cutover (`cutover` then `authoritative`)
 
 - [ ] 3.1 The mode switch takes an advisory lock that drains in-flight writers; writers read the mode under the shared lock.
-- [ ] 3.2 In `cutover`, legacy writers write only `device_availability_legacy` (create the table), and the resolver suppresses all transition side effects.
+- [ ] 3.2 Under the drained switch to `cutover`, seed `device_availability_legacy` from `is_available` before any reader switches. In `cutover`, legacy writers write only that table, computing against it, and the resolver suppresses all transition side effects.
 - [ ] 3.3 The reconciliation job:
-  - applies the shadow decisions;
+  - re-resolves every device from its current ledger rows, evidence and vantage expectations under the device lock, through `resolve_devices/2` (never copying shadow output), writing false where `is_available` is NULL;
   - refreshes the rollups once;
   - reconciles stateful alerts;
   - emits one summary event;
   - moves the mode to `authoritative` only when it has finished.
+- [ ] 3.3a Rollback to `legacy`: under the drain, restore `is_available` from `device_availability_legacy` in uid-ordered pages so the mirror re-derives `availability_state`; legacy publishers resume with the mode.
 - [ ] 3.4 Rollup migration: an `unknown` key, the trigger counting by state, and a narrowed `WHEN`.
-- [ ] 3.5 Resolver-emitted transitions go through the outbox. Display-only changes broadcast a UI invalidation only. `state_events.ex` stops publishing `is_available`.
+- [ ] 3.5 Resolver-emitted transitions go through the outbox and are emitted only in `authoritative`. Display-only changes broadcast a UI invalidation only. `state_events.ex` publishes `is_available` only in `legacy` and `shadow`.
 - [ ] 3.6 Armis runner:
-  - the canonical path reads `device_availability_legacy` for `legacy` sources, and the state (withholding unknown) for `merged` sources;
+  - the canonical path reads `device_availability_legacy` for `legacy` sources in every mode, and the state (withholding unknown) for `merged` sources;
   - the source settings preview and the adopt action;
+  - new sources must select an agent or use `merged`;
   - the agent path is untouched.
 - [ ] 3.7 SRQL:
   - the `availability`, `availability_source`, `availability_class`, `agent_reachability` and `availability_policy` fields, plus `agents_up` and `agents_total`;
   - default order by availability rank;
-  - the summary `unknown` count;
-  - NULL JSON output.
+  - the summary `unknown` count.
 - [ ] 3.8 web-ng:
   - the badge from state;
   - "up from N of M agents" and the partial-reachability marker;
@@ -86,11 +88,10 @@
 
 ## 4. Stage d: removal (gated on no Armis source left in `legacy`)
 
-- [ ] 4.1 Delete the legacy column writes from W1, W2 and W5-W11, the compatibility table and the mode setting.
+- [ ] 4.1 Delete the legacy writes from W1, W2 and W5-W11, the compatibility table, the mirror trigger and the mode setting.
 - [ ] 4.2 Remove `is_available` from the Device accept lists. Delete `:set_availability`, the unused `:available` read action and the unused `status_color` calc, or switch them to the state.
 - [ ] 4.3 Delete `effective_availability/2`, `ServiceRadar.Core.ResultProcessor`, and the dead Go `service_registration.go` constructors.
 - [ ] 4.4 Migration: strip the `metadata.sweep_*` keys in pages, and add the backstop trigger and violations table (per Q7).
-- [ ] 4.5 Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom. Settle awx per Q9.
 
 ## 5. Tests (written with the implementation; the test-audit authoring gate applies)
 
@@ -106,24 +107,24 @@ Each contract has one owner-boundary test. No contract is replayed at another la
   - immediate recovery;
   - expiry to unknown;
   - stable provenance;
-  - negative controls, both a verified block and a violation;
+  - negative controls: a verified block, and a violation that counts as liveness;
+  - no cross-class available-wins (a lower-class `up` sets the conflict flag);
   - an invalid pin on a negative control.
 - [ ] 5.2 **Transactional owner** (DB tier, `srql-fixtures` scratch DB). `record_evidence/2` and `resolve_devices/2` against real rows:
   - two sources do not overwrite each other;
   - the device row is untouched when nothing changes (assert on `xmin`);
   - a conflict-only change updates the row without an outbox transition;
   - a transition writes one outbox row, and a rollback writes none.
-- [ ] 5.3 **Ledger losslessness** (DB tier). After resolution and after the expiry job, every agent's row (up, down and stale) is unchanged in value and `checked_at`.
+- [ ] 5.3 **Ledger losslessness and counter** (DB tier). After resolution and after the expiry job, every agent's row (up, down and stale) is unchanged in value and `checked_at`. Through the real writers, two validation-scan failures (W18) advance `consecutive_down` to the threshold, and a merge reassignment (W19) leaves it unchanged.
 - [ ] 5.4 **Sweep ingestion regression** (DB tier). Must fail on today's code. A device with controller `up` evidence and repeated sweep failures keeps a stable state, and its row is not rewritten per sweep.
-- [ ] 5.5 **Armis agent path** (DB tier, in the existing runner suite). `candidates_query/1` with an agent selected returns identical rows whether or not availability resolution has run, including for a should-be-blocked agent. Canonical `legacy` reads the compatibility table; canonical `merged` withholds unknown.
+- [ ] 5.5 **Armis agent path** (DB tier, in the existing runner suite). `candidates_query/1` with an agent selected returns identical rows whether or not availability resolution has run, including for a should-be-blocked agent. Canonical `legacy` reads the compatibility table, including for a device seeded at cutover that no legacy writer touches afterwards; canonical `merged` withholds unknown.
 - [ ] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched.
 - [ ] 5.7 **Merge** (DB tier, in the existing merge-engine suite). The survivor holds both devices' evidence and is re-resolved; ledger reassignment is unchanged.
-- [ ] 5.8 **Cutover** (DB tier). During `cutover`, ingestion plus reconciliation publish no per-device events, and a legacy writer started before the switch cannot land after it. One summary event is published.
+- [ ] 5.8 **Cutover and rollback** (DB tier). During `cutover`, ingestion plus reconciliation publish no per-device events, and a legacy writer started before the switch cannot land after it. One summary event is published. Down evidence ingested during `cutover` is not overwritten by reconciliation from an older shadow `available`. After a rollback to `legacy`, `is_available` equals the compatibility value and `availability_state` its projection.
 - [ ] 5.9 **SRQL** (Rust; extends the existing device query tables):
   - default order rank;
   - `availability:unknown`;
-  - `is_available:false` excluding NULL in both list and grouped queries;
-  - JSON `null`;
+  - an unknown device returned with its last `is_available` boolean;
   - `agent_reachability:partial`;
   - `availability_policy:violation`;
   - unchanged `unavailable_from_agent`;

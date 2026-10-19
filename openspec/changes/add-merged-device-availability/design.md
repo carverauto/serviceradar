@@ -131,7 +131,7 @@ Non-Goals:
   | ocsf_devices.availability_decided_by, _changed_at, _conflict                |
   | ocsf_devices.availability_agents  {up, down, stale, total,                  |
   |                                    blocked_verified, policy_violation}      |
-  | ocsf_devices.is_available  (projection of availability_state)               |
+  | ocsf_devices.is_available  (compatibility boolean: last decided value)       |
   +-----------------------------------------------------------------------------+
 ```
 
@@ -153,11 +153,24 @@ Keeping it as the store, instead of copying it into the generic evidence
 table, means there is one row per agent result and no duplicate writes.
 
 There is exactly one additive column: `consecutive_down smallint NOT NULL
-DEFAULT 0`. The sweep upsert sets it in the same statement it already runs:
-it increments while `is_available` stays false, capped at the probe
-confirmation threshold, and resets to 0 on true. It carries the hysteresis
-count that today lives in the device row's metadata. Existing readers select
-named columns or Ash attributes, so the column is invisible to them.
+DEFAULT 0`. A `BEFORE INSERT OR UPDATE` trigger on the ledger maintains it
+from `OLD` and `NEW` `is_available`, so every ledger writer (W4, W18, W19)
+gets the same counter without any change to its code:
+
+- on insert, it is 1 when `NEW.is_available` is false and 0 otherwise;
+- on an update whose `NEW.checked_at` is later than `OLD.checked_at` (a new
+  observation), it is 0 when `NEW.is_available` is true, 1 when the row goes
+  from true to false, and `OLD.consecutive_down + 1` when it stays false,
+  capped at the `active_probe` confirmation threshold;
+- on any other update (merge reassignment, a replayed result with the same
+  `checked_at`, the backfill), the value the statement wrote is kept, which
+  is the old value unless the statement sets it.
+
+The trigger does not touch `is_available`, `checked_at` or `updated_at`, so
+the ledger's value and timestamp semantics are unchanged. It carries the
+hysteresis count that today lives in the device row's metadata. Existing
+readers select named columns or Ash attributes, so the column is invisible to
+them.
 
 Ledger freshness is derived, not stored: a row is fresh while `checked_at +
 ttl > now`. The TTL is `2 x sweep interval + 5 min` of the row's
@@ -210,7 +223,7 @@ should reach the device" (`available`) or "this agent should be blocked"
 The design does change one thing: `expected` becomes a read input to the
 merged summary. Today it is documented as an authoring aid that the
 *composite evaluator* never reads. The evaluator still does not read it, and
-its verdicts stay rule-driven. Open Question 2 asks the user to confirm this.
+its verdicts stay rule-driven. The user confirmed this (Open Question 2).
 
 `sweep_reporter_expectation` is a different concept and stays one.
 `expected`, `unexpected`, `unknown` and `legacy` say whether an agent is an
@@ -238,13 +251,15 @@ New columns:
 can show "up from 2 of 3 agents" and SRQL can filter on it without joining.
 The ledger remains the source of the per-agent list.
 
-`is_available` becomes a projection of the state:
+`is_available` becomes a compatibility projection of the state:
 
 | `availability_state` | `is_available` (from stage c) |
 |---|---|
 | available | true |
 | unavailable | false |
-| unknown | NULL |
+| unknown | unchanged: the last decided boolean, or false for a device that has never had a decided state |
+
+Unknown is exposed only through `availability_state` (Decision 6).
 
 ## Writer inventory (staging at 36a686236b)
 
@@ -254,10 +269,10 @@ searching for the attribute in Elixir, Go, Rust and SQL.
 
 | # | Writer (file:line) | Path | Semantics today | After |
 |---|---|---|---|---|
-| W1 | `serviceradar_core/lib/serviceradar/sweep_jobs/sweep_results_ingestor.ex:2123` `update_device_statuses_available/3` (SET at :2129) | raw SQL | Sets true on any successful probe from an authorized reporter (the pinned agent, or an expected reporter when there is no pin). Every success also writes `last_seen_time`, `modified_time` and the `metadata.sweep_*` keys. | Column write removed; the ledger row decides. `last_seen_time` behavior is unchanged. |
-| W2 | same file `:2193` `update_device_statuses_with_hysteresis/4` (CASE at :2221) | raw SQL | Increments `metadata.sweep_consecutive_failures` without bound and clears the bit at 2 (`@unavailable_threshold`, :1694). Skips a device under "available wins". Rewrites the row on every failure. | Removed; hysteresis moves to `consecutive_down` on the ledger (Decision 5). |
+| W1 | `serviceradar_core/lib/serviceradar/sweep_jobs/sweep_results_ingestor.ex:2123` `update_device_statuses_available/3` (SET at :2129) | raw SQL | Sets true on any successful probe from an authorized reporter (the pinned agent, or an expected reporter when there is no pin). Every success also writes `last_seen_time`, `modified_time` and the `metadata.sweep_*` keys. | From cutover it writes only the compatibility table (Decision 13) until stage d; the ledger row decides. `last_seen_time` behavior is unchanged. |
+| W2 | same file `:2193` `update_device_statuses_with_hysteresis/4` (CASE at :2221) | raw SQL | Increments `metadata.sweep_consecutive_failures` without bound and clears the bit at 2 (`@unavailable_threshold`, :1694). Skips a device under "available wins". Rewrites the row on every failure. | From cutover it computes against the compatibility table (previous value plus `metadata.sweep_*`) until stage d. The resolver's hysteresis uses ledger `consecutive_down` (Decision 5). |
 | W3 | same file `:1108` `insert_provisional_device/4` (`is_available: false`, :1122) | Ash create | A newly seeded sweep device starts fail-closed. | Starts `unknown`, and the same pass resolves it. |
-| W4 | same file `:1845` `bulk_upsert_agent_availability/1` | `insert_all` into the ledger | Latest per-(device, agent) result. | **Unchanged** apart from setting `consecutive_down`. Becomes the `active_probe` input. |
+| W4 | same file `:1845` `bulk_upsert_agent_availability/1` | `insert_all` into the ledger | Latest per-(device, agent) result. | **Unchanged**; the ledger trigger maintains `consecutive_down`. Becomes the `active_probe` input. |
 | W5 | `serviceradar_core/lib/serviceradar/wifi_map/batch_ingestor.ex:949`, `wifi_device_available?/1` at `:1018` | SyncIngestor -> W6 | True for up/ok/online/available/true, **and true when the status is missing**. Re-asserted on every sync. | Evidence from its registration's class; a missing status is no evidence. |
 | W6 | `serviceradar_core/lib/serviceradar/inventory/sync/device_writes.ex:1894` (also `normalize.ex:55`, `device_records.ex:74,135`) | `insert_all ... on_conflict` | `COALESCE(EXCLUDED.is_available, d.is_available)`: any non-nil value overwrites. Shared by W5, W7, W8, W12 and W13. | Stops setting the column; routes the value to evidence for the update's source. |
 | W7 | `serviceradar_core/lib/serviceradar/inventory/device_discovery_ingestor.ex:271` | SyncIngestor | Plugin `device_discovery.v1` `is_available`. | Evidence with the class from the plugin manifest. |
@@ -266,12 +281,12 @@ searching for the attribute in Elixir, Go, Rust and SQL.
 | W10 | `serviceradar_core/lib/serviceradar/edge/agent_gateway_sync.ex:689`, `:1161` (`:gateway_sync`/`:gateway_restore`) | Ash | An agent hello or control session sets true; **nothing ever sets it false**. | `self_report` evidence, up only, expiring after 3 heartbeats. |
 | W11 | `serviceradar_core/lib/serviceradar/composite_checks/evaluation.ex:480` `persist_canonical_availability/2` | `Repo.update_all` | Runs only when `write_canonical_availability` is set: healthy -> true, down -> false. | `operator_policy` evidence. Verdicts and verdict events are unchanged. |
 | W12 | `go/pkg/agent/mapper_service.go:282` | mapper -> SyncIngestor | **Always true**, including second-hand LLDP/CDP/ARP neighbours. | `passive_observation` evidence (up only). |
-| W13 | Go plugins: `proxmox/discovery.go:20,106`, `starlink/discovery.go:140`, `opentext-nom/result.go:29`, `awx/main.go:3721` (**host `enabled` flag**) | plugin -> W7 | Each maps its own status field. 6 of the 10 in-repo plugins leave it nil. | Manifest-declared class (Open Question 9). |
-| W14 | `serviceradar_core/lib/serviceradar/inventory/device.ex:946` `default true`, plus the baseline column `DEFAULT true` | defaults | **Every create without a value starts available**, including CMDB-only imports. | New devices start `unknown`. |
+| W13 | Go plugins: `proxmox/discovery.go:20,106`, `starlink/discovery.go:140`, `opentext-nom/result.go:29`, `awx/main.go:3721` (**host `enabled` flag**) | plugin -> W7 | Each maps its own status field. 6 of the 10 in-repo plugins leave it nil. | Manifest-declared class, added in stage a. The awx `enabled` flag is `inventory_declared`, not reachability (Open Question 9). |
+| W14 | `serviceradar_core/lib/serviceradar/inventory/device.ex:946` `default true`, plus the baseline column `DEFAULT true` | defaults | **Every create without a value starts available**, including CMDB-only imports. | New devices start `unknown` (with `is_available` false). Until stage d the legacy default still feeds the compatibility table. |
 | W15 | `inventory/device.ex` accept lists for `:create` (:341), `:update` (:356), `:gateway_sync` (:363), `:gateway_restore` (:375) and `:set_availability` (:421) | Ash | Any Ash caller can set the column. `:set_availability` has no in-tree caller. | `is_available` removed from the accept lists at stage d. |
 | W16 | `serviceradar_core/lib/serviceradar/core/result_processor.ex:162` | `DeviceUpdate` builder | **No live caller.** | Delete at stage d. |
 | W17 | `go/pkg/sweeper/sweeper_results.go:121`, `sweeper_aggregators.go:153,213,232` | agent wire | The sweep `DeviceUpdate.IsAvailable` that feeds W1, W2 and W4. | Unchanged; it is the ledger input. |
-| W18 | `serviceradar_core/lib/serviceradar/composite_checks/validation/orchestrator.ex:449` `upsert_availability` | Ash, ledger | Validation scans write ledger rows (`checked_at = now`, no group, no reporter metadata, so they read as `legacy`). | **Unchanged.** The ledger stays lossless. These rows count as eligible probe results with the default TTL, exactly as web-ng counts them today. |
+| W18 | `serviceradar_core/lib/serviceradar/composite_checks/validation/orchestrator.ex:449` `upsert_availability` | Ash, ledger | Validation scans write ledger rows (`checked_at = now`, no group, no reporter metadata, so they read as `legacy`). | **Unchanged.** The ledger stays lossless, and the ledger trigger maintains `consecutive_down` for these rows too. They count as eligible probe results with the default TTL, exactly as web-ng counts them today. |
 | W19 | `serviceradar_core/lib/serviceradar/inventory/identity/reassignments.ex:159` `reassign_availability` (merge transaction, `merge_engine.ex:439`) | Ash, ledger | Moves ledger rows to the merge survivor; on an agent collision the survivor's row is kept. | **Unchanged.** The survivor is re-resolved in the same transaction (Decision 11). |
 | W20 | `go/pkg/models/service_registration.go:44,77` | `DeviceUpdate` constructors | `IsAvailable: true`; **no non-test caller**. | Delete with W16. |
 
@@ -379,11 +394,14 @@ controller.
 row from an agent that has an expectation of `blocked` for this device.
 These rows are classified separately:
 - `blocked_verified`: the row is fresh and down;
-- `policy_violation`: the row is fresh and up;
+- `policy_violation`: the row is fresh and up (it also stays in the
+  decision set as liveness);
 - `inconclusive_control`: there is no fresh row.
 
-Negative controls never pull the merged state down. Reaching a device from a
-negative control is a violation, not an "available" vote; see Decision 12.
+Negative controls never pull the merged state down. A fresh `up` row from a
+negative control returns to the decision set as an ordinary `active_probe`
+`up` row: reaching the device proves it is alive. It is also counted as a
+`policy_violation`; see Decision 12.
 
 **Step 3. Pin.** When `availability_source_agent_id` is set (directly or
 through an availability source profile), ledger rows from other agents leave
@@ -431,7 +449,9 @@ This fixes review finding R5.
   `total` over non-control agents) plus the three control counters.
 
 The resolver has no "if source is X" rule; the demo case follows from the
-classes. Cross-class "available wins" is Open Question 1.
+classes. There is no cross-class "available wins": a lower class's `up` never
+overrides a higher class's decision, and sets the conflict flag instead (Open
+Question 1).
 
 ### Decision 4: Freshness
 
@@ -460,22 +480,26 @@ by the number of expirations.
 | Recovery is immediate (W1) | An `up` row is decisive at once |
 | "Available wins" across agents, with a window of one sweep interval (W2) | Step 6, with the ledger freshness TTL as the window |
 | Reporter expectation gates who may write | Step 1 (eligibility) |
-| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row; the metadata keys are removed |
+| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger; the metadata keys remain only for the legacy computation and are removed at stage d |
 
-### Decision 6: Unknown is a state; the boolean is a projection
+### Decision 6: Unknown is a state; the boolean is a compatibility projection
 
 A forced boolean is what produced the bug: "no information" had to be
 written either as true (W5's missing status, W9, W14) or as false (W8).
 
-- `unknown` projects to `NULL` from stage c onward.
-- SRQL `is_available:true` and `is_available:false` keep their meaning and
-  exclude `NULL`.
-- `availability:unknown` finds the unknown devices.
-- Readers that currently coerce `NULL` to false are listed under "fix" in the
-  blast radius. They change before stage c.
+- `unknown` is a value of `availability_state` only. It does **not** project
+  to `NULL` (Open Question 3).
+- `is_available` keeps its last decided boolean while the device is unknown,
+  so existing boolean readers see no new value. A device that has never had
+  a decided state carries false. From stage c the column is never NULL: the
+  reconciliation writes false where it finds NULL.
+- SRQL `is_available:true` and `is_available:false` keep reading the column.
+  `availability:unknown` is the only way to find unknown devices.
+- Every reader that must distinguish unknown (sort, counts, badge, rollups,
+  Armis `merged` semantics) reads `availability_state`.
 
-The stage-b report counts the devices that would become unknown. Keeping the
-last boolean for unknown devices instead is Open Question 3.
+The stage-b report counts the devices that would become unknown, and how
+many of them hold `is_available` true.
 
 ### Decision 7: Write amplification and WAL
 
@@ -488,8 +512,8 @@ These writes happen today and change nothing:
 
 Proposed:
 
-- **Ledger.** Volume is unchanged: one upsert per result, as today, with one
-  extra smallint column in the same statement.
+- **Ledger.** Volume is unchanged: one upsert per result, as today. The
+  ledger trigger sets one extra smallint column in the same row write.
 - **Evidence.** An evidence row is written only when one of these holds:
   - its state or authority class changes;
   - reporter eligibility changes;
@@ -502,12 +526,15 @@ Proposed:
 - **Device row.** It is written only when the state, provenance, conflict
   flag or agent counters change (Decision 1, step 5). Provenance is stable
   (Decision 3, step 8).
-- **Sweep metadata.** The `metadata.sweep_*` keys are no longer written.
-  `last_seen_time` behavior is unchanged, as the "Device re-sighting"
-  scenario requires; coalescing it is Open Question 10.
+- **Sweep metadata.** The legacy writers keep the `metadata.sweep_*` keys
+  until stage d, because the compatibility computation needs them
+  (Decision 13); stage d stops writing them. `last_seen_time` behavior is
+  unchanged in this change, as the "Device re-sighting" scenario requires.
+  Coalescing re-sighting writes is decided for a follow-up change (Open
+  Question 10).
 - **Rollup trigger.** It fires only when its inputs change: state, type,
   vendor, deletion or retirement.
-- **Shadow table.** It is written on change only.
+- **Shadow and compatibility tables.** Both are written on change only.
 
 Net effect: device-row writes driven by availability fall from
 O(observations) to O(changes). A flapping pair like the demo's Wi-Fi APs
@@ -563,33 +590,69 @@ events travel on JetStream through the existing publishers.
     - `availability_policy:violation|verified|inconclusive`.
   - The default sort becomes availability rank, then `ip`, then `uid`.
   - `rollup_stats:inventory_summary` adds `unknown`.
-  - Grouped `!is_available` excludes NULL, as list filters do.
-  - JSON output emits `null`, not `false`.
+  - `is_available` filters and JSON output keep reading the column, which is
+    never NULL (Decision 6).
 
 ### Decision 10: Staged rollout with a coordinated cutover
 
 `inventory.availability_mode` takes the values `legacy`, `shadow`, `cutover`
-and `authoritative`. Writers read the mode inside their transaction while
+and `authoritative`. It is stored in a settings row that writers and the
+mirror trigger can read. Writers read the mode inside their transaction while
 holding a shared transaction-level advisory lock. Changing the mode takes
 that lock exclusively, so the switch waits for in-flight writers to finish
 (drain) and no writer can straddle two modes.
 
+**Phasing.** Phase 1 is stages a and b: evidence capture plus shadow mode with
+the divergence report, with no behavior change. It ships first and is
+reviewed on demo. Phase 2 (stage c cutover, then stage d writer removal)
+begins only after that review.
+
+Three mode-aware pieces exist from stage a until stage d, so that every stage
+and every rollback keeps readers, rollups, publishers and Armis consistent:
+
+- **The mirror.** A `BEFORE INSERT OR UPDATE` trigger on `ocsf_devices`
+  that, while the mode is `legacy` or `shadow`, sets `availability_state`
+  (and `availability_changed_at`, with `availability_decided_by.rule =
+  legacy_mirror`) from the projection of `is_available`: true is
+  `available`, false is `unavailable`, NULL is `unknown`. In `cutover` and
+  `authoritative` it does nothing. Any reader or rollup that reads
+  `availability_state` therefore sees exactly the legacy value whenever the
+  legacy writers are authoritative.
+- **The compatibility table**, `device_availability_legacy` (Decision 13).
+  The legacy writers (W1-W3, W5-W11 and the W14 create default) maintain it,
+  write-on-change, in every mode until stage d, with their full computation:
+  the previous value plus `metadata.sweep_*`. In `legacy` and `shadow` they
+  also write `is_available` exactly as today; from `cutover` they write only
+  the table and compute against it.
+- **The publishers switch with the mode.** In `legacy` and `shadow` the
+  legacy publishers (`state_events.ex` for `is_available`,
+  `sweep_jobs/availability_events.ex`) emit transitions. In `cutover` no
+  per-device transition is emitted. In `authoritative` only the resolver
+  emits.
+
 **(a) Capture, mode `legacy`.**
-- The ledger gains `consecutive_down`, and every non-ledger writer also calls
-  `record_evidence/2`, with resolution off.
+- The ledger gains `consecutive_down` and its trigger. Every non-ledger
+  writer also calls `record_evidence/2`, with resolution off. Plugin
+  manifests declare their authority class now, so the evidence carries the
+  class that will ship.
+- The mirror, the compatibility table and the mode setting are created.
 - Legacy column writes are unchanged.
 - Proof: on the lab deployment, `is_available` and the badges match the
-  previous release for a full day. WAL per hour is recorded as the baseline.
-- Rollback: turn capture off. Evidence can be truncated; the ledger column is
-  inert.
+  previous release for a full day, and `availability_state` equals the
+  projection of `is_available` for every device. WAL per hour is recorded as
+  the baseline.
+- Rollback: turn capture off. Evidence can be truncated; the ledger column,
+  the mirror and the compatibility table only restate legacy values.
 
 **(b) Shadow, mode `shadow`.**
 - The resolver writes `device_availability_shadow` (state, decided_by,
-  conflict, agents, computed_at) on change.
+  conflict, agents, computed_at) on change. The mirror still owns
+  `availability_state`.
 - The divergence report (an admin page and a periodic summary log line)
   counts devices by legacy `is_available`, legacy badge, shadow state,
   deciding `source_kind` and `authority_class`. It also counts:
-  - devices that would become unknown;
+  - devices that would become unknown, and how many of them hold
+    `is_available` true;
   - devices with policy violations;
   - invalid pins.
 
@@ -597,39 +660,49 @@ that lock exclusively, so the switch waits for in-flight writers to finish
   northbound source in canonical mode: how many linked Armis ids would push
   a different value, in which direction (Decision 13).
 - The report runs on demo and the lab deployment. A reviewed report is the
-  gate for cutover.
+  gate for phase 2.
 - Rollback: mode `legacy`; drop the shadow rows.
 
 **(c) Cutover, mode `cutover` and then `authoritative`.** The mode switch to
-`cutover` drains the legacy writers. From then on:
-1. Legacy writers no longer write `ocsf_devices.is_available`. They write
-   only the compatibility table that Decision 13 needs, and they keep doing
-   so until stage d.
+`cutover` drains the legacy writers. Under that drained boundary, before any
+reader is switched, `device_availability_legacy` is seeded from the current
+`is_available` of every device, so a device that no legacy writer touches
+after cutover still has its legacy value. From then on:
+1. Legacy writers no longer write `ocsf_devices.is_available`. They keep
+   their full computation against the compatibility table until stage d.
 2. The resolver writes device rows with **all** transition side effects
    suppressed: no `device.*` events, no `signals.state` messages and no
    per-device PubSub. This applies to ordinary ingestion as well as to the
    reconciliation job.
-3. The reconciliation job applies the latest shadow decisions in uid-ordered
-   batches, refreshes the rollups once, and reconciles stateful alerts that
-   were opened from the flapping state (closing them with a reconciliation
-   reason where the device is now available).
+3. The reconciliation job re-resolves every device from its current ledger
+   rows, evidence and vantage expectations, in uid-ordered batches under the
+   same device locks and through the same `resolve_devices/2` path as
+   ingestion. It never copies the shadow table, so it cannot restore a
+   decision that newer evidence has already superseded. It then refreshes
+   the rollups once and reconciles stateful alerts that were opened from the
+   flapping state (closing them with a reconciliation reason where the
+   device is now available).
 4. It emits one summary event: "availability reconciliation: N to
    available, M to unavailable, K to unknown".
 5. Only after reconciliation completes does the mode move to
    `authoritative`, which enables normal transition emission.
 
-This handoff fixes review finding R4: no legacy write can land after
-reconciliation, and no per-device transition fires while reconciliation is
-running.
+No legacy write can land on the device column after the switch, and no
+per-device transition fires while reconciliation is running.
 
-Rollback from `cutover` or `authoritative`: switch to `legacy` (draining the
-same way). The legacy writers resume on their next cycle and re-establish
-their values within one sweep and one sync interval. The ledger and the
-evidence are untouched.
+Rollback from `cutover` or `authoritative`: switch to `legacy`, draining the
+same way. Under that drained boundary, `is_available` is restored from
+`device_availability_legacy` in uid-ordered pages. The mirror fires on each
+restored row, so `availability_state`, the badge, the ordering and the
+state-based rollups return to the legacy values together. The legacy
+publishers resume with the mode, and Armis sources in `legacy` semantics keep
+reading the same compatibility table, which the legacy writers never stopped
+maintaining. The ledger and the evidence are untouched.
 
 **(d) Removal.** Gated on Decision 13 having no Armis source left in
 `legacy` semantics. Stage d removes:
-- the legacy writers W1, W2 and W5-W11 and the compatibility table;
+- the legacy writers W1, W2 and W5-W11, the compatibility table and the
+  mirror;
 - `is_available` from the Device accept lists, and `:set_availability`;
 - `effective_availability/2`, W16 and W20;
 - the `metadata.sweep_*` keys (a paged migration);
@@ -659,9 +732,10 @@ Rollback: revert the PR. The schema is compatible.
 These are agents that a composite check expects to be blocked for a device
 (Tier 1c).
 
-- **Excluded from the merged decision in both directions** (Decision 3,
-  step 2). Their down results are the expected outcome. Their up results are
-  a policy violation, not an availability vote.
+- **Their down results are excluded from the merged decision** (Decision 3,
+  step 2); a block is the expected outcome. **Their up results count as
+  liveness** (an ordinary `active_probe` `up` row) and are also flagged as a
+  policy violation (Open Question 4).
 - **Counted separately**: `blocked_verified`, `policy_violation` and
   `inconclusive_control` in `availability_agents`. These feed the UI and the
   `availability_policy:` SRQL filter.
@@ -673,9 +747,9 @@ These are agents that a composite check expects to be blocked for a device
   field, the same notion the rule generator and coverage already use.
 - **Liveness witnesses** (`expected: "available"`) are ordinary probe rows
   in the decision. A witness that is down counts as down, as today.
-- **A device whose only fresh probes are negative controls** gets its state
-  from the other classes, or `unknown`. Whether a violation-up should also
-  count as liveness when nothing else is fresh is Open Question 4.
+- **A device whose only fresh probes are negative controls** is `available`
+  when one of them reaches it (with the violation flag), and otherwise gets
+  its state from the other classes, or `unknown`.
 
 ### Decision 13: Armis northbound compatibility
 
@@ -691,20 +765,24 @@ These are agents that a composite check expects to be blocked for a device
   reads `COALESCE(d.is_available,false)`. A merged value would change what is
   pushed. **No silent change is allowed.**
   - Every Armis source gains `northbound_availability_semantics` (`legacy |
-    merged`). Existing sources are set to `legacy` by migration; new sources
-    default to `merged`.
-  - From stage c until stage d, the legacy writers write a narrow
-    compatibility table, `device_availability_legacy (device_uid,
-    is_available, updated_at)`, instead of the device column. A canonical
-    path in `legacy` semantics reads that table, so its pushes match the
-    pre-change behavior exactly.
+    merged`). Existing sources are set to `legacy` by migration. A new source
+    must either select an agent or use `merged`; `legacy` is not offered to
+    new sources (Open Question 12).
+  - The legacy writers maintain a narrow compatibility table,
+    `device_availability_legacy (device_uid, is_available, updated_at)`,
+    from stage a until stage d, with their full computation (Decision 10).
+    It is seeded from `is_available` under the drained cutover boundary, so
+    every device has its legacy value even if no legacy writer runs for it
+    again. A canonical path in `legacy` semantics reads that table, so its
+    pushes match the pre-change behavior exactly, in every mode.
   - The divergence report shows, per source, the pushes that would change.
     The source's settings page shows the same preview and offers two
     choices: select an agent (agent path), or adopt merged.
   - Stage d is blocked while any source is still `legacy`. No source is
     switched automatically.
-  - In `merged` semantics, unknown devices are withheld (`missing_availability`),
-    never coerced to false. The population builder already withholds nil.
+  - In `merged` semantics the path reads `availability_state`, and unknown
+    devices are withheld (`missing_availability`) rather than pushed from the
+    last decided boolean.
 - **Other per-agent consumers, all unchanged** because the ledger is
   unchanged:
   - composite-check evaluation inputs and dirty tracking
@@ -720,20 +798,15 @@ These are agents that a composite check expects to be blocked for a device
 ## Reader blast radius
 
 About 106 non-test files mention `is_available`. Today the readers assume
-four different NULL conventions:
-
-- NULL counts as false;
-- NULL is excluded;
-- NULL means unknown;
-- NULL is never expected.
-
-After cutover there is one rule: **NULL means unknown**, and
-`availability_state` is the typed source. Each reader below gets one of four
-dispositions:
+four different NULL conventions (NULL counts as false, is excluded, means
+unknown, or is never expected). This change does not add a NULL: from stage
+c `is_available` is a non-null compatibility boolean holding the last decided
+value (Decision 6), and `availability_state` is the only source of unknown.
+Each reader below gets one of four dispositions:
 
 - **switch**: read `availability_state` or the provenance;
 - **keep**: the boolean semantics still fit;
-- **fix**: a latent NULL bug that unknown would expose, fixed before stage c;
+- **fix**: a latent bug in the reader, fixed before stage c;
 - **untouched**: a per-agent ledger reader.
 
 **SE** marks readers that drive side effects.
@@ -745,10 +818,10 @@ dispositions:
 | `query/devices/order.rs:46,65-71,132-138` default sort | `coalesce(is_available,false) DESC, ip, uid` | switch: rank (available, unavailable, unknown), then ip, then uid |
 | `query/devices/filters.rs:130`, `filters/params.rs` | `= v` / `<> v`; NULL excluded | keep; add the new filters (Decision 9) |
 | `query/devices/filters/availability.rs`, `stats/clauses.rs` (`available_from_agent`, `unavailable_from_agent`, `availability_source_fresh_within`) | ledger `EXISTS` | **untouched** |
-| `stats/fields.rs` group key | `COALESCE(is_available,false)` | switch: group by state; `is_available` key kept, with NULL as its own bucket |
-| `stats/filters.rs:26-45` grouped NotEq | `(IS NULL OR <> v)`, which includes NULL | fix: exclude NULL, as list filters do |
+| `stats/fields.rs` group key | `COALESCE(is_available,false)` | keep; add the `availability` group key |
+| `stats/filters.rs:26-45` grouped NotEq | `(IS NULL OR <> v)` | keep (the column is never NULL from stage c) |
 | `stats/rollup.rs` `inventory_summary` | counters total/available/unavailable | switch: add `unknown` |
-| `models/inventory.rs:236` JSON | `unwrap_or(false)` | fix: emit `null`; add the state and agent counters |
+| `models/inventory.rs:236` JSON | `unwrap_or(false)` | keep; add the state and agent counters |
 | `query/viz/inventory.rs:351` | column catalog | add the new fields |
 | Rollup trigger and `refresh_device_inventory_rollups()` (baseline; migrations `20260305110000`, `20260306001000`, `20261005120000`) | `COALESCE(is_available,false)`; fires on every update | switch: count by state with an `unknown` key; narrow the `WHEN` clause |
 
@@ -762,11 +835,11 @@ dispositions:
 | `device_live/availability_data.ex:104-125` timeline fallback | current bit | switch to state |
 | `device_live/device_tab_runtime.ex:201` | `Map.get(row,"is_available") \|\| Map.get(row,:is_available)` **turns false into nil** | fix |
 | `topology/god_view_stream.ex:2422`, `bitmap_source.ex:233`, `world_health_source.ex:47` | true -> healthy, false -> unavailable, nil -> unknown | keep (already three-valued) |
-| `dashboard_live/data/basic_summaries.ex:12-22` | unavailable = total - available; counts NULL as unavailable; ignores `source_retired_at` | fix |
+| `dashboard_live/data/basic_summaries.ex:12-22` | unavailable = total - available; ignores `source_retired_at` | switch: available, unavailable and unknown from the state rollup; fix the retired filter |
 | `dashboard_live/data/service_sparklines.ex:65`, `vulnerable_assets.ex:22` | NULL counts as false | keep |
 | Authored dashboards (`source_queries.ex`, `visuals.ex`, `DashboardPanelChart.jsx`, `DashboardBuilderCanvas.jsx`), `srql/builder.ex`, `srql/catalog.ex` | boolean pivot and allowlists | add `availability`; keep `is_available` |
-| `api/access.ex:166,198`, `controllers/api/device_controller.ex:615,656` | raw value; `status=online/offline` | keep (nullable); add the state, provenance, agent counters and `status=unknown` |
-| `priv/static/openapi.json` (already `boolean \| null`) | external contract | add the fields; document NULL as unknown |
+| `api/access.ex:166,198`, `controllers/api/device_controller.ex:615,656` | raw value; `status=online/offline` | keep the boolean; add the state, provenance, agent counters and `status=unknown` (read from the state) |
+| `priv/static/openapi.json` (already `boolean \| null`) | external contract | add the fields; document `is_available` as the last decided value and `availability_state` as the source of unknown |
 | `priv/mcp/srql-cookbook.md:17,293` | examples | add `availability:` and `agent_reachability:` examples |
 
 ### Composite checks, automation and integrations
@@ -776,17 +849,17 @@ dispositions:
 | `composite_checks/evaluation.ex:163-191,449-463`, `resolvers/vantage_point.ex`, `coverage.ex`, `validation/orchestrator.ex` | ledger; **SE** verdict events via `VerdictEventWriter` | **untouched**. The evaluation pass additionally materializes vantage expectations (Tier 1c) |
 | `composite_checks/evaluation.ex:480` (W11) | writes the column | becomes `operator_policy` evidence |
 | `integrations/armis_northbound_runner.ex` agent path | ledger | **untouched** (Decision 13) |
-| `integrations/armis_northbound_runner.ex` canonical path, **SE** push of `not is_available` | `COALESCE(d.is_available,false)` | per-source `legacy` (compatibility table) or `merged` (state, with unknown withheld); never switched silently |
+| `integrations/armis_northbound_runner.ex` canonical path, **SE** push of `not is_available` | `COALESCE(d.is_available,false)` | per-source `legacy` (compatibility table, in every mode) or `merged` (state, with unknown withheld); never switched silently |
 | `integrations/armis_northbound_population.ex:150-200` | column or the agent's ledger row; nil withheld | agent branch untouched; canonical branch follows the source's semantics |
-| `automation/northbound/target_resolver.ex:173` | raw value in the target snapshot | keep (nullable); add the state |
+| `automation/northbound/target_resolver.ex:173` | raw value in the target snapshot | keep; add the state |
 | `automation/ansible/awx_membership_reconciler.ex:679,816` | plugin envelope `is_available`, not the column | untouched |
 
 ### Correlation engine (`rust/correlation-engine`)
 
 | Reader | Today | Change |
 |---|---|---|
-| `delta.rs:3-90` | `signals.state` transitions, published only by the sync path | switch: the resolver publishes every transition |
-| `context_hydrator.rs:116,215` | never sees None because of the SRQL `unwrap_or(false)` | fixed by the SRQL change. C13 (`reasoner.rs:444`) becomes reachable. **SE**: verdicts are published on JetStream |
+| `delta.rs:3-90` | `signals.state` transitions, published only by the sync path | switch: in `authoritative` the resolver publishes every transition |
+| `context_hydrator.rs:116,215` | never sees None because of the SRQL `unwrap_or(false)` | keep; the boolean stays non-null. **SE**: verdicts are published on JetStream |
 | `reasoner.rs:108,253` | `Some(false)` means down | keep |
 
 ### Other core
@@ -794,8 +867,8 @@ dispositions:
 | Reader | Today | Change |
 |---|---|---|
 | `sweep_jobs/sweep_results_ingestor.ex:2192-2273` "available wins" | column, metadata and ledger | removed; moved into the resolver |
-| `sweep_jobs/availability_events.ex`, **SE** -> EventRules -> StatefulAlertRule | sweep flips, gated per group | becomes resolver transitions |
-| `inventory/sync/state_events.ex`, **SE** `signals.state` | sync path only | stops publishing `is_available` |
+| `sweep_jobs/availability_events.ex`, **SE** -> EventRules -> StatefulAlertRule | sweep flips, gated per group | emits only in `legacy` and `shadow`; resolver transitions in `authoritative` |
+| `inventory/sync/state_events.ex`, **SE** `signals.state` | sync path only | publishes `is_available` only in `legacy` and `shadow` |
 | `inventory/device_pubsub.ex`, **SE** UI invalidation | fired on every W1/W2 touch | fired on any summary change |
 | `inventory/device.ex:331` `:available` read action, `:1094` `status_color` | no callers | delete or switch at stage d |
 | `camera/inventory_ingestor.ex:860` | carries the value forward | removed with W9 |
@@ -821,7 +894,8 @@ These readers trigger side effects:
 - DevicePubSub.
 
 Stage c (`cutover` mode) suppresses the first three for the whole
-reconciliation window. Composite verdict events are untouched because
+reconciliation window, and every publisher switches with the mode, including
+on rollback. Composite verdict events are untouched because
 composite inputs are untouched. Armis is covered by Decision 13.
 
 ## What could break, and mitigations
@@ -829,16 +903,17 @@ composite inputs are untouched. Armis is covered by Decision 13.
 | Risk | Mitigation |
 |---|---|
 | **Alert or notification storm at cutover** | `cutover` mode suppresses every transition side effect until reconciliation finishes, then emits one summary event and reconciles stateful alerts. Stage b sizes the flip in advance. |
-| **Available count changes on existing installs** (devices that were "available" only through `DEFAULT true` or stale writes become unknown) | Measured in stage b by source and class; an Unknown stat card and a release note. Open Question 3 offers a softer projection. |
-| **Hysteresis and "available wins" drift** | The one-to-one mapping in Decision 5, the governing-class hold, and table-driven resolver tests built from today's W1/W2 cases. |
+| **Available count changes on existing installs** (devices that were "available" only through `DEFAULT true` or stale writes become unknown) | Measured in stage b by source and class; an Unknown stat card and a release note. Boolean readers keep the last decided value (Decision 6). |
+| **Hysteresis and "available wins" drift** | The one-to-one mapping in Decision 5, the governing-class hold, the ledger trigger that counts failures for every ledger writer, and table-driven resolver tests built from today's W1/W2 cases. |
 | **Devices with no evidence at all** | They become `unknown`, which is visible, filterable and counted in stage b. |
 | **Write amplification** | Decision 7. WAL per hour is measured in stages a to c, and stage c must not exceed the stage-a baseline. |
-| **API consumers of `is_available`** | The field keeps its name and type (nullable boolean). OpenAPI and the cookbook are updated. Every reader that coerces NULL is fixed before stage c. |
+| **API consumers of `is_available`** | The field keeps its name, type and non-null values; unknown devices keep their last decided boolean. OpenAPI and the cookbook document `availability_state` for unknown. A boolean `is_available:true` count can exceed the state-based Available count by the unknown devices that last decided true; the release note says so. |
 | **Per-agent results lost or reinterpreted** | The ledger is unchanged except for one additive column (Tier 1a). Every per-agent consumer is listed as untouched (Decision 13). One DB-tier test asserts that the Armis agent path returns identical rows before and after resolution. |
-| **Negative-control agents dragging devices down** | Excluded from the decision (Decision 12); a violation is surfaced through the existing composite verdicts. |
-| **Silent change to Armis pushes** | Per-source `legacy` semantics with a compatibility table, a preview, an explicit operator choice, and stage d gated on the choice. |
-| **Readers disagree about NULL** | Fixed before stage c (srql JSON, grouped NotEq, `basic_summaries`, `device_tab_runtime`). |
+| **Negative-control agents dragging devices down** | Their down results are excluded from the decision (Decision 12); a reach counts as liveness and the violation is surfaced through the existing composite verdicts. |
+| **Silent change to Armis pushes** | Per-source `legacy` semantics with a compatibility table seeded at cutover and maintained in every mode, a preview, an explicit operator choice, and stage d gated on the choice. |
+| **Readers disagree about unknown** | No new NULL is introduced; readers that need unknown switch to `availability_state` (sort, counts, badge, rollups, `basic_summaries`). |
 | **The correlation engine sees transitions it never saw before** | Intended; measured on the lab deployment after stage c. |
+| **Rollback leaves readers on stale merged values** | The mirror re-derives `availability_state` from `is_available` in `legacy` and `shadow`, the rollback restores `is_available` from the compatibility table under the drain, and publishers switch with the mode (Decision 10). |
 | **Lock contention** | Uid-ordered `FOR NO KEY UPDATE`, as W1/W2 already do; batches of at most 500; the device row is updated only on change. |
 | **A misdeclared class** | Assigned at registration and capped by the manifest; operators can lower it. Shown on the device page and grouped in the report. |
 | **Clock skew** | `observed_at` is clamped. |
@@ -847,28 +922,35 @@ composite inputs are untouched. Armis is covered by Decision 13.
 ## Migration Plan
 
 1. **Stage a:**
-   - create `device_availability_evidence`, `device_vantage_expectations`
-     and `device_availability_shadow`;
-   - add `device_agent_availability.consecutive_down` (default 0) and the
-     `ocsf_devices.availability_*` columns (state defaults to `unknown`);
+   - create `device_availability_evidence`, `device_vantage_expectations`,
+     `device_availability_shadow`, `device_availability_legacy` and the
+     mode setting (`legacy`);
+   - add `device_agent_availability.consecutive_down` (default 0) with its
+     trigger, and the `ocsf_devices.availability_*` columns (state defaults
+     to `unknown`) with the mirror trigger;
+   - set `availability_state` from the projection of `is_available` for
+     every device, in pages;
    - add the Armis source attribute `northbound_availability_semantics`,
      with existing rows set to `legacy`.
 2. **Backfill:**
    - Set `consecutive_down` from `metadata.sweep_consecutive_failures`,
-     capped. This is the only read of that key.
+     capped. Apart from the legacy computation, which keeps using that key
+     until stage d, this is its only read.
    - Seed vantage expectations from the current composite checks.
    - Copy composite verdicts into `operator_policy` evidence for checks with
      `write_canonical_availability`.
    - Other sources fill within one cycle each.
 3. **Stage c:**
-   - create `device_availability_legacy`;
+   - seed `device_availability_legacy` from `is_available` under the drained
+     cutover boundary;
    - add the rollup `unknown` key and narrow the trigger;
    - run the reconciliation job, which is the only bulk write to
-     `ocsf_devices`.
+     `ocsf_devices` (it also replaces any NULL `is_available` with false).
 4. **Stage d:**
    - add the backstop trigger and the violations table;
    - strip the `metadata.sweep_*` keys in pages;
-   - drop `device_availability_legacy`.
+   - drop `device_availability_legacy`, the mirror trigger and the mode
+     setting.
 
 ### How the demo Wi-Fi case resolves
 
@@ -908,36 +990,44 @@ agree. The roughly 5 other divergent devices resolve by the same rules.
 
 ## Open Questions
 
-1. **Cross-class "available wins".** Should a fresh `up` from a lower class
-   override a decisive `down` from a higher class? Proposed: no; set the
-   conflict flag instead.
-2. **Reading `expected`.** May the merged summary read a composite vantage
-   input's `expected` to identify negative controls? Today `expected` is
-   documented as an authoring aid, and the evaluator still would not read
-   it. Alternatively, should there be an explicit per-device or per-profile
-   "negative-control agent" setting?
-3. **Unknown projection.** Should unknown project to `NULL` (proposed), or
-   keep the last decided boolean?
-4. **A negative-control reach as liveness.** When nothing else is fresh,
-   should a policy-violation `up` also make the device `available`, or leave
-   it `unknown` (proposed)?
-5. **Composite precedence.** Should `operator_policy` outrank a per-device
-   agent pin?
-6. **Event gating.** Should gating be a deployment setting with the sweep
-   group flag as a filter (proposed), or per source instance?
-7. **The backstop trigger.** It restores the old value and appends to a
-   violations table, using a transaction-local setting that only the
-   resolver sets. Is that acceptable under CLAUDE.md's audit guidance, or
-   should we rely on accept-list removal plus a static check?
-8. **Never-evidenced devices.** Should they be `unknown` (proposed), or
-   should inventory presence count as `inventory_declared up`?
-9. **Plugin class location.** Should the class live only in the manifest,
-   or also per record (a cross-repo SDK change)? Should awx stop submitting
-   evidence for its `enabled` flag?
-10. **Re-sighting writes.** Should `last_seen_time` refreshes be coalesced
-    in a follow-up change? That would amend "Device re-sighting".
-11. **W19 survivor-wins.** Should merge reassignment keep the fresher ledger
-    row? That would change what per-agent consumers read, so it belongs in a
-    separate change if it is wanted.
-12. **Armis default for new sources.** Should new sources default to
-    `merged` (proposed), or require an explicit choice?
+Decided by the user (2026-10-19); the design body above reflects each
+decision:
+
+- **Q1. Cross-class "available wins". Decided: no.** A fresh `up` from a lower
+  class never overrides a decisive `down` from a higher class; it sets the
+  conflict flag.
+- **Q2. Reading `expected`. Decided: yes.** The merged summary reads the
+  composite vantage input's `expected` to identify negative controls. The
+  composite evaluator still does not read it.
+- **Q3. Unknown projection. Decided: unknown does not project to `NULL`.**
+  `is_available` keeps its last decided boolean for reader compatibility,
+  and unknown is exposed only through `availability_state`.
+- **Q4. A negative-control reach as liveness. Decided: yes.** A negative-control
+  agent that reaches the device counts as liveness, and the device carries
+  the policy-violation flag.
+- **Q8. Never-evidenced devices. Decided: `unknown`.** Inventory presence alone
+  is not evidence.
+- **Q9. Plugin class location. Decided:** the class lives in the plugin
+  manifest. The awx host `enabled` flag is `inventory_declared`, not
+  reachability evidence.
+- **Q10. Re-sighting writes. Decided: yes, coalesce them** in a follow-up change
+  that amends "Device re-sighting"; this change leaves `last_seen_time`
+  unchanged. Open PR #5786 (batch device inventory rollups per statement)
+  is complementary work on the write cost of availability flips.
+- **Q12. Armis default for new sources. Decided:** a new source must select an
+  agent or use `merged`. Existing sources keep `legacy` semantics until an
+  operator chooses.
+
+Still open:
+
+- **Q5. Composite precedence.** Should `operator_policy` outrank a per-device
+  agent pin?
+- **Q6. Event gating.** Should gating be a deployment setting with the sweep
+  group flag as a filter (proposed), or per source instance?
+- **Q7. The backstop trigger.** It restores the old value and appends to a
+  violations table, using a transaction-local setting that only the
+  resolver sets. Is that acceptable under CLAUDE.md's audit guidance, or
+  should we rely on accept-list removal plus a static check?
+- **Q11. W19 survivor-wins.** Should merge reassignment keep the fresher ledger
+  row? That would change what per-agent consumers read, so it belongs in a
+  separate change if it is wanted.

@@ -2,23 +2,18 @@
 
 ### Requirement: Devices Expose Canonical Availability State
 SRQL SHALL expose the device's canonical `availability` (`available`, `unavailable`, `unknown`) and its provenance (`availability_source`, `availability_class`) as filterable, groupable and returned fields of `in:devices`.
-`is_available:true` SHALL match only `available` devices, and `is_available:false` SHALL match only `unavailable` devices, in both list and grouped-stats queries. Returned rows SHALL carry `is_available` as `null` for `unknown` devices, never `false`.
+`is_available` SHALL remain a boolean field holding the device's last decided availability, with its existing filter semantics, and SHALL NOT be `null` for `unknown` devices. `unknown` SHALL be exposed only through `availability`.
 
 #### Scenario: Filter unknown devices
 - **GIVEN** devices in each availability state
 - **WHEN** a client sends `in:devices availability:unknown`
 - **THEN** SRQL SHALL return only devices whose canonical state is `unknown`
 
-#### Scenario: Unknown is not reported as unavailable
-- **GIVEN** a device whose canonical state is `unknown`
-- **WHEN** a client sends `in:devices is_available:false`
-- **THEN** the device SHALL NOT be returned
-- **AND** when the device is returned by another query its `is_available` value SHALL be `null`
-
-#### Scenario: Grouped stats agree with list filters
-- **GIVEN** devices in each availability state
-- **WHEN** a client sends a grouped stats query filtered with `!is_available:true`
-- **THEN** the grouped result SHALL count only `unavailable` devices, matching the list filter's semantics
+#### Scenario: Unknown device keeps its last boolean
+- **GIVEN** a device last decided `available` whose evidence has all expired
+- **WHEN** a client sends `in:devices availability:unknown`
+- **THEN** the device SHALL be returned with `availability` `unknown` and `is_available` `true`
+- **AND** `in:devices availability:available` SHALL NOT return the device
 
 ### Requirement: Devices Expose Per-Agent Reachability
 SRQL SHALL keep the existing per-agent availability filters (`available_from_agent`, `unavailable_from_agent`, `availability_source_fresh_within`) with unchanged semantics, and SHALL add `agent_reachability:all|partial|none`, `availability_policy:violation|verified|inconclusive`, and the returned fields `agents_up` and `agents_total` derived from the per-agent ledger.
