@@ -96,6 +96,13 @@ config :serviceradar_core,
 config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
   max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
 
+# Merged device availability, stage a: writers record availability evidence alongside
+# their unchanged legacy writes. "false" switches capture off, which is the stage's
+# rollback; recorded evidence can then be truncated.
+config :serviceradar_core, ServiceRadar.Inventory.Availability,
+  evidence_capture:
+    System.get_env("SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE", "true") != "false"
+
 # This release hosts callback result coordination and recovery from
 # serviceradar_core. Those internal continuations use persisted authority and
 # must never receive the web tier's bearer HMAC keyring.

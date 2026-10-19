@@ -8,16 +8,17 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 
 ## 1. Stage a: capture (mode `legacy`, no behavior change)
 
-- [ ] 1.1 Migration:
+- [x] 1.1 Migration (`20261019170000_add_merged_availability_capture`; existing rows are projected by the enqueued `CaptureBackfillWorker`, because a migration may not run a synchronous backfill):
   - `device_agent_availability.consecutive_down` (additive, default 0);
   - `device_availability_evidence`, `device_vantage_expectations`, `device_availability_shadow`, `device_availability_legacy` and the `inventory.availability_mode` setting (`legacy`);
   - the `ocsf_devices.availability_*` columns, populated from the projection of `is_available`;
   - the mode-aware mirror trigger that keeps `availability_state` equal to the projection of `is_available` in `legacy` and `shadow`;
   - the Armis source attribute `northbound_availability_semantics`, with existing sources set to `legacy`.
-- [ ] 1.2 Source registration descriptors `{source_kind, authority_class, default_ttl, min_ttl, max_ttl}`, and Ash resources for the new tables.
-- [ ] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances. A separate `AFTER INSERT OR UPDATE` trigger appends the device to the invalidation log only when the stored result can change a decision (insert, changed value or counter, or an unchanged renewal whose previous `checked_at` is older than half the row's freshness TTL). W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
-- [ ] 1.4 `Availability.record_evidence/2`, write-on-change, with decision-bearing fields written immediately and lease coalescing for unchanged observations.
-- [ ] 1.5 Submit evidence from every non-ledger writer:
+- [x] 1.2 Source registration descriptors `{source_kind, authority_class, default_ttl, min_ttl, max_ttl}`, and Ash resources for the new tables.
+- [x] 1.3 A `BEFORE INSERT OR UPDATE` trigger on `device_agent_availability` maintains `consecutive_down` from `OLD`/`NEW` `is_available`, advancing only when `checked_at` advances. A separate `AFTER INSERT OR UPDATE` trigger appends the device to the invalidation log only when the stored result can change a decision (insert, changed value or counter, or an unchanged renewal whose previous `checked_at` is older than half the row's freshness TTL). W4, W18 and W19 need no code change. No other ledger change; the ledger is never pruned or rewritten by availability code.
+  - Stage a: the invalidation triggers append only outside `legacy` mode, because nothing consumes the log before the stage-b worker; the switch to `shadow` starts from a full resolution. A moved row (W19), a changed sweep group and a changed reporter expectation also append, since each can change a decision.
+- [x] 1.4 `Availability.record_evidence/2`, write-on-change, with decision-bearing fields written immediately and lease coalescing for unchanged observations.
+- [x] 1.5 Submit evidence from every non-ledger writer (capture only, best effort, switchable with `SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE`):
   - Wi-Fi map (W5; a missing status submits nothing);
   - the sync path (W6);
   - plugin discovery (W7, W13);
@@ -26,14 +27,19 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - agent liveness (W10);
   - composite checks (W11);
   - mapper (W12).
+  - The sync path records only registered sources: the Go `DeviceUpdate.IsAvailable` is a plain boolean, so an unregistered sync source's value is not evidence (design, Go readers).
 - [ ] 1.5a Legacy writers (W1-W3, W5-W11, the W14 create default) also maintain `device_availability_legacy`, write-on-change, with their full computation; legacy publishers emit only in `legacy` and `shadow`.
-- [ ] 1.5b Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom, and `inventory_declared` for the awx `enabled` flag, before shadow collection starts.
-- [ ] 1.6 The composite evaluation pass materializes vantage expectations, write-on-change; every expectation change appends its device to the invalidation log.
-- [ ] 1.6a `availability_invalidations (id bigserial, device_uid, enqueued_at)`, written only by plain `INSERT` (no `ON CONFLICT`, no reads) from the ledger `AFTER` trigger, an `AFTER UPDATE` trigger on `availability_source_agent_id`, the expectation trigger and the availability source profile update path.
-- [ ] 1.7 Backfill:
+  - Stage a (done): in `legacy` and `shadow` an `ocsf_devices` trigger copies every change of the value the legacy writers computed (`is_available`, including the create default) into the table, write-on-change. The publishers still emit unconditionally, which is the same thing while `legacy` is the only reachable mode.
+  - Remaining for stage c (3.1, 3.2, 3.5): writers that write the table directly and compute against it in `cutover`, and publishers gated on the mode read under the draining lock.
+- [x] 1.5b Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom, and `inventory_declared` for the awx `enabled` flag, before shadow collection starts.
+- [x] 1.6 The composite evaluation pass materializes vantage expectations, write-on-change; every expectation change appends its device to the invalidation log.
+- [x] 1.6a `availability_invalidations (id bigserial, device_uid, enqueued_at)`, written only by plain `INSERT` (no `ON CONFLICT`, no reads) from the ledger `AFTER` trigger, an `AFTER UPDATE` trigger on `availability_source_agent_id`, the expectation trigger and the availability source profile update path.
+  - The profile path needs no code: the profile materializer writes the profile's agent into `availability_source_agent_id`, which the column trigger catches.
+- [x] 1.7 Backfill:
   - `consecutive_down` from `metadata.sweep_consecutive_failures`, capped;
   - vantage expectations;
   - `operator_policy` evidence from composite verdicts.
+  - `consecutive_down` is seeded by `CaptureBackfillWorker`. Vantage expectations and `operator_policy` evidence are written by each enabled check's next full evaluation pass, which recomputes the verdicts they would be copied from.
 - [ ] 1.8 Lab-deployment proof: `is_available`, the badges and the Armis candidate rows match the previous release for a full day, and `availability_state` equals the projection of `is_available` for every device. Record WAL bytes per hour as the baseline.
 
 ## 2. Stage b: shadow (mode `shadow`)

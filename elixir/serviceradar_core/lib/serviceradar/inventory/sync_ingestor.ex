@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Availability.SyncEvidence
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.Identity.BatchResolver
@@ -44,6 +45,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     batch_concurrency = Keyword.get_lazy(opts, :batch_concurrency, &batch_concurrency/0)
     defer_state_events? = Keyword.get(opts, :defer_state_events?, false)
 
+    write_opts = %{
+      defer_state_events?: defer_state_events?,
+      availability_evidence:
+        Keyword.get(opts, :availability_evidence, &SyncEvidence.default_observation/1)
+    }
+
     Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}")
     start_time = System.monotonic_time(:millisecond)
 
@@ -57,10 +64,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     result =
       if defer_state_events? do
         BatchExecutor.collect(batches, fn {batch, batch_num} ->
-          process_batch(batch, batch_num, total_batches, actor, true)
+          process_batch(batch, batch_num, total_batches, actor, write_opts)
         end)
       else
-        process_batches(batches, actor, total_batches, batch_concurrency)
+        process_batches(batches, actor, total_batches, batch_concurrency, write_opts)
       end
 
     elapsed = System.monotonic_time(:millisecond) - start_time
@@ -98,19 +105,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     :ok
   end
 
-  defp process_batches(batches, actor, total_batches, batch_concurrency) do
+  defp process_batches(batches, actor, total_batches, batch_concurrency, write_opts) do
     BatchExecutor.run(
       batches,
       fn {batch, batch_num} ->
-        process_batch(batch, batch_num, total_batches, actor, false)
+        process_batch(batch, batch_num, total_batches, actor, write_opts)
       end,
       batch_concurrency
     )
   end
 
-  defp process_batch(batch, batch_num, total_batches, actor, defer_state_events?) do
+  defp process_batch(batch, batch_num, total_batches, actor, write_opts) do
     batch_start = System.monotonic_time(:millisecond)
-    result = ingest_batch(batch, actor, defer_state_events?)
+    result = ingest_batch(batch, actor, write_opts)
     batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
     Logger.debug(
@@ -120,10 +127,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     result
   end
 
-  defp ingest_batch(updates, actor, defer_state_events?) do
+  defp ingest_batch(updates, actor, write_opts) do
     updates
     |> normalize_updates()
-    |> ingest_normalized(actor, defer_state_events?, 1)
+    |> ingest_normalized(actor, write_opts, 1)
   end
 
   # One pass of resolve -> fenced write -> dependent writes. Identity is resolved
@@ -137,12 +144,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # and never retried: evidence never revives one. A retired source id the batch
   # carries is judged before resolution (SourceReactivation): returned to the record
   # that held it, or re-issued, which is recorded once the write lands.
-  defp ingest_normalized([], _actor, _defer_state_events?, _attempt), do: :ok
+  defp ingest_normalized([], _actor, _write_opts, _attempt), do: :ok
 
-  defp ingest_normalized(normalized_updates, actor, defer_state_events?, attempt) do
+  defp ingest_normalized(normalized_updates, actor, write_opts, attempt) do
     case resolve_updates(normalized_updates, actor) do
       {:ok, {resolved, reactivation}} ->
-        write_resolved_batch(resolved, reactivation, actor, defer_state_events?, attempt)
+        write_resolved_batch(resolved, reactivation, actor, write_opts, attempt)
 
       # The existing-identity lookups could not be answered. Nothing is resolved or written:
       # resolving against an empty lookup would mint a device per update.
@@ -151,7 +158,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp write_resolved_batch(resolved, reactivation, actor, defer_state_events?, attempt) do
+  defp write_resolved_batch(resolved, reactivation, actor, write_opts, attempt) do
     pins = Fence.pin_batch(Enum.map(elem(resolved, 0), fn {_update, uid} -> uid end))
     run_test_hook(:sync_ingestor_after_pin)
 
@@ -194,10 +201,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
               identifier_result: identifier_result
             },
             actor,
-            defer_state_events?
+            write_opts
           )
 
-        retry_stale(result, stale_updates, pins, actor, defer_state_events?, attempt)
+        retry_stale(result, stale_updates, pins, actor, write_opts, attempt)
 
       {:error, _} = error ->
         finalize_ingest_results(error, :ok, :ok, :ok, :ok)
@@ -325,7 +332,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   # Everything after the device and identifier rows: state events, risk,
   # interfaces, aliases and source facts, for the updates whose write landed.
-  defp after_device_write(written, actor, defer_state_events?) do
+  defp after_device_write(written, actor, write_opts) do
     %{
       device_records: device_records,
       identifier_records: identifier_records,
@@ -335,6 +342,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       remap: remap,
       identifier_result: identifier_result
     } = written
+
+    defer_state_events? = write_opts.defer_state_events?
 
     if !defer_state_events? do
       StateEvents.publish_device_state_transitions(device_records, previous_device_states, remap)
@@ -353,6 +362,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
     alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
     _ = SourceFactReconciler.ingest_resolved(resolved_updates)
+    :ok = SyncEvidence.capture(resolved_updates, write_opts.availability_evidence)
 
     # Address selection includes interface and alias state written after devices.
     # Deferred callers emit this same hint after their outer transaction commits.
@@ -377,18 +387,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # Updates whose pin went stale are resolved again from scratch and written once
   # more; if their pin goes stale a second time, two identity transitions landed
   # inside one write, and they are abandoned with telemetry (Fence.abandon/2).
-  defp retry_stale(result, [], _pins, _actor, _defer_state_events?, _attempt), do: result
+  defp retry_stale(result, [], _pins, _actor, _write_opts, _attempt), do: result
 
-  defp retry_stale(result, stale_updates, _pins, actor, defer_state_events?, 1) do
+  defp retry_stale(result, stale_updates, _pins, actor, write_opts, 1) do
     retried =
       stale_updates
       |> Enum.map(&elem(&1, 0))
-      |> ingest_normalized(actor, defer_state_events?, 2)
+      |> ingest_normalized(actor, write_opts, 2)
 
     combine_results(result, retried)
   end
 
-  defp retry_stale(result, stale_updates, pins, _actor, _defer_state_events?, _attempt) do
+  defp retry_stale(result, stale_updates, pins, _actor, _write_opts, _attempt) do
     stale_updates
     |> Map.new(fn {_update, uid} -> {uid, Map.fetch!(pins, uid)} end)
     |> Fence.abandon(:sync_ingestor)

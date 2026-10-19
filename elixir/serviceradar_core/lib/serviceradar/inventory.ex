@@ -47,6 +47,12 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.DeviceFleetOrdinal
     resource ServiceRadar.Inventory.FleetDictionaryEpoch
     resource ServiceRadar.Inventory.DeviceAgentAvailability
+    resource ServiceRadar.Inventory.Availability.DeviceEvidence
+    resource ServiceRadar.Inventory.Availability.VantageExpectation
+    resource ServiceRadar.Inventory.Availability.ShadowDecision
+    resource ServiceRadar.Inventory.Availability.LegacyValue
+    resource ServiceRadar.Inventory.Availability.Invalidation
+    resource ServiceRadar.Inventory.Availability.Setting
     resource ServiceRadar.Inventory.Interface
     resource ServiceRadar.Inventory.InterfaceSettings
     resource ServiceRadar.Inventory.InterfaceClassificationRule

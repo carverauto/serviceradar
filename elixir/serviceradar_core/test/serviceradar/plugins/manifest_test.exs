@@ -461,6 +461,20 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert "missing required field: version" in errors
   end
 
+  test "availability authority is an optional declared class" do
+    assert {:ok, %Manifest{availability_authority: nil}} = Manifest.from_map(@valid_manifest)
+
+    assert {:ok, %Manifest{availability_authority: :managing_controller}} =
+             Manifest.from_map(
+               Map.put(@valid_manifest, "availability_authority", "managing_controller")
+             )
+
+    assert {:error, [error]} =
+             Manifest.from_map(Map.put(@valid_manifest, "availability_authority", "controller"))
+
+    assert error =~ "availability_authority must be one of"
+  end
+
   test "invalid capabilities are rejected" do
     manifest = Map.put(@valid_manifest, "capabilities", ["get_config", "exec_shell"])
     assert {:error, errors} = Manifest.from_map(manifest)

@@ -448,6 +448,18 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "Optional agent whose per-agent availability should be sent by northbound updates"
     end
 
+    # add-merged-device-availability, Decision 13. Only the canonical path (no agent
+    # selected) reads it, from stage c: `legacy` keeps pushing the legacy availability
+    # value, `merged` pushes the canonical state and withholds unknown devices. Every
+    # source starts `legacy`; no action changes it until the operator preview and adopt
+    # action land, so nothing pushed to Armis changes silently.
+    attribute :northbound_availability_semantics, :atom do
+      allow_nil? false
+      default :legacy
+      constraints one_of: [:legacy, :merged]
+      description "Availability semantics of canonical northbound pushes (legacy or merged)"
+    end
+
     # Source-specific settings
     attribute :page_size, :integer do
       default 100

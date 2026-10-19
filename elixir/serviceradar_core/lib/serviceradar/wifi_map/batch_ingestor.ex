@@ -40,6 +40,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   @schema_names MapSet.new(["serviceradar.wifi_map.batch.v1", "wifi_map_batch.v1"])
   @payload_kinds MapSet.new(["wifi_map", "wifi_map_batch", "wifi-map-batch"])
   @max_insert_params 30_000
+  @seed_source_kind "wifi_map_seed"
+  @up_statuses ["up", "ok", "online", "available", "true"]
 
   @type context :: %{
           actor: term(),
@@ -126,7 +128,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       end
 
     case if_result do
-      :ok -> sync_devices(device_updates, actor, device_sync)
+      :ok -> sync_devices(device_updates, actor, device_sync, source_attrs, collection_timestamp)
       other -> other
     end
   end
@@ -485,7 +487,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       source_kind:
         string_value(source, ["source_kind", "sourceKind", "kind"]) ||
           string_value(body, ["source_kind", "sourceKind"]) ||
-          "wifi_map_seed",
+          @seed_source_kind,
       latest_collection_at: collection_timestamp,
       latest_reference_hash: reference_hash,
       latest_reference_at: if(reference_hash, do: collection_timestamp),
@@ -860,14 +862,52 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   defp bulk_chunk_size(_rows), do: 1
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
-    SyncIngestor.ingest_updates(updates, actor: context.actor)
+    SyncIngestor.ingest_updates(updates,
+      actor: context.actor,
+      availability_evidence:
+        &availability_observation(&1, context.source, context.collection_timestamp)
+    )
   end
 
-  defp sync_devices([], _actor, _device_sync), do: :ok
+  defp sync_devices([], _actor, _device_sync, _source_attrs, _collection_timestamp), do: :ok
 
-  defp sync_devices(updates, actor, device_sync) do
-    device_sync.(updates, %{actor: actor})
+  defp sync_devices(updates, actor, device_sync, source_attrs, collection_timestamp) do
+    device_sync.(updates, %{
+      actor: actor,
+      source: source_attrs,
+      collection_timestamp: collection_timestamp
+    })
   end
+
+  # Availability evidence is the controller's reported status only. A row with no
+  # status still writes is_available true through the legacy path
+  # (wifi_device_available?/1), but it is no evidence. A seed import is declared
+  # inventory, not a live controller, so it lowers the source's class.
+  @doc false
+  def availability_observation(update, source_attrs, collection_timestamp) do
+    status = update |> Map.get(:metadata) |> metadata_status()
+
+    case wifi_status_available(status) do
+      nil ->
+        nil
+
+      available? ->
+        %{
+          source_kind: "wifi_map",
+          source_instance: source_attrs.name,
+          instance_class: wifi_instance_class(source_attrs.source_kind),
+          state: if(available?, do: :up, else: :down),
+          observed_at: collection_timestamp,
+          detail: %{"status" => status}
+        }
+    end
+  end
+
+  defp metadata_status(%{"status" => status}) when is_binary(status), do: String.trim(status)
+  defp metadata_status(_metadata), do: nil
+
+  defp wifi_instance_class(@seed_source_kind), do: :inventory_declared
+  defp wifi_instance_class(_source_kind), do: nil
 
   defp device_inventory_updates(body, status, source_attrs, collection_timestamp) do
     partition = partition_value(status)
@@ -1016,13 +1056,16 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   end
 
   defp wifi_device_available?(row) do
-    row
-    |> string_value(["status"])
-    |> case do
+    case row |> string_value(["status"]) |> wifi_status_available() do
       nil -> true
-      value -> String.downcase(value) in ["up", "ok", "online", "available", "true"]
+      available? -> available?
     end
   end
+
+  defp wifi_status_available(status) when is_binary(status) and status != "",
+    do: String.downcase(status) in @up_statuses
+
+  defp wifi_status_available(_status), do: nil
 
   defp collection_timestamp(body, payload, status) do
     datetime_value(body, [

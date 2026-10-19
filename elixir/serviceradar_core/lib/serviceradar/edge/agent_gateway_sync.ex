@@ -27,6 +27,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Infrastructure.StateMonitor
+  alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -358,6 +359,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   # (Identity.Fence) is resolved and written once more; a second move abandons it.
   defp ensure_fenced(agent_id, attrs, attempt) do
     case do_ensure_device_for_agent(agent_id, attrs) do
+      {:ok, device_uid} = ok when is_binary(device_uid) ->
+        capture_self_report(device_uid, agent_id)
+        ok
+
       {:stale, _device_uid} when attempt == 1 ->
         ensure_fenced(agent_id, attrs, 2)
 
@@ -1685,10 +1690,32 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     |> Ash.Changeset.for_update(:heartbeat, heartbeat_attrs)
     |> Ash.update(actor: actor)
     |> case do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, updated} ->
+        capture_self_report(updated.device_uid, updated.uid)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  # An agent checking in is `self_report` evidence that its host device is up; it
+  # never says down, and expires after three missed heartbeats instead. The hello and
+  # control-session writes still set is_available true through the legacy path.
+  defp capture_self_report(device_uid, agent_id)
+       when is_binary(device_uid) and device_uid != "" do
+    Availability.capture([
+      %{
+        device_uid: device_uid,
+        source_kind: "agent_liveness",
+        reporter_agent_id: agent_id,
+        state: :up,
+        observed_at: DateTime.utc_now()
+      }
+    ])
+  end
+
+  defp capture_self_report(_device_uid, _agent_id), do: :ok
 
   defp restore_connected_agent(agent, actor) do
     attrs =
