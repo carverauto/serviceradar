@@ -140,6 +140,12 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
             partition_id: partition_id
           })
 
+          # A config-change broadcast that fired while this agent was offline
+          # silently dropped because no live session existed. Push now so the
+          # agent gets a stale config corrected immediately rather than waiting
+          # for its next poll cycle.
+          send(self(), :push_config_on_connect)
+
           {:reply, :ok, state}
 
         {:error, reason} ->
@@ -267,6 +273,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         audit_message_identity_rejection(reason, state, identity_context)
         {:stop, :normal, state}
     end
+  end
+
+  @impl true
+  def handle_info(:push_config_on_connect, state) do
+    if registered_agent?(state) do
+      agent_id = state.agent_id
+      Task.start(fn -> ConfigSyncForwarder.request_config_push(agent_id) end)
+    end
+
+    {:noreply, state}
   end
 
   @impl true

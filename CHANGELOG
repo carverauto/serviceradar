@@ -58,6 +58,9 @@ configuration defects.
 
 ## Fixes
 
+- A config-change broadcast that fires while an agent is offline is
+  now delivered as soon as the agent's control session reconnects.
+  Previously the agent received the update only on its next poll cycle.
 - StarRocks Stream Load closes each connection after a load, so an
   early rejection can no longer leave an unread body that poisons the
   next load with a non-retryable 400 and an endless redelivery loop
