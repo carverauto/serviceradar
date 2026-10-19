@@ -309,6 +309,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             rows="3"
             placeholder="10.0.1.0/24&#10;192.168.1.0/24&#10;10.0.0.10-10.0.0.50"
           />
+
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <.input
+                id="sweep-group-discover-new-devices"
+                type="checkbox"
+                field={@form[:discover_new_devices]}
+                class={ui_checkbox_class()}
+              />
+              <label
+                for="sweep-group-discover-new-devices"
+                class="text-sm font-medium text-sr-ink"
+              >
+                Add newly found hosts to inventory
+              </label>
+            </div>
+            <p class="text-xs text-sr-muted pl-7">
+              Hosts that answer inside these static targets and are not already in
+              inventory are added as new devices. Targets selected by the device query
+              never create devices.
+            </p>
+          </div>
         </div>
 
         <!-- Enable Toggle -->
@@ -780,6 +802,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             Availability events:
             <span class="text-sr-ink">
               {if(@group.emit_availability_events, do: "on", else: "off")}
+            </span>
+          </div>
+          <div class="text-xs text-sr-muted">
+            Add newly found hosts to inventory:
+            <span class="text-sr-ink" data-role="discover-new-devices">
+              {if(@group.discover_new_devices, do: "on", else: "off")}
             </span>
           </div>
         </div>

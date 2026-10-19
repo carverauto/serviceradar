@@ -855,6 +855,7 @@ diesel::table! {
         ports -> Nullable<Array<Int8>>,
         sweep_modes -> Nullable<Array<Text>>,
         emit_availability_events -> Bool,
+        discover_new_devices -> Bool,
         last_run_at -> Nullable<Timestamptz>,
         profile_id -> Nullable<Uuid>,
         inserted_at -> Timestamptz,
