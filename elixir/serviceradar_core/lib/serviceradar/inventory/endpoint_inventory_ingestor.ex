@@ -458,13 +458,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     device_uid =
       Enum.find_value(
         [
-          Payload.string_value(payload, :device_uid),
-          resolve_agent_device_uid(agent_id, actor),
-          resolve_device_identifier_uid(agent_id),
-          resolve_device_by_agent_id(agent_id),
-          existing_scan_device_uid(agent_id)
+          fn -> Payload.string_value(payload, :device_uid) end,
+          fn -> resolve_agent_device_uid(agent_id, actor) end,
+          fn -> resolve_device_identifier_uid(agent_id) end,
+          fn -> resolve_device_by_agent_id(agent_id) end,
+          fn -> existing_scan_device_uid(agent_id) end
         ],
-        &canonical_device_uid/1
+        &canonical_device_uid(&1.())
       )
 
     packages = EndpointInventoryPackageSet.normalize_packages(payload)
