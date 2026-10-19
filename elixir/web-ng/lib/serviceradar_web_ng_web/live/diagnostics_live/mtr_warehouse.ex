@@ -236,6 +236,53 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
     end
   end
 
+  @doc """
+  Whether any trace matches `terms`, as `{:ok, boolean}`. Mirrors
+  `MtrData.trace_exists/1`.
+
+  `mtr_traces` is sorted by `(time, id)` and nothing indexes `device_id` or
+  `target_ip`, so this must not be the trace list's newest-first sort and hop
+  join: each probe is `SELECT 1 ... LIMIT 1` with no `ORDER BY`, and stops at
+  the first matching row. An `{:any_eq, ...}` term (a device's id OR its
+  address) becomes one probe per equality joined by `UNION ALL`, which selects
+  the same rows, so every scan carries a single-column equality the storage
+  layer can filter on rather than an OR across two columns.
+  """
+  @spec trace_exists([tuple()], keyword()) :: {:ok, boolean()} | {:error, term()}
+  def trace_exists(terms, opts \\ []) do
+    with {:ok, sql} <- existence_sql(terms),
+         {:ok, %{rows: rows}} <- run(opts, sql) do
+      {:ok, rows != []}
+    end
+  end
+
+  defp existence_sql(terms) do
+    with {:ok, _conditions} <- conditions(terms, "") do
+      probes =
+        terms
+        |> disjunctive_branches()
+        |> Enum.with_index()
+        |> Enum.map_join("\n  UNION ALL\n", fn {branch, idx} ->
+          {:ok, where} = where_clause(branch, "")
+          "  SELECT hit FROM (SELECT 1 AS hit FROM #{table("mtr_traces")} #{where} LIMIT 1) probe_#{idx}"
+        end)
+
+      {:ok, "SELECT hit FROM (\n#{probes}\n) probes\nLIMIT 1"}
+    end
+  end
+
+  # Distributes each `{:any_eq, pairs}` over the other terms: the conjunction
+  # becomes a union of conjunctions with one equality each.
+  defp disjunctive_branches(terms) do
+    Enum.reduce(terms, [[]], fn
+      {:any_eq, pairs}, branches ->
+        for branch <- branches, {field, value} <- pairs, do: branch ++ [{:eq, field, value}]
+
+      term, branches ->
+        Enum.map(branches, &(&1 ++ [term]))
+    end)
+  end
+
   # ---------------------------------------------------------------------------
   # Trace detail
   # ---------------------------------------------------------------------------

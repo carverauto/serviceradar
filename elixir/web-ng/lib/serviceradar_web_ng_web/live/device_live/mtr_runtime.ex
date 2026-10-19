@@ -217,22 +217,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
     end
   end
 
+  @doc """
+  Whether the device page shows the MTR tab: the device has a stored trace or
+  a pending MTR job. It runs inside the page's time-boxed supplemental batch,
+  so the trace check is `MtrData.trace_exists/1`, not a trace listing, and the
+  pending-job read is skipped once a trace is found.
+  """
   def detect_available(scope, device_uid, device_ip) do
-    traces? =
-      case MtrData.list_traces(device_uid: device_uid, device_ip: device_ip, limit: 1) do
-        {:ok, [_ | _]} -> true
-        _ -> false
-      end
-
-    pending? =
-      case MtrData.list_pending_jobs(scope, device_uid: device_uid, device_ip: device_ip) do
-        {:ok, [_ | _]} -> true
-        _ -> false
-      end
-
-    traces? or pending?
+    trace_exists?(device_uid, device_ip) or pending_jobs?(scope, device_uid, device_ip)
   rescue
     _ -> false
+  end
+
+  defp trace_exists?(device_uid, device_ip) do
+    MtrData.trace_exists(device_uid: device_uid, device_ip: device_ip) == {:ok, true}
+  end
+
+  defp pending_jobs?(scope, device_uid, device_ip) do
+    match?({:ok, [_ | _]}, MtrData.list_pending_jobs(scope, device_uid: device_uid, device_ip: device_ip))
   end
 
   defp maybe_refresh_tab(socket, device_ip) do
