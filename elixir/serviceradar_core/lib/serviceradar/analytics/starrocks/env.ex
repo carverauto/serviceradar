@@ -60,7 +60,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   @default_stream_load [
     max_rows: 50_000,
     max_bytes: 33_554_432,
-    max_age_ms: 2_000,
+    max_age_ms: 10_000,
     max_in_flight: 4
   ]
 
