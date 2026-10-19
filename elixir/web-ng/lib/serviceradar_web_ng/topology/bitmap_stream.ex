@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       state = socket.assigns.bitmap_stream
 
       if state.task do
+        BitmapQueries.busy(:stream_occupied)
         {:reply, {:error, error(:query_busy)}, socket}
       else
         socket = reset(socket)
@@ -245,6 +246,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         assign(socket, :bitmap_stream, %{state | task: task, sequence: sequence})
 
       {:error, _reason} ->
+        BitmapQueries.busy(:watch_tasks_full)
         failed(state, :query_busy, socket, deadline)
     end
   end

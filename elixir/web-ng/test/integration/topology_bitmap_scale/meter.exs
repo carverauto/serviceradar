@@ -10,14 +10,33 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   def report, do: GenServer.call(__MODULE__, :report, 5_000)
 
+  @busy [:serviceradar, :topology, :bitmap_query, :busy]
+  @admission [:serviceradar, :topology, :bitmap_query, :admission]
+
   def init(nil) do
     Process.flag(:trap_exit, true)
     table = :ets.new(__MODULE__, [:set, :public, write_concurrency: true])
     event = Keyword.fetch!(Repo.config(), :telemetry_prefix) ++ [:query]
     :ok = :telemetry.attach(__MODULE__, event, &__MODULE__.query/4, table)
+    queries = :ets.new(__MODULE__.Queries, [:set, :public, write_concurrency: true])
+    :ok = :telemetry.attach_many(__MODULE__.Queries, [@busy, @admission], &__MODULE__.bitmap/4, queries)
     send(self(), :sample)
-    {:ok, %{table: table, event: event, samples: 0, peaks: %{}, latest: %{}}}
+    {:ok, %{table: table, queries: queries, event: event, samples: 0, peaks: %{}, latest: %{}}}
   end
+
+  # Fixed source atoms and power-of-two millisecond buckets keep this bounded.
+  def bitmap(@busy, _measurements, %{source: source}, table),
+    do: :ets.update_counter(table, {:busy, source}, 1, {{:busy, source}, 0})
+
+  def bitmap(@admission, %{wait_ms: wait, run_ms: run}, _metadata, table) do
+    for {kind, ms} <- [wait_ms: wait, run_ms: run] do
+      key = {kind, bucket(ms)}
+      :ets.update_counter(table, key, 1, {key, 0})
+    end
+  end
+
+  defp bucket(ms) when ms < 1, do: 0
+  defp bucket(ms), do: min(Integer.pow(2, ceil(:math.log2(ms + 1))), 2_048)
 
   def query(_event, timing, metadata, table) do
     sql = to_string(metadata.query)
@@ -64,12 +83,32 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
       end)
 
     # A detached handler leaves stale counters behind; report it so they cannot pass.
-    attached = Enum.any?(:telemetry.list_handlers(state.event), &(&1.id == __MODULE__))
+    attached =
+      Enum.any?(:telemetry.list_handlers(state.event), &(&1.id == __MODULE__)) and
+        Enum.all?([@busy, @admission], fn event ->
+          Enum.any?(:telemetry.list_handlers(event), &(&1.id == __MODULE__.Queries))
+        end)
 
-    {:reply, %{samples: state.samples, peaks: state.peaks, latest: memory(), database: db, instrumented: attached}, state}
+    queries =
+      Enum.reduce(:ets.tab2list(state.queries), %{busy: %{}, wait_ms: %{}, run_ms: %{}}, fn {{kind, key}, count}, acc ->
+        put_in(acc, [kind, key], count)
+      end)
+
+    {:reply,
+     %{
+       samples: state.samples,
+       peaks: state.peaks,
+       latest: memory(),
+       database: db,
+       queries: queries,
+       instrumented: attached
+     }, state}
   end
 
-  def terminate(_reason, _state), do: :telemetry.detach(__MODULE__)
+  def terminate(_reason, _state) do
+    :telemetry.detach(__MODULE__)
+    :telemetry.detach(__MODULE__.Queries)
+  end
 
   def memory do
     beam = Map.new(:erlang.memory())

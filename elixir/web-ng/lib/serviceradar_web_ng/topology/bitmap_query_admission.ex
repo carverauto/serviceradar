@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryAdmission do
   """
   use GenServer
 
+  alias ServiceRadarWebNG.Topology.BitmapQueries
+
   @tasks ServiceRadarWebNG.Topology.BitmapQueryTasks
   @max_running 8
   # Waiters expire at their own deadline (at most one second); this bounds the
@@ -24,14 +26,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryAdmission do
 
   Returns `{:ok, result}` or `{:error, reason}`, where reason is `:query_busy`
   when the work never started, `:query_timeout` when it did not finish, and
-  `:query_unavailable` when it crashed.
+  `:query_unavailable` when it crashed. Started work reports its queue wait and
+  run time as `[:serviceradar, :topology, :bitmap_query, :admission]`.
   """
   def run(work, deadline) when is_function(work, 0) and is_integer(deadline) do
     reply = Process.alias()
+    queued = now()
 
     try do
-      with :ok <- GenServer.call(__MODULE__, {:run, self(), reply, work, deadline}, max(deadline - now(), 0)) do
-        await(reply, deadline)
+      case GenServer.call(__MODULE__, {:run, self(), reply, work, deadline}, max(deadline - queued, 0)) do
+        :ok ->
+          await(reply, deadline, queued)
+
+        {:error, :query_busy} = busy ->
+          BitmapQueries.busy(:admission_full)
+          busy
       end
     catch
       :exit, _ -> {:error, :query_unavailable}
@@ -50,12 +59,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryAdmission do
     end
   end
 
-  defp await(reply, deadline) do
+  defp await(reply, deadline, queued) do
     receive do
-      {^reply, {:started, pid}} -> await(reply, deadline, pid, Process.monitor(pid))
-      {^reply, {:done, result}} -> {:ok, result}
+      {^reply, {:started, pid}} ->
+        started = now()
+        result = await(reply, deadline, pid, Process.monitor(pid))
+        measurements = %{wait_ms: started - queued, run_ms: now() - started}
+        :telemetry.execute([:serviceradar, :topology, :bitmap_query, :admission], measurements, %{})
+        result
     after
-      max(deadline - now(), 0) -> {:error, :query_busy}
+      max(deadline - now(), 0) ->
+        BitmapQueries.busy(:admission_expired)
+        {:error, :query_busy}
     end
   end
 
@@ -120,7 +135,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryAdmission do
 
     with true <- budget > 0 and Process.alive?(caller),
          {:ok, pid} <- Task.Supervisor.start_child(@tasks, fn -> execute(reply, work, budget) end) do
-      send(reply, {reply, {:started, pid}})
       %{state | running: Map.put(state.running, Process.monitor(pid), pid)}
     else
       _ -> state
@@ -131,6 +145,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryAdmission do
     # The timer also bounds a disconnected caller's database/authorization
     # work. Resource destruction releases a pin if cancellation skips `after`.
     {:ok, timer} = :timer.exit_after(budget, self(), :kill)
+    # Sent by the task itself so it always precedes the result.
+    send(reply, {reply, {:started, self()}})
 
     try do
       send(reply, {reply, {:done, work.()}})

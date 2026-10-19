@@ -165,20 +165,29 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
 
   def public_reason(_reason), do: "query_unavailable"
 
+  @busy_sources %{
+    "pin_budget" => :pin_budget,
+    "reader_budget" => :reader_budget,
+    "native_memory_budget" => :native_memory_budget,
+    "publisher_busy" => :publisher_busy,
+    "reader_busy" => :reader_busy,
+    "busy" => :native_busy,
+    "catalog_busy" => :catalog_busy,
+    :busy => :world_cache_busy
+  }
+
+  @doc """
+  Counts one public `query_busy` by its origin, so a saturated deployment can
+  tell admission, stream, task-pool, tile-cache and native budget refusals
+  apart. Sources are a fixed atom set; the event carries no request data.
+  """
+  def busy(source) when is_atom(source),
+    do: :telemetry.execute([:serviceradar, :topology, :bitmap_query, :busy], %{count: 1}, %{source: source})
+
   @doc "Shared retry and authorization errors for HTTP queries and streamed Atlas overlays."
   def normalize({:ok, _} = result), do: result
 
-  def normalize({:error, reason})
-      when reason in [
-             "pin_budget",
-             "reader_budget",
-             "native_memory_budget",
-             "publisher_busy",
-             "reader_busy",
-             "busy",
-             "catalog_busy",
-             :busy
-           ], do: {:error, :query_busy}
+  def normalize({:error, reason}) when is_map_key(@busy_sources, reason), do: {:error, :query_busy}
 
   def normalize({:error, reason}) when reason in ["deadline_exceeded", :deadline_exceeded, :timeout],
     do: {:error, :query_timeout}
@@ -294,9 +303,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   defp bounded(work, deadline) do
     with {:ok, _budget} <- remaining(deadline),
          {:ok, result} <- BitmapQueryAdmission.run(work, deadline) do
+      count_busy(result)
       if now() < deadline, do: normalize(result), else: {:error, :query_timeout}
     end
   end
+
+  defp count_busy({:error, reason}) when is_map_key(@busy_sources, reason), do: busy(Map.fetch!(@busy_sources, reason))
+  defp count_busy(_result), do: :ok
 
   defp require_user(%Scope{user: user}) when not is_nil(user), do: :ok
   defp require_user(_scope), do: {:error, :unauthorized}

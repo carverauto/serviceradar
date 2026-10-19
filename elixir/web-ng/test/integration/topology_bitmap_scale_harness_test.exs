@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
 
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.BitmapFrame
+  alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
   alias ServiceRadarWebNG.Topology.Scale.Client
   alias ServiceRadarWebNG.Topology.Scale.Fixture
   alias ServiceRadarWebNG.Topology.Scale.Meter
@@ -170,9 +172,20 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     select = %{query: "SELECT 1", options: [], result: {:ok, %Postgrex.Result{command: :select, num_rows: 3}}}
     :telemetry.execute(event, %{query_time: 1, decode_time: 1, queue_time: 1}, select)
 
+    # Bitmap query rejections are counted by origin and admitted work by
+    # wait/run bucket, from the production emitters the replicas run.
+    start_supervised!(BitmapQueries)
+    BitmapQueries.busy(:pin_budget)
+    BitmapQueries.busy(:pin_budget)
+    BitmapQueries.busy(:admission_expired)
+    assert {:ok, :ran} = BitmapQueryAdmission.run(fn -> :ran end, System.monotonic_time(:millisecond) + 1_000)
+
     report = Meter.report()
     assert report.instrumented
     assert %{queries: 2, rows: 3} = report.database.other
+    assert report.queries.busy == %{pin_budget: 2, admission_expired: 1}
+    assert report.queries.wait_ms |> Map.values() |> Enum.sum() == 1
+    assert report.queries.run_ms |> Map.values() |> Enum.sum() == 1
 
     :ok = :telemetry.detach(Meter)
     refute Meter.report().instrumented

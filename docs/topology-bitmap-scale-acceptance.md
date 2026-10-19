@@ -52,8 +52,24 @@ reproduces the starvation (all 24 newcomers refused on the old admission)
 and passes with the change. The earlier native fix, where admitted readers
 wait out the index's short bookkeeping sections instead of failing as busy,
 is kept. Task, reader, pin, memory, deadline and workload limits are
-unchanged. Whether this clears the stalled views is unproven until the hosted
-compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
+unchanged.
+
+The next compact attempt on that admission
+([BuildBuddy f909d7e6](https://carverauto.buildbuddy.io/invocation/f909d7e6-4cff-476b-b66b-71538f037537),
+commit 59cbade538) failed the same wait with fewer stalled viewers: 29 had no
+frame, 151 frames were delivered and 776 watches returned `query_busy`, with
+no timeout or other error. Sampled pins peaked at 7 and 6 of 8, native memory
+stayed under 88 MB and mailboxes held at most 3 messages. First-come admission
+therefore helped but did not clear the stall. Zero timeouts among 776
+rejections argues against admission waiting as the main refusal, because
+late-started work would also time out, but that is inferred, not measured.
+Each `query_busy` is now counted by origin as the
+`[:serviceradar, :topology, :bitmap_query, :busy]` telemetry event, and each
+admitted query reports its queue wait and run time. The origins are admission
+expiry and a full queue, an occupied stream, a full watch-task pool, the tile
+cache, and each native budget or lock. The replica meter adds both to every
+scale report, so the next hosted run names the refusing point. Whether the
+stall clears is unproven until the hosted compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
 distributions finish and their numbers and failures are reviewed. The
 database-free harness target compiles the complete scenario and checks its
 independent frame consumer, native geometry partition and isolated VM

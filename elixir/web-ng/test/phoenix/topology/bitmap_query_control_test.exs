@@ -280,8 +280,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
           request: kept_request
       })
 
+    observe_busy()
+
     assert {:reply, {:error, %{reason: "query_busy"}}, busy} =
              TopologyTileChannel.handle_in("membership:watch", params, timed_out)
+
+    assert_receive {:query_busy, :stream_occupied}
 
     assert busy.assigns.bitmap_stream.task.pid == held
     assert busy.assigns.bitmap_stream.metadata == displayed
@@ -543,16 +547,70 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
               send(test, :held)
               Process.sleep(:infinity)
             end,
-            now() + 300
+            now() + 600
           )
         end)
       end
 
     for _ <- 1..8, do: assert_receive(:held, 1_000)
+    observe_busy()
+
+    # Sixty-four live waiters fill the queue, so the next request is refused at once.
+    waiters =
+      for _ <- 1..64, do: Task.async(fn -> BitmapQueryAdmission.run(fn -> send(test, :late_ran) end, now() + 150) end)
+
+    await_waiting(64)
+    assert {:error, :query_busy} = BitmapQueryAdmission.run(fn -> send(test, :late_ran) end, now() + 150)
+    assert_received {:query_busy, :admission_full}
+    assert Task.await_many(waiters, 1_000) == List.duplicate({:error, :query_busy}, 64)
+    assert busy_count(:admission_expired) == 64
+
+    # Expired waiters are pruned, so this one queues and then expires unstarted.
     assert {:error, :query_busy} = BitmapQueryAdmission.run(fn -> send(test, :late_ran) end, now() + 100)
+    assert busy_count(:admission_expired) == 1
+    assert busy_count(:admission_full) == 0
+
     assert Task.await_many(holders, 2_000) == List.duplicate({:error, :query_timeout}, 8)
     assert {:ok, :admitted} = BitmapQueryAdmission.run(fn -> :admitted end, now() + 500)
     refute_received :late_ran
+  end
+
+  defp observe_busy do
+    test = self()
+    id = make_ref()
+
+    :telemetry.attach(
+      id,
+      [:serviceradar, :topology, :bitmap_query, :busy],
+      fn _event, %{count: 1}, %{source: source}, _config -> send(test, {:query_busy, source}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+  end
+
+  defp busy_count(source, count \\ 0) do
+    receive do
+      {:query_busy, ^source} -> busy_count(source, count + 1)
+    after
+      0 -> count
+    end
+  end
+
+  defp await_waiting(count, attempts \\ 200) do
+    waiting = :queue.len(:sys.get_state(BitmapQueryAdmission).waiting)
+
+    cond do
+      waiting == count ->
+        :ok
+
+      attempts == 0 ->
+        flunk("admission never queued #{count} waiters")
+
+      true ->
+        Process.sleep(5)
+        await_waiting(count, attempts - 1)
+    end
   end
 
   defp refresh(work, stop) do
