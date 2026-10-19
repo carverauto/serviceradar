@@ -15356,7 +15356,7 @@
 <h2>4. Scale proof and delivery</h2>
 <ul>
 <li>[ ] 4.1 Publish latency/memory and admitted-overlay bytes for the synthetic 100k + 1M fixture, including sparse IDs and full-population churn.</li>
-<li>[ ] 4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery.</li>
+<li>[ ] 4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery. Compact 1daa6bc2 completed every workload phase but failed its own million-row exit cleanup and missed the 5-second write cadence; both variants now use the run's dedicated <code>serial_1</code> clone, dropped by the hosted lifecycle. Compact and then sparse must rerun. See <code>docs/topology-bitmap-scale-acceptance.md</code>.</li>
 <li>[ ] 4.3 Complete required remote checks and actual-hardware acceptance; identify each unrun check honestly.</li>
 <li>[ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.</li>
 <li>[ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.</li>
@@ -15365,7 +15365,7 @@
 </ul>
 <p>Deferred: interface identities/queries, durable dirty replication, owner-routed frozen pages, result caching and browser Roaring. Add them only for a demonstrated requirement; they are not unfinished release-one implementation tasks.</p>
 <p>Follow-up from review pass 3: move SRTO health/flow encoding to native Arrow IPC to reuse the existing Arrow decoder and nullable columns. Preserve exact tile receipts, field semantics and bounded cached bytes; compare encoding, decoding, retained memory and wire size before replacing the current fixed codec. This is not a release-one blocker. Omission of unchanged tiles also remains measurement driven; full replacements stay the current protocol.</p>
-<div class="checksum">Source SHA-256: 5aa39247d268ceb2474eaa90bf009e9720e2f8cf33e46964e767a1cec933a86a</div></section>
+<div class="checksum">Source SHA-256: de08b7b3ce3b3cd037d07cba00a86793d84e3e2e8f611aee875fa9ce7da589f0</div></section>
 <section id="review-response" class="source"><div class="section-label">Complete source document · review-response.md</div><h1>Review response</h1>
 <h2>Subsequent approved corrections</h2>
 <p>The user requires filtering whenever Atlas is enabled, using existing viewer permissions. The separate default-off bitmap flag is removed; active-query failure never becomes an unfiltered success. Atlas lifecycle shutdown still reclaims resources. This supersedes earlier rollout-toggle assumptions.</p>

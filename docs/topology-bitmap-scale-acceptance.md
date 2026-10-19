@@ -29,9 +29,9 @@ finished with observer, teardown and release status 0. The earlier attempt
 ([BuildBuddy e578c706](https://carverauto.buildbuddy.io/invocation/e578c706-e28c-410e-9542-bf79ec2ff243),
 commit a8559ac3df) failed the same wait. In it and the attempt before, the
 test's own fixture cleanup rolled back when deleting the 1,100,000 devices hit
-its 120-second statement timeout. Cleanup now skips the per-row inventory
-rollup trigger and recounts once at the end, as the seed does; the bounded
-report from a692930f does not show whether that cleanup completed.
+its 120-second statement timeout. Skipping the per-row inventory rollup
+trigger was not enough; the 1daa6bc2 result below describes the removal of
+that cleanup.
 
 The public reason does not say which admission point refused each watch,
 and no hosted measurement attributes every rejection. The code shows one cause
@@ -145,6 +145,33 @@ renew that coverage; the failure report carries the basis and the
 sampler's failure count and read age. A
 viewer that stops now fails the driver on its next step with the viewer's own
 bounded report. The bound and the workload are unchanged.
+
+The next compact attempt
+([BuildBuddy 1daa6bc2](https://carverauto.buildbuddy.io/invocation/1daa6bc2-ba0e-46e3-bd24-c7c67375f8ce),
+commit 7d24b02af3) completed every workload phase and assertion: the fixture,
+both servers, geometry, warmup, all 100 churn ticks with 100 fifty-facet HTTP
+queries, the index restart, the mapping replacement, the combined phase and
+the revocation. No viewer stalled and no wait failed. It is still not an
+acceptance result. Churn writes averaged 13,035.48 ms per tick, so the requested
+5-second cadence was not met. The facet HTTP queries answered 200 87 times and
+503 13 times. Query latency was 237, 320 and 870 ms at p50, p95 and p99. The
+combined phase delivered 23,737 frames, the largest 62,645 bytes. The largest
+normal-viewer progress gap was 10,556 ms and the largest slow-viewer reset
+19,654 ms. Native memory peaked at 111,676,774 bytes with 8 of 8 pins, and the
+two servers' summed RSS high-water upper bound was 2,542,952,448 bytes. These
+are server measurements over Gun; they exclude the browser, GPU, layout and
+discovery. The test then failed in its own exit hook: deleting the 1,100,000
+seeded devices from the shared `serial_0` clone hit the 120-second statement
+timeout (PostgreSQL 57014), even with the inventory rollup skipped, because
+every row still ran its foreign-key and trigger work. The body took 2,139.5
+seconds and the test 2,274.5 seconds. The hosted lifecycle's clone drop
+finished with suite status 3 and observer, teardown and release status 0.
+
+Both variants now seed the run's dedicated `serial_1` clone, which
+`teardown_db` drops on success or failure, and the per-test delete, the
+ordinal-sequence rewind and the user delete are gone. The ordinary cases keep
+an untouched `serial_0`. No statement timeout, deadline or workload limit
+changed.
 Whether the
 stall clears is unproven until the hosted compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
 distributions finish and their numbers and failures are reviewed. The
@@ -167,14 +194,15 @@ The targets are:
 | Target under `//elixir/web-ng` | Purpose |
 | --- | --- |
 | `topology_bitmap_scale_harness_test` | Database-free harness validation; regular unit gate. |
-| `topology_bitmap_scale_compact_acceptance` | Full workload on the existing `serial_0` scratch clone. |
-| `topology_bitmap_scale_sparse_acceptance` | Full workload on the existing `serial_1` scratch clone. |
+| `topology_bitmap_scale_compact_acceptance` | Full workload on the run's dedicated `serial_1` scratch clone. |
+| `topology_bitmap_scale_sparse_acceptance` | Full workload on the run's dedicated `serial_1` scratch clone. |
 | `topology_bitmap_scale_acceptance` | Manual suite naming both variants. |
 
 The opt-in runs before the existing diagnostic database cases. Both peer
-servers in one variant use the same clone: compact uses the existing `serial_0`;
-sparse provisions `serial_1` through the existing generation target and checks
-its generation digest and run identity. The same observer and cleanup trap
+servers in one variant use the same clone. Either variant provisions `serial_1`
+through the existing generation target and checks its generation digest and
+run identity; the network and plugin cases keep `serial_0`, which scale never
+touches. The same observer and cleanup trap
 own connection measurement, teardown and lease release. Each server uses
 eight database connections, and the driver uses eight. The observer admits
 24 slots for scale and retains its ordinary 15-slot setting otherwise.
@@ -209,9 +237,9 @@ scenario or count an incomplete workload as a pass.
 Scale runs first, right after the guarded clones are created, so the existing
 `networks_live_db_test` and `plugin_config_cli_db_test` cases cannot consume its
 window. One hosted compact dispatch was refused at admission after those cases
-ran first: the prelude had already used 435 seconds of observer time. Compact
-seeds `serial_0` and deletes its rows, user and ordinal sequence position on
-exit before those cases run there; sparse uses `serial_1`. The existing cases
+ran first: the prelude had already used 435 seconds of observer time. Both
+variants seed only `serial_1`, so those cases run on an untouched `serial_0`.
+The existing cases
 still run and remain required. Before each one starts, the same two clocks are
 read again, and it runs under a forced-exit envelope of whatever both deadlines
 hold beyond the same 165-second quiet, cleanup and status reserve. A case that
@@ -232,12 +260,11 @@ bazel build -c opt --config=remote --//build:enable_integration_tests \
 
 Do not run the database targets against a live or developer database. The
 helper requires the existing scratch-database guard and verified TLS. The
-acceptance test refuses to seed unless the connection is this run's disposable
-clone and no `sr:atlas-scale-%` rows are already present. The exit hook closes
-over that seed record, including a seed that stops early. It is a bounded
-attempt of about one minute between the 2,640-second ExUnit timeout and the
-2,700-second Bazel timeout. The cleanup guarantee is the guarded CI clone drop
-`//rust/integration-db:teardown_db`, which drops the clone after the test. Do not
+acceptance test refuses to seed unless its shard is `serial_1`, the connection
+is this run's disposable clone, and no `sr:atlas-scale-%` rows are already
+present. The test does not delete its million-row seed. The only cleanup is
+the guarded CI clone drop `//rust/integration-db:teardown_db`, which drops the
+clone after the test whether it passed or failed. Do not
 rerun a completed variant in a dirty clone: fixture IDs intentionally collide
 and fail rather than silently reuse prior state.
 

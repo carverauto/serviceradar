@@ -1744,11 +1744,12 @@ wait_for_observer_ready() { return 0; }
                 expected.append("observer=3300 pool=24" if enabled else "observer=1800 pool=15")
                 self.assertEqual(expected, [line for line in result.stdout.splitlines() if not line.startswith("{")])
                 clones = ["run //rust/integration-db:provision_generation_serial_0"]
-                if selected == "sparse":
+                if enabled:
                     clones.append("run //rust/integration-db:provision_generation_serial_1")
                 self.assertEqual(clones, result.stderr.splitlines())
         for selected, bad_clone in (("both", ""), ("invalid", ""),
                                     ("compact", "//rust/integration-db:provision_generation_serial_0"),
+                                    ("compact", "//rust/integration-db:provision_generation_serial_1"),
                                     ("sparse", "//rust/integration-db:provision_generation_serial_1")):
             with self.subTest(selected=selected, bad_clone=bad_clone):
                 result = subprocess.run(

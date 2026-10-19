@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `87d09d68d83d0e3dfe43d74a4e536797995c73e71c476143608d84246a1a8046` | 913690 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `72879d00934eb97bc7ddc45363df2bbdc8f040e45630563d38ae994c466fef95` | 914020 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also
@@ -36,7 +36,7 @@ Their exact source checksums are:
 | `proposal.md` | `c1487a8c52082af037efa9be9b1acf2f790c2c5a50c1db416ea32ac3bf0b71da` |
 | `design.md` | `fdfede8e186fb1ade14f3d57b02c6d103fb714c52933565c1366531ac001708d` |
 | `specs/topology-god-view/spec.md` | `260f0de38087ee26d350bad1f25b4a49595d183f51bfd4f646c35feab1c955d7` |
-| `tasks.md` | `5aa39247d268ceb2474eaa90bf009e9720e2f8cf33e46964e767a1cec933a86a` |
+| `tasks.md` | `de08b7b3ce3b3cd037d07cba00a86793d84e3e2e8f611aee875fa9ce7da589f0` |
 | `review-response.md` | `26f3f975c0996181c735aa17b3ebc276e2fb46150ba0aaa8947cda08cc845d05` |
 
 The current snapshot includes resumable Prefix Tag catalog construction,
@@ -50,7 +50,8 @@ before their commit, not an unchanged checkpoint checkout or a later rebase.
 Hosted database and combined scale acceptance remain unchecked; the unit tier
 excludes those database cases. Compact scale acceptance has not passed on the
 hosted database: earlier attempts stopped before viewers started, three
-failed their initial-views wait, and the latest failed during churn. Sparse has not run, and tasks 4.2 and
+failed their initial-views wait, one failed during churn, and the latest completed every
+workload phase but failed its own million-row exit cleanup. Sparse has not run, and tasks 4.2 and
 4.7 remain open (see `docs/topology-bitmap-scale-acceptance.md`).
 The portable summary retains camera-only sharing, paged labels without search,
 masked zero-match glyphs, hidden unproven aggregate links and disabled compression.

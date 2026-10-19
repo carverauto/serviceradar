@@ -945,6 +945,8 @@ ex_unit_test(
 
 # Manual full-server acceptance. Both peer replicas in a variant share one
 # guarded clone; each dispatch selects one variant in the existing diagnostic lifecycle.
+# Every variant seeds the run's dedicated serial_1 clone, never the ordinary
+# serial_0, and the lifecycle's clone drop owns its data cleanup.
 _TOPOLOGY_SCALE_DATA = glob(
     ["config/**", "lib/**", "priv/**", "test/integration/topology_bitmap_scale/**"],
     exclude = ["priv/plts/**"],
@@ -980,7 +982,6 @@ ex_unit_test(
             "//elixir/serviceradar_core:test/db/fixture_config.exs",
             "//elixir/serviceradar_core:test/db/integration_env.exs",
             "//elixir/serviceradar_core:test/db/integration_env_config.exs",
-            "//elixir/serviceradar_core:test/support/test_support.ex",
         ],
         elixir_opts = [
             "-r", "../serviceradar_core/test/db/integration_env.exs",
@@ -990,7 +991,7 @@ ex_unit_test(
         env = {
             "SERVICERADAR_REQUIRE_DB_TESTS": "1",
             "SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "3600000",
-            "SERVICERADAR_TEST_DB_SHARD": shard,
+            "SERVICERADAR_TEST_DB_SHARD": "serial_1",
             "TEST_CNPG_POOL_SIZE": "8",
             "TOPOLOGY_BITMAP_SCALE_ORDINALS": distribution,
         },
@@ -1003,7 +1004,7 @@ ex_unit_test(
             "//config/manager_secret/elixir:secret",
         ],
     )
-    for distribution, shard in [("compact", "serial_0"), ("sparse", "serial_1")]
+    for distribution in ["compact", "sparse"]
 ]
 
 test_suite(

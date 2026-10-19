@@ -20,13 +20,11 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
 
   # Bootstrap invented identities while their new devices are inactive, before
   # starting any index. Existing identities and tombstones are never reassigned.
-  def seed(distribution, tracker) do
+  # The run's serial_1 clone is dropped by the hosted lifecycle, which owns all
+  # cleanup of this data on success or failure.
+  def seed(distribution) do
     assert_disposable_clone!()
 
-    %{rows: [[previous, called]]} =
-      Repo.query!("SELECT last_value, is_called FROM platform.device_fleet_ordinals_ordinal_seq")
-
-    Agent.update(tracker, fn _ -> %{seeded: true, ordinal_seq: {previous, called}} end)
     [[max_ordinal]] = Repo.query!("SELECT coalesce(max(ordinal), 0) FROM platform.device_fleet_ordinals").rows
     base = if distribution == :sparse, do: max(2_147_483_648, max_ordinal + 1), else: max_ordinal + 1
     stride = if distribution == :sparse, do: 7, else: 1
@@ -101,51 +99,17 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
     %{distribution: distribution, base: base, stride: stride, devices: @population, addresses: @population * 2}
   end
 
-  def cleanup!(%{seeded: false}), do: :ok
-
-  def cleanup!(%{seeded: true, ordinal_seq: sequence}) do
-    # As when seeding, per-row rollup maintenance would rewrite the same counter
-    # rows once per device; the shared delete joins this transaction, so skip it
-    # and recount once.
-    {:ok, _} =
-      Repo.transaction(
-        fn ->
-          Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
-          ServiceRadar.TestSupport.delete_device_fixtures_by_prefix!("sr:atlas-scale-")
-          Repo.query!("SELECT platform.refresh_device_inventory_rollups()", [], timeout: 60_000)
-        end,
-        timeout: 150_000
-      )
-
-    Repo.query!("DELETE FROM platform.ng_users WHERE email = 'atlas-scale@example.com'")
-
-    case sequence do
-      {previous, called} ->
-        Repo.query!(
-          "SELECT setval('platform.device_fleet_ordinals_ordinal_seq', $1::bigint, $2::boolean)",
-          [previous, called]
-        )
-
-      _ ->
-        :ok
-    end
-
-    %{rows: [[remaining]]} =
-      Repo.query!("SELECT count(*)::bigint FROM platform.ocsf_devices WHERE uid LIKE 'sr:atlas-scale-%'")
-
-    if remaining != 0, do: raise("scale cleanup left #{remaining} sr:atlas-scale devices")
-    :ok
-  end
-
   defp assert_disposable_clone! do
     run_id_path = Path.join(System.fetch_env!("TEST_TMPDIR"), "build/run_id_file.txt")
     base_name = run_id_path |> File.read!() |> String.trim()
+    shard = System.get_env("SERVICERADAR_TEST_DB_SHARD")
 
-    expected =
-      ServiceRadar.DB.IntegrationEnvConfig.database_name!(
-        base_name,
-        System.get_env("SERVICERADAR_TEST_DB_SHARD")
-      )
+    # Only the scale-owned clone may receive this data; ordinary suites use serial_0.
+    if shard != "serial_1" do
+      raise "scale seed refused: shard #{inspect(shard)} is not the scale-owned serial_1"
+    end
+
+    expected = ServiceRadar.DB.IntegrationEnvConfig.database_name!(base_name, shard)
 
     %{rows: [[current]]} = Repo.query!("SELECT current_database()")
 
