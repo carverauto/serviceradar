@@ -74,35 +74,60 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
   @doc """
   Enqueues both phases through the repo, inside the caller's transaction when there is
   one (the mode switch holds the settings row, so two switches cannot both enqueue). A
-  phase that is already waiting to run is not enqueued again. Needs no running Oban
+  phase that is already waiting to run is not enqueued again; a waiting full pass is
+  moved to this entry's cache deadline when that is later, so every entry's pass starts
+  after its own deadline. Needs no running Oban
   instance, so the switch works from a release `eval` too.
   """
   @spec enqueue() :: :ok
   def enqueue do
-    worker = inspect(__MODULE__)
+    deadline = DateTime.add(DateTime.utc_now(), Mode.cache_ms() + @cache_margin_ms, :millisecond)
 
     for phase <- @phases do
-      waiting? =
-        Oban.Job
-        |> where([j], j.worker == ^worker and j.state in ["available", "scheduled", "retryable"])
-        |> where([j], fragment("?->>'phase' = ?", j.args, ^phase))
-        |> Repo.exists?(prefix: "platform")
+      case {phase, Repo.exists?(waiting(phase), prefix: "platform")} do
+        {_phase, false} ->
+          Repo.insert!(new(%{"phase" => phase}, job_opts(phase, deadline)), prefix: "platform")
 
-      if not waiting?,
-        do: Repo.insert!(new(%{"phase" => phase}, job_opts(phase)), prefix: "platform")
+        {"resolve", true} ->
+          "resolve"
+          |> waiting()
+          |> update([j],
+            set: [
+              state: "scheduled",
+              scheduled_at:
+                fragment("GREATEST(?, ?)", j.scheduled_at, type(^deadline, :utc_datetime_usec))
+            ]
+          )
+          |> Repo.update_all([], prefix: "platform")
+
+        {_phase, true} ->
+          :ok
+      end
     end
 
     :ok
   end
 
-  defp job_opts("resolve") do
-    [
-      scheduled_at:
-        DateTime.add(DateTime.utc_now(), Mode.cache_ms() + @cache_margin_ms, :millisecond)
-    ]
+  @doc """
+  Deletes every waiting entry job, inside the caller's transaction (the rollback to
+  `legacy`), so a later entry schedules its own full pass.
+  """
+  @spec cancel_waiting() :: :ok
+  def cancel_waiting do
+    for phase <- @phases, do: Repo.delete_all(waiting(phase), prefix: "platform")
+    :ok
   end
 
-  defp job_opts(_phase), do: []
+  defp waiting(phase) do
+    worker = inspect(__MODULE__)
+
+    Oban.Job
+    |> where([j], j.worker == ^worker and j.state in ["available", "scheduled", "retryable"])
+    |> where([j], fragment("?->>'phase' = ?", j.args, ^phase))
+  end
+
+  defp job_opts("resolve", deadline), do: [scheduled_at: deadline]
+  defp job_opts(_phase, _deadline), do: []
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"phase" => "resolve"}}) do

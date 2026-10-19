@@ -22,8 +22,8 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   empty in `legacy`, so nothing else would resolve devices that see no new evidence.
   Entering from `legacy` first drops shadow rows left by an earlier shadow period.
   It is idempotent: in `shadow` it only enqueues the full pass again, which writes on
-  change. `enter_legacy/0` is the stage-b rollback: mode `legacy`, and the shadow rows
-  are dropped. `cutover` and `authoritative` belong to stage c and are refused here.
+  change. `enter_legacy/0` is the stage-b rollback: mode `legacy`, the shadow rows are
+  dropped and waiting entry jobs deleted. `cutover` and `authoritative` belong to stage c and are refused here.
 
   Other nodes keep their cached `legacy` for up to `cache_ms/0` after the switch and
   skip inline resolution meanwhile, so the full pass is scheduled to start only after
@@ -134,8 +134,8 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   end
 
   @doc """
-  The stage-b rollback: mode `legacy`, the expiry window cleared and the shadow rows
-  dropped. Evidence, the per-agent ledger and the compatibility table are untouched.
+  The stage-b rollback: mode `legacy`, the expiry window cleared, the shadow rows
+  dropped and waiting entry jobs deleted. Evidence, the per-agent ledger and the compatibility table are untouched.
   """
   @spec enter_legacy() :: {:ok, %{from: t(), to: :legacy}} | {:error, term()}
   def enter_legacy do
@@ -148,6 +148,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
         """)
 
         Repo.query!("TRUNCATE platform.device_availability_shadow")
+        :ok = ShadowEntryWorker.cancel_waiting()
         {:ok, %{from: from, to: :legacy}}
 
       from ->

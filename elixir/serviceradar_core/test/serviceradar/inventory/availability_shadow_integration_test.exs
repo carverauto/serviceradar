@@ -422,6 +422,7 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
       assert Enum.map([probed, silent], &shadow_xmin(&1.uid)) == versions
 
       assert {:ok, %{from: :shadow, to: :legacy}} = Mode.enter_legacy()
+      assert entry_jobs() == []
       assert shadow(probed.uid) == nil
       assert Mode.current() == :legacy
     end
