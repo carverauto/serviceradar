@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapPrefixTags
+  alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
   alias ServiceRadarWebNG.Topology.Native
 
   @tasks ServiceRadarWebNG.Topology.BitmapQueryTasks
@@ -16,7 +17,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
-  def init(_opts), do: Supervisor.init([{Task.Supervisor, name: @tasks, max_children: 8}], strategy: :one_for_one)
+  # BitmapQueryAdmission is the only starter of query tasks and counts them, so a
+  # restart of either child must restart both.
+  def init(_opts), do: Supervisor.init([{Task.Supervisor, name: @tasks}, BitmapQueryAdmission], strategy: :one_for_all)
 
   def enabled? do
     Application.get_env(:serviceradar_web_ng, :god_view_enabled, false) == true
@@ -289,31 +292,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   end
 
   defp bounded(work, deadline) do
-    with {:ok, budget} <- remaining(deadline) do
-      task =
-        Task.Supervisor.async_nolink(@tasks, fn ->
-          # The timer also bounds a disconnected caller's database/authorization
-          # work. Resource destruction releases a pin if cancellation skips `after`.
-          {:ok, timer} = :timer.exit_after(budget, self(), :kill)
-
-          try do
-            work.()
-          after
-            :timer.cancel(timer)
-          end
-        end)
-
-      case Task.yield(task, max(deadline - now(), 0)) || Task.shutdown(task, :brutal_kill) do
-        {:ok, result} -> if now() < deadline, do: normalize(result), else: {:error, :query_timeout}
-        {:exit, :killed} -> {:error, :query_timeout}
-        {:exit, _reason} -> {:error, :query_unavailable}
-        nil -> {:error, :query_timeout}
-      end
+    with {:ok, _budget} <- remaining(deadline),
+         {:ok, result} <- BitmapQueryAdmission.run(work, deadline) do
+      if now() < deadline, do: normalize(result), else: {:error, :query_timeout}
     end
-  rescue
-    _ -> {:error, :query_busy}
-  catch
-    :exit, _ -> {:error, :query_unavailable}
   end
 
   defp require_user(%Scope{user: user}) when not is_nil(user), do: :ok

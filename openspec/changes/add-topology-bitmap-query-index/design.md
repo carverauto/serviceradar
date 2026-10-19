@@ -279,8 +279,10 @@ HTTP handler.
 Each tile channel retains one occupied task slot until the actual bounded worker
 finishes, even after replacement, unwatch or reset. Cancelled results are discarded.
 Repeated watches receive `query_busy` without spawning more inner work; no global
-per-owner registry or extra queue is introduced. Missing users are rejected before
-query-pool admission. Query and tile-selection HTTP endpoints share bitmap error
+per-owner registry is introduced. A query waits first-come for one of the eight
+workers only until its own deadline, and receives `query_busy` if none frees.
+Refusing every arrival that met a full pool let aligned channel ticks and retries
+starve the same viewers. Missing users are rejected before query-pool admission. Query and tile-selection HTTP endpoints share bitmap error
 statuses, with no retry header on invalid or unsupported predicates.
 
 For current authorized live universe U, compute R = U AND expression.

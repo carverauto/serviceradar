@@ -7,34 +7,48 @@ world persistence, or upstream discovery ingestion. Geometry is an invented
 native world installed through `WorldCache`; canonical mappings still come
 from the real paged dictionary reader.
 
-The compact workload has run against the hosted database and has not yet
+The compact workload has run twice against the hosted database and has not
 passed; sparse has not run. The latest compact attempt
+([BuildBuddy a692930f](https://carverauto.buildbuddy.io/invocation/a692930f-82b4-4b06-8143-b1956cac1a56),
+commit 472387c7e9) seeded 1,100,000 synthetic devices with 2,200,000 addresses,
+started both four-scheduler peers, upgraded 50 concurrent authenticated
+sockets per server, mapped all 1,100,000 ordinals on both servers (12.0 and
+13.0 seconds, 4,400,176 retained bytes each), and returned every HTTP tile
+receipt. It then failed the 90-second "initial 100 views" wait. The
+all-viewer report shows 47 viewers with no frame, each after 12 watches that
+all returned `query_busy`; 865 of 925 watches returned `query_busy` and no
+other error was reported. Native retained memory stayed near 74 MB (87 MB
+peak) and sampled pins peaked at 6 of 8. No warmup, churn, replacement,
+reconnect or revocation phase ran. The hosted lifecycle's clone cleanup
+finished with observer, teardown and release status 0. The earlier attempt
 ([BuildBuddy e578c706](https://carverauto.buildbuddy.io/invocation/e578c706-e28c-410e-9542-bf79ec2ff243),
-commit a8559ac3df) seeded 1,100,000 synthetic devices with 2,200,000 addresses
-in 239 seconds, started both four-scheduler peers, upgraded 50 concurrent
-authenticated sockets per server, mapped all 1,100,000 ordinals on both
-servers (about 15.5 seconds and 4,400,176 retained bytes each), and returned
-every HTTP tile receipt. It then failed the 90-second "initial 100 views" wait:
-at least one viewer had no accepted frame. The one viewer the failure printed
-had nine watches, three frames and six `query_busy` replies. No warmup, churn,
-replacement, reconnect or revocation phase ran. The test's own fixture
-cleanup then rolled back: deleting the 1,100,000 devices hit its 120-second
-statement timeout, as it also did in the earlier compact attempt. The hosted
-lifecycle's clone teardown still finished. The seed skips the per-row
-inventory rollup trigger and recounts once at the end. Cleanup now does the
-same; this has not yet run on the hosted database. The
-log cannot say which admission point returned each `query_busy`. One source
-was found and fixed: concurrent admitted readers, the status sampler and pin
-owners used non-waiting locks on the index's short bookkeeping sections, so a
-reader that met another one there failed as busy. They now wait those sections
-out, and the native `god_view_nif_test` reproduces the old failure. The
-eight-task query admission still answers `query_busy` when it is full. Reader,
-pin, memory and task limits are unchanged. Whether the fix clears the stalled
-views is unproven until the hosted compact and sparse runs pass. OpenSpec task
-4.2 remains unchecked until both distributions finish and their numbers and
-failures are reviewed. The database-free harness target compiles
-the complete scenario and checks its independent frame consumer, native
-geometry partition and isolated VM measurements.
+commit a8559ac3df) failed the same wait. In it and the attempt before, the
+test's own fixture cleanup rolled back when deleting the 1,100,000 devices hit
+its 120-second statement timeout. Cleanup now skips the per-row inventory
+rollup trigger and recounts once at the end, as the seed does; the bounded
+report from a692930f does not show whether that cleanup completed.
+
+The public reason does not say which admission point refused each watch.
+The code shows one that matches the report. The eight-task query admission
+refused, without waiting, every query that arrived while all eight tasks were
+busy. Each server socket schedules its 5-second refresh tick from its join,
+and the viewers join together, so those ticks are aligned. The client backoff
+(1, 2, 4 and 8 seconds, then 10; the browser uses the same schedule) puts
+every later retry on one of those ticks. A viewer without a frame therefore
+kept retrying into the refreshes of viewers already served, and could lose
+that race on every attempt. Admission is now first-come: a query waits for
+one of the same eight tasks until its own one-second deadline, and answers
+`query_busy` only when no task frees in time. A database-free test
+reproduces the starvation (all 24 newcomers refused on the old admission)
+and passes with the change. The earlier native fix, where admitted readers
+wait out the index's short bookkeeping sections instead of failing as busy,
+is kept. Task, reader, pin, memory, deadline and workload limits are
+unchanged. Whether this clears the stalled views is unproven until the hosted
+compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
+distributions finish and their numbers and failures are reviewed. The
+database-free harness target compiles the complete scenario and checks its
+independent frame consumer, native geometry partition and isolated VM
+measurements.
 
 ## Run through the existing hosted lifecycle
 

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   alias ServiceRadarWebNG.Topology.BitmapCursor
   alias ServiceRadarWebNG.Topology.BitmapExpression
   alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
   alias ServiceRadarWebNG.Topology.BitmapStream
   alias ServiceRadarWebNG.Topology.BitmapView
   alias ServiceRadarWebNG.Topology.Native
@@ -494,6 +495,104 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert {:error, :expression_budget} =
              BitmapExpression.parse(%{"expression" => %{"except" => expression}}, @facets)
   end
+
+  # Reproduces the compact scale failure shape: eight sockets' periodic refreshes
+  # keep every query task busy when a burst of first watches arrives together.
+  test "query admission serves newcomers that arrive while refreshes keep every task busy" do
+    start_supervised!(BitmapQueries)
+    load = :atomics.new(2, [])
+    stop = :atomics.new(1, [])
+
+    refreshers =
+      for _ <- 1..8 do
+        Task.async(fn -> refresh(fn -> occupy(load, 40) end, stop) end)
+      end
+
+    await_running(load, 8)
+
+    newcomers =
+      for viewer <- 1..24 do
+        Task.async(fn ->
+          BitmapQueryAdmission.run(
+            fn ->
+              occupy(load, 40)
+              viewer
+            end,
+            now() + 1_000
+          )
+        end)
+      end
+
+    results = Task.await_many(newcomers, 5_000)
+    :atomics.put(stop, 1, 1)
+    Task.await_many(refreshers, 5_000)
+
+    assert results == Enum.map(1..24, &{:ok, &1})
+    assert :atomics.get(load, 2) == 8
+  end
+
+  test "query admission rejects work it cannot start before the deadline and frees killed slots" do
+    start_supervised!(BitmapQueries)
+    test = self()
+
+    holders =
+      for _ <- 1..8 do
+        Task.async(fn ->
+          BitmapQueryAdmission.run(
+            fn ->
+              send(test, :held)
+              Process.sleep(:infinity)
+            end,
+            now() + 300
+          )
+        end)
+      end
+
+    for _ <- 1..8, do: assert_receive(:held, 1_000)
+    assert {:error, :query_busy} = BitmapQueryAdmission.run(fn -> send(test, :late_ran) end, now() + 100)
+    assert Task.await_many(holders, 2_000) == List.duplicate({:error, :query_timeout}, 8)
+    assert {:ok, :admitted} = BitmapQueryAdmission.run(fn -> :admitted end, now() + 500)
+    refute_received :late_ran
+  end
+
+  defp refresh(work, stop) do
+    if :atomics.get(stop, 1) == 0 do
+      BitmapQueryAdmission.run(work, now() + 1_000)
+      refresh(work, stop)
+    end
+  end
+
+  # Slot 1 counts running work and slot 2 keeps its peak.
+  defp occupy(load, ms) do
+    running = :atomics.add_get(load, 1, 1)
+    raise_peak(load, running)
+    Process.sleep(ms)
+    :atomics.sub(load, 1, 1)
+  end
+
+  defp raise_peak(load, running) do
+    peak = :atomics.get(load, 2)
+
+    if running > peak and :atomics.compare_exchange(load, 2, peak, running) != :ok do
+      raise_peak(load, running)
+    end
+  end
+
+  defp await_running(load, count, attempts \\ 200) do
+    cond do
+      :atomics.get(load, 1) == count ->
+        :ok
+
+      attempts == 0 ->
+        flunk("query tasks never reached #{count} running")
+
+      true ->
+        Process.sleep(5)
+        await_running(load, count, attempts - 1)
+    end
+  end
+
+  defp now, do: System.monotonic_time(:millisecond)
 
   defp index(rows) do
     {:ok, index} = Native.bitmap_index_new(@dictionary, @epoch, :device, @facets)
