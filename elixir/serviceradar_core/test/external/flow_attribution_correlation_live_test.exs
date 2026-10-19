@@ -108,10 +108,23 @@ defmodule ServiceRadar.External.FlowAttributionCorrelationLiveTest do
     %{picks: picks}
   end
 
+  # Unrelated sockets observed in the window. With only the observations above,
+  # the planner builds its hash joins from the observations. At production
+  # volume the observations are the probe side, and the runtime filter of the
+  # public-endpoint join then reaches the observation scan. The statement has to
+  # survive that plan.
+  @background_observations 20_000
+
   # Flow:        id, seconds before now, proto, src ip:port -> dst ip:port
   # Observation: seconds before now, agent, proto, local ip:port, remote ip:port,
   #              pid, container id
+  #
+  # Ages are taken from one instant, so the distance between a flow and an
+  # observation does not depend on how long the inserts take.
   defp seed!(conn, flows, observations) do
+    %{rows: [[now]]} = query!(conn, "SELECT UTC_TIMESTAMP()")
+    at = fn age -> "'#{NaiveDateTime.add(now, -age)}'" end
+
     flow_rows = [
       {"exact-over-wildcard", 60, 6, "192.0.2.1", 40_000, "198.51.100.1", 443},
       {"wildcard", 60, 6, "198.51.100.2", 51_000, "192.0.2.2", 8080},
@@ -141,19 +154,30 @@ defmodule ServiceRadar.External.FlowAttributionCorrelationLiveTest do
       {1_200, "agent-a", 6, "192.0.2.9", 40_009, "198.51.100.9", 443, 901, nil}
     ]
 
-    insert!(conn, flows, Enum.map(flow_rows, &flow_select/1))
-    insert!(conn, observations, Enum.map(observation_rows, &observation_select/1))
+    insert!(conn, flows, Enum.map(flow_rows, &flow_select(&1, at)))
+    insert!(conn, observations, Enum.map(observation_rows, &observation_select(&1, at)))
+
+    # Peers in 203.0.113.0/24 on ports no flow uses, from agents with no node
+    # IP, so none of these is a candidate for any flow above.
+    query!(conn, """
+    INSERT INTO #{observations}
+    SELECT DATE_SUB(#{at.(0)}, INTERVAL n % 1500 SECOND), 'default', 6,
+           concat('198.51.100.', 200 + n % 50), 30000 + n % 1000, '203.0.113.200', 9443,
+           concat('agent-background-', n % 10), md5(concat('background-', n)),
+           50000 + n % 1000, 'background', NULL, 1001, NULL, NULL
+    FROM (SELECT generate_series AS n FROM TABLE(generate_series(1, #{@background_observations}))) AS g
+    """)
   end
 
-  defp flow_select({id, age, proto, src, sport, dst, dport}) do
-    "SELECT '#{id}', DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{age} SECOND), 'default', #{proto}, " <>
+  defp flow_select({id, age, proto, src, sport, dst, dport}, at) do
+    "SELECT '#{id}', #{at.(age)}, 'default', #{proto}, " <>
       "NULL, '#{src}', '#{dst}', #{sport}, #{dport}, NULL"
   end
 
-  defp observation_select({age, agent, proto, lip, lport, rip, rport, pid, container}) do
+  defp observation_select({age, agent, proto, lip, lport, rip, rport, pid, container}, at) do
     container = if container, do: "'#{container}'", else: "NULL"
 
-    "SELECT DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{age} SECOND), 'default', #{proto}, " <>
+    "SELECT #{at.(age)}, 'default', #{proto}, " <>
       "'#{lip}', #{lport}, '#{rip}', #{rport}, '#{agent}', md5('#{agent}#{lip}#{lport}'), " <>
       "#{pid}, 'proc-#{pid}', NULL, 1001, #{container}, NULL"
   end

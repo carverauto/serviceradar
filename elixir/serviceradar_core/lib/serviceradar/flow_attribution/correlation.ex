@@ -388,7 +388,17 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
     """
   end
 
-  defp ip_norm(column), do: "regexp_replace(lower(coalesce(#{column}, '')), '^::ffff:', '')"
+  # Lowercase, NULL as '', and an IPv4-mapped IPv6 prefix removed.
+  #
+  # Deliberately no regexp call. StarRocks evaluates a projection that calls a
+  # regexp function inside the table scan, and StarRocks 4.1.3 checks a join's
+  # runtime IN filter there before computing it. The public-endpoint branch
+  # joins observations on this value, and when that IN filter reaches the
+  # observation scan the statement fails with "slot_id N not found".
+  defp ip_norm(column) do
+    lowered = "lower(coalesce(#{column}, ''))"
+    "IF(starts_with(#{lowered}, '::ffff:'), substr(#{lowered}, 8), #{lowered})"
+  end
 
   @not_icmp "a.proto NOT IN (1, 58)"
   @icmp "a.proto IN (1, 58)"
