@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
                :ok <- current_delivery(socket, task.deadline, result) do
             deliver(result, state, socket)
           else
-            {:error, reason} -> failed(state, reason, socket, task.deadline)
+            {:error, reason} -> failed(state, reason, socket)
           end
         end
 
@@ -189,7 +189,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
       %{token: ^token} = task ->
         Process.cancel_timer(task.timer)
         state = %{socket.assigns.bitmap_stream | task: Map.put(task, :abandoned, true)}
-        failed(state, :query_timeout, socket, task.deadline)
+        failed(state, :query_timeout, socket)
 
       _ ->
         socket
@@ -206,7 +206,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
         if task[:abandoned] do
           assign(socket, :bitmap_stream, state)
         else
-          failed(state, :query_unavailable, socket, task.deadline)
+          failed(state, :query_unavailable, socket)
         end
 
       _ ->
@@ -247,15 +247,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
       {:error, _reason} ->
         BitmapQueries.busy(:watch_tasks_full)
-        failed(state, :query_busy, socket, deadline)
+        failed(state, :query_busy, socket)
     end
   end
 
-  defp failed(state, reason, socket, deadline) do
+  defp failed(state, reason, socket) do
     if state.reply, do: reply(state.reply, {:error, error(reason)})
     state = %{state | reply: nil}
 
-    if keep_frame?(socket, state, reason, deadline) do
+    if keep_frame?(socket, state, reason) do
       assign(socket, :bitmap_stream, state)
     else
       reset(assign(socket, :bitmap_stream, state))
@@ -270,19 +270,22 @@ defmodule ServiceRadarWebNG.Topology.BitmapStream do
 
   defp unchanged?(_socket, _state, _deadline), do: false
 
-  defp keep_frame?(socket, %{metadata: metadata, identity: {:ok, stored}}, reason, deadline)
+  # A timeout or expired admission has already spent the build deadline, so the
+  # retained binding gets its own bounded check. Reusing that deadline would
+  # reset every timed-out refresh and force a fresh watch.
+  defp keep_frame?(socket, %{metadata: metadata, identity: {:ok, stored}}, reason)
        when not is_nil(metadata) and reason in @transient_tick do
     if named_prefix_query?(metadata) do
       false
     else
-      case checked_identity(socket, metadata, deadline) do
+      case checked_identity(socket, metadata, now() + @build_budget) do
         {:ok, fresh} -> same_binding?(fresh, stored)
         _ -> false
       end
     end
   end
 
-  defp keep_frame?(_socket, _state, _reason, _deadline), do: false
+  defp keep_frame?(_socket, _state, _reason), do: false
 
   defp delivered_identity(%{identity: identity}) when is_map(identity), do: {:ok, identity}
   defp delivered_identity(_result), do: :stale

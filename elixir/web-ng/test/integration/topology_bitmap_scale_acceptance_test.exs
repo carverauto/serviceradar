@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   alias ServiceRadarWebNG.Topology.Scale.Client
   alias ServiceRadarWebNG.Topology.Scale.Fixture
   alias ServiceRadarWebNG.Topology.Scale.Replica
+  alias ServiceRadarWebNG.Topology.Scale.Revisions
   alias ServiceRadarWebNG.Topology.Scale.Wait
 
   @moduletag :topology_bitmap_scale
@@ -85,12 +86,24 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     sessions = [first.session, second.session]
     receipts = Enum.map(sessions, &Client.receipts/1)
 
+    revisions =
+      for replica <- [first, second] do
+        read = fn -> call(replica, :revision, [], 1_000) end
+        replica |> start_revisions(read) |> Revisions.table()
+      end
+
     clients =
       for index <- 0..99 do
         side = rem(index, 2)
-        opts = [session: Enum.at(sessions, side), tiles: Enum.at(receipts, side), slow: rem(index, 11) == 0]
-        pid = start_supervised!(Supervisor.child_spec({Client, opts}, id: {:view, index}, restart: :temporary))
-        %{id: index, pid: pid, opts: opts}
+
+        opts = [
+          session: Enum.at(sessions, side),
+          tiles: Enum.at(receipts, side),
+          revisions: Enum.at(revisions, side),
+          slow: rem(index, 11) == 0
+        ]
+
+        start_client(%{id: index, opts: opts})
       end
 
     replicas = [first, second]
@@ -119,6 +132,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
 
     tick_samples =
       for tick <- 0..99 do
+        Wait.viewers_alive!(clients, diagnose(clients, replicas))
         tick_start = now()
         {write_ms, total} = timed(fn -> Fixture.churn(tick, &call(first, :hint, [&1])) end)
 
@@ -151,6 +165,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         else
           assert status == 503
         end
+
+        Wait.viewers_alive!(clients, diagnose(clients, replicas))
 
         emit("query_with_facets", %{
           tick: tick,
@@ -206,15 +222,9 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     clients =
       Enum.map(clients, fn client ->
         if client.id < 10 do
+          Process.demonitor(client.monitor, [:flush])
           :ok = stop_supervised({:view, client.id})
-
-          %{
-            client
-            | pid:
-                start_supervised!(
-                  Supervisor.child_spec({Client, client.opts}, id: {:view, client.id}, restart: :temporary)
-                )
-          }
+          start_client(client)
         else
           client
         end
@@ -300,7 +310,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       clients: summarize(previous ++ final),
       viewers:
         Enum.zip_with(clients, final, fn client, row ->
-          row |> Map.drop([:latency_ms, :last_revision, :last_frame_at, :last_fresh_at]) |> Map.put(:viewer, client.id)
+          row |> Map.drop([:latency_ms, :last_revision, :last_frame_at]) |> Map.put(:viewer, client.id)
         end),
       replicas: samples,
       elapsed_ms: now() - started,
@@ -343,6 +353,15 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
 
     emit("revoked", %{clients: summarize(reports(clients))})
   end
+
+  # Monitored so that a viewer which stops is reported on the next driver step.
+  defp start_client(client) do
+    pid = start_supervised!(Supervisor.child_spec({Client, client.opts}, id: {:view, client.id}, restart: :temporary))
+    Map.merge(client, %{pid: pid, monitor: Process.monitor(pid)})
+  end
+
+  defp start_revisions(replica, read),
+    do: start_supervised!(Supervisor.child_spec({Revisions, read}, id: {:revisions, replica.id}))
 
   defp start_replica(config, user) do
     {:ok, peer, _node} = :peer.start_link(%{connection: :standard_io, args: [~c"+S", ~c"4:4", ~c"+SDcpu", ~c"4"]})

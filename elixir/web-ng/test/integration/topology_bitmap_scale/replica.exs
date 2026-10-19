@@ -104,6 +104,13 @@ defmodule ServiceRadarWebNG.Topology.Scale.Replica do
   defp progress_result({:ok, snapshot}), do: {:ok, snapshot.progress}
   defp progress_result(error), do: error
 
+  # The same index epoch and revision that membership frames carry.
+  def revision do
+    with {:ok, snapshot} <- BitmapIndex.snapshot() do
+      {:ok, {Ecto.UUID.load!(snapshot.index_epoch), snapshot.progress.index_revision}}
+    end
+  end
+
   def install_geometry do
     world = Fixture.world(@version)
     manifest = %{layout_version: @version, generation: 1, zmax: 24}

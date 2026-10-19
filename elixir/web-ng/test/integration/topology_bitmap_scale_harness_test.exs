@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
   alias ServiceRadarWebNG.Topology.Scale.Client
   alias ServiceRadarWebNG.Topology.Scale.Fixture
   alias ServiceRadarWebNG.Topology.Scale.Meter
+  alias ServiceRadarWebNG.Topology.Scale.Revisions
   alias ServiceRadarWebNG.Topology.Scale.Wait
 
   test "the network consumer rejects stale receipts and inconsistent population totals" do
@@ -53,23 +54,101 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert_raise MatchError, fn -> Client.decode(envelope(frame <> <<0>>), [receipt]) end
   end
 
-  test "only a churning normal viewer must show fresh progress within 30 seconds" do
-    silent_since = System.monotonic_time(:millisecond) - 31_000
-    stats = %{last_fresh_at: nil, max_normal_gap_ms: 0}
-    viewer = %{slow: false, phase: :steady, phase_since: silent_since, stats: stats}
+  test "a churning normal viewer must not stay blank or behind its replica's published revision for 30 seconds" do
+    {:ok, sampler} = Revisions.start_link(fn -> :error end)
+    table = Revisions.table(sampler)
+    now = System.monotonic_time(:millisecond)
+    old = now - 31_000
+    :ok = Revisions.observe(table, "synthetic-epoch-a", 7, old - 1_000)
+    :ok = Revisions.observe(table, "synthetic-epoch-a", 7, old)
 
+    stats = %{last_revision: {"synthetic-epoch-a", "7"}, max_normal_gap_ms: 0, frames: 1}
+    viewer = %{slow: false, phase: :churn, phase_since: old, blank_since: nil, revisions: table, stats: stats}
+
+    # An unhinted replica publishes nothing between reconciliation passes; a
+    # viewer holding its latest revision is current, however old that frame is.
     assert {:noreply, %{stats: %{max_normal_gap_ms: 0}}} = Client.handle_info(:progress, viewer)
     assert_receive :progress, 2_000
 
-    assert_raise RuntimeError, ~r/no accepted progress/, fn ->
-      Client.handle_info(:progress, %{viewer | phase: :churn})
+    # A newer revision is dated from the previous read, not from when it was seen.
+    :ok = Revisions.observe(table, "synthetic-epoch-a", 8, now - 5_000)
+
+    assert {:stop, {:no_progress, %{gap_ms: gap, blank: false, held_revision: ["synthetic-epoch-a", "7"]}}, _} =
+             Client.handle_info(:progress, viewer)
+
+    assert gap > 30_000
+    assert_receive :progress, 2_000
+
+    caught_up = put_in(viewer.stats.last_revision, {"synthetic-epoch-a", "8"})
+    assert {:noreply, %{stats: %{max_normal_gap_ms: 0}}} = Client.handle_info(:progress, caught_up)
+    assert_receive :progress, 2_000
+
+    # A later index epoch supersedes every revision of the earlier one.
+    :ok = Revisions.observe(table, "synthetic-epoch-b", 1, now)
+    assert {:noreply, %{stats: %{max_normal_gap_ms: lag}}} = Client.handle_info(:progress, caught_up)
+    assert lag in 5_000..30_000
+    assert_receive :progress, 2_000
+
+    # A reset viewer shows no membership, even when its replica is idle.
+    blank = %{caught_up | blank_since: old, stats: %{caught_up.stats | last_revision: {"synthetic-epoch-b", "1"}}}
+    assert {:stop, {:no_progress, %{blank: true}}, _} = Client.handle_info(:progress, blank)
+    assert_receive :progress, 2_000
+
+    for exempt <- [%{blank | slow: true}, %{blank | phase: :steady}] do
+      assert {:noreply, %{stats: %{max_normal_gap_ms: 0}}} = Client.handle_info(:progress, exempt)
+      assert_receive :progress, 2_000
+    end
+  end
+
+  test "a stopped viewer fails the driver at once with only its own bounded report" do
+    report = %{gap_ms: 30_500, blank: false, held_revision: ["synthetic-epoch", "7"], stats: %{frames: 4}}
+
+    viewers =
+      for {id, reason} <- [{0, {:no_progress, report}}, {1, {%RuntimeError{message: "synthetic-cookie-value"}, []}}] do
+        pid = spawn(fn -> receive(do: (:stop -> exit(reason))) end)
+        %{id: id, pid: pid, opts: [slow: false], monitor: Process.monitor(pid)}
+      end
+
+    other = spawn(fn -> :ok end)
+    unrelated = Process.monitor(other)
+    diagnose = fn -> Wait.diagnostics(viewers, [], 300) end
+    await_down(%{pid: other})
+    assert Wait.viewers_alive!(viewers, diagnose) == :ok
+
+    for {viewer, expected} <-
+          Enum.zip(viewers, [
+            %{
+              "kind" => "no_progress",
+              "gap_ms" => 30_500,
+              "blank" => false,
+              "held_revision" => ["synthetic-epoch", "7"],
+              "stats" => %{"frames" => 4}
+            },
+            %{"kind" => "RuntimeError"}
+          ]) do
+      send(viewer.pid, :stop)
+
+      output =
+        capture_io(fn ->
+          assert_raise ExUnit.AssertionError, ~r/viewer #{viewer.id} exited/, fn ->
+            await_down(viewer)
+            Wait.viewers_alive!(viewers, diagnose)
+          end
+        end)
+
+      assert [failed, waited] =
+               output
+               |> String.split("\n", trim: true)
+               |> Enum.map(&Jason.decode!(String.trim_leading(&1, "TOPOLOGY_BITMAP_SCALE ")))
+
+      assert failed["phase"] == "viewer_failed" and failed["viewer"] == viewer.id
+      assert failed["failure"] == expected
+      assert waited["phase"] == "wait_failed"
+      refute output =~ "synthetic-cookie-value"
     end
 
-    assert_receive :progress, 2_000
-    fresh = %{viewer | phase: :churn, stats: %{stats | last_fresh_at: System.monotonic_time(:millisecond)}}
-    assert {:noreply, %{stats: %{max_normal_gap_ms: gap}}} = Client.handle_info(:progress, fresh)
-    assert gap < 30_000
-    assert_receive :progress, 2_000
+    # A monitor the driver does not own stays queued for its owner.
+    assert_received {:DOWN, ^unrelated, :process, ^other, _}
   end
 
   test "a refused socket upgrade stops the viewer without logging its session" do
@@ -92,7 +171,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        {:ok, pid} = GenServer.start(Client, session: session, tiles: [])
+        {:ok, pid} = GenServer.start(Client, session: session, tiles: [], revisions: :ets.new(:revisions, []))
         monitor = Process.monitor(pid)
         assert_receive {:DOWN, ^monitor, :process, ^pid, {:upgrade_refused, 403}}, 10_000
       end)
@@ -210,6 +289,12 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     after
       :peer.stop(peer)
     end
+  end
+
+  # Waits on a separate monitor so the driver's own DOWN stays queued for it.
+  defp await_down(viewer) do
+    ref = Process.monitor(viewer.pid)
+    assert_receive {:DOWN, ^ref, :process, _, _}, 2_000
   end
 
   defp envelope(frame), do: <<0, 1, 14, 16, "1topology:tilesmembership:frame", frame::binary>>

@@ -19,7 +19,10 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
          {:ok, manifest} <- WorldCache.manifest() do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "topology:world")
       fence = TileControl.fence(manifest)
-      Process.send_after(self(), :tile_tick, @tick_ms)
+      # A random first delay keeps sockets that join together, such as after a
+      # deploy, from refreshing in lockstep. Lockstep refreshes arrive as one
+      # burst on every tick, and the same late arrivals lose admission each time.
+      Process.send_after(self(), :tile_tick, @tick_ms + :rand.uniform(@tick_ms))
 
       state = %{
         fence: fence,

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
   use GenServer
 
   alias ServiceRadarWebNG.Topology.Scale.Fixture
+  alias ServiceRadarWebNG.Topology.Scale.Revisions
 
   @topic "topology:tiles"
   @retry_reasons ~w(membership_not_ready index_not_ready index_unavailable prefix_source_unavailable source_changed query_busy query_timeout query_unavailable)
@@ -85,6 +86,8 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
       session: session,
       tiles: Keyword.fetch!(opts, :tiles),
       slow: Keyword.get(opts, :slow, false),
+      revisions: Keyword.fetch!(opts, :revisions),
+      blank_since: now(),
       started: nil,
       awaiting: nil,
       ref: 1,
@@ -103,7 +106,6 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
         latency_ms: %{},
         latest_total: nil,
         last_frame_at: nil,
-        last_fresh_at: nil,
         last_revision: nil,
         max_normal_gap_ms: 0,
         slow_resets: 0,
@@ -168,7 +170,8 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
             max_slow_reset_ms: max(state.stats.max_slow_reset_ms, if(slow_reset, do: elapsed, else: 0))
         }
 
-        {:noreply, retry(%{state | started: nil, awaiting: nil, stats: stats})}
+        state = %{state | started: nil, awaiting: nil, blank_since: state.blank_since || now(), stats: stats}
+        {:noreply, retry(state)}
 
       :baseline ->
         true = not is_nil(state.binding)
@@ -192,7 +195,6 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
             latency_ms: histogram,
             latest_total: decoded.total,
             last_frame_at: now,
-            last_fresh_at: if(stats.last_revision == decoded.revision, do: stats.last_fresh_at, else: now),
             last_revision: decoded.revision
         }
 
@@ -200,7 +202,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
         Process.send_after(self(), {:ack, decoded.sequence, decoded.digest}, if(state.slow, do: 25_000, else: 0))
         state = %{state | retry_attempt: 0, retry_timer: nil}
 
-        {:noreply, %{state | started: nil, awaiting: decoded.sequence, stats: stats}}
+        {:noreply, %{state | started: nil, awaiting: decoded.sequence, blank_since: nil, stats: stats}}
     end
   end
 
@@ -242,13 +244,24 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
 
   def handle_info({:ack, _, _}, state), do: {:noreply, state}
 
+  # A churning normal viewer may neither show no membership nor hold a revision
+  # its replica has superseded for more than 30 seconds. It stops with its own
+  # bounded report so the driver can fail at once with the cause.
   def handle_info(:progress, state) do
     Process.send_after(self(), :progress, 1_000)
-    gap = now() - max(state.stats.last_fresh_at || state.phase_since, state.phase_since)
 
     if not state.slow and state.phase == :churn do
-      if gap > 30_000, do: raise("normal viewer made no accepted progress for #{gap}ms")
-      {:noreply, update_in(state.stats.max_normal_gap_ms, &max(&1, gap))}
+      gap =
+        case stale_since(state) do
+          nil -> 0
+          since -> now() - max(since, state.phase_since)
+        end
+
+      state = update_in(state.stats.max_normal_gap_ms, &max(&1, gap))
+
+      if gap > 30_000,
+        do: {:stop, {:no_progress, progress_report(state, gap)}, state},
+        else: {:noreply, state}
     else
       {:noreply, state}
     end
@@ -292,6 +305,20 @@ defmodule ServiceRadarWebNG.Topology.Scale.Client do
   defp schedule(state, delay) do
     if state.retry_timer, do: Process.cancel_timer(state.retry_timer)
     %{state | retry_timer: Process.send_after(self(), :watch, delay)}
+  end
+
+  defp stale_since(%{blank_since: since}) when not is_nil(since), do: since
+
+  defp stale_since(%{revisions: table, stats: %{last_revision: {epoch, revision}}}),
+    do: Revisions.behind_since(table, epoch, String.to_integer(revision))
+
+  defp progress_report(state, gap) do
+    %{
+      gap_ms: gap,
+      blank: not is_nil(state.blank_since),
+      held_revision: state.stats.last_revision && Tuple.to_list(state.stats.last_revision),
+      stats: Map.drop(state.stats, [:latency_ms, :last_frame_at, :last_revision])
+    }
   end
 
   defp now, do: System.monotonic_time(:millisecond)

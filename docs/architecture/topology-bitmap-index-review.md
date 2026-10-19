@@ -49,8 +49,8 @@ checkpoint `b0bff03738132c80d7485604995b60619ea43b3b` passed the complete remote
 before their commit, not an unchanged checkpoint checkout or a later rebase.
 Hosted database and combined scale acceptance remain unchecked; the unit tier
 excludes those database cases. Compact scale acceptance has not passed on the
-hosted database: earlier attempts stopped before viewers started, and the two
-latest failed their initial-views wait. Sparse has not run, and tasks 4.2 and
+hosted database: earlier attempts stopped before viewers started, three
+failed their initial-views wait, and the latest failed during churn. Sparse has not run, and tasks 4.2 and
 4.7 remain open (see `docs/topology-bitmap-scale-acceptance.md`).
 The portable summary retains camera-only sharing, paged labels without search,
 masked zero-match glyphs, hidden unproven aggregate links and disabled compression.

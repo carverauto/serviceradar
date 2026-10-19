@@ -80,6 +80,63 @@ failed the whole view. An aggregate export now waits for a reader within its
 own remaining query budget and still reports busy if none frees in time. The
 two-reader, eight-query and one-second limits are unchanged. A database-free
 native test fails on the old export and passes with the wait.
+
+The next compact attempt
+([BuildBuddy b266c89a](https://carverauto.buildbuddy.io/invocation/b266c89a-4738-4fb6-9871-2b410c1be491),
+commit 507b375634) cleared the initial wait: all 100 viewers received frames.
+Warmup delivered 277 frames for 372 watches, with 46 `query_busy`, 126
+`query_timeout` and 109 resets; accepted-frame latency was 709, 876 and 1,003 ms
+at p50, p95 and p99. The run then failed during churn. Churn writes took 10.5 to
+18.0 seconds per tick (mean 13.5) against the requested 5-second cadence, so
+that cadence was not achieved. Thirty-nine normal viewers stopped on the
+30-second progress check: 24 after tick 16, 1 after tick 31, 2 after tick 32
+and 12 after tick 34. The driver did not notice and ran to tick 60, where it
+failed calling a stopped viewer, so no restart, replacement, reconnect or
+revocation phase ran. All 60 fifty-facet HTTP queries answered 200. Native
+memory peaked at 101,036,506 bytes, pins at 8 of 8 and server RSS near 1.28 GB.
+Busy origins were aggregate ordinals 90 and admission expiry 819 on the first
+server, and 34 and 207 on the second. The hosted clone cleanup finished with
+observer, teardown and release status 0.
+
+The stopped viewers' own state, from the redacted crash reports, separates two
+failures:
+
+- 36 viewers held the latest revision of the server that receives no hints.
+  That server changes its index only through reconciliation passes, which
+  took about 3 minutes 50 seconds each, and it starts the next pass 30
+  seconds after the last one ends. Each group's last frame carried the
+  revision that ended a pass (4,402, then 6,603), and the viewers stopped 30
+  seconds later, before the next pass published. They were current, and the
+  check, which required a new revision every 30 seconds, could not pass there.
+- 3 viewers on the hinted server, during the mapping replacement, made no
+  progress while that server kept publishing. Each had 58 to 63
+  `query_timeout` errors in about 96 watches.
+
+Every stopped viewer had about as many resets as frames, and its only errors
+were `query_timeout` and `query_busy`. So almost every periodic refresh after a
+frame failed, and each failure reset the viewer instead of keeping its frame.
+Two causes are visible in the code. First, the transient-failure path rechecked
+the retained binding with the build's own deadline, which a timeout or an
+expired admission has already spent, so the frame could never be kept. Each
+such refresh became a reset and a new watch under the renderer backoff, which
+adds load. Second, every socket schedules its refresh from its join. Viewers
+that join together refresh as one burst on every tick, and first-come
+admission serves that burst in the same order each time. The admission wait
+histogram is consistent with bursts: in the first server's final sample,
+admitted waits were either under 16 ms (3,257) or 256 to 1,023 ms (7,087), with
+only 35 in between. The burst order is inferred from the code, not measured.
+
+The binding recheck now gets its own one-second budget, so a transient refresh
+failure keeps the frame and the next tick retries. Each socket's first refresh
+falls at a random point between 5 and 10 seconds after it joins, then every 5
+seconds as before, so sockets that join together no longer refresh in step.
+The 15-second ACK threshold is still checked at least every 5 seconds. The
+harness now judges each normal viewer against its own server: it fails when the
+viewer shows no membership, or holds a revision the server superseded, for more
+than 30 seconds. A sampler records when each server published each revision,
+dated from the previous read so that sampling never shortens a measured lag. A
+viewer that stops now fails the driver on its next step with the viewer's own
+bounded report. The bound and the workload are unchanged.
 Whether the
 stall clears is unproven until the hosted compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
 distributions finish and their numbers and failures are reviewed. The
@@ -230,8 +287,11 @@ benchmarks own the native-only latency thresholds.
 Ninety clients acknowledge immediately. Ten delay ACKs for 25 seconds and
 must each observe a reset by 21 seconds: the production 15-second threshold
 is checked on a five-second tick, with one second of scheduling allowance.
-Normal clients must receive a fresh accepted revision within 30 seconds
-during ready churn, checked by each client even while the driver is blocked.
+During ready churn, a normal client may neither show no membership nor hold
+a revision its own server has superseded for more than 30 seconds. Each client
+checks this even while the driver is blocked, against a sampler that dates
+each server revision from the previous read; the driver fails on its next step
+when any client stops.
 Cold restart is a separately bounded recovery phase; every client must
 recover to the final SQL-derived population. Reconnects, cross-replica live
 pagination, oversized-facet-value refusal and authority revocation are required

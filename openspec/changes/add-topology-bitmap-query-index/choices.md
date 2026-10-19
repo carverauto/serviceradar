@@ -150,8 +150,11 @@ acceptance has completed. Historical alternatives belong in the review response.
 
 ## Reject hidden starvation and report sampled memory honestly
 
-- Choice: normal clients emulate the renderer's bounded retry delay and must
-  each accept a fresh revision within 30 seconds during ready churn. Cold
+- Choice: normal clients emulate the renderer's bounded retry delay. During
+  ready churn none may show no membership, or hold a revision its server has
+  superseded, for more than 30 seconds. A server without hints publishes
+  nothing between reconciliation passes, so a current viewer there is not
+  stalled. Cold
   owner restart is measured separately. Every deliberately slow client must
   observe its own reset; the limit allows the server's five-second polling
   interval after its 15-second ACK threshold. One-second server samples are

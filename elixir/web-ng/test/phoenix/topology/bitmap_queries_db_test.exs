@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.BitmapQueries
+  alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
   alias ServiceRadarWebNG.Topology.BitmapQueryTasks
   alias ServiceRadarWebNG.Topology.BitmapSelection
   alias ServiceRadarWebNG.Topology.BitmapSource
@@ -633,6 +634,20 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     end
 
     await(fn -> Task.Supervisor.children(TileWatchTasks) end, &(&1 == []))
+
+    # Waiting out the whole build deadline in admission is equally transient.
+    # The retained binding is rechecked within its own budget, not the spent one.
+    slots =
+      for _ <- 1..8 do
+        Task.async(fn ->
+          BitmapQueryAdmission.run(fn -> Process.sleep(3_000) end, System.monotonic_time(:millisecond) + 5_000)
+        end)
+      end
+
+    await(fn -> Task.Supervisor.children(BitmapQueryTasks) end, &(length(&1) == 8))
+    send(socket.channel_pid, :tile_tick)
+    refute_push "membership:frame", _expired_reset, 2_000
+    Enum.each(slots, &assert({:ok, :ok} = Task.await(&1, 5_000)))
     assert stream_identity(socket).index_revision == built.progress.index_revision
     send(socket.channel_pid, :tile_tick)
     assert_push "membership:frame", {:binary, refreshed}, 5_000

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Wait do
 
   # Viewer reports carry no session, cookie or CSRF value; these fields are
   # per-sample detail that would only bloat a failure record.
-  @detail [:latency_ms, :last_revision, :last_frame_at, :last_fresh_at]
+  @detail [:latency_ms, :last_revision, :last_frame_at]
 
   @doc """
   Polls `read` until `predicate` holds or `deadline` passes. On timeout, or when
@@ -78,6 +78,33 @@ defmodule ServiceRadarWebNG.Topology.Scale.Wait do
         end)
     }
   end
+
+  @doc """
+  Fails at once when a monitored viewer has exited, instead of when the driver
+  next calls it. The record carries the viewer's own bounded report for a
+  progress stop and only the exit kind otherwise, then all-viewer diagnostics.
+  """
+  def viewers_alive!(viewers, diagnose) do
+    monitors = Map.new(viewers, &{&1.monitor, &1})
+
+    receive do
+      {:DOWN, ref, :process, _pid, reason} when is_map_key(monitors, ref) ->
+        viewer = Map.fetch!(monitors, ref)
+        failure = failure(reason)
+        emit("viewer_failed", %{viewer: viewer.id, slow: viewer.opts[:slow], failure: failure})
+        report(diagnose, "viewer #{viewer.id} running")
+        raise ExUnit.AssertionError, message: "viewer #{viewer.id} exited: #{inspect(failure, limit: 20)}"
+    after
+      0 -> :ok
+    end
+  end
+
+  # Other exit reasons can hold transport messages or frame bytes; keep the kind.
+  defp failure({:no_progress, report}) when is_map(report), do: Map.put(report, :kind, :no_progress)
+  defp failure({%{__exception__: true} = exception, _stack}), do: %{kind: inspect(exception.__struct__)}
+  defp failure({kind, _detail}) when is_atom(kind), do: %{kind: kind}
+  defp failure(kind) when is_atom(kind), do: %{kind: kind}
+  defp failure(_reason), do: %{kind: :other}
 
   def emit(phase, values), do: IO.puts("TOPOLOGY_BITMAP_SCALE " <> Jason.encode!(Map.put(values, :phase, phase)))
 
