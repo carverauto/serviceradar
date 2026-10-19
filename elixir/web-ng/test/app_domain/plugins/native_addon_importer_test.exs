@@ -1045,7 +1045,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     log =
       capture_sync_log(fn ->
-        emit_unrelated_concurrent_log("UNRELATED_CONCURRENT_LANE_LOG " <> String.duplicate("mapper_compiler_noise ", 80))
+        emit_unrelated_concurrent_log(
+          "UNRELATED_CONCURRENT_LANE_LOG " <> String.duplicate("mapper_compiler_noise ", 80)
+        )
 
         assert {:error, {:transport, _details}} =
                  NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
