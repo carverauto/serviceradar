@@ -439,18 +439,18 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       {:ok, :reserved_v1} ->
         :ok
 
-      :miss ->
-        probe_reserved_admission(target_node, module, deadline)
+      {:miss, generation} ->
+        probe_reserved_admission(target_node, module, generation, deadline)
     end
   end
 
-  defp probe_reserved_admission(target_node, module, deadline) do
-    timeout_ms = min(remaining_ms(deadline), admission_probe_timeout_ms())
+  defp probe_reserved_admission(target_node, module, generation, deadline) do
+    timeout_ms = min(remaining_ms(deadline), @admission_probe_timeout_ms)
 
     try do
       case :erpc.call(target_node, module, :admission_protocol, [], timeout_ms) do
         :reserved_v1 ->
-          ClusterProcessLocator.cache_admission_protocol(target_node, module, :reserved_v1)
+          ClusterProcessLocator.cache_admission_protocol(target_node, module, :reserved_v1, generation)
           :ok
 
         _other ->
@@ -478,10 +478,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :admission_protocol_module,
       ServiceRadar.StatusHandler
     )
-  end
-
-  defp admission_probe_timeout_ms do
-    positive_timeout(:admission_probe_timeout_ms, @admission_probe_timeout_ms)
   end
 
   defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 1)

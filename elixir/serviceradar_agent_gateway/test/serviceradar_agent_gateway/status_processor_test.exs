@@ -165,6 +165,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       start_supervised!(ServiceRadarAgentGateway.ClusterProcessLocator)
     end
 
+    reset_admission_protocol_cache()
+
     tasks = start_supervised!({Task.Supervisor, []})
 
     plugin =
@@ -187,6 +189,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       restore_env(:admission_protocol_module, previous_probe_module)
       restore_env(:admission_probe_test_pid, previous_probe_test_pid)
       restore_env(:admission_probe_delay_ms, previous_probe_delay)
+      reset_admission_protocol_cache()
     end)
 
     start_supervised!({ServiceRadar.StatusHandler, []})
@@ -221,12 +224,13 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     previous_probe_module = Application.get_env(:serviceradar_agent_gateway, :admission_protocol_module)
     previous_probe_test_pid = Application.get_env(:serviceradar_agent_gateway, :admission_probe_test_pid)
     previous_probe_delay = Application.get_env(:serviceradar_agent_gateway, :admission_probe_delay_ms)
-    previous_probe_timeout = Application.get_env(:serviceradar_agent_gateway, :admission_probe_timeout_ms)
     parent = self()
 
     if !Process.whereis(ServiceRadarAgentGateway.ClusterProcessLocator) do
       start_supervised!(ServiceRadarAgentGateway.ClusterProcessLocator)
     end
+
+    reset_admission_protocol_cache()
 
     handler_pid =
       spawn(fn ->
@@ -243,15 +247,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     Application.put_env(:serviceradar_agent_gateway, :admission_protocol_module, __MODULE__.SlowAdmissionProbeStub)
     Application.put_env(:serviceradar_agent_gateway, :admission_probe_test_pid, parent)
-    Application.put_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 120)
-    Application.put_env(:serviceradar_agent_gateway, :admission_probe_timeout_ms, 25)
+    Application.put_env(:serviceradar_agent_gateway, :admission_probe_delay_ms, 400)
 
     on_exit(fn ->
       StatusHandlerTestHelpers.kill_and_await(handler_pid)
       restore_env(:admission_protocol_module, previous_probe_module)
       restore_env(:admission_probe_test_pid, previous_probe_test_pid)
       restore_env(:admission_probe_delay_ms, previous_probe_delay)
-      restore_env(:admission_probe_timeout_ms, previous_probe_timeout)
+      reset_admission_protocol_cache()
     end)
 
     status = plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
@@ -1263,6 +1266,15 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     if !Process.whereis(StatusBuffer) do
       start_supervised!(StatusBuffer)
     end
+  end
+
+  defp reset_admission_protocol_cache do
+    if locator = Process.whereis(ServiceRadarAgentGateway.ClusterProcessLocator) do
+      send(locator, {:nodedown, node()})
+      _ = :sys.get_state(locator)
+    end
+
+    :ok
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
