@@ -1,7 +1,7 @@
 //! Viz metadata builders for fleet inventory entities: agents, devices,
 //! gateways, virtualization, and device-graph queries.
 
-use super::{col, ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn agents() -> VizMeta {
     VizMeta {
