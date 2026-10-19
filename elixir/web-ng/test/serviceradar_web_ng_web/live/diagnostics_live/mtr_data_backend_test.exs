@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataBackendTest do
       assert count_params == filter_params
     end
 
-    test "list, coverage, detail and Compare read CNPG and never the warehouse" do
+    test "list, existence, coverage, detail and Compare read CNPG and never the warehouse" do
       assert {:ok, []} =
                MtrData.list_traces(
                  device_ip: "192.0.2.10",
@@ -135,6 +135,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataBackendTest do
       assert_received {:cnpg, list_sql, ["192.0.2.10", 50]}
       assert list_sql =~ "WHERE target_ip = $1"
       assert list_sql =~ "FROM mtr_hops h"
+
+      assert {:ok, false} =
+               MtrData.trace_exists(
+                 device_uid: "sr:device-01",
+                 device_ip: "192.0.2.10",
+                 cnpg_query: cnpg_recorder(),
+                 starrocks_query: warehouse_forbidden()
+               )
+
+      assert_received {:cnpg, exists_sql, ["sr:device-01", "192.0.2.10"]}
+      assert exists_sql =~ "FROM mtr_traces WHERE (device_id::text = $1 OR target_ip = $2) LIMIT 1"
+      refute exists_sql =~ "mtr_hops"
+      refute exists_sql =~ "ORDER BY"
 
       coverage_query = fn sql, params ->
         send(self(), {:cnpg, sql, params})
@@ -261,6 +274,44 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataBackendTest do
       assert trace["target_reached"] == true
       assert trace["destination_loss_pct"] == 20.0
       assert %{latency: [{@trace_time, 2_500}]} = MtrData.build_trends([trace])
+    end
+
+    test "the trace existence probe scans traces alone, one single-column equality per probe" do
+      test = self()
+
+      answer = fn rows ->
+        fn sql ->
+          send(test, {:warehouse, sql})
+          {:ok, %{columns: ["hit"], rows: rows}}
+        end
+      end
+
+      assert {:ok, true} =
+               MtrData.trace_exists(
+                 device_uid: "sr:device-01",
+                 device_ip: "192.0.2.10",
+                 cnpg_query: cnpg_forbidden(),
+                 starrocks_query: answer.([[1]])
+               )
+
+      refute_received {:cnpg, _sql, _params}
+      assert_received {:warehouse, sql}
+
+      # Answered by the trace list, this was a newest-first sort over every
+      # live partition plus a hop join and window, on every device page load.
+      refute sql =~ "mtr_hops"
+      refute sql =~ "ORDER BY"
+      refute sql =~ "ROW_NUMBER"
+      refute sql =~ " OR "
+      assert sql =~ "(SELECT 1 AS hit FROM serviceradar.mtr_traces WHERE `device_id` = 'sr:device-01' LIMIT 1)"
+      assert sql =~ "(SELECT 1 AS hit FROM serviceradar.mtr_traces WHERE `target_ip` = '192.0.2.10' LIMIT 1)"
+
+      assert {:ok, false} =
+               MtrData.trace_exists(
+                 device_ip: "192.0.2.10",
+                 cnpg_query: cnpg_forbidden(),
+                 starrocks_query: answer.([])
+               )
     end
 
     test "the paginated list renders the same terms for the warehouse and orders NULLs like Postgres" do

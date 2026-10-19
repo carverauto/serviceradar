@@ -67,18 +67,53 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   }
 
   def list_traces(opts \\ []) do
-    target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
-    agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
-    device_uid = normalize_string(Keyword.get(opts, :device_uid))
-    device_ip = normalize_string(Keyword.get(opts, :device_ip))
     limit = normalize_limit(Keyword.get(opts, :limit, 50))
-
-    terms = trace_filter_terms(target_filter, agent_filter, device_uid, device_ip)
+    terms = list_filter_terms(opts)
 
     if MtrWarehouse.enabled?() do
       terms |> MtrWarehouse.list_traces(limit, opts) |> rows_to_maps()
     else
       cnpg_list_traces(terms, limit, opts)
+    end
+  end
+
+  @doc """
+  Whether any trace matches the filters `list_traces/1` takes, as
+  `{:ok, boolean}`.
+
+  The device page asks this on every load to decide whether to show the MTR
+  tab, so it is an existence probe that stops at the first matching row: no
+  newest-first sort and no hop join, which is what answering it with
+  `list_traces(limit: 1)` cost. Like the tab's own list it has no time bound,
+  so a device whose only traces are old still gets its tab.
+  """
+  @spec trace_exists(keyword()) :: {:ok, boolean()} | {:error, term()}
+  def trace_exists(opts \\ []) do
+    terms = list_filter_terms(opts)
+
+    if MtrWarehouse.enabled?() do
+      MtrWarehouse.trace_exists(terms, opts)
+    else
+      cnpg_trace_exists(terms, opts)
+    end
+  end
+
+  defp list_filter_terms(opts) do
+    trace_filter_terms(
+      normalize_string(Keyword.get(opts, :target_filter, "")),
+      normalize_string(Keyword.get(opts, :agent_filter, "")),
+      normalize_string(Keyword.get(opts, :device_uid)),
+      normalize_string(Keyword.get(opts, :device_ip))
+    )
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp cnpg_trace_exists(terms, opts) do
+    {where_clause, params} = build_trace_where(terms)
+
+    case cnpg_query(opts).("SELECT 1 FROM mtr_traces #{where_clause} LIMIT 1", params) do
+      {:ok, %{rows: rows}} -> {:ok, rows != []}
+      {:error, reason} -> {:error, reason}
     end
   end
 
