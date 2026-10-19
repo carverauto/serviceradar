@@ -49,9 +49,33 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
     end
   end
 
+  @doc """
+  Returns a cached positive admission protocol probe result for `{node, module}`, if present.
+  """
+  @spec cached_admission_protocol(node(), module()) :: {:ok, atom()} | :miss
+  def cached_admission_protocol(node, module) when is_atom(node) and is_atom(module) do
+    case :ets.lookup(@table, {:admission_protocol, node, module}) do
+      [{_key, protocol}] -> {:ok, protocol}
+      [] -> :miss
+    end
+  rescue
+    ArgumentError -> :miss
+  end
+
+  @doc """
+  Caches a positive admission protocol probe result for `{node, module}` until the node disconnects.
+  """
+  @spec cache_admission_protocol(node(), module(), atom()) :: :ok
+  def cache_admission_protocol(node, module, protocol) when is_atom(node) and is_atom(module) and is_atom(protocol) do
+    :ets.insert(@table, {{:admission_protocol, node, module}, protocol})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   @impl true
   def init(_opts) do
-    :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
+    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
     :ok = :net_kernel.monitor_nodes(true)
     {:ok, %{waiters: %{}, probes: %{}, probe_refs: %{}, monitors: %{}}}
   end
@@ -83,13 +107,18 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
   end
 
   # A node that just connected may run what every other node lacks.
-  def handle_info({:nodeup, _node}, state) do
+  def handle_info({:nodeup, node}, state) do
     :ets.match_delete(@table, {{:absent, :_}, :_})
+    :ets.match_delete(@table, {{:admission_protocol, node, :_}, :_})
     {:noreply, state}
   end
 
-  # Monitors on located processes report the disconnect themselves.
-  def handle_info({:nodedown, _node}, state), do: {:noreply, state}
+  # Monitors on located processes report the disconnect themselves; also evict
+  # any cached per-node admission protocol probe result.
+  def handle_info({:nodedown, node}, state) do
+    :ets.match_delete(@table, {{:admission_protocol, node, :_}, :_})
+    {:noreply, state}
+  end
 
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -232,6 +261,7 @@ defmodule ServiceRadarAgentGateway.ClusterProcessLocator do
     case Map.pop(state.monitors, ref) do
       {{name, pid}, monitors} ->
         :ets.delete(@table, {:located, name, pid})
+        :ets.match_delete(@table, {{:admission_protocol, node(pid), :_}, :_})
         %{state | monitors: monitors}
 
       {nil, _monitors} ->

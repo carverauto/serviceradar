@@ -43,6 +43,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # Budget = call timeout + overhead so the delivery task always has time to
   # handle the inner call timeout and emit metrics before being killed.
   @acceptance_budget_overhead_ms 500
+  @admission_probe_timeout_ms 250
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
   @doc """
@@ -407,13 +408,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     remaining = min(remaining_ms(deadline), Admission.budget_ms())
     descriptor = Lane.descriptor(status, remaining)
 
-    with true <- reserved_admission?(target),
+    with :ok <- ensure_reserved_admission(target, deadline),
          {:ok, {lane, id}} <-
            GenServer.call(target, {:reserve_status, descriptor}, min(remaining_ms(deadline), 1_100)) do
       mode = if ack_result_status?(status), do: :wait, else: :best_effort
       GenServer.call(lane, {:submit, id, status, mode}, remaining_ms(deadline))
     else
-      false -> {:error, :core_admission_protocol_unavailable}
       {:error, _} = error -> error
     end
   end
@@ -429,19 +429,59 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp reserved_admission?(target) do
+  defp ensure_reserved_admission(target, deadline) do
     # Probe the deployed module, not an older GenServer's unknown callback.
     # An unsupported core pair fails closed without crashing its dispatcher.
-    target_node =
-      case target do
-        pid when is_pid(pid) -> node(pid)
-        {_name, target_node} -> target_node
-        _name -> node()
-      end
+    target_node = target_node(target)
+    module = admission_protocol_module()
 
-    :erpc.call(target_node, ServiceRadar.StatusHandler, :admission_protocol, [], 50) == :reserved_v1
-  catch
-    _, _ -> false
+    case ClusterProcessLocator.cached_admission_protocol(target_node, module) do
+      {:ok, :reserved_v1} ->
+        :ok
+
+      :miss ->
+        probe_reserved_admission(target_node, module, deadline)
+    end
+  end
+
+  defp probe_reserved_admission(target_node, module, deadline) do
+    timeout_ms = min(remaining_ms(deadline), admission_probe_timeout_ms())
+
+    try do
+      case :erpc.call(target_node, module, :admission_protocol, [], timeout_ms) do
+        :reserved_v1 ->
+          ClusterProcessLocator.cache_admission_protocol(target_node, module, :reserved_v1)
+          :ok
+
+        _other ->
+          {:error, :core_admission_protocol_unavailable}
+      end
+    catch
+      :error, {:erpc, :timeout} ->
+        {:error, :core_admission_probe_timeout}
+
+      :error, {:exception, :undef, _stacktrace} ->
+        {:error, :core_admission_protocol_unavailable}
+
+      _kind, _reason ->
+        {:error, :core_admission_protocol_unavailable}
+    end
+  end
+
+  defp target_node(pid) when is_pid(pid), do: node(pid)
+  defp target_node({_name, target_node}), do: target_node
+  defp target_node(_name), do: node()
+
+  defp admission_protocol_module do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :admission_protocol_module,
+      ServiceRadar.StatusHandler
+    )
+  end
+
+  defp admission_probe_timeout_ms do
+    positive_timeout(:admission_probe_timeout_ms, @admission_probe_timeout_ms)
   end
 
   defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 1)
