@@ -25,11 +25,38 @@ defmodule ServiceRadar.Inventory.Availability.VantageExpectations do
   Brings the expectation rows of `check` for `device_uids` in line with its vantage
   inputs: inserts or updates rows that differ and deletes rows no input asks for.
   Returns the number of rows written plus deleted.
+
+  The check row is locked `FOR SHARE` first and nothing is written unless its persisted
+  state is `enabled`, so a concurrent disable either waits for this write and then
+  clears it, or is seen here.
   """
   @spec materialize(struct(), [struct()], [String.t()]) :: non_neg_integer()
   def materialize(_check, _inputs, []), do: 0
 
   def materialize(check, inputs, device_uids) do
+    {:ok, count} =
+      Repo.transaction(fn ->
+        if persisted_state(check) == "enabled" do
+          reconcile(check, inputs, device_uids)
+        else
+          0
+        end
+      end)
+
+    count
+  end
+
+  defp persisted_state(check) do
+    from(c in "composite_checks",
+      prefix: "platform",
+      where: c.id == type(^check.id, Ecto.UUID),
+      lock: "FOR SHARE",
+      select: c.state
+    )
+    |> Repo.one()
+  end
+
+  defp reconcile(check, inputs, device_uids) do
     desired = desired(check, inputs, device_uids)
     existing = existing(check, device_uids)
 

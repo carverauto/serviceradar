@@ -55,6 +55,9 @@ defmodule ServiceRadar.Inventory.Availability do
   `rejected` by reason and not written. Evidence for a device that does not exist is
   skipped. Rows are written in key order, so concurrent writers lock in one order.
 
+  Planning and writing run in one transaction that locks the existing rows, so
+  concurrent submissions for one key are serialized.
+
   Options: `:now` (defaults to the current time).
   """
   @spec record_evidence([submission()], keyword()) :: {:ok, result()}
@@ -62,23 +65,32 @@ defmodule ServiceRadar.Inventory.Availability do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
     query_opts = query_opts()
 
-    {rows, rejected} = build_rows(submissions, now)
+    {rows, rejected} = build_rows(submissions, now, query_opts)
     rows = live_rows(rows, query_opts)
-    existing = load_existing(rows, query_opts)
 
-    writes =
-      rows
-      |> Enum.flat_map(fn row ->
-        case EvidencePlan.merge(Map.get(existing, key(row)), row, now) do
-          {:write, merged} -> [merged]
-          :skip -> []
-        end
-      end)
-      |> Enum.sort_by(&key/1)
-
-    written = write(writes, query_opts)
+    written =
+      if Repo.in_transaction?() do
+        plan_and_write(rows, now, query_opts)
+      else
+        {:ok, written} = Repo.transaction(fn -> plan_and_write(rows, now, query_opts) end)
+        written
+      end
 
     {:ok, %{written: written, skipped: length(rows) - written, rejected: rejected}}
+  end
+
+  defp plan_and_write(rows, now, query_opts) do
+    existing = load_existing(rows, query_opts)
+
+    rows
+    |> Enum.flat_map(fn row ->
+      case EvidencePlan.merge(Map.get(existing, key(row)), row, now) do
+        {:write, merged} -> [merged]
+        :skip -> []
+      end
+    end)
+    |> Enum.sort_by(&key/1)
+    |> write(query_opts)
   end
 
   @doc """
@@ -122,12 +134,12 @@ defmodule ServiceRadar.Inventory.Availability do
     |> Keyword.get(:evidence_capture, true)
   end
 
-  defp build_rows(submissions, now) do
+  defp build_rows(submissions, now, query_opts) do
     registrations =
       submissions
       |> Enum.map(&Map.get(&1, :source_kind))
       |> Enum.uniq()
-      |> Map.new(&{&1, fetch_source(&1)})
+      |> Map.new(&{&1, fetch_source(&1, query_opts)})
 
     {rows, rejected} =
       Enum.reduce(submissions, {[], %{}}, fn submission, {rows, rejected} ->
@@ -148,14 +160,14 @@ defmodule ServiceRadar.Inventory.Availability do
     {rows, rejected}
   end
 
-  defp fetch_source(kind) when is_binary(kind) do
-    case Sources.fetch(kind) do
+  defp fetch_source(kind, query_opts) when is_binary(kind) do
+    case Sources.fetch(kind, query_opts) do
       {:ok, source} -> {:ok, source}
       :error -> {:error, :unregistered_source}
     end
   end
 
-  defp fetch_source(_kind), do: {:error, :unregistered_source}
+  defp fetch_source(_kind, _query_opts), do: {:error, :unregistered_source}
 
   defp live_rows([], _query_opts), do: []
 
@@ -180,6 +192,8 @@ defmodule ServiceRadar.Inventory.Availability do
 
     DeviceEvidence
     |> where([e], e.device_uid in ^uids and e.source_kind in ^kinds)
+    |> order_by([e], [e.device_uid, e.source_kind, e.source_instance, e.reporter_agent_id])
+    |> lock("FOR UPDATE")
     |> Repo.all(query_opts)
     |> Map.new(&{key(&1), &1})
   end

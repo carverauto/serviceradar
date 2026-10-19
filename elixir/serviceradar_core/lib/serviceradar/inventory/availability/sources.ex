@@ -51,20 +51,25 @@ defmodule ServiceRadar.Inventory.Availability.Sources do
 
   @plugin_prefix "plugin:"
 
-  @doc "The registration for `kind`, or `:error` for a kind nothing registers."
-  @spec fetch(String.t()) :: {:ok, t()} | :error
-  def fetch(@plugin_prefix <> plugin_id = kind) when plugin_id != "" do
+  @doc """
+  The registration for `kind`, or `:error` for a kind nothing registers. `query_opts`
+  are passed to the plugin manifest lookup.
+  """
+  @spec fetch(String.t(), keyword()) :: {:ok, t()} | :error
+  def fetch(kind, query_opts \\ [])
+
+  def fetch(@plugin_prefix <> plugin_id = kind, query_opts) when plugin_id != "" do
     {:ok,
      %__MODULE__{
        kind: kind,
-       authority_class: plugin_authority(plugin_id),
+       authority_class: plugin_authority(plugin_id, query_opts),
        default_ttl: @sync_default_ttl,
        min_ttl: 300,
        max_ttl: 24 * @hour
      }}
   end
 
-  def fetch(kind) when is_map_key(@builtins, kind) do
+  def fetch(kind, _query_opts) when is_map_key(@builtins, kind) do
     {class, default_ttl, min_ttl, max_ttl} = Map.fetch!(@builtins, kind)
 
     {:ok,
@@ -77,7 +82,7 @@ defmodule ServiceRadar.Inventory.Availability.Sources do
      }}
   end
 
-  def fetch(_kind), do: :error
+  def fetch(_kind, _query_opts), do: :error
 
   @doc "The source kind a plugin's evidence is registered under."
   @spec plugin_kind(String.t()) :: String.t()
@@ -87,14 +92,14 @@ defmodule ServiceRadar.Inventory.Availability.Sources do
   The class a plugin's approved manifest declares, or `inventory_declared` when it
   declares none, declares an unknown class, or has no approved package.
   """
-  @spec plugin_authority(String.t()) :: AuthorityClass.t()
-  def plugin_authority(plugin_id) do
+  @spec plugin_authority(String.t(), keyword()) :: AuthorityClass.t()
+  def plugin_authority(plugin_id, query_opts \\ []) do
     PluginPackage
     |> where([p], p.plugin_id == ^plugin_id and p.status == ^:approved)
     |> order_by([p], desc_nulls_last: p.approved_at, desc: p.inserted_at)
     |> limit(1)
     |> select([p], p.manifest)
-    |> Repo.one()
+    |> Repo.one(query_opts)
     |> manifest_authority()
   end
 
