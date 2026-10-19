@@ -4,7 +4,7 @@ defmodule Serviceradar.Config.V1.EnvironmentKind do
   use Protobuf,
     enum: true,
     full_name: "serviceradar.config.v1.EnvironmentKind",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :ENVIRONMENT_KIND_UNSPECIFIED, 0
@@ -21,7 +21,7 @@ defmodule Serviceradar.Config.V1.TlsMode do
   use Protobuf,
     enum: true,
     full_name: "serviceradar.config.v1.TlsMode",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :TLS_MODE_UNSPECIFIED, 0
@@ -37,7 +37,7 @@ defmodule Serviceradar.Config.V1.DgraphTlsMode do
   use Protobuf,
     enum: true,
     full_name: "serviceradar.config.v1.DgraphTlsMode",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :DGRAPH_TLS_MODE_UNSPECIFIED, 0
@@ -52,7 +52,7 @@ defmodule Serviceradar.Config.V1.SecurityMode do
   use Protobuf,
     enum: true,
     full_name: "serviceradar.config.v1.SecurityMode",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :SECURITY_MODE_UNSPECIFIED, 0
@@ -66,7 +66,7 @@ defmodule Serviceradar.Config.V1.DatabaseConfig do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.DatabaseConfig",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :host, 1, proto3_optional: true, type: :string
@@ -101,7 +101,7 @@ defmodule Serviceradar.Config.V1.NatsConfig do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.NatsConfig",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :url, 1, proto3_optional: true, type: :string
@@ -113,7 +113,7 @@ defmodule Serviceradar.Config.V1.DgraphConfig do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.DgraphConfig",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :host, 1, proto3_optional: true, type: :string
@@ -133,7 +133,7 @@ defmodule Serviceradar.Config.V1.CoreConfig do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.CoreConfig",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :address, 1, proto3_optional: true, type: :string
@@ -156,7 +156,7 @@ defmodule Serviceradar.Config.V1.EnvironmentConfig do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.EnvironmentConfig",
-    protoc_gen_elixir_version: "0.16.1",
+    protoc_gen_elixir_version: "0.17.1",
     syntax: :proto3
 
   field :kind, 1, proto3_optional: true, type: Serviceradar.Config.V1.EnvironmentKind, enum: true

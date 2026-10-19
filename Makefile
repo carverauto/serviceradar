@@ -646,10 +646,10 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 # target keeps the .pb.ex stubs in lockstep with the proto contract so manual
 # edits (such as the B-6 `cmdline` -> `redacted_cmdline` rename) cannot drift.
 #
-# The escript is pinned to the same protobuf hex version declared in
-# elixir/serviceradar_core/mix.exs ({:protobuf, "~> 0.16.0"}) and is invoked
-# via the protoc plugin discovery path so contributors do not need to mutate
-# their shell rc files.
+# The generator escript stays pinned at 0.16.0 so `make generate-proto-elixir`
+# preserves the existing path layout under $(ELIXIR_PROTO_OUT) (protobuf 0.17+
+# prepends the proto package directory path); its output compiles cleanly
+# against the runtime {:protobuf, "~> 0.17.1"} dependency in mix.exs.
 ELIXIR_PROTOBUF_VERSION ?= 0.16.0
 ELIXIR_PROTO_OUT ?= elixir/serviceradar_core/lib/serviceradar/proto
 PROTOC_GEN_ELIXIR ?= $(HOME)/.mix/escripts/protoc-gen-elixir
