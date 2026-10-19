@@ -1,4 +1,5 @@
-import {Deck, OrthographicView} from "@deck.gl/core"
+import {OrthographicView} from "@deck.gl/core"
+import {TopologyDeck} from "./topology_deck"
 import {webgpuAdapter} from "@luma.gl/webgpu"
 import {viewportProfileForSize} from "./layout_elk_scene"
 import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
@@ -559,7 +560,7 @@ export const godViewLifecycleDomSetupMethods = {
     }
   },
   createDeckInstance(width, height) {
-    const deck = new Deck({
+    const deck = new TopologyDeck({
       canvas: this.state.canvas,
       width,
       height,

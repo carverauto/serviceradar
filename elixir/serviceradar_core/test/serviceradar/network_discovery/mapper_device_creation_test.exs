@@ -11,7 +11,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -223,12 +226,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
         }
       ])
 
+    :ok = Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_a, %{})
 
     devices_after_first = wait_for_devices_by_ip(actor, ip)
 
     assert length(devices_after_first) == 1
     first_uid = hd(devices_after_first).uid
+    assert_receive {:devices_invalidated, [^first_uid]}
     assert hd(devices_after_first).metadata["identity_state"] == "provisional"
     assert hd(devices_after_first).metadata["identity_source"] == "mapper_primary_mac_seed"
 
@@ -656,6 +661,672 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert interfaces == []
     assert revival_audit_rows(uid) == []
+  end
+
+  test "purged operator, DIRE, and nil-actor tombstones gain one stable successor", %{
+    actor: actor
+  } do
+    deletes = [
+      fn device -> Device.soft_delete(device, "manual", Ecto.UUID.generate(), actor: actor) end,
+      fn device ->
+        Device.soft_delete(
+          device,
+          "dire_remediation_test_duplicate",
+          "system:dire_remediation",
+          actor: actor
+        )
+      end,
+      fn device ->
+        {:ok, _} = Device.soft_delete(device, "manual", Ecto.UUID.generate(), actor: actor)
+
+        Repo.query!("UPDATE platform.ocsf_devices SET deleted_by = NULL WHERE uid = $1", [
+          device.uid
+        ])
+
+        {:ok, device}
+      end
+    ]
+
+    for delete <- deletes do
+      uniq = System.unique_integer([:positive, :monotonic])
+      ip = unique_test_ip(198, 51, 51, uniq)
+      mac = unique_global_test_mac(uniq)
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+      assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+      ordinal = fleet_ordinal!(uid)
+
+      assert {:ok, _} = delete.(device)
+
+      assert {%{errors: 0}, _deleted} =
+               DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
+
+      assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+      assert tombstone.identity_purged_at
+      assert tombstone.deleted_at
+      assert fleet_ordinal!(uid) == ordinal
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+      assert [%Device{uid: successor}] = wait_for_devices_by_ip(actor, ip)
+      assert successor == Ids.reseeded_device_id(uid)
+      assert successor != uid
+      assert fleet_ordinal!(successor) != ordinal
+      assert fleet_ordinal!(uid) == ordinal
+
+      assert {:ok, kept} = Device.get_by_uid(uid, true, actor: actor)
+      assert kept.deleted_at
+      assert kept.identity_purged_at
+      assert kept.metadata["_seed_successor"] == successor
+      assert revival_audit_rows(uid) == []
+      assert mac_owner(actor, IdentityReconciler.normalize_mac(mac)) == successor
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+      assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+      assert fleet_ordinal!(uid) == ordinal
+      assert {:ok, still} = Device.get_by_uid(uid, true, actor: actor)
+      assert still.deleted_at
+      assert still.identity_purged_at
+    end
+  end
+
+  test "purged merged and retained tombstones do not gain a successor", %{actor: actor} do
+    for reason <- ["merged" | Device.retained_reasons()] do
+      uniq = System.unique_integer([:positive, :monotonic])
+      ip = unique_test_ip(198, 51, 52, uniq)
+      mac = unique_global_test_mac(uniq)
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+      assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+
+      assert {:ok, _} = Device.soft_delete(device, reason, "system:mapper_test", actor: actor)
+
+      assert {%{errors: 0}, _deleted} =
+               DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
+
+      assert {:ok, purged} = Device.get_by_uid(uid, true, actor: actor)
+      purged_revision = purged.identity_revision
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+      assert wait_for_devices_by_ip(actor, ip, 1) == []
+      assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+      assert tombstone.deleted_at
+      assert tombstone.deleted_reason == reason
+      assert tombstone.identity_purged_at
+      assert tombstone.identity_revision == purged_revision
+      refute get_in(tombstone.metadata || %{}, ["_seed_successor"])
+      assert revival_audit_rows(uid) == []
+      assert is_nil(mac_owner(actor, IdentityReconciler.normalize_mac(mac)))
+    end
+  end
+
+  test "a purged restorable system successor is rehydrated without a further successor", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 53, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    root_ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: successor}] = wait_for_devices_by_ip(actor, ip)
+    assert successor == Ids.reseeded_device_id(root_uid)
+    successor_ordinal = fleet_ordinal!(successor)
+    assert {:ok, %Device{} = successor_row} = Device.get_by_uid(successor, false, actor: actor)
+
+    assert {:ok, _} =
+             Device.soft_delete(successor_row, "stale", "system:mapper_test_reaper", actor: actor)
+
+    hard_purge_deleted!(successor)
+    Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [successor])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, revived} = Device.get_by_uid(successor, false, actor: actor)
+    assert revived.deleted_at == nil
+    assert revived.identity_purged_at == nil
+    assert fleet_ordinal!(successor) == successor_ordinal
+    assert fleet_ordinal!(root_uid) == root_ordinal
+    refute device_row?(Ids.reseeded_device_id(successor))
+
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
+  end
+
+  test "an unpurged restorable system successor reached from the root is restored", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 54, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: successor} = successor_row] = wait_for_devices_by_ip(actor, ip)
+    assert successor == Ids.reseeded_device_id(root_uid)
+    successor_ordinal = fleet_ordinal!(successor)
+
+    assert {:ok, _} =
+             Device.soft_delete(successor_row, "stale", "system:mapper_test_reaper", actor: actor)
+
+    Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [successor])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, restored} = Device.get_by_uid(successor, false, actor: actor)
+    assert restored.deleted_at == nil
+    assert fleet_ordinal!(successor) == successor_ordinal
+    refute device_row?(Ids.reseeded_device_id(successor))
+
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.metadata["_seed_successor"] == successor
+    assert mac_owner(actor, IdentityReconciler.normalize_mac(mac)) == successor
+  end
+
+  test "address-only rediscovery follows the retained identity lifecycle", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 56, uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    assert root.metadata["identity_source"] == "mapper_ip_seed"
+    root_ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    # An identity-purged operator delete yields one fresh address-seeded successor.
+    assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+    assert [%Device{uid: successor} = successor_row] = wait_for_devices_by_ip(actor, ip)
+    assert successor == Ids.reseeded_device_id(root_uid)
+    assert successor_row.metadata["identity_source"] == "mapper_ip_seed"
+    successor_ordinal = fleet_ordinal!(successor)
+    assert successor_ordinal != root_ordinal
+    assert fleet_ordinal!(root_uid) == root_ordinal
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
+
+    # A purged system expiry reached through the chain keeps its uid and ordinal.
+    assert {:ok, _} =
+             Device.soft_delete(successor_row, "stale", "system:mapper_test_reaper", actor: actor)
+
+    hard_purge_deleted!(successor)
+    assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, revived} = Device.get_by_uid(successor, false, actor: actor)
+    assert revived.deleted_at == nil
+    assert revived.identity_purged_at == nil
+    assert fleet_ordinal!(successor) == successor_ordinal
+    refute device_row?(Ids.reseeded_device_id(successor))
+  end
+
+  test "address-only rediscovery leaves a purged retained tombstone deleted", %{actor: actor} do
+    for reason <- ["merged" | Device.retained_reasons()] do
+      uniq = System.unique_integer([:positive, :monotonic])
+      ip = unique_test_ip(198, 51, 57, uniq)
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+      assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+      hard_purge!(device, actor, reason, "system:mapper_test")
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(address_payload(ip), %{})
+      assert wait_for_devices_by_ip(actor, ip, 1) == []
+      assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+      assert tombstone.deleted_reason == reason
+      refute get_in(tombstone.metadata || %{}, ["_seed_successor"])
+      refute device_row?(Ids.reseeded_device_id(uid))
+    end
+  end
+
+  test "same-poll rediscovery links a dependent to the controller successor", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 55, uniq)
+    ap_ip = unique_test_ip(198, 51, 56, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+
+    payload = managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac)
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    assert [%Device{uid: controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, controller} = Device.get_by_uid(controller_uid, false, actor: actor)
+    assert {:ok, ap} = Device.get_by_uid(ap_uid, false, actor: actor)
+    hard_purge!(controller, actor, "manual", Ecto.UUID.generate())
+    hard_purge!(ap, actor, "manual", Ecto.UUID.generate())
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    controller_successor = Ids.reseeded_device_id(controller_uid)
+    ap_successor = Ids.reseeded_device_id(ap_uid)
+
+    assert [%Device{uid: ^controller_successor}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ^ap_successor, management_device_id: ^controller_successor}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [%Device{uid: ^controller_successor}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ^ap_successor, management_device_id: ^controller_successor}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, controller_tombstone} = Device.get_by_uid(controller_uid, true, actor: actor)
+    assert controller_tombstone.deleted_at
+    assert controller_tombstone.metadata["_seed_successor"] == controller_successor
+  end
+
+  test "same-poll rediscovery links a new dependent to its rehydrated controller", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 57, uniq)
+    ap_ip = unique_test_ip(198, 51, 58, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(controller_ip, [controller_mac]),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    hard_purge!(controller, actor, "stale", "system:mapper_test_reaper")
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: ^controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    refute device_row?(Ids.reseeded_device_id(controller_uid))
+  end
+
+  test "same-poll rediscovery links a new dependent to the controller successor", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 59, uniq)
+    ap_ip = unique_test_ip(198, 51, 60, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(controller_ip, [controller_mac]),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    hard_purge!(controller, actor, "manual", Ecto.UUID.generate())
+    controller_successor = Ids.reseeded_device_id(controller_uid)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: ^controller_successor}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{management_device_id: ^controller_successor}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, tombstone} = Device.get_by_uid(controller_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.metadata["_seed_successor"] == controller_successor
+  end
+
+  test "same-poll rediscovery links a rehydrated dependent to the controller successor", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 61, uniq)
+    ap_ip = unique_test_ip(198, 51, 62, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+    payload = managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid} = ap] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    hard_purge!(controller, actor, "manual", Ecto.UUID.generate())
+    hard_purge!(ap, actor, "stale", "system:mapper_test_reaper")
+    controller_successor = Ids.reseeded_device_id(controller_uid)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [%Device{uid: ^controller_successor}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ^ap_uid, management_device_id: ^controller_successor}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    refute device_row?(Ids.reseeded_device_id(ap_uid))
+    assert {:ok, tombstone} = Device.get_by_uid(controller_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.metadata["_seed_successor"] == controller_successor
+  end
+
+  test "mapper rediscovery adopts an anchorless provisional seed at the purged address", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 70, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    seed_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _seed} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: seed_uid,
+        ip: ip,
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "operator_ip_seed"
+        }
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: ^seed_uid}] = wait_for_devices_by_ip(actor, ip)
+    refute device_row?(Ids.reseeded_device_id(root_uid))
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == seed_uid
+    assert fleet_ordinal!(root_uid) == ordinal
+  end
+
+  test "mapper rediscovery keeps a fresh successor when the address seed has an archived anchor",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 73, uniq)
+    mac = unique_global_test_mac(uniq)
+    serial = "sr-archived-anchor-#{uniq}"
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: root_uid} = root] = wait_for_devices_by_ip(actor, ip)
+    ordinal = fleet_ordinal!(root_uid)
+    hard_purge!(root, actor, "manual", Ecto.UUID.generate())
+
+    seed_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _seed} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: seed_uid,
+        ip: ip,
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "operator_ip_seed"
+        }
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: seed_uid,
+        identifier_type: :hardware_serial,
+        identifier_value: serial,
+        partition: "default",
+        confidence: :strong,
+        source: "mapper_device_creation_test"
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             ServiceRadar.TestSupport.IdentifierArchiveFixtures.archive!(
+               :hardware_serial,
+               serial
+             )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    successor = Ids.reseeded_device_id(root_uid)
+    assert [%Device{uid: ^successor}] = wait_for_devices_by_ip(actor, ip)
+    assert {:ok, kept_seed} = Device.get_by_uid(seed_uid, true, actor: actor)
+    assert kept_seed.deleted_at == nil
+    assert kept_seed.ip == nil
+    assert (kept_seed.metadata || %{})["identity_source"] == "operator_ip_seed"
+
+    assert {:ok, tombstone} = Device.get_by_uid(root_uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.identity_purged_at
+    assert tombstone.metadata["_seed_successor"] == successor
+    assert fleet_ordinal!(root_uid) == ordinal
+  end
+
+  test "a later poll keeps a dependent linked to its live parent", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 74, uniq)
+    ap_ip = unique_test_ip(198, 51, 75, uniq + 1)
+    other_ip = unique_test_ip(198, 51, 76, uniq + 2)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+    other_mac = unique_global_test_mac(uniq + 2)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(other_ip, other_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: other_uid}] = wait_for_devices_by_ip(actor, other_ip)
+    assert other_uid != controller_uid
+    assert device_reports_address?(actor, other_uid, ap_ip)
+
+    assert [%Device{uid: ^ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+  end
+
+  test "a later poll repairs a dependent whose parent is no longer live", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 77, uniq)
+    ap_ip = unique_test_ip(198, 51, 78, uniq + 1)
+    other_ip = unique_test_ip(198, 51, 79, uniq + 2)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+    other_mac = unique_global_test_mac(uniq + 2)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    assert {:ok, _} =
+             Device.soft_delete(controller, "manual", Ecto.UUID.generate(), actor: actor)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               managed_pair_payload(other_ip, other_mac, ap_ip, ap_mac),
+               %{}
+             )
+
+    assert [%Device{uid: other_uid}] = wait_for_devices_by_ip(actor, other_ip)
+    assert device_reports_address?(actor, other_uid, ap_ip)
+
+    assert [%Device{uid: ^ap_uid, management_device_id: ^other_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+  end
+
+  test "a later poll links an existing dependent after successor progress", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 71, uniq)
+    ap_ip = unique_test_ip(198, 51, 72, uniq + 1)
+    controller_mac = unique_global_test_mac(uniq)
+    ap_mac = unique_global_test_mac(uniq + 1)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(controller_ip, [controller_mac]),
+               %{}
+             )
+
+    assert [%Device{uid: controller_uid} = controller] =
+             wait_for_devices_by_ip(actor, controller_ip)
+
+    hard_purge!(controller, actor, "manual", Ecto.UUID.generate())
+    chain = Enum.scan(1..8, controller_uid, fn _, uid -> Ids.reseeded_device_id(uid) end)
+    progress = Ids.reseeded_device_id(List.last(chain))
+
+    chain
+    |> Enum.with_index(1)
+    |> Enum.each(fn {uid, index} ->
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: uid,
+          ip: unique_test_ip(198, 51, 80 + index, uniq + index)
+        })
+        |> Ash.create(actor: actor)
+
+      hard_purge!(device, actor, "manual", Ecto.UUID.generate())
+    end)
+
+    payload = managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac)
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert wait_for_devices_by_ip(actor, controller_ip, 1) == []
+    assert [%Device{management_device_id: nil}] = wait_for_devices_by_ip(actor, ap_ip)
+    assert {:ok, progressed} = Device.get_by_uid(controller_uid, true, actor: actor)
+    assert progressed.metadata["_seed_successor"] == progress
+    refute device_row?(progress)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [%Device{uid: ^progress}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{management_device_id: ^progress}] = wait_for_devices_by_ip(actor, ap_ip)
+  end
+
+  test "a poll rehydrates a purged identity and leaves an unpurged tombstone's recorded identity",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    purged_ip = reserved_test_ip(uniq)
+    unpurged_ip = reserved_test_ip(uniq + 1)
+    purged_mac = unique_global_test_mac(uniq)
+    unpurged_mac = unique_global_test_mac(uniq + 1)
+    recorded_host = "sr-unpurged-#{uniq}.example.com"
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(purged_ip, [purged_mac]),
+               %{}
+             )
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(unpurged_ip, [unpurged_mac]),
+               %{}
+             )
+
+    assert [%Device{uid: purged_uid} = purged] = wait_for_devices_by_ip(actor, purged_ip)
+    assert [%Device{uid: unpurged_uid} = unpurged] = wait_for_devices_by_ip(actor, unpurged_ip)
+
+    assert {:ok, _} =
+             Device.soft_delete(purged, "stale", "system:mapper_test_reaper", actor: actor)
+
+    assert {:ok, _} =
+             Device.soft_delete(unpurged, "stale", "system:mapper_test_reaper", actor: actor)
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET identity_purged_at = timezone('utc', now()), hostname = NULL, metadata = '{}'::jsonb
+      WHERE uid = $1
+      """,
+      [purged_uid]
+    )
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET hostname = $1, identity_purged_at = NULL, metadata = '{}'::jsonb
+      WHERE uid = $2
+      """,
+      [recorded_host, unpurged_uid]
+    )
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(purged_ip, [purged_mac]),
+               %{}
+             )
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               interface_payload(unpurged_ip, [unpurged_mac]),
+               %{}
+             )
+
+    assert {:ok, revived} = Device.get_by_uid(purged_uid, false, actor: actor)
+    assert revived.deleted_at == nil
+    assert revived.identity_purged_at == nil
+    assert (revived.metadata || %{})["identity_source"] == "mapper_primary_mac_seed"
+
+    assert {:ok, kept} = Device.get_by_uid(unpurged_uid, false, actor: actor)
+    assert kept.deleted_at == nil
+    assert kept.hostname == recorded_host
+    refute (kept.metadata || %{})["identity_source"] == "mapper_primary_mac_seed"
   end
 
   test "a poll restores a device an automatic process deleted, through the audited restore", %{
@@ -1206,6 +1877,64 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     refute DateTime.before?(polled_at, before)
   end
 
+  defp hard_purge!(%Device{} = device, actor, reason, deleted_by) do
+    assert {:ok, _} = Device.soft_delete(device, reason, deleted_by, actor: actor)
+    hard_purge_deleted!(device.uid)
+  end
+
+  defp hard_purge_deleted!(uid) do
+    assert {%{errors: 0}, _deleted} =
+             DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
+  end
+
+  defp device_reports_address?(actor, device_uid, address) do
+    assert {:ok, interfaces} =
+             Interface
+             |> Ash.Query.filter(device_id == ^device_uid)
+             |> Ash.read(actor: actor)
+
+    Enum.any?(interfaces, fn interface ->
+      interface.ip_addresses
+      |> List.wrap()
+      |> Enum.any?(
+        &(&1 == address or (is_binary(&1) and String.starts_with?(&1, address <> "/")))
+      )
+    end)
+  end
+
+  defp device_row?(uid) do
+    %{rows: [[exists?]]} =
+      Repo.query!("SELECT EXISTS(SELECT 1 FROM platform.ocsf_devices WHERE uid = $1)", [uid])
+
+    exists?
+  end
+
+  defp managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    Jason.encode!([
+      %{
+        "device_id" => "default:#{controller_ip}",
+        "partition" => "default",
+        "device_ip" => controller_ip,
+        "if_index" => 1,
+        "if_name" => "eth1",
+        "if_phys_address" => controller_mac,
+        "ip_addresses" => [ap_ip <> "/24"],
+        "timestamp" => ts
+      },
+      %{
+        "device_id" => "default:#{ap_ip}",
+        "partition" => "default",
+        "device_ip" => ap_ip,
+        "if_index" => 1,
+        "if_name" => "wlan0",
+        "if_phys_address" => ap_mac,
+        "timestamp" => ts
+      }
+    ])
+  end
+
   defp wait_for_devices_by_ip(actor, ip, attempts \\ 60)
 
   defp wait_for_devices_by_ip(actor, ip, attempts) when attempts > 0 do
@@ -1243,6 +1972,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     |> Jason.encode!()
   end
 
+  # One interface with no MAC: the polled address is the only evidence.
+  defp address_payload(device_ip) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    Jason.encode!([
+      %{
+        "device_id" => "default:#{device_ip}",
+        "partition" => "default",
+        "device_ip" => device_ip,
+        "if_index" => 1,
+        "if_name" => "eth0",
+        "timestamp" => ts
+      }
+    ])
+  end
+
   defp mac_owner(actor, normalized_mac) do
     DeviceIdentifier
     |> Ash.Query.for_read(:lookup, %{
@@ -1260,6 +2005,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   defp interface_macs_of(actor, device_uid),
     do: InterfaceMacs.registered_values(device_uid, actor)
 
+  defp fleet_ordinal!(uid) do
+    %{rows: [[ordinal]]} =
+      Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [uid])
+
+    ordinal
+  end
+
   defp revival_audit_rows(device_uid) do
     %{rows: rows} =
       Repo.query!(
@@ -1273,6 +2025,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       )
 
     Enum.map(rows, &List.to_tuple/1)
+  end
+
+  defp reserved_test_ip(seed) do
+    "198.51.100.#{rem(seed, 254) + 1}"
   end
 
   defp unique_test_ip(a, b, seed) do

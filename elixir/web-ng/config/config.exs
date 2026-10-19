@@ -244,6 +244,8 @@ config :serviceradar_web_ng, :auth,
   force_local_login: false,
   disable_sso: false
 
+config :serviceradar_web_ng, :bitmap_tag_keys, []
+
 config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []

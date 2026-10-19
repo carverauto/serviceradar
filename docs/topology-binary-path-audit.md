@@ -1,4 +1,4 @@
-# Topology binary path audit
+# ServiceRadar Atlas binary path audit
 
 The tiled overview transports geometry as bounded Arrow IPC and validates typed
 detail columns before rendering. It still performs avoidable JSON conversions
@@ -16,7 +16,8 @@ renderer, not the tiled overview.
 | Arrow columns to geometry | [decodeSnapshotTable](../elixir/web-ng/assets/js/lib/god_view/snapshot_columns.js) copies numeric columns through `packInto`. [decodeWorldTile](../elixir/web-ng/assets/js/lib/god_view/world_tile_decode.js) expands UInt16 coordinates into Float64 positions and creates node/edge objects. Valid tiles require `details_irregular=0`, so their details use typed readers. | Use validated column views where types, nullability and lifetimes permit. Avoid materializing fields the overview does not consume. |
 | Geometry to render attributes | [WorldTileLayer](../elixir/web-ng/assets/js/lib/god_view/world_tile_layer.js) gathers edge endpoint arrays and node records; [node glyph packing](../elixir/web-ng/assets/js/lib/god_view/rendering_node_frame.js) creates another Float32 position array. Geometry is cached, but cold tiles pay these costs. | Share packed attributes, then evaluate shader-side tile transforms and indexed edge lookup. Preserve picking, precision and label placement. |
 | WASM scene operations | [GodViewWasmEngine](../elixir/web-ng/assets/js/wasm/god_view_exec_runtime.js) copies inputs into linear memory and copies outputs before freeing them. | Use explicit owned buffers if measurements justify a WASM operation. Routing overview geometry through WASM alone would add copies. |
-| Health and flow | [WorldOverlays](../elixir/web-ng/assets/js/lib/god_view/world_overlays.js) polls JSON for visible tiles; geometry remains cached. | Evaluate binary state/membership deltas with [#5656](https://github.com/carverauto/serviceradar/issues/5656), while retaining bounded telemetry reads and revision fencing. |
+| Health and flow | Whenever Atlas is enabled, [WorldOverlays](../elixir/web-ng/assets/js/lib/god_view/world_overlays.js) receives bounded SRTO binary fields for admitted tile rows. The server encodes and caches bytes once; the browser uses lazy DataView readers. There is no separate JSON overlay switch. | Evaluate native Arrow IPC encoding with schema metadata for receipt binding, reusing the browser's Arrow decoder and validity bitmaps. Compare retained bytes, encode/decode cost and GPU staging before replacing the fixed codec. |
+| Query membership | Server-side Roaring evaluates one authorized revision; native projection produces bounded SRMO matching/state/count columns for admitted Arrow rows. Three u8 columns view the received buffer; unaligned u32 counts require an aligned copy. | Complete current-policy channel, multi-view and hardware acceptance. Keep native selector scratch separate from wire bytes. |
 
 GPU upload remains an explicit ownership boundary. The portable WebGPU API does
 not expose an arbitrary fetched ArrayBuffer as GPU storage; physical placement
@@ -25,6 +26,16 @@ uploads rather than claiming an end-to-end zero-copy guarantee. See the
 [GPUWeb memory and process model](https://gpuweb.github.io/gpuweb/explainer/#memory-visibility).
 Label shaping and metadata inspection also have CPU work distinct from numeric
 geometry upload.
+
+Filtered glyphs now also set stroke width to zero, alongside radius and minimum
+pixel width, because transparent color alone does not remove WebGPU picking
+geometry. This reuses the admitted Arrow rows and their original positions;
+there is no filtered position-array copy. The per-row Float32 stroke attribute
+adds bounded CPU/GPU style storage covered by the existing per-tile allowance.
+Retention counters are admission charges, not a JavaScript heap census: Deck's
+shared typed-array pool can retain released CPU allocations, and textures are
+outside the buffer counters. Actual device/buffer destruction and public picking
+are separate executable checks.
 
 ## Scale evidence and gaps
 
@@ -61,8 +72,10 @@ delta/reconnect recovery and a slow consumer so bounded work is observable.
    verify byte budgets, revision determinism and decoded geometry equivalence.
 2. Reuse Arrow numeric views and packed geometry attributes; measure allocations
    and GPU upload counts while exercising eviction and label-buffer retirement.
-3. Add the stable-ID bitmap query index and bounded membership/state transport
-   proposed in #5656. Keep Arrow for attributes and preserve deployment-local
-   authorization.
+3. Complete acceptance of the stable-ID bitmap query index and bounded binary
+   membership/state transport in #5656. Native set evaluation and typed overlays
+   are always available when Atlas is enabled; current source, browser and
+   integrated scale gates remain authoritative in its OpenSpec task list. Keep
+   Arrow for attributes and preserve deployment-local authorization.
 4. Run the complete scale acceptance above before describing the current path
    as carrier-grade or zero-copy.

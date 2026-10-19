@@ -1123,10 +1123,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/latest", TopologySnapshotController, :show)
   end
 
+  scope "/topology/snapshot", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api, :topology_mutation])
+
+    post("/latest", TopologySnapshotController, :show)
+  end
+
   scope "/topology", ServiceRadarWebNGWeb do
     pipe_through([:topology_api])
 
     get("/details", TopologyTileController, :details)
+    get("/query/prefix-tags", TopologyQueryController, :prefix_tags)
     get("/overlays/:layout_version/:z/:x/:y", TopologyTileController, :overlay)
   end
 
@@ -1141,7 +1148,15 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/topology/tiles", ServiceRadarWebNGWeb do
     pipe_through([:topology_api, :topology_mutation])
 
+    post("/search", TopologyTileController, :search)
     post("/relayout", TopologyTileController, :relayout)
+  end
+
+  scope "/topology", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api, :topology_mutation])
+
+    post("/details", TopologyTileController, :details)
+    post("/query", TopologyQueryController, :create)
   end
 
   scope "/", ServiceRadarWebNGWeb do

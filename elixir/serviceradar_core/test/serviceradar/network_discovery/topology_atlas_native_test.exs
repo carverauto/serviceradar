@@ -1,9 +1,201 @@
 defmodule ServiceRadar.TopologyAtlasNativeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.TopologyAtlas
 
   @moduletag :db_free
+
+  test "canonical mapping lifetime admission survives publication and releases after owner exit" do
+    world = cold_world([position("sr:bounded-mapping.example.com", 1, true)])
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
+    owner = self()
+
+    holders =
+      for epoch <- 1..2 do
+        pid =
+          start_supervised!(
+            {Task,
+             fn ->
+               assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<epoch::128>>)
+               assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, mapping)
+               send(owner, {:mapping_ready, self()})
+
+               receive do
+                 :release ->
+                   assert {:ok, %{ready: true}} = TopologyAtlas.ordinal_info(world, mapping)
+
+                 :cleanup ->
+                   assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
+               end
+             end},
+            id: {:mapping_holder, epoch}
+          )
+
+        assert_receive {:mapping_ready, ^pid}
+        {pid, Process.monitor(pid)}
+      end
+
+    assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
+    [{retiring, retiring_monitor}, {retained, retained_monitor}] = holders
+    send(retiring, :release)
+    assert_receive {:DOWN, ^retiring_monitor, :process, ^retiring, :normal}
+
+    assert {:ok, replacement} =
+             await_mapping_reclamation(world, System.monotonic_time(:millisecond) + 1_000)
+
+    assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, replacement)
+    assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<4::128>>)
+    send(retained, :cleanup)
+    assert_receive {:DOWN, ^retained_monitor, :process, ^retained, :normal}
+    assert {:ok, true} = TopologyAtlas.release_ordinals(replacement)
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
+  end
+
+  test "explicit ordinal release frees the permit while the caller and a copied handle stay alive" do
+    world = cold_world([position("sr:released-mapping.example.com", 1, true)])
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        receive do
+          {:hold, mapping} ->
+            receive do
+              :read -> send(parent, {:copied, TopologyAtlas.ordinal_info(world, mapping)})
+            end
+        end
+      end)
+
+    assert {:ok, first} = TopologyAtlas.new_ordinals(world, <<1::128>>)
+    assert {:ok, %{ready: true}} = TopologyAtlas.seal_ordinals(world, first)
+    send(holder, {:hold, first})
+    assert {:ok, second} = TopologyAtlas.new_ordinals(world, <<2::128>>)
+    assert {:error, :busy} = TopologyAtlas.new_ordinals(world, <<3::128>>)
+
+    reader = spawn(fn -> paced_ordinal_reader(parent, world, first) end)
+
+    released =
+      Enum.reduce_while(1..400, :pending, fn _, _pending ->
+        send(reader, :read)
+
+        receive do
+          {:read_progress, {:ok, %{ready: true}}} ->
+            case TopologyAtlas.release_ordinals(first) do
+              {:ok, true} -> {:halt, :released}
+              {:error, :busy} -> {:cont, :pending}
+              other -> {:halt, other}
+            end
+
+          {:read_progress, {:error, reason}} when reason in [:not_ready, :busy] ->
+            {:halt, {:observed, reason}}
+
+          other ->
+            {:halt, other}
+        after
+          2_000 ->
+            {:halt, :no_progress}
+        end
+      end)
+
+    assert released == :released
+
+    post =
+      Enum.reduce_while(1..400, :missing, fn _, _missing ->
+        send(reader, :read)
+
+        receive do
+          {:read_progress, {:error, reason}} when reason in [:not_ready, :busy] ->
+            {:halt, reason}
+
+          {:read_progress, {:ok, _info}} ->
+            {:cont, :missing}
+
+          other ->
+            {:halt, other}
+        after
+          2_000 ->
+            {:halt, :no_progress}
+        end
+      end)
+
+    assert post in [:not_ready, :busy]
+    send(reader, :stop)
+    assert {:ok, third} = TopologyAtlas.new_ordinals(world, <<3::128>>)
+    send(holder, :read)
+    assert_receive {:copied, {:error, :not_ready}}
+    assert {:ok, true} = TopologyAtlas.release_ordinals(second)
+    assert {:ok, true} = TopologyAtlas.release_ordinals(third)
+    assert {:ok, false} = TopologyAtlas.release_ordinals(first)
+
+    Enum.each(1..6, fn epoch ->
+      assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<epoch::128>>)
+      assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
+    end)
+  end
+
+  test "canonical mapping ABI preserves unsigned ordinals and seals partial world coverage" do
+    nodes =
+      for n <- 1..4, do: Map.put(position("sr:ordinal-#{n}.example.com", n, true), :min_zoom, 24)
+
+    world = cold_world(nodes)
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
+    dictionary = <<255::128>>
+    assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, dictionary)
+    assert {:error, :not_ready} = TopologyAtlas.device_ordinals(world, mapping, [])
+
+    assert {:ok, %{ready: false, mapped: 2, total: 4, dictionary_epoch: ^dictionary}} =
+             TopologyAtlas.apply_ordinals(world, mapping, [
+               {Enum.at(nodes, 0).device_id, 4_294_967_295},
+               {Enum.at(nodes, 2).device_id, 2_147_483_648},
+               {"sr:outside-world.example.com", 7}
+             ])
+
+    assert {:error, :bitmap_budget} =
+             TopologyAtlas.apply_ordinals(world, mapping, List.duplicate({"synthetic", 1}, 501))
+
+    assert {:ok, %{ready: true, mapped: 2}} = TopologyAtlas.seal_ordinals(world, mapping)
+
+    assert {:ok, [4_294_967_295, 0, 2_147_483_648, 0]} =
+             TopologyAtlas.device_ordinals(world, mapping, Enum.map(nodes, & &1.device_id))
+
+    assert {:error, :sealed} = TopologyAtlas.apply_ordinals(world, mapping, [])
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
+
+    assert {:ok, selection} =
+             TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
+
+    assert {:ok, portable} =
+             TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8 * 1024 * 1024, 1000)
+
+    assert is_binary(portable) and byte_size(portable) > 0
+
+    assert {:ok, ^portable} =
+             TopologyAtlas.aggregate_ordinals(
+               world,
+               mapping,
+               selection,
+               byte_size(portable),
+               1000
+             )
+
+    assert {:error, :bitmap_budget} =
+             TopologyAtlas.aggregate_ordinals(
+               world,
+               mapping,
+               selection,
+               byte_size(portable) - 1,
+               1000
+             )
+
+    assert {:error, :invalid_request} =
+             TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8 * 1024 * 1024, 1001)
+
+    other = cold_world([])
+    assert {:error, :stale_revision} = TopologyAtlas.ordinal_info(other, mapping)
+
+    assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
+  end
 
   test "packaged native world consumes a bounded builder and excludes inactive reservations" do
     a = position("sr:host0001.example.com", 100, true)
@@ -378,6 +570,52 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
            }
   end
 
+  test "health rows preserve the exact mixed tile glyph order used by binary overlays" do
+    leaf = corner("sr:ordered-leaf.example.com", 5_000_000, 1_000_000)
+    left = corner("sr:ordered-left.example.com", 1, 3_000_000)
+    right = corner("sr:ordered-right.example.com", 16_000_000, 3_000_000)
+
+    clustered =
+      for n <- 1..5 do
+        "sr:ordered-cluster-#{n}.example.com"
+        |> corner(6_000_000 + n, 2_000_000)
+        |> Map.put(:min_zoom, 24)
+      end
+
+    relation = %{
+      relation_id: "invented-ordered-crossing",
+      source_id: left.device_id,
+      target_id: right.device_id,
+      evidence_class: "direct-physical"
+    }
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-order-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, [leaf, left, right | clustered])
+    assert :ok = TopologyAtlas.add_relations(builder, [relation])
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 2, 1, 0)
+    assert MapSet.new(tile.glyphs, & &1.kind) == MapSet.new([:device, :aggregate, :boundary])
+    assert {:ok, health} = TopologyAtlas.new_health(world, 1)
+
+    assert {:ok, _} =
+             TopologyAtlas.apply_health(world, health, 1, [
+               %{device_id: leaf.device_id, state: :healthy},
+               %{device_id: hd(clustered).device_id, state: :unavailable}
+             ])
+
+    assert {:ok, rows} = TopologyAtlas.tile_health(world, health, tile.selection)
+    assert Enum.map(rows.glyphs, & &1.id) == Enum.map(tile.glyphs, & &1.id)
+    assert rows.tile_revision == tile.revision
+
+    for {glyph, row} <- Enum.zip(tile.glyphs, rows.glyphs) do
+      case glyph.kind do
+        :device -> assert row.counts.healthy == 1 and row.counts.total == 1
+        :aggregate -> assert row.counts.unavailable == 1 and row.counts.total == 5
+        :boundary -> assert row.counts.total == 0
+      end
+    end
+  end
+
   test "packaged aggregate profile recovers a descriptor budget failure without truncating identity" do
     id = "sr:" <> String.duplicate("x", 1_048_576)
     world = cold_world([position(id, 100, true)])
@@ -392,6 +630,140 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     assert tile.selection_bytes < 4096
     assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)
+  end
+
+  # Eight admitted Atlas queries project aggregates at once, but only two
+  # aggregate exports may run natively. Each caller must share those readers
+  # within its own budget rather than fail the whole view on contention.
+  test "concurrent aggregate exports share the two ordinal readers within their budget" do
+    nodes =
+      for n <- 0..49_999 do
+        Map.merge(position("sr:shared-reader-#{n}.example.com", 0, true), %{
+          x: rem(n, 256) * 200,
+          y: div(n, 256) * 200,
+          min_zoom: 24
+        })
+      end
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-shared-reader-layout", 16)
+
+    for batch <- Enum.chunk_every(nodes, 500) do
+      assert :ok = TopologyAtlas.add_positions(builder, batch)
+    end
+
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
+    assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<77::128>>)
+    on_exit(fn -> TopologyAtlas.release_ordinals(mapping) end)
+
+    pages = nodes |> Enum.with_index(1) |> Enum.chunk_every(500) |> Enum.with_index()
+
+    for {batch, page} <- pages do
+      rows = Enum.map(batch, fn {node, ordinal} -> {node.device_id, ordinal} end)
+      assert {:ok, %{mapped: mapped}} = TopologyAtlas.apply_ordinals(world, mapping, rows)
+      assert mapped == (page + 1) * 500
+    end
+
+    assert {:ok, %{ready: true, mapped: 50_000}} = TopologyAtlas.seal_ordinals(world, mapping)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    aggregates = for %{kind: :aggregate, id: id} <- tile.glyphs, do: id
+    assert aggregates != []
+
+    selections =
+      for id <- aggregates do
+        assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, id)
+        selection
+      end
+
+    # Exported alone, nothing contends; these are the expected memberships.
+    expected =
+      for selection <- selections do
+        assert {:ok, bytes} =
+                 TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8_388_608, 1_000)
+
+        bytes
+      end
+
+    results =
+      1..8
+      |> Enum.map(fn _query ->
+        Task.async(fn ->
+          for _round <- 1..8, selection <- selections do
+            TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8_388_608, 1_000)
+          end
+        end)
+      end)
+      |> Task.await_many(30_000)
+
+    assert Enum.reject(List.flatten(results), &match?({:ok, _}, &1)) == []
+    exported = expected |> Enum.map(&{:ok, &1}) |> List.duplicate(8) |> List.flatten()
+    assert results == List.duplicate(exported, 8)
+  end
+
+  defp paced_ordinal_reader(parent, world, mapping) do
+    receive do
+      :stop ->
+        send(parent, {:read_progress, :stopped})
+
+      :read ->
+        send(parent, {:read_progress, TopologyAtlas.ordinal_info(world, mapping)})
+        paced_ordinal_reader(parent, world, mapping)
+    end
+  end
+
+  defp await_two_mapping_permits(world, deadline) do
+    case TopologyAtlas.new_ordinals(world, <<9::128>>) do
+      {:ok, first} ->
+        case TopologyAtlas.new_ordinals(world, <<10::128>>) do
+          {:ok, second} ->
+            assert {:ok, true} = TopologyAtlas.release_ordinals(first)
+            assert {:ok, true} = TopologyAtlas.release_ordinals(second)
+            :ok
+
+          {:error, :busy} ->
+            assert {:ok, true} = TopologyAtlas.release_ordinals(first)
+            retry_mapping_permits(world, deadline)
+
+          other ->
+            TopologyAtlas.release_ordinals(first)
+            flunk("mapping permit probe failed: #{inspect(other)}")
+        end
+
+      {:error, :busy} ->
+        retry_mapping_permits(world, deadline)
+
+      other ->
+        flunk("mapping permit probe failed: #{inspect(other)}")
+    end
+  end
+
+  defp retry_mapping_permits(world, deadline) do
+    if System.monotonic_time(:millisecond) < deadline do
+      receive do
+      after
+        1 -> await_two_mapping_permits(world, deadline)
+      end
+    else
+      flunk("ordinal mapping permits stayed busy")
+    end
+  end
+
+  defp await_mapping_reclamation(world, deadline) do
+    case TopologyAtlas.new_ordinals(world, <<3::128>>) do
+      {:error, :busy} = error ->
+        if System.monotonic_time(:millisecond) < deadline do
+          # Native destruction may finish after the owning BEAM process exits.
+          receive do
+          after
+            1 -> await_mapping_reclamation(world, deadline)
+          end
+        else
+          error
+        end
+
+      result ->
+        result
+    end
   end
 
   defp cold_world(positions) do

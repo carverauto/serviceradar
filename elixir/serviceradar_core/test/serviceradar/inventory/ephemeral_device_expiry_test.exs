@@ -269,7 +269,22 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
 
       {result, log} =
         with_log(fn ->
-          with_expiry_events(fn -> EphemeralDeviceExpiry.run(settings, actor, uids: uids) end)
+          with_expiry_events(fn ->
+            Task.await(
+              Task.async(fn ->
+                for kind <- [:run, :refused] do
+                  :telemetry.execute(
+                    [:serviceradar, :inventory, :ephemeral_expiry, kind],
+                    %{candidates: 99},
+                    %{}
+                  )
+                end
+              end)
+            )
+
+            refute_received {:ephemeral_expiry, _, _}
+            EphemeralDeviceExpiry.run(settings, actor, uids: uids)
+          end)
         end)
 
       assert {:error,

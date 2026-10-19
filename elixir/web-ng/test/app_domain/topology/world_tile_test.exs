@@ -9,11 +9,9 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
   alias ServiceRadarWebNG.Topology.WorldOverlayReader
   alias ServiceRadarWebNG.Topology.WorldTile
   alias ServiceRadarWebNG.Topology.WorldTileTest.Upstream
-  alias ServiceRadarWebNGWeb.TopologyTileController
 
   @moduletag :db_free
   @version "00000000-0000-4000-8000-000000000478"
-  @stale "00000000-0000-4000-8000-000000000479"
 
   test "installed geometry serves real encoded receipts and exact relation selectors across publications" do
     {:ok, _applications} = Application.ensure_all_started(:phoenix_pubsub)
@@ -38,14 +36,61 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
     assert relation.relation_id == "invented-link-a-b"
     assert [%{count: 1}] = first.flow_edges
 
+    assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<17::128>>)
+    assert {:error, :not_ready} = WorldCache.install_ordinals(world, mapping, cache)
+    assert {:ok, _info} = TopologyAtlas.apply_ordinals(world, mapping, [{"invented-device-a", 4_000_000_001}])
+    assert {:ok, _info} = TopologyAtlas.seal_ordinals(world, mapping)
+    assert :ok = WorldCache.install_ordinals(world, mapping, cache)
+
+    assert {:ok, %{ordinals: %{info: %{mapped: 1, total: 2, assignment: installed_assignment}, mapping: installed}}} =
+             WorldCache.world(cache)
+
+    assignment =
+      fn ->
+        assert {:ok, again} = TopologyAtlas.new_ordinals(world, <<17::128>>)
+        assert {:ok, _} = TopologyAtlas.apply_ordinals(world, again, [{"invented-device-a", 4_000_000_001}])
+        assert {:ok, %{assignment: assignment}} = TopologyAtlas.seal_ordinals(world, again)
+        assert byte_size(assignment) == 32
+        assert assignment == installed_assignment
+        assert :ok = WorldCache.install_ordinals(world, again, cache, {4_000_000_001, 1})
+        assert {:ok, %{ordinals: stable, dictionary_ordinal: {4_000_000_001, 1}}} = WorldCache.world(cache)
+        assert stable.mapping == installed
+        assignment
+      end
+      |> Task.async()
+      |> Task.await()
+
+    assert {:ok, changed} =
+             await_ordinal(world, <<17::128>>, System.monotonic_time(:millisecond) + 1_000)
+
+    assert {:ok, _} = TopologyAtlas.apply_ordinals(world, changed, [{"invented-device-a", 4_000_000_002}])
+    assert {:ok, %{assignment: other}} = TopologyAtlas.seal_ordinals(world, changed)
+    refute other == assignment
+    assert :ok = WorldCache.install_ordinals(world, changed, cache, {4_000_000_002, 1})
+    assert {:ok, %{ordinals: replaced}} = WorldCache.world(cache)
+    refute replaced.mapping == installed
+    assert {:ok, health} = TopologyAtlas.new_health(world, 1)
+    assert {:ok, %{glyphs: health_rows}} = TopologyAtlas.tile_health(world, health, first.selection)
+    assert Enum.map(first.glyphs, & &1.id) == Enum.map(health_rows, & &1.id)
+
     # A fresh native world has different resources but identical geometry. The
     # cache must reuse bytes/revision and attach a selector from the new world.
     next_world = world()
     assert :ok = WorldCache.install(next_world, %{manifest | generation: 2}, prepared(next_world, manifest), cache)
+    assert {:ok, %{ordinals: nil}} = WorldCache.world(cache)
+    assert {:ok, foreign} = TopologyAtlas.new_ordinals(world, <<19::128>>)
+    assert {:ok, _} = TopologyAtlas.seal_ordinals(world, foreign)
+    assert {:error, :source_changed} = WorldCache.install_ordinals(world, foreign, cache)
+    assert {:ok, true} = TopologyAtlas.release_ordinals(foreign)
     assert {:ok, second} = WorldCache.fetch(child, :foreground, cache)
     assert second.payload == first.payload
     assert second.revision == first.revision
     assert second.generation == 2
+    assert {:ok, attached} = TopologyAtlas.new_ordinals(next_world, <<18::128>>)
+    assert {:ok, _} = TopologyAtlas.seal_ordinals(next_world, attached)
+    assert :ok = WorldCache.install_ordinals(next_world, attached, cache)
+    assert :ok = WorldCache.clear_ordinals(cache)
+    assert {:ok, %{ordinals: nil}} = WorldCache.world(cache)
 
     assert {:ok, %{relations: [%{relation_id: "invented-link-a-b"}]}} =
              TopologyAtlas.tile_relations(next_world, second.selection)
@@ -90,9 +135,11 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
     assert :ok = WorldCache.install(world, manifest, prepared(world, manifest), cache)
     assert {:ok, health} = TopologyAtlas.new_health(world, 1)
     health_owner = __MODULE__.HealthReply
+    progress = %{source_status: :seeding, reconciling: true, pending: 0, last_read_at: nil, reconciled_since: nil}
 
     start_supervised!(
-      {Upstream, name: health_owner, reply: {:ok, %{world: world, health: health, manifest: manifest, progress: %{}}}}
+      {Upstream,
+       name: health_owner, reply: {:ok, %{world: world, health: health, manifest: manifest, progress: progress}}}
     )
 
     assert {:ok, key} = TileKey.new(@version, 3, 0, 0)
@@ -122,6 +169,8 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
       end
 
     flow = WorldFlow.summarize(overlay.edges, overlay.page, rows, request)
+    assert {:ok, native_tile} = TopologyAtlas.tile(world, key.z, key.x, key.y)
+    assert Enum.map(flow.edges, & &1.id) == Enum.map(native_tile.edges, & &1.id)
     assert flow.coverage.rendered_relations == 2
     assert flow.coverage.selected_relations == 2
 
@@ -137,37 +186,19 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
         assert edge.forward.octets_per_second == nil
       end
     end
-  end
 
-  test "tile HTTP classifies a stale layout before zoom and does not ask the client to retry" do
-    cache = start_named_cache()
-    world = world()
-    manifest = %{layout_version: @version, generation: 1, zmax: 0}
-    assert :ok = WorldCache.install(world, manifest, prepared(world, manifest), cache)
-    {:ok, installed} = TileKey.new(@version, 0, 0, 0)
-    assert {:ok, %{payload: <<"ARROW1", _rest::binary>>}} = WorldCache.fetch(installed)
+    # The real empty-tile path has no telemetry SQL. It still carries source
+    # freshness and an empty row contract, encoded once into the cache payload.
+    assert {:ok, empty_key} = TileKey.new(@version, 3, 7, 7)
+    assert {:ok, empty} = WorldCache.fetch(empty_key, :foreground, cache)
 
-    assert {409, %{"error" => "layout_changed"}, []} = http(:show, tile_params(@stale, 3))
-    assert {400, %{"error" => "invalid_tile"}, []} = http(:show, tile_params(@version, 3))
-  end
+    assert {:ok, prepared_empty} =
+             WorldOverlayReader.prepare(empty_key, TileControl.fence(manifest), empty.revision, nil, cache, health_owner)
 
-  test "a malformed overlay revision is rejected and a stopped overlay stays retryable" do
-    assert {400, %{"error" => "invalid_revision"}, []} = http(:overlay, overlay_params(String.duplicate("A", 64)))
-    assert {503, %{"error" => "world_unavailable"}, ["1"]} = http(:overlay, overlay_params(String.duplicate("a", 64)))
-  end
+    assert {:ok, %{payload: %{binary: <<"SRTO", _rest::binary>>} = content}} =
+             WorldOverlayReader.read_rates(prepared_empty, settings)
 
-  test "overlay and tile budget failures are client limits, not retryable unavailability" do
-    upstream = Upstream
-
-    start_supervised!(
-      {upstream, name: ServiceRadarWebNG.Topology.WorldOverlay, reply: {:error, :overlay_budget_exceeded}}
-    )
-
-    assert {413, %{"error" => "topology_budget_exceeded"}, []} = http(:overlay, overlay_params(String.duplicate("b", 64)))
-    stop_supervised!(upstream)
-
-    start_supervised!({upstream, name: WorldCache, reply: {:error, :tile_budget_exceeded}})
-    assert {413, %{"error" => "topology_budget_exceeded"}, []} = http(:show, tile_params(@version, 0))
+    assert content |> Map.keys() |> Enum.sort() == [:binary, :generation, :layout_version]
   end
 
   test "wire and selection budget overflow generalize without losing membership" do
@@ -195,15 +226,6 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
     start_supervised!({WorldCache, name: WorldCache, task_supervisor: tasks, pubsub: pubsub})
   end
 
-  defp http(action, params) do
-    conn = apply(TopologyTileController, action, [Plug.Test.conn(:get, "/"), params])
-    {conn.status, Jason.decode!(conn.resp_body), Plug.Conn.get_resp_header(conn, "retry-after")}
-  end
-
-  defp tile_params(version, z), do: %{"layout_version" => version, "z" => Integer.to_string(z), "x" => "0", "y" => "0"}
-
-  defp overlay_params(revision), do: Map.put(tile_params(@version, 0), "revision", revision)
-
   defp prepared(world, manifest) do
     Map.new(TileKey.low_zoom(manifest), fn key ->
       {:ok, tile} = WorldTile.build(world, key)
@@ -227,6 +249,23 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
 
     {:ok, world} = TopologyAtlas.finish_world(builder)
     world
+  end
+
+  defp await_ordinal(world, epoch, deadline) do
+    case TopologyAtlas.new_ordinals(world, epoch) do
+      {:error, :busy} = error ->
+        if System.monotonic_time(:millisecond) < deadline do
+          receive do
+          after
+            1 -> await_ordinal(world, epoch, deadline)
+          end
+        else
+          error
+        end
+
+      result ->
+        result
+    end
   end
 
   defp position(id, coordinate) do

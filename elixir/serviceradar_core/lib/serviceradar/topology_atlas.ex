@@ -77,6 +77,50 @@ defmodule ServiceRadar.TopologyAtlas do
   defdelegate world_info(world), to: Native
   defdelegate candidate_info(candidate), to: Native
 
+  @doc "Build a generation-bound canonical mapping using bounded dictionary pages, then seal it."
+  defdelegate new_ordinals(world, dictionary_epoch), to: Native
+  defdelegate release_ordinals(mapping), to: Native
+  defdelegate apply_ordinals(world, mapping, rows), to: Native
+  defdelegate seal_ordinals(world, mapping), to: Native
+  defdelegate ordinal_info(world, mapping), to: Native
+  defdelegate device_ordinals(world, mapping, ids), to: Native
+
+  @doc """
+  Export canonical aggregate membership within the caller's remaining view-byte budget.
+
+  Only two exports run natively at once, because each may own 32 MiB of
+  scratch. A caller that finds both readers in use waits for one within its
+  own `timeout_ms` instead of failing at once, so concurrent views share the
+  readers rather than discarding the tiles they already projected. It still
+  returns `{:error, :busy}` when no reader frees before that budget ends.
+  """
+  def aggregate_ordinals(world, mapping, aggregate, max_bytes, timeout_ms)
+      when is_integer(timeout_ms) and timeout_ms in 1..1_000 do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_ordinal_reader(world, mapping, aggregate, max_bytes, timeout_ms, deadline)
+  end
+
+  def aggregate_ordinals(world, mapping, aggregate, max_bytes, timeout_ms),
+    do: Native.aggregate_ordinals(world, mapping, aggregate, max_bytes, timeout_ms)
+
+  defp await_ordinal_reader(world, mapping, aggregate, max_bytes, timeout_ms, deadline) do
+    case Native.aggregate_ordinals(world, mapping, aggregate, max_bytes, timeout_ms) do
+      {:error, :busy} = busy ->
+        Process.sleep(1)
+
+        case deadline - System.monotonic_time(:millisecond) do
+          remaining when remaining > 0 ->
+            await_ordinal_reader(world, mapping, aggregate, max_bytes, remaining, deadline)
+
+          _expired ->
+            busy
+        end
+
+      result ->
+        result
+    end
+  end
+
   @doc """
   Read the topology view directly into a native resource from one paged Dgraph snapshot.
 

@@ -9,6 +9,9 @@ use rustler::{Encoder, Env, Term};
 pub(crate) static GRAPH_READ: Gate = Gate::new(1);
 pub(crate) static WORLD_BUILD: Gate = Gate::new(1);
 pub(crate) static HEALTH_BUILD: Gate = Gate::new(1);
+pub(crate) static ORDINAL_BUILD: Gate = Gate::new(1);
+// Each aggregate can own up to 32 MiB of bitmap/serialized scratch.
+pub(crate) static ORDINAL_READ: Gate = Gate::new(2);
 pub(crate) static TILE_READ: Gate = Gate::new(4);
 pub(crate) static BOUNDED_READ: Gate = Gate::new(16);
 

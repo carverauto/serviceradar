@@ -7,6 +7,7 @@ license = "Apache-2.0"
 description = "Persistent world placement and bounded topology tile generation"
 
 [dependencies]
+roaring = { workspace = true }
 rquickjs = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

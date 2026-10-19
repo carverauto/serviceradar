@@ -292,8 +292,18 @@ delete reason, identifier owners, addresses, the `merge_audit` rows, the `source
 the identifier archive, which devices only the sweep discovered, and the devices each step's
 `identity_revision` moved. A sweep is logged as the model's step for what it did:
 `SweepCreate`, `SweepRestore`, `SweepRefresh` (it wrote its sighting to the record it found) or
-`SweepSkip`. Whether a sweep wrote a row is read from the row's version, since a sighting's
-one-second timestamps can equal an earlier step's. The archive is read from
+`SweepSkip`. `SweepCreate` can also advance a retained address root's durable successor
+pointer. The recorder checks that only `_seed_successor` and `identity_revision` change on
+that root, with its tombstoned ordinal and merge audit intact; the result belongs to the
+new live device with a different ordinal. It also checks that the root is the address seed
+`Ids.generate_deterministic_device_id/1` derives for the swept address and partition, and that
+the new device is one of the first eight uids of the `Ids.reseeded_device_id/1` chain from the
+root's previous pointer, or from the root when it had none. The model records the root in
+`act.v` and its revision change in `act.bumped`, without reviving it. It does not model uid
+hashing, so it lets any retained root that is not `source_retired` take the step; the recorder
+holds the code to the swept address's own root and chain. Whether a sweep wrote a row is read
+from the row's version, since a sighting's one-second timestamps can equal an earlier
+step's. The archive is read from
 `device_identifier_archive`. A merge moves an archived row to the survivor, while the model
 keeps the device the id retired from and follows the merge, so no trace merges a record after
 one of its ids retired. Only `source_retired_returns` retires an id, so the mark and the

@@ -146,6 +146,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlay do
   # A durable head may be ahead of this node's coherent installed world. Only
   # installation changes the serving fence; the loader consumes this hint.
   def handle_info({:topology_world_changed, _fence}, state), do: {:noreply, state}
+  def handle_info({:bitmap_index_ready, _epochs}, state), do: {:noreply, state}
 
   defp task_exited(state, address, %{cancelled: true}), do: %{state | active: Map.delete(state.active, address)}
 

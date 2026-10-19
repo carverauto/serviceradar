@@ -1,0 +1,82 @@
+suite: topology bitmap rollout configuration
+templates:
+  - templates/web.yaml
+tests:
+  - it: serves filtering with no bitmap opt-in and no tag fields
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_ENABLED
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
+            value: "[]"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+  - it: preserves literal tag keys and strips retired enable overrides
+    set:
+      webNg.topologyBitmapTagKeys: [role, "zone,group"]
+      webNg.extraEnv.SERVICERADAR_TOPOLOGY_BITMAP_ENABLED: "false"
+      webNg.extraEnv.SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS: "[]"
+      webNg.extraEnvValueFrom.SERVICERADAR_TOPOLOGY_BITMAP_ENABLED:
+        secretKeyRef:
+          name: synthetic-secret
+          key: enabled
+      webNg.extraEnvValueFrom.SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS:
+        configMapKeyRef:
+          name: synthetic-config
+          key: tags
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_ENABLED
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
+            value: '["role","zone,group"]'
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
+            value: "[]"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_ENABLED
+            valueFrom:
+              secretKeyRef:
+                name: synthetic-secret
+                key: enabled
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS
+            valueFrom:
+              configMapKeyRef:
+                name: synthetic-config
+                key: tags
+        documentSelector:
+          path: kind
+          value: Deployment

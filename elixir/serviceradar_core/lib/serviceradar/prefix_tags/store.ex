@@ -9,6 +9,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
 
   alias ServiceRadar.PrefixTags.Engine
+  alias ServiceRadar.PrefixTags.Native
   alias ServiceRadar.PrefixTags.NativeEngine
   alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.SnapshotReader
@@ -300,8 +301,23 @@ defmodule ServiceRadar.PrefixTags.Store do
   Backed by an ETS set so dynamically loaded snapshot/plugin sources are
   discoverable by aggregate `lookup/1` (not only the built-in catalog).
   """
+
+  # -- internals --------------------------------------------------------------
+
   @spec sources() :: [source()]
   def sources, do: Registry.sources()
+
+  @doc "Bounded source discovery; unavailable during a registry restart rather than a full-VM fallback."
+  defdelegate sources(limit), to: Registry
+
+  @doc "Capture one source's version and immutable trie in the same atomic read."
+  def capture(source) when is_binary(source) do
+    case active_handle(source) do
+      {version, trie, :registered} -> {:ok, %{version: version, trie: trie}}
+      {version, trie} -> {:ok, %{version: version, trie: trie}}
+      _ -> {:error, :prefix_source_unavailable}
+    end
+  end
 
   @doc "Current active version for a source, or nil."
   @spec active_version(source()) :: version() | nil
@@ -334,8 +350,6 @@ defmodule ServiceRadar.PrefixTags.Store do
   rescue
     ArgumentError -> nil
   end
-
-  # -- internals --------------------------------------------------------------
 
   defp empty_stats, do: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0}
 
@@ -454,6 +468,8 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp schedule_previous_handle_erase(source, version, previous_handle) do
+    release_native_catalog(previous_handle)
+
     if native_handle?(previous_handle) or large_handle?(previous_handle) do
       :ok
     else
@@ -466,6 +482,41 @@ defmodule ServiceRadar.PrefixTags.Store do
       end
     end
   end
+
+  @doc "Drops a catalog built for a snapshot that is no longer the active version."
+  def release_catalog_unless_current(source, version, trie)
+      when is_binary(source) and is_integer(version) and is_reference(trie) do
+    case capture(source) do
+      {:ok, %{version: ^version}} -> :ok
+      _ -> release_native_catalog({version, trie})
+    end
+  end
+
+  defp release_native_catalog(handle) do
+    case handle_trie(handle) do
+      trie when is_reference(trie) ->
+        case Native.release_catalog(trie) do
+          {:error, "catalog_busy"} ->
+            delay = erase_delay_ms()
+
+            _ =
+              Task.start(fn ->
+                Process.sleep(delay)
+                Native.release_catalog(trie)
+              end)
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_trie({_version, trie}), do: trie
+  defp handle_trie({_version, trie, _registration}), do: trie
+  defp handle_trie(_other), do: nil
 
   # Native resource references are safe for concurrent readers without parking.
   defp native_handle?({_version, trie, _registration}), do: is_reference(trie)

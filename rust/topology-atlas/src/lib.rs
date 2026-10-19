@@ -6,6 +6,7 @@ mod elk;
 mod elk_hierarchy;
 mod health;
 mod layout;
+mod ordinals;
 mod spatial;
 mod tiles;
 
@@ -20,6 +21,7 @@ pub use health::{
     HealthIndex, HealthInfo, HealthObservation, HealthSnapshot, HealthState, TileHealth,
 };
 pub use layout::reconcile;
+pub use ordinals::{CanonicalOrdinals, ORDINAL_MAPPING_BYTES, ORDINAL_PORTABLE_BYTES, OrdinalInfo};
 pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, TileProfile, TopologyClass, World};
 
 /// Integers in this extent are exactly representable by Float32.
@@ -114,6 +116,11 @@ pub enum Error {
     StaleDetailRevision,
     InvalidHealthUpdate,
     SelectionBudgetExceeded,
+    InvalidOrdinal,
+    OrdinalMappingSealed,
+    OrdinalMappingNotReady,
+    OrdinalBudgetExceeded,
+    DeadlineExceeded,
 }
 
 impl std::fmt::Display for Error {

@@ -31,8 +31,10 @@ new layout version and keeps the accepted world until that replacement
 activates. Timestamp-only observation refreshes do not swap an equally trusted
 forest or move unchanged geometry. An operator relayout or a staged layout
 upgrade can also replace the coordinate space. Arrow tiles stay bounded; the
-[binary path audit](../topology-binary-path-audit.md) records the remaining
+[binary path audit](https://github.com/carverauto/serviceradar/blob/staging/docs/topology-binary-path-audit.md) records the remaining
 producer and browser copies and the scale evidence still missing.
+The optional [bitmap membership protocol](https://github.com/carverauto/serviceradar/blob/staging/docs/topology-bitmap-protocol.md) uses
+server-side set queries and bounded binary row overlays without changing tile geometry.
 The client fetches only the tiles in the viewport, keyed by
 `layout_version`/`z`/`x`/`y`, and renders schema-3 Arrow batches; telemetry
 (health and interface rates) rides a separate per-tile overlay so geometry
@@ -75,7 +77,7 @@ one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
 
 1. `rebuild` — canonical edges from AGE into Dgraph (idempotent). The source is
    AGE's `CANONICAL_TOPOLOGY` edges, not `runtime_topology_links`: that table is
-   a row-capped God View cache, and rebuild deletes every key it does not send,
+   a row-capped ServiceRadar Atlas cache, and rebuild deletes every key it does not send,
    so a fleet larger than the cap would have its extra edges removed. Mapper
    evidence is the fallback when AGE holds no canonical edges. Only the
    canonical set is rebuilt: `relation_type` in `CONNECTS_TO` / `LOGICAL_PEER` /
@@ -92,7 +94,7 @@ A checksum failure fails the Job and does **not** flip `graph.read`. Cutover is
 an operator values change (`graph.read: dgraph`), with rollback `graph.read: age`.
 
 The migrator and core's dual-write copy must select the same canonical set,
-because `rebuild` deletes every canonical edge it was not given. God View reads
+because `rebuild` deletes every canonical edge it was not given. ServiceRadar Atlas reads
 Dgraph's admitted topology view directly; it includes eligible attachment,
 hosted and inferred evidence in addition to canonical edges. The canonical
 predicate has one definition in
@@ -139,7 +141,7 @@ still reads AGE and can replace current Dgraph topology with stale adjacency.
 
 To rebuild the migration target from current observations:
 
-1. Record pre counts: `AGE_TO_DGRAPH_MODE=checksum` (or inspect God View).
+1. Record pre counts: `AGE_TO_DGRAPH_MODE=checksum` (or inspect ServiceRadar Atlas).
 2. Reset mapper evidence using the existing topology-evidence cleanup (CNPG
    `mapper_topology_links` / `runtime_topology_links` stay the source of truth;
    do not `drop_all` on Dgraph).

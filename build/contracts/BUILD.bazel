@@ -93,6 +93,7 @@ py_test(
     ],
     deps = [
         "//build/ci:detect_docs_only_lib",
+        "@pyyaml//:yaml",
     ],
 )
 

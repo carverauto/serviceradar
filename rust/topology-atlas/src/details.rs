@@ -116,6 +116,18 @@ pub struct AggregateSelection {
 }
 
 impl AggregateSelection {
+    pub(crate) fn member_indices<'a>(
+        &'a self,
+        world: &World,
+    ) -> Result<impl Iterator<Item = usize> + 'a, Error> {
+        world.check_detail_revision(&self.world_revision)?;
+        // TileSelection.promoted is sorted by the world's Morton index.
+        Ok(self
+            .range
+            .clone()
+            .filter(|i| self.excluded.binary_search(i).is_err()))
+    }
+
     pub fn member_count(&self) -> usize {
         self.range.len() - self.excluded.len()
     }

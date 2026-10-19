@@ -64,9 +64,10 @@ defmodule ServiceRadar.PrefixTags.NativeEngine do
       [ip] ->
         address(ip)
 
-      [ip, mask] ->
-        with {:ok, ip} <- address(ip),
+      [input_ip, mask] ->
+        with {:ok, ip} <- address(input_ip),
              {length, ""} <- Integer.parse(String.trim(mask)),
+             length = mapped_mask(input_ip, ip, length),
              true <- length >= 0 and length <= if(String.contains?(ip, ":"), do: 128, else: 32) do
           {:ok, "#{ip}/#{length}"}
         else
@@ -74,6 +75,14 @@ defmodule ServiceRadar.PrefixTags.NativeEngine do
         end
     end
   end
+
+  defp mapped_mask(input, normalized, length) when length in 96..128 do
+    if String.contains?(input, ":") and not String.contains?(normalized, ":"),
+      do: length - 96,
+      else: length
+  end
+
+  defp mapped_mask(_input, _normalized, length), do: length
 
   defp address(ip) when is_binary(ip) do
     case :inet.parse_address(String.to_charlist(String.trim(ip))) do

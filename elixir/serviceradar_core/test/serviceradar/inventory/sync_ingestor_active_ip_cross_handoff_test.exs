@@ -39,8 +39,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorActiveIpCrossHandoffTest do
   test "concurrent opposite-order IP swaps succeed without dual holders", %{actor: actor} do
     pairs =
       for i <- 1..@pair_count do
-        a_id = "xhandoff-a-#{i}-#{System.unique_integer([:positive])}"
-        b_id = "xhandoff-b-#{i}-#{System.unique_integer([:positive])}"
+        a_id = "xhandoff-a-#{i}-#{Ecto.UUID.generate()}"
+        b_id = "xhandoff-b-#{i}-#{Ecto.UUID.generate()}"
         ip_a = unique_test_ip()
         ip_b = unique_test_ip()
 
@@ -154,12 +154,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorActiveIpCrossHandoffTest do
   end
 
   defp cleanup_devices!(uids) do
-    uids
-    |> Enum.uniq()
-    |> Enum.each(fn uid ->
-      Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = $1", [uid])
-      Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [uid])
-    end)
+    uids = Enum.uniq(uids)
+
+    Repo.query!("DELETE FROM platform.device_identifiers WHERE device_id = ANY($1::text[])", [
+      uids
+    ])
+
+    TestSupport.delete_device_fixtures!(uids)
   end
 
   # Actually unique, which the hash-of-a-UUID version only claimed to be: it was a random

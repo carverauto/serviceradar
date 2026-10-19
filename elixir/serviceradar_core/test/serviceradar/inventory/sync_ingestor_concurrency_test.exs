@@ -33,7 +33,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   test "concurrent batches upsert without duplicate key errors", %{
     actor: actor
   } do
-    armis_id = "armis-#{System.unique_integer([:positive])}"
+    armis_id = "armis-#{Ecto.UUID.generate()}"
     ip_octet = rem(System.unique_integer([:positive]), 200) + 10
     ip = "10.0.1.#{ip_octet}"
     mac = "AA:BB:CC:DD:EE:#{mac_suffix()}"
@@ -63,7 +63,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
         [expected_id]
       )
 
-      ServiceRadar.Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [expected_id])
+      TestSupport.delete_device_fixtures!([expected_id])
     end)
 
     tasks =

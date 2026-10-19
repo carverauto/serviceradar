@@ -8,6 +8,7 @@ defmodule ServiceRadar.Identity.DeviceAliasStateNotifier do
   alias Ash.Notifier.Notification
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
+  alias ServiceRadar.Inventory.DevicePubSub
 
   @impl Ash.Notifier
   def notify(%Notification{
@@ -19,6 +20,14 @@ defmodule ServiceRadar.Identity.DeviceAliasStateNotifier do
       when action_type in [:create, :update, :destroy] do
     invalidate_identity_cache(changeset_data(changeset))
     invalidate_identity_cache(record)
+
+    [changeset_data(changeset), record]
+    |> Enum.flat_map(fn
+      %{device_id: id, alias_type: type} when type in [:ip, :interface_ip] -> [id]
+      _ -> []
+    end)
+    |> DevicePubSub.broadcast_invalidated()
+
     :ok
   end
 

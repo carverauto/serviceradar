@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias ExUnit.CaptureLog
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
@@ -14,6 +15,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.EphemeralDeviceExpiry
+  alias ServiceRadar.Inventory.FleetIdentity
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -941,9 +943,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              {:ok, second_survivor.uid}
   end
 
-  # A merge an unmerge reversed redirects nothing, so once the seed is deleted for another
-  # reason and purged, its own uid is free and the next sweep seeds it again.
-  test "a sweep re-seeds a purged seed whose merge was reversed under its own uid", %{
+  test "a sweep starts a fresh identity after payload retention of an unmerged seed", %{
     actor: actor,
     agent_id: agent_id
   } do
@@ -952,6 +952,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     group = seed_sweep_group!(actor, "Sweep Unmerged Seed #{unique_id}")
 
     seed = sweep_seed!(actor, group, agent_id, ip)
+    ordinal = FleetIdentity.device_ordinal(seed.uid)
     survivor = merge_survivor!(actor, "unmerged-seed-#{unique_id}")
 
     assert :ok =
@@ -974,8 +975,72 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     purge!(seed.uid)
 
-    assert sweep_seed!(actor, group, agent_id, ip).uid == seed.uid
+    assert sweep_seed!(actor, group, agent_id, ip).uid == Ids.reseeded_device_id(seed.uid)
     assert IdentityReconciler.resolve_canonical_device_id(seed.uid, actor) == {:ok, seed.uid}
+
+    assert %{rows: [[^ordinal, true, "test", %NaiveDateTime{}]]} =
+             Repo.query!(
+               "SELECT o.ordinal, o.tombstoned, d.deleted_reason, d.identity_purged_at " <>
+                 "FROM platform.device_fleet_ordinals o JOIN platform.ocsf_devices d USING(uid) WHERE uid = $1",
+               [seed.uid]
+             )
+  end
+
+  test "released seeds stay retired while a fresh address identity can start after payload retention",
+       %{
+         actor: actor,
+         agent_id: agent_id
+       } do
+    ip = "192.0.2.74"
+    group = seed_sweep_group!(actor, "Released seed #{Ash.UUID.generate()}")
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    ordinal = FleetIdentity.device_ordinal(seed.uid)
+
+    assert {:ok, _} =
+             Device.soft_delete(seed, "seed_released", "system:seed_release", actor: actor)
+
+    Repo.query!("UPDATE platform.ocsf_devices SET ip = NULL WHERE uid = $1", [seed.uid])
+
+    assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+    assert devices_at(actor, ip) == []
+    assert include_deleted_device!(actor, seed.uid).deleted_reason == "seed_released"
+
+    purge!(seed.uid)
+    retained = row_state(actor, seed.uid)
+    successor = sweep_seed!(actor, group, agent_id, ip)
+
+    assert successor.uid == Ids.reseeded_device_id(seed.uid)
+    assert FleetIdentity.device_ordinal(successor.uid) != ordinal
+    assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+    assert [current] = devices_at(actor, ip)
+    assert current.uid == successor.uid
+
+    assert Map.drop(row_state(actor, seed.uid), [:metadata, :identity_revision, :version]) ==
+             Map.drop(retained, [:metadata, :identity_revision, :version])
+
+    assert include_deleted_device!(actor, seed.uid).metadata["_seed_successor"] == successor.uid
+    assert include_deleted_device!(actor, seed.uid).deleted_reason == "seed_released"
+
+    assert %{rows: [[^ordinal, true]]} =
+             Repo.query!(
+               "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+               [seed.uid]
+             )
+
+    assert revival_audit_rows(seed.uid) == []
+
+    # A source-retired successor keeps its separate guarded-return policy even after purge.
+    assert {:ok, _} =
+             Device.soft_delete(current, "source_retired", "system:source_retirement",
+               actor: actor
+             )
+
+    purge!(current.uid)
+    source_retired = row_state(actor, current.uid)
+    assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+    assert devices_at(actor, ip) == []
+    assert row_state(actor, current.uid) == source_retired
+    assert revival_audit_rows(current.uid) == []
   end
 
   # The chain is bounded (@max_seed_uid_attempts): a host whose every uid within the bound
@@ -1027,6 +1092,211 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     assert log =~ "Could not resolve seed uid #{uid} for #{ip}"
     assert devices_with_uids(actor, [uid, Ids.reseeded_device_id(uid)]) == []
+  end
+
+  test "a sweep keeps creating new identities after more than eight purge cycles", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    for root_reason <- ["seed_released", "merged"] do
+      ip = unique_ip("long-seed-#{Ash.UUID.generate()}")
+      group = seed_sweep_group!(actor, "Sweep Long Seed #{Ash.UUID.generate()}")
+      seed = sweep_seed!(actor, group, agent_id, ip)
+      root = seed.uid
+      root_ordinal = FleetIdentity.device_ordinal(root)
+
+      merged_into =
+        if root_reason == "merged" do
+          survivor = merge_survivor!(actor, "long-seed-#{Ash.UUID.generate()}")
+          assert :ok = IdentityReconciler.merge_devices(root, survivor.uid, actor: actor)
+          purge!(root)
+          survivor.uid
+        else
+          retire_and_purge!(actor, seed)
+          nil
+        end
+
+      root_revision = identity_revision!(root)
+
+      {current, ordinals} =
+        Enum.reduce(1..9, {root, [root_ordinal]}, fn _cycle, {previous, ordinals} ->
+          created = sweep_seed!(actor, group, agent_id, ip)
+          assert created.uid == Ids.reseeded_device_id(previous)
+          ordinal = FleetIdentity.device_ordinal(created.uid)
+          refute ordinal in ordinals
+          retire_and_purge!(actor, created)
+          {created.uid, [ordinal | ordinals]}
+        end)
+
+      successor = sweep_seed!(actor, group, agent_id, ip)
+      assert successor.uid == Ids.reseeded_device_id(current)
+      refute FleetIdentity.device_ordinal(successor.uid) in ordinals
+      root_row = include_deleted_device!(actor, root)
+      assert root_row.metadata["_seed_successor"] == successor.uid
+      assert root_row.identity_purged_at
+      assert root_row.deleted_reason == root_reason
+      assert identity_revision!(root) > root_revision
+
+      assert %{rows: [[^root_ordinal, true]]} =
+               Repo.query!(
+                 "SELECT ordinal, tombstoned FROM platform.device_fleet_ordinals WHERE uid = $1",
+                 [root]
+               )
+
+      assert revival_audit_rows(root) == []
+
+      if merged_into do
+        assert {:ok, ^merged_into} = IdentityReconciler.resolve_canonical_device_id(root, actor)
+      end
+    end
+  end
+
+  test "a sweep stores progress when one attempt examines eight reserved uids", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    ip = unique_ip("deferred-seed-#{Ash.UUID.generate()}")
+    group = seed_sweep_group!(actor, "Sweep Deferred Seed #{Ash.UUID.generate()}")
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    root = seed.uid
+    retire_and_purge!(actor, seed)
+
+    last =
+      Enum.reduce(1..8, root, fn _cycle, previous ->
+        created = sweep_seed!(actor, group, agent_id, ip)
+        assert created.uid == Ids.reseeded_device_id(previous)
+        retire_and_purge!(actor, created)
+        created.uid
+      end)
+
+    # Simulate a retained chain from before durable heads were introduced.
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET metadata = metadata - '_seed_successor', identity_revision = identity_revision + 1 WHERE uid = $1",
+      [root]
+    )
+
+    revision = identity_revision!(root)
+    chain = root |> Stream.iterate(&Ids.reseeded_device_id/1) |> Enum.take(9)
+
+    log =
+      CaptureLog.capture_log(fn ->
+        assert {:ok, %{devices_created: 0}} = ingest_seed(actor, group, agent_id, ip)
+      end)
+
+    assert log =~ "No free seed uid for #{ip} within 8 uids, the last #{Enum.at(chain, 7)} "
+    assert include_deleted_device!(actor, root).metadata["_seed_successor"] == last
+    assert identity_revision!(root) > revision
+    assert sweep_seed!(actor, group, agent_id, ip).uid == Ids.reseeded_device_id(last)
+  end
+
+  @tag sandbox: :unboxed
+  test "competing sweeps cannot rewind heads or advance them on a conflicting IP owner", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    ip = TestSupport.unique_device_ip()
+    group = seed_sweep_group!(actor, "Sweep Concurrent Seed #{Ash.UUID.generate()}", false)
+    root = address_seed_uid(ip)
+    second = Ids.reseeded_device_id(root)
+    third = Ids.reseeded_device_id(second)
+    fourth = Ids.reseeded_device_id(third)
+    other = "sr:concurrent-owner-#{Ash.UUID.generate()}"
+
+    on_exit(fn ->
+      Repo.query!(
+        """
+        DELETE FROM platform.sweep_group_execution_versions
+        WHERE version_source_id IN (
+          SELECT id FROM platform.sweep_group_executions WHERE sweep_group_id = $1::text::uuid
+        )
+        """,
+        [group.id]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.sweep_group_versions WHERE version_source_id = $1::text::uuid",
+        [group.id]
+      )
+
+      TestSupport.delete_device_fixtures!([root, second, third, fourth, other])
+      Repo.query!("DELETE FROM platform.sweep_groups WHERE id = $1::text::uuid", [group.id])
+      IdentityCache.delete(ip)
+    end)
+
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    retire_and_purge!(actor, seed)
+    writers = for _ <- 1..2, do: start_sweep_writer!(actor, group, agent_id, ip)
+    tasks = Enum.map(writers, &elem(&1, 0))
+    backends = Enum.map(writers, &elem(&1, 1))
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Repo.query!(
+                 "SELECT uid FROM platform.ocsf_devices WHERE uid = $1 FOR NO KEY UPDATE",
+                 [root]
+               )
+
+               Enum.each(tasks, &send(&1.pid, :go))
+               await_blocked_sweeps!(backends, System.monotonic_time(:millisecond) + 10_000)
+               winner = sweep_seed!(actor, group, agent_id, ip)
+               assert winner.uid == second
+               retire_and_purge!(actor, winner)
+               assert sweep_seed!(actor, group, agent_id, ip).uid == third
+               :ok
+             end)
+
+    for task <- tasks, do: assert({:ok, _} = Task.await(task, 60_000))
+    assert [device] = devices_at(actor, ip)
+    assert device.uid == third
+    assert include_deleted_device!(actor, root).metadata["_seed_successor"] == third
+
+    ordinals =
+      for uid <- [root, second, third] do
+        %{rows: [[ordinal]]} =
+          Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [uid])
+
+        ordinal
+      end
+
+    assert ordinals |> Enum.uniq() |> length() == 3
+    assert revival_audit_rows(root) == []
+
+    retire_and_purge!(actor, device)
+    revision = identity_revision!(root)
+    {loser, backend} = start_sweep_writer!(actor, group, agent_id, ip)
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Repo.query!(
+                 "SELECT uid FROM platform.ocsf_devices WHERE uid = $1 FOR NO KEY UPDATE",
+                 [root]
+               )
+
+               send(loser.pid, :go)
+               await_blocked_sweeps!([backend], System.monotonic_time(:millisecond) + 10_000)
+
+               Device
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{uid: other, ip: ip, discovery_sources: ["netbox"]},
+                 actor: actor
+               )
+               |> Ash.create!()
+
+               :ok
+             end)
+
+    assert {:ok, _} = Task.await(loser, 60_000)
+    assert [winner] = devices_at(actor, ip)
+    assert winner.uid == other
+    assert include_deleted_device!(actor, root).metadata["_seed_successor"] == third
+    assert identity_revision!(root) == revision
+    assert devices_with_uids(actor, [fourth]) == []
+
+    assert %{rows: []} =
+             Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [
+               fourth
+             ])
   end
 
   test "a sweep logs and counts a seed uid collision with a moved live device once per state change",
@@ -4307,12 +4577,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   defp single_result([result]), do: result
   defp single_result(result), do: result
 
-  defp seed_sweep_group!(actor, name) do
+  defp seed_sweep_group!(actor, name, enabled \\ true) do
     assert {:ok, group} =
              SweepGroup
              |> Ash.Changeset.for_create(
                :create,
-               %{name: name, partition: "default", agent_ids: []},
+               %{name: name, partition: "default", agent_ids: [], enabled: enabled},
                actor: actor
              )
              |> Ash.create()
@@ -4337,6 +4607,82 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     [seed] = results_from(page)
     assert seed.discovery_sources == ["sweep"]
     seed
+  end
+
+  defp retire_and_purge!(actor, seed) do
+    assert {:ok, _} =
+             Device.soft_delete(seed, "seed_released", "system:seed_release", actor: actor)
+
+    purge!(seed.uid)
+  end
+
+  defp start_sweep_writer!(actor, group, agent_id, ip) do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        :ok = Sandbox.checkout(Repo, sandbox: false)
+
+        try do
+          %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:sweep_backend, self(), backend})
+
+          receive do
+            :go -> ingest_seed(actor, group, agent_id, ip)
+          end
+        after
+          Sandbox.checkin(Repo)
+        end
+      end)
+
+    on_exit(fn ->
+      ref = Process.monitor(task.pid)
+      Process.exit(task.pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, _, _}, 5_000
+    end)
+
+    pid = task.pid
+    assert_receive {:sweep_backend, ^pid, backend}, 5_000
+    {task, backend}
+  end
+
+  # A queued writer can wait behind another writer's tuple lock while that
+  # writer waits for our transaction. Follow only these writers to our backend.
+  defp await_blocked_sweeps!(backends, deadline) do
+    %{rows: [[blocked]]} =
+      Repo.query!(
+        """
+        WITH RECURSIVE waits(writer, pid, path) AS (
+          SELECT pid, pid, ARRAY[pid]
+          FROM unnest($1::int[]) AS writers(pid)
+          UNION ALL
+          SELECT waits.writer, blocker.pid, waits.path || blocker.pid
+          FROM waits
+          CROSS JOIN LATERAL unnest(pg_blocking_pids(waits.pid)) AS blocker(pid)
+          WHERE blocker.pid = ANY($1::int[] || ARRAY[pg_backend_pid()])
+            AND NOT blocker.pid = ANY(waits.path)
+        )
+        SELECT count(DISTINCT writer) = cardinality($1::int[])
+        FROM waits
+        WHERE pid = pg_backend_pid()
+        """,
+        [backends]
+      )
+
+    if !blocked do
+      assert System.monotonic_time(:millisecond) < deadline,
+             "sweep writers never reached the held identity fence"
+
+      Process.sleep(10)
+      await_blocked_sweeps!(backends, deadline)
+    end
+  end
+
+  defp identity_revision!(uid) do
+    %{rows: [[revision]]} =
+      Repo.query!("SELECT identity_revision FROM platform.ocsf_devices WHERE uid = $1", [uid])
+
+    revision
   end
 
   defp address_seed_uid(ip) do

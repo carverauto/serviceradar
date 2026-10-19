@@ -17,11 +17,14 @@ on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 """
 
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+load("@aspect_bazel_lib//lib:directory_path.bzl", "directory_path")
 load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
 load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
+load("@web_ng_npm//elixir/web-ng/assets:eslint/package_json.bzl", eslint_bin = "bin")
 load("@web_ng_npm//elixir/web-ng/assets:vitest/package_json.bzl", vitest_bin = "bin")
+load("@web_ng_typescript__links//:defs.bzl", link_typescript = "npm_link_imported_package")
 load("//build:phoenix_digest.bzl", "phoenix_digest")
 
 package(default_visibility = ["//visibility:public"])
@@ -37,6 +40,7 @@ exports_files([
 # This is what replaces `bun install`, and with it the node_modules symlink into the
 # executor's mutable /cache.
 npm_link_all_packages(name = "node_modules")
+link_typescript()
 
 js_binary(
     name = "cli_bundler",
@@ -264,6 +268,31 @@ js_test(
     tags = ["unit_test"],
 )
 
+eslint_bin.eslint_test(
+    name = "god_view_lint_test",
+    size = "small",
+    args = ["js/lib/god_view/**/*.js"],
+    chdir = package_name(),
+    data = [":god_view_scene_test_srcs", ":node_modules", "eslint.config.js", "package.json"],
+    tags = ["unit_test"],
+)
+
+directory_path(
+    name = "typescript_compiler",
+    directory = ":node_modules/typescript/dir",
+    path = "bin/tsc",
+)
+
+js_test(
+    name = "god_view_typecheck_test",
+    size = "small",
+    args = ["-p", "js/lib/god_view/tsconfig.json", "--noEmit"],
+    chdir = package_name(),
+    data = [":node_modules/typescript", "js/lib/god_view/renderer_deps.js", "js/lib/god_view/tsconfig.json"],
+    entry_point = ":typescript_compiler",
+    tags = ["unit_test"],
+)
+
 vitest_bin.vitest_test(
     name = "credential_deep_link_focus_test",
     args = [
@@ -427,6 +456,7 @@ js_binary(
 js_run_binary(
     name = "world_gpu_page",
     srcs = [
+        "god_view_bitmap_gpu_harness.js",
         "god_view_world_gpu_harness.js",
         "god_view_world_transport_harness.js",
         ":css_bundle",
@@ -456,6 +486,7 @@ js_library(
     srcs = [
         "god_view_world_gpu.playwright.js",
         "js/lib/god_view/fixtures/snapshot_ipc.js",
+        "js/lib/god_view/fixtures/world_overlay_frame.js",
         "js/lib/god_view/fixtures/world_tile_ipc.js",
         "js/lib/god_view/fixtures/world_transport.js",
     ],

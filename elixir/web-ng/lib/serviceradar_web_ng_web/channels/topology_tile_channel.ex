@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Topology.BitmapStream
   alias ServiceRadarWebNG.Topology.TileControl
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
@@ -18,7 +19,10 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
          {:ok, manifest} <- WorldCache.manifest() do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "topology:world")
       fence = TileControl.fence(manifest)
-      Process.send_after(self(), :tile_tick, @tick_ms)
+      # A random first delay keeps sockets that join together, such as after a
+      # deploy, from refreshing in lockstep. Lockstep refreshes arrive as one
+      # burst on every tick, and the same late arrivals lose admission each time.
+      Process.send_after(self(), :tile_tick, @tick_ms + :rand.uniform(@tick_ms))
 
       state = %{
         fence: fence,
@@ -29,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
         retry: nil
       }
 
-      {:ok, fence, assign(socket, :tile_watch, state)}
+      {:ok, fence, socket |> assign(:tile_watch, state) |> BitmapStream.init()}
     else
       {:error, reason} -> {:error, channel_error(reason)}
     end
@@ -65,6 +69,14 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
     end
   end
 
+  def handle_in("membership:watch", params, socket), do: BitmapStream.watch(params, socket)
+  def handle_in("membership:ack", params, socket), do: BitmapStream.ack(params, socket)
+
+  def handle_in("membership:reset", params, socket) when is_map(params),
+    do: {:reply, :ok, BitmapStream.reset(socket, params)}
+
+  def handle_in("membership:reset", _params, socket), do: {:reply, :ok, BitmapStream.reset(socket)}
+  def handle_in("membership:unwatch", _params, socket), do: {:reply, :ok, BitmapStream.unwatch(socket)}
   def handle_in(_event, _params, socket), do: {:reply, {:error, %{reason: "unsupported_event"}}, socket}
 
   @impl true
@@ -74,6 +86,11 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
   end
 
   def handle_info({:topology_world_ready, _fence}, socket), do: refresh(socket)
+
+  def handle_info({:membership_built, token, result}, socket),
+    do: {:noreply, BitmapStream.completed(token, result, socket)}
+
+  def handle_info({:membership_timeout, token}, socket), do: {:noreply, BitmapStream.timeout(token, socket)}
 
   def handle_info(:tile_retry, socket) do
     state = %{socket.assigns.tile_watch | retry: nil}
@@ -124,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
         {:noreply, if(cancelled, do: reconcile(socket), else: retry(socket))}
 
       _ ->
-        {:noreply, socket}
+        {:noreply, BitmapStream.down(ref, socket)}
     end
   end
 
@@ -134,13 +151,14 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
   def terminate(_reason, socket) do
     state = socket.assigns[:tile_watch]
     if state, do: cancel_task(state)
+    BitmapStream.terminate(socket)
     :ok
   end
 
   defp refresh(socket) do
     with {:ok, socket} <- authorize(socket),
          {:ok, manifest} <- WorldCache.manifest() do
-      {:noreply, socket |> advance_fence(TileControl.fence(manifest)) |> reconcile()}
+      {:noreply, socket |> advance_fence(TileControl.fence(manifest)) |> reconcile() |> BitmapStream.tick()}
     else
       {:error, reason} -> failed(reason, socket)
     end
@@ -151,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
 
     if fence.generation > state.fence.generation do
       push(socket, "topology_generation", fence)
-      assign(socket, :tile_watch, cancel_task(%{state | fence: fence}))
+      socket |> assign(:tile_watch, cancel_task(%{state | fence: fence})) |> BitmapStream.reset()
     else
       socket
     end

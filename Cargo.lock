@@ -6785,6 +6785,7 @@ version = "0.1.0"
 name = "serviceradar-topology-atlas"
 version = "0.1.0"
 dependencies = [
+ "roaring",
  "rquickjs",
  "serde_json",
  "sha2 0.11.0",

@@ -136,7 +136,7 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^device.uid)
-      |> Ash.bulk_update(:restore, %{},
+      |> Ash.bulk_update(:restore, %{allow_retained: true},
         actor: actor,
         return_records?: true,
         return_errors?: true,
@@ -159,14 +159,5 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
     |> Ash.create(actor: actor)
   end
 
-  defp destroy(uid) do
-    actor = SystemActor.system(:identity_revision_test)
-
-    case Device.get_by_uid(uid, true, actor: actor) do
-      {:ok, device} -> Ash.destroy!(device, actor: actor, authorize?: false)
-      _ -> :ok
-    end
-  rescue
-    _ -> :ok
-  end
+  defp destroy(uid), do: TestSupport.delete_device_fixtures!([uid])
 end

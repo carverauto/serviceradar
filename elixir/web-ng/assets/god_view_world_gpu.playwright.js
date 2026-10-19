@@ -1,8 +1,215 @@
 import {expect, test} from "@playwright/test"
 import {resolve} from "node:path"
-import {transportTile, transportDetail} from "./js/lib/god_view/fixtures/world_transport.js"
+import {transportTile, transportDetail, transportOverlay} from "./js/lib/god_view/fixtures/world_transport.js"
 
 const html = resolve(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE, process.env.GOD_VIEW_WORLD_GPU_PAGE)
+
+async function completedBitmapFrame(page) {
+  const before = await page.evaluate(() => {
+    const {measurements} = window.__SR_BITMAP_GPU__
+    measurements.recordFrames = true
+    return measurements.frames.length
+  })
+  await page.waitForFunction(before => window.__SR_BITMAP_GPU__.measurements.frames.length > before, before)
+  await page.evaluate(() => {window.__SR_BITMAP_GPU__.measurements.recordFrames = false})
+}
+
+test("binary overlays survive refinement, reconnect and device teardown", async ({page}) => {
+  await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
+  await page.goto("http://localhost:4774/?bitmap=1")
+  await page.getByRole("button", {name: "Zoom tiles", exact: true}).click()
+  await page.getByRole("button", {name: "Toggle query", exact: true}).click()
+  const active = () => page.waitForFunction(() => {
+    const {renderer, samples} = window.__SR_BITMAP_GPU__
+    return renderer.channel?.state === "joined" && renderer.cache.watch && samples.acknowledgements > 0 &&
+      !renderer.membership.pending && renderer.membership.entries.size > 0 && renderer.overlays.entries.size > 0 &&
+      renderer.deck.props.layers[0].isLoaded && renderer.membership.entries.size === renderer.cache.visible.size &&
+      [...renderer.cache.visible.keys()].every(key => renderer.membership.entries.get(key)?.revision === renderer.cache.entries.get(key)?.geometry.revision)
+  })
+  const transition = async (button, target, zoom) => {
+    const before = await page.evaluate(() => {
+      const {renderer, samples} = window.__SR_BITMAP_GPU__
+      return {keys: [...renderer.cache.visible.keys()].sort().join(","), sequence: renderer.membership.sequence.toString(), acks: samples.acknowledgements}
+    })
+    await page.getByRole("button", {name: button, exact: true}).click()
+    await page.waitForFunction(({before, target, zoom}) => {
+      const {renderer, samples} = window.__SR_BITMAP_GPU__, view = renderer.deck.getViewports()[0]
+      return view.zoom === zoom && view.target[0] === target[0] && view.target[1] === target[1] &&
+        [...renderer.cache.visible.keys()].sort().join(",") !== before.keys &&
+        renderer.membership.sequence > BigInt(before.sequence) && samples.acknowledgements > before.acks
+    }, {before, target, zoom})
+    await active()
+    await completedBitmapFrame(page)
+  }
+  await active()
+  for (let cycle = 0; cycle < 4; cycle += 1) {
+    await transition("Overview tiles", [256, 256], 0.5)
+    await transition("Pan tiles", [64 + ((cycle + 1) * 97) % 384, 64 + ((cycle + 1) * 73) % 384], 3)
+  }
+  for (const name of ["Disconnect socket", "Change authority"]) {
+    const before = await page.evaluate(() => window.__SR_BITMAP_GPU__.samples.acknowledgements)
+    await page.getByRole("button", {name, exact: true}).click()
+    await page.waitForFunction(before => window.__SR_BITMAP_GPU__.samples.acknowledgements > before, before)
+    await active()
+    await completedBitmapFrame(page)
+  }
+  const retained = await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics())
+  expect(retained.rendererMode).toBe("webgpu")
+  expect(retained.geometryEntries).toBeLessThanOrEqual(64)
+  expect(retained.membershipRetainedBytes + retained.overlayChargedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+  expect(retained.errors).toEqual([])
+  await page.getByRole("button", {name: "Toggle binary", exact: true}).click()
+  await expect(page.getByRole("status")).toContainText("membership protocol is not available")
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().membershipRetainedBytes)).toBe(0)
+  await page.getByRole("button", {name: "Teardown renderer", exact: true}).click()
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().gpuBufferBytes)).toBe(0)
+  await page.getByRole("button", {name: "Remount renderer", exact: true}).click()
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 1)
+  await page.getByRole("button", {name: "Teardown renderer", exact: true}).click()
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+})
+
+test("hidden membership and availability glyphs cannot pick or obscure a visible glyph", async ({page}) => {
+  await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
+  await page.goto("http://localhost:4774/?bitmap=1&capture=1")
+  await page.waitForFunction(() => {
+    const renderer = window.__SR_BITMAP_GPU__?.renderer
+    return renderer?.cache.watch && renderer.deck.props.layers[0]?.isLoaded && renderer.cache.entries.size > 0
+  })
+  const pick = () => page.evaluate(async () => {
+    const {deck} = window.__SR_BITMAP_GPU__.renderer
+    const [x, y] = deck.getViewports()[0].project([192, 192, 0])
+    const result = await deck.pickObjectAsync({x, y, radius: 6})
+    const source = result?.sourceLayer || result?.layer
+    const object = result?.object || (result?.picked && source?.props.data.resolve?.(result.index))
+    return object ? {id: object.id, count: object.count, source: source.id} : null
+  })
+  await completedBitmapFrame(page)
+  expect(await pick()).toMatchObject({id: "synthetic-aggregate-5", count: 60})
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query: {facet: "vlan", value: "99"}}))
+  await page.waitForFunction(() => !window.__SR_BITMAP_GPU__.renderer.membership.pending && window.__SR_BITMAP_GPU__.renderer.membership.total === 0)
+  await completedBitmapFrame(page)
+  expect(await pick()).toBeNull()
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query: {all: []}}))
+  await page.waitForFunction(() => !window.__SR_BITMAP_GPU__.renderer.membership.pending && window.__SR_BITMAP_GPU__.renderer.membership.total === 1024)
+  await completedBitmapFrame(page)
+  expect(await pick()).toMatchObject({id: "synthetic-aggregate-5", count: 60})
+  // At the public tile-layer boundary, put identical geometry underneath a
+  // hidden tile. A canceled picking callback cannot reveal the lower glyph.
+  await page.evaluate(() => {clearInterval(window.__SR_BITMAP_GPU__.renderer.timer)})
+  for (const state of ["zero", "pending", "stale", "availability"]) {
+    await page.evaluate(state => {
+      const {renderer} = window.__SR_BITMAP_GPU__
+      const layer = window.__SR_BITMAP_GPU__.pickingLayer ||= renderer.deck.props.layers[0]
+      const geometry = [...renderer.cache.entries.values()].map(entry => entry.geometry).find(tile => tile.nodes.some(node => node.id === "synthetic-aggregate-5"))
+      const membership = renderer.membership.entries
+      const changed = new Map([...membership].map(([key, entry]) => [key, {...entry,
+        revision: state === "stale" ? "expired-receipt" : entry.revision,
+        mask: state === "zero" ? new Uint8Array(entry.mask.length) : entry.mask,
+        counts: state === "zero" ? new Uint32Array(entry.counts.length) : entry.counts,
+      }]))
+      // Public layer inputs: the hidden foreground must not intercept the
+      // independently visible base geometry underneath it.
+      renderer.deck.setProps({layers: [
+        layer.clone({membershipEnabled: false, membershipPending: false, membership: null, filters: {}, links: false})
+          .renderSubLayers({id: "visible-underlay", data: geometry}),
+        layer.clone({membershipEnabled: true, membershipPending: state === "pending", membership: changed, links: false,
+          filters: state === "availability" ? {healthy: false, unavailable: false, unknown: false} : {}})
+          .renderSubLayers({id: "hidden-foreground", data: geometry}),
+      ]})
+    }, state)
+    await completedBitmapFrame(page)
+    expect(await pick(), state).toMatchObject({id: "synthetic-aggregate-5", count: 60, source: expect.stringContaining("visible-underlay")})
+  }
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+})
+
+test("clearing missing membership restores glyphs and links on retained GPU layers", async ({page}) => {
+  await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
+  await page.goto("http://localhost:4774/?bitmap=1&capture=1")
+  await page.waitForFunction(() => {
+    const renderer = window.__SR_BITMAP_GPU__?.renderer
+    return renderer?.cache.watch && renderer.deck.props.layers[0]?.isLoaded && renderer.cache.entries.size > 0 &&
+      renderer.overlays.entries.size > 0
+  })
+  const scene = () => page.evaluate(() => {
+    const {renderer} = window.__SR_BITMAP_GPU__
+    const layer = renderer.deck.props.layers[0]
+    const geometry = [...renderer.cache.entries.values()].map(entry => entry.geometry)
+      .find(tile => tile.nodes.some(node => node.id === "synthetic-aggregate-5"))
+    const node = geometry.nodes.findIndex(item => item.id === "synthetic-aggregate-5")
+    const edge = geometry.edges.find(item => item.source === node || item.target === node)
+    const point = index => [geometry.positions[index * 2], geometry.positions[index * 2 + 1], 0]
+    const [sx, sy] = point(edge.source), [tx, ty] = point(edge.target)
+    return {layerId: layer.id, revision: geometry.revision, overlays: renderer.overlays.entries.size,
+      glyph: point(node), link: [(sx + tx) / 2, (sy + ty) / 2, 0], linkId: edge.id}
+  })
+  const pick = world => page.evaluate(async world => {
+    const {deck} = window.__SR_BITMAP_GPU__.renderer
+    const [x, y] = deck.getViewports()[0].project(world)
+    const result = await deck.pickObjectAsync({x, y, radius: 4})
+    const source = result?.sourceLayer || result?.layer
+    const object = result?.object || (result?.picked && source?.props.data.resolve?.(result.index))
+    return object ? {id: object.id, source: source?.id ?? null} : null
+  }, world)
+  await completedBitmapFrame(page)
+  const before = await scene()
+  expect(await pick(before.glyph)).toMatchObject({id: "synthetic-aggregate-5"})
+  expect(await pick(before.link)).toMatchObject({id: before.linkId})
+  await page.evaluate(async () => {
+    const {renderer} = window.__SR_BITMAP_GPU__
+    clearInterval(renderer.timer)
+    await renderer.overlays.polling
+    // Public layer inputs cover a missing tile receipt after pending state.
+    // This component case does not claim a complete server/channel lifecycle.
+    renderer.deck.setProps({layers: [renderer.deck.props.layers[0].clone({membershipEnabled: true, membershipPending: true, membership: new Map()})]})
+  })
+  await completedBitmapFrame(page)
+  await page.evaluate(() => {
+    const {renderer} = window.__SR_BITMAP_GPU__
+    renderer.deck.setProps({layers: [renderer.deck.props.layers[0].clone({membershipPending: false})]})
+    window.__SR_BITMAP_GPU__.clearInputs = {
+      geometry: new Map([...renderer.cache.entries].map(([key, entry]) => [key, entry.geometry])),
+      overlays: new Map(renderer.overlays.entries),
+      filters: renderer.filters,
+    }
+  })
+  await completedBitmapFrame(page)
+  expect(await pick(before.glyph)).toBeNull()
+  expect(await pick(before.link)).toBeNull()
+  const hidden = await scene()
+  expect(hidden.layerId).toBe(before.layerId)
+  expect(hidden.revision).toBe(before.revision)
+  expect(await page.evaluate(() => {
+    const layer = window.__SR_BITMAP_GPU__.renderer.deck.props.layers[0]
+    return {enabled: layer.props.membershipEnabled, pending: layer.props.membershipPending, entries: layer.props.membership.size}
+  })).toEqual({enabled: true, pending: false, entries: 0})
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query: null}))
+  await page.waitForFunction(() => {
+    const renderer = window.__SR_BITMAP_GPU__.renderer
+    return renderer.bitmapQuery === null && renderer.membership.pending === false && renderer.membership.entries.size === 0
+  })
+  await completedBitmapFrame(page)
+  const cleared = await scene()
+  expect(cleared.layerId).toBe(before.layerId)
+  expect(cleared.revision).toBe(before.revision)
+  expect(cleared.overlays).toBe(hidden.overlays)
+  expect(await page.evaluate(() => {
+    const {renderer, clearInputs} = window.__SR_BITMAP_GPU__
+    return [...clearInputs.geometry].every(([key, geometry]) => renderer.cache.entries.get(key)?.geometry === geometry) &&
+      [...clearInputs.overlays].every(([key, overlay]) => renderer.overlays.entries.get(key) === overlay) &&
+      renderer.filters === clearInputs.filters
+  })).toBe(true)
+  expect(await pick(before.glyph)).toMatchObject({id: "synthetic-aggregate-5", source: expect.stringContaining(before.layerId)})
+  expect(await pick(before.link)).toMatchObject({id: before.linkId, source: expect.stringContaining(before.layerId)})
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.metrics().gpuDevices === 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+})
 
 test("compute pipelines retain their own bindings after another pipeline retires its input", async ({page}) => {
   await page.route("http://localhost:4774/", route => route.fulfill({path: html, contentType: "text/html"}))
@@ -84,7 +291,7 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
     if (url.pathname === "/topology/tiles/manifest") {
       manifestRequests += 1
       if (manifestRequests === 1) return route.fulfill({status: 503, json: {error: "not_ready"}})
-      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1, bounds: [[192 * 32768, 192 * 32768], [208 * 32768, 216 * 32768]]}})
+      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1, world_overlay_protocol: 1, bounds: [[192 * 32768, 192 * 32768], [208 * 32768, 216 * 32768]]}})
     }
     if (url.pathname === "/topology/tiles/search") {
       expect(url.searchParams.get("device_id")).toBe("invented-device-a")
@@ -101,10 +308,9 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
       return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.apache.arrow.file", headers: {...headers, etag}})
     }
     if (url.pathname.startsWith("/topology/overlays/")) {
-      const tileId = url.pathname.split("/").slice(-3).join("/")
-      return route.fulfill({json: {layout_version: version, generation: 1, revision, tile_id: tileId,
-        health: {glyphs: []}, flow: {edges: [{id: "invented-link", total_relations: 1, selected_relations: 1,
-          forward: {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000}, reverse: {status: "unknown", animate: false}}]}}})
+      const [z, x, y] = url.pathname.split("/").slice(-3).map(Number)
+      const bytes = transportOverlay({z, x, y}, version, revision)
+      return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.serviceradar.world-overlay"})
     }
     if (url.pathname === "/topology/details") {
       expect(url.searchParams.get("id")).toBe("invented-device-a")

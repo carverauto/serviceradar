@@ -70,3 +70,79 @@ rust_test(
         normal_dev = True,
     ),
 )
+
+rust_test(
+    name = "bitmap_scale_benchmark",
+    srcs = [
+        "fixtures/bitmap_benchmark.rs",
+        "fixtures/bitmap_fixture.rs",
+        "src/bitmap_addresses.rs",
+        "src/bitmap_facets.rs",
+        "src/bitmap_index.rs",
+        "src/bitmap_pending.rs",
+        "src/bitmap_staging.rs",
+    ],
+    crate_root = "fixtures/bitmap_benchmark.rs",
+    edition = "2021",
+    args = ["synthetic_scale", "--nocapture"],
+    tags = ["manual", "benchmark"],
+    timeout = "long",
+    deps = ["@crates//:roaring"],
+)
+
+rust_test(
+    name = "bitmap_diversity_benchmark",
+    srcs = [
+        "fixtures/bitmap_benchmark.rs",
+        "fixtures/bitmap_fixture.rs",
+        "src/bitmap_addresses.rs",
+        "src/bitmap_facets.rs",
+        "src/bitmap_index.rs",
+        "src/bitmap_pending.rs",
+        "src/bitmap_staging.rs",
+    ],
+    crate_root = "fixtures/bitmap_benchmark.rs",
+    edition = "2021",
+    args = ["synthetic_diversity", "--nocapture"],
+    tags = ["manual", "benchmark"],
+    timeout = "long",
+    deps = ["@crates//:roaring"],
+)
+
+rust_test(
+    name = "bitmap_address_scale_benchmark",
+    srcs = [
+        "fixtures/bitmap_address_benchmark.rs",
+        "fixtures/bitmap_fixture.rs",
+        "src/bitmap_addresses.rs",
+        "src/bitmap_facets.rs",
+        "src/bitmap_index.rs",
+        "src/bitmap_pending.rs",
+        "src/bitmap_staging.rs",
+    ],
+    crate_root = "fixtures/bitmap_address_benchmark.rs",
+    edition = "2021",
+    args = ["synthetic_addresses", "--nocapture"],
+    tags = ["manual", "benchmark"],
+    timeout = "long",
+    deps = ["@crates//:roaring"],
+)
+
+rust_test(
+    name = "bitmap_view_scale_benchmark",
+    srcs = [
+        "fixtures/bitmap_fixture.rs",
+        "fixtures/bitmap_view_benchmark.rs",
+        "src/bitmap_addresses.rs",
+        "src/bitmap_facets.rs",
+        "src/bitmap_index.rs",
+        "src/bitmap_pending.rs",
+        "src/bitmap_staging.rs",
+    ],
+    crate_root = "fixtures/bitmap_view_benchmark.rs",
+    edition = "2021",
+    args = ["synthetic_native_views", "--nocapture"],
+    tags = ["manual", "benchmark"],
+    timeout = "long",
+    deps = ["//rust/topology-atlas:topology_atlas", "@crates//:roaring"],
+)

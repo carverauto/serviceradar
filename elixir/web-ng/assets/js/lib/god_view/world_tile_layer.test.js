@@ -2,11 +2,14 @@ import {describe, expect, it, vi} from "vitest"
 import {AttributeManager, Deck, OrthographicViewport} from "@deck.gl/core"
 import ViewManager from "../../../node_modules/@deck.gl/core/dist/lib/view-manager.js"
 import {AnimationLoop} from "@luma.gl/engine"
+import {luma} from "@luma.gl/core"
 import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import WorldTileLayer from "./world_tile_layer"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
-import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
+import {worldTileIpc, worldTileKey} from "./fixtures/world_tile_ipc"
+import {telemetryFrame} from "./fixtures/world_overlay_frame"
+import {decodeWorldOverlay} from "./world_overlay_frame"
 
 vi.mock("../GodViewRenderer", () => ({default: class {}}))
 
@@ -14,14 +17,11 @@ function tile() {
   return {...decodeWorldTile(worldTileIpc(), worldTileKey), generation: 1}
 }
 
-function overlay(geometry) {
-  return {
-    layout_version: worldTileKey.layout_version, generation: 1, revision: worldTileRevision,
-    health: {glyphs: [{id: geometry.nodes[0].id, counts: {total: 70000, healthy: 70000, unavailable: 0, unknown: 0}}]},
-    flow: {edges: [{id: geometry.edges[0].id, total_relations: 90000, selected_relations: 90000,
-      forward: {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000},
-      reverse: {status: "unknown", animate: false}}]},
-  }
+const measuredForward = {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000}
+
+// Decoded from synthetic SRTO bytes, exactly as the overlay owner admits them.
+function overlay(geometry, {health = [[70000, 0, 0, 70000, 70000]], flows = [{forward: measuredForward}]} = {}) {
+  return decodeWorldOverlay(telemetryFrame(geometry, {complete: true, health, flows}), geometry)
 }
 
 function layers(geometry, telemetry) {
@@ -30,6 +30,82 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("keeps renderer failure visible after later topology status updates", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.summary = {textContent: ""}
+    renderer.deck = {device: {submit() {}}, setProps: vi.fn()}
+    renderer.failRenderer(new Error("synthetic GPU failure"))
+    renderer.status("4096 devices")
+    expect(renderer.summary.textContent).toContain("synthetic GPU failure")
+    expect(renderer.summary.textContent).toContain("Reload to try again")
+    expect(renderer.deck.setProps).toHaveBeenLastCalledWith({_animate: false, layers: []})
+  })
+
+  it("keeps admitted geometry while hiding pending, excluded and expired membership", () => {
+    const geometry = tile()
+    geometry.nodes[1] = {...geometry.nodes[1], kind: "device", count: 1}
+    const telemetry = overlay(geometry)
+    const entry = {revision: geometry.revision, mask: new Uint8Array([1, 1]), counts: new Uint32Array([7, 1]), availability: new Uint8Array([1, 2])}
+    const layer = new WorldTileLayer({id: "filtered-world", membershipEnabled: true,
+      membership: new Map([["1/1/0", entry]]), overlays: new Map([["1/1/0", telemetry]])})
+    const draw = candidate => candidate.renderSubLayers({id: "filtered-tile", data: geometry}).filter(Boolean)
+    const selected = draw(layer)
+    const pending = draw(layer.clone({membershipPending: true}))
+    const nodes = items => items.find(item => item.id.endsWith("-nodes"))
+    const edges = items => items.find(item => item.id.endsWith("-edges"))
+    expect(nodes(selected).props.getRadius(null, {index: 0})).toBe(9)
+    expect(nodes(selected).props.getFillColor(null, {index: 0})).toEqual([245, 117, 88, 240])
+    expect(selected.some(item => item.id.endsWith("-packets"))).toBe(false)
+    expect(edges(selected).props.getWidth(null, {index: 0})).toBe(0)
+    const complete = draw(layer.clone({membership: new Map([["1/1/0", {...entry,
+      counts: Uint32Array.from(geometry.nodes.map(node => node.count))}]])}))
+    expect(complete.some(item => item.id.endsWith("-packets"))).toBe(true)
+    expect(edges(complete).props.getWidth(null, {index: 0})).toBeGreaterThan(0)
+    expect(nodes(pending).props.getRadius(null, {index: 0})).toBe(0)
+    expect(edges(pending).props.getWidth(null, {index: 0})).toBe(0)
+    expect(pending.some(item => item.id.endsWith("-packets"))).toBe(false)
+    expect(nodes(pending).props.data).toBe(nodes(selected).props.data)
+    const excluded = draw(layer.clone({membership: new Map([["1/1/0", {...entry, mask: new Uint8Array([1, 0])}]])}))
+    expect(edges(excluded).props.getWidth(null, {index: 0})).toBe(0)
+    expect(excluded.some(item => item.id.endsWith("-packets"))).toBe(false)
+    const stale = draw(layer.clone({membership: new Map([["1/1/0", {...entry, revision: "old-tile"}]])}))
+    expect(nodes(stale).props.getRadius(null, {index: 0})).toBe(0)
+    // A zero-radius stroked point can still rasterize a subpixel dot.
+    for (const [items, index] of [[pending, 0], [excluded, 1], [stale, 0]]) {
+      expect(nodes(items).props.getFillColor(null, {index})[3]).toBe(0)
+      expect(nodes(items).props.getLineColor(null, {index})[3]).toBe(0)
+      expect(nodes(items).props.getLineWidth(null, {index})).toBe(0)
+      expect(items.find(item => item.id.endsWith("-node-glow")).props.getFillColor(null, {index})[3]).toBe(0)
+    }
+  })
+
+  it("preserves base-view boundary links until a query explicitly requests membership", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.membershipEnabled = true
+    renderer.cache.manifest = {layout_version: worldTileKey.layout_version, zmax: 16, node_count: 70000}
+    renderer.deck = {device: {submit() {}}, setProps: vi.fn()}
+    renderer.channel = {state: "joined", push: vi.fn(() => ({receive() {return this}}))}
+    renderer.invalidateMembership()
+    renderer.syncMembership({layout_version: worldTileKey.layout_version, tiles: []})
+    expect(renderer.membership.pending).toBe(false)
+    expect(renderer.channel.push).not.toHaveBeenCalled()
+    renderer.render()
+    const layer = renderer.deck.setProps.mock.calls.at(-1)[0].layers[0]
+    const edge = layer.renderSubLayers({id: "base-tile", data: tile()}).find(item => item?.id.endsWith("-edges"))
+    expect(edge.props.getWidth(null, {index: 0})).toBeGreaterThan(0)
+    renderer.bitmapQuery = {all: []}
+    renderer.invalidateMembership()
+    renderer.syncMembership({layout_version: worldTileKey.layout_version, tiles: []})
+    expect(renderer.membership.pending).toBe(true)
+    expect(renderer.channel.push).toHaveBeenCalledWith("membership:watch", expect.any(Object))
+    renderer.bitmapQuery = null
+    renderer.invalidateMembership()
+    expect(renderer.channel.push).toHaveBeenLastCalledWith("membership:unwatch", {})
+    expect(renderer.membership.pending).toBe(false)
+    renderer.destroyed = true
+    renderer.membership.clear()
+  })
+
   it("submits queued GPU work before replacing the visible tile layers", () => {
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     const pending = {destroyed: false}
@@ -76,11 +152,11 @@ describe("world tile rendering contract", () => {
 
   it.each(["world", "detail"])("submits %s draws before camera updates retire attribute buffers", async mode => {
     vi.useFakeTimers()
-    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
-    vi.stubGlobal("document", {createElement: domNode})
+    const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
+    vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
-    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
     vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
     const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, vi.fn(), vi.fn())
     vi.spyOn(renderer, "poll").mockResolvedValue()
@@ -145,15 +221,17 @@ describe("world tile rendering contract", () => {
     }
   })
 
-  it("resets the displayed map camera repeatedly after interactive pan and zoom", async () => {
+  it("waits for the displayed camera before sharing its location and resets after pan and zoom", async () => {
     vi.useFakeTimers()
     const handlers = new Map()
-    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
-    vi.stubGlobal("document", {createElement: domNode})
-    vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
+    const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
+    vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
+    const replaceState = vi.fn()
+    vi.stubGlobal("window", {location: {pathname: "/topology", href: "https://atlas.example.com/topology"},
+      history: {state: null, replaceState}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
     // Keep Deck's real camera lifecycle; only GPU startup and drawing are absent.
-    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
     vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
     const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, vi.fn(),
       (name, handler) => handlers.set(name, handler))
@@ -161,6 +239,15 @@ describe("world tile rendering contract", () => {
     try {
       await renderer.mount()
       const deck = renderer.deck
+      renderer.cache.manifest = {layout_version: worldTileKey.layout_version, bounds: [[0, 0], [8388608, 8388608]], zmax: 16}
+      renderer.setView({target: [300, 200, 0], zoom: 4})
+      expect(deck.isInitialized).toBe(false)
+      // Real Deck asserts if getViewports is called while its device is pending.
+      await vi.advanceTimersByTimeAsync(500)
+      expect(replaceState).not.toHaveBeenCalled()
+      const showLink = vi.spyOn(renderer, "showLink").mockImplementation(() => {})
+      renderer.shareMap()
+      expect(showLink).not.toHaveBeenCalled()
       Object.assign(deck, {width: 800, height: 600})
       deck.viewManager = new ViewManager({
         views: deck._getViews(), width: 800, height: 600,
@@ -172,8 +259,15 @@ describe("world tile rendering contract", () => {
       deck.deckRenderer = {setProps() {}, finalize() {}}
       deck.deckPicker = {setProps() {}, finalize() {}}
       deck.widgetManager = {setProps() {}, finalize() {}}
+      await vi.advanceTimersByTimeAsync(250)
+      expect(replaceState).toHaveBeenCalledOnce()
+      const location = new URL(replaceState.mock.calls[0][2])
+      expect(location.searchParams.get("x")).toBe("9830400")
+      expect(location.searchParams.get("y")).toBe("6553600")
+      expect(location.searchParams.get("z")).toBe("4")
+      renderer.shareMap()
+      expect(showLink).toHaveBeenCalledWith(expect.objectContaining({href: location.href}), "Map link")
       // An invented occupied world fits to target [128, 128].
-      renderer.cache.manifest = {bounds: [[0, 0], [8388608, 8388608]], zmax: 16}
       handlers.get("god_view:reset_view")()
       for (const zoom of [4, 6]) {
         deck._onViewStateChange({viewId: "god-view-world", viewState: {target: [300, 200, 0], zoom}})
@@ -184,8 +278,12 @@ describe("world tile rendering contract", () => {
         expect(viewport.target).toEqual([128, 128, 0])
         expect(viewport.zoom).toBeCloseTo(Math.log2(460 / 256))
       }
-    } finally {
       renderer.destroy()
+      const writes = replaceState.mock.calls.length
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(replaceState).toHaveBeenCalledTimes(writes)
+    } finally {
+      if (!renderer.destroyed) renderer.destroy()
       vi.restoreAllMocks()
       vi.unstubAllGlobals()
       vi.useRealTimers()
@@ -405,7 +503,7 @@ describe("world tile rendering contract", () => {
     const geometry = tile()
     const firstOverlay = overlay(geometry)
     const first = layers(geometry, firstOverlay)
-    const changed = {...firstOverlay, health: {glyphs: [{id: geometry.nodes[0].id, counts: {total: 70000, unavailable: 1, unknown: 0}}]}}
+    const changed = overlay(geometry, {health: [[0, 1, 0, 1, 70000]]})
     const next = layers(geometry, changed)
     const nodeLayer = list => list.find(layer => layer.id.endsWith("-nodes"))
     expect(nodeLayer(next).props.data).toBe(nodeLayer(first).props.data)
@@ -416,8 +514,7 @@ describe("world tile rendering contract", () => {
     expect(packets.props.data.length).toBe(1)
     expect(Array.from(packets.props.data.attributes.instancePhase)).toEqual([0.25, 0.75])
     expect(Array.from(packets.props.data.attributes.instanceEndpoints)).toEqual([256, 0, 512, 256])
-    const incomplete = overlay(geometry)
-    incomplete.flow.edges[0].selected_relations = 89999
+    const incomplete = overlay(geometry, {flows: [{selected: 89999, forward: measuredForward}]})
     expect(layers(geometry, incomplete).some(layer => layer.id.endsWith("-packets"))).toBe(false)
     expect(layers(geometry, {...firstOverlay, generation: 2}).some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
@@ -437,11 +534,11 @@ describe("world tile rendering contract", () => {
 
   it("forwards publication time, camera tier, and source counts", async () => {
     vi.useFakeTimers()
-    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
-    vi.stubGlobal("document", {createElement: domNode})
+    const domNode = () => ({style: {}, append(...children) {this.firstChild ??= children[0]}, replaceChildren() {}, setAttribute() {}, addEventListener() {}, remove() {}})
+    vi.stubGlobal("document", {createElement: domNode, addEventListener() {}})
     vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
     vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
-    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(luma, "createDevice").mockReturnValue(new Promise(() => {}))
     vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
     const handlers = new Map()
     const pushEvent = vi.fn()
@@ -540,8 +637,7 @@ describe("world tile rendering contract", () => {
 
   it("keeps graph classification stable when telemetry pages change or disappear", () => {
     const geometry = tile()
-    const telemetry = overlay(geometry)
-    telemetry.flow.edges[0].topology_class_counts = {backbone: 90000}
+    let telemetry = overlay(geometry)
     const edgeLayer = () => layers(geometry, telemetry).find(layer => layer.id.endsWith("-edges"))
     expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(1.5)
     geometry.edges[0].topologyClass = "endpoints"
@@ -551,8 +647,7 @@ describe("world tile rendering contract", () => {
     for (const layer of layers(geometry, telemetry).filter(item => /-edges$|-edge-mantle$/.test(item.id))) {
       expect(layer.props.getColor(null, {index: 0})[3]).toBe(0)
     }
-    telemetry.flow.edges[0].selected_relations = 1
-    telemetry.flow.edges[0].topology_class_counts = {backbone: 1}
+    telemetry = overlay(geometry, {flows: [{selected: 1, forward: measuredForward}]})
     expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(0)
     const unavailable = layers(geometry, null).find(layer => layer.id.endsWith("-edges"))
     expect(unavailable.props.getWidth(null, {index: 0})).toBe(0)
@@ -575,14 +670,12 @@ describe("world tile rendering contract", () => {
     {status: "partial", animate: true, observed_octets_per_second: 250, octets_per_second: null},
   ])("renders directional measured traffic without requiring a complete packet total: %j", direction => {
     const geometry = tile()
-    const telemetry = overlay(geometry)
-    telemetry.flow.edges[0].forward = direction
+    const telemetry = overlay(geometry, {flows: [{forward: direction}]})
     const packets = layers(geometry, telemetry).find(layer => layer.id.endsWith("-packets"))
     expect(packets?.props.data.length).toBe(1)
     expect(Array.from(packets.props.data.attributes.instanceFlow).slice(1, 3)).toEqual([1, 0])
 
-    const stopped = overlay(geometry)
-    stopped.flow.edges[0].forward = {...direction, animate: false}
+    const stopped = overlay(geometry, {flows: [{forward: {...direction, animate: false}}]})
     expect(layers(geometry, stopped).some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
 })

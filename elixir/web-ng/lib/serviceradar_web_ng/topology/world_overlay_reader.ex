@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldFlow
   alias ServiceRadarWebNG.Topology.WorldHealth
+  alias ServiceRadarWebNG.Topology.WorldOverlayFrame
 
   @doc "Returns only plain bounded data; the caller must end this task before starting read_rates/2."
   def prepare(key, expected, revision, continuation, cache, health_owner) do
@@ -57,13 +58,17 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
         sampled_at: request.until
       }
 
-      with {:ok, encoded} <- Jason.encode(payload),
-           true <- byte_size(encoded) <= 262_144 do
-        {:ok, %{payload: payload, continuation: %{revision: prepared.revision, cursor: prepared.page.next_cursor}}}
-      else
-        false -> {:error, :overlay_budget_exceeded}
-        {:error, _} = error -> error
+      with {:ok, content} <- encode_payload(payload) do
+        {:ok, %{payload: content, continuation: %{revision: prepared.revision, cursor: prepared.page.next_cursor}}}
       end
+    end
+  end
+
+  defp encode_payload(payload) do
+    case WorldOverlayFrame.encode(payload) do
+      {:ok, frame} -> {:ok, payload |> Map.take([:layout_version, :generation]) |> Map.put(:binary, frame)}
+      {:error, :frame_budget} -> {:error, :overlay_budget_exceeded}
+      error -> error
     end
   end
 

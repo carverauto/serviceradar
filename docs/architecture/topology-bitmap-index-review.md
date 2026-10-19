@@ -1,60 +1,106 @@
-# Topology bitmap proposal review evidence
+# ServiceRadar Atlas proposal review evidence
 
-This is documentation validation for
-`add-topology-bitmap-query-index`, not implementation or performance acceptance.
+This documents the reduced `add-topology-bitmap-query-index` design. It is
+artifact validation, not proof that the implementation or rollout is complete.
 
 ## Artifacts
 
 | Artifact | SHA-256 | Bytes |
 | --- | --- | ---: |
-| [Architecture source](topology-bitmap-index.architecture.json) | `aa7094f022eb464b0d39338759f72138e69d0ed2ab4b59239033ee1ae531d6fe` | 2557 |
-| [Architecture HTML](topology-bitmap-index.html) | `432b1e89cbe513cf1d17a95e506523b991e630951098ee1210eb9529eacb3843` | 707820 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `dbba9d9f92df76e833dc49446385e3db436a3de52b224bf57d242124966ada1a` | 796492 |
+| [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
+| [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `9a07010a7f36c166957d62c8d5238d027baa8be88754d4d11fc7af1e592934e9` | 914209 |
 
-The portable proposal embeds the complete proposal, design, delta requirements,
-unchecked implementation tasks and the architecture viewer. Each source document
-has an embedded checksum. Its colors and typography follow ServiceRadar's
-existing `elixir/web-ng/assets/css/app.css` tokens. No external assets are needed
-to read the review. Lavish export reported zero unresolved local assets.
+The portable proposal embeds checksummed copies of the approved proposal,
+design, delta requirements, implementation tasks and review response. It also
+embeds the architecture viewer. This snapshot explains server-side Roaring,
+current-membership query pages, admitted-row SRMO replacements and binary SRTO
+health/flow. It removes the discarded browser Roaring/WASM, XOR/chunks, outbox,
+interface dictionary, owner routing and result cache designs. Source documents
+remain authoritative as implementation proceeds.
 
-## Deterministic validation
+The Atlas naming refresh includes the approved visible filter builder, literal
+tag prefixes, current device/interface IP CIDR matching, named Prefix Tags and
+the third review response. The source snapshot retains explicit unfinished
+acceptance tasks and the deferred Arrow telemetry follow-up. The negotiated
+WebSocket probe completed; task 4.7 still requires final integration validation,
+and compression stays disabled. Filtering follows Atlas availability, and scalar
+group diversity is admitted against actual memory and processing bounds. Code
+identifiers and protocol names remain unchanged.
 
-- `openspec validate add-topology-bitmap-query-index --strict`: passed.
-- Archify `validate` and `deliver`, architecture/showcase: 9/9 artifact checks,
-  zero composition errors and zero warnings.
-- One focused correction round moved two relationship labels out of node boxes.
-- The delivered HTML is bound to the exact source bytes above.
+All five embedded source documents were regenerated from the current files.
+Their exact source checksums are:
 
-## Browser evidence
+| Source | SHA-256 |
+| --- | --- |
+| `proposal.md` | `c1487a8c52082af037efa9be9b1acf2f790c2c5a50c1db416ea32ac3bf0b71da` |
+| `design.md` | `fdfede8e186fb1ade14f3d57b02c6d103fb714c52933565c1366531ac001708d` |
+| `specs/topology-god-view/spec.md` | `260f0de38087ee26d350bad1f25b4a49595d183f51bfd4f646c35feab1c955d7` |
+| `tasks.md` | `efdf31e2de82c71b4d27d326a46081756fffc00c7343d7522767e9f7c81d633d` |
+| `review-response.md` | `26f3f975c0996181c735aa17b3ebc276e2fb46150ba0aaa8947cda08cc845d05` |
 
-Archify `visual-check` passed against the delivered HTML. Its
-[machine receipt](topology-bitmap-index.visual-check.json) and
+The current snapshot includes resumable Prefix Tag catalog construction,
+capacity-rejected page deferral with honest staleness, retained ordinal
+projection progress, identity restore/savepoint corrections and behavioral
+verification at the existing test owners. The corrected working tree on
+checkpoint `b0bff03738132c80d7485604995b60619ea43b3b` passed the complete remote
+`make test` gate: 419 targets passed with two Swift platform skips in
+`70ff6673-e160-4285-8736-815695425d6c`. This receipt covers those corrections
+before their commit, not an unchanged checkpoint checkout or a later rebase.
+Hosted database and combined scale acceptance remain unchecked; the unit tier
+excludes those database cases. Compact scale acceptance passed on the hosted
+database at 1887ee528e after earlier attempts failed. Sparse failed at that
+commit when a viewer on the hinted server stalled for 30.5 seconds; a fix
+followed and has not run hosted. Tasks 4.2 and 4.7 remain open (see
+`docs/topology-bitmap-scale-acceptance.md`).
+The portable summary retains camera-only sharing, paged labels without search,
+masked zero-match glyphs, hidden unproven aggregate links and disabled compression.
+Its handoff source SHA-256 is
+`7cf149d2cd56557f0d0a9148741a3470bf18ef1f870f400849f3bb895ed28288`.
+Architecture source and delivered diagram bytes are unchanged since the prior
+artifact refresh on this feature branch; both differ from the PR base.
+The choices ledger and measurement report were reviewed as supporting evidence;
+they are not presented as additional embedded source documents.
+
+Colors and typography follow existing ServiceRadar styles. All viewer assets
+needed for operation are embedded; an optional JetBrains Mono web font loads
+from Google Fonts and falls back to system monospace offline. This refresh reuses the portable
+artifact shell and does not use a Lavish export.
+
+## Validation
+
+Archify `validate` and `deliver` passed 9/9 architecture/showcase checks with
+zero composition errors and warnings. The delivered architecture HTML binds the
+architecture source bytes listed above. This refresh required no visual
+correction rounds.
+
+Archify `visual-check` passed against that HTML at 1440 x 900, 1600 x 1000,
+1920 x 1080 and 2048 x 1320. Each document matched its viewport without overflow.
+The [machine receipt](topology-bitmap-index.visual-check.json) and
 [light/dark contact sheet](topology-bitmap-index.visual-check.html) are retained.
 
-| Desktop viewport | Document scroll width/height | Result |
-| --- | --- | --- |
-| 1440 x 900 | 1440 x 900 | No overflow |
-| 1600 x 1000 | 1600 x 1000 | No overflow |
-| 1920 x 1080 | 1920 x 1080 | No overflow |
-| 2048 x 1320 | 2048 x 1320 | No overflow |
+Perceptual review separately inspected all four light/dark endpoint screenshots:
+node names, relationship labels and cards were readable without overlap or
+clipping. `visual_review: passed`. Automated checks retain their own separate
+visual-review field.
 
-Perceptual review is separate: an image-capable review inspected all four
-light/dark endpoint screenshots. Nodes, relationship labels, corridors and
-cards were readable, with no crossings or clipping. `visual_review: passed`.
-The machine receipt deliberately keeps its own `visualReview: pending` field;
-automated checks do not perform perceptual review.
+An earlier portable proposal loaded in Chrome in both themes at 1470 x 780 and
+at a narrow width of 500 pixels. Its five embedded source sections and diagram
+loaded, and document width matched viewport width. That spot check is historical.
+It does not cover the current embedded bytes.
 
-The portable proposal was additionally opened directly in Chrome. Its theme
-toggle, full source sections and embedded architecture loaded with no console
-messages. Inspected light/dark screenshots at 1440 x 1000 and a narrow viewport
-whose measured width was 500 pixels; document width matched viewport width.
-The long proposal intentionally scrolls vertically. This spot check does not
-claim product GPU performance or exhaustive viewer interaction coverage.
+The previous source refresh repeated containment and theme checks in Chrome at
+1470 x 780 and 500 x 780, in both light and dark themes. Each check required
+matching document/viewport widths, all five source sections and checksums, and a
+loaded embedded diagram. All four checks passed. This is a containment check;
+the unchanged architecture diagram keeps its existing visual-review receipts.
+The current text refresh regenerated all five sections and checksums. Static
+checks confirm five matching source hashes and byte-identical embedded diagram
+content. Its new visual containment check was not run because browser policy
+refused local file URLs; no alternate route was attempted. No product or GPU
+acceptance is inferred from this documentation refresh.
 
-## Repository checks
-
-`make test` used `-c opt --config=remote` and completed with 413 passed and two
-platform-specific skips (`ios_compile_test` and `swift_regression_test`).
-[BuildBuddy invocation](https://carverauto.buildbuddy.io/invocation/a4b76c83-cae1-4216-bb23-e1b5b4e012dc).
-No tests or production code changed in this proposal. Feature benchmarks and
-database/browser behavioral acceptance remain unchecked implementation tasks.
+Product GPU evidence is recorded separately in
+[the synthetic hardware acceptance report](../topology-bitmap-gpu-acceptance.md).
+Repository-wide testing and production-route acceptance belong to the integrated
+implementation; no previous proposal-only test run is claimed for this refresh.

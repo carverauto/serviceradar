@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BAZELRC = ROOT / ".bazelrc"
@@ -221,6 +223,77 @@ def integration_only_branch() -> str:
     return source[start:end]
 
 
+# Replaces only external Bazel work, the observer process and the clock, so a
+# workflow lifecycle shell runs its real assignments, traps and validators.
+LIFECYCLE_STUBS = r"""
+set -o pipefail
+SERVICERADAR_DIAGNOSTIC_START_FILE="$TEST_TMP/diagnostic-start"
+echo 900 > "$SERVICERADAR_DIAGNOSTIC_START_FILE"
+date() {
+  if [[ "$1" == "+%s%N" ]]; then echo 950000000000; else echo 1000; fi
+}
+timeout() {
+  local spec="$1 $2 $3"
+  shift 3
+  local arg target=""
+  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg"; done
+  echo "timeout $spec $target" >> "$LIFECYCLE_LOG"
+  "$@"
+}
+observe() {
+  touch "$READY_FILE"
+  while [[ ! -e "$SUITE_COMPLETE_FILE" ]]; do sleep 0.1; done
+  touch "$QUIESCENT_FILE"
+  while [[ ! -e "$STOP_FILE" ]]; do sleep 0.1; done
+  return "$OBSERVER_FAILURE"
+}
+bazel() {
+  local arg target="" targets=()
+  for arg in "$@"; do [[ "$arg" == //* ]] && target="$arg" && targets+=("$arg"); done
+  if [[ "$1" == build ]]; then
+    echo "build ${targets[*]}" >> "$LIFECYCLE_LOG"
+    return "$BUILD_FAILURE"
+  fi
+  echo "$1 $target" >> "$LIFECYCLE_LOG"
+  if [[ "$1" == test && ( " $* " != *" --nocache_test_results "* || " $* " != *" --noremote_upload_local_results "* ) ]]; then
+    return 98
+  fi
+  local digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case "$target" in
+    //:buildbuddy_setup_fixture_env) echo "SERVICERADAR_TEST_ENV_FLAGS=" > "$SERVICERADAR_FIXTURE_ENV_FILE" ;;
+    //rust/integration-db:cleanup_generations) echo '[]' ;;
+    //rust/integration-db:prepare_generation)
+      local status=needs_migration
+      if [[ -e "$TEST_TMP/prepared" ]]; then status=ready; fi
+      touch "$TEST_TMP/prepared"
+      printf '{"builder_token":1,"database":"sr_tpl_%s","digest":"%s","status":"%s"}\n' "${digest:0:48}" "$digest" "$status"
+      ;;
+    //elixir/serviceradar_core:migrate_generation) return "$MIGRATE_FAILURE" ;;
+    //rust/integration-db:provision_generation*)
+      printf '{"digest":"%s","lease_id":"%s","status":"cloned"}\n' "$digest" "$RUN_DATABASE"
+      ;;
+    //rust/integration-db:observe_connections) observe ;;
+    //rust/integration-db:teardown_db) return "$TEARDOWN_FAILURE" ;;
+    //rust/integration-db:release_generation)
+      printf '{"digest":"%s","lease_id":"%s","status":"released"}\n' "$digest" "$RUN_DATABASE"
+      return "$RELEASE_FAILURE"
+      ;;
+  esac
+}
+"""
+
+
+def run_lifecycle(lifecycle: str, tmp: str, **env: str) -> subprocess.CompletedProcess:
+    defaults = {"MIGRATE_FAILURE": "0", "BUILD_FAILURE": "0", "TEARDOWN_FAILURE": "0",
+                "RELEASE_FAILURE": "0", "OBSERVER_FAILURE": "0", "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": ""}
+    return subprocess.run(
+        ["bash", "-euc", LIFECYCLE_STUBS + lifecycle + "\nexit 0\n"],
+        text=True, capture_output=True, timeout=20,
+        env={"PATH": os.environ["PATH"], "TMPDIR": tmp, "TEST_TMP": tmp,
+             "LIFECYCLE_LOG": str(Path(tmp, "lifecycle.log")), **defaults, **env},
+    )
+
+
 def named_action(name: str) -> str:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     match = re.search(
@@ -414,21 +487,6 @@ def run_step_shell_lines(action: str) -> tuple[str, ...]:
         if rest:
             lines_out.append(" ".join(rest.split()))
     return tuple(lines_out)
-
-
-def executable_bazel_commands(action: str, verb: str) -> tuple[str, ...]:
-    """Every executable ``bazel <verb>`` command, in workflow order."""
-    commands = []
-    pattern = re.compile(rf"(?:command\s+)?bazel\s+{re.escape(verb)}\b")
-    for line in run_step_shell_lines(action):
-        for segment in shell_command_segments(line):
-            match = pattern.search(segment)
-            if not match or not is_executable_bazel_test(segment, match.start()):
-                continue
-            command = segment[match.start() :]
-            command = re.sub(r"^command\s+", "", command, count=1)
-            commands.append(" ".join(command.split()))
-    return tuple(commands)
 
 
 def normalized_bazel_test_commands(action: str) -> tuple[str, ...]:
@@ -987,17 +1045,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
-    # Same run id and build selection as the suite, before the clone. The manual
-    # netprobe and world worker targets are named because a wildcard skips
-    # them. $FLAGS stays off:
-    # bazel build rejects the test-only options that string carries.
-    integration_compile = (
-        "bazel build -c opt --config=ci --//build:enable_integration_tests "
-        "--//build:run_id=$RUN_ID --build_tests_only "
-        "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
-        "//... //rust/netprobe:loaded_tcp_attribution_test "
-        "//rust/dgraph-topology:world_worker_test"
-    )
     unit_suite = (
         "scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests "
         "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
@@ -1549,24 +1596,324 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 if "$FLAGS" in command and "//..." in command
             ),
         )
-        # The integration compile is the only bazel build in this action. It
-        # runs after schema preflight and before the measured clock, so a
-        # compile break fails before provision_generation and does not consume
-        # the observer budget. LargeIngestionGate keeps its own world build.
-        shell_lines = normalized_shell_lines(database_lifecycle_shell(action))
-        compile_at = shell_lines.index(self.integration_compile)
-        preflight = (
-            "echo \"SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready "
-            "digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED\""
+        # The integration compile runs after schema preflight and before the
+        # observer and provision_generation, so a compile break never clones a
+        # database or consumes the observer budget. Manual targets a wildcard
+        # skips are named; the transport measurement is compiled, not executed.
+        shell = database_lifecycle_shell(action)
+        lifecycle = shell[shell.index("\nRUN_ID=") + 1:]
+        compile_line = (
+            "build //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test "
+            "//elixir/web-ng:bitmap_websocket_transport_test"
         )
-        self.assertLess(shell_lines.index(preflight), compile_at)
-        self.assertLess(compile_at, shell_lines.index('START_NS="$(date +%s%N)"'))
-        self.assertLess(compile_at, shell_lines.index(self.ordinary_provision))
-        self.assertEqual(
-            (self.integration_compile,),
-            executable_bazel_commands(action, "build"),
-        )
+        provision = "run //rust/integration-db:provision_generation"
+        observer = "run //rust/integration-db:observe_connections"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_lifecycle(lifecycle, tmp)
+            self.assertEqual(0, result.returncode, result.stderr)
+            calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(1, sum(call.startswith("build ") for call in calls))
+            self.assertLess(calls.index("run //rust/integration-db:prepare_generation"), calls.index(compile_line))
+            self.assertLess(calls.index(compile_line), calls.index(observer))
+            self.assertLess(calls.index(observer), calls.index(provision))
+            self.assertLess(calls.index(provision), calls.index("test //..."))
+            self.assertIn("test //elixir/web-ng:topology_atlas_db_test", calls)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_lifecycle(lifecycle, tmp, BUILD_FAILURE="5")
+            self.assertEqual(5, result.returncode, result.stderr)
+            calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+            self.assertIn(compile_line, calls)
+            self.assertNotIn(provision, calls)
+            self.assertNotIn(observer, calls)
+            self.assertEqual(
+                ["test //rust/integration-db:teardown_db", "run //rust/integration-db:release_generation"],
+                calls[-2:],
+            )
         self.assertEqual(1, run_step_shell_lines(action).count(self.unit_suite))
+
+    def test_scale_opt_in_uses_the_existing_dispatch_only_diagnostic_lifecycle(self):
+        action = named_action("WebNgDbDiagnostic")
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        diagnostic = [item for item in workflow["actions"] if item["name"] == "WebNgDbDiagnostic"]
+        self.assertEqual(1, len(diagnostic))
+        self.assertEqual({}, diagnostic[0]["triggers"])
+        shell = database_lifecycle_shell(action)
+        selection = shell[shell.index('SCALE_VARIANT=""'):shell.index("\nRUN_ID=")]
+        validators = shell[shell.index("validate_ready_json() {"):shell.index("wait_for_marker() {")]
+        admission = shell[shell.index("scale_remaining() {"):shell.index("validate_cleanup_json() {")]
+        # Run the real selector through the observer launch, including the
+        # production limit that runs before admission. Replace only external
+        # Bazel work, while real JSON validation rejects another run's clone.
+        start = shell.index("OBSERVER_MAX_SECONDS=1800")
+        observer_pid = shell.index("OBSERVER_PID=$!", start)
+        selector = shell[start:shell.index("\n", observer_pid) + 1]
+        execution = shell[shell.index('PROVISION_JSON="$(bazel run'):]
+        recorder = r"""
+RUN_ID=synthetic
+FLAGS='-c opt'
+GENERATION_DIGEST=synthetic-digest
+RUN_DATABASE=sr_core_test_synthetic
+SERVICERADAR_DIAGNOSTIC_START_FILE="$(mktemp)"
+echo "${SCALE_ACTION_START:-900}" > "$SERVICERADAR_DIAGNOSTIC_START_FILE"
+READY_FILE=ready
+SUITE_COMPLETE_FILE=suite-complete
+QUIESCENT_FILE=quiescent
+STOP_FILE=stop
+OBSERVER_TIMEOUT_LOG="$(mktemp)"
+OBSERVER_ARGS_LOG="$(mktemp)"
+record_observer() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --max-seconds) max_seconds="$2" ;;
+      --required-pool-slots) pool_slots="$2" ;;
+    esac
+    shift
+  done
+  printf 'observer=%s pool=%s\n' "$max_seconds" "$pool_slots" > "$OBSERVER_ARGS_LOG"
+}
+CLOCK_FILE="$(mktemp)"
+echo 1000 > "$CLOCK_FILE"
+date() {
+  if [[ "$1" == "+%s%N" ]]; then echo $((${SCALE_OBSERVER_START:-950} * 1000000000)); else cat "$CLOCK_FILE"; fi
+}
+timeout() {
+  spec="$1 $2 $3"
+  limit="$3"
+  shift 3
+  if [[ " $* " == *" //rust/integration-db:observe_connections "* ]]; then
+    printf '%s\n' "$spec" > "$OBSERVER_TIMEOUT_LOG"
+    record_observer "$@"
+    return 0
+  fi
+  [[ "$spec" == '--signal=TERM --kill-after=5s '* ]] || return 1
+  if [[ "${@: -1}" != //elixir/web-ng:topology_bitmap_scale_* ]]; then echo "limit=$limit"; fi
+  [[ "${@: -1}" != //elixir/web-ng:topology_bitmap_scale_* || "$spec" == '--signal=TERM --kill-after=5s 2755s' ]] || return 1
+  "$@"
+}
+bazel() {
+  if [[ " $* " == *" //rust/integration-db:observe_connections "* ]]; then record_observer "$@"; return 0; fi
+  target="${@: -1}"
+  case "$1" in
+    build) echo "$1 $target" ;;
+    test)
+      case "$target" in
+        //elixir/web-ng:topology_bitmap_scale_*)
+          [[ " $* " == *" --test_timeout=2700 "* ]] || return 1
+          elapsed="${SCALE_SECONDS:-0}" ;;
+        //elixir/web-ng:networks_live_db_test) elapsed="${NETWORK_SECONDS:-0}" ;;
+        *) elapsed=0 ;;
+      esac
+      echo $(($(cat "$CLOCK_FILE") + elapsed)) > "$CLOCK_FILE"
+      echo "$1 $target"
+      ;;
+    run)
+      echo "run $target" >&2
+      lease="$RUN_DATABASE"
+      if [[ "$target" == "${SCALE_BAD_CLONE:-}" ]]; then lease=other_run; fi
+      printf '{"digest":"%s","lease_id":"%s","status":"cloned"}\n' "$GENERATION_DIGEST" "$lease"
+      ;;
+    *) return 1 ;;
+  esac
+}
+wait_for_observer_ready() { return 0; }
+"""
+        script = (
+            recorder + selection + validators + admission + selector + execution
+            + '\nwait\n'
+            + "if [[ -n \"$SCALE_VARIANT\" ]]; then printf 'observer-timeout=%s\\n' \"$(cat \"$OBSERVER_TIMEOUT_LOG\")\"; fi\n"
+            + 'cat "$OBSERVER_ARGS_LOG"\n'
+        )
+        for selected in ("", "0", "compact", "sparse"):
+            with self.subTest(selected=selected):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected},
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                enabled = selected in ("compact", "sparse")
+                target = f"//elixir/web-ng:topology_bitmap_scale_{selected}_acceptance"
+                # Scale runs first; each existing case is then bounded by the
+                # observer deadline (950 + 3300) less the 165s reserve.
+                expected = [f"build {target}", f"test {target}", "limit=3080s"] if enabled else []
+                expected.append("test //elixir/web-ng:networks_live_db_test")
+                if enabled:
+                    expected.append("limit=3080s")
+                expected.append("test //elixir/web-ng:plugin_config_cli_db_test")
+                if enabled:
+                    expected.append("observer-timeout=--signal=TERM --kill-after=5s 3295s")
+                expected.append("observer=3300 pool=24" if enabled else "observer=1800 pool=15")
+                self.assertEqual(expected, [line for line in result.stdout.splitlines() if not line.startswith("{")])
+                clones = ["run //rust/integration-db:provision_generation_serial_0"]
+                if enabled:
+                    clones.append("run //rust/integration-db:provision_generation_serial_1")
+                self.assertEqual(clones, result.stderr.splitlines())
+        for selected, bad_clone in (("both", ""), ("invalid", ""),
+                                    ("compact", "//rust/integration-db:provision_generation_serial_0"),
+                                    ("compact", "//rust/integration-db:provision_generation_serial_1"),
+                                    ("sparse", "//rust/integration-db:provision_generation_serial_1")):
+            with self.subTest(selected=selected, bad_clone=bad_clone):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected,
+                         "SCALE_BAD_CLONE": bad_clone},
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertNotIn("test //elixir/web-ng:topology_bitmap_scale_", result.stdout)
+
+        # Both independent deadlines include the command envelope, quiet period
+        # and cleanup. An otherwise passing workload must not start too late.
+        for action_start, observer_start, admitted in (
+            (325, 1025, True),
+            (310, 1010, False),
+            (310, 610, False),
+            (309, 610, False),
+            (310, 609, False),
+        ):
+            with self.subTest(action_start=action_start, observer_start=observer_start):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
+                         "SCALE_ACTION_START": str(action_start), "SCALE_OBSERVER_START": str(observer_start)},
+                )
+                self.assertEqual(admitted, result.returncode == 0, result.stderr)
+                self.assertEqual(admitted, "test //elixir/web-ng:topology_bitmap_scale_compact_acceptance" in result.stdout)
+                if not admitted:
+                    self.assertIn("Scale admission refused", result.stderr)
+
+        # The existing cases still run after an admitted scale test, each
+        # bounded by what is left of both deadlines before cleanup. Running
+        # out reports failure and starts nothing further.
+        ordinary = ("test //elixir/web-ng:networks_live_db_test", "test //elixir/web-ng:plugin_config_cli_db_test")
+        for scale_seconds, network_seconds, limits, completed in (
+            (2000, 400, ["limit=1080s", "limit=680s"], 2),
+            (2755, 0, ["limit=325s", "limit=325s"], 2),
+            (2755, 400, ["limit=325s"], 1),
+            (3082, 0, [], 0),
+        ):
+            with self.subTest(scale_seconds=scale_seconds, network_seconds=network_seconds):
+                result = subprocess.run(
+                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
+                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
+                         "SCALE_SECONDS": str(scale_seconds), "NETWORK_SECONDS": str(network_seconds)},
+                )
+                lines = result.stdout.splitlines()
+                self.assertIn("test //elixir/web-ng:topology_bitmap_scale_compact_acceptance", lines)
+                self.assertEqual(limits, [line for line in lines if line.startswith("limit=")])
+                self.assertEqual(list(ordinary[:completed]), [line for line in lines if line in ordinary])
+                self.assertEqual(completed == 2, result.returncode == 0, result.stderr)
+                if completed < 2:
+                    self.assertIn("Diagnostic budget exhausted after scale", result.stderr)
+
+        for action_start, expected in ((900, "3300 3295s"), (400, "2990 2985s")):
+            result = subprocess.run(
+                ["bash", "-euc", recorder + selection + admission + selector +
+                 '\nwait\nlimit_scale_observer\necho "$OBSERVER_MAX_SECONDS ${OBSERVER_TIMEOUT[3]}"'],
+                text=True, capture_output=True, timeout=5,
+                env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
+                     "SCALE_ACTION_START": str(action_start)},
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(expected, result.stdout.splitlines()[-1])
+
+    def test_scale_cleanup_preserves_each_failure_and_attempts_release_after_teardown_failure(self):
+        shell = database_lifecycle_shell(named_action("WebNgDbDiagnostic"))
+        # Run the real action from selection through observer readiness. Only
+        # external Bazel work, the observer process and the clock are replaced,
+        # so an early preparation failure reaches cleanup in production order.
+        lifecycle = shell[shell.index('SCALE_VARIANT=""'):shell.index('PROVISION_JSON="$(bazel run')]
+        preparation = [
+            "run //:buildbuddy_setup_fixture_env",
+            "test //rust/integration-db:sweep_stale_dbs",
+            "run //rust/integration-db:cleanup_generations",
+            "run //rust/integration-db:prepare_generation",
+            "test //elixir/serviceradar_core:migrate_generation",
+        ]
+        bounded = "timeout --signal=TERM --kill-after=5s 55s "
+        teardown = "test //rust/integration-db:teardown_db"
+        release = "run //rust/integration-db:release_generation"
+        cases = (
+            # selector, migrate, build, teardown, release, observer, expected status, reached
+            ("compact", 7, 0, 0, 0, 0, 7, "migrate"),
+            ("sparse", 0, 9, 13, 0, 0, 9, "build"),
+            ("", 7, 0, 0, 0, 0, 7, "migrate"),
+            ("compact", 0, 0, 0, 0, 0, 0, "observer"),
+            ("compact", 0, 0, 13, 0, 0, 13, "observer"),
+            ("sparse", 0, 0, 0, 14, 0, 14, "observer"),
+            ("compact", 0, 0, 0, 0, 124, 124, "observer"),
+            ("compact", 0, 0, 137, 0, 0, 137, "observer"),
+        )
+        for selected, migrate, build, teardown_failure, release_failure, observer, status, reached in cases:
+            with self.subTest(selected=selected, migrate=migrate, build=build, teardown=teardown_failure,
+                              release=release_failure, observer=observer), tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp, "lifecycle.log")
+                result = run_lifecycle(
+                    lifecycle, tmp, SERVICERADAR_TOPOLOGY_BITMAP_SCALE=selected, MIGRATE_FAILURE=str(migrate),
+                    BUILD_FAILURE=str(build), TEARDOWN_FAILURE=str(teardown_failure),
+                    RELEASE_FAILURE=str(release_failure), OBSERVER_FAILURE=str(observer),
+                )
+                self.assertEqual(status, result.returncode, result.stderr)
+                scale = selected != ""
+                expected = list(preparation)
+                if reached != "migrate":
+                    expected.append("run //rust/integration-db:prepare_generation")
+                    expected.append(
+                        "build //elixir/web-ng:networks_live_db_test //elixir/web-ng:plugin_config_cli_db_test "
+                        f"//elixir/web-ng:topology_bitmap_scale_{selected}_acceptance"
+                    )
+                if reached == "observer":
+                    expected.append("timeout --signal=TERM --kill-after=5s 3295s //rust/integration-db:observe_connections")
+                    expected.append("run //rust/integration-db:observe_connections")
+                prefix = bounded if scale else ""
+                if scale:
+                    expected.append(prefix + "//rust/integration-db:teardown_db")
+                expected.append(teardown)
+                if scale:
+                    expected.append(prefix + "//rust/integration-db:release_generation")
+                expected.append(release)
+                self.assertEqual(expected, log.read_text(encoding="utf-8").splitlines())
+                self.assertEqual(["lifecycle.log", "prepared"], sorted(path.name for path in Path(tmp).iterdir()))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "runner clock capture reads Linux /proc")
+    def test_scale_action_clock_includes_runner_work_before_the_first_step(self):
+        action = named_action("WebNgDbDiagnostic")
+        capture = action[action.index("          set -euo pipefail"):action.index("          bazel run")]
+        capture = "\n".join(line[10:] for line in capture.splitlines())
+        parent = r'''
+import os, subprocess, sys, time
+started = int(time.time())
+time.sleep(2)
+env = dict(os.environ)
+env["BUILDBUDDY_CI_RUNNER_ABSPATH"] = sys.executable
+env["SERVICERADAR_TOPOLOGY_BITMAP_SCALE"] = "compact"
+env["SERVICERADAR_DIAGNOSTIC_START_FILE"] = sys.argv[2]
+result = subprocess.run(["bash", "-euc", sys.argv[1]], env=env, text=True, capture_output=True)
+if result.returncode:
+    raise SystemExit(result.stderr)
+print(started)
+print(open(sys.argv[2]).read().strip())
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            start_file = str(Path(tmp) / "diagnostic-start")
+            result = subprocess.run(
+                [sys.executable, "-c", parent, capture, start_file],
+                text=True,
+                capture_output=True,
+                timeout=8,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            started, measured = map(int, result.stdout.splitlines())
+            self.assertLessEqual(measured, started)
+            self.assertLessEqual(started - measured, 2)
+            absent = Path(tmp) / "ordinary-start"
+            ordinary = subprocess.run(
+                ["bash", "-euc", capture],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                env={**os.environ, "SERVICERADAR_DIAGNOSTIC_START_FILE": str(absent)},
+            )
+            self.assertEqual(0, ordinary.returncode, ordinary.stderr)
+            self.assertFalse(absent.exists())
 
     def test_go_race_step_uses_a_private_output_base_and_shuts_it_down(self):
         """Race flags stay off the parked default Bazel server.
@@ -1749,39 +2096,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 ),
                 source,
             )
-
-    def test_async_telemetry_handlers_are_callback_scoped(self):
-        async_sources = {
-            row["source"]
-            for row in integration_dispositions()
-            if row["mode"] == "async"
-        }
-        telemetry_sources = {
-            source
-            for source in async_sources
-            if ":telemetry.attach"
-            in (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
-        }
-        agent_link_source = "test/serviceradar/inventory/agent_link_repair_worker_test.exs"
-        fact_writer_source = "test/serviceradar/inventory/device_snmp_fact_writer_test.exs"
-        expiry_source = "test/serviceradar/inventory/ephemeral_device_expiry_test.exs"
-
-        self.assertEqual(
-            {agent_link_source, fact_writer_source, expiry_source}, telemetry_sources
-        )
-
-        source = (CORE_TEST_ROOT.parent / agent_link_source).read_text(encoding="utf-8")
-        self.assertEqual(2, source.count(":telemetry.attach("))
-        self.assertEqual(2, source.count("if metadata.agent_uid == agent_uid do"))
-
-        source = (CORE_TEST_ROOT.parent / fact_writer_source).read_text(encoding="utf-8")
-        self.assertEqual(1, source.count(":telemetry.attach("))
-        self.assertEqual(1, source.count("if self() == test_pid"))
-
-        source = (CORE_TEST_ROOT.parent / expiry_source).read_text(encoding="utf-8")
-        self.assertEqual(1, source.count(":telemetry.attach"))
-        self.assertEqual(1, source.count(":telemetry.detach(handler_id)"))
-        self.assertEqual(1, source.count("if self() == parent, do: send(parent,"))
 
     def test_async_modules_do_not_mutate_vm_global_logger_configuration(self):
         for row in integration_dispositions():

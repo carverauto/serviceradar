@@ -291,7 +291,7 @@ defmodule ServiceRadar.PrefixTags.Trie do
       end
 
     with {:ok, family, bits} <- parse_ip_bits(addr_str),
-         {:ok, mask} <- parse_mask(family, mask_str) do
+         {:ok, mask} <- parse_mask(family, mask_str, addr_str) do
       {:ok, family, bits, mask}
     end
   end
@@ -341,19 +341,25 @@ defmodule ServiceRadar.PrefixTags.Trie do
     for shift <- 7..0//-1, do: byte >>> shift &&& 1
   end
 
-  defp parse_mask(:ipv4, nil), do: {:ok, 32}
-  defp parse_mask(:ipv6, nil), do: {:ok, 128}
+  defp parse_mask(:ipv4, nil, _address), do: {:ok, 32}
+  defp parse_mask(:ipv6, nil, _address), do: {:ok, 128}
 
-  defp parse_mask(family, mask_str) when is_binary(mask_str) do
+  defp parse_mask(family, mask_str, address) when is_binary(mask_str) do
     max = if family == :ipv4, do: 32, else: 128
 
     case Integer.parse(String.trim(mask_str)) do
-      {mask, ""} when mask >= 0 and mask <= max -> {:ok, mask}
-      _ -> :error
+      {mask, ""} when mask >= 0 and mask <= max ->
+        {:ok, mask}
+
+      {mask, ""} when family == :ipv4 and mask in 96..128 ->
+        if String.contains?(address, ":"), do: {:ok, mask - 96}, else: :error
+
+      _ ->
+        :error
     end
   end
 
-  defp parse_mask(_, _), do: :error
+  defp parse_mask(_, _, _), do: :error
 
   defp format_prefix(bits, mask, family) do
     addr_bits = Enum.take(bits, mask) ++ List.duplicate(0, bit_width(family) - mask)

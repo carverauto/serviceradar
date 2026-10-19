@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.Validations.RetainedTombstone do
   @moduledoc """
   Refuses to restore a retained tombstone (`ServiceRadar.Inventory.Device.retained_reasons/0`)
-  unless the action's `allow_retained` argument is true.
+  or a merged-away identity unless the action's `allow_retained` argument is true.
 
   Evidence-driven restores (a sweep, a discovery poll, an agent check-in) must never revive a
   record soft-deleted because its source retired its ids, or a released seed: that record is
@@ -24,7 +24,7 @@ defmodule ServiceRadar.Inventory.Validations.RetainedTombstone do
 
   @impl true
   def validate(changeset, _opts, _context) do
-    if allow_retained?(changeset) or not Device.retained_tombstone?(changeset.data) do
+    if allow_retained?(changeset) or not retained?(changeset.data) do
       :ok
     else
       {:error, field: :deleted_reason, value: changeset.data.deleted_reason, message: @message}
@@ -38,7 +38,7 @@ defmodule ServiceRadar.Inventory.Validations.RetainedTombstone do
     if allow_retained?(changeset) do
       :ok
     else
-      retained = Device.retained_reasons()
+      retained = ["merged" | Device.retained_reasons()]
 
       {:atomic, [:deleted_reason], expr(not is_nil(deleted_at) and deleted_reason in ^retained),
        expr(
@@ -50,6 +50,9 @@ defmodule ServiceRadar.Inventory.Validations.RetainedTombstone do
        )}
     end
   end
+
+  defp retained?(%{deleted_at: %DateTime{}, deleted_reason: "merged"}), do: true
+  defp retained?(device), do: Device.retained_tombstone?(device)
 
   defp allow_retained?(changeset) do
     Ash.Changeset.get_argument(changeset, :allow_retained) == true
