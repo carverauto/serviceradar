@@ -453,6 +453,46 @@ restarted and hidden. When a viewer wait fails, a `wait_failed` record lists
 every viewer's counters (or marks it down) and both servers' meter reports.
 The record contains no session values.
 
+### Separating convergence costs
+
+The `final_convergence` record observes both replicas concurrently after churn
+has stopped. Each row names its scenario (`hinted` or
+`missed_hints_and_restart`) and reports `query_ms` and `wire_ms` from that
+common start. Query completion requires the final SQL-derived population;
+wire completion requires every viewer on that replica, including slow viewers,
+to accept that population. The combined `convergence_ms` is the largest query
+wait. Wire wait includes the query wait and polling delay: it is an observation
+bound, not the time of the first matching frame. These are post-churn catch-up
+measurements, not normal database-commit-to-browser latency. The unhinted,
+restarted replica's result must not be presented as a healthy hinted update SLA.
+
+Publisher diagnostics are separate from query admission and database counters:
+
+- `publisher.work` counts completed worker attempts and sums elapsed
+  milliseconds by operation, index mode and outcome. These come from the
+  production `[:serviceradar, :topology, :bitmap_index, :work]` event and
+  remain observable during backfill and seed, when snapshots are unavailable.
+  Elapsed time includes worker execution and owner delivery delay, excludes
+  scheduled idle time, and is not database CPU time. Contention, failure,
+  capacity deferral, timeout and cancellation are not successful publication.
+- `publisher.hint_overflow` counts refused hint attempts by count or byte
+  limit, using `[:serviceradar, :topology, :bitmap_index, :hint_overflow]`.
+  Events include the configured bound and reconciliation outcome, never device
+  identities. Repeated refused IDs can be counted more than once. The meter
+  survives index restarts and reports detached handlers as uninstrumented.
+- Ready snapshot samples split `pending_dirty` into `pending_hints`,
+  `pending_native` and `pending_publish`, and include `pending_hint_bytes`.
+  These are queue entries, not a distinct-device count: a device can be present
+  in more than one stage. The active hint-resolution batch is outside these
+  queues. A high sample just after a write burst does not establish sustained
+  lag or overflow; use overflow events and work timings to investigate it.
+
+Task 4.2 remains open. The next performance comparison must retain the same
+five-second write cadence, separate hinted updates from reconciliation and
+restart recovery, and run both compact and sparse distributions. Direct
+database-commit-to-index/accepted-overlay latency and pending-work age still
+need dedicated measurements; these diagnostics do not claim that evidence.
+
 Memory terms are intentionally separate. Native reservations include active
 scratch work; they are not pure retained index memory. A sample's current
 mapping is not all retained mappings: native lifetime permits independently

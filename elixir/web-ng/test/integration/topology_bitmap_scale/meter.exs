@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
 
   @busy [:serviceradar, :topology, :bitmap_query, :busy]
   @admission [:serviceradar, :topology, :bitmap_query, :admission]
+  @work [:serviceradar, :topology, :bitmap_index, :work]
+  @overflow [:serviceradar, :topology, :bitmap_index, :hint_overflow]
 
   def init(nil) do
     Process.flag(:trap_exit, true)
@@ -20,8 +22,21 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
     :ok = :telemetry.attach(__MODULE__, event, &__MODULE__.query/4, table)
     queries = :ets.new(__MODULE__.Queries, [:set, :public, write_concurrency: true])
     :ok = :telemetry.attach_many(__MODULE__.Queries, [@busy, @admission], &__MODULE__.bitmap/4, queries)
+    publisher = :ets.new(__MODULE__.Publisher, [:set, :public, write_concurrency: true])
+    :ok = :telemetry.attach_many(__MODULE__.Publisher, [@work, @overflow], &__MODULE__.publisher/4, publisher)
     send(self(), :sample)
-    {:ok, %{table: table, queries: queries, event: event, samples: 0, peaks: %{}, latest: %{}}}
+    {:ok, %{table: table, queries: queries, publisher: publisher, event: event, samples: 0, peaks: %{}, latest: %{}}}
+  end
+
+  # Fixed operation/mode/outcome labels survive index restarts in this VM.
+  def publisher(@work, %{elapsed_ms: elapsed}, %{work: work, mode: mode, outcome: outcome}, table) do
+    key = {:work, mode, work, outcome}
+    :ets.update_counter(table, key, [{2, 1}, {3, elapsed}], {key, 0, 0})
+  end
+
+  def publisher(@overflow, %{count: count, limit: limit}, %{limit_kind: kind}, table) do
+    key = {:overflow, kind}
+    :ets.update_counter(table, key, {2, count}, {key, 0, limit})
   end
 
   # Fixed source atoms and power-of-two millisecond buckets keep this bounded.
@@ -87,6 +102,9 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
       Enum.any?(:telemetry.list_handlers(state.event), &(&1.id == __MODULE__)) and
         Enum.all?([@busy, @admission], fn event ->
           Enum.any?(:telemetry.list_handlers(event), &(&1.id == __MODULE__.Queries))
+        end) and
+        Enum.all?([@work, @overflow], fn event ->
+          Enum.any?(:telemetry.list_handlers(event), &(&1.id == __MODULE__.Publisher))
         end)
 
     queries =
@@ -101,6 +119,7 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
        latest: memory(),
        database: db,
        queries: queries,
+       publisher: publisher_report(state.publisher),
        instrumented: attached
      }, state}
   end
@@ -108,6 +127,21 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
   def terminate(_reason, _state) do
     :telemetry.detach(__MODULE__)
     :telemetry.detach(__MODULE__.Queries)
+    :telemetry.detach(__MODULE__.Publisher)
+  end
+
+  defp publisher_report(table) do
+    table
+    |> :ets.tab2list()
+    |> Enum.sort()
+    |> Enum.reduce(%{work: [], hint_overflow: %{}}, fn
+      {{:work, mode, work, outcome}, count, elapsed}, acc ->
+        row = %{mode: mode, work: work, outcome: outcome, count: count, elapsed_ms: elapsed}
+        Map.update!(acc, :work, &[row | &1])
+
+      {{:overflow, kind}, count, limit}, acc ->
+        put_in(acc, [:hint_overflow, kind], %{count: count, limit: limit})
+    end)
   end
 
   def memory do
@@ -135,6 +169,10 @@ defmodule ServiceRadarWebNG.Topology.Scale.Meter do
           native_peak_bytes: status.peak_bytes,
           pins: status.pins,
           pending_dirty: snapshot.progress.pending_dirty,
+          pending_hints: snapshot.progress.pending_hints,
+          pending_hint_bytes: snapshot.progress.pending_hint_bytes,
+          pending_native: snapshot.progress.pending_native,
+          pending_publish: snapshot.progress.pending_publish,
           native_unavailable: 0
         }
       else

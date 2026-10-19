@@ -481,16 +481,21 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     handler = {__MODULE__, :publisher_contention, make_ref()}
     event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    work_event = [:serviceradar, :topology, :bitmap_index, :work]
 
     :ok =
-      :telemetry.attach(
+      :telemetry.attach_many(
         handler,
-        event,
-        fn _event, _timings, metadata, test_owner ->
-          if String.upcase(to_string(metadata.query)) == "ROLLBACK" and
-               self() in Task.Supervisor.children(__MODULE__.OneTasks) do
-            send(test_owner, {:publisher_rollback, handler, self()})
-          end
+        [event, work_event],
+        fn
+          ^work_event, measurements, metadata, test_owner ->
+            if self() == owner, do: send(test_owner, {:publisher_work, measurements, metadata})
+
+          ^event, _timings, metadata, test_owner ->
+            if String.upcase(to_string(metadata.query)) == "ROLLBACK" and
+                 self() in Task.Supervisor.children(__MODULE__.OneTasks) do
+              send(test_owner, {:publisher_rollback, handler, self()})
+            end
         end,
         self()
       )
@@ -501,12 +506,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
       for _ <- 1..2 do
         assert_receive {:publisher_rollback, ^handler, task}, 10_000
         await_task(task)
+
+        assert_receive {:publisher_work, %{elapsed_ms: elapsed}, %{work: :dirty, mode: :ready, outcome: :contention}},
+                       10_000
+
+        assert elapsed >= 0
       end
 
       assert {:ok, %{progress: progress}} = BitmapIndex.snapshot(owner)
       refute progress.source_error
       refute progress.reconciling
       assert progress.pending_dirty > 0
+      assert progress.pending_dirty == progress.pending_hints + progress.pending_native + progress.pending_publish
+      assert progress.pending_publish == 1
       assert {:ok, [^ordinal]} = members(owner, vendor)
     after
       :telemetry.detach(handler)

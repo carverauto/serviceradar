@@ -183,26 +183,45 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
     expected = Fixture.expected_total()
     assert expected == Fixture.population()
 
-    {converge_ms, _} =
-      timed(fn ->
-        for session <- sessions do
+    # Start both clocks together. A single combined wait hid which replica
+    # needed repair, and sequential wire checks hid earlier hinted progress.
+    convergence_started = now()
+
+    convergence =
+      sessions
+      |> Enum.with_index()
+      |> Enum.map(fn {session, side} ->
+        Task.async(fn ->
           await(
             fn -> query(session) end,
             &match?({200, %{"total" => ^expected}}, &1),
             600_000,
-            "final database convergence",
+            "final query convergence replica #{side}",
             diagnose(clients, replicas)
           )
-        end
-      end)
 
-    await(
-      fn -> reports(clients) end,
-      &Enum.all?(&1, fn row -> row.latest_total == expected end),
-      90_000,
-      "final wire convergence",
-      diagnose(clients, replicas)
-    )
+          query_ms = now() - convergence_started
+          viewers = Enum.filter(clients, &(rem(&1.id, 2) == side))
+
+          await(
+            fn -> reports(viewers) end,
+            &Enum.all?(&1, fn row -> row.latest_total == expected end),
+            90_000,
+            "final wire convergence replica #{side}",
+            diagnose(clients, replicas)
+          )
+
+          %{
+            replica: Enum.at(replicas, side).id,
+            scenario: if(side == 0, do: :hinted, else: :missed_hints_and_restart),
+            query_ms: query_ms,
+            wire_ms: now() - convergence_started
+          }
+        end)
+      end)
+      |> Enum.map(&Task.await(&1, 700_000))
+
+    emit("final_convergence", %{timing_origin: "after_churn", replicas: convergence})
 
     Enum.each(clients, &Client.phase(&1.pid, :steady))
 
@@ -296,7 +315,8 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
       tick_write_ms: percentiles(Enum.map(tick_samples, & &1.write_ms)),
       query_with_facets_ms: percentiles(Enum.map(successful_queries, & &1.query_ms)),
       query_http_statuses: Enum.frequencies_by(tick_samples, & &1.status),
-      convergence_ms: converge_ms,
+      convergence_ms: Enum.max(Enum.map(convergence, & &1.query_ms)),
+      convergence: convergence,
       clients: summarize(previous ++ final),
       viewers:
         Enum.zip_with(clients, final, fn client, row ->
