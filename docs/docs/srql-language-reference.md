@@ -1046,14 +1046,21 @@ installed versions.
 | `cpe` | `coordinate_value` | Correlated raw match evidence, when present |
 | `advisory_ref` | | Advisory UUID resolved through correlated raw-match or normalized assertion evidence |
 | `epss_score` / `due_date` / `ransomware_use` | | Lifted from assessment metadata |
+| `last_seen_at` | `last_seen`, `time` | When the assessment was last confirmed (sort and `time:`). For an active assessment, the later of its last change and its device's latest matcher evaluation; for a resolved assessment, its own time |
+| `last_changed_at` | `last_changed` | When the matcher last rewrote the assessment (sort only) |
 
 Row browsing returns confirmed, candidate, and resolved assessments unless
 explicitly filtered; it has no implicit active-only predicate. An unqualified
 assessment `stats:count()` counts those persisted audit/state rows and is not an
 exposure count. A row or count is actionable only when `status:active`,
 `assessment:confirmed`, and `disposition:affected` all hold. `time:` filters
-`last_seen_at`. Default sort puts actionable rows first, then KEV, exploit,
-CVSS, and last seen.
+`last_seen_at`. The matcher rewrites an assessment only when its content
+changes and records one evaluation time per device per run, so an unchanged
+active assessment still reports the run that last confirmed it. An active
+assessment the latest run did not produce again but could not resolve (for
+example, it is waiting for a complete inventory scan) keeps its own time.
+Default sort puts actionable rows first, then KEV, exploit, CVSS, and last
+seen.
 
 ## Error handling
 

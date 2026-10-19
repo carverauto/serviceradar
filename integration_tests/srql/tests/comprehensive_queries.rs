@@ -315,6 +315,33 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // last_seen_at is when an active assessment was last confirmed: the
+            // device's latest evaluation when that is later than the row's last
+            // change. Resolved rows keep their own time.
+            query: "in:endpoint_vulnerability_assessments time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_ne!(result["last_seen_at"], result["last_changed_at"]);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments sort:last_seen:desc",
+            expected_count: 3,
+            validator: Some(Box::new(|body| {
+                let devices = body["results"]
+                    .as_array()
+                    .expect("results")
+                    .iter()
+                    .map(|row| row["device_uid"].as_str().expect("device_uid"))
+                    .collect::<Vec<_>>();
+                assert_eq!(devices, ["device-alpha", "device-gamma", "device-beta"]);
+                let beta = &body["results"][2];
+                assert_eq!(beta["last_seen_at"], beta["last_changed_at"]);
+            })),
+        },
+        TestCase {
             query: "in:endpoint_vulnerability_assessments status:resolved",
             expected_count: 1,
             validator: Some(Box::new(|body| {
