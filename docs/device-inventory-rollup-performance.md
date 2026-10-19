@@ -73,8 +73,8 @@ the same 5,000 ms cadence target.
 | Writes under 5,000 ms | 0/100 | 100/100 |
 
 Mean write time was about 91% lower. The runs were not contemporaneous and
-shared infrastructure, so the ratio is indicative only. Other measures did not
-improve:
+shared infrastructure, so the ratio is indicative only. Other results were
+mixed:
 
 | Run-wide measure | Before | After |
 | --- | ---: | ---: |
