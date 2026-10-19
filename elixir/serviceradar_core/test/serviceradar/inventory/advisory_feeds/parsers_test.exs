@@ -474,7 +474,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       ]
 
       json =
-        ~s({"note": "the \\"vulnerabilities\\" key {is} below", ) <>
+        ~s({"format": "vulnerabilities", "tags": ["vulnerabilities"], ) <>
+          ~s("note": "the \\"vulnerabilities\\" key {is} below", ) <>
           ~s("meta": {"vulnerabilities": [{"cve": {"id": "DECOY"}}]},\n ) <>
           ~s("vulnerabilities" : [ ) <>
           Enum.map_join(records, " ,\n\t", &Jason.encode!/1) <>

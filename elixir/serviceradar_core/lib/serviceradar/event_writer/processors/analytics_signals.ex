@@ -333,7 +333,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_inventory_vulnerability_ocsf_events([]), do: {[], []}
 
   defp record_inventory_vulnerability_ocsf_events(rows) when is_list(rows) do
-    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_id_key/1)
+    rows =
+      rows
+      |> Enum.sort_by(&finding_version_sort_key/1)
+      |> dedupe_rows_by_conflict_key(&ocsf_event_id_key/1)
 
     # Transition detection reads the prior row before replacing it. Serialize that
     # read/write pair by stable event identity so concurrent redeliveries cannot
@@ -407,7 +410,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       %{}
     else
       sql = """
-      SELECT DISTINCT ON (id) id::text, time, status
+      SELECT DISTINCT ON (id) id::text, time, status, unmapped ->> 'finding_version'
       FROM platform.ocsf_events
       WHERE id = ANY($1::uuid[])
       ORDER BY id, time ASC
@@ -415,8 +418,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       %{rows: result_rows} = ServiceRadar.Repo.query!(sql, [ids])
 
-      Map.new(result_rows, fn [id, time, status] ->
-        {uuid_conflict_value(id), %{time: normalize_existing_time(time), status: status}}
+      Map.new(result_rows, fn [id, time, status, version] ->
+        {uuid_conflict_value(id),
+         %{
+           time: normalize_existing_time(time),
+           status: status,
+           version: parse_finding_version(version)
+         }}
       end)
     end
   end
@@ -430,16 +438,49 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
+  # A versioned event applies only when it is newer than the stored one, so a
+  # close that arrives before its open is kept (as a closed finding) and a
+  # delayed or duplicate open older than the stored close cannot reopen it.
+  # Events without a version are older than any versioned one; between two of
+  # them arrival order decides, as before versions existed.
   defp persist_inventory_vulnerability_lifecycle?(row, existing) do
     new_status = vulnerability_lifecycle_status(Map.get(row, :status))
+    new_version = row_finding_version(row)
 
     case Map.get(existing, ocsf_event_id_key(row)) do
       nil ->
-        new_status == :open
+        new_status == :open or new_version != nil
 
-      %{status: old_status} ->
+      %{status: old_status, version: nil} when new_version == nil ->
         old_status = vulnerability_lifecycle_status(old_status)
         not (old_status == :resolved and new_status == :resolved)
+
+      %{version: nil} ->
+        true
+
+      %{version: _old_version} when new_version == nil ->
+        false
+
+      %{version: old_version} ->
+        DateTime.after?(new_version, old_version)
+    end
+  end
+
+  defp row_finding_version(row), do: parse_finding_version(row_value(row, "finding_version"))
+
+  defp parse_finding_version(version) when is_binary(version) do
+    case DateTime.from_iso8601(version) do
+      {:ok, datetime, _offset} -> datetime
+      _invalid -> nil
+    end
+  end
+
+  defp parse_finding_version(_version), do: nil
+
+  defp finding_version_sort_key(row) do
+    case row_finding_version(row) do
+      nil -> {0, 0}
+      version -> {1, DateTime.to_unix(version, :microsecond)}
     end
   end
 

@@ -8,6 +8,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
     %{
       phase: :seek_key,
       depth: 0,
+      top_object: false,
+      expect_key: false,
       in_string: false,
       escape: false,
       buffer: <<>>,
@@ -18,6 +20,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
       cap_string: false,
       cap_escape: false,
       patterns: %{
+        seek: :binary.compile_pattern([@key, "{", "}", "[", "]", ":", ",", "\""]),
         structure: :binary.compile_pattern(["{", "}", "\""]),
         string: :binary.compile_pattern(["\"", "\\"])
       }
@@ -111,34 +114,68 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdShardDecoder do
   end
 
   defp scan_seek(state, bin, final?) do
-    case :binary.match(bin, [@key, "{", "}", "\""]) do
+    case :binary.match(bin, state.patterns.seek) do
       :nomatch ->
         {:need_more, %{state | buffer: <<>>}}
 
       {pos, len} ->
         <<_::binary-size(^pos), token::binary-size(^len), rest::binary>> = bin
         from_token = binary_part(bin, pos, byte_size(bin) - pos)
+        scan_seek_token(state, token, from_token, rest, final?)
+    end
+  end
 
-        cond do
-          token == @key and state.depth == 1 ->
-            scan(%{state | phase: :seek_colon}, rest, final?)
+  defp scan_seek_token(
+         %{depth: 1, top_object: true, expect_key: true} = state,
+         @key,
+         _from_token,
+         rest,
+         final?
+       ) do
+    scan(%{state | phase: :seek_colon, expect_key: false}, rest, final?)
+  end
 
-          token == "{" ->
-            scan_seek(%{state | depth: state.depth + 1}, rest, final?)
+  defp scan_seek_token(state, @key, _from_token, rest, final?) do
+    scan_seek(%{state | expect_key: false}, rest, final?)
+  end
 
-          token == "}" ->
-            scan_seek(%{state | depth: max(state.depth - 1, 0)}, rest, final?)
+  defp scan_seek_token(%{depth: 0} = state, "{", _from_token, rest, final?) do
+    scan_seek(%{state | depth: 1, top_object: true, expect_key: true}, rest, final?)
+  end
 
-          token == "\"" and not final? and byte_size(from_token) < @key_size and
-              key_has_prefix?(from_token) ->
-            {:need_more, %{state | buffer: copy_bin(from_token)}}
+  defp scan_seek_token(state, open, _from_token, rest, final?) when open in ["{", "["] do
+    scan_seek(%{state | depth: state.depth + 1, expect_key: false}, rest, final?)
+  end
 
-          token == "\"" ->
-            seek_string(%{state | in_string: true, escape: false}, rest, final?)
+  defp scan_seek_token(state, close, _from_token, rest, final?) when close in ["}", "]"] do
+    next_depth = max(state.depth - 1, 0)
 
-          true ->
-            scan_seek(state, rest, final?)
-        end
+    scan_seek(
+      %{
+        state
+        | depth: next_depth,
+          top_object: state.top_object and next_depth > 0,
+          expect_key: false
+      },
+      rest,
+      final?
+    )
+  end
+
+  defp scan_seek_token(%{depth: 1, top_object: true} = state, ",", _from_token, rest, final?) do
+    scan_seek(%{state | expect_key: true}, rest, final?)
+  end
+
+  defp scan_seek_token(state, mark, _from_token, rest, final?) when mark in [",", ":"] do
+    scan_seek(%{state | expect_key: false}, rest, final?)
+  end
+
+  defp scan_seek_token(state, "\"", from_token, rest, final?) do
+    if state.depth == 1 and state.top_object and state.expect_key and not final? and
+         byte_size(from_token) < @key_size and key_has_prefix?(from_token) do
+      {:need_more, %{state | buffer: copy_bin(from_token)}}
+    else
+      seek_string(%{state | in_string: true, escape: false, expect_key: false}, rest, final?)
     end
   end
 
