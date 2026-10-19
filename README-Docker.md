@@ -199,7 +199,7 @@ value afterwards does not change the stored setting; change it on that page,
 which applies it to the warehouse without a restart and shows whether the
 warehouse took it.
 Warehouse loads are sized by `STARROCKS_STREAM_LOAD_MAX_AGE_MS` (flush a
-batch after this long, default 2000), `STARROCKS_STREAM_LOAD_MAX_ROWS` (50000)
+batch after this long, default 10000, i.e. 10s), `STARROCKS_STREAM_LOAD_MAX_ROWS` (50000)
 and `STARROCKS_STREAM_LOAD_MAX_BYTES` (33554432) per load, and
 `STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT` (4) loads at once. Each Stream Load is a
 warehouse transaction, so fewer, larger loads are cheaper than many small ones.

@@ -3173,11 +3173,12 @@ analytics:
     # JetStream consumer's max_ack_pending (the producer never holds more
     # unacked messages than that), so a busy stream flushes on size and a
     # quiet one on maxAgeMs. Starting points for the #4516 benchmark, not
-    # measured optima.
+    # measured optima. Most streams are quiet: at 2s they flushed every 2-3s
+    # with a handful of rows per load, so maxAgeMs is what sets the load rate.
     streamLoad:
       maxRows: 50000
       maxBytes: 33554432
-      maxAgeMs: 2000
+      maxAgeMs: 10000
       maxInFlight: 4
     # Shadow writes are opt-in per dataset. A blank cutoverDatasets on an
     # enabled warehouse cuts flows over by default (hard cutover); naming
