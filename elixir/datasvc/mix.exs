@@ -42,7 +42,7 @@ defmodule Datasvc.MixProject do
       # adapter to `~> 2.2.0`. Keep gun on the CVE-patched 2.4 line and force
       # it via override so the default Gun client adapter stays available.
       {:gun, "~> 2.4", override: true},
-      {:protobuf, "~> 0.16.0", override: true},
+      {:protobuf, "~> 0.17.1", override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},
       {:ex_dna, "~> 1.3", only: [:dev, :test], runtime: false},

@@ -22,6 +22,7 @@ defmodule ServiceRadarCoreElx.MixProject do
         ignore_advisories: [
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
+          "EEF-CVE-2026-95105",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -50,7 +51,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       # Ratio 4.0.1 still advertises Decimal 2.x even though its Decimal integration
       # remains API-compatible. Force the patched Decimal line and the Numbers release
       # that officially supports it so Ash/Ecto can resolve their secured versions.
-      {:decimal, "~> 3.1", override: true},
+      {:decimal, "~> 3.1 and >= 3.1.2", override: true},
       {:numbers, "~> 5.2.5", override: true},
       # ex_hls through 0.2.5 advertises Req 0.5.x but only calls the compatible
       # Req.get!/1 API. Force the release containing the decompression limits.
@@ -85,7 +86,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:membrane_mpeg_ts_plugin, "~> 2.4", override: true},
       {:mpeg_ts, "~> 3.3", override: true},
       {:boombox, path: "../../third_party/hex_vendored/boombox"},
-      {:bandit, "~> 1.10"},
+      {:bandit, "~> 1.13"},
       {:plug, "~> 1.18"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:bundlex, github: "membraneframework/bundlex", tag: "v1.5.4", override: true},
@@ -94,7 +95,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       # to the fix (elixir-webrtc/ex_turn#12) until a release includes it.
       {:ex_turn, github: "carverauto/ex_turn", ref: "46f873f6ab420dd3c2c5115dbee601f84f35d82b", override: true},
       {:elixir_uuid, "~> 1.2", override: true},
-      {:protobuf, "~> 0.16.0", override: true},
+      {:protobuf, "~> 0.17.1", override: true},
       # credo must NOT carry an :only restriction here: membrane_opus_format
       # 0.3.1 (transitive via the vendored boombox) ships credo as a hard,
       # all-envs dependency (upstream packaging bug), and Mix fails prod

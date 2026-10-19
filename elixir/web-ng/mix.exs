@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNG.MixProject do
           "GHSA-4g2h-vm7x-747c",
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
+          "EEF-CVE-2026-95105",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -165,9 +166,9 @@ defmodule ServiceRadarWebNG.MixProject do
       {:elixlsx, "~> 0.6"},
       {:mdex, "~> 0.13"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.13"},
       {:datasvc, path: "../datasvc"},
-      {:protobuf, "~> 0.16.0", override: true},
+      {:protobuf, "~> 0.17.1", override: true},
       {:permit, "~> 0.4.1"},
       {:permit_phoenix, "~> 0.5.1"},
       {:permit_ecto, "~> 0.3.1", override: true},

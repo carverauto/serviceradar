@@ -21,6 +21,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
         ignore_advisories: [
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
+          "EEF-CVE-2026-95105",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -75,11 +76,10 @@ defmodule ServiceRadarAgentGateway.MixProject do
       # Keep gun on the CVE-patched 2.4 line for the client adapter; grpc 1.0
       # pins the optional Gun adapter to `~> 2.2.0`, so force it via override.
       {:gun, "~> 2.4", override: true},
-      # grpc_core 1.0 conservatively requests protobuf `~> 0.17`; the proto-generated
-      # modules across the umbrella target 0.16, so pin it via override (matches the
-      # other Elixir apps). grpc_core compiles cleanly against this line.
-      {:protobuf, "~> 0.16.0", override: true},
-      {:bandit, "~> 1.0"},
+      # grpc_core 1.0 requests protobuf `~> 0.17`; pin ~> 0.17.1 via override
+      # across the Elixir apps for EEF-CVE-2026-104635.
+      {:protobuf, "~> 0.17.1", override: true},
+      {:bandit, "~> 1.13"},
       {:plug, "~> 1.18"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},

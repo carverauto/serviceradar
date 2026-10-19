@@ -32,6 +32,7 @@ defmodule ServiceRadarCore.MixProject do
         ignore_advisories: [
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
+          "EEF-CVE-2026-95105",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -86,7 +87,9 @@ defmodule ServiceRadarCore.MixProject do
       # EEF-CVE-2026-93477: private action arguments settable through bulk
       # update/destroy input is fixed in 3.33.11.
       # CVE-2026-94201: filtering on an atom created atoms; fixed in 3.34.3.
-      {:ash, "~> 3.34.3"},
+      # EEF-CVE-2026-101028: Ash.count/exists/aggregate skipping related
+      # resources' read policies in filters and sorts; fixed in 3.34.6.
+      {:ash, "~> 3.34.6"},
       # The floors below are the first releases carrying the fixes for the Hex
       # advisories open against the previously locked versions
       # (`mix hex.audit`); do not lower them. ash_postgres 2.14 is the
@@ -132,7 +135,7 @@ defmodule ServiceRadarCore.MixProject do
       # membrane_webrtc_plugin requires websock_adapter ~> 0.5.0. Bazel builds
       # one copy of each Hex package, so the other apps stay on that line.
       {:websock_adapter, "~> 0.5.0", override: true},
-      {:protobuf, "~> 0.16.0", override: true},
+      {:protobuf, "~> 0.17.1", override: true},
 
       # Telemetry
       {:telemetry, "~> 1.0"},
