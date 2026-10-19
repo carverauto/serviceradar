@@ -1,10 +1,13 @@
 id: proxmox-inventory
 name: Proxmox Inventory
-version: 0.1.10
+version: 0.1.11
 description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
 entrypoint: run_check
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
+# Authority class of the is_available this plugin reports in discovery records.
+# The hypervisor reports each guest's operational state first-hand.
+availability_authority: managing_controller
 capabilities:
   - get_config
   - log

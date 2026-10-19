@@ -1,6 +1,6 @@
 id: starlink-cloud
 name: Starlink Cloud
-version: 0.1.6
+version: 0.1.7
 description: >
   Collects Starlink user terminal and router inventory, link telemetry and
   vendor alerts from the Starlink Management API V2 and Telemetry API through
@@ -12,6 +12,9 @@ description: >
 entrypoint: run_check
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
+# Authority class of the is_available this plugin reports in discovery records.
+# The Starlink operator API reports each terminal's state first-hand.
+availability_authority: managing_controller
 capabilities:
   - get_config
   - log
