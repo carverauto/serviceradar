@@ -60,15 +60,27 @@ commit 59cbade538) failed the same wait with fewer stalled viewers: 29 had no
 frame, 151 frames were delivered and 776 watches returned `query_busy`, with
 no timeout or other error. Sampled pins peaked at 7 and 6 of 8, native memory
 stayed under 88 MB and mailboxes held at most 3 messages. First-come admission
-therefore helped but did not clear the stall. Zero timeouts among 776
-rejections argues against admission waiting as the main refusal, because
-late-started work would also time out, but that is inferred, not measured.
+therefore helped but did not clear the stall. The zero timeouts do not rule
+out admission expiry, because a waiter that never starts legitimately expires
+as `query_busy`, not as a timeout.
 Each `query_busy` is now counted by origin as the
 `[:serviceradar, :topology, :bitmap_query, :busy]` telemetry event, and each
 admitted query reports its queue wait and run time. The origins are admission
-expiry and a full queue, an occupied stream, a full watch-task pool, the tile
-cache, and each native budget or lock. The replica meter adds both to every
-scale report, so the next hosted run names the refusing point. Whether the
+expiry and a full queue, an occupied stream, a full watch-task pool, each
+projection step (tile-cache fetch, device ordinals, aggregate selection and
+aggregate ordinals), and each native budget or lock. The replica meter adds
+both to every scale report. These counters separate the refusing points the
+code names; they do not by themselves explain a refusal they cannot see.
+
+One concrete contender is reproduced but not yet confirmed as the hosted
+cause. Each aggregate export holds one of only two native ordinal readers,
+and every 64-tile compact view exports 64 aggregates. Eight admitted queries
+exporting at once got `{:error, :busy}` from the real native gate, which
+failed the whole view. An aggregate export now waits for a reader within its
+own remaining query budget and still reports busy if none frees in time. The
+two-reader, eight-query and one-second limits are unchanged. A database-free
+native test fails on the old export and passes with the wait.
+Whether the
 stall clears is unproven until the hosted compact and sparse runs pass. OpenSpec task 4.2 remains unchecked until both
 distributions finish and their numbers and failures are reviewed. The
 database-free harness target compiles the complete scenario and checks its

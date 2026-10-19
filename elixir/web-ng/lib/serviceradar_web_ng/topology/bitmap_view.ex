@@ -163,7 +163,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
     |> Enum.sort_by(&TileKey.id/1)
     |> Enum.reduce_while({:ok, [], 0}, fn key, {:ok, tiles, selector_bytes} ->
       with {:ok, _budget} <- BitmapQueries.remaining(context),
-           {:ok, tile} <- WorldCache.fetch(key),
+           {:ok, tile} <- busy_as(WorldCache.fetch(key), :tile_cache_busy),
            true <- tile.generation == current.manifest.generation and tile.revision == watch.tiles[TileKey.id(key)],
            {:ok, selectors, bytes} <-
              selectors(current.world, mapping, tile, context, @max_selector_bytes - selector_bytes),
@@ -220,7 +220,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   end
 
   defp selector(world, mapping, _selection, %{kind: :device, id: id}, _context, _remaining) do
-    case TopologyAtlas.device_ordinals(world, mapping, [id]) do
+    case busy_as(TopologyAtlas.device_ordinals(world, mapping, [id]), :device_ordinals_busy) do
       {:ok, [ordinal]} -> {:ok, {:leaf, ordinal}}
       {:error, :not_ready} -> {:error, :source_changed}
       other -> other
@@ -228,9 +228,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   end
 
   defp selector(world, mapping, selection, %{kind: :aggregate, id: id}, context, remaining) when remaining > 0 do
-    with {:ok, aggregate} <- TopologyAtlas.aggregate_selection(world, selection, id),
+    with {:ok, aggregate} <-
+           busy_as(TopologyAtlas.aggregate_selection(world, selection, id), :aggregate_selection_busy),
          {:ok, budget} <- BitmapQueries.remaining(context) do
-      case TopologyAtlas.aggregate_ordinals(world, mapping, aggregate, remaining, budget) do
+      exported = TopologyAtlas.aggregate_ordinals(world, mapping, aggregate, remaining, budget)
+
+      case busy_as(exported, :aggregate_ordinals_busy) do
         {:ok, bytes} -> {:ok, {:aggregate, bytes}}
         {:error, :not_ready} -> {:error, :source_changed}
         other -> other
@@ -242,6 +245,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
 
   # Boundary portals have no independently authorized population in release one.
   defp selector(_world, _mapping, _selection, _glyph, _context, _remaining), do: {:ok, {:leaf, 0}}
+
+  # Each projection step that can refuse work names itself, so query_busy
+  # diagnostics separate tile-cache, selection and ordinal-reader contention.
+  defp busy_as({:error, :busy}, source), do: {:error, source}
+  defp busy_as(result, _source), do: result
 
   defp metadata(context, current, watch, sequence) do
     view =

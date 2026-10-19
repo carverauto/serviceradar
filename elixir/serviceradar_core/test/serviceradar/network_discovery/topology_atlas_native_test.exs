@@ -632,6 +632,72 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)
   end
 
+  # Eight admitted Atlas queries project aggregates at once, but only two
+  # aggregate exports may run natively. Each caller must share those readers
+  # within its own budget rather than fail the whole view on contention.
+  test "concurrent aggregate exports share the two ordinal readers within their budget" do
+    nodes =
+      for n <- 0..49_999 do
+        Map.merge(position("sr:shared-reader-#{n}.example.com", 0, true), %{
+          x: rem(n, 256) * 200,
+          y: div(n, 256) * 200,
+          min_zoom: 24
+        })
+      end
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-shared-reader-layout", 16)
+    for batch <- Enum.chunk_every(nodes, 500) do
+      assert :ok = TopologyAtlas.add_positions(builder, batch)
+    end
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
+    assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, <<77::128>>)
+    on_exit(fn -> TopologyAtlas.release_ordinals(mapping) end)
+
+    pages = nodes |> Enum.with_index(1) |> Enum.chunk_every(500) |> Enum.with_index()
+
+    for {batch, page} <- pages do
+      rows = Enum.map(batch, fn {node, ordinal} -> {node.device_id, ordinal} end)
+      assert {:ok, %{mapped: mapped}} = TopologyAtlas.apply_ordinals(world, mapping, rows)
+      assert mapped == (page + 1) * 500
+    end
+
+    assert {:ok, %{ready: true, mapped: 50_000}} = TopologyAtlas.seal_ordinals(world, mapping)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    aggregates = for %{kind: :aggregate, id: id} <- tile.glyphs, do: id
+    assert aggregates != []
+
+    selections =
+      for id <- aggregates do
+        assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, id)
+        selection
+      end
+
+    # Exported alone, nothing contends; these are the expected memberships.
+    expected =
+      for selection <- selections do
+        assert {:ok, bytes} =
+                 TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8_388_608, 1_000)
+
+        bytes
+      end
+
+    results =
+      1..8
+      |> Enum.map(fn _query ->
+        Task.async(fn ->
+          for _round <- 1..8, selection <- selections do
+            TopologyAtlas.aggregate_ordinals(world, mapping, selection, 8_388_608, 1_000)
+          end
+        end)
+      end)
+      |> Task.await_many(30_000)
+
+    assert Enum.reject(List.flatten(results), &match?({:ok, _}, &1)) == []
+    exported = expected |> Enum.map(&{:ok, &1}) |> List.duplicate(8) |> List.flatten()
+    assert results == List.duplicate(exported, 8)
+  end
+
   defp paced_ordinal_reader(parent, world, mapping) do
     receive do
       :stop ->

@@ -173,7 +173,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
     "reader_busy" => :reader_busy,
     "busy" => :native_busy,
     "catalog_busy" => :catalog_busy,
-    :busy => :world_cache_busy
+    tile_cache_busy: :tile_cache_busy,
+    device_ordinals_busy: :device_ordinals_busy,
+    aggregate_selection_busy: :aggregate_selection_busy,
+    aggregate_ordinals_busy: :aggregate_ordinals_busy
   }
 
   @doc """
