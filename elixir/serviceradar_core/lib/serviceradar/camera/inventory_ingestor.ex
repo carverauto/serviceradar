@@ -544,14 +544,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp update_camera_device_attrs(device, attrs, actor) do
     case {device, attrs} do
       {%Device{} = device, attrs} when is_map(attrs) ->
-        update_attrs = camera_device_update_attrs(device, attrs)
-        held = held_device_address(device)
-
         [Device, DeviceAliasState]
         |> Ash.transact(fn ->
-          with {:ok, _device} <-
-                 device
-                 |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
+          with {:ok, locked} <- lock_camera_device(device.uid, actor),
+               held = held_device_address(locked),
+               {:ok, _device} <-
+                 locked
+                 |> Ash.Changeset.for_update(
+                   :update,
+                   camera_device_update_attrs(locked, attrs),
+                   actor: actor
+                 )
                  |> Ash.update() do
             held
             |> Aliases.replaced_addresses(%{})
@@ -572,6 +575,19 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
       _ ->
         {:error, {:invalid_camera_update_target, device, attrs}}
+    end
+  end
+
+  defp lock_camera_device(uid, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(uid == ^uid)
+    |> Ash.Query.lock("FOR NO KEY UPDATE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %Device{} = locked} -> {:ok, locked}
+      {:ok, nil} -> {:error, {:camera_device_not_found, uid}}
+      {:error, _} = error -> error
     end
   end
 
