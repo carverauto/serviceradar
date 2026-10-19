@@ -1,10 +1,13 @@
 id: opentext-nom-inventory
 name: OpenText Network Operations Management Inventory
-version: 0.1.11
+version: 0.1.12
 description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
+# Authority class of the is_available this plugin reports in discovery records.
+# The NMS reports the state of the devices it polls first-hand.
+availability_authority: managing_controller
 capabilities:
   - get_config
   - log

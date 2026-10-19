@@ -189,6 +189,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   def apply_nvd_metrics(match, _metrics_by_cve), do: match
 
   defp read_package_assessments(scope, device_uid, endpoint_package_ref) do
+    evaluated_at = EndpointVulnerabilityAssessment.device_evaluated_at(device_uid)
+
     EndpointVulnerabilityAssessment
     |> Ash.Query.for_read(
       :by_device_and_package,
@@ -198,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
     |> Ash.read(scope: scope)
     |> case do
       {:ok, assessments} ->
-        assessments
+        Enum.map(assessments, &EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
 
       {:error, reason} ->
         Logger.warning(
@@ -363,18 +365,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   end
 
   defp read_assessment_pages(scope, device_uid) do
+    evaluated_at = EndpointVulnerabilityAssessment.device_evaluated_at(device_uid)
+
     %{
-      confirmed: read_assessment_page(scope, device_uid, :actionable_by_device),
-      candidates: read_assessment_page(scope, device_uid, :candidates_by_device),
-      history: read_assessment_page(scope, device_uid, :history_by_device)
+      confirmed: read_assessment_page(scope, device_uid, :actionable_by_device, evaluated_at),
+      candidates: read_assessment_page(scope, device_uid, :candidates_by_device, evaluated_at),
+      history: read_assessment_page(scope, device_uid, :history_by_device, evaluated_at)
     }
   end
 
-  defp read_assessment_page(scope, device_uid, action) do
+  defp read_assessment_page(scope, device_uid, action, evaluated_at) do
     query = Ash.Query.for_read(EndpointVulnerabilityAssessment, action, %{device_uid: device_uid}, scope: scope)
 
     with {:ok, total} <- Ash.count(query, scope: scope),
          {:ok, rows} <- query |> Ash.Query.limit(@assessment_limit) |> Ash.read(scope: scope) do
+      rows = Enum.map(rows, &EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
+
       %{
         rows: rows,
         total: total,

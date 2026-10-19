@@ -99,6 +99,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
                 seeded_at: state.seeded_at,
                 last_reconciled_at: state.last_reconciled_at,
                 pending_dirty: status.pending.pending_count + MapSet.size(state.hints) + length(state.dirty),
+                pending_hints: MapSet.size(state.hints),
+                pending_hint_bytes: state.hint_bytes,
+                pending_native: status.pending.pending_count,
+                pending_publish: length(state.dirty),
                 source_error: state.source_error or state.capacity_blocked,
                 capacity_blocked: state.capacity_blocked,
                 reconciling:
@@ -136,7 +140,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   def handle_info({:bitmap_finished, token, result}, %{active: %{token: token, timed_out: false}} = state) do
     work = state.active.work
-    state = release(state)
+    state = release(state, outcome(result))
 
     case result do
       {:ok, result} ->
@@ -157,7 +161,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{active: %{ref: ref}} = state) do
     work = state.active.work
-    {:noreply, state |> release() |> retry(work)}
+    outcome = if state.active.timed_out, do: :timeout, else: :down
+    {:noreply, state |> release(outcome) |> retry(work)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -283,6 +288,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
     owner = self()
     sequence = state.sequence + 1
     current = state.current
+    started_at = now()
 
     case Task.Supervisor.start_child(state.tasks, fn ->
            result = perform(work, current, sequence)
@@ -294,6 +300,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
           ref: Process.monitor(pid),
           token: token,
           work: work,
+          started_at: started_at,
           timed_out: false,
           timeout: Process.send_after(self(), {:bitmap_timeout, token}, @task_timeout)
         }
@@ -478,18 +485,34 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   defp contention?(_reason), do: false
 
   defp remember(state, ids) do
-    Enum.reduce(ids, state, fn id, state ->
-      cond do
-        not is_binary(id) or id == "" or MapSet.member?(state.hints, id) ->
-          state
+    {state, overflow} =
+      Enum.reduce(ids, {state, %{count: 0, bytes: 0}}, fn id, {state, overflow} ->
+        cond do
+          not is_binary(id) or id == "" or MapSet.member?(state.hints, id) ->
+            {state, overflow}
 
-        MapSet.size(state.hints) >= @hint_limit or state.hint_bytes + byte_size(id) > @hint_bytes ->
-          %{state | rescan: true}
+          MapSet.size(state.hints) >= @hint_limit ->
+            {%{state | rescan: true}, Map.update!(overflow, :count, &(&1 + 1))}
 
-        true ->
-          %{state | hints: MapSet.put(state.hints, id), hint_bytes: state.hint_bytes + byte_size(id)}
-      end
-    end)
+          state.hint_bytes + byte_size(id) > @hint_bytes ->
+            {%{state | rescan: true}, Map.update!(overflow, :bytes, &(&1 + 1))}
+
+          true ->
+            {%{state | hints: MapSet.put(state.hints, id), hint_bytes: state.hint_bytes + byte_size(id)}, overflow}
+        end
+      end)
+
+    # At most two events per message, with no identities or unbounded labels.
+    # These count refused hint attempts, not distinct devices.
+    for {kind, count} <- overflow, count > 0 do
+      :telemetry.execute(
+        [:serviceradar, :topology, :bitmap_index, :hint_overflow],
+        %{count: count, limit: if(kind == :count, do: @hint_limit, else: @hint_bytes)},
+        %{limit_kind: kind, owner: __MODULE__, outcome: :reconcile}
+      )
+    end
+
+    state
   end
 
   defp disable(state) do
@@ -502,6 +525,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp close_resources(state) do
     if state.active do
+      observe_work(state, :cancelled)
       Process.exit(state.active.pid, :kill)
       Process.cancel_timer(state.active.timeout)
       Process.demonitor(state.active.ref, [:flush])
@@ -576,11 +600,26 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp backoff_delay(_state, delay), do: delay
 
-  defp release(state) do
+  defp release(state, outcome) do
+    observe_work(state, outcome)
     Process.cancel_timer(state.active.timeout)
     Process.demonitor(state.active.ref, [:flush])
     %{state | active: nil}
   end
+
+  defp observe_work(state, outcome) do
+    work = state.active.work
+
+    :telemetry.execute(
+      [:serviceradar, :topology, :bitmap_index, :work],
+      %{elapsed_ms: now() - state.active.started_at},
+      %{work: if(is_atom(work), do: work, else: elem(work, 0)), mode: state.mode, outcome: outcome}
+    )
+  end
+
+  defp outcome({:ok, %{deferred?: true}}), do: :capacity
+  defp outcome({:ok, _}), do: :ok
+  defp outcome({:error, reason}), do: if(contention?(reason), do: :contention, else: :error)
 
   defp due?(nil), do: true
   defp due?(at), do: at <= now()

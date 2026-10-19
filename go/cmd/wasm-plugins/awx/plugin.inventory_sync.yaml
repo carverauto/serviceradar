@@ -1,6 +1,6 @@
 id: awx-inventory-sync
 name: AWX Inventory Sync
-version: 0.1.13
+version: 0.1.14
 description: >
   Scheduled assignment that walks one or more AWX/AAP controllers' inventories
   and hosts and emits DeviceDiscovery aggregates (discovery_source=awx) into
@@ -9,6 +9,9 @@ description: >
 entrypoint: inventory_sync
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
+# Authority class of the is_available this plugin reports in discovery records.
+# A host's `enabled` flag is an administrative record, not reachability.
+availability_authority: inventory_declared
 capabilities:
   - get_config
   - log

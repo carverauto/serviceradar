@@ -12,6 +12,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -418,7 +419,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp sync_device_inventory(descriptor, status, observed_at, actor) when is_map(descriptor) do
     case build_device_inventory_attrs(descriptor, status, observed_at) do
       {:ok, device_uid, attrs} ->
-        upsert_device_inventory(device_uid, attrs, actor)
+        with :ok <- upsert_device_inventory(device_uid, attrs, actor) do
+          capture_availability(device_uid, descriptor, status, observed_at)
+        end
 
       :skip ->
         :ok
@@ -1071,6 +1074,50 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp prefer_non_empty(new_value, old_value) when new_value in [nil, ""], do: old_value
   defp prefer_non_empty(new_value, _old_value), do: new_value
+
+  # Availability evidence is the camera manager's reported status only. A descriptor
+  # with no status still writes is_available through the legacy fallback
+  # (descriptor_available?/2), but it is no evidence.
+  defp capture_availability(device_uid, descriptor, status, observed_at) do
+    case descriptor_availability_state(descriptor) do
+      nil ->
+        :ok
+
+      state ->
+        Availability.capture([
+          %{
+            device_uid: device_uid,
+            source_kind: "camera",
+            source_instance: status_value(status, :assignment_id),
+            reporter_agent_id: status_value(status, :agent_id),
+            state: state,
+            observed_at: observed_at,
+            detail: %{"availability_status" => descriptor_status(descriptor)}
+          }
+        ])
+    end
+  end
+
+  @doc false
+  def descriptor_availability_state(descriptor) do
+    case descriptor_status(descriptor) do
+      "unavailable" -> :down
+      status when status in ["degraded", "available"] -> :up
+      _ -> nil
+    end
+  end
+
+  defp descriptor_status(descriptor),
+    do: string_value(descriptor, ["availability_status", "availabilityStatus"])
+
+  defp status_value(status, key) when is_map(status) do
+    case Map.get(status, key) || Map.get(status, to_string(key)) do
+      value when is_binary(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp status_value(_status, _key), do: nil
 
   defp descriptor_available?(descriptor, status) do
     case string_value(descriptor, ["availability_status", "availabilityStatus"]) do

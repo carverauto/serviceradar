@@ -48,6 +48,7 @@ defmodule ServiceRadar.Plugins.Manifest do
       and the capability with no notifier grants nothing.
   """
 
+  alias ServiceRadar.Inventory.Availability.AuthorityClass
   alias ServiceRadar.Plugins.ActionCredentialRequirements
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationDescriptor
@@ -75,7 +76,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     :alert_rules,
     :snmp_requirements,
     :notifications,
-    :integrations
+    :integrations,
+    :availability_authority
   ]
 
   @type t :: %__MODULE__{
@@ -98,7 +100,8 @@ defmodule ServiceRadar.Plugins.Manifest do
           alert_rules: [map()],
           snmp_requirements: [map()],
           notifications: [map()],
-          integrations: IntegrationDescriptor.descriptor()
+          integrations: IntegrationDescriptor.descriptor(),
+          availability_authority: AuthorityClass.t() | nil
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
@@ -420,6 +423,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     {notifications, errors} = validate_notifications(raw_notifications, errors)
     errors = validate_notify_capability_coherence(capabilities, raw_notifications, errors)
 
+    {availability_authority, errors} =
+      validate_availability_authority(fetch(map, :availability_authority), errors)
+
     {integrations, errors} =
       case IntegrationDescriptor.validate(fetch(map, :integrations), producer_schedules) do
         {:ok, integrations} ->
@@ -459,7 +465,8 @@ defmodule ServiceRadar.Plugins.Manifest do
          alert_rules: alert_rules,
          snmp_requirements: snmp_requirements,
          notifications: notifications,
-         integrations: integrations
+         integrations: integrations,
+         availability_authority: availability_authority
        }}
     else
       {:error, Enum.reverse(errors)}
@@ -467,6 +474,23 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   def from_map(_), do: {:error, ["manifest must be a map"]}
+
+  # The authority class of the availability a plugin reports in discovery records
+  # (`add-merged-device-availability`). Optional: a plugin that declares none has its
+  # availability treated as `inventory_declared`. A discovery record never carries a
+  # class of its own.
+  defp validate_availability_authority(nil, errors), do: {nil, errors}
+
+  defp validate_availability_authority(value, errors) do
+    case AuthorityClass.cast(value) do
+      {:ok, class} ->
+        {class, errors}
+
+      :error ->
+        allowed = Enum.map_join(AuthorityClass.all(), ", ", &Atom.to_string/1)
+        {nil, ["availability_authority must be one of: #{allowed}" | errors]}
+    end
+  end
 
   @doc """
   Validate an optional JSON config schema bundled with the plugin.

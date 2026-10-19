@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.Inventory.Availability.SyncEvidence
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
@@ -970,7 +971,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         # Records left without a device_uid get resolved by the follow-up
         # resolve_existing_device_uids pass via the integration_id identifier
         # rows the reconciler registered for these updates.
-        case SyncIngestor.ingest_updates(updates, actor: actor) do
+        case SyncIngestor.ingest_updates(updates,
+               actor: actor,
+               availability_evidence: &availability_observation/1
+             ) do
           :ok -> {:ok, records}
           {:error, reason} -> {:error, reason}
         end
@@ -1283,6 +1287,28 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp device_role(:hypervisor), do: "hypervisor"
   defp device_role(:virtual_guest), do: "virtual-guest"
   defp device_role(_role), do: "managed-child-asset"
+
+  # Availability evidence is the hypervisor's reported status only. A record with no
+  # status still writes is_available false through the legacy path
+  # (available_status?/1), but it is no evidence.
+  @doc false
+  def availability_observation(update) do
+    metadata = Map.get(update, :metadata) || %{}
+
+    case metadata["hypervisor_status"] do
+      status when is_binary(status) and status != "" ->
+        %{
+          source_kind: "hypervisor",
+          source_instance: metadata["hypervisor_provider"],
+          state: if(available_status?(status), do: :up, else: :down),
+          observed_at: SyncEvidence.observed_at(update),
+          detail: %{"status" => status}
+        }
+
+      _missing ->
+        nil
+    end
+  end
 
   defp available_status?(status) when is_binary(status) do
     status

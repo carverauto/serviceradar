@@ -292,6 +292,9 @@ CREATE TABLE endpoint_vulnerability_device_evaluations (
     evaluated_at            TIMESTAMPTZ NOT NULL
 );
 
+CREATE INDEX endpoint_vuln_device_evaluations_evaluated_at_idx
+    ON endpoint_vulnerability_device_evaluations (evaluated_at DESC, device_uid);
+
 CREATE TABLE endpoint_vulnerability_assessments (
     id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     device_uid              TEXT        NOT NULL,
@@ -343,6 +346,13 @@ CREATE TABLE endpoint_vulnerability_assessments (
     inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX endpoint_vuln_assessments_identity_uidx
+    ON endpoint_vulnerability_assessments (device_uid, package_identity_key, cve_id);
+CREATE INDEX endpoint_vuln_assessments_last_seen_idx
+    ON endpoint_vulnerability_assessments (last_seen_at);
+CREATE INDEX endpoint_vuln_assessments_last_confirmed_idx
+    ON endpoint_vulnerability_assessments ((metadata ->> 'last_confirmed_at'));
 
 CREATE TABLE endpoint_inventory_current_package_counts (
     coordinate_hash     TEXT        PRIMARY KEY,

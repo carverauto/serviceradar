@@ -56,6 +56,8 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   alias ServiceRadar.CompositeChecks.Resolvers
   alias ServiceRadar.CompositeChecks.Scope
   alias ServiceRadar.CompositeChecks.VerdictEventWriter
+  alias ServiceRadar.Inventory.Availability
+  alias ServiceRadar.Inventory.Availability.VantageExpectations
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
@@ -269,6 +271,7 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
       # Only reached when every page succeeded; a page failure raises out of
       # run_pages/7 above and leaves existing verdicts untouched.
       removed = sweep_out_of_scope(check, started_at)
+      maintain_vantage_expectations(check, fn -> VantageExpectations.prune(check) end)
 
       # Opt-out exists so the authoring preview can reuse the pass without
       # polluting the event stream. Defaults on, so production needs no opt-in.
@@ -287,7 +290,13 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
       |> Enum.reduce({0, []}, fn uids, {count, acc} ->
         {:ok, rows} = evaluate_devices(check, inputs, rules, uids, opts)
         persist_canonical_availability(check, rows)
-        {count + length(rows), [persist_page(check, rows, started_at) | acc]}
+        transitions = persist_page(check, rows, started_at)
+
+        maintain_vantage_expectations(check, fn ->
+          VantageExpectations.materialize(check, inputs, Enum.map(rows, & &1.device_uid))
+        end)
+
+        {count + length(rows), [transitions | acc]}
       end)
 
     {count, reversed |> Enum.reverse() |> List.flatten()}
@@ -477,16 +486,59 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   # where the bit actually changes. :degraded and :unknown leave it alone. This
   # is deliberately not the sweep ingestor's reporter-scoped update, which would
   # match nothing here and would rewrite last_seen_time and sweep metadata.
-  defp persist_canonical_availability(%{write_canonical_availability: true}, rows) do
+  defp persist_canonical_availability(%{write_canonical_availability: true} = check, rows) do
     healthy = for %{status: :healthy, device_uid: uid} <- rows, do: uid
     down = for %{status: :down, device_uid: uid} <- rows, do: uid
 
     DevicePubSub.broadcast_invalidated(
       set_canonical_availability(healthy, true) ++ set_canonical_availability(down, false)
     )
+
+    capture_operator_policy(check, healthy, down)
   end
 
   defp persist_canonical_availability(_check, _rows), do: :ok
+
+  # The verdict that the legacy write above applies is also `operator_policy` evidence,
+  # recorded on every pass (write-on-change coalesces repeats) and leased for two
+  # evaluation intervals.
+  defp capture_operator_policy(check, healthy, down) do
+    observed_at = DateTime.utc_now()
+    ttl = 2 * (Map.get(check, :evaluation_interval_seconds) || 300)
+
+    evidence = fn uids, state ->
+      Enum.map(uids, fn uid ->
+        %{
+          device_uid: uid,
+          source_kind: "composite_check",
+          source_instance: to_string(check.id),
+          state: state,
+          observed_at: observed_at,
+          ttl_seconds: ttl
+        }
+      end)
+    end
+
+    Availability.capture(evidence.(healthy, :up) ++ evidence.(down, :down))
+  end
+
+  # Expectations feed the merged availability summary, never a verdict, so a failure to
+  # maintain them is logged and leaves the pass and its verdicts untouched. Only an
+  # enabled check has expectations; a disabled one lost them when it was disabled.
+  defp maintain_vantage_expectations(%{state: :enabled} = check, write) do
+    write.()
+    :ok
+  rescue
+    error ->
+      Logger.warning("composite check vantage expectations not maintained",
+        check_id: check.id,
+        error: Exception.message(error)
+      )
+
+      :ok
+  end
+
+  defp maintain_vantage_expectations(_check, _write), do: :ok
 
   defp set_canonical_availability([], _available?), do: []
 

@@ -258,8 +258,9 @@ writes one stable device/package/CVE assessment with:
 - authority, applicability reason, and freshness
 - supporting raw-match and normalized-assertion IDs
 - KEV and exploit flags
-- first seen, last changed, and resolved timestamps (SRQL reports an active
-  assessment as last seen at the device's latest matcher evaluation)
+- first seen, last changed, and resolved timestamps (SRQL and the Software tab
+  report an active assessment as last seen at the device's latest matcher
+  evaluation; see the SRQL `last_seen_at` field for the full rule)
 
 Only an active, confirmed, affected assessment is actionable. The Software tab
 shows those decisions beside the inventory that produced them while retaining

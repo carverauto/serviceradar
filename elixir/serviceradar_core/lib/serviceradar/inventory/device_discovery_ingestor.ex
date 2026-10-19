@@ -34,6 +34,8 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   alias ServiceRadar.Automation.Ansible.AwxInventoryObservationFence
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
+  alias ServiceRadar.Inventory.Availability.Sources
+  alias ServiceRadar.Inventory.Availability.SyncEvidence
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
@@ -121,7 +123,12 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
     context = source_observation_context(status, actor)
     membership_context = %{actor: actor, return_notifications?: serialize_awx?}
-    device_context = %{actor: actor, serialize_awx?: serialize_awx?}
+
+    device_context = %{
+      actor: actor,
+      serialize_awx?: serialize_awx?,
+      availability_evidence: availability_observation(status)
+    }
 
     with :ok <- membership_preflight.(payload, %{actor: actor}),
          {:ok, process_batches} <-
@@ -152,7 +159,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
-    opts = [actor: context.actor]
+    opts = [actor: context.actor, availability_evidence: context.availability_evidence]
 
     opts =
       if context.serialize_awx?,
@@ -161,6 +168,56 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
     SyncIngestor.ingest_updates(updates, opts)
   end
+
+  # A discovery record's is_available is evidence registered under the reporting
+  # plugin, whose approved manifest declares its authority class
+  # (Availability.Sources). The plugin is the one the agent's status names; a record
+  # without is_available, or a result that names no plugin, carries no evidence.
+  @doc false
+  def availability_observation(status) do
+    case status_field(status, :plugin_id) do
+      nil ->
+        &SyncEvidence.default_observation/1
+
+      plugin_id ->
+        source_kind = Sources.plugin_kind(plugin_id)
+        assignment_id = status_field(status, :assignment_id)
+        agent_id = status_field(status, :agent_id)
+
+        fn
+          %{is_available: available?} = update when is_boolean(available?) ->
+            %{
+              source_kind: source_kind,
+              source_instance: assignment_id,
+              reporter_agent_id: agent_id,
+              state: if(available?, do: :up, else: :down),
+              observed_at: SyncEvidence.observed_at(update)
+            }
+
+          _update ->
+            nil
+        end
+    end
+  end
+
+  defp status_field(status, key) when is_map(status) do
+    labels = Map.get(status, :labels) || Map.get(status, "labels") || %{}
+
+    Enum.find_value(
+      [Map.get(status, key), Map.get(status, to_string(key)), label(labels, key)],
+      fn
+        value when is_binary(value) -> blank_to_nil(String.trim(value))
+        _value -> nil
+      end
+    )
+  end
+
+  defp status_field(_status, _key), do: nil
+
+  defp label(labels, key) when is_map(labels),
+    do: Map.get(labels, key) || Map.get(labels, to_string(key))
+
+  defp label(_labels, _key), do: nil
 
   defp sync_devices_if_present([], _context, _device_sync), do: {:ok, []}
 

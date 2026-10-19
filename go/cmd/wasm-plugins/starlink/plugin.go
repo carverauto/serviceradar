@@ -15,7 +15,7 @@ import (
 // `version:`; signal schema refs carry it as the producer version.
 const (
 	cloudPluginID      = "starlink-cloud"
-	cloudPluginVersion = "0.1.6"
+	cloudPluginVersion = "0.1.7"
 	localPluginID      = "starlink-local"
 	localPluginVersion = "0.1.0"
 
