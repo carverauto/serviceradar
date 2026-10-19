@@ -314,6 +314,95 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert is_integer(EndpointInventoryFleetOrdinal.ordinal_for(device_uid))
   end
 
+  test "populates endpoint inventory device_uid at insert time from device agent_id and bounds null backfills with partial indexes",
+       %{actor: actor} do
+    device_uid = "sr:" <> Ecto.UUID.generate()
+    agent_id = "agent-insert-uid-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _device} =
+             create_device(actor, device_uid, "insert-uid-inventory", %{agent_id: agent_id})
+
+    payload = %{
+      "agent_id" => agent_id,
+      "scan_id" => "scan-insert-uid-#{System.unique_integer([:positive])}",
+      "state" => "scanned",
+      "coverage_state" => "complete",
+      "packages" => [
+        %{
+          "name" => "openssl",
+          "version" => "3.0.13",
+          "architecture" => "amd64",
+          "package_manager" => "dpkg",
+          "ecosystem" => "deb",
+          "purl" => "pkg:deb/debian/openssl@3.0.13?arch=amd64"
+        }
+      ]
+    }
+
+    assert {:ok, ingest_result} =
+             ServiceRadar.Inventory.EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: fn _req -> {:error, :not_configured} end
+             )
+
+    assert ingest_result.device_uid == device_uid
+    assert table_null_device_count("endpoint_inventory_scans", agent_id) == 0
+    assert table_null_device_count("endpoint_inventory_packages", agent_id) == 0
+    assert table_device_count("endpoint_inventory_scans", device_uid) == 1
+    assert table_device_count("endpoint_inventory_packages", device_uid) == 1
+
+    # When no rows have device_uid IS NULL, backfill_endpoint_inventory_device_uid_for_agent
+    # must not execute an UPDATE against endpoint_inventory_packages.
+    test_pid = self()
+    handler_id = "backfill-noop-query-observer-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if is_binary(metadata[:query]) and
+             String.contains?(metadata[:query], "UPDATE platform.endpoint_inventory_packages") do
+          send(test_pid, {:unexpected_package_update, metadata[:query]})
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert :ok =
+             IdentityReconciler.backfill_endpoint_inventory_device_uid_for_agent(
+               agent_id,
+               device_uid
+             )
+
+    refute_receive {:unexpected_package_update, _query}, 50
+
+    # Verify the partial index backs NULL-device_uid backfills on endpoint_inventory_packages.
+    plan_text =
+      fn ->
+        Repo.query!("SET LOCAL enable_seqscan = off")
+
+        %{rows: rows} =
+          Repo.query!(
+            """
+            EXPLAIN (COSTS OFF)
+            UPDATE platform.endpoint_inventory_packages
+            SET device_uid = $2
+            WHERE agent_id = ANY($1)
+              AND device_uid IS NULL
+            """,
+            [[agent_id], device_uid]
+          )
+
+        Repo.rollback(Enum.map_join(rows, "\n", &hd(&1)))
+      end
+      |> Repo.transaction()
+      |> elem(1)
+
+    assert plan_text =~ "endpoint_inventory_packages_agent_null_device_uid_idx"
+  end
+
   defp create_device(actor, uid, hostname, extra_attrs \\ %{}) do
     attrs =
       Map.merge(
