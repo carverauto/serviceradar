@@ -14,10 +14,10 @@ defmodule ServiceRadar.Repo.Migrations.AddMergedAvailabilityShadow do
     or a restored tombstone is appended to the invalidation log. Every restore path
     (the `:restore` and `:gateway_restore` actions and the raw upsert that clears a
     tombstone) updates `deleted_at`, so the trigger reaches all of them.
-  * `trg_sweep_groups_availability_interval_invalidate`: outside `legacy`, changing a
-    sweep group's interval changes the freshness window of every ledger row in that
-    group, so every device with a ledger row in the group is appended to the
-    invalidation log. The expiry job cannot catch it: a shortened window can move an
+  * `trg_sweep_groups_availability_invalidate`: outside `legacy`, changing a sweep
+    group's interval or deleting the group (the ledger keeps its rows, which fall back to
+    the default window) changes the freshness window of every ledger row in that group,
+    so every device with a ledger row in the group is appended to the invalidation log. The expiry job cannot catch it: a shortened window can move an
     expiry behind its watermark, and a lengthened one makes stale rows fresh.
 
   Locking: the new triggers append with plain INSERTs, which wait on no other
@@ -71,7 +71,7 @@ defmodule ServiceRadar.Repo.Migrations.AddMergedAvailabilityShadow do
     """)
 
     execute("""
-    CREATE FUNCTION #{@prefix}.trg_sweep_groups_availability_interval_invalidate()
+    CREATE FUNCTION #{@prefix}.trg_sweep_groups_availability_invalidate()
     RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
       IF #{@prefix}.availability_mode() = 'legacy' THEN
@@ -80,7 +80,7 @@ defmodule ServiceRadar.Repo.Migrations.AddMergedAvailabilityShadow do
 
       INSERT INTO #{@prefix}.availability_invalidations (device_uid)
       SELECT DISTINCT device_uid FROM #{@prefix}.device_agent_availability
-      WHERE sweep_group_id = NEW.id;
+      WHERE sweep_group_id = CASE TG_OP WHEN 'DELETE' THEN OLD.id ELSE NEW.id END;
 
       RETURN NULL;
     END;
@@ -91,19 +91,29 @@ defmodule ServiceRadar.Repo.Migrations.AddMergedAvailabilityShadow do
     CREATE TRIGGER trg_sweep_groups_availability_interval_invalidate
     AFTER UPDATE OF "interval" ON #{@prefix}.sweep_groups
     FOR EACH ROW WHEN (OLD."interval" IS DISTINCT FROM NEW."interval")
-    EXECUTE FUNCTION #{@prefix}.trg_sweep_groups_availability_interval_invalidate()
+    EXECUTE FUNCTION #{@prefix}.trg_sweep_groups_availability_invalidate()
+    """)
+
+    execute("""
+    CREATE TRIGGER trg_sweep_groups_availability_delete_invalidate
+    AFTER DELETE ON #{@prefix}.sweep_groups
+    FOR EACH ROW
+    EXECUTE FUNCTION #{@prefix}.trg_sweep_groups_availability_invalidate()
     """)
   end
 
   def down do
     execute("SET LOCAL lock_timeout = '5s'")
 
-    execute(
-      "DROP TRIGGER IF EXISTS trg_sweep_groups_availability_interval_invalidate ON #{@prefix}.sweep_groups"
-    )
+    for trigger <- [
+          "trg_sweep_groups_availability_interval_invalidate",
+          "trg_sweep_groups_availability_delete_invalidate"
+        ] do
+      execute("DROP TRIGGER IF EXISTS #{trigger} ON #{@prefix}.sweep_groups")
+    end
 
     execute(
-      "DROP FUNCTION IF EXISTS #{@prefix}.trg_sweep_groups_availability_interval_invalidate()"
+      "DROP FUNCTION IF EXISTS #{@prefix}.trg_sweep_groups_availability_invalidate()"
     )
 
     for trigger <- [

@@ -20,10 +20,11 @@ defmodule ServiceRadar.Inventory.Availability.ExpiryWorker do
   the slice is the watermark advanced, so a failed run is repeated, not skipped.
 
   The work is bounded by the number of expirations: a renewed row or record moved its
-  expiry past the slice and is not selected. A sweep group's interval change moves its
-  rows' windows, possibly behind the watermark, so it is not handled here: a trigger on
-  `sweep_groups` appends the group's devices to the invalidation log instead. Outside `shadow`, or with no watermark
-  (the deployment never entered `shadow`), it does nothing.
+  expiry past the slice and is not selected. A sweep group's interval change or deletion
+  moves its rows' windows, possibly behind the watermark, so it is not handled here: a
+  trigger on `sweep_groups` appends the group's devices to the invalidation log instead.
+  Outside `shadow`, or with no watermark (the deployment never entered `shadow`), it
+  does nothing.
   """
 
   use Oban.Worker,

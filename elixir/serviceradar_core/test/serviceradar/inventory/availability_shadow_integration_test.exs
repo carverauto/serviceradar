@@ -162,7 +162,7 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
       assert invalidation_uids() == [created.uid, legacy.uid]
     end
 
-    test "a sweep group's interval change appends its devices outside legacy only",
+    test "a sweep group's interval change or deletion appends its devices outside legacy only",
          %{actor: actor} do
       device = create_device!(actor, "192.0.2.124")
       {group, agent_id} = sweep_group!(actor)
@@ -184,6 +184,9 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
 
       set_interval.("2h")
       assert invalidation_uids() == [device.uid]
+
+      Repo.query!("DELETE FROM platform.sweep_groups WHERE id::text = $1", [group.id])
+      assert invalidation_uids() == [device.uid, device.uid]
     end
 
     test "a pass resolves at most 500 devices and re-appends the rest; legacy only consumes",
