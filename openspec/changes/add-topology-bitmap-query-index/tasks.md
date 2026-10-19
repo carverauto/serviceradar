@@ -39,7 +39,7 @@
 ## 4. Scale proof and delivery
 
 - [ ] 4.1 Publish latency/memory and admitted-overlay bytes for the synthetic 100k + 1M fixture, including sparse IDs and full-population churn.
-- [ ] 4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery. Compact 1daa6bc2 completed every workload phase but failed its own million-row exit cleanup and missed the 5-second write cadence; both variants now use the run's dedicated `serial_1` clone, dropped by the hosted lifecycle. Compact and then sparse must rerun. See `docs/topology-bitmap-scale-acceptance.md`.
+- [ ] 4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery. Compact de9f2325 passed every phase and its cleanup at 1887ee528e, but missed the 5-second write cadence. Sparse 715453e4 failed at the same commit: a viewer on the hinted server held a superseded revision for 30.5 seconds while refreshes ran near the one-second deadline. Device glyphs now resolve in one native call per tile instead of one per device. Sparse must pass, then both variants must pass on one commit. See `docs/topology-bitmap-scale-acceptance.md`.
 - [ ] 4.3 Complete required remote checks and actual-hardware acceptance; identify each unrun check honestly.
 - [ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.
 - [ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.

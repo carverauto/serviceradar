@@ -202,32 +202,52 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   end
 
   defp selectors(world, mapping, tile, context, remaining_bytes) do
-    tile.glyphs
-    |> Enum.reduce_while({:ok, [], 0}, fn glyph, {:ok, rows, bytes} ->
-      with {:ok, row} <- selector(world, mapping, tile.selection, glyph, context, remaining_bytes - bytes),
-           size = if(elem(row, 0) == :aggregate, do: byte_size(elem(row, 1)), else: 4),
-           true <- bytes + size <= remaining_bytes do
-        {:cont, {:ok, [row | rows], bytes + size}}
-      else
-        false -> {:halt, {:error, :membership_budget}}
-        error -> {:halt, error}
+    with {:ok, leaves} <- leaf_ordinals(world, mapping, tile.glyphs) do
+      tile.glyphs
+      |> Enum.reduce_while({:ok, [], 0, leaves}, fn glyph, {:ok, rows, bytes, leaves} ->
+        with {:ok, row, leaves} <-
+               selector(world, mapping, tile.selection, glyph, leaves, context, remaining_bytes - bytes),
+             size = if(elem(row, 0) == :aggregate, do: byte_size(elem(row, 1)), else: 4),
+             true <- bytes + size <= remaining_bytes do
+          {:cont, {:ok, [row | rows], bytes + size, leaves}}
+        else
+          false -> {:halt, {:error, :membership_budget}}
+          error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, rows, bytes, []} -> {:ok, Enum.reverse(rows), bytes}
+        error -> error
       end
-    end)
-    |> case do
-      {:ok, rows, bytes} -> {:ok, Enum.reverse(rows), bytes}
-      error -> error
     end
   end
 
-  defp selector(world, mapping, _selection, %{kind: :device, id: id}, _context, _remaining) do
-    case busy_as(TopologyAtlas.device_ordinals(world, mapping, [id]), :device_ordinals_busy) do
-      {:ok, [ordinal]} -> {:ok, {:leaf, ordinal}}
+  # One native call per tile: a tile holds at most 128 rows, within the
+  # 8,192-ID call bound. A dirty-NIF call per leaf made every refresh issue
+  # thousands of calls that queued behind each other on the dirty schedulers.
+  defp leaf_ordinals(world, mapping, glyphs) do
+    ids = for %{kind: :device, id: id} <- glyphs, do: id
+
+    case busy_as(TopologyAtlas.device_ordinals(world, mapping, ids), :device_ordinals_busy) do
+      {:ok, ordinals} -> {:ok, ordinals}
       {:error, :not_ready} -> {:error, :source_changed}
       other -> other
     end
   end
 
-  defp selector(world, mapping, selection, %{kind: :aggregate, id: id}, context, remaining) when remaining > 0 do
+  defp selector(_world, _mapping, _selection, %{kind: :device}, [ordinal | leaves], _context, _remaining),
+    do: {:ok, {:leaf, ordinal}, leaves}
+
+  defp selector(world, mapping, selection, %{kind: :aggregate} = glyph, leaves, context, remaining) do
+    with {:ok, row} <- aggregate_selector(world, mapping, selection, glyph, context, remaining),
+         do: {:ok, row, leaves}
+  end
+
+  # Boundary portals have no independently authorized population in release one.
+  defp selector(_world, _mapping, _selection, _glyph, leaves, _context, _remaining), do: {:ok, {:leaf, 0}, leaves}
+
+  defp aggregate_selector(world, mapping, selection, %{kind: :aggregate, id: id}, context, remaining)
+       when remaining > 0 do
     with {:ok, aggregate} <-
            busy_as(TopologyAtlas.aggregate_selection(world, selection, id), :aggregate_selection_busy),
          {:ok, budget} <- BitmapQueries.remaining(context) do
@@ -241,10 +261,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
     end
   end
 
-  defp selector(_world, _mapping, _selection, %{kind: :aggregate}, _context, _remaining), do: {:error, :membership_budget}
-
-  # Boundary portals have no independently authorized population in release one.
-  defp selector(_world, _mapping, _selection, _glyph, _context, _remaining), do: {:ok, {:leaf, 0}}
+  defp aggregate_selector(_world, _mapping, _selection, _glyph, _context, _remaining), do: {:error, :membership_budget}
 
   # Each projection step that can refuse work names itself, so query_busy
   # diagnostics separate tile-cache, selection and ordinal-reader contention.

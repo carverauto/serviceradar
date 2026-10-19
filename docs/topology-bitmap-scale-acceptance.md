@@ -7,8 +7,9 @@ world persistence, or upstream discovery ingestion. Geometry is an invented
 native world installed through `WorldCache`; canonical mappings still come
 from the real paged dictionary reader.
 
-The compact workload has not passed against the hosted database; sparse has
-not run. Earlier compact attempts stopped before any viewer started: one at
+The compact workload passed against the hosted database at commit 1887ee528e
+(described at the end of this section). The sparse workload failed at that
+commit and has not passed since. Earlier compact attempts stopped before any viewer started: one at
 diagnostic time admission, one at tile receipt authorization (an HTTP 403 on
 `GET /topology/tiles/:version/3/:x/:y`) because role profiles were absent, and
 one during concurrent WebSocket upgrades because the Sandbox pool was pinned,
@@ -172,13 +173,75 @@ Both variants now seed the run's dedicated `serial_1` clone, which
 `teardown_db` drops on success or failure, and the per-test delete, the
 ordinal-sequence rewind and the user delete are gone. The ordinary cases keep
 an untouched `serial_0`. No statement timeout, deadline or workload limit
-changed. The compact workload assertions now pass, but a full compact run,
-including its cleanup, and a sparse run have not yet succeeded on this
-layout. OpenSpec task 4.2 remains unchecked until both
-distributions finish and their numbers and failures are reviewed. The
-database-free harness target compiles the complete scenario and checks its
-independent frame consumer, native geometry partition and isolated VM
-measurements.
+changed.
+
+The compact run on that layout
+([BuildBuddy de9f2325](https://carverauto.buildbuddy.io/invocation/de9f2325-6c7e-4eb5-8fd8-dea8be121fd8),
+commit 1887ee528e, hosted parent 938a6d0d) passed. It emitted all 209 phase
+records: the fixture, both servers, geometry, warmup, 100 churn ticks with 100
+fifty-facet HTTP queries, the index restart, the mapping replacement (11,220
+ms), the combined phase and the revocation. The hosted lifecycle's suites
+passed and its cleanup finished with status 0. Churn writes averaged
+13,851.09 ms per tick, so the 5-second cadence was again not met. The facet
+queries answered 200 88 times and 503 12 times, with p50, p95 and p99 latency
+of 239, 832 and 1,161 ms. Native memory peaked at 100,053,098 bytes with 8 of
+8 pins, and the largest normal-viewer progress gap was 10,860 ms. These are
+server measurements over Gun; they exclude the browser, GPU, layout and
+discovery.
+
+The sparse run at the same commit
+([BuildBuddy 715453e4](https://carverauto.buildbuddy.io/invocation/715453e4-ca23-4257-a6b7-5ab9b0175bc1),
+hosted parent f252d65d) failed after 92 ticks and 91 facet queries. Normal
+viewer 14, on the hinted server, held index revision 12,713 for 30,514 ms after
+that server had published a newer one (basis `behind`). The sampler had no
+failed reads and its last read was 69 ms old, so the oracle had coverage. The
+viewer had 232 frames, no resets, and only 1 `query_busy` and 3
+`query_timeout` replies, all to watches. A refresh that fails on a periodic
+tick keeps the frame and sends no reply, so its count was not visible in
+the viewer report. Native memory peaked at 147,459,912 bytes, below the
+160,000,000-byte limit, with 8 of 8 pins and mailboxes of at most 3 messages.
+The lifecycle finished with suite status 3 and observer, teardown and release
+status 0. The cold-restarted second server answered `index_not_ready` from
+tick 61 to tick 85 while it reseeded.
+
+The replica meters locate the stall. Through tick 76 both servers ran admitted
+queries in 256 to 511 ms. From tick 77 the hinted server ran most queries
+in 512 to 1,023 ms (81 to 142 a tick against 5 to 75 faster), while the other server stayed
+in 256 to 511 ms once it was ready again. At the same tick the hinted server's
+authorization queries slowed from 0.71 to about 0.9 ms and their pool wait
+grew from 0.05 to about 0.18 ms. That is load across the whole replica, not
+one slow query. Compact showed the same step on the hinted server at tick 44,
+from mostly 128 to 255 ms to 256 to 1,023 ms, but there it still left room inside
+the one-second deadline. A refresh that runs this close to its deadline
+misses it often, keeps its frame and repeats the full build on the next tick.
+That is how viewer 14 went 30 seconds without an accepted frame.
+
+The per-refresh cost has a concrete source. Each scale tile carries about 127
+device glyphs and one aggregate (128 rows; a 64-tile frame is about 62,645
+bytes). `BitmapView` resolved each device glyph with its own
+`TopologyAtlas.device_ordinals/3` call, so one refresh issued about 8,128
+dirty-CPU NIF calls. At ten refreshes a second per server, that is roughly
+81,000 calls a second on four dirty CPU schedulers, which the hinted server
+shares with continuous publication. A temporary probe measured the call
+pattern through the real NIF on RBE
+([BuildBuddy c6111415](https://carverauto.buildbuddy.io/invocation/c6111415-341c-4878-b63b-c363d820eacd)).
+It used 8,128 invented devices with sparse ordinals and 8 concurrent views on
+an executor with 30 dirty schedulers. One call per device took 172 to 185 ms
+per view at p50 (184 to 202 ms at p95); one call per tile took 2 to 3 ms.
+The probe measures the call pattern, not a replica, and was not committed. A
+replica has only four dirty schedulers, so the hosted cost is not
+extrapolated from it.
+
+`BitmapView` now resolves a tile's device glyphs in one call. A tile holds at
+most 128 rows, within the call's 8,192-ID bound. Row order, the
+`device_ordinals_busy` origin and the `source_changed` mapping are unchanged,
+and so are the 30-second progress bound, the one-second query deadline, the
+eight query tasks and 64 waiters, the two ordinal readers, the eight pins,
+the memory limits and the workload. Whether this clears the sparse stall is
+unproven until the hosted sparse run passes. OpenSpec task 4.2 remains
+unchecked until both distributions pass on one commit. The database-free
+harness target compiles the complete scenario and checks its independent
+frame consumer, native geometry partition and isolated VM measurements.
 
 ## Run through the existing hosted lifecycle
 
