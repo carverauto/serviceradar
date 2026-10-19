@@ -435,6 +435,141 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert [%{"network" => "198.51.100.30", "metadata" => %{}}] = compiled["device_targets"]
     end
 
+    test "active device IP aliases compile up to the per-device bound and never override primary IPs" do
+      previous = Application.fetch_env(:serviceradar_core, :sweep_max_alias_targets_per_device)
+      Application.put_env(:serviceradar_core, :sweep_max_alias_targets_per_device, 2)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} ->
+            Application.put_env(:serviceradar_core, :sweep_max_alias_targets_per_device, value)
+
+          :error ->
+            Application.delete_env(:serviceradar_core, :sweep_max_alias_targets_per_device)
+        end
+      end)
+
+      query_page_fn = fn _query, _opts ->
+        {:ok,
+         %{
+           rows: [
+             %{"ip" => "198.51.100.10", "uid" => "sr:dev-0001"},
+             %{"ip" => "198.51.100.11", "uid" => "sr:dev-0002"}
+           ],
+           next_cursor: nil
+         }}
+      end
+
+      alias_ips_fn = fn uids ->
+        send(self(), {:alias_lookup, Enum.sort(uids)})
+
+        {:ok,
+         %{
+           "sr:dev-0001" => [
+             "198.51.100.10",
+             "198.51.100.11",
+             "198.51.100.50",
+             "198.51.100.51",
+             "198.51.100.52"
+           ]
+         }}
+      end
+
+      target_group = group(%{id: "sg-aliases", name: "aliases", target_query: @lab_query})
+
+      [compiled] =
+        SweepCompiler.compile_groups([target_group], %{},
+          query_page_fn: query_page_fn,
+          alias_ips_fn: alias_ips_fn
+        )
+
+      assert_received {:alias_lookup, ["sr:dev-0001", "sr:dev-0002"]}
+
+      assert compiled["device_targets"] == [
+               %{
+                 "network" => "198.51.100.10",
+                 "sweep_modes" => ["icmp"],
+                 "query_label" => "aliases",
+                 "source" => "srql",
+                 "metadata" => %{"device_uid" => "sr:dev-0001"}
+               },
+               %{
+                 "network" => "198.51.100.11",
+                 "sweep_modes" => ["icmp"],
+                 "query_label" => "aliases",
+                 "source" => "srql",
+                 "metadata" => %{"device_uid" => "sr:dev-0002"}
+               },
+               %{
+                 "network" => "198.51.100.50",
+                 "sweep_modes" => ["icmp"],
+                 "query_label" => "aliases",
+                 "source" => "srql",
+                 "metadata" => %{"device_uid" => "sr:dev-0001"}
+               },
+               %{
+                 "network" => "198.51.100.51",
+                 "sweep_modes" => ["icmp"],
+                 "query_label" => "aliases",
+                 "source" => "srql",
+                 "metadata" => %{"device_uid" => "sr:dev-0001"}
+               }
+             ]
+
+      assert SweepCompiler.declared_targets(target_group,
+               query_page_fn: query_page_fn,
+               alias_ips_fn: alias_ips_fn
+             ) == %{
+               static: [],
+               device: [
+                 %{target: "198.51.100.10", device_uid: "sr:dev-0001"},
+                 %{target: "198.51.100.11", device_uid: "sr:dev-0002"},
+                 %{target: "198.51.100.50", device_uid: "sr:dev-0001"},
+                 %{target: "198.51.100.51", device_uid: "sr:dev-0001"}
+               ]
+             }
+    end
+
+    test "device IP aliases compare by address, not spelling, against primary IPs and each other" do
+      query_page_fn = fn _query, _opts ->
+        {:ok,
+         %{
+           rows: [
+             %{"ip" => "2001:db8::10", "uid" => "sr:dev-0001"},
+             %{"ip" => "2001:db8:0:0::40", "uid" => "sr:dev-0002"}
+           ],
+           next_cursor: nil
+         }}
+      end
+
+      alias_ips_fn = fn _uids ->
+        {:ok,
+         %{
+           "sr:dev-0001" => [
+             "2001:db8:0:0::10",
+             "2001:db8::40",
+             "2001:db8::50",
+             "2001:db8:0::50"
+           ]
+         }}
+      end
+
+      target_group = group(%{id: "sg-ipv6-aliases", name: "ipv6", target_query: @lab_query})
+
+      [compiled] =
+        SweepCompiler.compile_groups([target_group], %{},
+          query_page_fn: query_page_fn,
+          alias_ips_fn: alias_ips_fn
+        )
+
+      assert Enum.map(compiled["device_targets"], &{&1["network"], &1["metadata"]["device_uid"]}) ==
+               [
+                 {"2001:db8:0:0::40", "sr:dev-0002"},
+                 {"2001:db8::10", "sr:dev-0001"},
+                 {"2001:db8::50", "sr:dev-0001"}
+               ]
+    end
+
     test "groups are emitted sorted by id whatever order they are loaded in" do
       groups = pinned_groups()
 

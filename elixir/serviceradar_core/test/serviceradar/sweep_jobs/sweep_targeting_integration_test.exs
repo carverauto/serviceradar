@@ -14,6 +14,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
@@ -375,6 +376,186 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       refute first_ip in device_targets
       refute second_ip in device_targets
       refute "#{first_ip}, #{second_ip}" in device_targets
+    end
+
+    test "compiles bounded active :ip aliases for matched devices and skips stale, non-ip, or other-device primary IPs",
+         %{actor: actor, unique_id: unique_id} do
+      primary_ip = "198.51.100.10"
+      detected_alias_ip = "198.51.100.20"
+      confirmed_alias_ip = "198.51.100.21"
+      stale_alias_ip = "198.51.100.30"
+      interface_alias_ip = "198.51.100.31"
+      other_device_primary_ip = "198.51.100.40"
+      other_device_primary_ipv6 = "2001:db8:0:0::40"
+      other_device_primary_ipv6_alias = "2001:db8::40"
+      hostname = "alias-target-#{unique_id}.example.com"
+
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "sr:alias-target-#{unique_id}",
+            ip: primary_ip,
+            hostname: hostname,
+            partition: "default"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _other_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "sr:live-holder-#{unique_id}",
+            ip: other_device_primary_ip,
+            hostname: "live-holder-#{unique_id}.example.com",
+            partition: "default"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _other_ipv6_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "sr:live-ipv6-holder-#{unique_id}",
+            ip: other_device_primary_ipv6,
+            hostname: "live-ipv6-holder-#{unique_id}.example.com",
+            partition: "default"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _held_by_other_ipv6} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: other_device_primary_ipv6_alias
+          },
+          actor: actor
+        )
+
+      {:ok, _detected} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: detected_alias_ip,
+            metadata: %{"source" => "replaced_primary_address"}
+          },
+          actor: actor
+        )
+
+      {:ok, confirmed_seed} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: confirmed_alias_ip
+          },
+          actor: actor
+        )
+
+      {:ok, _confirmed} = DeviceAliasState.confirm(confirmed_seed, actor: actor)
+
+      {:ok, _same_as_primary} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: primary_ip
+          },
+          actor: actor
+        )
+
+      {:ok, _held_by_other} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: other_device_primary_ip
+          },
+          actor: actor
+        )
+
+      {:ok, stale_seed} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :ip,
+            alias_value: stale_alias_ip
+          },
+          actor: actor
+        )
+
+      {:ok, _stale} = DeviceAliasState.mark_stale(stale_seed, actor: actor)
+
+      {:ok, interface_seed} =
+        DeviceAliasState.create_detected(
+          %{
+            device_id: device.uid,
+            partition: "default",
+            alias_type: :interface_ip,
+            alias_value: interface_alias_ip
+          },
+          actor: actor
+        )
+
+      {:ok, _interface} = DeviceAliasState.confirm(interface_seed, actor: actor)
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Alias Target Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigCache.invalidate(:sweep)
+
+      assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+
+      compiled_group = Enum.find(config["groups"], &(&1["id"] == group.id))
+      assert compiled_group
+
+      assert device_target_networks(compiled_group) == [
+               primary_ip,
+               detected_alias_ip,
+               confirmed_alias_ip
+             ]
+
+      assert Enum.all?(compiled_group["device_targets"], fn target ->
+               target["metadata"] == %{"device_uid" => device.uid}
+             end)
+
+      assert SweepCompiler.declared_targets(group) == %{
+               static: [],
+               device: [
+                 %{target: primary_ip, device_uid: device.uid},
+                 %{target: detected_alias_ip, device_uid: device.uid},
+                 %{target: confirmed_alias_ip, device_uid: device.uid}
+               ]
+             }
     end
 
     test "ignores integration network blacklist settings when compiling sweep targets", %{

@@ -37,6 +37,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.Repo
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.DeclaredTargets
@@ -48,6 +49,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Logger
 
   @srql_page_limit_default 500
+  @max_alias_targets_per_device_default 8
+  @alias_lookup_chunk_size 1_000
 
   # Target query results are shared across agents under the :sweep config type,
   # so ConfigServer.invalidate(:sweep), dispatched on every SweepGroup and
@@ -142,7 +145,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   @doc false
   # The compile step after groups and profiles are loaded. `:query_page_fn`
-  # replaces `SRQLRunner.query_page/2` for target queries. `:agent_capabilities`
+  # replaces `SRQLRunner.query_page/2` for target queries. `:alias_ips_fn`
+  # replaces the active `:ip` alias lookup for matched device uids; when only
+  # `:query_page_fn` is given, no aliases are loaded. `:agent_capabilities`
   # is the compiling agent's capability list (nil when unknown), which
   # withholds the modes the agent reports it cannot run; `:agent_id` names the
   # agent in the resulting log lines.
@@ -153,7 +158,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @spec compile_groups([SweepGroup.t()], %{optional(term()) => SweepProfile.t()}, keyword()) ::
           [map()] | {:error, term()}
   def compile_groups(groups, profile_map, opts \\ []) do
-    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+    resolvers = target_resolvers(opts)
 
     agent = %{
       id: Keyword.get(opts, :agent_id),
@@ -164,7 +169,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # compile rather than once per group that uses it.
     groups
     |> Enum.reduce_while({:ok, [], %{}}, fn group, {:ok, acc, query_memo} ->
-      case compile_group(group, profile_map, agent, query_memo, query_page_fn) do
+      case compile_group(group, profile_map, agent, query_memo, resolvers) do
         {:ok, compiled, query_memo} -> {:cont, {:ok, [compiled | acc], query_memo}}
         {:skip, query_memo} -> {:cont, {:ok, acc, query_memo}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -222,7 +227,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   projection compile delivers. A failed read returns `{:error, reason}` so
   the caller can keep the previous declared rows.
 
-  Accepts the same `:query_page_fn` option as `compile_groups/3`.
+  Accepts the same `:query_page_fn` and `:alias_ips_fn` options as `compile_groups/3`.
   """
   @spec declared_targets(SweepGroup.t(), keyword()) ::
           %{
@@ -231,10 +236,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
           }
           | {:error, term()}
   def declared_targets(%SweepGroup{} = group, opts \\ []) do
-    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+    resolvers = target_resolvers(opts)
     modes = merge_modes(nil, group)
 
-    case compile_targets(group, modes, %{}, query_page_fn) do
+    case compile_targets(group, modes, %{}, resolvers) do
       {:ok, static, device_targets, _query_memo} ->
         device =
           Enum.map(device_targets, fn device_target ->
@@ -248,6 +253,27 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp target_resolvers(opts) do
+    %{
+      query_page_fn: Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2),
+      alias_ips_fn: resolve_alias_ips_fn(opts)
+    }
+  end
+
+  defp resolve_alias_ips_fn(opts) do
+    case Keyword.fetch(opts, :alias_ips_fn) do
+      {:ok, fun} when is_function(fun, 1) ->
+        fun
+
+      :error ->
+        if Keyword.has_key?(opts, :query_page_fn) do
+          fn _uids -> {:ok, %{}} end
+        else
+          &load_active_device_alias_ips/1
+        end
     end
   end
 
@@ -347,7 +373,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, agent, query_memo, query_page_fn) do
+  defp compile_group(group, profile_map, agent, query_memo, resolvers) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -369,7 +395,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
     with {:ok, modes} <- agent_modes(modes, group, agent),
          {:ok, targets, device_targets, query_memo} <-
-           compile_targets(group, modes, query_memo, query_page_fn) do
+           compile_targets(group, modes, query_memo, resolvers) do
       # Build settings from profile with overrides
       settings = compile_settings(profile, group)
       banner_grab = compile_banner_grab(profile, group)
@@ -446,7 +472,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_targets(group, modes, query_memo, query_page_fn) do
+  defp compile_targets(group, modes, query_memo, resolvers) do
     static_targets = Enum.uniq(group.static_targets || [])
 
     # Device targets from the SRQL query stay separate from static CIDRs so the
@@ -455,7 +481,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       query when is_binary(query) and query != "" ->
         normalized = normalize_target_query(query, group.partition)
 
-        case device_targets_for_query(normalized, query, group, modes, query_memo, query_page_fn) do
+        case device_targets_for_query(normalized, query, group, modes, query_memo, resolvers) do
           {:ok, device_targets, query_memo} ->
             {:ok, static_targets, device_targets, query_memo}
 
@@ -477,14 +503,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # the agent keeps its running config instead of receiving a group that
   # quietly sweeps a partial or empty device list. Failed reads are not written
   # to the shared query cache, so the next compile retries them.
-  defp device_targets_for_query(query, raw_query, group, modes, query_memo, query_page_fn) do
+  defp device_targets_for_query(query, raw_query, group, modes, query_memo, resolvers) do
     case classify_target_query(query) do
       {:unparseable, reason} ->
         warn_saved_query(group, raw_query, "cannot be parsed", reason)
         {:ok, [], query_memo}
 
       :ok ->
-        case target_query_rows(query, query_memo, query_page_fn) do
+        case target_query_rows(query, query_memo, resolvers) do
           {{:ok, rows}, query_memo} ->
             case build_device_targets(rows, group, query, modes) do
               {:ok, device_targets} -> {:ok, device_targets, query_memo}
@@ -632,18 +658,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp target_query_rows(query, query_memo, query_page_fn) do
+  defp target_query_rows(query, query_memo, resolvers) do
     case query_memo do
       %{^query => result} ->
         {result, query_memo}
 
       _ ->
-        result = shared_target_query_rows(query, query_page_fn)
+        result = shared_target_query_rows(query, resolvers)
         {result, Map.put(query_memo, query, result)}
     end
   end
 
-  defp shared_target_query_rows(query, query_page_fn) do
+  defp shared_target_query_rows(query, resolvers) do
     scope = {:sweep_query, query}
 
     case ConfigCache.get(:sweep, @query_cache_partition, nil, scope) do
@@ -651,7 +677,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         {:ok, rows}
 
       _ ->
-        case fetch_target_query_rows(query, query_page_fn) do
+        case fetch_target_query_rows(query, resolvers) do
           {:ok, rows} = result ->
             cache_target_query_rows(scope, rows)
             result
@@ -680,8 +706,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp fetch_target_query_rows(query, query_page_fn) do
-    fetch_target_query_pages(query, nil, [], query_page_fn)
+  defp max_alias_targets_per_device do
+    case Application.get_env(:serviceradar_core, :sweep_max_alias_targets_per_device) do
+      limit when is_integer(limit) and limit >= 0 -> limit
+      _ -> @max_alias_targets_per_device_default
+    end
+  end
+
+  defp fetch_target_query_rows(query, resolvers) do
+    with {:ok, rows} <- fetch_target_query_pages(query, nil, [], resolvers.query_page_fn) do
+      attach_alias_ips(rows, resolvers.alias_ips_fn)
+    end
   rescue
     error -> {:raised, error}
   end
@@ -710,16 +745,138 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # Keep only the fields device targets are built from, in SRQL order: the
   # first row seen for an IP wins, and the shared cache stays small.
   defp target_rows(rows) when is_list(rows) do
-    for %{"ip" => ip} = row <- rows,
-        is_binary(ip),
-        ip != "",
-        do: %{"ip" => ip, "uid" => row["uid"]}
+    for row <- rows,
+        is_map(row),
+        has_non_empty_field?(row, "ip") or has_non_empty_field?(row, "uid"),
+        do: %{"ip" => row["ip"], "uid" => row["uid"]}
+  end
+
+  defp has_non_empty_field?(row, key) do
+    case Map.get(row, key) do
+      value when is_binary(value) -> value != ""
+      _ -> false
+    end
+  end
+
+  defp attach_alias_ips(rows, alias_ips_fn) when is_list(rows) do
+    limit = max_alias_targets_per_device()
+    uids = unique_row_uids(rows)
+    primary_ips = row_primary_ips(rows)
+
+    with {:ok, alias_map} <- fetch_alias_map(uids, limit, alias_ips_fn) do
+      {:ok, Enum.flat_map(rows, &compact_target_row(&1, alias_map, primary_ips, limit))}
+    end
+  end
+
+  defp fetch_alias_map(uids, limit, _alias_ips_fn) when uids == [] or limit == 0, do: {:ok, %{}}
+
+  defp fetch_alias_map(uids, _limit, alias_ips_fn), do: alias_ips_fn.(uids)
+
+  defp unique_row_uids(rows) do
+    for %{"uid" => uid} <- rows,
+        is_binary(uid),
+        uid != "",
+        uniq: true,
+        do: uid
+  end
+
+  defp row_primary_ips(rows) do
+    for row <- rows, {_target, key} <- [device_ip_target(row["ip"])], into: MapSet.new(), do: key
+  end
+
+  defp compact_target_row(row, alias_map, primary_ips, limit) do
+    alias_ips =
+      row["uid"]
+      |> then(&Map.get(alias_map, &1, []))
+      |> bounded_device_alias_ips(primary_ips, limit)
+
+    has_ip? = has_non_empty_field?(row, "ip")
+
+    cond do
+      alias_ips != [] ->
+        [%{"ip" => row["ip"], "uid" => row["uid"], "alias_ips" => alias_ips}]
+
+      has_ip? ->
+        [%{"ip" => row["ip"], "uid" => row["uid"]}]
+
+      true ->
+        []
+    end
+  end
+
+  defp bounded_device_alias_ips(candidates, primary_ips, limit)
+       when is_list(candidates) and limit > 0 do
+    candidates
+    |> Enum.map(&device_ip_target/1)
+    |> Enum.reject(&(is_nil(&1) or MapSet.member?(primary_ips, elem(&1, 1))))
+    |> Enum.uniq_by(&elem(&1, 1))
+    |> Enum.take(limit)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp bounded_device_alias_ips(_candidates, _primary_ips, _limit), do: []
+
+  @active_device_alias_ips_sql """
+  SELECT ranked.device_id, ranked.alias_value
+  FROM (
+    SELECT
+      a.device_id,
+      a.alias_value,
+      ROW_NUMBER() OVER (
+        PARTITION BY a.device_id
+        ORDER BY
+          CASE WHEN a.state IN ('confirmed', 'updated') THEN 0 ELSE 1 END ASC,
+          a.last_seen_at DESC NULLS LAST,
+          a.sighting_count DESC NULLS LAST,
+          a.alias_value ASC
+      ) AS rn
+    FROM platform.device_alias_states a
+    WHERE a.device_id = ANY($1::text[])
+      AND a.alias_type = 'ip'
+      AND a.state IN ('confirmed', 'updated', 'detected')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM platform.ocsf_devices d
+        WHERE d.deleted_at IS NULL
+          AND COALESCE(d.partition, 'default') = COALESCE(a.partition, 'default')
+          AND (CASE WHEN pg_input_is_valid(d.ip, 'inet') THEN d.ip::inet END) =
+            (CASE WHEN pg_input_is_valid(a.alias_value, 'inet') THEN a.alias_value::inet END)
+      )
+  ) ranked
+  WHERE ranked.rn <= $2
+  ORDER BY ranked.device_id ASC, ranked.rn ASC
+  """
+
+  defp load_active_device_alias_ips(uids) when is_list(uids) do
+    limit = max_alias_targets_per_device()
+
+    uids
+    |> Enum.chunk_every(@alias_lookup_chunk_size)
+    |> Enum.reduce_while({:ok, %{}}, fn chunk, {:ok, acc} ->
+      case Repo.query(@active_device_alias_ips_sql, [chunk, limit]) do
+        {:ok, %{rows: rows}} ->
+          chunk_map =
+            Enum.group_by(
+              rows,
+              fn [device_id, _alias_value] -> device_id end,
+              fn [_device_id, alias_value] -> alias_value end
+            )
+
+          {:cont, {:ok, Map.merge(acc, chunk_map)}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp build_device_targets(rows, group, query, modes) do
+    primary_targets =
+      Enum.reduce(rows, %{}, &put_device_target_from_row(&1, &2, group, modes))
+
     device_targets =
       rows
-      |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
+      |> Enum.reduce(primary_targets, &put_alias_targets_from_row(&1, &2, group, modes))
       |> Map.values()
       |> Enum.sort_by(& &1["network"])
 
@@ -745,22 +902,28 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp put_device_target_from_row(row, targets, group, modes) when is_map(row) do
-    case Map.get(row, "ip") do
-      value when is_binary(value) ->
-        case normalize_device_ip_target(value) do
-          nil ->
-            targets
-
-          target ->
-            Map.put_new(targets, target, device_target_from_row(row, target, group, modes))
-        end
-
-      _ ->
+    case device_ip_target(Map.get(row, "ip")) do
+      nil ->
         targets
+
+      {target, key} ->
+        Map.put_new(targets, key, device_target_from_row(row, target, group, modes))
     end
   end
 
   defp put_device_target_from_row(_row, targets, _group, _modes), do: targets
+
+  defp put_alias_targets_from_row(%{"alias_ips" => alias_ips} = row, targets, group, modes)
+       when is_list(alias_ips) do
+    Enum.reduce(alias_ips, targets, fn alias_ip, acc ->
+      case device_ip_target(alias_ip) do
+        nil -> acc
+        {target, key} -> Map.put_new(acc, key, device_target_from_row(row, target, group, modes))
+      end
+    end)
+  end
+
+  defp put_alias_targets_from_row(_row, targets, _group, _modes), do: targets
 
   # device_uid is the only per-target metadata anything reads (the
   # device_sweep_overlap view); nothing in the agent or core consumes the
@@ -782,15 +945,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp maybe_put_string(metadata, key, value), do: Map.put(metadata, key, to_string(value))
 
-  defp normalize_device_ip_target(value) when is_binary(value) do
-    value = String.trim(value)
+  defp device_ip_target(value) when is_binary(value) do
+    target = String.trim(value)
 
-    if valid_ip_address?(value), do: value
+    case :inet.parse_strict_address(String.to_charlist(target)) do
+      {:ok, address} -> {target, address}
+      {:error, _} -> nil
+    end
   end
 
-  defp valid_ip_address?(value) do
-    value != "" and match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(value)))
-  end
+  defp device_ip_target(_value), do: nil
 
   defp merge_ports(nil, group), do: normalize_ports_override(group.ports, [])
 
