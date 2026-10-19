@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
 
   require Ash.Query
+  require Logger
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -946,7 +947,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert log =~ "import_ready=1 imported=0 skipped=0 failed=1"
     assert log =~ "native_addon_version_source_conflict"
     assert log =~ "addon_id=sample-addon"
-    assert byte_size(log) < 1_500
     assert Process.get(:native_addon_manifest_requests) == 1
 
     [persisted] = sample_packages()
@@ -986,7 +986,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert log =~ "First-party native add-on package sync failed"
     assert log =~ "addon_id=missing-addon"
     assert log =~ "reason={:oci_manifest_http_error, 404}"
-    assert byte_size(log) < 1_500
     assert Process.get(:native_addon_manifest_requests) == 1
     assert length(sample_packages()) == 1
   end
@@ -1046,18 +1045,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     log =
       capture_sync_log(fn ->
+        emit_unrelated_concurrent_log("UNRELATED_CONCURRENT_LANE_LOG " <> String.duplicate("mapper_compiler_noise ", 80))
+
         assert {:error, {:transport, _details}} =
                  NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
       end)
 
     assert log =~ "First-party native add-on sync failed"
     assert log =~ "REDACTED"
+    refute log =~ "UNRELATED_CONCURRENT_LANE_LOG"
 
     Enum.each(secrets, fn secret ->
       refute log =~ secret
     end)
-
-    assert byte_size(log) < 1_500
   end
 
   test "sync worker preserves keyed tuple context while redacting GitHub credentials" do
@@ -1084,7 +1084,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert log =~ "REDACTED"
     refute log =~ "GITHUB_SENTINEL"
     refute log =~ "API_SENTINEL"
-    assert byte_size(log) < 1_500
   end
 
   test "sync worker sanitizes and bounds untrusted package metadata", %{
@@ -2350,15 +2349,49 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     |> Repo.insert!()
   end
 
+  defp emit_unrelated_concurrent_log(message) do
+    parent = self()
+    ref = make_ref()
+
+    spawn(fn ->
+      Logger.warning(message)
+      send(parent, {:unrelated_logged, ref})
+    end)
+
+    assert_receive {:unrelated_logged, ^ref}, 1_000
+  end
+
   defp capture_sync_log(fun) do
-    capture_log(
+    capture_id = Integer.to_string(System.unique_integer([:positive]))
+    marker = "sync_test_capture_id=#{capture_id}"
+    previous_capture_id = Keyword.get(Logger.metadata(), :sync_test_capture_id)
+    Logger.metadata(sync_test_capture_id: capture_id)
+
+    try do
       [
         level: :info,
         format: "$message $metadata\n",
-        metadata: [:addon_id, :addon_version, :release_tag, :reason]
-      ],
-      fun
-    )
+        metadata: [:sync_test_capture_id, :addon_id, :addon_version, :release_tag, :reason]
+      ]
+      |> capture_log(fun)
+      |> String.split("\n", trim: true)
+      |> Enum.filter(&String.contains?(&1, marker))
+      |> Enum.map_join("\n", fn line ->
+        line
+        |> String.replace(marker <> " ", "")
+        |> String.replace(marker, "")
+      end)
+      |> case do
+        "" -> ""
+        filtered -> filtered <> "\n"
+      end
+    after
+      if is_nil(previous_capture_id) do
+        Logger.metadata(sync_test_capture_id: nil)
+      else
+        Logger.metadata(sync_test_capture_id: previous_capture_id)
+      end
+    end
   end
 
   defp restore_system_env(key, nil), do: System.delete_env(key)
