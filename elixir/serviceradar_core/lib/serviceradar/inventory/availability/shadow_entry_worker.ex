@@ -1,0 +1,145 @@
+defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
+  @moduledoc """
+  The work of entering `shadow` (`add-merged-device-availability`, stage b), enqueued by
+  `ServiceRadar.Inventory.Availability.Mode.enter_shadow/0`. Two jobs:
+
+    * `"resolve"`: one full resolution of every live device, paged by uid, 500 per
+      transaction, through `Resolution.resolve_locked/2`. The invalidation log is empty
+      in `legacy`, so without this a device that sees no new evidence would never get a
+      shadow decision. Shadow rows are written on change, so a repeat costs reads only.
+    * `"seed_legacy"`: copies every device's current `is_available` into
+      `device_availability_legacy`, write-on-change, so the divergence report's Armis
+      section has a value for devices no legacy writer has touched since stage a. Each
+      page locks its device rows `FOR NO KEY UPDATE SKIP LOCKED`, so it never waits on
+      a writer; a device a writer held is left to that writer's own trigger, or to a
+      later run: the job snoozes while any device still differs.
+
+  Neither phase writes `ocsf_devices`, so no legacy reader, rollup or publisher sees it.
+  Both stop when the mode is no longer `shadow`.
+  """
+
+  use Oban.Worker, queue: :maintenance, max_attempts: 20
+
+  import Ecto.Query
+
+  alias ServiceRadar.Inventory.Availability.Mode
+  alias ServiceRadar.Inventory.Availability.Resolution
+  alias ServiceRadar.Repo
+
+  require Logger
+
+  @phases ["resolve", "seed_legacy"]
+  @seed_page_size 1_000
+  @retry_seconds 60
+
+  @live_page """
+  SELECT uid FROM platform.ocsf_devices
+  WHERE uid > $1::text AND deleted_at IS NULL
+  ORDER BY uid
+  LIMIT $2
+  """
+
+  @seed_page """
+  WITH page AS (
+    SELECT uid, is_available FROM platform.ocsf_devices
+    WHERE uid > $1::text
+    ORDER BY uid
+    LIMIT $2
+    FOR NO KEY UPDATE SKIP LOCKED
+  )
+  , seeded AS (
+    INSERT INTO platform.device_availability_legacy AS legacy (device_uid, is_available, updated_at)
+    SELECT uid, is_available, (now() AT TIME ZONE 'utc') FROM page
+    ON CONFLICT (device_uid) DO UPDATE
+      SET is_available = EXCLUDED.is_available, updated_at = EXCLUDED.updated_at
+      WHERE legacy.is_available IS DISTINCT FROM EXCLUDED.is_available
+    RETURNING 1
+  )
+  SELECT (SELECT count(*) FROM page), (SELECT max(uid) FROM page), (SELECT count(*) FROM seeded)
+  """
+
+  @seed_pending """
+  SELECT EXISTS (
+    SELECT 1 FROM platform.ocsf_devices AS d
+    LEFT JOIN platform.device_availability_legacy AS legacy ON legacy.device_uid = d.uid
+    WHERE legacy.device_uid IS NULL OR legacy.is_available IS DISTINCT FROM d.is_available
+  )
+  """
+
+  @doc """
+  Enqueues both phases through the repo, inside the caller's transaction when there is
+  one (the mode switch holds the settings row, so two switches cannot both enqueue). A
+  phase that is already waiting to run is not enqueued again. Needs no running Oban
+  instance, so the switch works from a release `eval` too.
+  """
+  @spec enqueue() :: :ok
+  def enqueue do
+    worker = inspect(__MODULE__)
+
+    for phase <- @phases do
+      waiting? =
+        Oban.Job
+        |> where([j], j.worker == ^worker and j.state in ["available", "scheduled", "retryable"])
+        |> where([j], fragment("?->>'phase' = ?", j.args, ^phase))
+        |> Repo.exists?(prefix: "platform")
+
+      if not waiting?, do: Repo.insert!(new(%{"phase" => phase}), prefix: "platform")
+    end
+
+    :ok
+  end
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"phase" => "resolve"}}) do
+    if Mode.current() == :shadow do
+      {pages, resolved} = resolve_all("", 0, 0)
+
+      Logger.info("availability shadow entry: full resolution done",
+        pages: pages,
+        devices: resolved
+      )
+    end
+
+    :ok
+  end
+
+  def perform(%Oban.Job{args: %{"phase" => "seed_legacy"}}) do
+    if Mode.current() == :shadow do
+      seeded = seed_all("", 0)
+      Logger.info("availability shadow entry: compatibility table seeded", rows: seeded)
+      if pending?(), do: {:snooze, @retry_seconds}, else: :ok
+    else
+      :ok
+    end
+  end
+
+  def perform(%Oban.Job{}), do: :ok
+
+  defp resolve_all(cursor, pages, resolved) do
+    %{rows: rows} = Repo.query!(@live_page, [cursor, Resolution.batch_size()])
+
+    case Enum.map(rows, &hd/1) do
+      [] ->
+        {pages, resolved}
+
+      uids ->
+        {:ok, result} = Repo.transaction(fn -> Resolution.resolve_locked(uids) end)
+        resolve_all(List.last(uids), pages + 1, resolved + result.resolved)
+    end
+  end
+
+  defp seed_all(cursor, seeded) do
+    {:ok, [count, last, written]} =
+      Repo.transaction(fn ->
+        %{rows: [row]} = Repo.query!(@seed_page, [cursor, @seed_page_size])
+        row
+      end)
+
+    if count == 0, do: seeded, else: seed_all(last, seeded + written)
+  end
+
+  defp pending? do
+    %{rows: [[pending?]]} = Repo.query!(@seed_pending)
+    pending?
+  end
+end

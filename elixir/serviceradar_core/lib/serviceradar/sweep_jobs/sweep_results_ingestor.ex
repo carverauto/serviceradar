@@ -41,6 +41,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.Identity.Fence
@@ -1783,6 +1784,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       maybe_add_sweep_source(changed_uids)
     end
+
+    # Merged availability, stage b: every device whose per-agent row was accepted is
+    # resolved in its own transaction after the legacy writes above have committed,
+    # whatever this reporter's authorization (an ineligible row still changes the agent
+    # counters). Writes only the shadow table; in legacy a cached mode check, no query.
+    _ = Availability.resolve_devices(Enum.map(accepted_observations, & &1.device_uid))
 
     :ok
   end

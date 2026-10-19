@@ -9,10 +9,18 @@ defmodule ServiceRadar.Inventory.Availability.EvidencePlan do
   `merge/3` decides whether that row must be written over the stored one. Decision-bearing
   changes are written at once; an unchanged observation only renews the lease once less
   than half of it remains, so a steady source writes about twice per TTL.
+
+  Coalescing means a stored `up` can be older than the source's latest `up`. A `down`
+  observed within half a lease of the stored `up` may therefore be older than an `up`
+  that was coalesced away (review finding R5, accepted for stage b). Such a flip is
+  written as usual and marked in its `detail` under `"coalesced_flip"`, so the
+  divergence report can count how often it happens.
   """
 
   alias ServiceRadar.Inventory.Availability.AuthorityClass
   alias ServiceRadar.Inventory.Availability.Sources
+
+  @coalesced_flip_key "coalesced_flip"
 
   # The column allows 2 KB of jsonb text, which spaces keys and values more widely
   # than Jason does; half of it leaves room for that.
@@ -82,7 +90,7 @@ defmodule ServiceRadar.Inventory.Availability.EvidencePlan do
     if DateTime.before?(row.observed_at, existing.observed_at) do
       :skip
     else
-      merged = carry_over(existing, row)
+      merged = existing |> carry_over(row) |> mark_coalesced_flip(existing)
 
       if decision_bearing?(existing, merged) or lease_due?(existing, merged, now),
         do: {:write, merged},
@@ -103,6 +111,26 @@ defmodule ServiceRadar.Inventory.Availability.EvidencePlan do
       row
     end
   end
+
+  @doc "The `detail` key that marks a flip to `down` inside the coalescing window."
+  @spec coalesced_flip_key() :: String.t()
+  def coalesced_flip_key, do: @coalesced_flip_key
+
+  defp mark_coalesced_flip(%{state: "down"} = row, %{state: "up"} = existing) do
+    half_lease = div(DateTime.diff(existing.expires_at, existing.observed_at, :millisecond), 2)
+
+    if DateTime.before?(
+         row.observed_at,
+         DateTime.add(existing.observed_at, half_lease, :millisecond)
+       ) do
+      flip = %{"previous_up_observed_at" => DateTime.to_iso8601(existing.observed_at)}
+      %{row | detail: Map.put(row.detail, @coalesced_flip_key, flip)}
+    else
+      row
+    end
+  end
+
+  defp mark_coalesced_flip(row, _existing), do: row
 
   defp decision_bearing?(existing, row) do
     existing.state != row.state or

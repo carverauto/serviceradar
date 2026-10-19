@@ -747,6 +747,22 @@ and every rollback keeps readers, rollups, publishers and Armis consistent:
   gate for phase 2.
 - Rollback: mode `legacy`; drop the shadow rows.
 
+Stage b as built:
+
+- The sweep ingestor's ledger upsert and status updates are separate autocommit
+  statements, so its inline resolution runs in its own transaction right after them,
+  for every device whose ledger row was accepted.
+- Restores reach the resolver through the log: a trigger appends a restored tombstone,
+  and a new device, outside `legacy`. One restore path is a raw upsert that no inline
+  call can reach. Merge and unmerge resolve inline.
+- `record_evidence/2` locks the device rows before the evidence rows when it will
+  resolve, the order a merge holds them in (device rows, then their evidence).
+- Before a device's first shadow decision its previous state is the legacy mirror.
+- The expiry job keeps `availability_settings.expiry_watermark`, set on entering
+  `shadow`, and reads ledger expiries through an index on `checked_at`.
+- The report reads at `READ COMMITTED` inside one read-only transaction, so sections
+  can differ by concurrent writes.
+
 **(c) Cutover, mode `cutover` and then `authoritative`.** The mode switch to
 `cutover` drains the legacy writers. Under that drained boundary, before any
 reader is switched, `device_availability_legacy` is seeded from the current

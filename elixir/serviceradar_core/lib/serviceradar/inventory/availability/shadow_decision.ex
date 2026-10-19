@@ -1,8 +1,8 @@
 defmodule ServiceRadar.Inventory.Availability.ShadowDecision do
   @moduledoc """
   The resolver's decision for a device while availability runs in `shadow` mode
-  (`device_availability_shadow`). Stage a creates the table; the resolver that writes it
-  arrives with stage b.
+  (`device_availability_shadow`). Written only by
+  `ServiceRadar.Inventory.Availability.Resolution`, on change, under the device lock.
   """
 
   use Ash.Resource,
@@ -38,6 +38,7 @@ defmodule ServiceRadar.Inventory.Availability.ShadowDecision do
     attribute :decided_by, :map, public?: true
     attribute :conflict, :boolean, allow_nil?: false, default: false, public?: true
     attribute :agents, :map, public?: true
+    attribute :changed_at, :utc_datetime_usec, public?: true
     attribute :computed_at, :utc_datetime_usec, allow_nil?: false, public?: true
   end
 end

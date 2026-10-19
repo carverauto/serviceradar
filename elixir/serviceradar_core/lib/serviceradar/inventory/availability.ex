@@ -8,13 +8,19 @@ defmodule ServiceRadar.Inventory.Availability do
   `record_evidence/2`. Agent reachability probes are not evidence here: they stay in the
   per-agent ledger (`device_agent_availability`).
 
-  ## Stage a: capture only
+  ## Capture
 
-  The deployment runs in `legacy` mode. Evidence is recorded alongside the legacy
-  writes, which still own `ocsf_devices.is_available`; nothing resolves it yet. Writers
-  call `capture/2`, which never fails the write it accompanies: it is skipped when
-  capture is switched off, isolates its statements in a savepoint inside a caller's
-  transaction, and logs instead of raising.
+  Evidence is recorded alongside the legacy writes, which still own
+  `ocsf_devices.is_available`. Writers call `capture/2`, which never fails the write it
+  accompanies: it is skipped when capture is switched off, isolates its statements in a
+  savepoint inside a caller's transaction, and logs instead of raising.
+
+  ## Resolution (stage b)
+
+  In `shadow` mode `record_evidence/2` resolves the devices whose evidence it wrote in
+  the same transaction (`resolve_devices/1`), so generic evidence never waits for the
+  invalidation log. The decision goes only to `device_availability_shadow`. In `legacy`
+  the mode check is a cached read and nothing else runs.
 
   Capture is on by default. Set `config :serviceradar_core, #{inspect(__MODULE__)},
   evidence_capture: false` (`SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE=false`) to turn
@@ -25,6 +31,8 @@ defmodule ServiceRadar.Inventory.Availability do
 
   alias ServiceRadar.Inventory.Availability.DeviceEvidence
   alias ServiceRadar.Inventory.Availability.EvidencePlan
+  alias ServiceRadar.Inventory.Availability.Mode
+  alias ServiceRadar.Inventory.Availability.Resolution
   alias ServiceRadar.Inventory.Availability.Sources
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
@@ -56,7 +64,9 @@ defmodule ServiceRadar.Inventory.Availability do
   skipped. Rows are written in key order, so concurrent writers lock in one order.
 
   Planning and writing run in one transaction that locks the existing rows, so
-  concurrent submissions for one key are serialized.
+  concurrent submissions for one key are serialized. In `shadow` the devices' rows are
+  locked first, in uid order, and the devices whose evidence was written are resolved
+  before the transaction ends.
 
   Options: `:now` (defaults to the current time).
   """
@@ -80,17 +90,81 @@ defmodule ServiceRadar.Inventory.Availability do
   end
 
   defp plan_and_write(rows, now, query_opts) do
+    resolving? = Mode.resolving?()
+
+    # Device rows before evidence rows, the order a merge (which moves evidence while
+    # holding both devices) and every resolution lock in. Under the lock, a device a merge
+    # tombstoned meanwhile is dropped, so its evidence is not written after the move.
+    rows =
+      if resolving? do
+        live = Resolution.lock_devices(Enum.map(rows, & &1.device_uid), query_opts)
+        Enum.filter(rows, &MapSet.member?(live, &1.device_uid))
+      else
+        rows
+      end
+
     existing = load_existing(rows, query_opts)
 
-    rows
-    |> Enum.flat_map(fn row ->
-      case EvidencePlan.merge(Map.get(existing, key(row)), row, now) do
-        {:write, merged} -> [merged]
-        :skip -> []
-      end
-    end)
-    |> Enum.sort_by(&key/1)
-    |> write(query_opts)
+    planned =
+      rows
+      |> Enum.flat_map(fn row ->
+        case EvidencePlan.merge(Map.get(existing, key(row)), row, now) do
+          {:write, merged} -> [merged]
+          :skip -> []
+        end
+      end)
+      |> Enum.sort_by(&key/1)
+
+    written = write(planned, query_opts)
+    if resolving?, do: Resolution.resolve_devices(Enum.map(planned, & &1.device_uid))
+    written
+  end
+
+  @doc """
+  Resolves `device_uids` inline for a write path: in `shadow`, under the device locks in
+  the caller's transaction (or its own), writing `device_availability_shadow` on change.
+  A no-op in `legacy`. Never fails the caller; see `Resolution.resolve_devices/1`.
+  """
+  @spec resolve_devices([String.t()]) :: {:ok, Resolution.result() | :legacy} | {:error, term()}
+  defdelegate resolve_devices(device_uids), to: Resolution
+
+  @move_evidence """
+  WITH moved AS (
+    DELETE FROM platform.device_availability_evidence
+    WHERE device_uid = $1
+    RETURNING *
+  )
+  INSERT INTO platform.device_availability_evidence AS e
+    (device_uid, source_kind, source_instance, reporter_agent_id, authority_class, state,
+     observed_at, expires_at, state_since, confirmations, reporter_eligible, detail, updated_at)
+  SELECT $2, source_kind, source_instance, reporter_agent_id, authority_class, state,
+         observed_at, expires_at, state_since, confirmations, reporter_eligible, detail,
+         (now() AT TIME ZONE 'utc')
+  FROM moved
+  ON CONFLICT (device_uid, source_kind, source_instance, reporter_agent_id) DO UPDATE
+    SET authority_class = EXCLUDED.authority_class,
+        state = EXCLUDED.state,
+        observed_at = EXCLUDED.observed_at,
+        expires_at = EXCLUDED.expires_at,
+        state_since = EXCLUDED.state_since,
+        confirmations = EXCLUDED.confirmations,
+        reporter_eligible = EXCLUDED.reporter_eligible,
+        detail = EXCLUDED.detail,
+        updated_at = EXCLUDED.updated_at
+    WHERE EXCLUDED.observed_at > e.observed_at
+  """
+
+  @doc """
+  Moves a merged-away device's evidence to the survivor (design Decision 11). On a key
+  both devices hold, the later observation wins. Runs in the merge transaction, which
+  already holds both device rows, so it locks only evidence rows of those devices.
+  """
+  @spec move_evidence(String.t(), String.t()) :: :ok | {:error, term()}
+  def move_evidence(from_uid, to_uid) do
+    case Repo.query(@move_evidence, [from_uid, to_uid]) do
+      {:ok, _result} -> :ok
+      {:error, _} = error -> error
+    end
   end
 
   @doc """

@@ -1207,6 +1207,11 @@ if config_env() == :prod do
       # agent gone) otherwise stay running forever. Kept in step with
       # serviceradar_core's runtime.exs.
       {"*/5 * * * *", ServiceRadar.SweepJobs.ExecutionReaperWorker, queue: :maintenance},
+      # Merged device availability (stage b): drains the invalidation log and re-resolves
+      # devices whose evidence aged out. Both return at once outside `shadow` mode. Kept
+      # in step with serviceradar_core's runtime.exs and config.exs.
+      {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
+      {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
