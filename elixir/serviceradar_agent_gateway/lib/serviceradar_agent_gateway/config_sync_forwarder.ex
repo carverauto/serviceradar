@@ -77,6 +77,20 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   end
 
   @doc """
+  Asks core to push the current config to an agent if its acknowledged version
+  is stale.
+
+  Called on control-session reconnect: a broadcast push fired while the agent
+  was offline silently drops when no live session exists. This call delivers
+  the update as soon as the new session registers rather than waiting for the
+  agent's next poll cycle.
+  """
+  @spec request_config_push(String.t()) :: :ok | {:error, term()}
+  def request_config_push(agent_id) when is_binary(agent_id) do
+    core_call(:push_config, [agent_id])
+  end
+
+  @doc """
   Persists the config version pushed to an agent over the control stream.
 
   Core decides whether this push moves `config_pushed_at`. See
