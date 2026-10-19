@@ -1046,7 +1046,7 @@ installed versions.
 | `cpe` | `coordinate_value` | Correlated raw match evidence, when present |
 | `advisory_ref` | | Advisory UUID resolved through correlated raw-match or normalized assertion evidence |
 | `epss_score` / `due_date` / `ransomware_use` | | Lifted from assessment metadata |
-| `last_seen_at` | `last_seen`, `time` | When the assessment was last confirmed (sort and `time:`). For an active assessment, the later of its last change and its device's latest matcher evaluation; for a resolved assessment, its own time |
+| `last_seen_at` | `last_seen`, `time` | When the assessment was last confirmed (sort and `time:`). For an active assessment, the later of its last change and its device's latest matcher evaluation; for an assessment the matcher stopped producing (unconfirmed or resolved), its own time or the last confirmation recorded when it stopped being produced |
 | `last_changed_at` | `last_changed` | When the assessment row was last written: created, changed, resolved, or marked unconfirmed (sort only) |
 
 Row browsing returns confirmed, candidate, and resolved assessments unless
