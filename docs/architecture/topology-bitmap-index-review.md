@@ -9,7 +9,7 @@ artifact validation, not proof that the implementation or rollout is complete.
 | --- | --- | ---: |
 | [Architecture source](topology-bitmap-index.architecture.json) | `dafe233cc5fdac61462a4dca39eb0624d9420cd49bc2d060872bbae26f9a317c` | 3688 |
 | [Architecture HTML](topology-bitmap-index.html) | `64ca70e0515cbd6053f7d6504da030c94192ad94e26ab5086a87aab764ed3209` | 707942 |
-| [Portable proposal](topology-bitmap-index-proposal.html) | `019dbbdf518afda21318bdcc7eacb60b24967dd6af5dd5f88427790b05d8cd9e` | 914165 |
+| [Portable proposal](topology-bitmap-index-proposal.html) | `9a07010a7f36c166957d62c8d5238d027baa8be88754d4d11fc7af1e592934e9` | 914209 |
 
 The portable proposal embeds checksummed copies of the approved proposal,
 design, delta requirements, implementation tasks and review response. It also

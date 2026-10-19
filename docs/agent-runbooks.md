@@ -12,8 +12,9 @@ Related runbooks in this directory:
 - [Atlas server scale acceptance](topology-bitmap-scale-acceptance.md): the
   opt-in hosted scratch-database workload for two publishers and 100 real
   WebSocket views, with database, memory and recovery measurement procedures.
-  The compact acceptance run has executed and failed; sparse has not run, and
-  combined acceptance remains pending.
+  The compact acceptance run passed at commit 1887ee528e and sparse failed
+  there; combined acceptance remains pending until both pass on a revised
+  commit.
 - [NATS JetStream sizing profiles](nats-jetstream-profile-runbook.md): the
   chart's render-time JetStream budget, moving a live install to a larger
   `nats.jetstream.profile` (PVC expansion), and reclaiming a collector-owned

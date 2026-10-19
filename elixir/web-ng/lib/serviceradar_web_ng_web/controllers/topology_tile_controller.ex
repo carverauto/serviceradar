@@ -232,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   end
 
   defp authorize_relayout(scope) do
-    case authorize_scope(scope, ["settings.networks.manage"]) do
+    case RBAC.authorize_current(scope, ["settings.networks.manage"]) do
       {:ok, current_scope} -> {:ok, current_scope}
       {:error, _reason} -> {:error, :forbidden}
     end
@@ -250,18 +250,13 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   defp current_authority(conn) do
     with true <- FeatureFlags.god_view_enabled?(),
          %Scope{user: user} = scope when not is_nil(user) <- conn.assigns[:current_scope],
-         {:ok, current_scope} <- authorize_scope(scope, ["analytics.view", "devices.view"]) do
+         {:ok, current_scope} <- RBAC.authorize_current(scope, ["analytics.view", "devices.view"]) do
       {:ok, current_scope}
     else
       false -> {:error, :god_view_disabled}
       {:error, _reason} -> {:error, :forbidden}
       _ -> {:error, :unauthorized}
     end
-  end
-
-  defp authorize_scope(scope, permissions) do
-    module = Application.get_env(:serviceradar_web_ng, :current_user_authorization_module, RBAC)
-    module.authorize_current(scope, permissions)
   end
 
   defp generation_headers(conn, manifest) do

@@ -14,7 +14,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   alias ServiceRadarWebNG.Topology.TileWatchTasks
   alias ServiceRadarWebNGWeb.TopologyQueryController
   alias ServiceRadarWebNGWeb.TopologyTileChannel
-  alias ServiceRadarWebNGWeb.TopologyTileController
 
   @moduletag :db_free
 
@@ -397,44 +396,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
 
     flags = [:god_view_enabled]
     previous = Map.new(flags, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
-    previous_authorization = Application.get_env(:serviceradar_web_ng, :current_user_authorization_module)
     Enum.each(flags, &Application.put_env(:serviceradar_web_ng, &1, true))
-
-    Application.put_env(
-      :serviceradar_web_ng,
-      :current_user_authorization_module,
-      __MODULE__.TileAuthorization
-    )
 
     on_exit(fn ->
       Enum.each(previous, fn
         {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
         {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
       end)
-
-      restore_env(:current_user_authorization_module, previous_authorization)
     end)
 
-    scope = %Scope{user: %{id: "synthetic-user"}}
-
     budget =
-      scope
+      %Scope{user: %{id: "synthetic-user"}}
       |> then(&Plug.Conn.assign(Plug.Test.conn(:post, "/topology/query"), :current_scope, &1))
       |> TopologyQueryController.create(%{"expression" => String.duplicate("x", 20_000)})
 
     assert budget.status == 413
     assert Jason.decode!(budget.resp_body) == %{"error" => "query_budget"}
     assert Plug.Conn.get_resp_header(budget, "retry-after") == []
-
-    missing_world =
-      :get
-      |> Plug.Test.conn("/topology/tiles/search")
-      |> Plug.Conn.assign(:current_scope, scope)
-      |> TopologyTileController.search(%{"device_id" => "synthetic"})
-
-    assert missing_world.status == 503
-    assert Jason.decode!(missing_world.resp_body) == %{"error" => "world_unavailable"}
-    assert Plug.Conn.get_resp_header(missing_world, "retry-after") == ["1"]
   end
 
   test "multipart uploads receive HTTP 400 before query admission" do
@@ -663,17 +641,4 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     do: Native.bitmap_index_query(index, @dictionary, @epoch, :device, @authority, parsed.program, 1000)
 
   defp predicate(facet, value), do: %{"facet" => facet, "value" => value}
-
-  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
-  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
-end
-
-defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest.TileAuthorization do
-  @moduledoc false
-
-  def authorize_current(%{user: %{id: id}} = scope, permissions) when is_binary(id) and is_list(permissions) do
-    {:ok, scope}
-  end
-
-  def authorize_current(_scope, _permissions), do: {:error, :permission_revoked}
 end

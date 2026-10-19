@@ -736,6 +736,77 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert after_prefix.progress.index_revision == stable.progress.index_revision
   end
 
+  test "tile HTTP classifies failures for a current viewer and refuses relayout without network management" do
+    user =
+      User
+      |> Ash.Changeset.for_create(
+        :create,
+        %{email: "bitmap-tile-status-#{System.unique_integer([:positive])}@example.com", role: :viewer},
+        actor: @actor
+      )
+      |> Ash.create!()
+
+    scope = Scope.for_user(user)
+    tile = fn version, z -> %{"layout_version" => version, "z" => Integer.to_string(z), "x" => "0", "y" => "0"} end
+    overlay = fn revision -> Map.put(tile.(@version, 0), "revision", revision) end
+
+    http = fn action, params ->
+      conn = apply(TopologyTileController, action, [binary_conn(scope), params])
+      {conn.status, Jason.decode!(conn.resp_body), Plug.Conn.get_resp_header(conn, "retry-after")}
+    end
+
+    assert {403, %{"error" => "forbidden"}, []} = http.(:relayout, %{})
+    assert {400, %{"error" => "invalid_revision"}, []} = http.(:overlay, overlay.(String.duplicate("A", 64)))
+    assert {503, %{"error" => "world_unavailable"}, ["1"]} = http.(:overlay, overlay.(String.duplicate("a", 64)))
+    assert {503, %{"error" => "world_unavailable"}, ["1"]} = http.(:search, %{"device_id" => "synthetic"})
+
+    start_supervised!({__MODULE__.Upstream, name: WorldOverlay, reply: {:error, :overlay_budget_exceeded}})
+    assert {413, %{"error" => "topology_budget_exceeded"}, []} = http.(:overlay, overlay.(String.duplicate("b", 64)))
+    stop_supervised!(__MODULE__.Upstream)
+
+    start_supervised!({__MODULE__.Upstream, name: WorldCache, reply: {:error, :tile_budget_exceeded}})
+    assert {413, %{"error" => "topology_budget_exceeded"}, []} = http.(:show, tile.(@version, 0))
+    stop_supervised!(__MODULE__.Upstream)
+
+    tasks = start_supervised!({Task.Supervisor, max_children: 4})
+    start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
+    {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
+
+    :ok =
+      TopologyAtlas.add_positions(builder, [
+        %{
+          device_id: "sr:bitmap-tile-status",
+          label: "Synthetic device",
+          x: 20,
+          y: 20,
+          min_zoom: 0,
+          parent_id: nil,
+          component_id: "invented-bitmap-component",
+          component_z: 1,
+          component_x: 0,
+          component_y: 0,
+          placement_depth: 4,
+          active: true
+        }
+      ])
+
+    {:ok, world} = TopologyAtlas.finish_world(builder)
+    manifest = %{layout_version: @version, generation: 1, zmax: 0}
+
+    prepared =
+      Map.new(TileKey.low_zoom(manifest), fn key ->
+        {:ok, built} = WorldTile.build(world, key)
+        {key, built}
+      end)
+
+    :ok = WorldCache.install(world, manifest, prepared)
+
+    assert {409, %{"error" => "layout_changed"}, []} =
+             http.(:show, tile.("00000000-0000-4000-8000-000000000614", 3))
+
+    assert {400, %{"error" => "invalid_tile"}, []} = http.(:show, tile.(@version, 3))
+  end
+
   defp await_catalog(source, labels) do
     await(
       fn -> BitmapPrefixTags.page(%{"source" => source}, <<61::256>>, System.monotonic_time(:millisecond) + 1_000) end,
@@ -951,4 +1022,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         await(read, predicate, deadline)
     end
   end
+end
+
+defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest.Upstream do
+  @moduledoc false
+  use GenServer
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :reply), name: Keyword.fetch!(opts, :name))
+  end
+
+  @impl true
+  def init(reply), do: {:ok, reply}
+
+  @impl true
+  def handle_call(_request, _from, reply), do: {:reply, reply, reply}
 end
