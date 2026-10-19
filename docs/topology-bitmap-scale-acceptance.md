@@ -8,9 +8,11 @@ native world installed through `WorldCache`; canonical mappings still come
 from the real paged dictionary reader.
 
 The compact workload has not passed against the hosted database; sparse has
-not run. Earlier compact attempts stopped before any viewer started: one at a
-refused diagnostic time budget, others at HTTP 403 upgrades caused by missing
-role profiles and then by a pinned connection pool, each since corrected. The
+not run. Earlier compact attempts stopped before any viewer started: one at
+diagnostic time admission, one at tile receipt authorization (an HTTP 403 on
+`GET /topology/tiles/:version/3/:x/:y`) because role profiles were absent, and
+one during concurrent WebSocket upgrades because the Sandbox pool was pinned,
+each since corrected. The
 two latest attempts reached the viewers and failed. The latest compact attempt
 ([BuildBuddy a692930f](https://carverauto.buildbuddy.io/invocation/a692930f-82b4-4b06-8143-b1956cac1a56),
 commit 472387c7e9) seeded 1,100,000 synthetic devices with 2,200,000 addresses,
