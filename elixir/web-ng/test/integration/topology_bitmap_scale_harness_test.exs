@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
 
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Topology.BitmapFrame
+  alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
   alias ServiceRadarWebNG.Topology.Scale.Client
@@ -346,6 +347,12 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     BitmapQueries.busy(:admission_expired)
     assert {:ok, :ran} = BitmapQueryAdmission.run(fn -> :ran end, System.monotonic_time(:millisecond) + 1_000)
 
+    work = [:serviceradar, :topology, :bitmap_index, :work]
+
+    for {mode, outcome, elapsed} <- [{:seed, :ok, 30}, {:ready, :contention, 7}, {:ready, :contention, 9}] do
+      :telemetry.execute(work, %{elapsed_ms: elapsed}, %{mode: mode, work: :scan, outcome: outcome})
+    end
+
     report = Meter.report()
     assert report.instrumented
     assert %{queries: 2, rows: 3} = report.database.other
@@ -353,7 +360,54 @@ defmodule ServiceRadarWebNG.Topology.ScaleHarnessTest do
     assert report.queries.wait_ms |> Map.values() |> Enum.sum() == 1
     assert report.queries.run_ms |> Map.values() |> Enum.sum() == 1
 
+    assert Enum.sort(report.publisher.work) ==
+             Enum.sort([
+               %{mode: :seed, work: :scan, outcome: :ok, count: 1, elapsed_ms: 30},
+               %{mode: :ready, work: :scan, outcome: :contention, count: 2, elapsed_ms: 16}
+             ])
+
     :ok = :telemetry.detach(Meter)
+    refute Meter.report().instrumented
+  end
+
+  test "hint overflow is measured before readiness, with bounded counts and no device identifiers" do
+    {:ok, _} = Application.ensure_all_started(:telemetry)
+    previous = Application.fetch_env(:serviceradar_web_ng, :god_view_enabled)
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:serviceradar_web_ng, :god_view_enabled, value)
+        :error -> Application.delete_env(:serviceradar_web_ng, :god_view_enabled)
+      end
+    end)
+
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+    start_supervised!({Phoenix.PubSub, name: __MODULE__.PubSub})
+    tasks = start_supervised!({Task.Supervisor, max_children: 1})
+    # Exhaust the real worker admission so this case needs no database and
+    # holds the inbox steady while the owner continues consuming PubSub.
+    {:ok, _} = Task.Supervisor.start_child(tasks, fn -> Process.sleep(:infinity) end)
+    start_supervised!(Meter)
+    owner = start_supervised!({BitmapIndex, pubsub: __MODULE__.PubSub, task_supervisor: tasks})
+    topic = ServiceRadar.Inventory.DevicePubSub.invalidation_topic()
+    oversized = String.duplicate("synthetic-", 60_000)
+    :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, [oversized]})
+    ids = Enum.map(1..6_000, &"synthetic-#{&1}")
+    :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, ids})
+    # An already accepted duplicate does not count as overflow.
+    :ok = Phoenix.PubSub.broadcast(__MODULE__.PubSub, topic, {:devices_invalidated, ["synthetic-1"]})
+    assert {:error, :index_not_ready} = BitmapIndex.snapshot(owner)
+    report = Meter.report()
+
+    assert report.publisher.hint_overflow == %{
+             bytes: %{count: 1, limit: 524_288},
+             count: %{count: 1_000, limit: 5_000}
+           }
+
+    refute inspect(report.publisher) =~ "synthetic"
+    assert report.instrumented
+    :ok = :telemetry.detach(Meter.Publisher)
     refute Meter.report().instrumented
   end
 
