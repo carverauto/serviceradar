@@ -29,7 +29,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 - [ ] 1.5a Legacy writers (W1-W3, W5-W11, the W14 create default) also maintain `device_availability_legacy`, write-on-change, with their full computation; legacy publishers emit only in `legacy` and `shadow`.
 - [ ] 1.5b Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom, and `inventory_declared` for the awx `enabled` flag, before shadow collection starts.
 - [ ] 1.6 The composite evaluation pass materializes vantage expectations, write-on-change; every expectation change marks its device dirty.
-- [ ] 1.6a `device_availability_dirty`, enqueued with `ON CONFLICT DO UPDATE` so every enqueue takes the entry's row lock, plus the triggers that enqueue devices on `availability_source_agent_id` changes, and the profile update path that enqueues every device using a changed availability source profile.
+- [ ] 1.6a `device_availability_dirty`, enqueued with `ON CONFLICT DO UPDATE` so every enqueue takes the entry's row lock. The Ash actions that change `availability_source_agent_id` or an availability source profile enqueue the affected devices in uid order before updating any device row. Ledger and evidence writers issue multi-device writes in ascending uid order and take device row locks only after them.
 - [ ] 1.7 Backfill:
   - `consecutive_down` from `metadata.sweep_consecutive_failures`, capped;
   - vantage expectations;
@@ -39,9 +39,9 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 ## 2. Stage b: shadow (mode `shadow`)
 
 - [ ] 2.1 `Availability.Resolver.resolve/3`, a pure function implementing Decisions 3, 5, 6 and 12.
-- [ ] 2.2 Transactional resolution: uid-ordered locks, batches of at most 500, a shadow write on change only.
+- [ ] 2.2 Transactional resolution in the global lock order (dirty entries, then device rows, each in ascending uid order), batches of at most 500, a shadow write on change only.
 - [ ] 2.3 The expiry job, paged.
-- [ ] 2.3a The bounded resolver worker that drains the dirty set through `resolve_devices/2` (no-op in `legacy`, shadow writes in `shadow`). Every resolution, worker or in-transaction, claims its devices' dirty entries with `DELETE ... RETURNING` before reading any input; an invalidation after the claim re-enqueues for another pass.
+- [ ] 2.3a The bounded resolver worker that drains the dirty set through `resolve_devices/2` (no-op in `legacy`, shadow writes in `shadow`). Every resolution claims its devices' dirty entries in uid order before locking device rows or reading any input; the worker waits for its claims, inline resolution claims entries it does not already hold with `SKIP LOCKED`. An invalidation after the claim re-enqueues for another pass.
 - [ ] 2.4 Re-resolution on merge, unmerge and restore, with evidence moving on merge (Decision 11). Ledger reassignment unchanged.
 - [ ] 2.5 Divergence report:
   - counts by legacy value, legacy badge, shadow state, `source_kind` and `authority_class`;
@@ -127,6 +127,7 @@ Each contract has one owner-boundary test. No contract is replayed at another la
 - [ ] 5.5 **Armis agent path** (DB tier, in the existing runner suite). `candidates_query/1` with an agent selected returns identical rows whether or not availability resolution has run, including for a should-be-blocked agent. Canonical `legacy` reads the compatibility table, including for a device seeded at cutover that no legacy writer touches afterwards; canonical `merged` withholds unknown.
 - [ ] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched.
 - [ ] 5.6a **Invalidation** (DB tier). With `write_canonical_availability` off, two validation-scan failures (W18, unchanged code) re-resolve the device to `unavailable` before expiry; changing the pin and adding a negative-control expectation each re-resolve the device without new evidence; a steady fresh renewal through the real sweep upsert (`INSERT ... ON CONFLICT DO UPDATE`) leaves no dirty entry; and a ledger write that commits while the worker is resolving the same device (claim taken, inputs not yet committed) leaves the device queued, so the next pass resolves it from the newer result.
+- [ ] 5.6b **Writer-vs-worker concurrency** (DB tier, real concurrent transactions). A sweep transaction that writes ledger rows and resolves inline, run concurrently with the worker on the same devices in both interleavings (worker claims first; writer enqueues first), and a pin change concurrent with the worker, all complete without a deadlock error, and the device ends resolved from the newest committed inputs.
 - [ ] 5.7 **Merge** (DB tier, in the existing merge-engine suite). The survivor holds both devices' evidence and is re-resolved; ledger reassignment is unchanged.
 - [ ] 5.8 **Cutover and rollback** (DB tier). During `cutover`, ingestion plus reconciliation publish no per-device events, and a legacy writer started before the switch cannot land after it. One summary event is published. Down evidence ingested during `cutover` is not overwritten by reconciliation from an older shadow `available`. After a rollback to `legacy`, `is_available` equals the compatibility value and `availability_state` its projection.
 - [ ] 5.9 **SRQL** (Rust; extends the existing device query tables):
