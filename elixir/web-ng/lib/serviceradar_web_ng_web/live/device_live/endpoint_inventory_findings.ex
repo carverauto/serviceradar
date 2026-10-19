@@ -119,9 +119,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings do
           assessment,
           field(assessment, :evaluated_at)
         ),
-      last_changed_at:
-        field(assessment, :last_changed_at) || field(assessment, :updated_at) ||
-          field(assessment, :last_seen_at),
       resolved_at: field(assessment, :resolved_at),
       advisory: field(descriptive_match, :advisory) || %{},
       sources: sources(assessment, supporting_matches),

@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindingsTest do
            } = EndpointInventoryFindings.partition([confirmed, candidate, history])
   end
 
-  test "projects last_seen_at as last confirmation and last_changed_at as the row write timestamp" do
+  test "projects last_seen_at as the last confirmation timestamp" do
     first_seen = ~U[2099-01-01 01:00:00Z]
     row_seen = ~U[2099-01-02 01:00:00Z]
     confirmed_eval = ~U[2099-01-05 01:00:00Z]
@@ -155,7 +155,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindingsTest do
         status: "active",
         first_seen_at: first_seen,
         last_seen_at: row_seen,
-        updated_at: row_seen,
         evaluated_at: unconfirmed_eval
       })
 
@@ -166,7 +165,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindingsTest do
         status: "active",
         first_seen_at: first_seen,
         last_seen_at: row_seen,
-        updated_at: unconfirmed_eval,
         evaluated_at: resolved_at,
         metadata: %{
           "unconfirmed_since" => "2099-01-06T01:00:00.000000",
@@ -182,7 +180,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindingsTest do
         disposition: "fixed",
         first_seen_at: first_seen,
         last_seen_at: row_seen,
-        updated_at: resolved_at,
         resolved_at: resolved_at,
         evaluated_at: resolved_at
       })
@@ -193,13 +190,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindingsTest do
       |> Map.new(&{&1.id, &1})
 
     assert findings["active-confirmed"].last_seen_at == unconfirmed_eval
-    assert findings["active-confirmed"].last_changed_at == row_seen
 
     assert DateTime.compare(findings["active-unconfirmed"].last_seen_at, confirmed_eval) == :eq
-    assert findings["active-unconfirmed"].last_changed_at == unconfirmed_eval
 
     assert findings["resolved-1"].last_seen_at == row_seen
-    assert findings["resolved-1"].last_changed_at == resolved_at
   end
 
   defp assessment(overrides \\ %{}) do

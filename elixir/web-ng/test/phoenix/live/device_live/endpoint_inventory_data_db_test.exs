@@ -149,61 +149,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryDataDbTest do
     assert support.advisory.description == "Raw detail enrichment only"
   end
 
-  test "overlays device evaluation timestamp onto active unmarked assessments while keeping unconfirmed and resolved confirmation times" do
+  test "overlays device evaluation timestamp onto active unmarked assessments while keeping unconfirmed and resolved confirmation times",
+       %{scope: scope} do
     unique = System.unique_integer([:positive])
     device_uid = "sr:endpoint-eval-device-#{unique}"
     row_seen_at = ~U[2099-01-02 01:00:00.000000Z]
     prior_confirmed_at = ~U[2099-01-04 01:00:00.000000Z]
     evaluated_at = ~U[2099-01-06 01:00:00.000000Z]
-    scope = SystemActor.system(:endpoint_inventory_data_db_test)
-
-    scan =
-      EndpointInventoryScan
-      |> Ash.Changeset.for_create(:upsert, %{
-        device_uid: device_uid,
-        agent_id: "agent-eval-#{unique}",
-        last_scan_at: evaluated_at,
-        reported_package_count: 1,
-        stored_package_count: 1,
-        coverage_state: "complete",
-        current: true
-      })
-      |> Ash.create!(scope: scope)
 
     endpoint_package =
       EndpointPackage
-      |> Ash.Changeset.for_create(:upsert, %{
-        coordinate_hash: "coord-eval-#{unique}",
+      |> Ash.Changeset.for_create(:create, %{
+        coordinate_key: "pkg:deb/ubuntu/libstarling-fetch3@3.2.1-1ubuntu7.#{unique}?distro=noble",
+        purl_canonical: "pkg:deb/ubuntu/libstarling-fetch3@3.2.1-1ubuntu7.#{unique}?distro=noble",
         package_manager: "dpkg",
-        ecosystem: "ubuntu",
         name: "libstarling-fetch3",
-        version: "3.2.1-1ubuntu7.4",
+        version: "3.2.1-1ubuntu7.#{unique}",
         architecture: "amd64",
-        purl_canonical:
-          "pkg:deb/ubuntu/libstarling-fetch3@3.2.1-1ubuntu7.4?distro=noble&source=starling-fetch&sourceversion=3.2.1-1ubuntu7.4",
-        cpes: ["cpe:2.3:a:example:starling_fetch:3.2.1:*:*:*:*:*:*:*"],
-        first_seen_at: row_seen_at,
-        last_seen_at: row_seen_at
-      })
-      |> Ash.create!(scope: scope)
-
-    _inventory_package =
-      EndpointInventoryPackage
-      |> Ash.Changeset.for_create(:upsert, %{
-        device_uid: device_uid,
-        package_identity_key: "pkgid:v1:dpkg:ubuntu:libstarling-fetch3:amd64",
-        scan_ref: scan.id,
-        endpoint_package_ref: endpoint_package.id,
-        package_manager: "dpkg",
-        ecosystem: "ubuntu",
-        name: "libstarling-fetch3",
-        version: "3.2.1-1ubuntu7.4",
-        architecture: "amd64",
-        purl_canonical: endpoint_package.purl_canonical,
-        cpes: endpoint_package.cpes,
-        current: true,
-        first_seen_at: row_seen_at,
-        last_seen_at: row_seen_at
+        ecosystem: "deb",
+        source_scope: "host",
+        metadata: %{}
       })
       |> Ash.create!(scope: scope)
 
@@ -248,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryDataDbTest do
 
     ServiceRadar.Repo.insert_all(
       "endpoint_vulnerability_device_evaluations",
-      [%{device_uid: device_uid, evaluated_at: evaluated_at}],
+      [%{device_uid: device_uid, evaluated_at: DateTime.to_naive(evaluated_at)}],
       prefix: "platform"
     )
 

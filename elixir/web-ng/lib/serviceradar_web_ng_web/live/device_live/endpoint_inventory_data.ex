@@ -200,9 +200,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
     |> Ash.read(scope: scope)
     |> case do
       {:ok, assessments} ->
-        assessments
-        |> Enum.map(&EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
-        |> sort_assessments(:by_device_and_package)
+        Enum.map(assessments, &EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
 
       {:error, reason} ->
         Logger.warning(
@@ -381,10 +379,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
 
     with {:ok, total} <- Ash.count(query, scope: scope),
          {:ok, rows} <- query |> Ash.Query.limit(@assessment_limit) |> Ash.read(scope: scope) do
-      rows =
-        rows
-        |> Enum.map(&EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
-        |> sort_assessments(action)
+      rows = Enum.map(rows, &EndpointVulnerabilityAssessment.apply_effective_last_seen(&1, evaluated_at))
 
       %{
         rows: rows,
@@ -399,37 +394,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         empty_assessment_page()
     end
   end
-
-  defp sort_assessments(rows, :history_by_device) do
-    Enum.sort_by(rows, fn row ->
-      {-unix_microsecond(field(row, :last_seen_at)), to_string(field(row, :cve_id) || "")}
-    end)
-  end
-
-  defp sort_assessments(rows, _action) do
-    Enum.sort_by(rows, fn row ->
-      {
-        if(field(row, :kev) == true, do: 0, else: 1),
-        if(field(row, :exploit_available) == true, do: 0, else: 1),
-        -cvss_sort_score(field(row, :cvss_score)),
-        -unix_microsecond(field(row, :last_seen_at)),
-        to_string(field(row, :cve_id) || "")
-      }
-    end)
-  end
-
-  defp cvss_sort_score(score) when is_number(score), do: score * 1.0
-  defp cvss_sort_score(_score), do: -1.0
-
-  defp unix_microsecond(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
-
-  defp unix_microsecond(%NaiveDateTime{} = ndt) do
-    ndt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> DateTime.to_unix(:microsecond)
-  end
-
-  defp unix_microsecond(_other), do: 0
 
   defp empty_assessment_page do
     %{rows: [], total: 0, limit: @assessment_limit, truncated?: false}
