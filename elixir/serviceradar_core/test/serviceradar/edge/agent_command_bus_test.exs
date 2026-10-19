@@ -1336,7 +1336,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert is_binary(response.config_version)
     end
 
-    test "returns an error when the control session exits during push", %{agent_id: agent_id} do
+    test "returns only the exit reason when the control session exits during push", %{
+      agent_id: agent_id
+    } do
       metadata = %{agent_id: agent_id, partition_id: "default"}
 
       name =
@@ -1352,7 +1354,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       end)
 
       assert wait_for_control_session("default", agent_id, pid)
-      assert {:error, {:control_session_exit, _reason}} = AgentCommandBus.push_config(agent_id)
+      # The pushed config carries device credentials and callers log this
+      # error, so the GenServer.call request must not come back inside it.
+      assert {:error, {:control_session_exit, :shutdown}} = AgentCommandBus.push_config(agent_id)
       refute Process.alive?(pid)
     end
   end
