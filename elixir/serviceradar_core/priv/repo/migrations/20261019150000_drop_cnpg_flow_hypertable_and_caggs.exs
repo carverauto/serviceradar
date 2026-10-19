@@ -134,17 +134,17 @@ defmodule ServiceRadar.Repo.Migrations.DropCnpgFlowHypertableAndCaggs do
     BEGIN
       IF to_regclass('platform.cold_chunk_exports') IS NOT NULL THEN
         DELETE FROM platform.cold_chunk_exports
-        WHERE hypertable_name = 'ocsf_network_activity'
+        WHERE table_name = 'ocsf_network_activity'
           AND status <> 'verified';
       END IF;
 
       IF to_regclass('platform.cold_tier_boundaries') IS NOT NULL THEN
         DELETE FROM platform.cold_tier_boundaries
-        WHERE hypertable_name = 'ocsf_network_activity'
+        WHERE table_name = 'ocsf_network_activity'
           AND NOT EXISTS (
             SELECT 1
             FROM platform.cold_chunk_exports
-            WHERE hypertable_name = 'ocsf_network_activity'
+            WHERE table_name = 'ocsf_network_activity'
               AND status = 'verified'
           );
       END IF;
