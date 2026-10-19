@@ -29,9 +29,10 @@ previous row trigger using its retained function and helper.
 ## Isolated synthetic measurement
 
 Measured on 2026-10-19 against a disposable database on the shared CNPG test
-fixture. The supporting schema was intentionally minimal, with the real
-historical rollup migrations and their source-retirement triggers. It was not
-a full application schema or the ServiceRadar Atlas acceptance workload.
+fixture, with the final advisory lock included. The supporting schema was
+intentionally minimal: the real historical rollup migrations, their
+source-retirement triggers and the active-IP uniqueness index. It was not a
+full application schema or the ServiceRadar Atlas acceptance workload.
 
 The invented population contained 11,000 devices, eight type values and four
 vendor values. Each of three ticks flipped availability and updated an invented
@@ -42,19 +43,50 @@ the actual migration through Ecto's migration runner.
 
 | Median per tick | Row trigger | Batch triggers |
 | --- | ---: | ---: |
-| Database execution | 4,564.540 ms | 195.813 ms |
-| Rollup trigger execution | 4,428.326 ms | 55.659 ms |
+| Database execution | 41,257.963 ms | 467.757 ms |
+| Rollup trigger execution | 41,056.048 ms | 83.154 ms |
 | Trigger calls | 11,000 | 22 |
-| Client wall time | 5,457.286 ms | 1,096.720 ms |
+| Client wall time | 43,625.631 ms | 3,495.091 ms |
 
-These are three-sample observations on shared infrastructure, not tail-latency
-guarantees. Client times include network and workstation scheduling. The
-measurement predates the advisory lock and was not repeated; the lock adds one
-acquisition per changing trigger and serializes concurrent changing writers,
-which this sequential probe does not exercise. It isolates this trigger's cost;
-it does not establish five-second churn cadence with 1.1 million devices,
-concurrent bitmap refreshes and 100 map viewers. That requires rerunning the
-compact and sparse Atlas acceptance suites.
+The three batch-trigger samples were 65.067, 83.154 and 96.296 ms. Shared
+fixture variability is substantial: an earlier three-sample run of the same
+probe measured a 4,428.326 ms median row-trigger time. These are three-sample
+sequential observations, not throughput or tail-latency guarantees, and client
+times include network and workstation scheduling. The probe does not exercise
+concurrent changing writers, which the advisory lock serializes.
+
+## Compact Atlas scale run
+
+The compact Atlas server scale suite passed at the final trigger commit
+(BuildBuddy invocation `6990cdc2-a734-449a-beb8-495e61a584c3`) and is compared
+with the earlier compact run `7302a932-f361-42a6-8dea-35a7c9aaeffb`. Both used
+a synthetic population of 1.1 million devices and 2.2 million addresses, 100
+viewers (10 slow), two replicas, and 100 churn ticks of 11,000 devices against
+the same 5,000 ms cadence target.
+
+| Per-tick device write | Before | After |
+| --- | ---: | ---: |
+| Mean | 10,382.83 ms | 938.85 ms |
+| p50 | 10,295 ms | 885 ms |
+| p95 | 13,310 ms | 1,347 ms |
+| Max | 13,705 ms | 1,908 ms |
+| Writes under 5,000 ms | 0/100 | 100/100 |
+
+Mean write time was about 91% lower. The runs were not contemporaneous and
+shared infrastructure, so the ratio is indicative only. Other measures did not
+improve:
+
+| Run-wide measure | Before | After |
+| --- | ---: | ---: |
+| Combined elapsed | 1,748,951 ms | 1,542,050 ms |
+| Convergence | 90,988 ms | 152,838 ms |
+| Facet query p95 | 164 ms | 272 ms |
+| HTTP 503 among 100 facet queries | 14 | 20 |
+
+This does not establish five-second end-to-end churn cadence or a universal
+performance improvement; the wider convergence remains unresolved. The server
+suite excludes browser/GPU rendering and layout persistence, and the sparse
+ordinal suite has not been rerun for this change.
 
 ## Regression boundary
 

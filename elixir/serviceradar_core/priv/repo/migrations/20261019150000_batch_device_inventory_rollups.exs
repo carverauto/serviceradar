@@ -97,6 +97,9 @@ defmodule ServiceRadar.Repo.Migrations.BatchDeviceInventoryRollups do
     """
   end
 
+  # serviceradar:allow-startup-maintenance - the migration only installs and drops
+  # trigger functions and triggers. This embedded DELETE runs inside the trigger on
+  # later device DML, for the changed key only; nothing is deleted during startup.
   defp dimension_sql(changes, dimension, projected_key, column) do
     """
     FOR change IN
