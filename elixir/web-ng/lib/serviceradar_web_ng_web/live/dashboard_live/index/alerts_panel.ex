@@ -8,7 +8,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
   attr(:timezone, :string, default: "Etc/UTC")
 
   def render(%{dashboard: dashboard} = assigns) do
-    assigns = Map.merge(assigns, dashboard)
+    alert_evaluation_mode =
+      Map.get(
+        dashboard,
+        :alert_evaluation_mode,
+        ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode()
+      )
+
+    assigns =
+      assigns
+      |> Map.merge(dashboard)
+      |> assign(:alert_evaluation_mode, alert_evaluation_mode)
+      |> assign(:alert_evaluation_active?, alert_evaluation_mode == :active)
 
     ~H"""
     <Common.panel title="Alerts Feed">
@@ -18,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
         </.link>
       </:actions>
       <.link
-        :if={@alert_feed == []}
+        :if={@alert_feed == [] and @alert_evaluation_active?}
         href={~p"/observability/alerts"}
         class="sr-ops-feed-empty is-alert-feed"
         data-testid="alerts-feed-empty"
@@ -36,6 +47,29 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
           <.icon name="hero-bell-alert" class="size-7 text-rose-400" />
           <p>No alerts in the last 24 hours</p>
           <span>Older retained alerts are still available in the alert stream.</span>
+        </div>
+      </.link>
+      <.link
+        :if={@alert_feed == [] and not @alert_evaluation_active?}
+        href={~p"/settings/rules?#{%{tab: "alerts"}}"}
+        class="sr-ops-feed-empty is-alert-feed"
+        data-testid="alerts-feed-not-activated"
+        aria-label="Alert evaluation not activated"
+      >
+        <div class="sr-ops-empty-feed-shell" aria-hidden="true">
+          <div class="sr-ops-empty-feed-header">
+            <span>Time</span>
+            <span>Alert</span>
+            <span>Status</span>
+          </div>
+          <span :for={_ <- 1..5} class="sr-ops-empty-feed-row"></span>
+        </div>
+        <div class="sr-ops-empty-feed-message">
+          <.icon name="hero-exclamation-triangle" class="size-7 text-amber-400" />
+          <p>Alert evaluation is not activated ({@alert_evaluation_mode})</p>
+          <span>
+            Set <code>core.alertEvaluation.mode=active</code> to evaluate alert rules.
+          </span>
         </div>
       </.link>
       <div :if={@alert_feed != []} class="sr-ops-alert-feed" data-testid="alerts-feed">

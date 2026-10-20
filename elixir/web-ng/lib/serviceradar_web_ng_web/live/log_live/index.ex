@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Integrations.MapboxSettings
@@ -88,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:metrics, [])
      |> assign(:events, [])
      |> assign(:alerts, [])
+     |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())
      |> assign(:alert_selection, MapSet.new())
      |> assign(:alert_bulk_result, nil)
      |> assign(:alert_bulk_duration, AlertActions.default_snooze_value())
@@ -1539,7 +1541,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
-    assigns = assign(assigns, :pagination, pagination)
+
+    assigns =
+      assigns
+      |> assign(:pagination, pagination)
+      |> assign_new(:alert_evaluation_mode, fn -> ClusterStatus.alert_evaluation_mode() end)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
@@ -1766,6 +1772,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 events={@streams.events}
                 timezone={@current_scope.user.timezone}
               />
+              <div
+                :if={@active_tab == "alerts" and @alert_evaluation_mode != :active}
+                data-testid="alerts-evaluation-not-activated"
+                class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-sr-surface border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+              >
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-exclamation-triangle" class="size-4 shrink-0 text-amber-500" />
+                  <span>
+                    Alert evaluation is not activated (mode: <code class="font-mono">{@alert_evaluation_mode}</code>). Set
+                    <code class="font-mono">core.alertEvaluation.mode=active</code>
+                    to evaluate alert rules.
+                  </span>
+                </div>
+                <.link
+                  navigate={~p"/settings/rules?#{%{tab: "alerts"}}"}
+                  class="font-medium underline underline-offset-2"
+                >
+                  Alert Rules
+                </.link>
+              </div>
               <.alert_bulk_bar
                 :if={@active_tab == "alerts" and @can_manage_alerts?}
                 selection={@alert_selection}
@@ -1777,6 +1803,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 :if={@active_tab == "alerts"}
                 id="alerts"
                 alerts={@alerts}
+                alert_evaluation_mode={@alert_evaluation_mode}
                 selectable?={@can_manage_alerts?}
                 selection={@alert_selection}
                 timezone={@current_scope.user.timezone}
@@ -5430,12 +5457,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:id, :string, required: true)
   attr(:alerts, :list, default: [])
+  attr(:alert_evaluation_mode, :atom, default: :active)
   attr(:selectable?, :boolean, default: false)
   attr(:selection, :any, default: nil)
   attr(:timezone, :string, required: true)
 
   defp alerts_table(assigns) do
-    assigns = assign(assigns, :colspan, if(assigns.selectable?, do: 5, else: 4))
+    assigns =
+      assigns
+      |> assign(:colspan, if(assigns.selectable?, do: 5, else: 4))
+      |> assign(:alert_evaluation_active?, assigns.alert_evaluation_mode == :active)
 
     ~H"""
     <div class="sr-ui-table-shell">
@@ -5469,7 +5500,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <tbody>
           <tr :if={@alerts == []}>
             <td colspan={@colspan} class="text-sm text-sr-muted py-8 text-center">
-              No alerts found.
+              <%= if @alert_evaluation_active? do %>
+                No alerts found.
+              <% else %>
+                <div data-testid="alerts-table-not-activated" class="space-y-1">
+                  <p class="font-medium text-sr-ink">
+                    Alert evaluation is not activated ({@alert_evaluation_mode}).
+                  </p>
+                  <p class="text-xs text-sr-muted">
+                    Set <code class="font-mono">core.alertEvaluation.mode=active</code>
+                    or review
+                    <.link navigate={~p"/settings/rules?#{%{tab: "alerts"}}"} class="underline">
+                      Alert Rules
+                    </.link>
+                    to activate evaluation.
+                  </p>
+                </div>
+              <% end %>
             </td>
           </tr>
 

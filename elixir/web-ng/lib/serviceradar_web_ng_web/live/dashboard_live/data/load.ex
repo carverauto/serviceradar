@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_trend: [],
           threat_intel_summary: empty_threat_intel_summary(),
           alert_feed: [],
+          alert_evaluation_mode: ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode(),
           vulnerable_assets: [],
           virtualization_summary: empty_virtualization_summary(),
           kpi_loading: default_kpi_loading(),
@@ -125,7 +126,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_trend_max: max_trend_total(security_trend),
           security_summary: event_summary,
           mtr_summary: mtr_summary,
-          flow_summary: flow_summary
+          flow_summary: flow_summary,
+          alert_evaluation_mode:
+            Map.get(
+              sources,
+              :alert_evaluation_mode,
+              ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode()
+            )
         }
       end
 

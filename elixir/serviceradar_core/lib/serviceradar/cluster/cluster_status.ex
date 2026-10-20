@@ -101,6 +101,7 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
 
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
 
   @doc """
   Get comprehensive cluster status.
@@ -198,6 +199,33 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
       Node.self()
     else
       find_remote_coordinator()
+    end
+  end
+
+  @doc """
+  Get the active alert evaluation rollout mode (`:prepared`, `:active`, or `:draining`).
+
+  Queries the cluster coordinator node when connected in the ERTS cluster so `web-ng`
+  reflects `core-elx`'s runtime mode, and falls back to the local `Rollout.mode/0`
+  configuration when running standalone or before coordinator discovery completes.
+  """
+  @spec alert_evaluation_mode() :: :prepared | :active | :draining
+  def alert_evaluation_mode do
+    local_mode = Rollout.mode()
+
+    if coordinator?() do
+      local_mode
+    else
+      case find_remote_coordinator() do
+        nil ->
+          local_mode
+
+        coordinator_node ->
+          case :rpc.call(coordinator_node, Rollout, :mode, [], 1_000) do
+            mode when mode in [:prepared, :active, :draining] -> mode
+            _ -> local_mode
+          end
+      end
     end
   end
 

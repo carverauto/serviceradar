@@ -564,6 +564,14 @@ spec:
           value: {{ $webNgObanQueueMaintenance | quote }}
         - name: WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE
           value: {{ $webNgObanQueueWebMaintenance | quote }}
+        {{- if not (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_ALERT_EVALUATION_MODE") }}
+        {{- $alertEvaluationMode := toString (default "prepared" (default (dict) $coreVals.alertEvaluation).mode) }}
+        {{- if not (has $alertEvaluationMode (list "prepared" "active" "draining")) }}
+        {{- fail (printf "core.alertEvaluation.mode must be prepared, active or draining, got %q" $alertEvaluationMode) }}
+        {{- end }}
+        - name: SERVICERADAR_ALERT_EVALUATION_MODE
+          value: {{ $alertEvaluationMode | quote }}
+        {{- end }}
         # Core-elx owns advisory feed acquisition. Keep web-ng from running the
         # shared FeedWorker if it ever sees an integrations job.
         - name: SERVICERADAR_ADVISORY_FEEDS_ENABLED
