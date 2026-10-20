@@ -88,6 +88,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     end
   end
 
+  @doc false
+  def record_step_query(
+        _event,
+        _measurements,
+        %{query: query, params: params, result: {:ok, _}},
+        {parent, ref}
+      ) do
+    if self() == parent and step_query?(query) do
+      send(parent, {ref, query, params})
+    end
+  end
+
+  def record_step_query(_event, _measurements, _metadata, _config), do: :ok
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -1032,40 +1046,21 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   end
 
   # The most rows a step may read per record of the instance, from the tables below. The steps
-  # read 5 to 10 here, and a statement that reads a table once per row of another reads in
+  # read 4 to 14 here, and a statement that reads a table once per row of another reads in
   # proportion to n: about 100 or more per record at the test's n of 400, even where it stops at
   # the first match.
   @reads_per_record 75
 
-  # Rows this transaction has read so far from the tables the retirement statements join: each
-  # row a sequential scan of one returned, and each row an index or bitmap scan fetched from one,
-  # whether a condition then kept it or not. Index entries are not counted. An index scan also
-  # returns the entries of rows that a rolled-back transaction inserted, until a vacuum removes
-  # them, so their number depends on which tests ran before and when the table was last
-  # vacuumed. A fetch counts only a row the transaction can see. The test's rows are its own
-  # transaction's, so no index scan of them skips the table.
-  @rows_read_sql """
-  WITH tables AS (
-    SELECT unnest(ARRAY[
-      'platform.ocsf_devices', 'platform.device_identifiers',
-      'platform.device_source_observations', 'platform.source_identifier_absences'
-    ]::regclass[])::oid AS oid
+  @counted_tables ~w(
+    ocsf_devices
+    device_identifiers
+    device_source_observations
+    source_identifier_absences
   )
-  SELECT CAST(COALESCE(sum(read), 0) AS bigint)
-  FROM (
-    SELECT pg_stat_get_xact_tuples_returned(oid) + pg_stat_get_xact_tuples_fetched(oid)
-    FROM tables
-    UNION ALL
-    SELECT pg_stat_get_xact_tuples_fetched(indexrelid)
-    FROM pg_index WHERE indrelid = ANY (ARRAY(SELECT oid FROM tables))
-  ) AS reads (read)
-  """
 
-  # The counters above are the transaction's, and a serial test shares its transaction with
-  # every application process (`ServiceRadar.DataCase`). A query one of them ran while a step was
-  # measured would count as the step's, planned under nested_loops_only/0. The test therefore
-  # reads on a sandboxed connection of its own, which no other process uses, held as long as
-  # the test's tag allows.
+  # A serial test shares its transaction with every application process (`ServiceRadar.DataCase`).
+  # The test therefore checks out a sandboxed connection of its own, held as long as the test's
+  # tag allows, so no other process runs under nested_loops_only/0.
   defp own_transaction!(ctx) do
     opts =
       case TestSupport.sandbox_ownership_timeout(ctx) do
@@ -1089,19 +1084,104 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     Repo.query!("SET LOCAL plan_cache_mode = force_custom_plan")
   end
 
-  # Runs `fun`, asserting it read at least one row per record (so the counters count) and at
-  # most @reads_per_record. Returns its result.
+  # Runs `fun`, measuring the rows its own statements read from @counted_tables by replaying
+  # them under EXPLAIN (ANALYZE, FORMAT JSON) from a savepoint taken before `fun`. Each scan
+  # node on a counted table contributes its Actual Rows plus any Rows Removed by Filter or Index
+  # Recheck across all Actual Loops, including index-only scans on all-visible pages while
+  # ignoring dead index entries from rolled-back transactions and queries from other processes.
   defp linear_reads(n, step, fun) do
-    %{rows: [[before]]} = Repo.query!(@rows_read_sql)
-    result = fun.()
-    %{rows: [[after_step]]} = Repo.query!(@rows_read_sql)
-    read = after_step - before
+    parent = self()
+    ref = make_ref()
+    handler_id = "source-retirement-step-reads-#{System.unique_integer([:positive])}"
+    Repo.query!("SAVEPOINT measured_step", [], sandbox_subtransaction: false)
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:service_radar, :repo, :query],
+        &__MODULE__.record_step_query/4,
+        {parent, ref}
+      )
+
+    result =
+      try do
+        fun.()
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    queries = collect_step_queries(ref, [])
+    Repo.query!("ROLLBACK TO SAVEPOINT measured_step", [], sandbox_subtransaction: false)
+
+    read =
+      Enum.reduce(queries, 0, fn {query, params}, acc ->
+        %{rows: [[[plan]]]} =
+          Repo.query!(
+            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON) " <> query,
+            params
+          )
+
+        acc + plan_rows_read(Map.fetch!(plan, "Plan"))
+      end)
+
+    Repo.query!("RELEASE SAVEPOINT measured_step", [], sandbox_subtransaction: false)
     assert read >= n, "#{step} read #{read} rows for #{n} records: the counters are not counting"
 
     assert read <= @reads_per_record * n,
            "#{step} read #{read} rows for #{n} records, over #{@reads_per_record} per record"
 
     result
+  end
+
+  defp step_query?(query) do
+    trimmed = String.trim_leading(query)
+
+    cond do
+      String.starts_with?(trimmed, "EXPLAIN") ->
+        false
+
+      String.starts_with?(trimmed, "SELECT") ->
+        String.contains?(query, @counted_tables)
+
+      Enum.any?(~w(INSERT UPDATE DELETE WITH), &String.starts_with?(trimmed, &1)) ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp collect_step_queries(ref, acc) do
+    receive do
+      {^ref, query, params} -> collect_step_queries(ref, [{query, params} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp plan_rows_read(plan_node) do
+    child_reads =
+      plan_node
+      |> Map.get("Plans", [])
+      |> Enum.map(&plan_rows_read/1)
+      |> Enum.sum()
+
+    own_reads =
+      if Map.get(plan_node, "Node Type") != "ModifyTable" and
+           Map.get(plan_node, "Relation Name") in @counted_tables do
+        loops = Map.get(plan_node, "Actual Loops", 1)
+
+        rows =
+          Map.get(plan_node, "Actual Rows", 0) +
+            Map.get(plan_node, "Rows Removed by Filter", 0) +
+            Map.get(plan_node, "Rows Removed by Index Recheck", 0)
+
+        round(loops * rows)
+      else
+        0
+      end
+
+    own_reads + child_reads
   end
 
   defp retire(ctx, hours, settings \\ @settings) do
