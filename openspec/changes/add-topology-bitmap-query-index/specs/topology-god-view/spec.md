@@ -236,6 +236,14 @@ The system SHALL expose a usable map filter builder for supported canonical attr
 - **AND** the controls SHALL expose supported fields and their readiness without downloading fleet values
 - **AND** unsupported predicates SHALL be reported explicitly
 
+#### Scenario: Inventory matches and filtered cluster counts
+- **GIVEN** a filter matches inventory devices that are absent from the topology
+- **WHEN** the map and filter controls display the whole-query total
+- **THEN** they SHALL identify it as matching inventory devices, not a count of devices drawn on the map
+- **AND** the filter controls SHALL explain that only devices included in the topology appear on the map
+- **AND** a filtered cluster's hover text SHALL report the same matched-member count as its badge, rather than its unfiltered population
+- **AND** clearing the filter SHALL restore the original cluster label without changing cached geometry
+
 #### Scenario: Configured tag prefixes
 - **WHEN** an operator selects a literal prefix over tag names or an indexed scalar value
 - **THEN** the result SHALL union the complete matching supported postings under the query limits

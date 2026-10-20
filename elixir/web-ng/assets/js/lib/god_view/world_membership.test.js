@@ -468,6 +468,7 @@ describe("binary admitted-row membership", () => {
       replies[2].ok({...bitmapBinding, projection: {mapped: 1, total: 2}})
       renderer.membership.receive(bitmapFrame({tiles: [tile]}))
       expect(renderer.membership.pending).toBe(false)
+      expect(renderer.mapSummary(1)).toContain("matching inventory devices")
       expect(renderer.mapSummary(1)).toContain("Some geometry has no canonical device identity")
       renderer.invalidateMembership()
       renderer.syncWatch()

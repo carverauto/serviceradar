@@ -79,6 +79,22 @@ describe("world tile rendering contract", () => {
     }
   })
 
+  it.each([1, 4])("reports %i matching devices when picking a filtered cluster without changing its base label", count => {
+    const geometry = decodeWorldTile(worldTileIpc({metadata: {device_count: 12}, edges: [], nodes: [
+      {x: 0, y: 0, label: "12 devices", details: {id: "aggregate:synthetic", type: "aggregate", cluster_member_count: 12}},
+    ]}), worldTileKey)
+    const entry = {revision: geometry.revision, mask: new Uint8Array([1]), counts: new Uint32Array([count]), availability: new Uint8Array([1])}
+    const layer = new WorldTileLayer({id: "picked-world", membershipEnabled: true, membership: new Map([["1/1/0", entry]])})
+    const pick = candidate => {
+      const sourceLayer = candidate.renderSubLayers({id: "picked-tile", data: geometry})
+        .filter(Boolean).find(item => item.id.endsWith("-nodes")).clone({tile: {content: geometry}})
+      return candidate.getPickingInfo({info: {picked: true, index: 0}, sourceLayer}).object
+    }
+    expect(pick(layer)).toMatchObject({count, label: `${count} matching ${count === 1 ? "device" : "devices"}`})
+    expect(pick(layer.clone({membershipEnabled: false, membership: null}))).toMatchObject({count: 12, label: "12 devices"})
+    expect(geometry.nodes[0]).toMatchObject({count: 12, label: "12 devices"})
+  })
+
   it("preserves base-view boundary links until a query explicitly requests membership", () => {
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     renderer.membershipEnabled = true

@@ -839,7 +839,7 @@ export default class WorldMapRenderer {
     if (this.bitmapQuery !== null && this.membershipError) return `Topology query unavailable: ${this.membershipError}`
     if (this.bitmapQuery !== null && (this.membership.pending || this.membership.total === null)) return "Topology filter pending…"
     const summary = this.bitmapQuery === null ? `${this.cache.manifest.node_count.toLocaleString()} devices · ${tiles} visible tiles` :
-      `${new Intl.NumberFormat().format(this.membership.total)} matching devices · ${tiles} visible tiles`
+      `${new Intl.NumberFormat().format(this.membership.total)} matching inventory devices · ${tiles} visible tiles`
     return this.bitmapQuery !== null && this.membershipProjectionIncomplete ? `${summary} · Some geometry has no canonical device identity` : summary
   }
 

@@ -102,6 +102,13 @@ bitmap enable flag. Existing analytics and device view permissions suffice.
 topology manifest; it never enumerates fleet tag values. `Inventory VLAN` means
 the device inventory VLAN, not every VLAN carried by its interfaces.
 
+The ServiceRadar Atlas filter total and value-picker counts cover matching
+inventory devices, including devices absent from the current topology. Only
+devices included in the topology appear on the map. With a filter applied,
+cluster badges and hover text show the matching members of that cluster;
+clearing the filter restores its original population label. The whole-query
+total is not a sum of visible tiles, which can overlap during zoom transitions.
+
 Non-Helm releases use
 `SERVICERADAR_TOPOLOGY_BITMAP_TAG_KEYS='["role","environment"]'`, together with
 `SERVICERADAR_GOD_VIEW_ENABLED=true`. The tag setting is a bounded JSON array so
