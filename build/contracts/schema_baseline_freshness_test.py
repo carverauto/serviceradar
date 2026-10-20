@@ -113,6 +113,24 @@ class SchemaBaselineFreshnessTest(unittest.TestCase):
             "Regenerate the baseline, or correct schema_sha256 if the SQL is intentional.",
         )
 
+    def test_baseline_omits_timescaledb_compressed_chunk_tables(self) -> None:
+        # TimescaleDB names a hypertable's compressed table from its own catalog when
+        # compression is enabled. A pg_dump'd copy left in the baseline is an empty plain
+        # table that a later compression migration collides with (42P07) once the set of
+        # hypertables, and so the numbering, changes.
+        schema_file = ROOT / BASELINE_DIR / self.metadata["schema_file"]
+        leftovers = re.findall(
+            r"^CREATE TABLE _timescaledb_internal\.(_compressed_hypertable_\d+) ",
+            schema_file.read_text(),
+            re.MULTILINE,
+        )
+        self.assertEqual(
+            leftovers,
+            [],
+            f"\n{schema_file} creates TimescaleDB compressed-chunk tables {leftovers}.\n"
+            "scripts/db/generate-platform-baseline.sh must exclude them from pg_dump.",
+        )
+
     def test_baseline_is_not_too_far_behind_the_migrations_on_disk(self) -> None:
         versions = migration_versions()
         self.assertTrue(versions, f"no migrations found under {MIGRATIONS}")
