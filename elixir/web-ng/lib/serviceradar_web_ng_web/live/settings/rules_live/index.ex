@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias Datasvc.KV
+  alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.ZenRule
@@ -51,7 +52,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       |> Map.get("tab", "logs")
       |> normalize_tab()
 
-    {:noreply, assign(socket, :active_tab, tab)}
+    {:noreply,
+     socket
+     |> assign(:active_tab, tab)
+     |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())}
   end
 
   @impl true
@@ -631,6 +635,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         </div>
 
         <div :if={@active_tab == "alerts"} class="space-y-6">
+          <div
+            :if={@alert_evaluation_mode != :active}
+            data-testid="alert-rules-evaluation-not-activated"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-sr-surface border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-800 dark:text-amber-200"
+          >
+            <div class="flex items-center gap-2">
+              <.icon name="hero-exclamation-triangle" class="size-4 shrink-0 text-amber-500" />
+              <span>
+                Alert evaluation is not activated (mode: <code class="font-mono">{@alert_evaluation_mode}</code>). Stateful alert rules will not evaluate until
+                <code class="font-mono">core.alertEvaluation.mode</code>
+                is set to <code class="font-mono">active</code>.
+              </span>
+            </div>
+            <.link
+              navigate={~p"/observability/alerts"}
+              class="font-medium underline underline-offset-2"
+            >
+              View Alerts
+            </.link>
+          </div>
+
           <.ui_panel>
             <:header>
               <div>

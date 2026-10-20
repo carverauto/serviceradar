@@ -209,6 +209,7 @@ config :serviceradar_core,
 config :serviceradar_core, :seeders_enabled, false
 
 config :serviceradar_core,
+  alert_evaluation_mode: :active,
   datasvc_enabled: false,
   nats_enabled: false,
   service_heartbeat_enabled: false,

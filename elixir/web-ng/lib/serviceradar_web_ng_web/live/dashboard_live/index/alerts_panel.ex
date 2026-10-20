@@ -8,7 +8,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
   attr(:timezone, :string, default: "Etc/UTC")
 
   def render(%{dashboard: dashboard} = assigns) do
-    assigns = Map.merge(assigns, dashboard)
+    assigns =
+      assigns
+      |> Map.merge(dashboard)
+      |> assign(:alert_evaluation_active?, dashboard.alert_evaluation_mode == :active)
 
     ~H"""
     <Common.panel title="Alerts Feed">
@@ -18,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
         </.link>
       </:actions>
       <.link
-        :if={@alert_feed == []}
+        :if={@alert_feed == [] and @alert_evaluation_active?}
         href={~p"/observability/alerts"}
         class="sr-ops-feed-empty is-alert-feed"
         data-testid="alerts-feed-empty"
@@ -37,6 +40,42 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
           <p>No alerts in the last 24 hours</p>
           <span>Older retained alerts are still available in the alert stream.</span>
         </div>
+      </.link>
+      <.link
+        :if={@alert_feed == [] and not @alert_evaluation_active?}
+        href={~p"/settings/rules?#{%{tab: "alerts"}}"}
+        class="sr-ops-feed-empty is-alert-feed"
+        data-testid="alerts-feed-not-activated"
+        aria-label="Alert evaluation not activated"
+      >
+        <div class="sr-ops-empty-feed-shell" aria-hidden="true">
+          <div class="sr-ops-empty-feed-header">
+            <span>Time</span>
+            <span>Alert</span>
+            <span>Status</span>
+          </div>
+          <span :for={_ <- 1..5} class="sr-ops-empty-feed-row"></span>
+        </div>
+        <div class="sr-ops-empty-feed-message">
+          <.icon name="hero-exclamation-triangle" class="size-7 text-amber-400" />
+          <p>Alert evaluation is not activated ({@alert_evaluation_mode})</p>
+          <span>
+            Set <code>core.alertEvaluation.mode=active</code> to evaluate alert rules.
+          </span>
+        </div>
+      </.link>
+      <.link
+        :if={@alert_feed != [] and not @alert_evaluation_active?}
+        href={~p"/settings/rules?#{%{tab: "alerts"}}"}
+        class="mb-2 flex items-center gap-2 rounded-sr-surface border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+        data-testid="alerts-feed-not-activated-notice"
+      >
+        <.icon name="hero-exclamation-triangle" class="size-4 shrink-0 text-amber-500" />
+        <span>
+          Alert evaluation is not activated ({@alert_evaluation_mode}). Showing retained alerts only; set
+          <code>core.alertEvaluation.mode=active</code>
+          to evaluate alert rules.
+        </span>
       </.link>
       <div :if={@alert_feed != []} class="sr-ops-alert-feed" data-testid="alerts-feed">
         <.link

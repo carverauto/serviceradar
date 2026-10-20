@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_trend: [],
           threat_intel_summary: empty_threat_intel_summary(),
           alert_feed: [],
+          alert_evaluation_mode: ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode(),
           vulnerable_assets: [],
           virtualization_summary: empty_virtualization_summary(),
           kpi_loading: default_kpi_loading(),
@@ -232,9 +233,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
 
       @spec load_alert_feed(String.t()) :: map()
       def load_alert_feed(time_window) do
-        %{alert_feed: alert_feed(time_window)}
+        %{
+          alert_feed: safe_alert_feed(time_window),
+          alert_evaluation_mode: ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode()
+        }
+      end
+
+      defp safe_alert_feed(time_window) do
+        alert_feed(time_window)
       rescue
-        _ -> %{alert_feed: []}
+        _ -> []
       end
 
       @spec load_threat_intel() :: map()
