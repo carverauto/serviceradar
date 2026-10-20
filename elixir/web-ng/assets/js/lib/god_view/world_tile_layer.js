@@ -39,7 +39,8 @@ function healthLookup(overlay) {
 }
 
 function completeMember(geometry, membership, row) {
-  return membership.mask[row] === 1 && membership.counts[row] === geometry.nodes[row].count
+  const population = geometry.nodes[row].kind === "boundary" ? 1 : geometry.nodes[row].count
+  return membership.mask[row] === 1 && membership.counts[row] === population
 }
 
 // Tile completion and viewport refinement also update text outside Deck's

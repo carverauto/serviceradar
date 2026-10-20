@@ -354,6 +354,28 @@ browser just to count them. Relations require both authorized endpoints or an
 explicit authorized aggregate/bundle population; unsupported boundary selectors
 remain hidden rather than exposing unrelated members.
 
+Preserve the exact world endpoint behind a boundary portal when all relations
+using that portal reference the same device. Tile construction retains one
+optional world index per portal, charged to the native selection budget. A
+collision with a different device makes that portal unsupported for the
+remainder of the build; later relations cannot restore an arbitrary identity.
+The sealed ordinal mapping projects these endpoints and ordinary leaf rows in
+one bounded native call. It does not allocate identities for portals, enumerate
+relations during queries, or change geometry and device counts.
+
+Such a portal carries an ordinary zero-or-one membership count in SRMO.
+The browser accepts at most one remote member for a boundary row and requires
+that member, plus complete membership at the other endpoint, before showing
+the clipped link or its whole-bundle flow. Portals remain invisible and
+unpickable. Shared portals and partially selected aggregates remain hidden;
+exact filtered relation populations for those cases are still deferred.
+The binary frame shape is unchanged. Clients opt in with
+`boundary_endpoints: true` in their bounded membership-watch request, and the
+view digest binds that choice. Older browser bundles continue receiving zero
+boundary counts, preserving their existing decoder contract during rolling
+updates. A new browser on an older server retains the existing conservative
+boundary behavior until it reaches an updated server.
+
 Build the world's canonical ordinal projection in the existing supervised world
 loader after geometry installation and index seeding. Stream dictionary pages
 of at most 500 identities, retaining a native u32 vector rather than another UID
@@ -414,7 +436,8 @@ next frame. Changes to query, authority, layout or admitted receipts require a
 matching replacement; pending filters never display unfiltered success.
 Membership receipts describe displayed geometry only; unrelated offscreen
 prefetch stays in the geometry watch without clearing accepted membership.
-Validate counts against each row's represented population, including zero for
+Validate counts against each row's represented population, allowing at most
+one exact remote endpoint for a boundary row. The server emits zero for
 unsupported boundary rows. Do not sum overlapping tiles to validate a total.
 
 Allow only one unacknowledged full frame per connection. Coalesce updates by

@@ -21,6 +21,7 @@
 - [ ] 2.2 Enforce current RBAC on admission and delivery across queries, counts, search, details and overlays.
 - [ ] 2.3 Implement authenticated live ordinal cursors usable on any healthy replica, binding query/dictionary/authority.
 - [ ] 2.4 Project authorized leaf, aggregate and supported relation/bundle membership to admitted tile rows without relayout or whole-fleet BEAM/browser enumeration; prioritize geometry over bounded identity scans and preserve identical mappings.
+- [x] 2.4a Preserve exact single-device boundary membership across zoom refinement; prove that shared, excluded and unmapped portals cannot borrow membership and that portals do not inflate device counts.
 - [ ] 2.5 Report unsupported causal, site/role, alert/impact and complete-search predicates explicitly; keep availability separate.
 - [ ] 2.6 Prove reference parity, empty results, revocation races, bounded details, count isolation and layout independence.
 - [ ] 2.7 Add bounded literal value/tag-key prefix predicates and exact IPv4/IPv6 CIDR membership across current canonical device/interface addresses; prove deduplication, source completeness and memory/deadline bounds.

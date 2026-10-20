@@ -40,6 +40,9 @@ buffer lifetime fix. Filtering never changes layout.
   and flow fields, preserving coverage and unknown-state semantics. Membership
   masks/counts align to admitted Arrow rows. The browser needs neither fleet
   sets nor a Roaring WASM runtime; Arrow remains the geometry transport.
+- Preserve filtered clipped links whose boundary portal represents one exact
+  canonical endpoint, using bounded native identity projection and negotiated
+  binary row membership. Shared or unmapped portals stay guarded.
 - Use existing bounded invalidation hints and rolling keyset reconciliation.
   Inventory writes do not acquire shared bitmap bucket locks or wait for an
   index replica. Missing hints delay freshness; reconciliation repairs them.

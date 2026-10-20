@@ -6,7 +6,7 @@ use rustler::{
 };
 use serviceradar_topology_atlas::{CanonicalOrdinals, Error, OrdinalInfo};
 
-use crate::details::{read_reply, AggregateResource};
+use crate::details::{read_reply, AggregateResource, SelectionResource};
 use crate::WorldResource;
 
 mod atoms {
@@ -172,7 +172,9 @@ fn apply_ordinals<'a>(
                 Ok((uid(id)?, ordinal))
             })?;
             let result = with_ordinals_mut(&mapping, |ordinals| {
-                ordinals.apply(&world.0.geometry, &rows).map_err(engine_error)
+                ordinals
+                    .apply(&world.0.geometry, &rows)
+                    .map_err(engine_error)
             })?;
             info(env, result)
         })
@@ -220,6 +222,24 @@ fn device_ordinals<'a>(
             with_ordinals(&mapping, |ordinals| {
                 ordinals
                     .device_ordinals(&world.0.geometry, &ids)
+                    .map_err(engine_error)
+            })
+        })
+    })
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn tile_device_ordinals(
+    env: Env<'_>,
+    world: ResourceArc<WorldResource>,
+    mapping: ResourceArc<OrdinalResource>,
+    selection: ResourceArc<SelectionResource>,
+) -> Term<'_> {
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            with_ordinals(&mapping, |ordinals| {
+                ordinals
+                    .tile_device_ordinals(&world.0.geometry, &selection.0)
                     .map_err(engine_error)
             })
         })

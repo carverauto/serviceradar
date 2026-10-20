@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use roaring::RoaringBitmap;
 use sha2::{Digest, Sha256};
 
-use crate::{AggregateSelection, Error, World};
+use crate::{AggregateSelection, Error, TileSelection, World};
 
 pub const ORDINAL_MAPPING_BYTES: usize = 32 * 1024 * 1024;
 pub const ORDINAL_PORTABLE_BYTES: usize = 8 * 1024 * 1024;
@@ -151,6 +151,31 @@ impl CanonicalOrdinals {
                     .map_or(0, |i| self.ordinals[*i as usize]))
             })
             .collect()
+    }
+
+    /// One bounded row-aligned projection; aggregates are selected separately.
+    pub fn tile_device_ordinals(
+        &self,
+        world: &World,
+        selection: &TileSelection,
+    ) -> Result<Vec<u32>, Error> {
+        self.check_ready(world)?;
+        if selection.world_revision != world.detail_revision() {
+            return Err(Error::StaleDetailRevision);
+        }
+        if selection.glyphs.len() > 8192 {
+            return Err(Error::OrdinalBudgetExceeded);
+        }
+        let mut rows = vec![0; selection.glyphs.len()];
+        for &(index, glyph) in &selection.promoted {
+            rows[glyph as usize] = self.ordinals[index as usize];
+        }
+        for &(glyph, index) in &selection.boundary_devices {
+            if let Some(index) = index {
+                rows[glyph as usize] = self.ordinals[index as usize];
+            }
+        }
+        Ok(rows)
     }
 
     /// O(member count) traversal stays native; no full aggregate list crosses the BEAM.

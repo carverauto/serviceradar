@@ -28,6 +28,9 @@ pub struct TileSelection {
     pub(crate) glyphs: Vec<Glyph>,
     pub(crate) edges: Vec<TileEdge>,
     pub(crate) promoted: Vec<(u32, u32)>,
+    // (glyph, world index). A shared portal is None once distinct endpoints
+    // collide; it must never borrow one of those devices' filter membership.
+    pub(crate) boundary_devices: Vec<(u32, Option<u32>)>,
     pub(crate) groups: Vec<(Range<usize>, u32)>,
     pub(crate) seam: Seam,
 }
@@ -44,6 +47,7 @@ impl TileSelection {
             + self.glyphs.capacity() * size_of::<Glyph>()
             + self.edges.capacity() * size_of::<TileEdge>()
             + self.promoted.capacity() * size_of::<(u32, u32)>()
+            + self.boundary_devices.capacity() * size_of::<(u32, Option<u32>)>()
             + self.groups.capacity() * size_of::<(Range<usize>, u32)>()
             + self
                 .glyphs

@@ -538,7 +538,7 @@ export default class WorldMapRenderer {
     // displayed membership view. Canonical order also ignores cache LRU churn.
     const tiles = payload.tiles.filter(tile => this.cache.visible.has(`${tile.z}/${tile.x}/${tile.y}`) && typeof tile.revision === "string")
       .sort((left, right) => left.z - right.z || left.x - right.x || left.y - right.y)
-    return {protocol: 1, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
+    return {protocol: 1, boundary_endpoints: true, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
   }
 
   syncMembership(payload) {

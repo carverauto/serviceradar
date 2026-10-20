@@ -142,7 +142,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
       end
 
     params = %{"protocol" => 1, "layout_version" => version, "tiles" => tiles, "query" => query}
-    assert {:ok, %{layout_version: ^version}} = BitmapView.validate(params)
+    assert {:ok, %{layout_version: ^version, boundary_endpoints: false}} = BitmapView.validate(params)
+    assert {:ok, %{boundary_endpoints: true}} = BitmapView.validate(Map.put(params, "boundary_endpoints", true))
 
     assert {:error, :query_budget} =
              BitmapView.validate(%{params | "query" => Map.put(query, "padding", String.duplicate("q", 20_000))})
