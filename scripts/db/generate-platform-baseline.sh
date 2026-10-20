@@ -19,10 +19,20 @@ fi
 
 mkdir -p "${BASELINE_DIR}"
 
+# TimescaleDB's internal compressed-chunk tables are not schema the baseline
+# owns: TimescaleDB creates `_compressed_hypertable_<id>` itself whenever
+# compression is enabled on a hypertable, numbering it from its own catalog.
+# pg_dump --schema-only emits them as plain, empty tables, and on a database
+# bootstrapped from the baseline those leftovers occupy names TimescaleDB later
+# picks for real compressed tables. Any change to the set of hypertables shifts
+# that numbering, so a later compression migration fails with 42P07
+# duplicate_table. Leave them out; the migrations that enable compression
+# recreate them.
 pg_dump "${DATABASE_URL}" \
   --schema-only \
   --no-owner \
   --no-privileges \
+  --exclude-table='_timescaledb_internal._compressed_hypertable_*' \
   --file="${SCHEMA_FILE}"
 
 tmp_schema="$(mktemp)"
