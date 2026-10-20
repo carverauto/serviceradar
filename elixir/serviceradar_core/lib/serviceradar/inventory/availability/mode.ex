@@ -47,7 +47,11 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
   @type t :: :legacy | :shadow | :cutover | :authoritative
 
-  @cache_key {__MODULE__, :mode}
+  # The cached mode is an atom, which `:persistent_term` replaces without a global GC
+  # (a tuple or any other boxed value would scan every process on each refresh); when it
+  # was read lives in an `:atomics` cell created once per node.
+  @mode_key {__MODULE__, :mode}
+  @fetched_at_key {__MODULE__, :fetched_at}
   @default_cache_ms 30_000
   @switch_lock "hashtextextended('serviceradar:availability-mode', 0)"
   @switch_lock_tries 100
@@ -84,11 +88,13 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   @spec cached() :: t()
   def cached do
     now = System.monotonic_time(:millisecond)
-    ttl = cache_ms()
 
-    case :persistent_term.get(@cache_key, nil) do
-      {mode, fetched_at} when now - fetched_at < ttl -> mode
-      cached -> refresh(now, cached)
+    case :persistent_term.get(@mode_key, nil) do
+      nil ->
+        refresh(now, nil)
+
+      mode ->
+        if now - :atomics.get(fetched_at(), 1) < cache_ms(), do: mode, else: refresh(now, mode)
     end
   end
 
@@ -99,7 +105,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   @doc "Drops this node's cached mode, so the next `cached/0` reads the database."
   @spec reset_cache() :: :ok
   def reset_cache do
-    :persistent_term.erase(@cache_key)
+    :persistent_term.erase(@mode_key)
     :ok
   end
 
@@ -202,14 +208,23 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
     # Inside a caller's transaction the read runs in a savepoint, so a failure cannot
     # abort the caller's write.
     mode = current(if Repo.in_transaction?(), do: [mode: :savepoint], else: [])
-    :persistent_term.put(@cache_key, {mode, now})
+    :atomics.put(fetched_at(), 1, now)
+    :persistent_term.put(@mode_key, mode)
     mode
   rescue
-    _error ->
-      case cached do
-        {mode, _fetched_at} -> mode
-        _ -> :legacy
-      end
+    _error -> cached || :legacy
+  end
+
+  defp fetched_at do
+    case :persistent_term.get(@fetched_at_key, nil) do
+      nil ->
+        cell = :atomics.new(1, signed: true)
+        :persistent_term.put(@fetched_at_key, cell)
+        cell
+
+      cell ->
+        cell
+    end
   end
 
   @doc "How long a node keeps its cached mode, in milliseconds."
