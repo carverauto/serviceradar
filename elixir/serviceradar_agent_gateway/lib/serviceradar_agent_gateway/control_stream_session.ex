@@ -143,7 +143,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
           # A config-change broadcast that fired while this agent was offline
           # silently dropped because no live session existed. Push now so the
           # agent gets a stale config corrected immediately rather than waiting
-          # for its next poll cycle.
+          # for its next poll cycle. The push is delivered to this session
+          # directly: core's view of the cluster registry lags this
+          # registration, most of all during rolling restarts.
           send(self(), :push_config_on_connect)
 
           {:reply, :ok, state}
@@ -278,8 +280,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   @impl true
   def handle_info(:push_config_on_connect, state) do
     if registered_agent?(state) do
-      agent_id = state.agent_id
-      Task.start(fn -> ConfigSyncForwarder.request_config_push(agent_id) end)
+      session = self()
+      %{agent_id: agent_id, partition_id: partition_id, config_version: config_version} = state
+
+      Task.start(fn -> push_current_config(session, agent_id, partition_id, config_version) end)
     end
 
     {:noreply, state}
@@ -1114,6 +1118,33 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp restore_pending_config_state(state, previous_pending) do
     Map.merge(state, previous_pending)
+  end
+
+  # Runs outside the session so the core round trip never blocks the stream.
+  # The version is the one the agent reported on this stream, so an agent
+  # already running the current config is not sent it again.
+  defp push_current_config(session, agent_id, partition_id, config_version) do
+    case ConfigSyncForwarder.fetch_config_if_changed(agent_id, partition_id, config_version) do
+      {:ok, config} -> deliver_config_push(session, agent_id, config)
+      :not_modified -> :ok
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp deliver_config_push(session, agent_id, config) do
+    case push_config(session, config) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to push current config to reconnected agent",
+          [agent_id: safe_log_identifier(agent_id)] ++ SafeFailureEvidence.log_metadata(reason)
+        )
+    end
+  catch
+    # The stream closed before the config arrived; the next session pushes again.
+    :exit, _reason -> :ok
   end
 
   defp registered_agent?(state) do

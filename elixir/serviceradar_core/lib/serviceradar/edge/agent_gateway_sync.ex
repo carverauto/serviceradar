@@ -18,7 +18,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Credentials.ProxmoxApiToken
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifactDelivery
-  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
@@ -52,22 +51,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   # A reused grant must outlive this, so the material the agent caches until
   # the lease ends is never handed over about to expire.
   @binding_grant_min_remaining_seconds 60
-
-  @doc """
-  Push the current config to an agent immediately if its acknowledged version
-  is stale.
-
-  Called by the gateway when an agent control session reconnects so that a
-  config change that fired while the agent was offline — and whose broadcast
-  push hit no live session — is delivered as soon as the session is registered
-  rather than waiting for the agent's next poll cycle.
-  """
-  @spec push_config(String.t()) :: :ok | {:error, term()}
-  def push_config(agent_id) when is_binary(agent_id) do
-    AgentCommandBus.push_config(agent_id)
-  end
-
-  def push_config(_agent_id), do: {:error, :invalid_agent_id}
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}

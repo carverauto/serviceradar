@@ -1,7 +1,8 @@
 defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   @moduledoc """
   Forwards agent config-distribution state (config acks, reported committed
-  versions, and config pushes) to core for persistence.
+  versions, and config pushes) to core for persistence, and fetches an agent's
+  current config from core for delivery on its control stream.
 
   The gateway has no database access, so persistence happens on a core node via
   the same `ServiceRadar.Edge.AgentGatewaySync` RPC surface used for agent
@@ -13,11 +14,14 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   capture forwarded payloads without a core node.
   """
 
+  alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadarAgentGateway.CoreNodeForwarder
 
   require Logger
 
   @rpc_timeout 5_000
+  # Config generation runs on core; match the poll path's budget for it.
+  @config_rpc_timeout 60_000
 
   @doc """
   Persists a control-stream config ack on core.
@@ -77,17 +81,35 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   end
 
   @doc """
-  Asks core to push the current config to an agent if its acknowledged version
-  is stale.
+  Fetches the agent's current config from core when it differs from
+  `config_version`, the version the agent reported on its control stream.
 
-  Called on control-session reconnect: a broadcast push fired while the agent
-  was offline silently drops when no live session exists. This call delivers
-  the update as soon as the new session registers rather than waiting for the
-  agent's next poll cycle.
+  This is the same version-aware call the config poll makes, scoped to the
+  partition the gateway authenticated for the session. The caller delivers the
+  result to the session it owns, so nothing here depends on core finding that
+  session in the cluster registry.
   """
-  @spec request_config_push(String.t()) :: :ok | {:error, term()}
-  def request_config_push(agent_id) when is_binary(agent_id) do
-    core_call(:push_config, [agent_id])
+  @spec fetch_config_if_changed(String.t(), String.t(), String.t() | nil) ::
+          {:ok, Monitoring.AgentConfigResponse.t()} | :not_modified | {:error, term()}
+  def fetch_config_if_changed(agent_id, partition_id, config_version)
+      when is_binary(agent_id) and is_binary(partition_id) do
+    case rpc(:get_config_if_changed, [agent_id, partition_id, config_version || ""], @config_rpc_timeout) do
+      :not_modified ->
+        :not_modified
+
+      {:ok, %{} = config} ->
+        {:ok, AgentConfigGenerator.to_proto_response(config)}
+
+      {:error, reason} ->
+        Logger.warning("Failed to fetch agent config from core: agent_id=#{agent_id} #{inspect(reason)}")
+
+        {:error, reason}
+
+      other ->
+        Logger.warning("Unexpected agent config fetch result: agent_id=#{agent_id} #{inspect(other)}")
+
+        {:error, {:unexpected_result, other}}
+    end
   end
 
   @doc """
@@ -136,9 +158,7 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
   defp unix_datetime(_timestamp), do: DateTime.utc_now()
 
   defp core_call(function, args) do
-    rpc = Application.get_env(:serviceradar_agent_gateway, :config_sync_rpc, &default_rpc/2)
-
-    case rpc.(function, args) do
+    case rpc(function, args, @rpc_timeout) do
       :ok ->
         :ok
 
@@ -157,10 +177,17 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     end
   end
 
-  defp default_rpc(function, args) do
+  defp rpc(function, args, timeout) do
+    case Application.get_env(:serviceradar_agent_gateway, :config_sync_rpc) do
+      nil -> default_rpc(function, args, timeout)
+      injected_rpc -> injected_rpc.(function, args)
+    end
+  end
+
+  defp default_rpc(function, args, timeout) do
     node = CoreNodeForwarder.select_core_node("agent config sync")
 
-    case :rpc.call(node, ServiceRadar.Edge.AgentGatewaySync, function, args, @rpc_timeout) do
+    case :rpc.call(node, ServiceRadar.Edge.AgentGatewaySync, function, args, timeout) do
       {:badrpc, reason} -> {:error, reason}
       result -> result
     end
