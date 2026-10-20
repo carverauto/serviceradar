@@ -1666,7 +1666,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   to `scope` (including nav-hidden but deep-linkable views) and their visible
   in-page tabs, sorted by category then view order.
 
-  Each entry: `%{category_title, view_title, route, icon, keywords, id}`.
+  Each entry: `%{id, category_title, view_title, description, route, icon,
+  keywords}`. A tab entry follows its parent view, additionally carries
+  `parent_view_id` and `tab_id`, titles itself `"<View> › <Tab>"`, routes to the
+  tab's `?tab=` deep link, and merges the view's and tab's keywords.
   """
   @spec palette_index(term()) :: [map()]
   def palette_index(scope) do
