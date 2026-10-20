@@ -98,6 +98,10 @@ var (
 	errIPv6CIDRTooLarge = errors.New("IPv6 CIDR expands above target batch limit")
 )
 
+// MaxIPv6NetworkHosts is the most addresses one IPv6 network entry may expand
+// to. Target generation fails on a larger one with errIPv6CIDRTooLarge.
+const MaxIPv6NetworkHosts = defaultTargetBatch
+
 const (
 	defaultTotalTargetLimitPercentage = 10
 	defaultEffectiveConcurrency       = 5

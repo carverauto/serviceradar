@@ -192,6 +192,17 @@ Static targets are always included in the sweep, regardless of criteria matches:
 ["10.0.0.0/24", "192.168.1.10", "10.0.2.1-10.0.2.25"]
 ```
 
+Each entry is a CIDR, a single IP, or a `first-last` range, IPv4 or IPv6:
+
+- A range is inclusive. The agent sweeps every address from the first to the
+  last, both ends included. An IPv4 CIDR skips its network and broadcast
+  addresses.
+- Spaces around the dash are allowed.
+- An IPv6 range may hold at most 100,000 addresses, the same limit as an IPv6
+  CIDR.
+- The agent skips an entry it cannot read and logs a warning that names the
+  entry and the reason.
+
 ### Adding New Devices
 
 A sweep can add the hosts it finds to inventory, but only from its static

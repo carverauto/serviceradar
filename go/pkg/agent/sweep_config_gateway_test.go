@@ -17,10 +17,17 @@
 package agent
 
 import (
+	"encoding/binary"
+	"encoding/json"
+	"net/netip"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
+	"github.com/rs/zerolog"
 )
 
 func TestParseGatewaySweepConfig_WithDeviceTargets(t *testing.T) {
@@ -502,5 +509,363 @@ func TestNormalizeTargets_NormalizesIPv6HostsTo128(t *testing.T) {
 		if targets[i] != expected[i] {
 			t.Fatalf("target %d = %q, expected %q", i, targets[i], expected[i])
 		}
+	}
+}
+
+// The range tests below use documentation addresses only (RFC 5737, RFC 3849);
+// IPv6 ones are built from integers.
+
+// doc6 returns the IPv6 documentation address whose low 64 bits are low.
+func doc6(low uint64) netip.Addr {
+	var b [16]byte
+	b[0], b[1], b[2], b[3] = 0x20, 0x01, 0x0d, 0xb8
+	binary.BigEndian.PutUint64(b[8:], low)
+
+	return netip.AddrFrom16(b)
+}
+
+func doc6Prefix(low uint64, bits int) string {
+	return netip.PrefixFrom(doc6(low), bits).String()
+}
+
+func doc6Range(first, last uint64) string {
+	return doc6(first).String() + "-" + doc6(last).String()
+}
+
+// mapped4 writes an IPv4 address in its IPv4-mapped IPv6 form.
+func mapped4(ipv4 string) string {
+	return netip.AddrFrom16(netip.MustParseAddr(ipv4).As16()).String()
+}
+
+// sweptAddresses returns, in order, the addresses the sweeper probes for
+// networks, using the CIDR expansion the sweeper applies.
+func sweptAddresses(t *testing.T, networks []string) []string {
+	t.Helper()
+
+	var swept []string
+	for _, network := range networks {
+		ips, err := scan.ExpandCIDR(network)
+		if err != nil {
+			t.Fatalf("expand %q: %v", network, err)
+		}
+
+		swept = append(swept, ips...)
+	}
+
+	return swept
+}
+
+// addressesThrough returns every address from first through last.
+func addressesThrough(first, last netip.Addr) []string {
+	var addresses []string
+	for addr := first; ; addr = addr.Next() {
+		addresses = append(addresses, addr.String())
+		if addr == last {
+			return addresses
+		}
+	}
+}
+
+// warnErrorsByField returns the error text of every warn-level log line,
+// keyed by the value of field.
+func warnErrorsByField(t *testing.T, logs, field string) map[string][]string {
+	t.Helper()
+
+	found := make(map[string][]string)
+	for _, line := range strings.Split(strings.TrimSpace(logs), "\n") {
+		var entry map[string]any
+		if json.Unmarshal([]byte(line), &entry) != nil || entry["level"] != "warn" {
+			continue
+		}
+
+		value, _ := entry[field].(string)
+		errText, _ := entry["error"].(string)
+		found[value] = append(found[value], errText)
+	}
+
+	return found
+}
+
+// A first-last range reaches the sweeper as CIDR entries that expand to
+// exactly its addresses, both ends included. The sweeper skips the first and
+// last address of an IPv4 CIDR other than /32, so each IPv4 block of a range
+// also carries its two ends as /32 entries.
+func TestNormalizeTargets_ConvertsRangesToSweepNetworks(t *testing.T) {
+	tests := []struct {
+		name        string
+		target      string
+		want        []string
+		first, last netip.Addr
+	}{
+		{
+			name:   "non-aligned IPv4 range",
+			target: "198.51.100.10-198.51.100.50",
+			want: []string{
+				"198.51.100.10/32", "198.51.100.11/32",
+				"198.51.100.12/32", "198.51.100.12/30", "198.51.100.15/32",
+				"198.51.100.16/32", "198.51.100.16/28", "198.51.100.31/32",
+				"198.51.100.32/32", "198.51.100.32/28", "198.51.100.47/32",
+				"198.51.100.48/32", "198.51.100.49/32",
+				"198.51.100.50/32",
+			},
+			first: netip.MustParseAddr("198.51.100.10"),
+			last:  netip.MustParseAddr("198.51.100.50"),
+		},
+		{
+			name:   "IPv4 range spanning one whole block keeps both ends",
+			target: "192.0.2.0-192.0.2.255",
+			want:   []string{"192.0.2.0/32", "192.0.2.0/24", "192.0.2.255/32"},
+			first:  netip.MustParseAddr("192.0.2.0"),
+			last:   netip.MustParseAddr("192.0.2.255"),
+		},
+		{
+			name:   "single-address IPv4 range",
+			target: "203.0.113.7-203.0.113.7",
+			want:   []string{"203.0.113.7/32"},
+			first:  netip.MustParseAddr("203.0.113.7"),
+			last:   netip.MustParseAddr("203.0.113.7"),
+		},
+		{
+			name:   "whitespace around the dash",
+			target: "  203.0.113.1 -\t203.0.113.2 ",
+			want:   []string{"203.0.113.1/32", "203.0.113.2/32"},
+			first:  netip.MustParseAddr("203.0.113.1"),
+			last:   netip.MustParseAddr("203.0.113.2"),
+		},
+		{
+			name:   "IPv4-mapped bounds sweep as IPv4, as a single mapped IP does",
+			target: mapped4("192.0.2.1") + "-" + mapped4("192.0.2.2"),
+			want:   []string{"192.0.2.1/32", "192.0.2.2/32"},
+			first:  netip.MustParseAddr("192.0.2.1"),
+			last:   netip.MustParseAddr("192.0.2.2"),
+		},
+		{
+			name:   "non-aligned IPv6 range",
+			target: doc6Range(0x1, 0x10),
+			want: []string{
+				doc6Prefix(0x1, 128), doc6Prefix(0x2, 127), doc6Prefix(0x4, 126),
+				doc6Prefix(0x8, 125), doc6Prefix(0x10, 128),
+			},
+			first: doc6(0x1),
+			last:  doc6(0x10),
+		},
+		{
+			name:   "IPv6 range at the sweeper's 100,000-address expansion limit",
+			target: doc6Range(0x0, 0x1869f),
+			want: []string{
+				doc6Prefix(0x0, 112), doc6Prefix(0x10000, 113), doc6Prefix(0x18000, 118),
+				doc6Prefix(0x18400, 119), doc6Prefix(0x18600, 121), doc6Prefix(0x18680, 123),
+			},
+			first: doc6(0x0),
+			last:  doc6(0x1869f),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeTargets([]string{tt.target}, logger.NewTestLogger())
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("normalizeTargets(%q) = %q, want %q", tt.target, got, tt.want)
+			}
+
+			if swept, want := sweptAddresses(t, got), addressesThrough(tt.first, tt.last); !slices.Equal(swept, want) {
+				t.Fatalf("sweep of %q covers %d addresses, want exactly the %d from %s to %s",
+					tt.target, len(swept), len(want), tt.first, tt.last)
+			}
+		})
+	}
+}
+
+// An unusable range is dropped with one warning that names it and says why;
+// the entries around it still sweep.
+func TestNormalizeTargets_DropsInvalidRangesWithOneWarning(t *testing.T) {
+	invalid := []string{
+		"192.0.2.9-192.0.2.1",                              // first after last
+		"192.0.2.1-" + doc6(0x1).String(),                  // mixed address families
+		"192.0.2.1-192.0.2.x",                              // unparseable end
+		"-192.0.2.1",                                       // missing first
+		"192.0.2.1-",                                       // missing last
+		"192.0.2.1-192.0.2.5-192.0.2.9",                    // more than one dash
+		doc6(0x1).String() + "%eth0-" + doc6(0x2).String(), // zoned bound
+		doc6Range(0x0, 0x186a0),                            // 100,001 addresses, above the sweeper's IPv6 limit
+	}
+
+	out := &syncBuffer{}
+	log := &recordingLogger{Logger: zerolog.New(out)}
+
+	got := normalizeTargets(append([]string{"198.51.100.7"}, invalid...), log)
+	if want := []string{"198.51.100.7/32"}; !slices.Equal(got, want) {
+		t.Fatalf("normalizeTargets kept %q, want only %q", got, want)
+	}
+
+	warnings := warnErrorsByField(t, out.String(), "target")
+	for _, entry := range invalid {
+		if errs := warnings[entry]; len(errs) != 1 || errs[0] == "" {
+			t.Errorf("want one warning naming %q with the reason, got errors %q", entry, errs)
+		}
+	}
+
+	if t.Failed() {
+		t.Logf("logs:\n%s", out.String())
+	}
+}
+
+// Single IPs and CIDRs normalize as they did before ranges were accepted.
+func TestNormalizeTargets_KeepsSingleIPAndCIDRHandling(t *testing.T) {
+	got := normalizeTargets([]string{
+		" 192.0.2.10 ",
+		"198.51.100.0/24",
+		"198.51.100.5/24", // host bits set: passed through, the sweeper masks it
+		doc6(0x5).String(),
+		doc6Prefix(0x0, 120),
+		mapped4("203.0.113.1"),
+		"192.0.2.0/33",
+		"192.0.2.256",
+	}, logger.NewTestLogger())
+
+	want := []string{
+		"192.0.2.10/32",
+		"198.51.100.0/24",
+		"198.51.100.5/24",
+		doc6Prefix(0x5, 128),
+		doc6Prefix(0x0, 120),
+		"203.0.113.1/32",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("normalizeTargets = %q, want %q", got, want)
+	}
+}
+
+// A device target written as a range becomes one device target per sweep
+// network, each keeping the device's modes and labels.
+func TestConvertDeviceTargets_SplitsRanges(t *testing.T) {
+	converted := convertDeviceTargets([]gatewayDeviceTarget{
+		{
+			Network:    "203.0.113.4-203.0.113.5",
+			SweepModes: []string{"icmp"},
+			QueryLabel: "in:devices",
+			Source:     "netbox",
+			Metadata:   map[string]string{"device_uid": "sr:range-device"},
+		},
+		{Network: "203.0.113.9", SweepModes: []string{"tcp"}},
+	}, logger.NewTestLogger())
+
+	networks := make([]string, 0, len(converted))
+	for _, target := range converted {
+		networks = append(networks, target.Network)
+	}
+
+	if want := []string{"203.0.113.4/32", "203.0.113.5/32", "203.0.113.9/32"}; !slices.Equal(networks, want) {
+		t.Fatalf("device target networks = %q, want %q", networks, want)
+	}
+
+	for _, target := range converted[:2] {
+		if !slices.Equal(target.SweepModes, []models.SweepMode{models.ModeICMP}) ||
+			target.QueryLabel != "in:devices" || target.Source != "netbox" ||
+			target.Metadata["device_uid"] != "sr:range-device" {
+			t.Errorf("split device target %s lost its modes or labels: %+v", target.Network, target)
+		}
+	}
+}
+
+func TestParseGatewaySweepConfig_ConvertsRangeTargets(t *testing.T) {
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [{
+				"id": "range-group",
+				"targets": ["192.0.2.1-192.0.2.3", "198.51.100.0/24"],
+				"ports": [22],
+				"modes": ["tcp"],
+				"schedule": {"type": "interval", "interval": "5m"}
+			}],
+			"config_hash": "range-hash"
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, logger.NewTestLogger())
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+
+	if len(config.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(config.Groups))
+	}
+
+	want := []string{"192.0.2.1/32", "192.0.2.2/32", "192.0.2.3/32", "198.51.100.0/24"}
+	if got := config.Groups[0].Networks; !slices.Equal(got, want) {
+		t.Fatalf("group networks = %q, want %q", got, want)
+	}
+}
+
+// Targets that do not come through the gateway payload -- the sweep.json file
+// and a models.Config passed to UpdateConfig -- reach the sweeper through
+// buildSweepModelConfigFromGroup, which normalizes them the same way.
+func TestBuildSweepModelConfigFromGroup_NormalizesTargets(t *testing.T) {
+	out := &syncBuffer{}
+	log := &recordingLogger{Logger: zerolog.New(out)}
+
+	group := sweepGroupConfigFromSweepConfig(&SweepConfig{
+		Networks: []string{"192.0.2.1-192.0.2.2", "198.51.100.0/24", "192.0.2.9", "192.0.2.9-192.0.2.1"},
+		DeviceTargets: []models.DeviceTarget{
+			{Network: "203.0.113.4-203.0.113.5", QueryLabel: "in:devices"},
+			{Network: "203.0.113.9"},
+		},
+	})
+
+	modelConfig, err := buildSweepModelConfigFromGroup(&ServerConfig{AgentID: "agent-1"}, group, log)
+	if err != nil {
+		t.Fatalf("buildSweepModelConfigFromGroup failed: %v", err)
+	}
+
+	if want := []string{"192.0.2.1/32", "192.0.2.2/32", "198.51.100.0/24", "192.0.2.9/32"}; !slices.Equal(modelConfig.Networks, want) {
+		t.Fatalf("networks = %q, want %q", modelConfig.Networks, want)
+	}
+
+	deviceNetworks := make([]string, 0, len(modelConfig.DeviceTargets))
+	for _, target := range modelConfig.DeviceTargets {
+		deviceNetworks = append(deviceNetworks, target.Network)
+	}
+
+	if want := []string{"203.0.113.4/32", "203.0.113.5/32", "203.0.113.9/32"}; !slices.Equal(deviceNetworks, want) {
+		t.Fatalf("device target networks = %q, want %q", deviceNetworks, want)
+	}
+
+	if errs := warnErrorsByField(t, out.String(), "target")["192.0.2.9-192.0.2.1"]; len(errs) != 1 {
+		t.Fatalf("want one warning naming the reversed range, got %d\nlogs:\n%s", len(errs), out.String())
+	}
+}
+
+// A gateway target is normalized when the payload is parsed and again when
+// its group is built; an invalid entry is still reported once.
+func TestGatewayTargets_InvalidRangeWarnsOnceAcrossParseAndBuild(t *testing.T) {
+	out := &syncBuffer{}
+	log := &recordingLogger{Logger: zerolog.New(out)}
+
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [{
+				"id": "range-group",
+				"targets": ["192.0.2.1-192.0.2.2", "192.0.2.9-192.0.2.1"],
+				"schedule": {"type": "interval", "interval": "5m"}
+			}]
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, log)
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+
+	modelConfig, err := buildSweepModelConfigFromGroup(&ServerConfig{AgentID: "agent-1"}, config.Groups[0], log)
+	if err != nil {
+		t.Fatalf("buildSweepModelConfigFromGroup failed: %v", err)
+	}
+
+	if want := []string{"192.0.2.1/32", "192.0.2.2/32"}; !slices.Equal(modelConfig.Networks, want) {
+		t.Fatalf("networks = %q, want %q", modelConfig.Networks, want)
+	}
+
+	if errs := warnErrorsByField(t, out.String(), "target")["192.0.2.9-192.0.2.1"]; len(errs) != 1 {
+		t.Fatalf("want one warning naming the reversed range, got %d\nlogs:\n%s", len(errs), out.String())
 	}
 }
