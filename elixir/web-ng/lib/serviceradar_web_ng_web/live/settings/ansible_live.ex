@@ -82,9 +82,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   end
 
   @impl true
-  def handle_params(params, _uri, %{assigns: %{settings_loaded: true}} = socket) do
+  def handle_params(params, _uri, %{assigns: %{settings_loaded: true, active_tab: rendered_tab}} = socket) do
     with_current_settings_permission(socket, fn socket ->
-      {:noreply, apply_requested_tab(socket, params)}
+      {:noreply, apply_requested_tab(socket, params, rendered_tab)}
     end)
   end
 
@@ -353,11 +353,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp apply_requested_tab(socket, params) do
-    active_tab = socket.assigns.active_tab
-
+  defp apply_requested_tab(socket, params, rendered_tab) do
     case resolve_requested_tab(socket.assigns.tabs, params) do
-      ^active_tab -> socket
+      ^rendered_tab -> socket
       :controllers -> activate_controllers_tab(socket)
       :repositories -> activate_repositories_tab(socket)
     end
