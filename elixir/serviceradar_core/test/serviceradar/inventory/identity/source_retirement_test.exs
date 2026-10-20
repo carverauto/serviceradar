@@ -664,8 +664,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     # A join that reads one table once per row of another goes unseen while the planner's
     # estimates are right, and is chosen when they are wrong, as they are for the rows an
     # activation has just written. With every join a nested loop and no inner side kept in
-    # memory, such a join reads its inner table again for each outer row, and the counters see
-    # it.
+    # memory, such a join reads its inner table again for each outer row, and linear_reads/3
+    # sees it.
     @tag timeout: 300_000
     test "counting, the dry run and a pass read rows in proportion to the instance", ctx do
       own_transaction!(ctx)
