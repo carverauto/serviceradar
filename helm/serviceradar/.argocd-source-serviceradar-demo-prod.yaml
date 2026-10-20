@@ -7,7 +7,7 @@ helm:
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
     forcestring: true
   - name: image.digests.core
-    value: sha256:4a940e79241e9b077be40f008c2e157011cf1fd769e880fd5e12d72f4c357dee
+    value: sha256:7235d14fb5878017e80f543f67cd5217be967034c9c4c62482d0ff7a4c589645
     forcestring: true
   - name: image.digests.webNg
     value: sha256:020f3931f384a09038c9745f1b89836a1c3f53c99a66a7a8ed98422f00ec8c56
@@ -16,10 +16,10 @@ helm:
     value: sha256:b93c6fd679b5936c4c2c288c598c8afe721bad1bee009a3265bca79876f97ce4
     forcestring: true
   - name: image.digests.agentGateway
-    value: sha256:b5818c274cc525d55bce5e99a75a5794d44013b5600aa24ae07c9ae630dddb86
+    value: sha256:791bbca28eb1c0adae5471ee890c07c27bdd22d7eaae72fc12e85f0f9cf6e442
     forcestring: true
   - name: analytics.starrocks.streamLoad.maxAgeMs
     value: "10000"
   - name: core.migrations.expectedVersion
-    value: "20261019180000"
+    value: "20261019190100"
     forcestring: true
