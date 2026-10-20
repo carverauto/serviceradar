@@ -347,6 +347,36 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   end
 
   @tag sandbox: :unboxed
+  test "multi-statement inbox transactions keep their connection when each statement is within budget" do
+    %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+
+    assert {:ok, :completed} =
+             Inbox.transact(300, fn ->
+               for _ <- 1..9 do
+                 Repo.query!("SELECT pg_sleep(0.16)")
+               end
+
+               :completed
+             end)
+
+    assert %{rows: [[^backend]]} = Repo.query!("SELECT pg_backend_pid()")
+
+    assert {:error,
+            {:store_unavailable,
+             %Postgrex.Error{
+               postgres: %{
+                 pg_code: "57014",
+                 message: "canceling statement due to statement timeout"
+               }
+             }}} =
+             Inbox.transact(100, fn ->
+               Repo.query!("SELECT pg_sleep(0.3)")
+             end)
+
+    assert %{rows: [[^backend]]} = Repo.query!("SELECT pg_backend_pid()")
+  end
+
+  @tag sandbox: :unboxed
   test "completion preserves a store failure that occurs before its deadline" do
     keys = [{Ash.UUID.generate(), "synthetic-missing-receipt"}]
 
