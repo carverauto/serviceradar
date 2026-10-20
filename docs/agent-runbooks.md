@@ -812,8 +812,9 @@ Context for the `mix serviceradar.db.migrate` rule in `AGENTS.md`.
 
   **The baseline does NOT work for a database that already carries TimescaleDB hypertables or
   AGE graphs, which is every real one.** It is a `pg_dump --schema-only`, and this schema does
-  not round-trip: the dump contains 177 references into `_timescaledb_internal`
-  (`_compressed_hypertable_45`, `_direct_view_23` -- names carrying the SOURCE database's OIDs)
+  not round-trip: the dump contains over 200 references into `_timescaledb_internal`
+  (`_materialized_hypertable_23`, `_direct_view_23` -- names carrying the SOURCE database's
+  catalog ids; the generator excludes the `_compressed_hypertable_*` tables)
   and 42 statements reproducing AGE's per-graph storage. Replaying those is not just privileged,
   it is wrong: `create_hypertable()` and `create_graph()` register objects in catalogs that plain
   DDL never touches, so the result holds graph tables `ag_catalog.ag_graph` has no row for.
