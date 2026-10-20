@@ -35,7 +35,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     rule_bytes: 8 * 1_024 * 1_024
   }
   @admission_key "alert-evaluation:admission:v1"
-  @client_backstop_ms 1_000
+  @client_backstop_multiplier 10
+  @min_client_timeout_ms 10_000
   @pending_notifications {__MODULE__, :pending_notifications}
 
   @doc "Commits every eligible rule occurrence or rejects the entire batch."
@@ -259,11 +260,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     end
   end
 
-  # PostgreSQL's lock and statement timeouts enforce `timeout`: an expired
-  # statement is cancelled, the transaction rolls back and the connection stays
-  # usable. The client deadline only backstops a store PostgreSQL cannot reach.
-  # It starts at checkout, before the server budget does, and on expiry it
-  # disconnects the connection mid-query, so it must not equal that budget.
+  # PostgreSQL's lock and statement timeouts enforce `timeout` per statement: an
+  # expired statement is cancelled, the transaction rolls back and the connection
+  # stays usable. The client checkout deadline is per transaction and only
+  # backstops a store PostgreSQL cannot reach, so size it for multiple round
+  # trips with a floor for short tail polls in Completion.await/2.
   def transact(timeout, work) do
     with_notification_queue(fn -> run_transaction(timeout, work) end)
   end
@@ -283,12 +284,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
         set_timeouts(lock_timeout, statement_timeout)
         result
       end,
-      timeout: timeout + @client_backstop_ms
+      timeout: client_timeout(timeout)
     )
   rescue
     error -> {:error, {:store_unavailable, error}}
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  defp client_timeout(timeout) do
+    max(timeout * @client_backstop_multiplier, @min_client_timeout_ms)
   end
 
   defp set_timeouts(lock_timeout, statement_timeout) do
