@@ -23,6 +23,29 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
     assert_receive {:published_log, "live.logs.internal.audit", ^json}
   end
 
+  test "derives OTEL severity from OCSF or bare severity unless the producer set it" do
+    cases = [
+      {%{severity_id: 1, severity: "Informational"}, "INFO", 11},
+      {%{severity_id: 4, severity: "High"}, "ERROR", 19},
+      {%{"severity" => "warning"}, "WARN", 15},
+      {%{severity_id: 4, severity_text: "INFO", severity_number: 9}, "INFO", 9}
+    ]
+
+    for {payload, text, number} <- cases do
+      assert :ok =
+               InternalLogPublisher.publish(
+                 "audit",
+                 Map.put(payload, :body, "severity example"),
+                 durable_publish: durable_publish(self()),
+                 publisher: {__MODULE__, :publish, [self()]}
+               )
+
+      assert_receive {:persisted_logs, "logs.internal.audit", json, _opts}
+      assert {:ok, decoded} = Jason.decode(json)
+      assert {decoded["severity_text"], decoded["severity_number"]} == {text, number}
+    end
+  end
+
   test "skips the live NATS copy when internal_log_live_nats is disabled" do
     previous = Application.get_env(:serviceradar_core, :internal_log_live_nats)
 

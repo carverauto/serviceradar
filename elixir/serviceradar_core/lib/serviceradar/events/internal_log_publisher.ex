@@ -10,6 +10,8 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   `Nats-Msg-Id` gives it a stable row id so a retry stores it once.
   """
 
+  alias ServiceRadar.EventWriter.LogSeverity
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.NATS.Channels
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.DurablePublish
@@ -115,7 +117,36 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
     |> Map.put("time", timestamp)
     |> Map.put("timestamp", timestamp)
     |> Map.put_new("service_name", service_name)
+    |> put_otel_severity()
   end
+
+  # Most internal producers describe severity in OCSF terms (`severity_id` and
+  # a name such as "Informational") or as a bare `severity` word. The logs
+  # processor stores an explicit `severity_text` verbatim and otherwise keeps
+  # that name with no `severity_number`, so the row would drop out of level
+  # filters. Derive the OTEL pair here unless the producer already set one.
+  defp put_otel_severity(%{"severity_text" => text} = payload)
+       when is_binary(text) and text != "", do: payload
+
+  defp put_otel_severity(payload) do
+    case severity_label(payload) do
+      nil ->
+        payload
+
+      label ->
+        {text, number} = LogSeverity.from_level(label)
+
+        payload
+        |> Map.put("severity_text", text)
+        |> Map.put_new("severity_number", number)
+    end
+  end
+
+  # An OCSF id goes through its name: LogSeverity reads a bare integer as a
+  # syslog level, where 1 means alert rather than informational.
+  defp severity_label(%{"severity_id" => id}) when is_integer(id), do: OCSF.severity_name(id)
+  defp severity_label(%{"severity" => name}) when is_binary(name) and name != "", do: name
+  defp severity_label(_payload), do: nil
 
   defp normalize_timestamp(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp normalize_timestamp(ts) when is_binary(ts) and ts != "", do: ts
