@@ -178,6 +178,7 @@ def ordinary_core_test_sources() -> tuple[str, ...]:
     excluded_sources = {
         DATABASE_BOOTSTRAP_SOURCE,
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
+        "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
     }
     sources = []
 

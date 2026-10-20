@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
 
   alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
+  alias ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -99,7 +100,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
     with :active <- mode(),
          {:ok, @capability} <- capability(),
          :ok <- no_legacy_registration(),
-         :ok <- peer_capabilities() do
+         :ok <- PeerReadiness.check() do
       :ok
     else
       :prepared -> {:error, :alert_evaluation_not_activated}
@@ -108,6 +109,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
       _ -> {:error, :alert_evaluation_capability_unavailable}
     end
   end
+
+  @doc "The capability string `capability/0` reports when this node can evaluate."
+  def capability_name, do: @capability
 
   @doc "Deployment capability queried before enabling admission on connected evaluator peers."
   def capability do
@@ -169,56 +173,5 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
     _ -> {:error, :alert_evaluation_capability_unavailable}
   catch
     :exit, _ -> {:error, :alert_evaluation_capability_unavailable}
-  end
-
-  defp peer_capabilities do
-    peers = Node.list()
-
-    handlers =
-      :erpc.multicall(
-        peers,
-        Application,
-        :get_env,
-        [:serviceradar_core, :status_handler_enabled, false],
-        500
-      )
-
-    writers =
-      :erpc.multicall(
-        peers,
-        Application,
-        :get_env,
-        [:serviceradar_core, :event_writer_enabled, false],
-        500
-      )
-
-    consumers = :erpc.multicall(peers, __MODULE__, :alert_consumer?, [], 500)
-
-    with {:ok, evaluators} <- evaluator_peers(Enum.zip([peers, handlers, writers, consumers])) do
-      # One deadline covers the whole cohort, rather than one timeout per node.
-      evaluators
-      |> :erpc.multicall(__MODULE__, :capability, [], 1_500)
-      |> Enum.all?(&(&1 == {:ok, {:ok, @capability}}))
-      |> case do
-        true -> :ok
-        false -> {:error, :alert_evaluation_peer_not_ready}
-      end
-    end
-  catch
-    _, _ -> {:error, :alert_evaluation_peer_not_ready}
-  end
-
-  defp evaluator_peers(entries) do
-    Enum.reduce_while(entries, {:ok, []}, fn
-      {_peer, {:ok, false}, {:ok, false}, {:ok, false}}, acc ->
-        {:cont, acc}
-
-      {peer, {:ok, handler}, {:ok, writer}, {:ok, consumer}}, {:ok, acc}
-      when is_boolean(handler) and is_boolean(writer) and is_boolean(consumer) ->
-        {:cont, {:ok, [peer | acc]}}
-
-      _, _ ->
-        {:halt, {:error, :alert_evaluation_peer_not_ready}}
-    end)
   end
 end

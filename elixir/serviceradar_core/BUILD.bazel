@@ -84,9 +84,10 @@ ALL_TEST_SRCS = glob(
         # cost exceeds the complete PR lifecycle budget, so it runs once in the source-separated
         # release qualification target below rather than in any ordinary lane.
         "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
-        # This brings up real peer nodes and has its own discoverable target
-        # below so the normal helper's :cluster exclusion cannot skip it.
+        # These bring up real peer nodes and have their own discoverable targets
+        # below so the normal helper's :cluster exclusion cannot skip them.
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
+        "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
     ],
 )
 
@@ -612,6 +613,20 @@ ex_unit_test(
     name = "agent_command_bus_rpc_registry_test",
     size = "medium",
     srcs = ["test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs"],
+    data = ["test/cluster_test_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "test/cluster_test_helper.exs",
+    ],
+    deps = [":erlang_app"],
+)
+
+# Alert-evaluation admission checks connected peers over real Erlang
+# distribution, including an older-release peer without readiness/0.
+ex_unit_test(
+    name = "alert_peer_readiness_test",
+    size = "medium",
+    srcs = ["test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs"],
     data = ["test/cluster_test_helper.exs"],
     elixir_opts = [
         "-r",

@@ -132,6 +132,10 @@ defmodule ServiceRadar.Application do
         # bounded JetStream metric accumulator rather than a coordinator ETS.
         ingestion_metrics_child(),
 
+        # Owns the short-lived cache of a passing alert-evaluation peer check,
+        # which admission runs once per ingest batch.
+        alert_peer_readiness_child(),
+
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
 
@@ -198,11 +202,18 @@ defmodule ServiceRadar.Application do
   end
 
   defp ingestion_metrics_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) or
-         Application.get_env(:serviceradar_core, :event_writer_enabled, false) or
-         ServiceRadar.Observability.StatefulAlertEngine.Rollout.alert_consumer?() do
-      ServiceRadar.Ingestion.RuntimeMetrics
-    end
+    if alert_evaluator_role?(), do: ServiceRadar.Ingestion.RuntimeMetrics
+  end
+
+  defp alert_peer_readiness_child do
+    if alert_evaluator_role?(),
+      do: ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness
+  end
+
+  defp alert_evaluator_role? do
+    Application.get_env(:serviceradar_core, :status_handler_enabled, false) or
+      Application.get_env(:serviceradar_core, :event_writer_enabled, false) or
+      ServiceRadar.Observability.StatefulAlertEngine.Rollout.alert_consumer?()
   end
 
   defp ensure_started(app) do
