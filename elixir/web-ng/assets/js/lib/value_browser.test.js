@@ -71,6 +71,26 @@ it("keeps exact selections across pages and search, ignores stale replies, and r
   expect(accept).toHaveBeenLastCalledWith(["Example B"])
 })
 
+it("retrying a failed later page after a new search requests the first page without the old cursor", async () => {
+  const pending = []
+  view = new ValueBrowser({parent: document.body, selected: [], onConfirm: vi.fn(), onCancel: vi.fn(),
+    load: args => new Promise((resolve, reject) => pending.push({...args, resolve, reject}))})
+  pending[0].resolve({items: [{value: "Example A", count: 4}], cursor: "page-two"}); await tick()
+  button("Next").click()
+  pending[1].reject(new Error("query_busy")); await tick()
+  expect(button("Retry").hidden).toBe(false)
+  view.search.value = "Example"
+  view.search.dispatchEvent(new browser.Event("input"))
+  button("Retry").click()
+  expect(pending).toHaveLength(3)
+  expect(pending[2]).toMatchObject({search: "Example", cursor: null})
+  pending[2].resolve({items: [{value: "Example C", count: 2}], cursor: null}); await tick()
+  expect(view.summary.textContent).toBe("Page 1 · 1 values")
+  expect(view.error.textContent).toBe("")
+  await new Promise(resolve => setTimeout(resolve, 250))
+  expect(pending).toHaveLength(3)
+})
+
 it("opens a modal, cancels in-flight discovery and restores focus without accepting changes", async () => {
   const trigger = document.createElement("button")
   document.body.append(trigger); trigger.focus()

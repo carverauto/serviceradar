@@ -35,8 +35,10 @@ export class ValueBrowser {
     this.search.setAttribute("data-dialog-autofocus", "")
     this.search.addEventListener("input", () => {
       this.cancelRequest()
+      this.trail = [null]
+      this.page = 1
       this.setBusy(true)
-      this.timer = setTimeout(() => {this.trail = [null]; this.page = 1; void this.refresh()}, 200)
+      this.timer = setTimeout(() => void this.refresh(), 200)
     })
     this.summary = element("p", "text-xs text-sr-muted")
     this.summary.setAttribute("aria-live", "polite")
