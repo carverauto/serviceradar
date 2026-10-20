@@ -3,6 +3,7 @@ import {describe, expect, it, vi} from "vitest"
 import {WorldMembership} from "./world_membership"
 import {BITMAP_FRAME_BYTES, FRAME_FIELDS, decodeBitmapFrame} from "./bitmap_frame"
 import WorldMapRenderer from "./WorldMapRenderer"
+import WorldTileLayer from "./world_tile_layer"
 import {bitmapBinding, bitmapFrame} from "./fixtures/bitmap_frame"
 import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
 import {decodeWorldTile} from "./world_tile_decode"
@@ -18,6 +19,42 @@ function session() {
 }
 
 describe("binary admitted-row membership", () => {
+  it("admits the remote endpoint of a clipped link without counting or drawing the portal as a device", () => {
+    const clipped = decodeWorldTile(worldTileIpc({
+      metadata: {device_count: 1},
+      nodes: [
+        {x: 100, y: 100, label: "Router", details: {id: "sr:router.example.test", type: "device", cluster_member_count: 1}},
+        {x: 65535, y: 100, label: "", details: {id: "boundary:east", type: "boundary", cluster_member_count: 0}},
+      ],
+      edges: [{source: 0, target: 1, details: {id: "synthetic-link", represented_count: 1, phase_start: 0, phase_end: 0.5}}],
+    }), worldTileKey)
+    clipped.generation = 1
+    const flow = decodeWorldOverlay(telemetryFrame(clipped, {
+      complete: true,
+      flows: [{forward: {status: "measured", animate: true, packets_per_second: 37, octets_per_second: 3700}}],
+    }), clipped)
+    const state = new WorldMembership({onChange: vi.fn(), onAck: vi.fn(), onReset: vi.fn()})
+    state.bind(bitmapBinding, [clipped])
+    const receive = (remote, sequence) => state.receive(bitmapFrame({sequence, total: 2, tiles: [{
+      ...worldTileKey, revision: clipped.revision, mask: [1, remote], counts: [1, remote],
+      causal: [3, 3], availability: [2, 2],
+    }]}))
+    const draw = () => new WorldTileLayer({
+      id: "clipped-world", membershipEnabled: true, membership: state.entries,
+      overlays: new Map([["1/1/0", flow]]),
+    }).renderSubLayers({id: "clipped-tile", data: clipped}).filter(Boolean)
+
+    receive(1, 1n)
+    expect(state.onReset).not.toHaveBeenCalled()
+    expect(state.total).toBe(2)
+    expect(draw().find(layer => layer.id.endsWith("-edges")).props.getWidth(null, {index: 0})).toBeGreaterThan(0)
+    expect(draw().find(layer => layer.id.endsWith("-nodes")).props.data.length).toBe(1)
+    expect(draw().some(layer => layer.id.endsWith("-packets"))).toBe(true)
+    receive(0, 2n)
+    expect(draw().find(layer => layer.id.endsWith("-edges")).props.getWidth(null, {index: 0})).toBe(0)
+    expect(draw().some(layer => layer.id.endsWith("-packets"))).toBe(false)
+  })
+
   it("keeps an accepted displayed view through offscreen prefetch, then replaces the new viewport atomically", async () => {
     vi.useFakeTimers()
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
@@ -49,6 +86,7 @@ describe("binary admitted-row membership", () => {
       await renderer.cache.get(worldTileKey)
       await vi.advanceTimersByTimeAsync(50)
       watches()[0].ok(bitmapBinding)
+      expect(watches()[0].payload.boundary_endpoints).toBe(true)
       renderer.membership.receive(bitmapFrame({total: 70000, tiles: [matches(worldTileKey)]}))
       const accepted = renderer.membership.entries
       const neighbor = {...worldTileKey, x: 0}
@@ -194,7 +232,7 @@ describe("binary admitted-row membership", () => {
     state.receive(bitmapFrame({tiles: [accepted]}))
     expect(state.pending).toBe(false)
     state.onAck.mockClear()
-    state.receive(bitmapFrame({sequence: 2n, tiles: [{...tile, counts: [1, nodes[1].count + 1]}]}))
+    state.receive(bitmapFrame({sequence: 2n, tiles: [{...tile, counts: [1, kind === "boundary" ? 2 : nodes[1].count + 1]}]}))
     expect(state.pending).toBe(true)
     expect(state.entries.size).toBe(0)
     expect(state.total).toBeNull()

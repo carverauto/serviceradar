@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
   uint32 matched count. No device IDs or portable bitmap sets cross this wire.
   Every replacement also carries the captured named Prefix Tag source versions
   for that sequence. Those versions are freshness, not watch identity.
+  A boundary row may carry one exact remote endpoint match, while its geometry
+  count remains zero. Ambiguous or unmapped boundaries carry no membership.
   """
 
   @max_frame 262_144

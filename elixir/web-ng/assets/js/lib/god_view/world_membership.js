@@ -44,7 +44,10 @@ export class WorldMembership {
         }
         for (let row = 0; row < geometry.nodes.length; row += 1) {
           if (geometry.nodes[row].kind === "device" && tile.counts[row] > 1) throw new Error("Invalid device membership count")
-          if (tile.counts[row] > geometry.nodes[row].count || tile.counts[row] > frame.total) throw new Error("Invalid represented membership count")
+          // A boundary may project one exact remote endpoint while contributing
+          // zero devices to this tile's geometry population.
+          const population = geometry.nodes[row].kind === "boundary" ? 1 : geometry.nodes[row].count
+          if (tile.counts[row] > population || tile.counts[row] > frame.total) throw new Error("Invalid represented membership count")
         }
       }
       // The old view remains untouched until the entire replacement validates.

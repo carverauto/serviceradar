@@ -5,7 +5,7 @@ use std::time::Instant;
 use roaring::RoaringBitmap;
 use serviceradar_topology_atlas::{
     Budget, CanonicalOrdinals, Cell, DetailScope, Error, GlyphKind, ORDINAL_PORTABLE_BYTES,
-    Position, World,
+    Position, Relation, World,
 };
 
 fn position(n: u32) -> Position {
@@ -19,6 +19,68 @@ fn position(n: u32) -> Position {
         component_id: "component:SITE01".into(),
         component: Cell::new(0, 0, 0).unwrap(),
         placement_depth: 24,
+    }
+}
+
+#[test]
+fn clipped_links_keep_the_remote_device_identity_across_zoom_levels() {
+    let mut points: Vec<_> = (0..3).map(position).collect();
+    for (point, x) in points.iter_mut().zip([4_000_000, 12_000_000, 14_000_000]) {
+        point.x = x;
+        point.y = 4_000_000;
+        point.min_zoom = 0;
+    }
+    for targets in [vec![1], vec![1, 1], vec![1, 2], vec![1, 2, 1]] {
+        let relations = targets
+            .iter()
+            .enumerate()
+            .map(|(n, target)| Relation {
+                id: format!("synthetic-link-{n}"),
+                source: points[0].id.clone(),
+                target: points[*target].id.clone(),
+            })
+            .collect();
+        let world = World::new("synthetic-boundary".into(), 24, points.clone(), relations).unwrap();
+        for mapped in [true, false] {
+            let mut mapping = CanonicalOrdinals::new(&world, [9; 16]).unwrap();
+            let dictionary: Vec<_> = points
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| mapped || *i != 1)
+                .map(|(i, point)| (point.id.clone(), (i + 1) as u32 * 101))
+                .collect();
+            mapping.apply(&world, &dictionary).unwrap();
+            mapping.seal(&world).unwrap();
+            for zoom in [0, 1, 2] {
+                let cell = Cell::new(zoom, 0, 0).unwrap();
+                let tile = world.tile(cell, Budget::default()).unwrap();
+                let rows = mapping
+                    .tile_device_ordinals(&world, &tile.selection)
+                    .unwrap();
+                assert_eq!(rows.len(), tile.glyphs.len());
+                assert_eq!(tile.device_count, if zoom == 0 { 3 } else { 1 });
+                let mut boundaries = 0;
+                for (glyph, ordinal) in tile.glyphs.iter().zip(rows) {
+                    if glyph.kind == GlyphKind::Boundary {
+                        boundaries += 1;
+                        let expected = if mapped && targets.iter().all(|i| *i == 1) {
+                            202
+                        } else {
+                            0
+                        };
+                        assert_eq!(ordinal, expected, "zoom {zoom}, targets {targets:?}");
+                        assert_eq!(glyph.count, 0, "portals never add devices to the tile");
+                    } else {
+                        let expected = dictionary
+                            .iter()
+                            .find(|(id, _)| id == &glyph.id)
+                            .map_or(0, |(_, value)| *value);
+                        assert_eq!(ordinal, expected);
+                    }
+                }
+                assert_eq!(boundaries, usize::from(zoom > 0));
+            }
+        }
     }
 }
 
@@ -201,6 +263,13 @@ fn seed_failures_are_atomic_and_world_generations_are_fenced() {
     assert_eq!(mapping.info(&world).unwrap().mapped, 1);
     assert_eq!(mapping.seal(&other), Err(Error::StaleDetailRevision));
     mapping.seal(&world).unwrap();
+    let other_tile = other
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert_eq!(
+        mapping.tile_device_ordinals(&world, &other_tile.selection),
+        Err(Error::StaleDetailRevision)
+    );
     assert_eq!(
         mapping
             .device_ordinals(&world, &[position(0).id, position(1).id])

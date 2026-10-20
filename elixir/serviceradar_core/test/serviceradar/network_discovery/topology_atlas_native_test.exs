@@ -137,7 +137,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     nodes =
       for n <- 1..4, do: Map.put(position("sr:ordinal-#{n}.example.com", n, true), :min_zoom, 24)
 
-    world = cold_world(nodes)
+    world = cold_world(nodes, 24)
     assert :ok = await_two_mapping_permits(world, System.monotonic_time(:millisecond) + 1_000)
     dictionary = <<255::128>>
     assert {:ok, mapping} = TopologyAtlas.new_ordinals(world, dictionary)
@@ -157,6 +157,11 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     assert {:ok, [4_294_967_295, 0, 2_147_483_648, 0]} =
              TopologyAtlas.device_ordinals(world, mapping, Enum.map(nodes, & &1.device_id))
+
+    assert {:ok, leaf_tile} = TopologyAtlas.tile(world, 24, 1, 1)
+
+    assert {:ok, [4_294_967_295]} =
+             TopologyAtlas.tile_device_ordinals(world, mapping, leaf_tile.selection)
 
     assert {:error, :sealed} = TopologyAtlas.apply_ordinals(world, mapping, [])
     assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
@@ -193,6 +198,10 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     other = cold_world([])
     assert {:error, :stale_revision} = TopologyAtlas.ordinal_info(other, mapping)
+    assert {:ok, other_tile} = TopologyAtlas.tile(other, 0, 0, 0)
+
+    assert {:error, :stale_revision} =
+             TopologyAtlas.tile_device_ordinals(world, mapping, other_tile.selection)
 
     assert {:ok, true} = TopologyAtlas.release_ordinals(mapping)
   end
@@ -766,8 +775,8 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     end
   end
 
-  defp cold_world(positions) do
-    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-health-layout", 16)
+  defp cold_world(positions, zmax \\ 16) do
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-health-layout", zmax)
     assert :ok = TopologyAtlas.add_positions(builder, positions)
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
     world

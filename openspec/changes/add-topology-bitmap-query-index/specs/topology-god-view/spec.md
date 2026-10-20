@@ -208,6 +208,19 @@ The system SHALL apply membership to the persistent tiled world without changing
 - **THEN** the client SHALL hide that relation and suppress its traffic rates and animation
 - **AND** the whole-bundle rate SHALL NOT be shown as a filtered-population rate
 
+#### Scenario: Exact boundary endpoint survives tile refinement
+- **GIVEN** every relation using a boundary portal has the same canonical remote endpoint
+- **WHEN** the query includes that endpoint and the complete population at the other endpoint
+- **THEN** the clipped relation SHALL remain visible when zooming crosses a tile boundary
+- **AND** the portal SHALL project zero or one authorized match without becoming a visible device or increasing tile or global device counts
+- **AND** an unmapped endpoint or a portal shared by distinct devices SHALL have zero membership
+- **AND** native projection SHALL remain bounded by admitted tile rows without scanning all relations per query
+
+#### Scenario: Browser compatibility during rolling updates
+- **WHEN** a client does not opt in to exact boundary endpoint membership
+- **THEN** the server SHALL retain zero boundary counts for that watch
+- **AND** the watch view digest SHALL bind the boundary membership choice
+
 #### Scenario: Hidden geometry cannot receive picks
 - **WHEN** a glyph or relation is excluded, pending, stale or hidden by an availability filter
 - **THEN** it SHALL NOT receive a GPU pick or intercept a visible item behind it
@@ -295,7 +308,8 @@ The system SHALL replace the active tiled path's per-tile JSON membership overla
 - **AND** a skipped intermediate replacement SHALL NOT corrupt the next frame
 - **AND** obsolete sequences, mismatched receipts or authority, invalid enums and malformed lengths SHALL be rejected before excessive allocation or partial mutation
 - **AND** no XOR history or chunked baseline assembly SHALL be required
-- **AND** each matched count SHALL be bounded by its geometry row population, with unsupported boundary counts zero
+- **AND** each matched count SHALL be bounded by its geometry row population, except boundary rows may project one exact remote endpoint while contributing zero geometry devices
+- **AND** unsupported boundary counts SHALL remain zero
 - **AND** decoding SHALL preserve leading U+FEFF identifier content in both membership and telemetry receipts
 
 #### Scenario: Repeated invalid frames cannot bypass retry backoff

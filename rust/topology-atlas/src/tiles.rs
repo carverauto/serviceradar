@@ -600,6 +600,7 @@ impl World {
             glyphs: plan.glyphs.clone(),
             edges: edges.clone(),
             promoted,
+            boundary_devices: proxies.into_values().collect(),
             groups: plan.groups,
             seam,
         };
@@ -668,7 +669,7 @@ impl Plan {
         point: (f64, f64),
         layout_version: &str,
         zoom: u8,
-        proxies: &mut BTreeMap<(u64, u64), u32>,
+        proxies: &mut BTreeMap<(u64, u64), (u32, Option<u32>)>,
     ) -> u32 {
         if let Some(&glyph) = self.promoted.get(&index) {
             return glyph;
@@ -682,10 +683,15 @@ impl Plan {
             return *glyph;
         }
         let (x, y) = point;
-        *proxies
+        proxies
             .entry((x.to_bits(), y.to_bits()))
+            .and_modify(|(_, device)| {
+                if *device != Some(index) {
+                    *device = None;
+                }
+            })
             .or_insert_with(|| {
-                let index = self.glyphs.len() as u32;
+                let glyph = self.glyphs.len() as u32;
                 self.glyphs.push(Glyph {
                     id: format!(
                         "boundary:{layout_version}/{zoom}/{:x}/{:x}",
@@ -698,8 +704,9 @@ impl Plan {
                     count: 0,
                     kind: GlyphKind::Boundary,
                 });
-                index
+                (glyph, Some(index))
             })
+            .0
     }
 }
 
