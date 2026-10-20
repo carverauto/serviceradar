@@ -7,10 +7,12 @@ and the owner recovery and load evidence must pass first.
 The default `SERVICERADAR_ALERT_EVALUATION_MODE=prepared` does not evaluate
 alert rules: records are stored and the batch is acknowledged, but no rule
 evaluates them and no alert effects are produced. A periodic warning reports
-this in the core log. `active` admits work; `draining` rejects new admission
-while finishing accepted work. Invalid settings fail release boot. The alerts
-Oban queue must be enabled and have a positive worker limit on each evaluating
-core node.
+this in the core log, and web-ng shows "alert evaluation is not activated" on
+the dashboard alerts card, `/observability/alerts` and the alert rules settings
+page whenever the coordinator's mode is not `active`. `active` admits work;
+`draining` rejects new admission while finishing accepted work. Invalid
+settings fail release boot. The alerts Oban queue must be enabled and have a
+positive worker limit on each evaluating core node.
 
 1. Install the migrations and new consumer-capable image with admission prepared.
 2. Retire every old inline evaluator, including disconnected pods. Check the
@@ -21,7 +23,9 @@ core node.
    must report the durable capability; legacy Horde registrations reject admission.
 4. Set `core.alertEvaluation.mode: active` in Helm values (or
    `SERVICERADAR_ALERT_EVALUATION_MODE=active` directly if you override via
-   `core.extraEnv`) on the evaluating cohort.
+   `core.extraEnv`) on the evaluating cohort. Helm passes the same value to
+   web-ng, which uses it only as a fallback before it reaches the coordinator;
+   an override in `core.extraEnv` also belongs in `webNg.extraEnv`.
    Observe accepted inputs, committed receipts, and persisted alert effects.
    Rejected upstream deliveries must remain eligible for retry.
 5. Before rollback, set `draining` everywhere and stop upstream admission. Wait
