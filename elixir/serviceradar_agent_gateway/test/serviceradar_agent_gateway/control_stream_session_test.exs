@@ -428,6 +428,63 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     assert registry_metadata("partition-a", agent_id, pid).pending_config_version == nil
   end
 
+  describe "config push on control-session registration" do
+    # Core resolves sessions through the cluster registry, which lags a fresh
+    # registration; anything that addresses this session through core's view of
+    # it reports the agent offline. The gateway owns the session and the
+    # authenticated partition, so the push must not depend on that view.
+    test "a changed config reaches the new session while core cannot see it" do
+      ensure_process_registry!()
+
+      agent_id = "agent-reconnect-#{System.unique_integer([:positive])}"
+
+      config_sync_rpc = fn
+        :get_config_if_changed, [^agent_id, "partition-a", "config-v1"] ->
+          {:ok, generated_config("config-v2")}
+
+        :push_config, [^agent_id] ->
+          {:error, {:agent_offline, agent_id}}
+
+        _function, _args ->
+          :ok
+      end
+
+      start_push_session!(agent_id, [],
+        config_sync_rpc: config_sync_rpc,
+        hello: %Monitoring.ControlStreamHello{agent_id: agent_id, config_version: "config-v1"}
+      )
+
+      assert_receive {:stream_reply,
+                      %Monitoring.ControlStreamResponse{
+                        payload: {:config, %{config_version: "config-v2", not_modified: false}}
+                      }}
+    end
+
+    test "an agent already running the current config is not sent it again" do
+      ensure_process_registry!()
+
+      agent_id = "agent-current-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      config_sync_rpc = fn
+        :get_config_if_changed, args ->
+          send(test_pid, {:config_fetch, args})
+          :not_modified
+
+        _function, _args ->
+          :ok
+      end
+
+      start_push_session!(agent_id, [],
+        config_sync_rpc: config_sync_rpc,
+        hello: %Monitoring.ControlStreamHello{agent_id: agent_id, config_version: "config-v1"}
+      )
+
+      assert_receive {:config_fetch, [^agent_id, "partition-a", "config-v1"]}
+      refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}}, 100
+    end
+  end
+
   test "console open normalization preserves the exact assignment policy binding" do
     fingerprint = String.duplicate("a", 64)
 
@@ -1197,9 +1254,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       stream
     end)
 
-    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn _function, _args ->
-      :ok
-    end)
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :config_sync_rpc,
+      Keyword.get(opts, :config_sync_rpc, fn _function, _args -> :ok end)
+    )
 
     on_exit(fn ->
       Application.delete_env(:serviceradar_agent_gateway, :control_stream_reply)
@@ -1223,10 +1282,23 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                agent_id,
                "partition-a",
                capabilities,
-               identity_context(agent_id, "partition-a")
+               identity_context(agent_id, "partition-a"),
+               Keyword.get(opts, :hello)
              )
 
     pid
+  end
+
+  # The shape core's AgentConfigGenerator returns from get_config_if_changed.
+  defp generated_config(version) do
+    %{
+      config_version: version,
+      config_timestamp: 1_700_000_000,
+      heartbeat_interval_sec: 30,
+      config_poll_interval_sec: 300,
+      checks: [],
+      plugins: []
+    }
   end
 
   defp stop_linked_session(pid) do
