@@ -9,7 +9,12 @@ also bounds retries. Redirects and HTTP requests consume that same budget.
 Transport retries start at the frontend again, retaining the original label,
 encoded body, and load headers. An uncertain commit is polled through
 `get_load_state`; only COMMITTED or VISIBLE permits acknowledgement. The client
-does not resubmit a running load. StarRocks retains successful labels to prevent
+does not resubmit a running load. A load refused because its label is already
+in use polls that label the same way. While the label is PREPARE or PREPARED,
+whether under this caller's lost attempt or under another loader of the same
+batch, the client waits and polls after 200 ms, doubling to at most 2 s, until
+it commits, aborts, or the budget runs out. UNKNOWN or no answer is
+unresolved. StarRocks retains successful labels to prevent
 duplicate loading, as described in its
 [Stream Load protocol](https://docs.starrocks.io/docs/sql-reference/sql-statements/loading_unloading/STREAM_LOAD/).
 

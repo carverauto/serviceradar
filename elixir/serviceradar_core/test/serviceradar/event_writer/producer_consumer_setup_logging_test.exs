@@ -8,6 +8,8 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
   @moduletag :db_free
 
+  @netflow_inbox_prefix "_INBOX.serviceradar.event_writer.pull.serviceradar-event-writer.netflow_raw."
+
   defmodule FakeJetStreamConnection do
     @moduledoc false
 
@@ -106,10 +108,9 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     }
 
     conn = start_supervised!({FakeJetStreamConnection, self()})
-    pull_subject = "_INBOX.serviceradar.event_writer.pull.serviceradar-event-writer.netflow_raw"
 
-    log =
-      capture_log([level: :debug], fn ->
+    {pull_subject, log} =
+      with_log([level: :debug], fn ->
         assert {:ok,
                 %{
                   conn: ^conn,
@@ -120,16 +121,20 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
                       durable: "serviceradar-event-writer-netflow-raw",
                       sid: 99,
                       subject: "flows.raw.netflow",
-                      pull_subject: ^pull_subject,
+                      pull_subject: pull_subject,
                       pull_batch_size: 64
                     }
                   ],
                   pull_subjects: pull_subjects,
-                  sid_to_pull_subject: %{99 => ^pull_subject}
+                  sid_to_pull_subject: sid_to_pull_subject
                 }} = Producer.setup_jetstream_consumers(conn, config)
 
         assert pull_subjects == MapSet.new([pull_subject])
+        assert sid_to_pull_subject == %{99 => pull_subject}
+        pull_subject
       end)
+
+    assert String.starts_with?(pull_subject, @netflow_inbox_prefix)
 
     assert log =~ "[warning]"
     assert log =~ "EventWriter skipping best-effort drain consumer"
@@ -188,19 +193,22 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     }
 
     conn = start_supervised!({FakeJetStreamConnection, self()})
-    pull_subject = "_INBOX.serviceradar.event_writer.pull.serviceradar-event-writer.netflow_raw"
 
     failure_reason =
       {"NETFLOW_RAW_REQUIRED", {:unexpected_stream, expected: "events", resolved: "flows"}}
 
-    log =
-      capture_log([level: :debug], fn ->
+    {pull_subject, log} =
+      with_log([level: :debug], fn ->
         assert {:ok,
                 %{
-                  consumers: [%{sid: 99, pull_subject: ^pull_subject}],
+                  consumers: [%{sid: 99, pull_subject: pull_subject}],
                   failed_streams: [{^required_stream, ^failure_reason}]
                 }} = Producer.setup_jetstream_consumers(conn, config)
+
+        pull_subject
       end)
+
+    assert String.starts_with?(pull_subject, @netflow_inbox_prefix)
 
     assert log =~ "[error]"
     assert log =~ "Failed to initialize EventWriter durable consumer"
@@ -217,6 +225,38 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     assert_receive {:subscribed, 99, ^pull_subject}
     refute_received {:unsubscribed, 99}
     assert Process.alive?(conn)
+  end
+
+  # JetStream gives each pulled message to one pull request but publishes it
+  # on that request's reply subject, which core NATS fans out to every
+  # subscriber. Two EventWriter instances on one durable must therefore never
+  # listen on the same inbox, or each processes every batch the other pulled.
+  test "EventWriter instances bound to the same durable pull into distinct inboxes" do
+    config = %Config{
+      consumer_name: "serviceradar-event-writer",
+      consumer_pull_batch_size: 64,
+      streams: [%{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"}]
+    }
+
+    conn = start_supervised!({FakeJetStreamConnection, self()})
+
+    inbox = fn ->
+      assert {:ok,
+              %{
+                consumers: [
+                  %{durable: "serviceradar-event-writer-netflow-raw", pull_subject: subject}
+                ]
+              }} = Producer.setup_jetstream_consumers(conn, config)
+
+      subject
+    end
+
+    first = inbox.()
+    second = inbox.()
+
+    assert first != second
+    assert_receive {:subscribed, _sid, ^first}
+    assert_receive {:subscribed, _sid, ^second}
   end
 
   test "retired consumers are deleted once the live consumers are ready, and a failure is not fatal" do

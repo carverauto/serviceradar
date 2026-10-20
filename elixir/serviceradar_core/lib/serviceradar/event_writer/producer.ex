@@ -766,7 +766,8 @@ defmodule ServiceRadar.EventWriter.Producer do
     # JetStream resumes the existing ACK cursor instead of creating a new durable.
     durable_key = Map.get(stream, :durable_source_name) || stream.name
     durable_name = Config.durable_name(config.consumer_name, durable_key)
-    # Pull inbox stays unique per config entry (drain names differ from live).
+    # Pull inbox stays unique per config entry (drain names differ from live)
+    # and per subscription (see pull_subject/2).
     pull_subject = pull_subject(config.consumer_name, stream.name)
     pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
     expected = expected_stream_name(stream)
@@ -1383,6 +1384,13 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp resolve_conn_ref(conn), do: conn
 
+  # The inbox ends in a token unique to this subscription. JetStream hands each
+  # message of a durable to one pull request, but it publishes that message to
+  # the request's reply subject, and core NATS delivers a subject to every
+  # subscriber. A name derived only from the consumer and stream is the same in
+  # every EventWriter instance, so two of them bound to one durable (a rolling
+  # deploy, or a coordinator hand-off that left the old owner running) would
+  # each receive every message the other pulled, and process each batch twice.
   defp pull_subject(base, stream_name) do
     suffix =
       stream_name
@@ -1390,7 +1398,9 @@ defmodule ServiceRadar.EventWriter.Producer do
       |> String.replace(~r/[^a-z0-9]+/, "_")
       |> String.trim("_")
 
-    "_INBOX.serviceradar.event_writer.pull.#{base}.#{suffix}"
+    token = 8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+
+    "_INBOX.serviceradar.event_writer.pull.#{base}.#{suffix}.#{token}"
   end
 
   defp extract_original_subject(topic, headers) do
