@@ -678,6 +678,56 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http)
   end
 
+  # Two loaders of one batch share its content-hash label. The loser is told
+  # the label is used while the winner's transaction is still running; it must
+  # wait for that outcome rather than fail a load that is about to land.
+  test "a label already used by a load still in flight is awaited until it commits" do
+    parent = self()
+    polls = :counters.new(1, [])
+
+    http = fn
+      %{method: :put} ->
+        send(parent, :put)
+        {:ok, %{status: 200, body: Jason.encode!(%{"Status" => "Label Already Exists"})}}
+
+      %{method: :get} ->
+        :counters.add(polls, 1, 1)
+
+        state =
+          case :counters.get(polls, 1) do
+            n when n <= 2 -> "PREPARE"
+            n when n <= 4 -> "PREPARED"
+            _ -> "VISIBLE"
+          end
+
+        {:ok, %{status: 200, body: load_state_body(state)}}
+    end
+
+    assert {:ok, %{loaded: 2, reconciled: true}} =
+             StreamLoad.persist("timeseries_metrics", @rows, http: http)
+
+    assert :counters.get(polls, 1) == 5
+    assert_received :put
+    refute_received :put
+  end
+
+  test "a label that stays in flight past the load budget fails inside that budget" do
+    http = fn
+      %{method: :put} ->
+        {:ok, %{status: 200, body: Jason.encode!(%{"Status" => "Label Already Exists"})}}
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("PREPARED")}}
+    end
+
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, {:unresolved_label, _label, "timeseries_metrics"}} =
+             StreamLoad.persist("timeseries_metrics", @rows, http: http, http_timeout: 1_000)
+
+    assert System.monotonic_time(:millisecond) - started < 2_000
+  end
+
   test "an aborted label is never acknowledged as persisted" do
     http = fn
       %{method: :put} ->

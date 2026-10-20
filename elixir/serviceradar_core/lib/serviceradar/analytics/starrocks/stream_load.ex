@@ -9,9 +9,15 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   Transient transport failures get at most three attempts, with exponential
   backoff and jitter. Retries reuse the encoded body and label, starting at the
   FE again so it can select a healthy coordinator. An uncertain commit polls
-  the original label instead of issuing another load. The whole call has a
-  90-second budget (or the caller's shorter `:http_timeout`), below the default
-  JetStream ACK wait; exhaustion returns an error for the normal NAK path.
+  the original label instead of issuing another load, and so does a load
+  refused because its label is already used: while that label's transaction
+  is still running (PREPARE or PREPARED), whether it is this caller's lost
+  attempt or another loader of the same batch, the call waits for it to commit
+  or abort rather than failing a load that is about to succeed.
+
+  The whole call, that wait included, has a 90-second budget (or the caller's
+  shorter `:http_timeout`), below the default JetStream ACK wait; exhaustion
+  returns an error for the normal NAK path.
   """
 
   alias ServiceRadar.Analytics.StarRocks.LoadHealth
@@ -24,6 +30,13 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   # Follower → leader redirects on the FE state API; a small bound keeps a
   # redirect loop from eating the reconcile budget.
   @max_state_redirects 3
+
+  # A label whose transaction is still running is polled, not reloaded: first
+  # after 200 ms, then doubling to at most 2 s, until it commits, aborts or the
+  # load budget runs out.
+  @in_flight_states ["PREPARE", "PREPARED"]
+  @in_flight_poll_ms 200
+  @in_flight_poll_max_ms 2_000
 
   # Stream Load is a synchronous commit, so the default budget is generous.
   # Callers replaying a backlog pass a shorter `:http_timeout` to bound how
@@ -286,31 +299,68 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     {:error, {:invalid_load_json, label}}
   end
 
+  # The caller's `opts[:http_timeout]` is already capped at what is left of the
+  # load budget, so the whole reconcile, including any wait below, ends inside
+  # that budget and therefore inside the JetStream ACK wait.
   defp reconcile_or_retry(label, table, expected_count, opts) do
-    http = Keyword.get(opts, :http, &default_http/1)
-    config = Keyword.get(opts, :config, %{})
-    request = state_request(config, label, opts)
+    deadline = System.monotonic_time(:millisecond) + http_timeout(opts)
+    await_label(label, table, expected_count, opts, deadline, @in_flight_poll_ms)
+  end
 
-    case state_with_redirects(http, request, config, @max_state_redirects) do
-      {:ok, %{status: status, body: body}} when status in 200..299 ->
-        case Jason.decode(body) do
-          # `get_load_state` answers with the label's transaction state, and
-          # carries no row counts. COMMITTED is already durable and becomes
-          # VISIBLE on its own; the label is a content hash of this batch, so a
-          # committed transaction under it holds these rows.
-          {:ok, %{"state" => state}} when state in ["COMMITTED", "VISIBLE"] ->
-            {:ok, %{label: label, loaded: expected_count, reconciled: true}}
+  defp await_label(label, table, expected_count, opts, deadline, delay) do
+    case label_state(label, Keyword.put(opts, :http_timeout, max(remaining(deadline), 1))) do
+      # `get_load_state` answers with the label's transaction state, and
+      # carries no row counts. COMMITTED is already durable and becomes
+      # VISIBLE on its own; the label is a content hash of this batch, so a
+      # committed transaction under it holds these rows.
+      {:ok, state} when state in ["COMMITTED", "VISIBLE"] ->
+        {:ok, %{label: label, loaded: expected_count, reconciled: true}}
 
-          {:ok, %{"state" => "ABORTED"}} ->
-            {:error, {:label_aborted, label}}
+      {:ok, "ABORTED"} ->
+        {:error, {:label_aborted, label}}
 
-          # PREPARE, PREPARED and UNKNOWN are not persistence: retry later.
-          _ ->
-            {:error, {:unresolved_label, label, table}}
+      # The label's transaction is still running: under this caller after a
+      # lost response, or under another loader of the same batch that won the
+      # label. A second load would only collide with it again, and its outcome
+      # is this batch's outcome, so wait for it instead of failing while it is
+      # still in flight. The wait ends with the load budget.
+      {:ok, state} when state in @in_flight_states ->
+        if remaining(deadline) > delay do
+          Process.sleep(delay)
+
+          await_label(
+            label,
+            table,
+            expected_count,
+            opts,
+            deadline,
+            min(delay * 2, @in_flight_poll_max_ms)
+          )
+        else
+          {:error, {:unresolved_label, label, table}}
         end
 
+      # UNKNOWN, or no answer: not persistence; the caller's retry path decides.
       _ ->
         {:error, {:unresolved_label, label, table}}
+    end
+  end
+
+  defp label_state(label, opts) do
+    http = Keyword.get(opts, :http, &default_http/1)
+    config = Keyword.get(opts, :config, %{})
+
+    with {:ok, %{status: status, body: body}} when status in 200..299 <-
+           state_with_redirects(
+             http,
+             state_request(config, label, opts),
+             config,
+             @max_state_redirects
+           ),
+         {:ok, %{"state" => state}} when is_binary(state) <- Jason.decode(body) do
+      {:ok, state}
+    else
+      _ -> :error
     end
   end
 

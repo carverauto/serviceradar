@@ -20,6 +20,24 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   @lock_sql "SELECT pg_try_advisory_lock($1)"
   @unlock_sql "SELECT pg_advisory_unlock($1)"
 
+  # The lock belongs to the database session, not to this connection process.
+  # DBConnection reconnects a dropped socket inside the same process, so after a
+  # disconnect the process is alive and answers queries while the new session
+  # holds nothing, and another core can already have taken the lock. A leader
+  # heartbeat therefore asks whether this session still holds it; `SELECT 1`
+  # would succeed and leave two coordinators running. A bigint advisory key is
+  # recorded in pg_locks as classid (high 32 bits), objid (low 32 bits) and
+  # objsubid 1.
+  @lock_held_sql """
+  SELECT EXISTS (
+    SELECT 1 FROM pg_locks
+    WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()
+      AND classid::bigint = $1 AND objid::bigint = $2 AND objsubid = 1
+  )
+  """
+  @lock_classid div(@lock_key, 4_294_967_296)
+  @lock_objid rem(@lock_key, 4_294_967_296)
+
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -103,9 +121,18 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   end
 
   defp ensure_lock(%{conn: conn, leader?: true} = state) when is_pid(conn) do
-    case Postgrex.query(conn, "SELECT 1", [], timeout: @connection_timeout_ms) do
-      {:ok, _result} ->
+    case Postgrex.query(conn, @lock_held_sql, [@lock_classid, @lock_objid],
+           timeout: @connection_timeout_ms
+         ) do
+      {:ok, %Postgrex.Result{rows: [[true]]}} ->
         state
+
+      {:ok, _result} ->
+        Logger.error("Core coordinator lock lost by this database session; demoting",
+          node: Node.self()
+        )
+
+        demote_after_connection_error(state)
 
       {:error, reason} ->
         Logger.warning("Coordinator lock heartbeat failed", reason: inspect(reason))

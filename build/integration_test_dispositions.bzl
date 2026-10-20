@@ -198,6 +198,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/automation/northbound/action_lifecycle_test.exs": 1,
     "test/serviceradar/automation/northbound/invocation_service_test.exs": 1,
     "test/serviceradar/automation/northbound/plugin_action_credentials_test.exs": 1,
+    "test/serviceradar/cluster/coordinator_manager_lock_db_test.exs": 1,
     "test/serviceradar/cluster/startup_migrations_test.exs": 1,
     "test/serviceradar/cold_tier/warehouse_backfill_db_test.exs": 1,
     "test/serviceradar/composite_checks/composite_check_input_test.exs": 1,
