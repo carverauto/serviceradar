@@ -35,6 +35,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     {:repositories, "Repositories"}
   ]
 
+  @doc false
+  def supported_tabs do
+    Enum.map(@tabs, fn {key, _label} -> Atom.to_string(key) end)
+  end
+
   @impl true
   def event_mapping do
     Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
@@ -77,16 +82,54 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   end
 
   @impl true
+  def handle_params(params, _uri, socket) do
+    tabs = Map.get(socket.assigns, :tabs, [])
+    requested_tab = params |> Map.get("tab") |> to_atom_tab()
+
+    active_tab =
+      if not is_nil(requested_tab) and Enum.any?(tabs, fn {key, _label} -> key == requested_tab end) do
+        requested_tab
+      else
+        case tabs do
+          [{key, _label} | _rest] -> key
+          [] -> nil
+        end
+      end
+
+    socket =
+      cond do
+        Map.get(socket.assigns, :settings_loaded, false) and active_tab == :controllers and
+            socket.assigns[:active_tab] != :controllers ->
+          activate_controllers_tab(socket)
+
+        Map.get(socket.assigns, :settings_loaded, false) and active_tab == :repositories and
+            socket.assigns[:active_tab] != :repositories ->
+          activate_repositories_tab(socket)
+
+        true ->
+          assign(socket, :active_tab, active_tab)
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("select_tab", %{"tab" => tab}, socket) do
     case to_atom_tab(tab) do
       :controllers ->
         with_current_permission(socket, @controller_permission, fn socket ->
-          {:noreply, activate_controllers_tab(socket)}
+          {:noreply,
+           socket
+           |> activate_controllers_tab()
+           |> push_patch(to: ~p"/settings/ansible?#{%{tab: "controllers"}}")}
         end)
 
       :repositories ->
         with_current_permission(socket, @repository_permission, fn socket ->
-          {:noreply, activate_repositories_tab(socket)}
+          {:noreply,
+           socket
+           |> activate_repositories_tab()
+           |> push_patch(to: ~p"/settings/ansible?#{%{tab: "repositories"}}")}
         end)
 
       nil ->

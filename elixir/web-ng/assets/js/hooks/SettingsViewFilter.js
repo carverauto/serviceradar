@@ -22,11 +22,16 @@ export default {
 
   apply() {
     const query = (this.input.value || "").trim().toLowerCase()
+    const tokens = query.split(/\s+/).filter(Boolean)
     let visible = 0
 
     this.el.querySelectorAll("[data-view-search]").forEach((item) => {
       const haystack = item.getAttribute("data-view-search") || ""
-      const match = query === "" || haystack.includes(query)
+      const isSubentry = item.hasAttribute("data-view-subentry")
+      const match =
+        tokens.length === 0
+          ? !isSubentry
+          : tokens.every((t) => haystack.includes(t))
       item.classList.toggle("hidden", !match)
       if (match) visible += 1
     })

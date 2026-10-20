@@ -13,10 +13,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
-  def apply_action(socket, :index, _params) do
+  def apply_action(socket, :index, params) do
     socket
     |> assign(:page_title, "Network Sweeps")
     |> assign(:current_path, "/settings/networks")
+    |> assign(:active_tab, resolve_tab(Map.get(params, "tab")))
     |> assign(:show_form, nil)
     |> assign(:ash_form, nil)
     |> assign(:selected_group, nil)
@@ -215,6 +216,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
     end
   end
+
+  def resolve_tab("groups"), do: :groups
+  def resolve_tab("profiles"), do: :profiles
+  def resolve_tab("active_scans"), do: :active_scans
+  def resolve_tab("cleanup"), do: :cleanup
+  def resolve_tab(_), do: :groups
 
   defp initialize_agent_picker(socket, scope, agent_ids) do
     picker = AgentPicker.new(agent_ids)

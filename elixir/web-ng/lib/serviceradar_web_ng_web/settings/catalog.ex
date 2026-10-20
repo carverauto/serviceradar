@@ -78,8 +78,20 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           order: non_neg_integer()
         }
 
+  @typedoc "An in-page tab sub-entry under a settings view."
+  @type tab :: %{
+          id: atom(),
+          tab: String.t(),
+          title: String.t(),
+          route: String.t(),
+          keywords: [String.t()],
+          permission: String.t() | [String.t()] | nil
+        }
+
   @typedoc "A settings view (left-tree leaf + deep-linkable page)."
   @type view :: %{
+          optional(:tabs) => [tab()],
+          optional(:visible_tabs) => [tab()],
           id: atom(),
           category: atom(),
           parent_group: atom(),
@@ -698,7 +710,51 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["sweep", "networks", "cidr", "scan", "profiles", "groups"],
+      keywords: [
+        "sweep",
+        "networks",
+        "cidr",
+        "scan",
+        "profiles",
+        "groups",
+        "inventory",
+        "cleanup",
+        "stale devices"
+      ],
+      tabs: [
+        %{
+          id: :groups,
+          tab: "groups",
+          title: "Sweep Groups",
+          route: "/settings/networks?tab=groups",
+          keywords: ["sweep", "groups", "schedules", "targets"],
+          permission: nil
+        },
+        %{
+          id: :profiles,
+          tab: "profiles",
+          title: "Scanner Profiles",
+          route: "/settings/networks?tab=profiles",
+          keywords: ["scanner", "profiles", "ports", "icmp", "tcp"],
+          permission: nil
+        },
+        %{
+          id: :active_scans,
+          tab: "active_scans",
+          title: "Active Scans",
+          route: "/settings/networks?tab=active_scans",
+          keywords: ["active", "scans", "running", "executions", "mtr"],
+          permission: nil
+        },
+        %{
+          id: :cleanup,
+          tab: "cleanup",
+          title: "Inventory Cleanup",
+          route: "/settings/networks?tab=cleanup",
+          keywords: ["inventory", "cleanup", "purge", "retention", "stale devices"],
+          permission: nil
+        }
+      ],
       badge: nil,
       hidden_from_nav: false
     },
@@ -1273,6 +1329,24 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       capability: nil,
       match_prefixes: nil,
       keywords: ["ansible", "automation", "playbook", "controllers", "repositories"],
+      tabs: [
+        %{
+          id: :controllers,
+          tab: "controllers",
+          title: "Controllers",
+          route: "/settings/ansible?tab=controllers",
+          keywords: ["ansible", "controllers", "awx", "aap"],
+          permission: "ansible.controllers.manage"
+        },
+        %{
+          id: :repositories,
+          tab: "repositories",
+          title: "Repositories",
+          route: "/settings/ansible?tab=repositories",
+          keywords: ["ansible", "repositories", "playbooks", "git", "scm"],
+          permission: "ansible.repositories.manage"
+        }
+      ],
       badge: nil,
       hidden_from_nav: false
     }
@@ -1520,6 +1594,24 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     category_id
     |> views_for_category()
     |> Enum.filter(fn view -> not view.hidden_from_nav and visible_view?(scope, view) end)
+    |> Enum.map(fn view -> Map.put(view, :visible_tabs, visible_tabs(scope, view)) end)
+  end
+
+  @doc """
+  In-page tabs under `view` that are visible to `scope`.
+
+  Respects the parent view's visibility (RBAC + feature flag + capability) and
+  each tab's own optional `:permission`.
+  """
+  @spec visible_tabs(term(), view()) :: [tab()]
+  def visible_tabs(scope, view) do
+    if visible_view?(scope, view) do
+      view
+      |> Map.get(:tabs, [])
+      |> Enum.filter(fn tab -> permitted?(scope, Map.get(tab, :permission)) end)
+    else
+      []
+    end
   end
 
   @doc """
@@ -1571,8 +1663,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
 
   @doc """
   Flattened palette index for the Ctrl+K command palette, over the views visible
-  to `scope` (including nav-hidden but deep-linkable views), sorted by category
-  then view order.
+  to `scope` (including nav-hidden but deep-linkable views) and their visible
+  in-page tabs, sorted by category then view order.
 
   Each entry: `%{category_title, view_title, route, icon, keywords, id}`.
   """
@@ -1581,16 +1673,37 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     @views
     |> Enum.filter(fn view -> visible_view?(scope, view) end)
     |> Enum.sort_by(fn view -> {category_order(view.category), view.order} end)
-    |> Enum.map(fn view ->
-      %{
+    |> Enum.flat_map(fn view ->
+      category_title = category_title(category(view.category))
+
+      view_entry = %{
         id: view.id,
-        category_title: category_title(category(view.category)),
+        category_title: category_title,
         view_title: view.title,
         description: Map.get(view, :description),
         route: view.route,
         icon: view.icon,
         keywords: view.keywords
       }
+
+      tab_entries =
+        scope
+        |> visible_tabs(view)
+        |> Enum.map(fn tab ->
+          %{
+            id: :"#{view.id}_#{tab.id}",
+            parent_view_id: view.id,
+            tab_id: tab.id,
+            category_title: category_title,
+            view_title: "#{view.title} › #{tab.title}",
+            description: Map.get(tab, :description) || Map.get(view, :description),
+            route: tab.route,
+            icon: view.icon,
+            keywords: Enum.uniq(view.keywords ++ tab.keywords)
+          }
+        end)
+
+      [view_entry | tab_entries]
     end)
   end
 

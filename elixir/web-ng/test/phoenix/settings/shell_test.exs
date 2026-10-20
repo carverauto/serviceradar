@@ -11,8 +11,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
   import Phoenix.Component
   import Phoenix.LiveViewTest
 
+  alias Phoenix.LiveView.Lifecycle
+  alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.Settings.AnsibleLive
   alias ServiceRadarWebNGWeb.Settings.Catalog
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index
   alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.Settings.StatusCards
 
@@ -403,6 +407,242 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
       html = "/settings/agents/addons" |> badge_assigns(%{addons: 3}) |> render_shell()
 
       assert badge_counts(html) == ["3"]
+    end
+  end
+
+  describe "in-page tab search and deep links (#5554)" do
+    test "command palette and view-tree search index Sweep Profiles › Inventory Cleanup with deep link" do
+      scope = %Scope{permissions: MapSet.new(["settings.networks.manage"])}
+      view = Catalog.view_for_path("/settings/networks")
+      category = Catalog.category_for_view(view)
+
+      assigns = %{
+        current_path: "/settings/networks",
+        current_scope: scope,
+        active_view: view,
+        active_category: category,
+        breadcrumbs: Catalog.breadcrumbs_for_path("/settings/networks", scope),
+        nav_tree: %{
+          categories: Catalog.visible_categories(scope),
+          groups: Catalog.nav_tree(scope, category.id)
+        },
+        palette: Catalog.palette_index(scope),
+        stats: StatusCards.for_view(view)
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Shell.settings_chrome
+          current_path={@current_path}
+          current_scope={@current_scope}
+          active_view={@active_view}
+          active_category={@active_category}
+          breadcrumbs={@breadcrumbs}
+          nav_tree={@nav_tree}
+          palette={@palette}
+          stats={@stats}
+        >
+          <p>networks body</p>
+        </Shell.settings_chrome>
+        """)
+
+      doc = LazyHTML.from_fragment(html)
+
+      palette_matches =
+        doc
+        |> LazyHTML.query("[data-command-palette-item]")
+        |> Enum.filter(fn item ->
+          [haystack] = LazyHTML.attribute(item, "data-search")
+          String.contains?(haystack, "inventory") and String.contains?(haystack, "cleanup")
+        end)
+
+      assert Enum.any?(palette_matches, fn item ->
+               link = LazyHTML.query(item, ~s(a[href="/settings/networks?tab=cleanup"]))
+               LazyHTML.text(link) =~ "Sweep Profiles › Inventory Cleanup"
+             end)
+
+      tree_matches =
+        doc
+        |> LazyHTML.query("#settings-view-tree [data-view-search]")
+        |> Enum.filter(fn item ->
+          [haystack] = LazyHTML.attribute(item, "data-view-search")
+          String.contains?(haystack, "inventory") and String.contains?(haystack, "cleanup")
+        end)
+
+      assert Enum.any?(tree_matches, fn item ->
+               link = LazyHTML.query(item, ~s(a[href="/settings/networks?tab=cleanup"]))
+               LazyHTML.text(link) =~ "Sweep Profiles › Inventory Cleanup"
+             end)
+    end
+
+    test "NetworksLive.Index reads ?tab= in handle_params, renders Inventory Cleanup, and patches URL on switch_tab" do
+      scope = %Scope{
+        user: %{email: "admin@example.com", timezone: "Etc/UTC"},
+        permissions: MapSet.new(["settings.networks.manage"])
+      }
+
+      view = Catalog.view_for_path("/settings/networks")
+      category = Catalog.category_for_view(view)
+
+      base_socket = %Socket{
+        endpoint: ServiceRadarWebNGWeb.Endpoint,
+        router: ServiceRadarWebNGWeb.Router,
+        assigns: %{
+          __changed__: %{},
+          flash: %{},
+          live_action: :index,
+          current_scope: scope,
+          current_path: "/settings/networks",
+          page_title: "Network Sweeps",
+          active_tab: :groups,
+          sweep_groups: [],
+          sweep_group_summary_agents: %{},
+          sweep_profiles: [],
+          running_executions: [],
+          recent_executions: [],
+          execution_progress: %{},
+          mtr_running: [],
+          mtr_recent: [],
+          can_view_mtr_jobs: false,
+          active_scans_filter: :all,
+          mtr_refresh_pending: false,
+          selected_group: nil,
+          selected_profile: nil,
+          show_form: nil,
+          ash_form: nil,
+          form: nil,
+          target_device_count: nil,
+          builder_open: false,
+          builder: %{},
+          builder_sync: true,
+          last_target_query: nil,
+          show_mapper_form: nil,
+          mapper_jobs: [],
+          mapper_agents: [],
+          agent_picker: %{},
+          agent_picker_open: false,
+          agent_picker_selected_rows: [],
+          agent_picker_summary_agent: nil,
+          can_manage_networks: true,
+          can_run_sweeps: true,
+          mapper_job: nil,
+          mapper_form: nil,
+          mapper_seeds_text: "",
+          mapper_unifi_form: nil,
+          mapper_unifi_present: false,
+          mapper_mikrotik_form: nil,
+          mapper_mikrotik_present: false,
+          mapper_mikrotik: %{},
+          mapper_command_statuses: %{},
+          sweep_command_statuses: %{},
+          cleanup_settings: nil,
+          cleanup_form: nil,
+          can_enable_banner_grab: false,
+          banner_preview_device_count: nil,
+          settings_active_view: view,
+          settings_active_category: category,
+          settings_breadcrumbs: Catalog.breadcrumbs_for_path("/settings/networks", scope),
+          settings_nav_tree: %{
+            categories: Catalog.visible_categories(scope),
+            groups: Catalog.nav_tree(scope, category.id)
+          },
+          settings_palette: Catalog.palette_index(scope),
+          settings_stats: []
+        },
+        private: %{live_temp: %{}, lifecycle: %Lifecycle{}}
+      }
+
+      assert {:noreply, cleanup_socket} =
+               Index.handle_params(
+                 %{"tab" => "cleanup"},
+                 "http://localhost/settings/networks?tab=cleanup",
+                 base_socket
+               )
+
+      assert cleanup_socket.assigns.active_tab == :cleanup
+
+      html =
+        cleanup_socket.assigns
+        |> Index.render()
+        |> rendered_to_string()
+
+      assert html =~ "Expire ephemeral devices, then purge soft-deleted devices"
+
+      assert {:noreply, fallback_socket} =
+               Index.handle_params(
+                 %{"tab" => "bogus"},
+                 "http://localhost/settings/networks?tab=bogus",
+                 cleanup_socket
+               )
+
+      assert fallback_socket.assigns.active_tab == :groups
+
+      assert {:noreply, patched_socket} =
+               Index.handle_event(
+                 "switch_tab",
+                 %{"tab" => "cleanup"},
+                 fallback_socket
+               )
+
+      assert patched_socket.assigns.active_tab == :cleanup
+
+      assert patched_socket.redirected ==
+               {:live, :patch, %{kind: :push, to: "/settings/networks?tab=cleanup"}}
+    end
+
+    test "AnsibleLive reads ?tab= in handle_params with permission gating" do
+      both_scope = %Scope{
+        user: %{email: "admin@example.com", timezone: "Etc/UTC"},
+        permissions: MapSet.new(["ansible.controllers.manage", "ansible.repositories.manage"])
+      }
+
+      disconnected_socket = %Socket{
+        endpoint: ServiceRadarWebNGWeb.Endpoint,
+        router: ServiceRadarWebNGWeb.Router,
+        assigns: %{__changed__: %{}, current_scope: both_scope},
+        private: %{live_temp: %{}, lifecycle: %Lifecycle{}}
+      }
+
+      assert {:ok, mounted_socket} =
+               AnsibleLive.mount(%{}, %{}, disconnected_socket)
+
+      assert {:noreply, repo_socket} =
+               AnsibleLive.handle_params(
+                 %{"tab" => "repositories"},
+                 "http://localhost/settings/ansible?tab=repositories",
+                 mounted_socket
+               )
+
+      assert repo_socket.assigns.active_tab == :repositories
+
+      assert {:noreply, fallback_socket} =
+               AnsibleLive.handle_params(
+                 %{"tab" => "unknown"},
+                 "http://localhost/settings/ansible?tab=unknown",
+                 repo_socket
+               )
+
+      assert fallback_socket.assigns.active_tab == :controllers
+
+      ctrl_only_scope = %Scope{
+        user: %{email: "ctrl@example.com", timezone: "Etc/UTC"},
+        permissions: MapSet.new(["ansible.controllers.manage"])
+      }
+
+      {:ok, ctrl_only_socket} =
+        AnsibleLive.mount(%{}, %{}, %{
+          disconnected_socket
+          | assigns: %{__changed__: %{}, current_scope: ctrl_only_scope}
+        })
+
+      assert {:noreply, gated_socket} =
+               AnsibleLive.handle_params(
+                 %{"tab" => "repositories"},
+                 "http://localhost/settings/ansible?tab=repositories",
+                 ctrl_only_socket
+               )
+
+      assert gated_socket.assigns.active_tab == :controllers
     end
   end
 end
