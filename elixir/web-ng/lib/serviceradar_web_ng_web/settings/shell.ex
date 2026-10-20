@@ -316,6 +316,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 >
                   <.link
                     href={tab.route}
+                    data-view-tab-id={tab.tab}
                     class="gap-2 rounded-lg pl-7 text-xs text-sr-muted hover:text-sr-ink"
                   >
                     <span class="truncate">{view.title} › {tab.title}</span>

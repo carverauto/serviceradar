@@ -82,35 +82,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   end
 
   @impl true
+  def handle_params(params, _uri, %{assigns: %{settings_loaded: true}} = socket) do
+    with_current_settings_permission(socket, fn socket ->
+      {:noreply, apply_requested_tab(socket, params)}
+    end)
+  end
+
   def handle_params(params, _uri, socket) do
-    tabs = Map.get(socket.assigns, :tabs, [])
-    requested_tab = params |> Map.get("tab") |> to_atom_tab()
-
-    active_tab =
-      if not is_nil(requested_tab) and Enum.any?(tabs, fn {key, _label} -> key == requested_tab end) do
-        requested_tab
-      else
-        case tabs do
-          [{key, _label} | _rest] -> key
-          [] -> nil
-        end
-      end
-
-    socket =
-      cond do
-        Map.get(socket.assigns, :settings_loaded, false) and active_tab == :controllers and
-            socket.assigns[:active_tab] != :controllers ->
-          activate_controllers_tab(socket)
-
-        Map.get(socket.assigns, :settings_loaded, false) and active_tab == :repositories and
-            socket.assigns[:active_tab] != :repositories ->
-          activate_repositories_tab(socket)
-
-        true ->
-          assign(socket, :active_tab, active_tab)
-      end
-
-    {:noreply, socket}
+    {:noreply, assign(socket, :active_tab, resolve_requested_tab(socket.assigns.tabs, params))}
   end
 
   @impl true
@@ -371,6 +350,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
       {:error, :permission_revoked} ->
         deny_event(socket)
+    end
+  end
+
+  defp apply_requested_tab(socket, params) do
+    active_tab = socket.assigns.active_tab
+
+    case resolve_requested_tab(socket.assigns.tabs, params) do
+      ^active_tab -> socket
+      :controllers -> activate_controllers_tab(socket)
+      :repositories -> activate_repositories_tab(socket)
+    end
+  end
+
+  defp resolve_requested_tab(tabs, params) do
+    requested_tab = params |> Map.get("tab") |> to_atom_tab()
+
+    if Enum.any?(tabs, fn {key, _label} -> key == requested_tab end) do
+      requested_tab
+    else
+      case tabs do
+        [{key, _label} | _rest] -> key
+        [] -> nil
+      end
     end
   end
 

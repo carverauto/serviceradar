@@ -142,7 +142,6 @@ export default {
 
   _filter() {
     const query = (this.filterInput.value || "").trim().toLowerCase()
-    const tokens = query.split(/\s+/).filter(Boolean)
     let total = 0
 
     this._filtering = true
@@ -151,10 +150,7 @@ export default {
       g.querySelectorAll("[data-view-search]").forEach((item) => {
         const haystack = item.getAttribute("data-view-search") || ""
         const isSubentry = item.hasAttribute("data-view-subentry")
-        const match =
-          tokens.length === 0
-            ? !isSubentry
-            : tokens.every((t) => haystack.includes(t))
+        const match = query === "" ? !isSubentry : haystack.includes(query)
         item.classList.toggle("hidden", !match)
         if (match) visible += 1
       })
