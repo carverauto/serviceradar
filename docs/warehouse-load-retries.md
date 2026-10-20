@@ -35,7 +35,11 @@ not change readers or backend selection.
 
 Each failed attempt logs dataset, table, batch row count, label, attempt,
 frontend/coordinator role, dialed host and port, underlying error, and whether
-another attempt is planned. Partial-write errors retain the underlying
+another attempt is planned. An unresolved label also logs a warning with the
+table, label, what started reconciliation (the load's status, an HTTP timeout,
+or a retry), and the `get_load_state` answer: the state, the HTTP status and
+body, a payload without `state`, or the transport error. Only the frontend's
+response is logged, never the request. Partial-write errors retain the underlying
 warehouse error alongside completed and missing destinations.
 
 `event_writer_warehouse_load_failures` and, after a completed CNPG insert,
