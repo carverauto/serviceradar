@@ -56,10 +56,53 @@ defmodule ServiceRadarWebNGWeb.AlertEvaluationModeUITest do
     assert active_doc |> LazyHTML.query("[data-testid='alerts-feed-not-activated']") |> Enum.count() == 0
   end
 
-  test "observability alerts list surfaces not-activated notice instead of no alerts when rollout mode is not active" do
-    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
+  test "dashboard alerts panel keeps not-activated notice alongside retained alerts" do
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :draining)
 
-    prepared_html = render_component(&LogLiveIndex.render/1, log_live_alerts_assigns())
+    retained_alert = %{
+      id: "00000000-0000-0000-0000-0000000000a1",
+      severity: "warning",
+      title: "Interface down",
+      status: "pending",
+      source_type: "snmp",
+      device_uid: "device-01",
+      observed_at: ~U[2026-01-01 00:00:00Z]
+    }
+
+    draining_html =
+      render_component(&AlertsPanel.render/1,
+        dashboard: Map.put(Data.empty(), :alert_feed, [retained_alert]),
+        timezone: "Etc/UTC"
+      )
+
+    draining_doc = LazyHTML.from_fragment(draining_html)
+
+    assert draining_doc |> LazyHTML.query("[data-testid='alerts-feed']") |> Enum.count() == 1
+
+    assert draining_doc
+           |> LazyHTML.query("[data-testid='alerts-feed-not-activated-notice']")
+           |> Enum.count() == 1
+
+    assert draining_html =~ "draining"
+    assert draining_html =~ "core.alertEvaluation.mode"
+
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+
+    active_html =
+      render_component(&AlertsPanel.render/1,
+        dashboard: Map.put(Data.empty(), :alert_feed, [retained_alert]),
+        timezone: "Etc/UTC"
+      )
+
+    active_doc = LazyHTML.from_fragment(active_html)
+
+    assert active_doc
+           |> LazyHTML.query("[data-testid='alerts-feed-not-activated-notice']")
+           |> Enum.count() == 0
+  end
+
+  test "observability alerts list surfaces not-activated notice instead of no alerts when rollout mode is not active" do
+    prepared_html = render_component(&LogLiveIndex.render/1, log_live_alerts_assigns(:prepared))
     prepared_doc = LazyHTML.from_fragment(prepared_html)
 
     assert prepared_doc
@@ -76,9 +119,7 @@ defmodule ServiceRadarWebNGWeb.AlertEvaluationModeUITest do
     assert prepared_html =~ "/settings/rules?tab=alerts"
     refute prepared_html =~ "No alerts found."
 
-    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
-
-    active_html = render_component(&LogLiveIndex.render/1, log_live_alerts_assigns())
+    active_html = render_component(&LogLiveIndex.render/1, log_live_alerts_assigns(:active))
     active_doc = LazyHTML.from_fragment(active_html)
 
     assert active_doc
@@ -89,9 +130,7 @@ defmodule ServiceRadarWebNGWeb.AlertEvaluationModeUITest do
   end
 
   test "settings alert rules tab surfaces not-activated banner when rollout mode is not active" do
-    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :draining)
-
-    draining_html = render_component(&RulesLiveIndex.render/1, rules_live_alerts_assigns())
+    draining_html = render_component(&RulesLiveIndex.render/1, rules_live_alerts_assigns(:draining))
     draining_doc = LazyHTML.from_fragment(draining_html)
 
     assert draining_doc
@@ -103,9 +142,7 @@ defmodule ServiceRadarWebNGWeb.AlertEvaluationModeUITest do
     assert draining_html =~ "core.alertEvaluation.mode"
     assert draining_html =~ "/observability/alerts"
 
-    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
-
-    active_html = render_component(&RulesLiveIndex.render/1, rules_live_alerts_assigns())
+    active_html = render_component(&RulesLiveIndex.render/1, rules_live_alerts_assigns(:active))
     active_doc = LazyHTML.from_fragment(active_html)
 
     assert active_doc
@@ -122,11 +159,12 @@ defmodule ServiceRadarWebNGWeb.AlertEvaluationModeUITest do
     })
   end
 
-  defp log_live_alerts_assigns do
+  defp log_live_alerts_assigns(alert_evaluation_mode) do
     %{
       flash: %{},
       current_scope: scope(),
       active_tab: "alerts",
+      alert_evaluation_mode: alert_evaluation_mode,
       tab_loading: false,
       logs: [],
       traces: [],
@@ -199,11 +237,12 @@ defmodule ServiceRadarWebNGWeb.AlertEvaluationModeUITest do
     }
   end
 
-  defp rules_live_alerts_assigns do
+  defp rules_live_alerts_assigns(alert_evaluation_mode) do
     %{
       flash: %{},
       current_scope: scope(),
       active_tab: "alerts",
+      alert_evaluation_mode: alert_evaluation_mode,
       zen_rules: [],
       event_rules: [],
       stateful_rules: [],

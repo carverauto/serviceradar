@@ -8,18 +8,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
   attr(:timezone, :string, default: "Etc/UTC")
 
   def render(%{dashboard: dashboard} = assigns) do
-    alert_evaluation_mode =
-      Map.get(
-        dashboard,
-        :alert_evaluation_mode,
-        ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode()
-      )
-
     assigns =
       assigns
       |> Map.merge(dashboard)
-      |> assign(:alert_evaluation_mode, alert_evaluation_mode)
-      |> assign(:alert_evaluation_active?, alert_evaluation_mode == :active)
+      |> assign(:alert_evaluation_active?, dashboard.alert_evaluation_mode == :active)
 
     ~H"""
     <Common.panel title="Alerts Feed">
@@ -71,6 +63,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
             Set <code>core.alertEvaluation.mode=active</code> to evaluate alert rules.
           </span>
         </div>
+      </.link>
+      <.link
+        :if={@alert_feed != [] and not @alert_evaluation_active?}
+        href={~p"/settings/rules?#{%{tab: "alerts"}}"}
+        class="mb-2 flex items-center gap-2 rounded-sr-surface border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+        data-testid="alerts-feed-not-activated-notice"
+      >
+        <.icon name="hero-exclamation-triangle" class="size-4 shrink-0 text-amber-500" />
+        <span>
+          Alert evaluation is not activated ({@alert_evaluation_mode}). Showing retained alerts only; set
+          <code>core.alertEvaluation.mode=active</code>
+          to evaluate alert rules.
+        </span>
       </.link>
       <div :if={@alert_feed != []} class="sr-ops-alert-feed" data-testid="alerts-feed">
         <.link

@@ -89,7 +89,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:metrics, [])
      |> assign(:events, [])
      |> assign(:alerts, [])
-     |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())
      |> assign(:alert_selection, MapSet.new())
      |> assign(:alert_bulk_result, nil)
      |> assign(:alert_bulk_duration, AlertActions.default_snooze_value())
@@ -322,6 +321,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       socket
       |> assign(:alert_selection, MapSet.new())
       |> assign(:alert_bulk_result, nil)
+      |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())
       |> assign(:service_filter_notice?, ObservabilityPaths.service_filter_not_carried?(params))
       |> assign(:service_filter_allowed?, ServicePicker.authorized?(socket.assigns[:current_scope], tab))
 
@@ -1541,11 +1541,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
-
-    assigns =
-      assigns
-      |> assign(:pagination, pagination)
-      |> assign_new(:alert_evaluation_mode, fn -> ClusterStatus.alert_evaluation_mode() end)
+    assigns = assign(assigns, :pagination, pagination)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
@@ -5457,7 +5453,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:id, :string, required: true)
   attr(:alerts, :list, default: [])
-  attr(:alert_evaluation_mode, :atom, default: :active)
+  attr(:alert_evaluation_mode, :atom, required: true)
   attr(:selectable?, :boolean, default: false)
   attr(:selection, :any, default: nil)
   attr(:timezone, :string, required: true)

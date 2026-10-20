@@ -126,13 +126,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_trend_max: max_trend_total(security_trend),
           security_summary: event_summary,
           mtr_summary: mtr_summary,
-          flow_summary: flow_summary,
-          alert_evaluation_mode:
-            Map.get(
-              sources,
-              :alert_evaluation_mode,
-              ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode()
-            )
+          flow_summary: flow_summary
         }
       end
 
@@ -239,9 +233,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
 
       @spec load_alert_feed(String.t()) :: map()
       def load_alert_feed(time_window) do
-        %{alert_feed: alert_feed(time_window)}
+        %{
+          alert_feed: safe_alert_feed(time_window),
+          alert_evaluation_mode: ServiceRadar.Cluster.ClusterStatus.alert_evaluation_mode()
+        }
+      end
+
+      defp safe_alert_feed(time_window) do
+        alert_feed(time_window)
       rescue
-        _ -> %{alert_feed: []}
+        _ -> []
       end
 
       @spec load_threat_intel() :: map()

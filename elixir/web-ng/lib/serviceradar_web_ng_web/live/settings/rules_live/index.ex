@@ -26,7 +26,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         socket
         |> assign(:page_title, "Events")
         |> assign(:active_tab, "logs")
-        |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())
         |> assign(:zen_rules, list_zen_rules(scope))
         |> assign(:event_rules, list_event_rules(scope))
         |> assign(:stateful_rules, list_stateful_rules(scope))
@@ -53,7 +52,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       |> Map.get("tab", "logs")
       |> normalize_tab()
 
-    {:noreply, assign(socket, :active_tab, tab)}
+    {:noreply,
+     socket
+     |> assign(:active_tab, tab)
+     |> assign(:alert_evaluation_mode, ClusterStatus.alert_evaluation_mode())}
   end
 
   @impl true
@@ -332,10 +334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       }
     ]
 
-    assigns =
-      assigns
-      |> assign(:tabs, tabs)
-      |> assign_new(:alert_evaluation_mode, fn -> ClusterStatus.alert_evaluation_mode() end)
+    assigns = assign(assigns, :tabs, tabs)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
