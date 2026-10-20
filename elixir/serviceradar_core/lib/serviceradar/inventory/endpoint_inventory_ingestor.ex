@@ -118,42 +118,71 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   defp maybe_short_circuit_hash_noop(context) do
     if hash_noop_candidate?(context) do
       current = current_scan_snapshot(context.agent_id)
+      row_count_loader = fn -> current_package_row_count(context.agent_id) end
 
-      cond do
-        is_nil(current) ->
+      case evaluate_hash_noop(context, current, row_count_loader) do
+        :continue ->
           :continue
 
-        not package_hash_matches_current?(context, current) ->
-          {:ok, emit_hash_noop_result(force_reconcile(context), current)}
+        {:short_circuit, result_context} ->
+          {:ok, emit_hash_noop_result(result_context, current)}
 
-        not artifact_hash_matches_current?(context, current) ->
-          {:ok, emit_hash_noop_result(force_reconcile(context), current)}
-
-        true ->
-          current_row_count = current_package_row_count(context.agent_id)
-          freshness_context = apply_hash_freshness(context, current, current_row_count)
-
-          cond do
-            full_scan_hash_unchanged?(freshness_context, current) ->
-              touch_hash_noop_freshness(freshness_context, current)
-
-            freshness_context.reconcile_floor_due? ->
-              touch_hash_noop_freshness(freshness_context, current)
-
-            hash_freshness_short_circuit?(freshness_context, current) ->
-              {:ok, emit_hash_noop_result(freshness_context, current)}
-
-            true ->
-              {:ok, emit_hash_noop_result(force_reconcile(freshness_context), current)}
-          end
+        {:touch_freshness, freshness_context} ->
+          touch_hash_noop_freshness(freshness_context, current)
       end
     else
       :continue
     end
   end
 
+  @doc false
+  def evaluate_hash_noop(context, current, current_row_count \\ 0) do
+    cond do
+      not hash_noop_candidate?(context) ->
+        :continue
+
+      is_nil(current) ->
+        :continue
+
+      not package_hash_matches_current?(context, current) ->
+        {:short_circuit, force_reconcile(context)}
+
+      not artifact_hash_matches_current?(context, current) ->
+        {:short_circuit, force_reconcile(context)}
+
+      true ->
+        freshness_context =
+          apply_hash_freshness(context, current, resolve_current_row_count(current_row_count))
+
+        cond do
+          full_scan_hash_unchanged?(freshness_context, current) ->
+            {:touch_freshness, freshness_context}
+
+          freshness_context.reconcile_floor_due? ->
+            {:touch_freshness, freshness_context}
+
+          hash_freshness_short_circuit?(freshness_context, current) ->
+            {:short_circuit, freshness_context}
+
+          true ->
+            {:short_circuit, force_reconcile(freshness_context)}
+        end
+    end
+  end
+
+  defp resolve_current_row_count(loader) when is_function(loader, 0), do: loader.()
+  defp resolve_current_row_count(count) when is_integer(count), do: count
+
   defp package_hash_matches_current?(context, current) do
-    current_package_set_hash(current) == reported_package_set_hash(context)
+    reported_hash = reported_package_set_hash(context)
+
+    reported_hash not in [nil, ""] and
+      (reported_hash in [
+         current_package_set_hash(current),
+         Map.get(current || %{}, :package_set_hash)
+       ] or
+         (reported_hash == current_reported_package_set_hash(current) and
+            artifact_hash_matches_current?(context, current)))
   end
 
   defp artifact_hash_matches_current?(context, current) do
@@ -359,6 +388,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp short_circuit_acknowledged_unchanged(payload, agent_id, scan_id) do
     reported_hash = Payload.string_value(payload, :package_set_hash)
+    artifact_hash = Payload.string_value(payload, :artifact_hash)
 
     case current_scan_snapshot(agent_id) do
       %{package_set_hash: ^reported_hash} = scan when reported_hash not in [nil, ""] ->
@@ -369,6 +399,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
            scan_id,
            @metadata_reason_upload_already_acknowledged
          )}
+
+      scan when is_map(scan) and reported_hash not in [nil, ""] ->
+        if reported_hash == current_reported_package_set_hash(scan) and
+             artifact_hash not in [nil, ""] and
+             artifact_hash == Map.get(scan, :artifact_hash) do
+          {:ok,
+           emit_short_circuit_result(
+             scan,
+             agent_id,
+             scan_id,
+             @metadata_reason_upload_already_acknowledged
+           )}
+        else
+          :continue
+        end
 
       _ ->
         :continue
@@ -450,6 +495,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @spec ingest_vulnerability_match(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_vulnerability_match(payload, opts \\ []) do
     EndpointInventoryVulnerabilityRisk.ingest(payload, opts)
+  end
+
+  @doc false
+  def build_scan_context(payload, opts \\ []) when is_map(payload) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:endpoint_inventory_ingestor))
+
+    with {:ok, agent_id} <- Payload.required_string(payload, :agent_id),
+         {:ok, scan_id} <- Payload.required_string(payload, :scan_id) do
+      build_context(payload, agent_id, scan_id, actor, opts)
+    end
   end
 
   defp build_context(payload, agent_id, scan_id, actor, opts) do
@@ -1032,6 +1087,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
           artifact_hash: s.artifact_hash,
           upload_reason: s.upload_reason,
           server_package_set_hash: s.server_package_set_hash,
+          package_set_hash_mismatch: s.package_set_hash_mismatch,
           last_successful_scan_at: s.last_successful_scan_at,
           last_scan_at: s.last_scan_at,
           last_changed_scan_at: s.last_changed_scan_at,
@@ -1086,7 +1142,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     end
   end
 
-  defp apply_hash_freshness(context, current, current_row_count) do
+  @doc false
+  def apply_hash_freshness(context, current, current_row_count \\ 0) do
     hash_matched_noop? = hash_matched_unchanged_noop?(context, current)
     deferred_upload? = deferred_upload?(context)
 
@@ -1112,9 +1169,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     package_count =
       reconciled_package_count(context, package_replacement_noop?, current_row_count)
 
-    if mismatch? do
+    if should_log_package_set_hash_mismatch?(context, current, server_hash, mismatch?) do
       Logger.warning(
-        "Endpoint inventory package_set_hash mismatch: agent_id=#{context.agent_id} scan_id=#{context.scan_id} reported=#{context.reported_package_set_hash} server=#{server_hash}"
+        "Endpoint inventory package_set_hash mismatch: agent_id=#{context.agent_id} scan_id=#{context.scan_id} scanner_producer_version=#{scanner_producer_version(context)} reported=#{context.reported_package_set_hash} server=#{server_hash}"
       )
     end
 
@@ -1141,8 +1198,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp hash_matched_unchanged_noop?(context, current) do
     successful_scan?(context) and not is_nil(current) and
-      reported_package_set_hash(context) not in [nil, ""] and
-      reported_package_set_hash(context) == current.package_set_hash and
+      package_hash_matches_current?(context, current) and
       context.upload_reason == @upload_reason_unchanged
   end
 
@@ -1185,12 +1241,61 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     context.server_package_set_hash
   end
 
-  defp effective_package_set_hash(context, current, true, _server_hash) do
-    reported_package_set_hash(context) || Map.get(current || %{}, :package_set_hash)
+  defp effective_package_set_hash(context, current, true, server_hash) do
+    Map.get(current || %{}, :package_set_hash) || server_hash ||
+      reported_package_set_hash(context)
   end
 
   defp effective_package_set_hash(context, _current, false, server_hash) do
     server_hash || reported_package_set_hash(context)
+  end
+
+  defp current_reported_package_set_hash(nil), do: nil
+
+  defp current_reported_package_set_hash(current) do
+    current
+    |> Payload.metadata()
+    |> Payload.string_value(:reported_package_set_hash)
+  end
+
+  defp current_server_package_set_hash(nil), do: nil
+
+  defp current_server_package_set_hash(current) do
+    Map.get(current, :server_package_set_hash) ||
+      current
+      |> Payload.metadata()
+      |> Payload.string_value(:server_package_set_hash)
+  end
+
+  defp current_package_set_hash_mismatch?(nil), do: false
+
+  defp current_package_set_hash_mismatch?(current) do
+    case Map.get(current, :package_set_hash_mismatch) do
+      mismatch? when is_boolean(mismatch?) ->
+        mismatch?
+
+      _ ->
+        current
+        |> Payload.metadata()
+        |> Payload.boolean_value(:package_set_hash_mismatch) == true
+    end
+  end
+
+  defp should_log_package_set_hash_mismatch?(context, current, server_hash, true) do
+    reported_hash = reported_package_set_hash(context)
+
+    not current_package_set_hash_mismatch?(current) or
+      {reported_hash, server_hash} !=
+        {current_reported_package_set_hash(current), current_server_package_set_hash(current)}
+  end
+
+  defp should_log_package_set_hash_mismatch?(_context, _current, _server_hash, false), do: false
+
+  defp scanner_producer_version(context) do
+    Payload.string_value(context.metadata, :scanner_producer_version) ||
+      Payload.string_value(context.payload, :scanner_producer_version) ||
+      context.collector_version ||
+      "unknown"
   end
 
   defp package_set_hash_mismatch?(nil, _server_hash), do: false
