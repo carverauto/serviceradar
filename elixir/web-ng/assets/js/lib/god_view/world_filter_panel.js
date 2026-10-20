@@ -104,7 +104,7 @@ export class WorldFilterPanel {
     const actions = node("div", "mt-4 flex flex-wrap gap-2")
     actions.append(this.apply, clear)
     this.help = node("p", "mt-3 text-xs leading-relaxed text-sr-muted",
-      "Filtered links are hidden when an aggregate or boundary cannot provide exact matching relations. Clear filters to restore all base-map links.")
+      "Only devices included in the topology appear on the map. Cluster counts show matching members. Filtered links are hidden when an aggregate or boundary cannot provide exact matching relations. Clear filters to restore all base-map links.")
     this.panel.append(heading, this.status, this.tree, this.error, actions, this.help)
     toolbar.append(this.button)
     parent.append(this.panel)
@@ -143,8 +143,8 @@ export class WorldFilterPanel {
     this.status.textContent = !descriptor ? "Device filtering is unavailable on this server." :
       !ready ? `Filters are unavailable: ${this.state.capability?.reason?.replaceAll("_", " ") || (this.state.enabled ? "index preparing" : "membership protocol is not available")}.` :
         this.state.error ? `Filter unavailable: ${this.state.error.replaceAll("_", " ")}.` :
-          this.state.query && this.state.pending ? "Updating matching devices…" :
-            this.state.query && this.state.total !== null && this.state.total !== undefined ? `Applied filter: ${new Intl.NumberFormat().format(this.state.total)} matching devices` :
+          this.state.query && this.state.pending ? "Updating inventory matches…" :
+            this.state.query && this.state.total !== null && this.state.total !== undefined ? `Applied filter: ${new Intl.NumberFormat().format(this.state.total)} matching inventory devices` :
               "Choose inventory fields or tags. Values match exactly unless you choose starts with."
   }
 

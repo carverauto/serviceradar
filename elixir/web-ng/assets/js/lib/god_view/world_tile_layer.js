@@ -255,7 +255,10 @@ export default class WorldTileLayer extends TileLayer {
     const info = super.getPickingInfo(params)
     if (info.picked && !info.object) info.object = info.sourceTileSubLayer?.props.data.resolve?.(info.index)
     const membership = info.sourceTile?.content && this.tileMembership(info.sourceTile.content)
-    if (membership && info.object?.kind === "aggregate") info.object = {...info.object, count: membership.counts[info.object.index]}
+    if (membership && info.object?.kind === "aggregate") {
+      const count = membership.counts[info.object.index]
+      info.object = {...info.object, count, label: `${count.toLocaleString()} matching ${count === 1 ? "device" : "devices"}`}
+    }
     return info
   }
 
