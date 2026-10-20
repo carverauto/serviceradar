@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   alias ServiceRadarWebNG.Topology.BitmapIndex
   alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
+  alias ServiceRadarWebNG.Topology.BitmapValues
   alias ServiceRadarWebNG.Topology.Native
 
   @tasks ServiceRadarWebNG.Topology.BitmapQueryTasks
@@ -33,6 +34,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueries do
   end
 
   def run(_scope, _params), do: {:error, :invalid_query}
+
+  @doc "Discover exact values on one current, authorized revision per page."
+  def values(scope, params) when is_map(params) do
+    with :ok <- BitmapExpression.request_budget(params),
+         {:ok, {fence, page}} <-
+           with_query(scope, %{"all" => []}, &BitmapValues.page(params, &1)) do
+      {:ok, Map.merge(json_fence(fence), page)}
+    end
+  end
 
   @doc "Authorized lexical label discovery from an already prepared local prefix snapshot."
   def prefix_tags(scope, params) when is_map(params) do

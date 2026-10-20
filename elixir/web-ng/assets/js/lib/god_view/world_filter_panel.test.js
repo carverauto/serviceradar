@@ -40,6 +40,39 @@ beforeEach(() => {
 afterEach(() => {panel.destroy(); browser.happyDOM.abort(); vi.unstubAllGlobals()})
 
 describe("topology device filter controls", () => {
+  it("selects canonical values across modal pages and compiles an exact OR under EXCEPT", async () => {
+    const replies = [
+      {facet: "vlan", items: [{value: "320", count: 7}], cursor: "second"},
+      {facet: "vlan", items: [{value: "330", count: 5}], cursor: null},
+    ]
+    const fetch = vi.fn(async () => new Response(JSON.stringify(replies.shift()), {headers: {"content-type": "application/json"}}))
+    vi.stubGlobal("fetch", fetch)
+    panel.update({capability: {...capability, query: {...capability.query, values_url: "/topology/query/values"}}})
+    click("Choose values…")
+    await vi.waitFor(() => expect(controls("320")).toHaveLength(1))
+    controls("320")[0].click()
+    click("Next")
+    await vi.waitFor(() => expect(controls("330")).toHaveLength(1))
+    controls("330")[0].click()
+    click("Use 2 selected values")
+    expect(document.querySelector("dialog")).toBe(null)
+    expect(panel.panel.hidden).toBe(false)
+    check(1)
+    click("Apply filters")
+    const expression = {all: [{except: {any: [{facet: "vlan", value: "320"}, {facet: "vlan", value: "330"}]}}]}
+    expect(onApply).toHaveBeenLastCalledWith(expression)
+    expect(fetch.mock.calls[1][0]).toContain("cursor=second")
+    panel.update({query: expression})
+    expect(panel.panel.textContent).toContain("2 exact values (OR)")
+    click("Apply filters")
+    expect(onApply).toHaveBeenLastCalledWith(expression)
+    const full = {all: [...expression.all, ...Array.from({length: 30}, (_, i) => ({facet: "vlan", value: String(400 + i)}))]}
+    panel.update({query: full})
+    expect([...document.querySelectorAll("button")].find(item => item.textContent === "Add condition").disabled).toBe(true)
+    click("Apply filters")
+    expect(onApply).toHaveBeenLastCalledWith(full)
+  })
+
   it("counts EXCEPT wrappers before admitting a ninth level and keeps removal usable", () => {
     edit("Value", "320")
     for (let depth = 0; depth < 6; depth += 1) {

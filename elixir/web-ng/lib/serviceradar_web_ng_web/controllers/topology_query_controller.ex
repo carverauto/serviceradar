@@ -14,6 +14,15 @@ defmodule ServiceRadarWebNGWeb.TopologyQueryController do
     end
   end
 
+  def values(conn, params) do
+    conn = put_resp_header(conn, "cache-control", "no-store")
+
+    case BitmapQueries.values(conn.assigns[:current_scope], params) do
+      {:ok, result} -> json(conn, result)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def prefix_tags(conn, params) do
     conn = put_resp_header(conn, "cache-control", "no-store")
 

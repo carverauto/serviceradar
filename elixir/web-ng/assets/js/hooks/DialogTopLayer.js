@@ -1,3 +1,5 @@
+import {trapDialogFocus} from "../lib/dialog"
+
 // Promote LiveView-rendered <dialog class="sr-ui-modal"> into the browser
 // top layer via showModal(). Ops shell content uses isolation:isolate and the
 // sticky sidebar has its own stacking context — CSS z-index alone cannot
@@ -81,21 +83,7 @@ export default {
   },
 
   _handleKeydown(e) {
-    if (e.key !== "Tab" || !this.el.open) return
-
-    const focusable = [...this.el.querySelectorAll(
-      "a[href], button, input, select, textarea, [tabindex]"
-    )].filter(el => el.tabIndex >= 0 && !el.matches(":disabled") && el.getClientRects().length)
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    const target = e.shiftKey && document.activeElement === first
-      ? last
-      : !e.shiftKey && document.activeElement === last ? first : null
-
-    if (target) {
-      e.preventDefault()
-      target.focus()
-    }
+    trapDialogFocus(this.el, e)
   },
 
   _handleOutsideClick(e) {

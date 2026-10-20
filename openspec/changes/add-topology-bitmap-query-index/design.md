@@ -222,6 +222,31 @@ class values and canonical VLAN identifiers are labeled honestly. Inventory VLAN
 means the recorded device assignment, not proof that a switch carries a VLAN on
 any port. A separate carried-VLAN predicate needs a complete canonical source.
 
+The scalar exact-value picker reuses a searchable modal list with Devices vendor
+and type browsing. Search is a case-insensitive literal substring over distinct
+canonical values, not a new membership operator. Atlas pages native dictionary
+values only on demand, with up to 50 rows and counts per response. Each request
+examines at most 1,024 dictionary entries and returns a continuation even when
+that scan window contains no matches; this bounds work without capping index
+cardinality or silently presenting a partial search as complete. Search never
+scans inventory rows, builds a fleet JSON document or unions postings. Existing
+query admission, deadlines, authority checks and native snapshot lifetimes apply.
+A signed five-minute cursor binds the field, normalized search and current user
+authority to its lexical position. Each page uses current membership on any
+healthy replica; it does not hold a browser-owned native snapshot.
+
+The shared browser preserves selections across search and page changes, cancels
+superseded requests, rejects stale responses, exposes errors/retry and distinguishes
+an empty scan window with more results from the end of the search. Cancel leaves
+the filter unchanged; confirmation selects exact canonical values. Several values
+compile to an OR group inside the current condition, including under EXCEPT.
+Selections count toward the existing predicate, node, depth and payload budgets.
+The operator can still enter an exact value directly, including one not currently
+present, or use the existing literal starts-with operand. Search discovery is
+advertised separately from predicate operators; older servers retain text entry.
+No generic Contains predicate is introduced. IP/CIDR and named Prefix Tag source
+semantics remain unchanged.
+
 Text starts-with matching applies to indexed scalar values and configured tag
 keys. Tag-key prefix matching selects devices with a nonempty matching configured
 tag, optionally constrained by an exact value or value prefix. Prefixes are

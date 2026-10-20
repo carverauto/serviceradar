@@ -70,15 +70,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Navigation do
           nil
       end
 
-    {:noreply, assign(socket, breakdown_modal: modal, breakdown_search: "")}
+    {:noreply, assign(socket, breakdown_modal: modal)}
   end
 
   def handle_event("close_breakdown_modal", _params, socket) do
-    {:noreply, assign(socket, breakdown_modal: nil, breakdown_search: "")}
-  end
-
-  def handle_event("breakdown_search", %{"q" => query}, socket) do
-    {:noreply, assign(socket, :breakdown_search, to_string(query || ""))}
+    {:noreply, assign(socket, breakdown_modal: nil)}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do

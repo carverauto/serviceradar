@@ -74,22 +74,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
   end
 
   attr(:modal, :map, required: true)
-  attr(:search, :string, default: "")
 
   def breakdown_modal(assigns) do
-    modal = assigns.modal || %{}
-    search = assigns.search || ""
-    all_items = Map.get(modal, :items, [])
-    filtered_items = filter_breakdown_items(all_items, search)
+    modal = assigns.modal
 
-    assigns =
-      assigns
-      |> assign(:title, Map.get(modal, :title, "Browse"))
-      |> assign(:filter_field, Map.get(modal, :filter_field, ""))
-      |> assign(:items, filtered_items)
-      |> assign(:total_items, length(all_items))
-      |> assign(:filtered_count, length(filtered_items))
-      |> assign(:search, search)
+    items =
+      Enum.map(modal.items, fn item ->
+        %{value: item.name, count: item.count, href: breakdown_item_path(modal.filter_field, item.name)}
+      end)
+
+    assigns = assign(assigns, :items_json, Jason.encode!(items))
 
     ~H"""
     <.ui_modal
@@ -98,50 +92,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
       on_cancel="close_breakdown_modal"
       box_class="max-w-xl"
     >
-      <:title>
-        <span class="block">{@title}</span>
-        <span class="mt-0.5 block text-xs font-normal text-sr-muted">
-          {format_stat_number(@filtered_count)} of {format_stat_number(@total_items)}
-        </span>
-      </:title>
-
-      <form
-        id="device_breakdown_search_form"
-        phx-change="breakdown_search"
-        phx-submit="breakdown_search"
+      <:title>{@modal.title}</:title>
+      <div
+        id="device_breakdown_values"
+        phx-hook="ValueBrowser"
+        phx-update="ignore"
+        data-items={@items_json}
       >
-        <%!--
-          Stable id keeps LiveView from remounting this input on every keystroke
-          (which was dropping focus after one character). data-dialog-autofocus
-          makes DialogTopLayer focus the field when showModal() runs — otherwise
-          the close button (earlier in the DOM) steals initial focus.
-        --%>
-        <input
-          id="device_breakdown_search"
-          type="search"
-          name="q"
-          value={@search}
-          placeholder="Filter"
-          autocomplete="off"
-          phx-debounce="150"
-          data-dialog-autofocus
-          class={ui_field_class(size: "sm", class: "w-full")}
-        />
-      </form>
-
-      <div class="max-h-[24rem] overflow-y-auto rounded-lg border border-sr-line">
-        <div :if={@items == []} class="p-4 text-sm text-sr-muted">
-          No matches.
-        </div>
-        <%= for item <- @items do %>
-          <.link
-            navigate={breakdown_item_path(@filter_field, item.name)}
-            class="flex items-center justify-between gap-3 border-b border-sr-line px-3 py-2 text-sm last:border-b-0 hover:bg-sr-subtle/70"
-          >
-            <span class="min-w-0 flex-1 truncate text-sr-ink">{item.name}</span>
-            <.ui_badge size="sm" variant="ghost" class="shrink-0">{item.count}</.ui_badge>
-          </.link>
-        <% end %>
       </div>
     </.ui_modal>
     """
@@ -153,24 +110,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
       filter_field: filter_field,
       items: items || []
     }
-  end
-
-  defp filter_breakdown_items(items, ""), do: items
-
-  defp filter_breakdown_items(items, search) when is_binary(search) do
-    needle = search |> String.trim() |> String.downcase()
-
-    if needle == "" do
-      items
-    else
-      Enum.filter(items, fn item ->
-        item
-        |> Map.get(:name, "")
-        |> to_string()
-        |> String.downcase()
-        |> String.contains?(needle)
-      end)
-    end
   end
 
   defp breakdown_item_path(filter_field, name) do
@@ -185,22 +124,5 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
     |> to_string()
     |> String.replace("\\", "\\\\")
     |> String.replace("\"", "\\\"")
-  end
-
-  defp format_stat_number(n) when is_integer(n) and n >= 1000 do
-    n |> Integer.to_string() |> add_stat_commas()
-  end
-
-  defp format_stat_number(n) when is_integer(n), do: Integer.to_string(n)
-  defp format_stat_number(n) when is_float(n), do: n |> trunc() |> format_stat_number()
-  defp format_stat_number(_), do: "0"
-
-  defp add_stat_commas(str) do
-    str
-    |> String.reverse()
-    |> String.graphemes()
-    |> Enum.chunk_every(3)
-    |> Enum.join(",")
-    |> String.reverse()
   end
 end

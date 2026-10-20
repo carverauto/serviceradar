@@ -22,7 +22,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     toggle_include_deleted
     open_breakdown_modal
     close_breakdown_modal
-    breakdown_search
     srql_builder_add_filter
     srql_builder_remove_filter
   )

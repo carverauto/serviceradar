@@ -136,6 +136,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
   def bitmap_query_page(_query, _authority, _after, _limit, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
   def bitmap_query_facets(_query, _authority, _facets, _timeout_ms), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Bounded lexical discovery over current canonical facet values."
+  def bitmap_query_values(_query, _authority, _facet, _search, _after, _limit, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def bitmap_query_intersection_count(
         _query,
         _authority,

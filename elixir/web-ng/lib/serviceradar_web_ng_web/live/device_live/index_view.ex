@@ -153,7 +153,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
       <.breakdown_modal
         :if={@breakdown_modal}
         modal={@breakdown_modal}
-        search={@breakdown_search}
       />
     </Layouts.app>
     """

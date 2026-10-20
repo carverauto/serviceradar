@@ -3,6 +3,7 @@ import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import CommandPalette from "./CommandPalette"
 import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
+import ValueBrowser from "./ValueBrowser"
 import DialogTopLayer from "./DialogTopLayer"
 import ToastTopLayer from "./ToastTopLayer"
 import TimezoneSelect from "./TimezoneSelect"
@@ -56,6 +57,7 @@ export default {
   CommandPalette,
   CredentialDeepLinkFocus,
   DialogTopLayer,
+  ValueBrowser,
   ToastTopLayer,
   TimezoneSelect,
   DashboardBuilderCanvas,

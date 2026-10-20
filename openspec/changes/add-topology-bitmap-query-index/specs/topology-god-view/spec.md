@@ -277,6 +277,21 @@ The system SHALL expose a usable map filter builder for supported canonical attr
 - **AND** discovery SHALL distinguish preparation in progress from admission failure
 - **AND** a failed admission SHALL remain retryable after retained catalog memory is released
 
+#### Scenario: Search and select exact values in a reusable modal
+- **WHEN** an operator browses a supported scalar field or configured tag value
+- **THEN** a shared searchable modal presents bounded pages of canonical values and counts
+- **AND** search is case-insensitive literal substring discovery, with continuation across bounded scan windows
+- **AND** multiple selections persist across pages and compile to exact OR predicates within the containing group and exclusion
+- **AND** cancel preserves the original condition and all existing expression budgets still apply
+- **AND** recurring map membership does not evaluate the discovery search string
+
+#### Scenario: Value discovery remains bounded and authorized
+- **WHEN** a value page is requested or a search is replaced
+- **THEN** the request uses existing viewer authority, query admission and deadlines on a current native revision
+- **AND** a signed cursor binds field, search and authority without pinning a snapshot across pages
+- **AND** superseded replies cannot replace current choices and failures expose retry without clearing the selection
+- **AND** discovery never scans inventory rows or transfers the full value dictionary to the browser
+
 ### Requirement: Typed Binary Tile Overlay
 The system SHALL replace the active tiled path's per-tile JSON membership overlay with a versioned binary full replacement containing typed masks, states and counts aligned to admitted Arrow rows.
 

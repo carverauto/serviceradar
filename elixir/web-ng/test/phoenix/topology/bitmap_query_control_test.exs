@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
   alias ServiceRadarWebNG.Topology.BitmapQueries
   alias ServiceRadarWebNG.Topology.BitmapQueryAdmission
   alias ServiceRadarWebNG.Topology.BitmapStream
+  alias ServiceRadarWebNG.Topology.BitmapValues
   alias ServiceRadarWebNG.Topology.BitmapView
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.TileWatchTasks
@@ -60,6 +61,81 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
              )
 
     Native.bitmap_query_close(query)
+  end
+
+  test "value browsing pages current canonical values and binds cursors to search and authority" do
+    index =
+      index([
+        {1, true, [{"vendor", "Example Alpha"}]},
+        {2, true, [{"vendor", "Example Alpha"}]},
+        {3, true, [{"vendor", "Example Beta"}]},
+        {4, true, [{"vendor", "Other"}]}
+      ])
+
+    {:ok, parsed} = BitmapExpression.parse(%{}, @facets)
+    {:ok, {ref, _, _, _}} = query(index, parsed)
+    context = %{ref: ref, authority: @authority, deadline: now() + 1_000}
+    params = %{"facet" => "vendor", "search" => "EXAMPLE", "limit" => "1"}
+    assert {:ok, %{items: [%{value: "Example Alpha", count: 2}], cursor: cursor}} = BitmapValues.page(params, context)
+    assert is_binary(cursor)
+    next = Map.put(params, "cursor", cursor)
+
+    for changed <- [
+          Map.put(next, "facet", "region"),
+          Map.put(next, "search", "Other"),
+          Map.put(next, "cursor", cursor <> "bad")
+        ] do
+      assert {:error, :invalid_cursor} = BitmapValues.page(changed, context)
+    end
+
+    assert {:error, :invalid_cursor} = BitmapValues.page(next, %{context | authority: <<20::256>>})
+    Native.bitmap_query_close(ref)
+
+    assert {:ok, _} =
+             Native.bitmap_index_publish(
+               index,
+               1,
+               "changed",
+               [
+                 {3, false, []},
+                 {5, true, [{"vendor", "Example Gamma"}]}
+               ],
+               true
+             )
+
+    {:ok, {ref, _, _, _}} = query(index, parsed)
+    context = %{context | ref: ref, deadline: now() + 1_000}
+    assert {:ok, %{items: [%{value: "Example Gamma", count: 1}], cursor: last_cursor}} = BitmapValues.page(next, context)
+    assert is_binary(last_cursor)
+    assert {:ok, %{items: [], cursor: nil}} = BitmapValues.page(Map.put(params, "cursor", last_cursor), context)
+    assert {:error, :invalid_query} = BitmapValues.page(%{"facet" => String.duplicate("x", 65)}, context)
+    assert {:error, "unsupported_facet"} = BitmapValues.page(%{"facet" => "secret"}, context)
+    assert {:error, :invalid_page_limit} = BitmapValues.page(%{"facet" => "vendor", "limit" => 51}, context)
+    Native.bitmap_query_close(ref)
+  end
+
+  test "a sparse dictionary search advances past empty bounded windows without losing later matches" do
+    index = index([])
+    rows = for i <- 1..1_100, do: {i, true, [{"vendor", "Example " <> String.pad_leading(to_string(i), 4, "0")}]}
+
+    rows
+    |> Enum.chunk_every(500)
+    |> Enum.reduce(1, fn chunk, revision ->
+      assert {:ok, _} = Native.bitmap_index_publish(index, revision, "page", chunk, true)
+      revision + 1
+    end)
+
+    {:ok, parsed} = BitmapExpression.parse(%{}, @facets)
+    {:ok, {ref, _, _, _}} = query(index, parsed)
+    context = %{ref: ref, authority: @authority, deadline: now() + 1_000}
+    params = %{"facet" => "vendor", "search" => "1100"}
+    assert {:ok, %{items: [], cursor: cursor}} = BitmapValues.page(params, context)
+    assert is_binary(cursor)
+
+    assert {:ok, %{items: [%{value: "Example 1100", count: 1}], cursor: nil}} =
+             BitmapValues.page(Map.put(params, "cursor", cursor), context)
+
+    Native.bitmap_query_close(ref)
   end
 
   test "a cursor resumes current membership after a revision change and rejects query or authority substitution" do
@@ -393,6 +469,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert Jason.decode!(unauthorized.resp_body) == %{"error" => "unauthorized"}
     assert Plug.Conn.get_resp_header(unauthorized, "retry-after") == []
     assert {:error, :unauthorized} = BitmapQueries.run(nil, %{})
+    values = TopologyQueryController.values(Plug.Test.conn(:get, "/topology/query/values"), %{"facet" => "vendor"})
+    assert values.status == 401
+    assert Plug.Conn.get_resp_header(values, "cache-control") == ["no-store"]
     assert {:error, :unauthorized} = BitmapQueries.prefix_tags(%Scope{}, %{"source" => "synthetic"})
 
     flags = [:god_view_enabled]

@@ -90,7 +90,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        IndexData.load_availability_source_agent_options(socket.assigns.current_scope)
      )
      |> assign(:breakdown_modal, nil)
-     |> assign(:breakdown_search, "")
      # Enabled composite checks and their authored verdicts, for the verdict
      # filter. Loaded once on mount: checks change on operator action, not on
      # every device refresh.
