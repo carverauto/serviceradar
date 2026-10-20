@@ -99,8 +99,13 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
       if mode == :reconcile do
         state = state_request(request.config, opts[:label], opts)
 
-        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)),
-         state}
+        {reconcile_or_retry(
+           opts[:label],
+           opts[:table],
+           count,
+           budget_opts(opts, deadline),
+           :retry
+         ), state}
       else
         load_once(request, context, Keyword.get(opts, :redirects, 3))
       end
@@ -205,8 +210,13 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         {{:error, {:http_status, status, opts[:label]}}, request}
 
       {:error, :timeout} ->
-        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)),
-         request}
+        {reconcile_or_retry(
+           opts[:label],
+           opts[:table],
+           count,
+           budget_opts(opts, deadline),
+           :http_timeout
+         ), request}
 
       {:error, reason} ->
         {{:error, {reason, opts[:label]}}, request}
@@ -269,23 +279,28 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     end
   end
 
-  defp interpret_load(%{"Status" => "Publish Timeout"}, label, expected_count, opts) do
-    reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
-  end
-
-  defp interpret_load(%{"Status" => "Label Already Exists"}, label, expected_count, opts) do
-    reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
-  end
-
-  defp interpret_load(%{"Status" => "LABEL_ALREADY_EXISTS"}, label, expected_count, opts) do
-    reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
+  defp interpret_load(%{"Status" => status}, label, expected_count, opts)
+       when status in ["Publish Timeout", "Label Already Exists", "LABEL_ALREADY_EXISTS"] do
+    reconcile_or_retry(
+      label,
+      Keyword.get(opts, :table, ""),
+      expected_count,
+      opts,
+      {:status, status}
+    )
   end
 
   defp interpret_load(%{"Message" => msg} = payload, label, expected_count, opts)
        when is_binary(msg) do
     if msg =~ "has already been used" or msg =~ "Label Already Exists" or
          msg =~ "LABEL_ALREADY_EXISTS" do
-      reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
+      reconcile_or_retry(
+        label,
+        Keyword.get(opts, :table, ""),
+        expected_count,
+        opts,
+        {:status, Map.get(payload, "Status")}
+      )
     else
       {:error, {:load_status, Map.get(payload, "Status"), msg, label}}
     end
@@ -302,9 +317,16 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   # The caller's `opts[:http_timeout]` is already capped at what is left of the
   # load budget, so the whole reconcile, including any wait below, ends inside
   # that budget and therefore inside the JetStream ACK wait.
-  defp reconcile_or_retry(label, table, expected_count, opts) do
+  #
+  # `trigger` records why reconciliation started (the load's own status, an
+  # HTTP timeout, or a retry of an unresolved label) so an unresolved outcome
+  # can be logged with both that cause and the state API's actual answer.
+  defp reconcile_or_retry(label, table, expected_count, opts, trigger) do
     deadline = System.monotonic_time(:millisecond) + http_timeout(opts)
-    await_label(label, table, expected_count, opts, deadline, @in_flight_poll_ms)
+
+    opts
+    |> Keyword.put(:reconcile_trigger, trigger)
+    |> then(&await_label(label, table, expected_count, &1, deadline, @in_flight_poll_ms))
   end
 
   defp await_label(label, table, expected_count, opts, deadline, delay) do
@@ -341,7 +363,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         end
 
       # UNKNOWN, or no answer: not persistence; the caller's retry path decides.
-      _ ->
+      answer ->
+        Logger.warning(
+          "StarRocks Stream Load label unresolved: table=#{table} label=#{label} trigger=#{inspect(opts[:reconcile_trigger])} state_answer=#{inspect(answer, limit: 20, printable_limit: 200)}"
+        )
+
         {:error, {:unresolved_label, label, table}}
     end
   end
@@ -360,7 +386,10 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
          {:ok, %{"state" => state}} when is_binary(state) <- Jason.decode(body) do
       {:ok, state}
     else
-      _ -> :error
+      {:ok, %{status: status, body: body}} -> {:error, {:http_status, status, body}}
+      {:ok, decoded} -> {:error, {:no_state, decoded}}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
     end
   end
 
