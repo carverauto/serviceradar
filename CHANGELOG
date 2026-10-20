@@ -1,3 +1,151 @@
+# ServiceRadar v1.4.96
+
+This release fixes StarRocks Stream Load failures that dead-lettered
+large batches, makes flows StarRocks-only, adds the Atlas topology
+bitmap index, starts merged device availability in capture and shadow
+modes, and fixes alerting, sweep, inventory and camera defects.
+
+## Upgrade Notes
+
+- Flows are stored only in StarRocks. The Helm flow collector now
+  requires StarRocks; without it EventWriter acknowledges flow batches
+  without storing them and logs that once per node (PR #5736).
+- A migration drops the legacy CNPG flow hypertable
+  `platform.ocsf_network_activity` and its eight continuous
+  aggregates. Flow rows still held in CNPG are deleted; StarRocks
+  flow data is unaffected (PR #5792).
+- The default StarRocks Stream Load flush age rises from 2 s to 10 s
+  (`analytics.starrocks.streamLoad.maxAgeMs`), so quiet streams load
+  about five times less often and reach the warehouse up to 10 s
+  later. Size-triggered flushes are unchanged (PR #5783).
+- Sweep groups gain `discover_new_devices` (default on). An answering
+  host is only seeded as a new device when its address is inside the
+  group's static targets, so groups that target only by device query
+  no longer create devices (PR #5788).
+- `in:devices` sweep targets now include each device's active IP
+  aliases, up to eight per device, so those groups probe more
+  addresses (PR #5768).
+- Merged device availability ships in `legacy` mode, which changes no
+  reader. New tables and a one-time backfill job capture evidence
+  alongside the existing writes; set
+  `SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE=false` to turn capture
+  off. Shadow mode is an explicit operator switch (PR #5797,
+  PR #5800).
+- Elixir dependencies are upgraded for Hex security advisories: `ash`
+  3.34.6, `bandit` 1.13.1, `decimal` 3.2.0 and `protobuf` 0.17.1
+  (PR #5775).
+
+## Whats New
+
+**StarRocks ingestion**
+
+- Stream Loads wait for `100 Continue` before sending the body, so
+  large metrics, flow attribution and MTR loads no longer fail with
+  `{:connect_failed, :closed}` and dead-letter after a restart
+  (PR #5694).
+- Only one core runs EventWriter after a coordinator connection drop,
+  pull inboxes are unique per instance, and a label still in flight
+  under another loader is awaited instead of failing the batch
+  (PR #5804).
+- An unresolved load label logs what started the reconcile and the
+  state API's answer (PR #5821).
+- Flow attribution correlation uses less memory and avoids regular
+  expressions that StarRocks 4.1.3 rejects (PR #5744, PR #5784).
+- Long OTEL log bodies are kept as text (PR #5734).
+
+**Atlas topology**
+
+- A server-side bitmap query index backs Atlas map filters, with a
+  searchable value picker, filtered links that cross tile boundaries,
+  and separate inventory and filtered counts (PR #5726, PR #5798,
+  PR #5807, PR #5811, PR #5822).
+
+**Alerting**
+
+- Admission checks each evaluator peer with one call, caches a passing
+  result for two seconds and retries once, so a brief peer stall no
+  longer fails an ingest batch (PR #5823).
+- The alert inbox client timeout covers multi-statement transactions,
+  Ash notifications are delivered after the engine commits, and the UI
+  says when alert evaluation is not activated (PR #5816, PR #5705,
+  PR #5818).
+- Internal log events carry OTEL severity, so they show as INFO, WARN
+  or ERROR and appear in level filters (PR #5814).
+
+**Device availability and sweeps**
+
+- Merged availability evidence capture and a shadow-mode resolver with
+  a read-only divergence report (PR #5797, PR #5800).
+- Per-agent availability rows are upserted in key order, ending
+  deadlocks between concurrent sweep batches (PR #5810).
+- First-last range targets are expanded during sweep normalization
+  (PR #5801).
+- Seed collisions with moved live devices are logged and counted
+  (PR #5763).
+
+**Agent gateway**
+
+- Config is pushed to an agent right after its control session
+  reconnects, over the owning session, and an outstanding version is
+  not pushed twice (PR #5799, PR #5806, PR #5728).
+- Reserved admission protocol is cached per node and probe timeouts
+  are reported separately (PR #5778).
+
+**Inventory and vulnerabilities**
+
+- Full NIST NVD feed loads finish preflight: per-chunk transactions,
+  one stored configuration expression per advisory, and stricter JSON
+  key matching (PR #5746, PR #5759, PR #5761, PR #5773, PR #5777).
+- Endpoint vulnerability matching writes on change with an indexed CPE
+  lookup and resolves matches on superseded packages (PR #5772,
+  PR #5766, PR #5733).
+- Endpoint inventory resolves `device_uid` on insert, ingests deferred
+  uploads, and stops a stale-producer reconcile loop (PR #5782,
+  PR #5758, PR #5817).
+- Identity: IPv4 broadcast aliases are rejected, a replaced primary IP
+  is kept as an alias, merge metadata carryover is limited to
+  provenance keys, and a declaratively replaced primary address stays
+  an alias (PR #5765, PR #5769, PR #5767, PR #5755).
+- Proxmox: guest enrichment no longer resolves to the node device,
+  superseded legacy virtualization rows are hidden, mapper probes run
+  after identity collection, and multi-homed nodes dial a
+  certificate-listed address (PR #5716, PR #5729, PR #5719, PR #5711).
+- Device inventory rollups are batched per statement and source
+  absences are pruned with one identifier read (PR #5786, PR #5708).
+
+**Cameras**
+
+- Camera WebRTC works over TURN, routes signaling to the relay host,
+  delivers server ICE candidates, keeps live viewers past signaling
+  idle, and gates live video on `devices.cameras.view` (PR #5702,
+  PR #5706, PR #5696, PR #5700, PR #5701, PR #5714, PR #5718).
+
+**Flows and SRQL**
+
+- IPFIX options sampling rates are applied, whole-flow selection stays
+  at rate 1, and the NetFlow version comes from `flow_source`
+  (PR #5707, PR #5731, PR #5735).
+- SRQL accepts port lists on flow and downsample filters (PR #5724).
+- BGP routing upserts match the dedup unique index (PR #5754).
+
+**Web UI**
+
+- Streamed tables no longer show a stale empty-state row, settings
+  in-page tabs are searchable with `?tab=` deep links, and the
+  Software tab shows the effective last-seen time (PR #5813,
+  PR #5824, PR #5795).
+- MTR trace existence is probed instead of listing traces, SNMP target
+  queries name missing fields, and stale action-only plugin service
+  cards are dropped (PR #5787, PR #5709, PR #5725).
+
+**Core and agents**
+
+- Startup migrations skip an unchanged role password, and control
+  session exit errors no longer carry the call request (PR #5699,
+  PR #5780).
+- Unsupported updater flags are recorded as permanent add-on failures
+  (PR #5721).
+
 # ServiceRadar v1.4.95
 
 This release adds an optional in-cluster TURN relay so camera WebRTC
