@@ -1720,7 +1720,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 :if={@active_tab == "logs"}
                 id="logs"
                 logs={@streams.logs}
-                count={length(@logs)}
                 query={Map.get(@srql, :query) || ""}
                 timezone={@current_scope.user.timezone}
               />
@@ -1765,7 +1764,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 :if={@active_tab == "events"}
                 id="events"
                 events={@streams.events}
-                count={length(@events)}
                 timezone={@current_scope.user.timezone}
               />
               <.alert_bulk_bar
@@ -4544,7 +4542,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:id, :string, required: true)
   attr(:logs, :any, required: true)
-  attr(:count, :integer, required: true)
   attr(:query, :string, default: "")
   attr(:timezone, :string, required: true)
 
@@ -4569,7 +4566,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
-          <tr :if={@count == 0} id={"#{@id}-rows-empty"}>
+          <tr id={"#{@id}-rows-empty"} class="hidden only:table-row">
             <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No log entries found.
             </td>
@@ -5197,7 +5194,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:id, :string, required: true)
   attr(:events, :any, required: true)
-  attr(:count, :integer, required: true)
   attr(:timezone, :string, required: true)
 
   defp events_table(assigns) do
@@ -5221,7 +5217,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
-          <tr :if={@count == 0} id={"#{@id}-rows-empty"}>
+          <tr id={"#{@id}-rows-empty"} class="hidden only:table-row">
             <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No events found.
             </td>
