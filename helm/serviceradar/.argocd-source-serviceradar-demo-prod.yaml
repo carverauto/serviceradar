@@ -10,7 +10,7 @@ helm:
     value: sha256:7235d14fb5878017e80f543f67cd5217be967034c9c4c62482d0ff7a4c589645
     forcestring: true
   - name: image.digests.webNg
-    value: sha256:020f3931f384a09038c9745f1b89836a1c3f53c99a66a7a8ed98422f00ec8c56
+    value: sha256:5fc018dbb42978dc5a15b0ff0a4a94111f56d76b6726b5df39a8431184a80fb1
     forcestring: true
   - name: image.digests.flowCollector
     value: sha256:b93c6fd679b5936c4c2c288c598c8afe721bad1bee009a3265bca79876f97ce4
