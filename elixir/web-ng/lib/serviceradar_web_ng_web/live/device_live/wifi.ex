@@ -228,7 +228,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
                 </tr>
               </thead>
               <tbody id="wifi-rows" phx-update="stream">
-                <tr :if={length(@wifi_rows) == 0} id="wifi-rows-empty">
+                <tr id="wifi-rows-empty" class="hidden only:table-row">
                   <td colspan={@column_count} class="py-8 text-center text-sr-muted">
                     No WiFi inventory rows found.
                   </td>

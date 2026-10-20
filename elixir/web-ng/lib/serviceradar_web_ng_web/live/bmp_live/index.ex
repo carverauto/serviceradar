@@ -301,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
                   </tr>
                 </thead>
                 <tbody id="bmp-events" phx-update="stream">
-                  <tr :if={length(@bmp_events) == 0} id="bmp-events-empty">
+                  <tr id="bmp-events-empty" class="hidden only:table-row">
                     <td colspan="7" class="text-center text-sr-muted py-8">
                       No BMP events found.
                     </td>
