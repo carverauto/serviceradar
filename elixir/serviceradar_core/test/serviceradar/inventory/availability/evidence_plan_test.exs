@@ -120,6 +120,29 @@ defmodule ServiceRadar.Inventory.Availability.EvidencePlanTest do
     end
   end
 
+  describe "merge/3 coalesced flips (review finding R5)" do
+    test "marks a flip to down observed within half a lease of the stored up, and only that" do
+      key = EvidencePlan.coalesced_flip_key()
+      stored_up = row()
+
+      inside = later(60, state: :down)
+      assert {:write, marked} = EvidencePlan.merge(stored_up, inside, inside.observed_at)
+
+      assert marked.detail[key] == %{
+               "previous_up_observed_at" => DateTime.to_iso8601(stored_up.observed_at)
+             }
+
+      # Half of the 3 h lease is 5 400 s.
+      outside = later(5_460, state: :down)
+      assert {:write, unmarked} = EvidencePlan.merge(stored_up, outside, outside.observed_at)
+      refute Map.has_key?(unmarked.detail, key)
+
+      recovery = later(120)
+      assert {:write, recovered} = EvidencePlan.merge(marked, recovery, recovery.observed_at)
+      refute Map.has_key?(recovered.detail, key)
+    end
+  end
+
   defp decision({:write, _row}), do: :write
   defp decision(:skip), do: :skip
 end

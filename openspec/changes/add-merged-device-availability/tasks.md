@@ -44,18 +44,25 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 
 ## 2. Stage b: shadow (mode `shadow`)
 
-- [ ] 2.1 `Availability.Resolver.resolve/3`, a pure function implementing Decisions 3, 5, 6 and 12.
-- [ ] 2.2 Transactional resolution: device rows locked in uid order, batches of at most 500, a shadow write on change only; resolution never reads or waits on the invalidation log.
-- [ ] 2.3 The expiry job, paged.
-- [ ] 2.3a The bounded resolver worker: in one transaction it claims the oldest visible log rows (`DELETE ... WHERE id IN (SELECT ... ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED) RETURNING`), deduplicates by device uid, resolves at most 500 devices in uid order (re-appending any overflow), and commits; rows from uncommitted writers stay for a later pass. It consumes without resolving in `legacy` and writes shadow rows in `shadow`. The sweep ingestor, `record_evidence/2` and the merge transaction always resolve inline in their own transaction and never touch the log.
-- [ ] 2.4 Re-resolution on merge, unmerge and restore, with evidence moving on merge (Decision 11). Ledger reassignment unchanged.
-- [ ] 2.5 Divergence report:
+- [x] 2.1 `Availability.Resolver.resolve/3`, a pure function implementing Decisions 3, 5, 6 and 12.
+  - Ledger decisions record `source_kind` `agent_probe` (instance: the sweep group). Before a device's first shadow decision, its previous state is the legacy mirror, which is also what the resolver sees at cutover.
+- [x] 2.2 Transactional resolution: device rows locked in uid order, batches of at most 500, a shadow write on change only; resolution never reads or waits on the invalidation log.
+  - `Availability.Resolution`. The change test compares state, provenance, conflict and agent counters with the stored shadow row under the device lock, so an unchanged device is not written. In `legacy` the inline gate is a cached mode read (`Availability.Mode`, 30 s), with no query. An inline failure defers the devices to the log instead of failing the write.
+  - Measured on a scratch database (200 devices, 50 of them with controller `up` evidence and failing sweeps; 10 steady sweeps plus 10 controller resubmissions): 0 shadow writes, 0 log appends, 0 evidence writes in `shadow`; ledger (2 000) and device-row (3 000) updates identical to `legacy`.
+- [x] 2.3 The expiry job, paged.
+  - `ExpiryWorker`, every minute: from `availability_settings.expiry_watermark` (set on entering `shadow`) in slices of at most 10 minutes, pages of 500 devices whose evidence `expires_at` or ledger `checked_at + ttl` fell in the slice (new index `device_agent_availability_checked_at_idx`, built concurrently). The watermark advances only after the slice. A change of a sweep group's interval, or its deletion, moves its rows' windows, which the watermark cannot follow, so outside `legacy` a `sweep_groups` trigger appends every device with a ledger row in that group to the invalidation log.
+- [x] 2.3a The bounded resolver worker: in one transaction it claims the oldest visible log rows (`DELETE ... WHERE id IN (SELECT ... ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED) RETURNING`), deduplicates by device uid, resolves at most 500 devices in uid order (re-appending any overflow), and commits; rows from uncommitted writers stay for a later pass. It consumes without resolving in `legacy` and writes shadow rows in `shadow`. The sweep ingestor, `record_evidence/2` and the merge transaction always resolve inline in their own transaction and never touch the log.
+- [x] 2.4 Re-resolution on merge, unmerge and restore, with evidence moving on merge (Decision 11). Ledger reassignment unchanged.
+  - Merge moves evidence in every mode (later `observed_at` wins on a key both devices hold) and resolves the survivor inline; unmerge resolves both devices inline. Restores go through the log: a trigger appends a restored tombstone (and a new device) outside `legacy`, because one restore path is a raw upsert that no inline call can reach. `record_evidence/2` locks device rows before evidence rows, the merge's order, and drops devices tombstoned meanwhile.
+- [x] 2.5 Divergence report:
   - counts by legacy value, legacy badge, shadow state, `source_kind` and `authority_class`;
   - devices that would become unknown;
   - policy violations;
   - invalid pins (a pinned agent that is a negative control);
   - per-source Armis canonical push changes;
   - sample uids.
+  - `Availability.DivergenceReport` (read-only transaction, statement timeout, one aggregate pass per section), printed by `Availability.Operator.report/1` (`bin/serviceradar_core rpc` or `eval`) and `mix serviceradar.availability.report`. It also reports R5: evidence flips to `down` within half a lease of the stored `up` (marked by `EvidencePlan` in the record's `detail`) and decisions within half a lease of a disagreeing observation.
+  - Entering `shadow` (`Mode.enter_shadow/0`, `mix serviceradar.availability.mode shadow`) enqueues one full paged resolution and seeds `device_availability_legacy` for every device (write-on-change, `SKIP LOCKED`); `legacy` is the rollback and drops the shadow rows.
 - [ ] 2.6 Run on demo and the lab deployment, including the Wi-Fi AP split, and review with the user. This review ends phase 1 and is the gate for phase 2.
 
 ## 3. Stage c: cutover (`cutover` then `authoritative`)
@@ -110,7 +117,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 
 Each contract has one owner-boundary test. No contract is replayed at another layer. Every fixture is invented: `192.0.2.0/24` addresses and `SITE01-` names.
 
-- [ ] 5.1 **Resolver owner** (pure, table-driven, unit tier). `resolve/3` over invented ledger and evidence sets. The one table covers:
+- [x] 5.1 **Resolver owner** (pure, table-driven, unit tier). `resolve/3` over invented ledger and evidence sets. The one table covers:
   - class ranking;
   - available-wins within a class;
   - the pin;
@@ -131,11 +138,12 @@ Each contract has one owner-boundary test. No contract is replayed at another la
 - [ ] 5.3 **Ledger losslessness and counter** (DB tier). After resolution and after the expiry job, every agent's row (up, down and stale) is unchanged in value and `checked_at`. Through the real writers, two validation-scan failures (W18) advance `consecutive_down` to the threshold, and a merge reassignment (W19) leaves it unchanged.
 - [ ] 5.4 **Sweep ingestion regression** (DB tier). Must fail on today's code. A device with controller `up` evidence and repeated sweep failures keeps a stable state, and its row is not rewritten per sweep.
 - [ ] 5.5 **Armis agent path** (DB tier, in the existing runner suite). `candidates_query/1` with an agent selected returns identical rows whether or not availability resolution has run, including for a should-be-blocked agent. Canonical `legacy` reads the compatibility table, including for a device seeded at cutover that no legacy writer touches afterwards; canonical `merged` withholds unknown.
-- [ ] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched. The expiry pass re-checks freshness under the device lock from current committed rows.
+- [x] 5.6 **Expiry job** (DB tier). An expired `self_report` re-resolves to unknown; an unexpired one is untouched. The expiry pass re-checks freshness under the device lock from current committed rows.
 - [ ] 5.6c **Renewal vs expiry** (DB tier, real concurrent transactions). A validation scan renews an unchanged `up` ledger row just before its TTL ends while the expiry job resolves the same device from the older committed row; in both commit orders the device ends `available` after the next worker pass, and a steady renewal of a row fresher than half its TTL appends no log row.
 - [ ] 5.6a **Invalidation** (DB tier). With `write_canonical_availability` off, two validation-scan failures (W18, unchanged code) re-resolve the device to `unavailable` before expiry; changing the pin and adding a negative-control expectation each re-resolve the device without new evidence; a steady fresh renewal through the real sweep upsert (`INSERT ... ON CONFLICT DO UPDATE`) appends no log row; and a ledger write that commits while the worker is resolving the same device (claim taken, inputs already read) leaves its log row unclaimed, so the next pass resolves the device from the newer result.
 - [ ] 5.6b **Writer-vs-worker concurrency** (DB tier, real concurrent transactions). Each of these, run concurrently with the worker on the same devices in both interleavings (worker claims first; writer appends first), completes without a deadlock error, never waits on the invalidation log, and leaves the device resolved from the newest committed inputs: a sweep transaction that writes ledger rows and resolves inline; a MergeEngine merge that holds the device locks and reassigns ledger rows (W19); a validation scan (W18); and a pin change.
-- [ ] 5.7 **Merge** (DB tier, in the existing merge-engine suite). The survivor holds both devices' evidence and is re-resolved; ledger reassignment is unchanged.
+- [x] 5.7 **Merge** (DB tier, in the existing merge-engine suite). The survivor holds both devices' evidence and is re-resolved; ledger reassignment is unchanged.
+  - Owned by `availability_shadow_integration_test.exs` (merge through `MergeEngine.merge_devices/3`), which also owns the stage-b parts of 5.2 (write-on-change against `xmin`), 5.6a (validation scans, a pin change and a new negative control re-resolve through the log) and 5.6b (a merge holding both devices never waits on an inline evidence write; real concurrent transactions). The outbox and transition parts of 5.2 and the remaining 5.6a-5.6c interleavings belong to stage c.
 - [ ] 5.8 **Cutover and rollback** (DB tier). During `cutover`, ingestion plus reconciliation publish no per-device events, and a legacy writer started before the switch cannot land after it. One summary event is published. Down evidence ingested during `cutover` is not overwritten by reconciliation from an older shadow `available`. After a rollback to `legacy`, `is_available` equals the compatibility value and `availability_state` its projection.
 - [ ] 5.9 **SRQL** (Rust; extends the existing device query tables):
   - default order rank;

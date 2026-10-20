@@ -107,9 +107,10 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   describe "invalidation log" do
     test "outside legacy mode a steady sweep appends nothing and real changes append once",
          %{actor: actor} do
-      set_mode!("shadow")
+      # Created first: a device created outside legacy is itself an invalidation.
       steady = create_device!(actor, "192.0.2.20")
       renewed = create_device!(actor, "192.0.2.21")
+      set_mode!("shadow")
       {group, agent_id} = sweep_group!(actor)
 
       sweep!(actor, group, agent_id, "192.0.2.20", true, minutes_ago(10))
@@ -228,9 +229,9 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   describe "vantage expectations" do
     test "follow the enabled check's inputs and scope, and leave with a disabled check",
          %{actor: actor} do
-      set_mode!("shadow")
       d1 = create_device!(actor, "192.0.2.40")
       d2 = create_device!(actor, "192.0.2.41")
+      set_mode!("shadow")
       check = enabled_check!(actor)
 
       witness = vantage_input("agent-witness", "available")

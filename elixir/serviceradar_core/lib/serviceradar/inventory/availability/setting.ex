@@ -4,8 +4,9 @@ defmodule ServiceRadar.Inventory.Availability.Setting do
   `legacy`, `shadow`, `cutover` or `authoritative`. One row; a missing row reads as
   `legacy`.
 
-  Stage a only reads it. Changing the mode needs the draining advisory lock that stage c
-  adds, so no action here writes it.
+  No action here writes it: `ServiceRadar.Inventory.Availability.Mode` switches between
+  `legacy` and `shadow`, and the expiry job advances `expiry_watermark`. Switching to
+  `cutover` needs the draining advisory lock that stage c adds.
   """
 
   use Ash.Resource,
@@ -38,6 +39,7 @@ defmodule ServiceRadar.Inventory.Availability.Setting do
       public?: true,
       constraints: [one_of: [:legacy, :shadow, :cutover, :authoritative]]
 
+    attribute :expiry_watermark, :utc_datetime_usec, public?: true
     attribute :updated_at, :utc_datetime_usec, allow_nil?: false, public?: true
   end
 end

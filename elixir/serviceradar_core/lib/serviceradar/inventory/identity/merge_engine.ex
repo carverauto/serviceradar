@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -486,6 +487,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            :ok <- Reassignments.reassign_alerts(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_agents(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_availability(from_device_id, to_device_id, actor),
+           # Ledger reassignment above is unchanged; non-ledger evidence follows the
+           # survivor (add-merged-device-availability, Decision 11).
+           :ok <- Availability.move_evidence(from_device_id, to_device_id),
            :ok <-
              Reassignments.reassign_composite_results(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_alias_states(from_device_id, to_device_id, actor),
@@ -507,6 +511,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                actor: actor
              ),
            {:ok, _} <- tombstone_merged_device(from_device, actor),
+           # Under the device locks this transaction already holds; best effort, so a
+           # resolution failure defers the survivor to the resolver worker instead of
+           # failing the merge. Writes only the shadow table, and nothing in legacy.
+           _ = Availability.resolve_devices([to_device_id]),
            # After the tombstone, which frees the successor's address when it is the merged record.
            :ok <- take_successor_address(succession_details, to_device, actor),
            # The survivor's identity composition changed: it now owns the
@@ -1062,6 +1070,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            # missing row must fail the unmerge rather than silently skip a bump.
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
            {:ok, _} <- Device.bump_identity_revision(to_device, actor: actor) do
+        # Both devices are re-resolved under the locks this transaction holds (best
+        # effort: a failure defers them to the resolver worker). Nothing in legacy.
+        _ = Availability.resolve_devices([from_device_id, to_device_id])
+
         Logger.info(
           "Unmerged device #{from_device_id} from #{to_device_id} " <>
             "(original merge: #{audit.event_id})"
