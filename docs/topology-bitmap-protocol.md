@@ -6,8 +6,12 @@ ELK geometry or sends fleet-wide ID lists to the browser.
 
 The manifest field `bitmap_membership_protocol: 1` enables membership on the
 existing topology channel. `membership:watch` carries the bounded query and
-exact admitted tile receipts. Its reply binds dictionary epoch, query digest,
-authority fingerprint and admitted-view digest. `membership:frame` carries raw
+exact admitted tile receipts. A client that sets `boundary_endpoints: true`
+in the watch opts in to exact boundary endpoint counts; without it, every
+boundary count stays zero, so older browser bundles keep their decoder
+contract during rolling updates. Its reply binds dictionary epoch, query
+digest, authority fingerprint and admitted-view digest; the view digest also
+binds the boundary opt-in. `membership:frame` carries raw
 binary. `membership:ack` carries the view digest and a decimal string sequence.
 Membership receipts include only displayed geometry. Retained offscreen prefetch
 can remain in the separate geometry watch without invalidating an unchanged
@@ -81,7 +85,10 @@ each tile:
 
 Rows have the exact order of the receipt's geometry. Device counts are 0 or 1;
 aggregate counts are the exact authorized query intersection and cannot exceed
-the geometry row's represented population; boundary counts are zero. A flag is 1 if
+the geometry row's represented population. A boundary row contributes no
+geometry devices, but for an opted-in watch it may count 0 or 1: 1 only when
+every relation through that portal reaches the same canonical remote device
+and that device matches. Shared or unmapped portals count zero. A flag is 1 if
 and only if the count is positive. Aggregate availability is unknown unless all
 matching members share one state. Missing causal evidence stays unknown.
 
@@ -107,7 +114,8 @@ and dictionary continuity. The browser discards responses from older local
 query generations and does not reuse filtered scene cache entries. Unsupported
 filtered scenes report an error instead of opening an unfiltered scene.
 Relations and packet animation require full represented membership at both
-endpoints while a query is active. A partially matched aggregate has no filtered
+endpoints while a query is active; a boundary endpoint is complete at a count
+of 1 and is never drawn or picked as a device. A partially matched aggregate has no filtered
 relation or traffic estimate until the server can evaluate the exact relation
 intersection. Its full bundle is never presented as the query's relation.
 Unsupported boundary rows and unmapped geometry remain excluded, and the
