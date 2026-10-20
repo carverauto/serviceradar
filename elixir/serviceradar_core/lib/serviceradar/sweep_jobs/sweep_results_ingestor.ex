@@ -1921,10 +1921,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # agent_id) — e.g. two swept IPs aliasing to one device. Postgres rejects
   # ON CONFLICT DO UPDATE batches that touch the same row twice
   # (cardinality_violation), so keep only the freshest row per key.
+  #
+  # Rows are returned in key order. Concurrent batches from one agent share
+  # keys, and inserting them in different orders deadlocks on the unique index;
+  # map iteration order is not key order once a batch exceeds 32 keys.
   @doc false
   def dedupe_availability_records(records) do
     records
     |> Enum.group_by(fn record -> {record.device_uid, record.agent_id} end)
+    |> Enum.sort_by(fn {key, _rows} -> key end)
     |> Enum.map(fn {_key, rows} -> Enum.max_by(rows, & &1.checked_at, DateTime) end)
   end
 

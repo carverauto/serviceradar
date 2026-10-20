@@ -41,4 +41,19 @@ defmodule ServiceRadar.SweepJobs.SweepAvailabilityDedupeTest do
 
     assert rows |> SweepResultsIngestor.dedupe_availability_records() |> length() == 2
   end
+
+  test "returns rows in key order so concurrent upserts lock rows in the same order" do
+    now = DateTime.utc_now()
+
+    # More than 32 keys, where map iteration stops following key order.
+    rows = for n <- 64..1//-1, do: record("dev-#{n}", "agent-a", now, true)
+
+    keys =
+      rows
+      |> SweepResultsIngestor.dedupe_availability_records()
+      |> Enum.map(&{&1.device_uid, &1.agent_id})
+
+    assert keys == Enum.sort(keys)
+    assert length(keys) == 64
+  end
 end
