@@ -102,6 +102,10 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   (`<source>:<...>`) gets the canonical device uid there, resolved once for the
   whole batch by `PluginDeviceAttribution`; an unresolved reference is stored as
   emitted.
+
+  Rows are deduplicated on the `(time, id)` conflict key and returned sorted by
+  it, so concurrent batches take `ocsf_events` row and index locks in the same
+  order instead of deadlocking.
   """
   @spec build_rows(map() | [map()]) :: [map()]
   def build_rows(messages) when is_map(messages) do
