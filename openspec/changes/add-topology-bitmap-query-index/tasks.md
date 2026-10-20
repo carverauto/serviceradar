@@ -36,6 +36,7 @@
 - [ ] 3.5 Make filtering available whenever Atlas is enabled with existing viewer permissions; preserve explicit query failures and release resources on eviction, disconnect and Atlas shutdown.
 - [ ] 3.6 Run actual-browser zoom/reconnect/GPU-lifetime checks and measure retained bytes and upload copies.
 - [ ] 3.7 Deliver a visible filter builder for inventory VLAN/attributes/tags, AND/OR/EXCEPT, text prefix, IP/CIDR and existing named Prefix Tags, with supported-field discovery, pending/error feedback, exact global/aggregate counts and clear-to-base behavior.
+- [x] 3.8 Share a searchable paginated modal value browser with Devices; add authorized native distinct-value discovery and exact OR multi-selection, with current-page cursors, cancellation, error states and expression-budget coverage.
 
 ## 4. Scale proof and delivery
 

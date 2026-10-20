@@ -266,6 +266,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     start_supervised!(BitmapQueries)
     await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
 
+    values_params = %{"facet" => "region", "search" => cohort, "limit" => "1"}
+    response = TopologyQueryController.values(binary_conn(scope), values_params)
+    assert response.status == 200
+
+    assert %{"items" => [%{"value" => ^cohort, "count" => 3}], "cursor" => value_cursor} =
+             Jason.decode!(response.resp_body)
+
+    assert is_binary(value_cursor)
+
     expression = within_cohort(cohort, %{"facet" => "vendor", "value" => "example-a"})
     params = %{"expression" => expression, "limit" => 1, "facets" => [%{"facet" => "vendor", "value" => "example-a"}]}
     first_ordinal = FleetIdentity.device_ordinal(first.uid)
@@ -295,6 +304,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
              end)
 
     assert {:error, :forbidden} = BitmapQueries.run(scope, params)
+
+    response = TopologyQueryController.values(binary_conn(scope), Map.put(values_params, "cursor", value_cursor))
+    assert response.status == 403
+    assert Jason.decode!(response.resp_body) == %{"error" => "forbidden"}
 
     {:ok, snapshot} = BitmapIndex.snapshot()
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)

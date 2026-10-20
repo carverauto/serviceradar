@@ -21,6 +21,7 @@ pub use staging::Stage;
 
 pub type Error = &'static str;
 pub type Facet = (String, String);
+pub type ValuePage = (Vec<(String, u64)>, Option<String>);
 pub type Row = (u32, bool, Vec<(String, Value)>);
 /// Oversized canonical values invalidate their entire facet without stalling inventory.
 #[derive(Clone)]
@@ -997,6 +998,64 @@ impl Query {
                         .map_or(0, |facet| pin.result.set.intersection_len(&facet.set)))
                 })
                 .collect()
+        })
+    }
+    /// Browse one lexical dictionary window without constructing result bitmaps.
+    /// The continuation advances over nonmatches too, so sparse searches stay bounded.
+    pub fn values(
+        &self,
+        authority: &[u8],
+        facet: &str,
+        search: &str,
+        after: Option<&str>,
+        limit: usize,
+        timeout_ms: u64,
+    ) -> Result<ValuePage, Error> {
+        if !(1..=50).contains(&limit) || search.len() > 256 || after.is_some_and(|s| s.len() > 256)
+        {
+            return Err("invalid_value_page");
+        }
+        if !self.supported.contains(facet) {
+            return Err("unsupported_facet");
+        }
+        self.with_pin(authority, timeout_ms, |pin, end| {
+            if pin.revision.unavailable.contains(facet) {
+                return Err("facet_unavailable");
+            }
+            let needle = search.to_lowercase();
+            let start = (facet.to_owned(), after.unwrap_or("").to_owned());
+            let mut entries = pin
+                .revision
+                .facets
+                .range((std::ops::Bound::Excluded(start), std::ops::Bound::Unbounded))
+                .peekable();
+            let mut values = Vec::with_capacity(limit);
+            let mut last = None;
+            for _ in 0..1024 {
+                check_time(end)?;
+                let Some(((key, value), posting)) = entries.next() else {
+                    break;
+                };
+                if key != facet {
+                    break;
+                }
+                last = Some(value.clone());
+                if value.to_lowercase().contains(&needle) {
+                    let count = pin.result.set.intersection_len(&posting.set);
+                    if count > 0 {
+                        values.push((value.clone(), count));
+                    }
+                }
+                if values.len() == limit {
+                    break;
+                }
+            }
+            let next = if entries.peek().is_some_and(|((key, _), _)| key == facet) {
+                last
+            } else {
+                None
+            };
+            Ok((values, next))
         })
     }
     pub fn count_serialized(

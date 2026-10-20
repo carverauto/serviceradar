@@ -21,13 +21,6 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
     end
   end
 
-  # The facet overflow used to be an inline dropdown on the card itself, which is what
-  # this file originally asserted (all 12 options plus the dropdown's bounding classes).
-  # That design is gone -- `max-h-80 overflow-y-auto overflow-x-hidden` occurs nowhere in
-  # lib/ any more. The card now summarises, and the full list lives in the breakdown
-  # modal. The property worth holding is unchanged: every facet option stays reachable,
-  # in a bounded container. It is asserted below against the two halves that now provide
-  # it, rather than against markup that no input can produce.
   test "the facet card summarises the top option and offers a control to browse the rest" do
     html =
       render_component(&DeviceStats.device_stats_cards/1, %{
@@ -86,23 +79,20 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
     assert html =~ "in:devices first_seen:last_30d"
   end
 
-  test "the breakdown modal lists every facet option inside a bounded scroll container" do
-    items = facet_items("Type", 12)
+  test "the breakdown browser receives every canonical value and an escaped navigation target" do
+    items = [%{name: ~s(Example "Quoted" Vendor), count: 7} | facet_items("Vendor", 60)]
 
     html =
       render_component(&Breakdown.breakdown_modal/1, %{
-        modal: Breakdown.breakdown_modal_data("By Type", "type", items),
-        search: ""
+        modal: Breakdown.breakdown_modal_data("By Vendor", "vendor_name", items)
       })
 
-    # Every option is present, not just the top one.
-    for %{name: name} <- items do
-      assert html =~ name
-    end
-
-    # ...and the container is bounded, so 12 (or 1200) options cannot blow out the layout.
-    assert html =~ "max-h-[24rem] overflow-y-auto"
-    assert html =~ "12 of 12"
+    [encoded] = html |> LazyHTML.from_fragment() |> LazyHTML.query("[data-items]") |> LazyHTML.attribute("data-items")
+    values = Jason.decode!(encoded)
+    assert length(values) == 61
+    assert %{"value" => ~s(Example "Quoted" Vendor), "count" => 7, "href" => href} = hd(values)
+    assert URI.decode(href) == ~S(/devices?q=in:devices vendor_name:"Example \"Quoted\" Vendor")
+    assert List.last(values)["value"] == "Vendor 60"
   end
 
   defp facet_items(prefix, count) do

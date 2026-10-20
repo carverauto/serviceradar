@@ -1,3 +1,4 @@
+import {ValuePicker} from "../value_browser"
 import {worldJson} from "./world_http"
 import {capabilityIdentity} from "./bitmap_capability"
 
@@ -43,11 +44,12 @@ function select(values, selected, change) {
 function group(children = []) {return {mode: "all", children, exclude: false}}
 
 function querySize(term) {
+  const selected = term.values?.length || 1
   const children = (term.children || []).map(querySize)
   return {
-    nodes: 1 + Number(term.exclude === true) + children.reduce((sum, child) => sum + child.nodes, 0),
-    conditions: term.children ? children.reduce((sum, child) => sum + child.conditions, 0) : 1,
-    depth: 1 + Number(term.exclude === true) + Math.max(0, ...children.map(child => child.depth)),
+    nodes: (selected > 1 ? selected + 1 : 1) + Number(term.exclude === true) + children.reduce((sum, child) => sum + child.nodes, 0),
+    conditions: term.children ? children.reduce((sum, child) => sum + child.conditions, 0) : selected,
+    depth: (selected > 1 ? 2 : 1) + Number(term.exclude === true) + Math.max(0, ...children.map(child => child.depth)),
   }
 }
 
@@ -55,6 +57,9 @@ function fromExpression(expression) {
   if (expression.except) {
     const child = fromExpression(expression.except)
     return {...child, exclude: !child.exclude}
+  }
+  if (expression.any?.length > 1 && expression.any.every(child => child.facet && typeof child.value === "string" && Object.keys(child).length === 2 && child.facet === expression.any[0].facet)) {
+    return {field: expression.any[0].facet, operator: "eq", values: expression.any.map(child => child.value), value: ""}
   }
   if (expression.all || expression.any) return {mode: expression.all ? "all" : "any", children: (expression.all || expression.any).map(fromExpression), exclude: false}
   if (expression.ip_cidr) return {field: "$ip", value: expression.ip_cidr}
@@ -104,10 +109,10 @@ export class WorldFilterPanel {
     toolbar.append(this.button)
     parent.append(this.panel)
     document.addEventListener("pointerdown", event => {
-      if (!this.panel.hidden && !this.panel.contains(event.target) && !this.button.contains(event.target)) this.close(false)
+      if (!this.picker && !this.panel.hidden && !this.panel.contains(event.target) && !this.button.contains(event.target)) this.close(false)
     }, {signal: this.lifetime.signal})
     document.addEventListener("keydown", event => {
-      if (!this.panel.hidden && event.key === "Escape") {event.preventDefault(); this.close()}
+      if (!this.picker && !this.panel.hidden && event.key === "Escape") {event.preventDefault(); this.close()}
     }, {signal: this.lifetime.signal})
     this.update({})
   }
@@ -131,6 +136,8 @@ export class WorldFilterPanel {
     if (redraw) this.renderTree()
     const ready = this.state.enabled && descriptor && this.state.capability?.ready !== false
     this.apply.disabled = !ready
+    if (!ready) this.picker?.close()
+    for (const browse of this.tree.querySelectorAll("[data-value-picker]")) browse.disabled = !ready
     this.button.textContent = this.state.query && this.state.enabled ? "Filters active" : "Filters"
     this.help.hidden = !this.state.query
     this.status.textContent = !descriptor ? "Device filtering is unavailable on this server." :
@@ -152,6 +159,7 @@ export class WorldFilterPanel {
   }
 
   close(focus = true) {
+    this.picker?.close()
     this.panel.hidden = true
     this.button.setAttribute("aria-expanded", "false")
     this.cancelDiscovery()
@@ -161,6 +169,7 @@ export class WorldFilterPanel {
   cancelDiscovery() {this.discovery?.abort(); this.discovery = null}
 
   renderTree() {
+    this.picker?.close()
     this.cancelDiscovery()
     this.tree.replaceChildren(this.renderNode(this.draft))
   }
@@ -209,7 +218,7 @@ export class WorldFilterPanel {
     if (this.descriptor?.prefix_tags) choices.push(["$prefix_tag", "Named Prefix Tag", !this.descriptor.prefix_tags.available])
     if (!choices.some(([key]) => key === term.field)) choices.unshift([term.field, "Unavailable field", true])
     const field = select(choices, term.field, value => {
-      Object.assign(term, {field: value, operator: value === "$tag_keys" ? "present" : "eq", value: "", source: "", tagValue: ""})
+      Object.assign(term, {field: value, operator: value === "$tag_keys" ? "present" : "eq", value: "", source: "", tagValue: "", values: null})
       this.renderTree()
     })
     const fields = node("div", term.field === "$ip" || term.field === "$prefix_tag" || term.field === "$tag_keys" ? "grid gap-2" :
@@ -221,9 +230,17 @@ export class WorldFilterPanel {
     if (term.field !== "$ip") {
       const operators = term.field === "$tag_keys" ? [["present", "Has a matching tag"], ["eq", "Tag value equals"], ["prefix", "Tag value starts with"]] :
         [["eq", "Equals"], ["prefix", "Starts with", !scalar?.operators?.includes("prefix")]]
-      fields.append(labeled("Match", select(operators, term.operator || "eq", value => {term.operator = value; this.renderTree()})))
+      fields.append(labeled("Match", select(operators, term.operator || "eq", value => {term.operator = value; term.values = null; this.renderTree()})))
     }
-    fields.append(this.textInput(term, "value", term.field === "$ip" ? "IP network" : term.field === "$tag_keys" ? "Tag name prefix" : "Value"))
+    if (term.values?.length > 1) fields.append(node("p", "self-end py-2 text-sm text-sr-muted", `${term.values.length} exact values (OR)`))
+    else fields.append(this.textInput(term, "value", term.field === "$ip" ? "IP network" : term.field === "$tag_keys" ? "Tag name prefix" : "Value"))
+    if (scalar && term.operator === "eq" && this.descriptor?.values_url) {
+      const browse = button("Choose values…", () => this.chooseValues(term, scalar, browse))
+      browse.setAttribute("data-value-picker", "")
+      browse.disabled = !this.state.enabled || this.state.capability?.ready === false
+      box.append(browse)
+      if (term.values?.length > 1) box.append(button("Enter a single value", () => {term.values = null; term.value = ""; this.renderTree()}))
+    }
     if (term.field === "$tag_keys" && term.operator !== "present") box.append(this.textInput(term, "tagValue", "Tag value"))
     const hint = term.field === "$ip" ? "Matches any current device or interface address. Use numeric IPv4 or IPv6 CIDR, such as 192.0.2.0/24." :
       term.field === "$tag_keys" || term.operator === "prefix" ? "Starts with is literal and case-sensitive; no wildcards or regular expressions." :
@@ -233,6 +250,42 @@ export class WorldFilterPanel {
       field.title = hint
       if (term.field !== "vlan") box.append(node("p", "text-xs leading-relaxed text-sr-muted", hint))
     }
+  }
+
+  chooseValues(term, facet, trigger) {
+    this.picker?.close()
+    const budget = querySize(this.draft)
+    this.picker = new ValuePicker({
+      title: `Choose ${facet.label.toLowerCase()} values`, trigger,
+      selected: term.values || (term.value ? [term.value] : []),
+      maxSelected: MAX_CONDITIONS - budget.conditions + querySize(term).conditions,
+      onClose: () => {this.picker = null},
+      load: async ({search, cursor, signal}) => {
+        const url = new URL(this.descriptor.values_url, window.location.href)
+        if (url.origin !== window.location.origin || url.pathname !== "/topology/query/values") throw new Error("Unsupported value catalog")
+        url.searchParams.set("facet", term.field)
+        url.searchParams.set("search", search)
+        url.searchParams.set("limit", "50")
+        if (cursor) url.searchParams.set("cursor", cursor)
+        const result = await worldJson(url.toString(), signal, 131072)
+        if (result.facet !== term.field || !Array.isArray(result.items) || result.items.length > 50 ||
+            result.items.some(item => typeof item.value !== "string" || !item.value || new TextEncoder().encode(item.value).length > 256 ||
+              !Number.isSafeInteger(item.count) || item.count < 1) ||
+            (result.cursor !== null && (typeof result.cursor !== "string" || result.cursor.length > 4096))) throw new Error("Invalid value catalog")
+        return result
+      },
+      onConfirm: values => {
+        const previous = {value: term.value, values: term.values}
+        Object.assign(term, {value: values.length === 1 ? values[0] : "", values: values.length > 1 ? values : null})
+        const size = querySize(this.draft)
+        if (size.nodes > MAX_NODES || size.depth > MAX_DEPTH || size.conditions > MAX_CONDITIONS) {
+          Object.assign(term, previous)
+          throw new Error("Choose fewer values or remove a group or exclusion to stay within the filter limit.")
+        }
+        this.renderTree()
+        this.apply.focus()
+      },
+    })
   }
 
   textInput(term, key, label) {
@@ -299,6 +352,7 @@ export class WorldFilterPanel {
       if (!term.children.length) throw new Error("Add a condition to each group, or clear filters.")
       return {[term.mode]: term.children.map(child => this.expression(child))}
     }
+    if (term.values?.length > 1) return {any: term.values.map(value => this.expression({...term, values: null, value}))}
     const value = term.value || ""
     const source = term.source || ""
     if (value !== value.trim() || source !== source.trim()) throw new Error("Remove surrounding whitespace from the condition value.")
@@ -327,5 +381,5 @@ export class WorldFilterPanel {
     } catch (error) {this.error.textContent = error.message}
   }
 
-  destroy() {this.cancelDiscovery(); this.lifetime.abort(); this.panel.remove(); this.button.remove()}
+  destroy() {this.picker?.close(); this.cancelDiscovery(); this.lifetime.abort(); this.panel.remove(); this.button.remove()}
 }

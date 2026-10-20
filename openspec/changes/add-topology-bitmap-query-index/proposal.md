@@ -29,6 +29,9 @@ buffer lifetime fix. Filtering never changes layout.
 - Evaluate authorized AND, OR and ANDNOT expressions, exact conjunctive facets,
   live ordinal pages and aggregate match counts on the server. Revalidate current
   authority before delivering counts, details, search or overlays.
+- Add a reusable searchable, paginated value browser shared with Devices. Atlas
+  selects canonical exact values and ORs multiple selections inside one condition;
+  search text is discovery only, never a recurring substring membership predicate.
 - Provide a visible map filter builder for inventory VLAN, supported attributes and
   configured tags, with AND/OR/EXCEPT, text-prefix matching and IPv4/IPv6 CIDR
   membership. CIDR matches any known canonical device or interface address and

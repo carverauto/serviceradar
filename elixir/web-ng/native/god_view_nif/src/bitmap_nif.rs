@@ -1,6 +1,6 @@
 //! Typed BEAM boundary for the persistent membership index; no JSON intermediates.
 use crate::bitmap_index::{
-    Index, Instruction, Kind, PendingStatus, Query, Row, Stage, Value, ViewRow,
+    Index, Instruction, Kind, PendingStatus, Query, Row, Stage, Value, ValuePage, ViewRow,
 };
 use crate::core::arrow_serde::vec_into_binary;
 use rustler::types::list::ListIterator;
@@ -377,6 +377,26 @@ fn bitmap_query_facets(
     query
         .0
         .facets(authority.as_slice(), &facets(requested, 50)?, timeout_ms)
+}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bitmap_query_values(
+    query: ResourceArc<BitmapQueryResource>,
+    authority: Binary<'_>,
+    facet: Term<'_>,
+    search: Term<'_>,
+    after: Option<Binary<'_>>,
+    limit: usize,
+    timeout_ms: u64,
+) -> Result<ValuePage, &'static str> {
+    let after = after.map(|value| text(value.into(), 256)).transpose()?;
+    query.0.values(
+        authority.as_slice(),
+        &text(facet, 64)?,
+        &text(search, 256)?,
+        after.as_deref(),
+        limit,
+        timeout_ms,
+    )
 }
 #[rustler::nif(schedule = "DirtyCpu")]
 fn bitmap_query_intersection_count(

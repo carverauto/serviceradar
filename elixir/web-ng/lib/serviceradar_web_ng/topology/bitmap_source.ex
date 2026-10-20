@@ -44,6 +44,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapSource do
       {:ok,
        %{
          entity_kind: "device",
+         values_url: "/topology/query/values",
          facets: Enum.map(facets, &%{key: &1, label: Map.get(labels, &1, &1), operators: ["eq", "prefix"]}),
          tag_keys: keys,
          operators: %{tag_key_prefix: true, ip_cidr: true},

@@ -230,6 +230,8 @@ filegroup(
         "god_view_acceptance_timeline.test.js",
         "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
+        "js/lib/value_browser.js",
+        "js/lib/dialog.js",
         "js/lib/spatial_location.js",
         "js/utils/dashboard_user_time.js",
         "js/utils/user_time.js",
@@ -259,6 +261,8 @@ js_test(
         "god_view_acceptance_timeline.test.js",
         "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
+        "js/lib/value_browser.js",
+        "js/lib/dialog.js",
         "js/lib/spatial_location.js",
         ":bundle_srcs",
         ":node_modules",
@@ -358,6 +362,22 @@ vitest_bin.vitest_test(
     data = [
         "js/theme_init.js",
         "js/utils/theme_init.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "value_browser_test",
+    args = ["run", "js/lib/value_browser.test.js", "js/hooks/DialogTopLayer.test.js"],
+    chdir = package_name(),
+    data = [
+        "js/lib/value_browser.js",
+        "js/lib/dialog.js",
+        "js/lib/value_browser.test.js",
+        "js/hooks/ValueBrowser.js",
+        "js/hooks/DialogTopLayer.js",
+        "js/hooks/DialogTopLayer.test.js",
         ":node_modules",
     ],
     tags = ["unit_test"],
