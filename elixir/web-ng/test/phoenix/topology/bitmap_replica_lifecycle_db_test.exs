@@ -519,6 +519,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
       assert progress.pending_dirty > 0
       assert progress.pending_dirty == progress.pending_hints + progress.pending_native + progress.pending_publish
       assert progress.pending_publish == 1
+      assert progress.pending_publish_age_ms > 0
       assert {:ok, [^ordinal]} = members(owner, vendor)
     after
       :telemetry.detach(handler)
@@ -527,6 +528,11 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     # Recovery comes from the retained work, before the ordinary 30-second scan.
     await_members(owner, vendor, [], System.monotonic_time(:millisecond) + 10_000)
+
+    await_value(
+      fn -> BitmapIndex.snapshot(owner) end,
+      &match?({:ok, %{progress: %{pending_publish: 0, pending_publish_age_ms: 0}}}, &1)
+    )
   end
 
   test "a capacity-rejected page does not prevent later deletions from restoring publication", %{vendor: vendor} do

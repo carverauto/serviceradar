@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadarWebNG.Topology.BitmapHints
   alias ServiceRadarWebNG.Topology.BitmapPrefixTags
   alias ServiceRadarWebNG.Topology.BitmapPublisher
   alias ServiceRadarWebNG.Topology.BitmapQueries
@@ -27,8 +28,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   require Logger
 
   @batch_size 500
-  @hint_limit 5_000
-  @hint_bytes 524_288
+  # Hint resolution is cheap and moves retained UIDs into compact native dirty
+  # state, so it precedes every other turn. Each cycle still serves two
+  # publication batches, one scan page and the catalog: recovery is never starved.
+  @turns {:hints, :dirty, :hints, :dirty, :hints, :scan, :hints, :catalog}
   @task_timeout 10_000
   @step_interval 25
   @scan_interval 30_000
@@ -60,9 +63,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
        cursor: nil,
        active: nil,
        timer: nil,
-       hints: MapSet.new(),
-       hint_bytes: 0,
+       hints: BitmapHints.new(),
        dirty: [],
+       dirty_started_at: nil,
        rescan: true,
        scan_due: nil,
        catalog_due: nil,
@@ -98,11 +101,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
               progress = %{
                 seeded_at: state.seeded_at,
                 last_reconciled_at: state.last_reconciled_at,
-                pending_dirty: status.pending.pending_count + MapSet.size(state.hints) + length(state.dirty),
-                pending_hints: MapSet.size(state.hints),
-                pending_hint_bytes: state.hint_bytes,
+                pending_dirty: status.pending.pending_count + BitmapHints.count(state.hints) + length(state.dirty),
+                pending_hints: BitmapHints.count(state.hints),
+                pending_hint_bytes: state.hints.payload_bytes,
+                pending_hint_retained_bytes: state.hints.retained_bytes,
+                pending_hint_age_ms: BitmapHints.age_ms(state.hints, now()),
                 pending_native: status.pending.pending_count,
                 pending_publish: length(state.dirty),
+                pending_publish_age_ms: if(state.dirty_started_at, do: now() - state.dirty_started_at, else: 0),
                 source_error: state.source_error or state.capacity_blocked,
                 capacity_blocked: state.capacity_blocked,
                 reconciling:
@@ -144,7 +150,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
     case result do
       {:ok, result} ->
-        {:noreply, state |> accept(work, result) |> Map.put(:retry_at, nil) |> schedule(@step_interval)}
+        state = state |> accept(work, result) |> Map.put(:retry_at, nil)
+        # Waiting hints hold memory under the admission bound; serve them without a pause.
+        {:noreply, schedule(state, if(BitmapHints.count(state.hints) > 0, do: 0, else: @step_interval))}
 
       {:error, :dictionary_changed} ->
         {:noreply, state |> disable() |> schedule(0)}
@@ -209,29 +217,25 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp start_scan(state, _status), do: state
 
-  defp choose_read(state, _status, 4), do: schedule(state, 1_000)
+  defp choose_read(state, _status, checked) when checked == tuple_size(@turns), do: schedule(state, 1_000)
 
   defp choose_read(state, status, checked) do
-    turn = rem(state.turn, 4)
+    turn = rem(state.turn, tuple_size(@turns))
+    work = elem(@turns, turn)
     next = %{state | turn: turn + 1}
 
     cond do
-      turn == 0 and MapSet.size(state.hints) > 0 ->
-        ids = Enum.take(state.hints, @batch_size)
-        hints = MapSet.difference(state.hints, MapSet.new(ids))
+      work == :hints and BitmapHints.count(state.hints) > 0 ->
+        {ids, hints} = BitmapHints.take(state.hints, @batch_size)
+        launch(%{next | hints: hints}, {:hints, ids})
 
-        launch(
-          %{next | hints: hints, hint_bytes: state.hint_bytes - Enum.sum(Enum.map(ids, &byte_size/1))},
-          {:hints, ids}
-        )
-
-      turn == 1 and (state.dirty != [] or status.pending_count > 0) ->
+      work == :dirty and (state.dirty != [] or status.pending_count > 0) ->
         read_dirty(next, status, checked)
 
-      turn == 2 and not is_nil(state.cursor) ->
+      work == :scan and not is_nil(state.cursor) ->
         launch(next, {:scan, state.cursor, state.mode, state.scan_generation, state.scan_skipped})
 
-      turn == 3 and due?(state.catalog_due) ->
+      work == :catalog and due?(state.catalog_due) ->
         catalog_work(next)
 
       true ->
@@ -242,7 +246,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   defp read_dirty(%{dirty: []} = state, status, checked) do
     case Native.bitmap_index_take_dirty(state.current.device, @batch_size) do
       {:ok, {[], _status}} -> choose_read(state, status, checked + 1)
-      {:ok, {ordinals, _status}} -> read_dirty(%{state | dirty: ordinals}, status, checked)
+      {:ok, {ordinals, _status}} -> read_dirty(%{state | dirty: ordinals, dirty_started_at: now()}, status, checked)
       {:error, reason} -> retry(state, :dirty, reason)
     end
   end
@@ -431,8 +435,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   end
 
   defp accept(state, {:catalog, source}, result), do: catalog_turn(state, source, result == :preparing)
-  defp accept(state, {:hints, _}, _result), do: state
-  defp accept(state, {:dirty, _, _}, _result), do: %{state | dirty: [], source_error: false}
+  defp accept(state, {:hints, _}, _result), do: %{state | hints: BitmapHints.complete(state.hints)}
+  defp accept(state, {:dirty, _, _}, _result), do: %{state | dirty: [], dirty_started_at: nil, source_error: false}
   defp accept(state, _work, _result), do: %{state | source_error: false}
 
   defp retry(state, work), do: retry(state, work, :down)
@@ -446,9 +450,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
     schedule(catalog_turn(state, source, contended), @step_interval)
   end
 
-  defp retry(state, {:hints, ids}, reason) do
-    state = remember(state, ids)
-
+  defp retry(state, {:hints, _ids}, reason) do
     if contention?(reason) do
       schedule(state, @step_interval)
     else
@@ -485,34 +487,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   defp contention?(_reason), do: false
 
   defp remember(state, ids) do
-    {state, overflow} =
-      Enum.reduce(ids, {state, %{count: 0, bytes: 0}}, fn id, {state, overflow} ->
-        cond do
-          not is_binary(id) or id == "" or MapSet.member?(state.hints, id) ->
-            {state, overflow}
-
-          MapSet.size(state.hints) >= @hint_limit ->
-            {%{state | rescan: true}, Map.update!(overflow, :count, &(&1 + 1))}
-
-          state.hint_bytes + byte_size(id) > @hint_bytes ->
-            {%{state | rescan: true}, Map.update!(overflow, :bytes, &(&1 + 1))}
-
-          true ->
-            {%{state | hints: MapSet.put(state.hints, id), hint_bytes: state.hint_bytes + byte_size(id)}, overflow}
-        end
-      end)
+    {hints, overflow} = BitmapHints.put(state.hints, ids, now())
 
     # At most two events per message, with no identities or unbounded labels.
     # These count refused hint attempts, not distinct devices.
     for {kind, count} <- overflow, count > 0 do
       :telemetry.execute(
         [:serviceradar, :topology, :bitmap_index, :hint_overflow],
-        %{count: count, limit: if(kind == :count, do: @hint_limit, else: @hint_bytes)},
+        %{count: count, limit: BitmapHints.limit(kind)},
         %{limit_kind: kind, owner: __MODULE__, outcome: :reconcile}
       )
     end
 
-    state
+    %{state | hints: hints, rescan: state.rescan or Enum.any?(overflow, fn {_kind, count} -> count > 0 end)}
   end
 
   defp disable(state) do
@@ -539,9 +526,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         timer: nil,
         mode: :initialize,
         cursor: nil,
-        hints: MapSet.new(),
-        hint_bytes: 0,
+        hints: BitmapHints.new(),
         dirty: [],
+        dirty_started_at: nil,
         scan_skipped: false,
         capacity_blocked: false,
         rescan: true,

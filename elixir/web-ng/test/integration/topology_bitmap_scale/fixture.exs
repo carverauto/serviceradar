@@ -132,30 +132,44 @@ defmodule ServiceRadarWebNG.Topology.Scale.Fixture do
     first = rem(tick, 100) * div(@population, 100)
     last = first + div(@population, 100) - 1
 
-    for start <- first..last//@batch do
-      finish = min(start + @batch - 1, last)
-      ids = Enum.map(start..finish, &uid/1)
+    commit =
+      Enum.reduce(first..last//@batch, nil, fn start, first_commit ->
+        finish = min(start + @batch - 1, last)
+        ids = Enum.map(start..finish, &uid/1)
+        submitted_at = System.monotonic_time(:millisecond)
 
-      result =
-        Repo.query!(
-          """
-          UPDATE platform.ocsf_devices SET is_available = NOT is_available,
-            ip = '2001:db8:2::' || to_hex(((n * 7919) % 1100000) / 65536) || ':' ||
-              to_hex(((n * 7919) % 1100000) % 65536)
-          FROM generate_series($1::bigint, $2::bigint) n
-          WHERE uid = 'sr:atlas-scale-' || n
-          """,
-          [start, finish],
-          timeout: 30_000
-        )
+        result =
+          Repo.query!(
+            """
+            UPDATE platform.ocsf_devices SET is_available = NOT is_available,
+              ip = '2001:db8:2::' || to_hex(((n * 7919) % 1100000) / 65536) || ':' ||
+                to_hex(((n * 7919) % 1100000) % 65536)
+            FROM generate_series($1::bigint, $2::bigint) n
+            WHERE uid = 'sr:atlas-scale-' || n
+            """,
+            [start, finish],
+            timeout: 30_000
+          )
 
-      true = result.num_rows == length(ids)
-      notify.(ids)
-    end
+        true = result.num_rows == length(ids)
+        acknowledged_at = System.monotonic_time(:millisecond)
+        notify.(ids)
+        first_commit || %{device: start, submitted_at: submitted_at, acknowledged_at: acknowledged_at}
+      end)
 
     # The final SQL oracle checks persisted values. Avoid an extra fleet-wide
     # count every tick while measuring the real reconciliation reader load.
-    (tick + 1) * div(@population, 100)
+    {(tick + 1) * div(@population, 100), commit}
+  end
+
+  # One exact, newly committed address prevents later devices from masking a
+  # missed update through an increasing global population total.
+  def probe_query(n) do
+    address = rem(n * 7919, @population)
+    high = Integer.to_string(div(address, 65_536), 16)
+    low = Integer.to_string(rem(address, 65_536), 16)
+    cidr = "2001:db8:2::#{high}:#{low}/128"
+    Map.update!(query(), "all", &(&1 ++ [%{"ip_cidr" => cidr}]))
   end
 
   def expected_total do

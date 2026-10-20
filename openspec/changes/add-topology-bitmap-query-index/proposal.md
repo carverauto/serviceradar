@@ -43,6 +43,10 @@ buffer lifetime fix. Filtering never changes layout.
 - Use existing bounded invalidation hints and rolling keyset reconciliation.
   Inventory writes do not acquire shared bitmap bucket locks or wait for an
   index replica. Missing hints delay freshness; reconciliation repairs them.
+  Admit queued UIDs by owned payload and accounted retained memory, preserve
+  arrival order and retry age, and reserve reconciliation turns alongside a
+  larger share of hinted publication work. Measure specific committed-device
+  visibility independently of missed-hint/restart recovery.
 - Benchmark independently synthetic 100,000 infrastructure and 1,000,000 endpoint
   devices, including sparse IDs, sustained churn, authorized fanout and copies.
 

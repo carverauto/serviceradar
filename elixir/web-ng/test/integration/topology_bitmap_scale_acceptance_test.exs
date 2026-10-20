@@ -120,11 +120,24 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         end
       end)
 
+    {:ok, pending_before_churn} =
+      await(fn -> call(first, :pending) end, &match?({:ok, _}, &1), 15_000, "A pending status")
+
+    scans_before_churn = ready_scans(first)
+
     tick_samples =
       for tick <- 0..99 do
         Wait.viewers_alive!(clients, diagnose(clients, replicas))
         tick_start = now()
-        {write_ms, total} = timed(fn -> Fixture.churn(tick, &call(first, :hint, [&1])) end)
+        {write_ms, {total, commit}} = timed(fn -> Fixture.churn(tick, &call(first, :hint, [&1])) end)
+
+        # Ten asynchronous probes leave the five-second write cadence intact.
+        # Each witnesses one specific committed device, not a total that later
+        # writes could satisfy while an earlier hint is still missing.
+        probe =
+          if rem(tick, 10) == 0 do
+            Task.async(fn -> commit_probe(first, clients, replicas, fixture, tick, commit) end)
+          end
 
         if tick == 30, do: send(replacement.pid, :replace)
 
@@ -167,8 +180,14 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         })
 
         Process.sleep(max(5_000 - (now() - tick_start), 0))
-        %{write_ms: write_ms, query_ms: latency, status: status}
+        %{write_ms: write_ms, query_ms: latency, status: status, probe: probe}
       end
+
+    assert ready_scans(first) > scans_before_churn
+    probes = for %{probe: probe} <- tick_samples, probe, do: Task.await(probe, 65_000)
+    assert length(probes) == 10
+    emit("commit_probes", %{replica: first.id, samples: probes})
+    assert call(first, :report).publisher.hint_overflow == %{}
 
     {mapping_ms, mapping} = Task.await(replacement, 600_000)
     emit("mapping_replacement", %{ms: mapping_ms, mapping: mapping, replicas: metrics([first, second])})
@@ -267,6 +286,23 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
         diagnose(clients, replicas)
       )
     end
+
+    # Zero refused UID hints proves nothing if the loss moved downstream: native
+    # pending overflow clears its Roaring set and advances this generation.
+    # B restarts and misses hints by design, so only hinted A must avoid it.
+    %{index_epoch: epoch, rescan_generation: generation} = pending_before_churn
+
+    {:ok, drained} =
+      await(
+        fn -> call(first, :pending) end,
+        &match?({:ok, %{drained: true}}, &1),
+        60_000,
+        "A hinted work drained",
+        diagnose(clients, replicas)
+      )
+
+    emit("native_pending", %{replica: first.id, before_churn: pending_before_churn, after_drain: drained})
+    assert %{index_epoch: ^epoch, rescan_generation: ^generation} = drained
 
     Fixture.oversize_facet_value()
     unavailable = %{"expression" => %{"facet" => "tag:cohort", "value" => "cohort-0"}, "limit" => 1}
@@ -414,12 +450,74 @@ defmodule ServiceRadarWebNG.Topology.ScaleAcceptanceTest do
   defp query(session, extra \\ %{}),
     do: request_query(session, Map.merge(%{"expression" => Fixture.query(), "limit" => 1}, extra))
 
+  defp commit_probe(replica, clients, replicas, fixture, tick, commit) do
+    deadline = commit.acknowledged_at + 60_000
+    ordinal = fixture.base + commit.device * fixture.stride
+    expression = Fixture.probe_query(commit.device)
+
+    {200, witness} =
+      Wait.until(
+        fn -> query(replica.session, %{"expression" => expression}) end,
+        &match?({200, %{"total" => 1, "ordinals" => [^ordinal]}}, &1),
+        deadline,
+        "committed device membership at tick #{tick}",
+        diagnose(clients, replicas)
+      )
+
+    query_at = now()
+    viewers = Enum.filter(clients, &(rem(&1.id, 2) == 0 and not &1.opts[:slow]))
+
+    frames =
+      Wait.until(
+        fn -> reports(viewers) end,
+        fn rows ->
+          Enum.all?(rows, fn row ->
+            case row.last_revision do
+              {epoch, revision} ->
+                epoch == witness["index_epoch"] and String.to_integer(revision) >= witness["revision"]
+
+              nil ->
+                false
+            end
+          end)
+        end,
+        deadline,
+        "accepted overlay after committed membership at tick #{tick}",
+        diagnose(clients, replicas)
+      )
+
+    # The fixture changes each device only once to matching. A frame at or
+    # beyond this witnessed revision therefore includes that device. This is
+    # an observation bound for all normal viewers, not the first matching frame.
+    wire_at = frames |> Enum.map(& &1.last_frame_at) |> Enum.max()
+    assert query_at <= deadline and wire_at <= deadline
+
+    sample = %{
+      tick: tick,
+      normal_viewers: length(viewers),
+      commit_ack_ms: commit.acknowledged_at - commit.submitted_at,
+      query_from_ack_ms: query_at - commit.acknowledged_at,
+      wire_from_ack_ms: wire_at - commit.acknowledged_at,
+      query_from_submit_ms: query_at - commit.submitted_at,
+      wire_from_submit_ms: wire_at - commit.submitted_at
+    }
+
+    emit("commit_probe", Map.put(sample, :replica, replica.id))
+    sample
+  end
+
   defp request_query(session, params) do
     {status, _headers, bytes} = Client.http(session, "POST", "/topology/query", Jason.encode!(params))
     {status, Jason.decode!(bytes)}
   end
 
   defp reports(clients), do: Enum.map(clients, &Client.report(&1.pid))
+
+  defp ready_scans(replica) do
+    work = call(replica, :report).publisher.work
+    Enum.sum(for %{mode: :ready, work: :scan, outcome: :ok, count: count} <- work, do: count)
+  end
+
   defp metrics(replicas), do: Enum.map(replicas, &Map.put(call(&1, :report), :replica, &1.id))
 
   defp timed(fun) do

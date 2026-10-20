@@ -106,6 +106,31 @@ transaction commits. Keep pending ordinals in native Roaring under a 512 KiB
 byte cap; the 500-row read batch is not its membership capacity. Normalize UID
 hints through bounded reads, with separate limits on that ingress. Coalesce
 repeated IDs; overflow requests reconciliation without an unbounded mailbox.
+The replica's UID inbox admits by a 512-KiB owned-payload limit and a 3.5-MiB
+conservative retained-term charge, rather than a 5,000-entry capacity. Charge
+256 bytes per entry for queue/set/batch metadata plus word-rounded payload.
+Copy accepted binaries so sub-binaries cannot retain larger ingestion frames.
+This is admission accounting, not measured BEAM heap or RSS; report both.
+Keep arrival order and charge the active 500-UID resolver batch until success.
+Invalidation during that read may enqueue the same ID again; retries preserve
+the active batch and its original age. Refusal exposes its byte/memory bound
+and requests reconciliation. The producer's separate per-call 5,000-ID work
+limit and 500-ID messages still bound one broadcast; larger calls request a
+rescan. Neither producer nor replica ingress capacity limits fleet size.
+
+One worker resolves hints before every other turn: four resolutions, two
+dirty publications, one scan page and the catalog per cycle, skipping
+unavailable work. Resolution (about 8 ms per 500 UIDs in hosted runs) moves
+retained UIDs into the bounded native dirty set, so slow publications cannot
+exhaust UID admission. That happened in the first sparse run, when two
+hint/dirty pairs per scan/catalog turn and an unconditional 25-ms pause
+refused 23,286 hints. A successful step skips the 25-ms pause only while hints
+wait. Keep the 500-row batch. Scan and catalog keep a fixed one-in-eight turn,
+with no concurrent publishers. Cold replicas without hints continue scanning
+at the same rate. Because native dirty-set overflow clears the set and
+advances its rescan generation without refusing anything, the scale workload
+also requires the hinted replica to keep the same index epoch and rescan
+generation from before churn until its work drains.
 The publisher owner retains its one drained batch, at most 500 ordinals, until
 publication succeeds. Native contention retries preserve that work without
 requiring another queue write, setting a source error, or starting a full scan.
@@ -138,6 +163,13 @@ source errors and unavailable facets. Exact counts mean exact for the returned
 published revision, not a claim that the entire fleet was read in one database
 transaction. On incomplete seed, exhausted memory or a source that cannot
 provide its advertised semantics, return an explicit unavailable/stale status.
+UID queue age includes the held resolver batch and does not reset on retry;
+the held publication batch reports age since ordinal dequeue. These are stage
+ages, not database commit lag. Native Roaring occupancy does not currently
+carry per-ordinal ages, so neither stage age is labeled the oldest work across
+the whole pipeline. Synthetic commit probes separately witness a specific
+changed address/ordinal through an authorized query and accepted overlay
+revision; post-churn recovery remains a separate measurement.
 
 ## 3. Supported sources
 

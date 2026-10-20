@@ -40,8 +40,9 @@
 
 - [ ] 4.1 Publish latency/memory and admitted-overlay bytes for the synthetic 100k + 1M fixture, including sparse IDs and full-population churn.
 - [ ] 4.2 Measure sustained churn, reconciliation DB load, 100 views, high cardinality, replacement headroom and recovery. Both compact and sparse must pass on one commit at the target write cadence. Distinguish normal hinted updates from missed-notification and cold-restart recovery. See `docs/topology-bitmap-scale-acceptance.md` for historical runs and measurement semantics.
-- [ ] 4.2a Separate per-replica post-churn query/overlay recovery and record publisher work, hint overflow and queue stages. Run the instrumented compact and sparse workloads before changing intake or scheduling.
+- [x] 4.2a Separate per-replica post-churn query/overlay recovery and record publisher work, hint overflow and queue stages. Instrumented compact and sparse passed at d0505085a4, with 5,000-entry inbox overflow in every burst; see the scale acceptance runbook.
 - [ ] 4.2b Measure normal database-commit-to-membership/accepted-overlay latency and pending-work age independently of post-churn recovery.
+- [ ] 4.2c Replace replica UID count admission with retained-memory accounting and FIFO retry retention, increase hinted service share while preserving bounded reconciliation, and compare compact/sparse hosted runs at the same five-second write cadence.
 - [ ] 4.3 Complete required remote checks and actual-hardware acceptance; identify each unrun check honestly.
 - [ ] 4.4 Update README, binary-path audit and native docs to match measured implementation; remove unused experimental paths.
 - [ ] 4.5 Refresh architecture/portable review artifacts; publish through no-mistakes. Rollout approval and archival happen separately after shipping.
