@@ -108,6 +108,37 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
                  "#{inspect(view.live_view)} (router has: #{inspect(modules)})"
       end
     end
+
+    test "every declared view tab maps to a tab the LiveView handles and valid RBAC permissions" do
+      permission_keys = MapSet.new(RBACCatalog.permission_keys())
+
+      assert Map.get(Catalog.view(:sweep_profiles), :tabs, []) != []
+      assert Map.get(Catalog.view(:ansible), :tabs, []) != []
+
+      for view <- Catalog.views(), tab <- Map.get(view, :tabs, []) do
+        assert Code.ensure_loaded?(view.live_view)
+
+        assert function_exported?(view.live_view, :supported_tabs, 0),
+               "view #{inspect(view.id)} declares tabs, so #{inspect(view.live_view)} must export supported_tabs/0"
+
+        supported = view.live_view.supported_tabs()
+
+        assert tab.tab in supported,
+               "view #{inspect(view.id)} tab #{inspect(tab.tab)} is not in #{inspect(view.live_view)}.supported_tabs/0 (#{inspect(supported)})"
+
+        assert URI.parse(tab.route).path == view.route,
+               "view #{inspect(view.id)} tab #{inspect(tab.id)} route #{inspect(tab.route)} must share path #{inspect(view.route)}"
+
+        assert URI.decode_query(URI.parse(tab.route).query || "")["tab"] == tab.tab,
+               "view #{inspect(view.id)} tab #{inspect(tab.id)} route #{inspect(tab.route)} must carry ?tab=#{tab.tab}"
+
+        for permission <- List.wrap(tab.permission) do
+          assert MapSet.member?(permission_keys, permission),
+                 "view #{inspect(view.id)} tab #{inspect(tab.id)} permission #{inspect(permission)} " <>
+                   "is not in RBAC.Catalog.permission_keys/0"
+        end
+      end
+    end
   end
 
   describe "view_for_path/1 (longest-prefix resolution)" do
@@ -355,6 +386,51 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert Enum.all?(index, &Map.has_key?(&1, :view_title))
       assert Enum.all?(index, &Map.has_key?(&1, :description))
       assert Enum.any?(index, &(&1.id == :audit_trail))
+    end
+
+    test "palette_index/1 and visible_tabs/2 index Sweep Profiles and Ansible tabs with RBAC filtering" do
+      networks_scope = %Scope{permissions: MapSet.new(["settings.networks.manage"])}
+      palette = Catalog.palette_index(networks_scope)
+
+      for {tab_title, route} <- [
+            {"Sweep Profiles › Sweep Groups", "/settings/networks?tab=groups"},
+            {"Sweep Profiles › Scanner Profiles", "/settings/networks?tab=profiles"},
+            {"Sweep Profiles › Active Scans", "/settings/networks?tab=active_scans"},
+            {"Sweep Profiles › Inventory Cleanup", "/settings/networks?tab=cleanup"}
+          ] do
+        assert Enum.any?(palette, &(&1.view_title == tab_title and &1.route == route)),
+               "expected #{tab_title} (#{route}) in palette_index"
+      end
+
+      cleanup_entry = Enum.find(palette, &(&1.route == "/settings/networks?tab=cleanup"))
+      assert "inventory" in cleanup_entry.keywords
+      assert "cleanup" in cleanup_entry.keywords
+
+      discovery_entry = Enum.find(palette, &(&1.route == "/settings/networks/discovery"))
+      assert discovery_entry.view_title == "Discovery Jobs"
+      assert "discovery" in discovery_entry.keywords
+
+      repo_only_scope = %Scope{permissions: MapSet.new(["ansible.repositories.manage"])}
+      repo_palette = Catalog.palette_index(repo_only_scope)
+
+      assert Enum.any?(
+               repo_palette,
+               &(&1.view_title == "Ansible › Repositories" and
+                   &1.route == "/settings/ansible?tab=repositories")
+             )
+
+      refute Enum.any?(repo_palette, &(&1.route == "/settings/ansible?tab=controllers"))
+
+      ctrl_only_scope = %Scope{permissions: MapSet.new(["ansible.controllers.manage"])}
+      ctrl_palette = Catalog.palette_index(ctrl_only_scope)
+
+      assert Enum.any?(
+               ctrl_palette,
+               &(&1.view_title == "Ansible › Controllers" and
+                   &1.route == "/settings/ansible?tab=controllers")
+             )
+
+      refute Enum.any?(ctrl_palette, &(&1.route == "/settings/ansible?tab=repositories"))
     end
   end
 

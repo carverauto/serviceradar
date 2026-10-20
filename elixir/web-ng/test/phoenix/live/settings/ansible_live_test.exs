@@ -134,6 +134,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
+  test "deep-linking ?tab=repositories opens the Playbook Repositories tab and select_tab patches URL", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/ansible?#{%{tab: "repositories"}}")
+
+    assert has_element?(lv, "button[phx-click='new_repository']")
+    refute has_element?(lv, "button[phx-click='new_controller']")
+    assert has_element?(lv, ~s(a[href="/settings/ansible?tab=repositories"][data-view-tab-id="repositories"]))
+
+    render_click(lv, "select_tab", %{"tab" => "controllers"})
+    assert_patch(lv, ~p"/settings/ansible?#{%{tab: "controllers"}}")
+    assert has_element?(lv, "button[phx-click='new_controller']")
+
+    # A controller-only user visiting ?tab=repositories falls back to controllers
+    ctrl_only_user = grant_permissions(user, ["ansible.controllers.manage"])
+    ctrl_conn = log_in_user(conn, ctrl_only_user)
+
+    {:ok, ctrl_lv, _html} = live(ctrl_conn, ~p"/settings/ansible?#{%{tab: "repositories"}}")
+    assert has_element?(ctrl_lv, "button[phx-click='new_controller']")
+    refute has_element?(ctrl_lv, "button[phx-click='new_repository']")
+    refute has_element?(ctrl_lv, ~s(a[href="/settings/ansible?tab=repositories"]))
+  end
+
+  @tag :web_ng_shared_fixture_db
   test "creates a sync-only controller from a raw AWX token without elevating other purposes", %{
     conn: conn
   } do

@@ -149,7 +149,8 @@ export default {
       let visible = 0
       g.querySelectorAll("[data-view-search]").forEach((item) => {
         const haystack = item.getAttribute("data-view-search") || ""
-        const match = query === "" || haystack.includes(query)
+        const isSubentry = item.hasAttribute("data-view-subentry")
+        const match = query === "" ? !isSubentry : haystack.includes(query)
         item.classList.toggle("hidden", !match)
         if (match) visible += 1
       })

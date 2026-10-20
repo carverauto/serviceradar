@@ -22,6 +22,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View
 
   @refresh_interval to_timeout(second: 15)
+  @supported_tabs ~w(groups profiles active_scans cleanup)
+
+  @doc "In-page tab query parameter values handled by this LiveView."
+  @spec supported_tabs() :: [String.t()]
+  def supported_tabs, do: @supported_tabs
 
   @impl true
   def mount(_params, _session, socket) do

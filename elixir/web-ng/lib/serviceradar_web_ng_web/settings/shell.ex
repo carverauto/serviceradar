@@ -290,23 +290,39 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
               {section.subgroup}
             </div>
             <ul class="sr-ui-menu w-full gap-0.5 p-0">
-              <li :for={view <- section.views} data-view-search={view_search(view)}>
-                <.link
-                  href={view.route}
-                  aria-current={active_view?(@active_view, view) && "page"}
-                  class={[
-                    "gap-2 rounded-lg",
-                    active_view?(@active_view, view) &&
-                      "text-info bg-info/10 font-semibold border border-info/20"
-                  ]}
+              <%= for view <- section.views do %>
+                <li data-view-search={view_search(view)}>
+                  <.link
+                    href={view.route}
+                    aria-current={active_view?(@active_view, view) && "page"}
+                    class={[
+                      "gap-2 rounded-lg",
+                      active_view?(@active_view, view) &&
+                        "text-info bg-info/10 font-semibold border border-info/20"
+                    ]}
+                  >
+                    <.icon name={view.icon} class="size-4 shrink-0" />
+                    <span class="truncate">{view.title}</span>
+                    <.ui_badge :if={view.badge} size="sm" variant="primary" class="ml-auto">
+                      {view.badge}
+                    </.ui_badge>
+                  </.link>
+                </li>
+                <li
+                  :for={tab <- view_tabs(view)}
+                  data-view-search={tab_search(view, tab)}
+                  data-view-subentry
+                  class="hidden"
                 >
-                  <.icon name={view.icon} class="size-4 shrink-0" />
-                  <span class="truncate">{view.title}</span>
-                  <.ui_badge :if={view.badge} size="sm" variant="primary" class="ml-auto">
-                    {view.badge}
-                  </.ui_badge>
-                </.link>
-              </li>
+                  <.link
+                    href={tab.route}
+                    data-view-tab-id={tab.tab}
+                    class="gap-2 rounded-lg pl-7 text-xs text-sr-muted hover:text-sr-ink"
+                  >
+                    <span class="truncate">{view.title} › {tab.title}</span>
+                  </.link>
+                </li>
+              <% end %>
             </ul>
           </div>
         </div>
@@ -566,7 +582,25 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   end
 
   defp view_search(view) do
-    [view.title, view.route | List.wrap(Map.get(view, :keywords))]
+    tab_terms =
+      view
+      |> view_tabs()
+      |> Enum.flat_map(fn tab -> [tab.title | List.wrap(Map.get(tab, :keywords))] end)
+
+    ([view.title, view.route | List.wrap(Map.get(view, :keywords))] ++ tab_terms)
+    |> Enum.join(" ")
+    |> String.downcase()
+  end
+
+  defp view_tabs(%{visible_tabs: tabs}) when is_list(tabs), do: tabs
+  defp view_tabs(view), do: Map.get(view, :tabs, [])
+
+  defp tab_search(view, tab) do
+    [
+      "#{view.title} › #{tab.title}",
+      tab.route
+      | Enum.uniq(List.wrap(Map.get(view, :keywords)) ++ List.wrap(Map.get(tab, :keywords)))
+    ]
     |> Enum.join(" ")
     |> String.downcase()
   end

@@ -20,7 +20,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
         _ -> socket.assigns.active_tab
       end
 
-    {:noreply, assign(socket, :active_tab, active_tab)}
+    socket = assign(socket, :active_tab, active_tab)
+
+    socket =
+      if tab in ~w(groups profiles active_scans cleanup) do
+        push_patch(socket, to: ~p"/settings/networks?#{%{tab: Atom.to_string(active_tab)}}")
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("active_scans_filter", %{"filter" => filter}, socket) do

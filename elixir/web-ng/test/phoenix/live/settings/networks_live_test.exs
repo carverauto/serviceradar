@@ -1299,10 +1299,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     |> element("button[phx-value-tab='cleanup']")
     |> render_click()
 
+    assert_patch(lv, ~p"/settings/networks?#{%{tab: "cleanup"}}")
+
     lv
     |> element(~s(button[phx-click="run_cleanup_now"]))
     |> render_click()
 
     assert render(lv) =~ "Cleanup job queued"
+  end
+
+  test "deep-linking ?tab=cleanup opens the Inventory Cleanup tab directly", %{conn: conn} do
+    {:ok, lv, html} = live(conn, ~p"/settings/networks?#{%{tab: "cleanup"}}")
+
+    assert html =~ "Inventory Cleanup"
+    assert has_element?(lv, ~s(button[phx-click="run_cleanup_now"]))
+    assert has_element?(lv, ~s(a[href="/settings/networks?tab=cleanup"][data-view-tab-id="cleanup"]))
   end
 end
