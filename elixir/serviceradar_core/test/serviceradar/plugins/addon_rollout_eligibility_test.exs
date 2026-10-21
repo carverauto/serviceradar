@@ -2,6 +2,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
 
   @moduletag :db_free
@@ -179,9 +180,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     helper = package(supervision: :ephemeral_helper)
     service = package(supervision: :systemd_service)
 
-    refute Eligibility.supervision_ready?(service, %{state: "ready", active: false})
-    assert Eligibility.supervision_ready?(timer, %{state: "waiting", active: false})
-    assert Eligibility.supervision_ready?(helper, %{state: "staged", active: false})
+    refute AddonRolloutArtifact.supervision_ready?(service, %{state: "ready", active: false})
+    assert AddonRolloutArtifact.supervision_ready?(timer, %{state: "waiting", active: false})
+    assert AddonRolloutArtifact.supervision_ready?(helper, %{state: "staged", active: false})
   end
 
   # netprobe now also serves the generic AddonService on a second socket
@@ -201,7 +202,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
       # rollout-eligible and every rollout containing it fails fleet-wide.
       service = package(supervision: :systemd_service)
 
-      assert Eligibility.supervision_state_ready?(service, %{state: "running", active: true}),
+      assert AddonRolloutArtifact.supervision_state_ready?(service, %{
+               state: "running",
+               active: true
+             }),
              "a running netprobe unit must satisfy the systemd supervision model"
     end
 
@@ -211,8 +215,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
       # did, the gate must not accept it.
       service = package(supervision: :systemd_service)
 
-      refute Eligibility.supervision_state_ready?(service, %{state: "running", active: false})
-      refute Eligibility.supervision_state_ready?(service, %{state: "stopped", active: true})
+      refute AddonRolloutArtifact.supervision_state_ready?(service, %{
+               state: "running",
+               active: false
+             })
+
+      refute AddonRolloutArtifact.supervision_state_ready?(service, %{
+               state: "stopped",
+               active: true
+             })
     end
 
     test "serving AddonService does not change the state netprobe reports" do
@@ -223,7 +234,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
       service = package(supervision: :systemd_service)
 
       for state <- ["running", "active", "healthy", "degraded"] do
-        assert Eligibility.supervision_state_ready?(service, %{state: state, active: true}),
+        assert AddonRolloutArtifact.supervision_state_ready?(service, %{
+                 state: state,
+                 active: true
+               }),
                "#{state} must remain acceptable for a systemd add-on"
       end
     end
@@ -247,23 +261,23 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
             "available memory,pids"
       }
 
-      assert Eligibility.supervision_state_ready?(service, status),
+      assert AddonRolloutArtifact.supervision_state_ready?(service, status),
              "an undelegated cpu controller is a property of the host, not of the candidate"
 
-      assert Eligibility.degraded?(status)
-      refute Eligibility.supervision_ready?(service, status)
+      assert AddonRolloutArtifact.degraded?(status)
+      refute AddonRolloutArtifact.supervision_ready?(service, status)
     end
 
     test "supervision state still requires the supervision model to be satisfied" do
       service = package(supervision: :systemd_service)
 
-      refute Eligibility.supervision_state_ready?(service, %{
+      refute AddonRolloutArtifact.supervision_state_ready?(service, %{
                state: "unhealthy",
                active: false,
                degradation_reason: "systemd unit failed"
              })
 
-      refute Eligibility.supervision_state_ready?(service, %{
+      refute AddonRolloutArtifact.supervision_state_ready?(service, %{
                state: "unhealthy",
                active: false,
                degradation_reason:
@@ -285,20 +299,20 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
         degradation_reason: "no PowerDNS Recursor protobuf producer connected to 127.0.0.1:6000"
       }
 
-      assert Eligibility.supervision_state_ready?(service, degraded)
-      assert Eligibility.supervision_state_ready?(timer, degraded)
+      assert AddonRolloutArtifact.supervision_state_ready?(service, degraded)
+      assert AddonRolloutArtifact.supervision_state_ready?(timer, degraded)
 
       # ...and it is still degraded, so convergence display still says so.
-      refute Eligibility.supervision_ready?(service, degraded)
-      assert Eligibility.degraded?(degraded)
+      refute AddonRolloutArtifact.supervision_ready?(service, degraded)
+      assert AddonRolloutArtifact.degraded?(degraded)
     end
 
     test "supervision_ready? remains the stricter question for convergence display" do
       service = package(supervision: :systemd_service)
       clean = %{state: "running", active: true, degradation_reason: nil}
 
-      assert Eligibility.supervision_ready?(service, clean)
-      refute Eligibility.degraded?(clean)
+      assert AddonRolloutArtifact.supervision_ready?(service, clean)
+      refute AddonRolloutArtifact.degraded?(clean)
     end
   end
 

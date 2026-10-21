@@ -7,6 +7,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
+  alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
   alias ServiceRadar.Plugins.AddonRolloutTarget
@@ -1363,5 +1364,222 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(rollout_id == ^rollout_id)
     |> Ash.read_one!(actor: actor)
+  end
+
+  # The profile reconciler keeps writing a profile's members while a rollout
+  # holds them. It may change what the profile owns (params, membership), but a
+  # member's rollout override belongs to the rollout: reconciliation must never
+  # overwrite or drop it, and must never resurrect one the rollout has released.
+  test "profile reconciliation during a paused rollout keeps the canary override" do
+    actor = SystemActor.system(:addon_rollout_overlay_paused_test)
+    fixture = overlay_profile_fixture(actor)
+    rollout = start_overlay_rollout(fixture, actor)
+
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+    edit_overlay_profile_params(fixture, actor)
+
+    # Both members are rewritten with the edited params...
+    reconcile_overlay_profile(fixture, [fixture.canary_uid, fixture.peer_uid], actor)
+
+    canary = overlay_member(fixture, fixture.canary_uid, actor)
+    assert canary.params["overlay_note"] == "edited"
+    assert_overlay_override(canary, rollout, fixture)
+    assert_overlay_stable(overlay_member(fixture, fixture.peer_uid, actor), fixture.current)
+
+    # ...and a canary that drops out of the target query stays held by the
+    # rollout rather than being disabled under it.
+    reconcile_overlay_profile(fixture, [fixture.peer_uid], actor)
+
+    assert_overlay_override(overlay_member(fixture, fixture.canary_uid, actor), rollout, fixture)
+    assert get_rollout(rollout.id, actor).state == :paused
+  end
+
+  test "profile reconciliation after a rolled-back rollout keeps the previous package" do
+    actor = SystemActor.system(:addon_rollout_overlay_rolled_back_test)
+    fixture = overlay_profile_fixture(actor)
+    rollout = start_overlay_rollout(fixture, actor)
+
+    assert :ok =
+             AddonRolloutCoordinator.rollback(rollout.id,
+               actor: actor,
+               now: DateTime.shift(fixture.started_at, second: 1)
+             )
+
+    recovered_at = DateTime.shift(fixture.started_at, second: 2)
+
+    report_status_for(
+      fixture.addon_id,
+      fixture.canary_uid,
+      fixture.current.version,
+      recovered_at,
+      actor
+    )
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: recovered_at)
+    assert get_rollout(rollout.id, actor).state == :rolled_back
+
+    edit_overlay_profile_params(fixture, actor)
+    reconcile_overlay_profile(fixture, [fixture.canary_uid, fixture.peer_uid], actor)
+
+    for uid <- [fixture.canary_uid, fixture.peer_uid] do
+      member = overlay_member(fixture, uid, actor)
+      assert member.params["overlay_note"] == "edited"
+      assert_overlay_stable(member, fixture.current)
+    end
+  end
+
+  test "profile reconciliation after a completed rollout keeps the promoted package" do
+    actor = SystemActor.system(:addon_rollout_overlay_completed_test)
+    fixture = overlay_profile_fixture(actor)
+    rollout = start_overlay_rollout(fixture, actor)
+
+    # Canary first, then the peer's batch.
+    for {uid, offset} <- [{fixture.canary_uid, 1}, {fixture.peer_uid, 2}] do
+      observed_at = DateTime.shift(fixture.started_at, second: offset)
+      report_status_for(fixture.addon_id, uid, fixture.candidate.version, observed_at, actor)
+      assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: observed_at)
+    end
+
+    assert get_rollout(rollout.id, actor).state == :completed
+    assert get_profile(fixture.profile.id, actor).addon_package_id == fixture.candidate.id
+
+    edit_overlay_profile_params(fixture, actor)
+    reconcile_overlay_profile(fixture, [fixture.canary_uid, fixture.peer_uid], actor)
+
+    for uid <- [fixture.canary_uid, fixture.peer_uid] do
+      member = overlay_member(fixture, uid, actor)
+      assert member.params["overlay_note"] == "edited"
+      assert_overlay_stable(member, fixture.candidate)
+    end
+  end
+
+  defmodule OverlayTargets do
+    @moduledoc false
+
+    # Stands in for the profile's SRQL target query so each reconcile names the
+    # agents it matches.
+    def resolve([%{entity: entity}], opts) do
+      rows = opts |> Keyword.fetch!(:overlay_agent_uids) |> Enum.map(&%{"uid" => &1})
+      {:ok, [%{name: "targets", entity: entity, query: "in:#{entity}", rows: rows}]}
+    end
+  end
+
+  # Members are materialized by the profile reconciler itself, so later
+  # reconciles address the same rows instead of treating them as foreign.
+  defp overlay_profile_fixture(actor) do
+    unique = System.unique_integer([:positive])
+    addon_id = "rollout-overlay-#{unique}"
+    canary_uid = "rollout-overlay-a-#{unique}"
+    peer_uid = "rollout-overlay-b-#{unique}"
+    current = approved_package(addon_id, "1.0.0", actor)
+    candidate = approved_package(addon_id, "1.1.0", actor)
+
+    for uid <- [canary_uid, peer_uid] do
+      {:ok, _agent} =
+        Agent
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: uid,
+            name: "Rollout overlay test agent #{uid}",
+            version: "1.4.23",
+            capabilities: [],
+            host: "127.0.0.1",
+            port: 50_051,
+            metadata: %{"os" => "linux", "arch" => "amd64"}
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+    end
+
+    {:ok, profile} =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Rollout overlay profile #{unique}",
+          addon_package_id: current.id,
+          target_query: "in:agents",
+          rollout_policy: %{
+            "canary_size" => 1,
+            "batch_size" => 1,
+            "max_parallel" => 1,
+            "soak_seconds" => 0,
+            "health_timeout_seconds" => 60,
+            "tolerated_failures" => 0
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    fixture = %{
+      addon_id: addon_id,
+      canary_uid: canary_uid,
+      peer_uid: peer_uid,
+      profile: profile,
+      current: current,
+      candidate: candidate,
+      started_at: DateTime.utc_now()
+    }
+
+    reconcile_overlay_profile(fixture, [canary_uid, peer_uid], actor)
+    fixture
+  end
+
+  defp start_overlay_rollout(fixture, actor) do
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+        actor: actor,
+        now: fixture.started_at,
+        trigger: :manual
+      )
+
+    # The canary batch holds only the first agent; the peer waits its turn.
+    assert_overlay_override(overlay_member(fixture, fixture.canary_uid, actor), rollout, fixture)
+    assert_overlay_stable(overlay_member(fixture, fixture.peer_uid, actor), fixture.current)
+    rollout
+  end
+
+  defp edit_overlay_profile_params(fixture, actor) do
+    {:ok, _} =
+      fixture.profile.id
+      |> get_profile(actor)
+      |> Ash.Changeset.for_update(:update, %{params: %{"overlay_note" => "edited"}})
+      |> Ash.update(actor: actor)
+  end
+
+  defp reconcile_overlay_profile(fixture, agent_uids, actor) do
+    assert {:ok, _summary} =
+             AddonProfileOps.reconcile_by_id(fixture.profile.id,
+               actor: actor,
+               resolver: OverlayTargets,
+               overlay_agent_uids: agent_uids
+             )
+  end
+
+  defp overlay_member(fixture, agent_uid, actor) do
+    fixture.profile.id
+    |> profile_assignments(actor)
+    |> Enum.filter(&(&1.agent_uid == agent_uid))
+    |> case do
+      [member] -> member
+      members -> flunk("expected one profile member for #{agent_uid}, got #{length(members)}")
+    end
+  end
+
+  defp assert_overlay_override(member, rollout, fixture) do
+    assert member.enabled
+    assert member.addon_package_id == fixture.current.id
+    assert member.rollout_package_id == fixture.candidate.id
+    assert member.rollout_id == rollout.id
+  end
+
+  defp assert_overlay_stable(member, package) do
+    assert member.enabled
+    assert member.addon_package_id == package.id
+    assert is_nil(member.rollout_package_id)
+    assert is_nil(member.rollout_id)
   end
 end
