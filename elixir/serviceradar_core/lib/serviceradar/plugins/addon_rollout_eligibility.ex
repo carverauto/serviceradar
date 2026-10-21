@@ -9,12 +9,29 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
   what counts as the same artifact, as trusted, as within the ceiling and as
   compatible with an agent is the `ServiceRadar.Plugins.RolloutArtifact`
   implementation's answer.
+
+  Eligible candidates are ordered by `ServiceRadar.Plugins.LatestApprovedPluginPackage`,
+  the one rule for "the latest approved package": semantic version, then the
+  most recent approval. A Wasm owner that tracks the latest approved version
+  therefore moves to the package that rule names among the eligible ones.
   """
 
+  alias ServiceRadar.Plugins.LatestApprovedPluginPackage
   alias ServiceRadar.Plugins.RolloutArtifact
 
   @default_freshness_seconds 180
 
+  @doc """
+  The newest eligible candidate newer than `current` for `source`.
+
+  Options:
+
+    * `:blocked_candidate_ids` - candidates that already failed for the source;
+    * `:selected` - the caller names the candidate itself rather than letting a
+      reconcile choose it. When the implementation's
+      `explicit_selection_ignores_channel?/0` is true, a selected candidate may
+      be on any release channel.
+  """
   @spec latest_candidate(RolloutArtifact.package(), [RolloutArtifact.package()], map(), keyword()) ::
           {:ok, RolloutArtifact.package()}
           | {:blocked, atom(), RolloutArtifact.package()}
@@ -23,13 +40,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
     artifact = RolloutArtifact.implementation(source)
     blocked_ids = MapSet.new(Keyword.get(opts, :blocked_candidate_ids, []), &to_string/1)
 
+    any_channel? =
+      Keyword.get(opts, :selected, false) and artifact.explicit_selection_ignores_channel?()
+
     packages
     |> Enum.filter(&artifact.same_lineage?(&1, current))
     |> Enum.filter(&newer?(&1, current))
-    |> Enum.filter(&channel_matches?(&1, source))
+    |> Enum.filter(&(any_channel? or channel_matches?(&1, source)))
     |> Enum.filter(&artifact.trusted_approved?/1)
     |> Enum.reject(&MapSet.member?(blocked_ids, to_string(&1.id)))
-    |> Enum.sort(&version_desc?/2)
+    |> LatestApprovedPluginPackage.newest_first()
     |> case do
       [] ->
         :none
@@ -96,19 +116,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
       Version.compare(candidate_version, current_version) == :gt
     else
       _ -> false
-    end
-  end
-
-  defp version_desc?(left, right) do
-    with {:ok, left_version} <- parse_version(left.version),
-         {:ok, right_version} <- parse_version(right.version) do
-      case Version.compare(left_version, right_version) do
-        :gt -> true
-        :lt -> false
-        :eq -> to_string(left.id) <= to_string(right.id)
-      end
-    else
-      _ -> to_string(left.version) >= to_string(right.version)
     end
   end
 

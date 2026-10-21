@@ -5,9 +5,32 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   A source is a manual `PluginAssignment` or a `PluginTargetPolicy`, and its
   members are the enabled assignments it owns: the manual assignment itself, or
   the assignments the policy materialized. Credential-rule owners are not
-  sources yet. Rollouts are started explicitly with
-  `AddonRolloutCoordinator.start/3`; `managed_sources/1` returns none, so the
-  periodic reconcile only advances rollouts that were started.
+  sources yet (step F, task 3.6): they are `source: :policy` assignment rows
+  that still resolve the latest approved package on their own reconcile.
+
+  ## Automatic rollouts
+
+  When automatic rollouts are enabled (`automatic_rollouts_enabled?/0`),
+  `managed_sources/1` returns every enabled owner whose `update_policy` is
+  `:track_latest_approved` and whose stable package is behind the newest
+  eligible package of its plugin. The periodic reconcile
+  (`ServiceRadar.Plugins.AddonRolloutWorker`) starts a `:track_latest` rollout
+  for each, so a newer package reaches tracking owners whichever way it was
+  approved (an operator, or first-party auto-approval) without a hook on the
+  approval itself. Pinned owners are never returned.
+
+  The newest eligible package is an approved package of the same plugin that
+  is a stable release, ordered by `ServiceRadar.Plugins.LatestApprovedPluginPackage`
+  (see `AddonRolloutEligibility.latest_candidate/4`). A prerelease reaches an
+  owner only when a caller selects it for an explicit `start/3`
+  (`explicit_selection_ignores_channel?/0`).
+
+  The reconcile is level-triggered and so idempotent: an owner with an active
+  rollout starts no second one, and a completed rollout leaves the owner on the
+  candidate, no longer behind. An owner whose rollout is still running when a
+  newer package is approved finishes that rollout first and moves on to the
+  newer package on a later pass; a paused one is superseded by the newer
+  package (`newer_candidate_approved`), as for add-ons.
 
   ## Overrides and promotion
 
@@ -122,8 +145,83 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   # Sources and their stable package.
 
+  @automatic_rollouts_env "SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS"
+
   @impl true
-  def managed_sources(_actor), do: {:ok, []}
+  def managed_sources(actor) do
+    if automatic_rollouts_enabled?() do
+      with {:ok, packages} <- list_packages(actor),
+           {:ok, assignments} <- tracking_assignments(actor),
+           {:ok, policies} <- tracking_policies(actor) do
+        package_by_id = Map.new(packages, &{to_string(&1.id), &1})
+        packages_by_plugin = Enum.group_by(packages, & &1.plugin_id)
+
+        {:ok,
+         Enum.filter(
+           assignments ++ policies,
+           &behind_latest?(&1, package_by_id, packages_by_plugin)
+         )}
+      end
+    else
+      {:ok, []}
+    end
+  end
+
+  @doc """
+  Whether the reconcile starts rollouts for owners that track the latest
+  approved package.
+
+  Off by default: the design enables automatic rollouts only once operators can
+  see which owners are behind and pin them (Migration Plan step 4). The
+  `#{@automatic_rollouts_env}` environment variable overrides the
+  `:wasm_plugin_automatic_rollouts` application setting. Rollouts an operator
+  starts run either way.
+  """
+  @spec automatic_rollouts_enabled?() :: boolean()
+  def automatic_rollouts_enabled? do
+    case System.get_env(@automatic_rollouts_env) do
+      nil ->
+        Application.get_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, false) == true
+
+      value ->
+        String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]
+    end
+  end
+
+  # Manual assignments that track the latest approved package. Rows a target
+  # policy or a credential rule materialized are `source: :policy` and follow
+  # their owner; credential-rule owners join in step F.
+  defp tracking_assignments(actor) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      source == :manual and enabled == true and update_policy == :track_latest_approved
+    )
+    |> Ash.read(actor: actor)
+  end
+
+  defp tracking_policies(actor) do
+    PluginTargetPolicy
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(enabled == true and update_policy == :track_latest_approved)
+    |> Ash.read(actor: actor)
+  end
+
+  # Whether the reconcile would choose a candidate for the owner. An owner whose
+  # stable package is no longer approved has no current package to move from,
+  # which the reconcile skips too.
+  defp behind_latest?(owner, package_by_id, packages_by_plugin) do
+    case Map.get(package_by_id, to_string(owner.plugin_package_id)) do
+      %PluginPackage{plugin_id: plugin_id} = current ->
+        match?(
+          {:ok, _candidate},
+          Eligibility.latest_candidate(current, Map.get(packages_by_plugin, plugin_id, []), owner)
+        )
+
+      nil ->
+        false
+    end
+  end
 
   @impl true
   def restore_managed_sources(_packages, _actor), do: {:ok, 0}
@@ -197,6 +295,12 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     do: true
 
   def same_lineage?(_candidate, _current), do: false
+
+  # Wasm owners subscribe to no release channel. Automatic tracking takes
+  # stable releases only, and a prerelease reaches an owner only when a caller
+  # selects it (design Decision 2).
+  @impl true
+  def explicit_selection_ignores_channel?, do: true
 
   @impl true
   def trusted_approved?(%PluginPackage{status: status}), do: status == :approved
@@ -370,9 +474,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   # Promotion moves an owner only while it still holds the package the rollout
   # started from; the caller holds its row lock. An owner an operator has moved
   # to another package keeps it, and {:error, :owner_package_changed} lets the
-  # coordinator end the rollout without promoting.
+  # coordinator end the rollout without promoting. An owner deleted during the
+  # rollout returns {:error, :source_deleted}, which ends it canceled.
   def promote_source(%AddonRollout{source_type: :assignment} = rollout, actor) do
-    with {:ok, assignment} <- get_by_id(PluginAssignment, rollout.source_id, actor),
+    with {:ok, assignment} <- owner(PluginAssignment, rollout.source_id, actor),
          :ok <- require_previous(assignment.plugin_package_id, rollout.previous_plugin_package_id) do
       update(
         assignment,
@@ -384,7 +489,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   end
 
   def promote_source(%AddonRollout{source_type: :target_policy} = rollout, actor) do
-    with {:ok, policy} <- get_by_id(PluginTargetPolicy, rollout.source_id, actor),
+    with {:ok, policy} <- owner(PluginTargetPolicy, rollout.source_id, actor),
          :ok <- require_previous(policy.plugin_package_id, rollout.previous_plugin_package_id),
          {:ok, _policy} <-
            policy
@@ -397,6 +502,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
          {:ok, members} <- policy_members(policy, actor),
          {:ok, previous_by_member} <- member_previous_packages(rollout, actor) do
       promote_members(members, rollout, previous_by_member, actor)
+    end
+  end
+
+  defp owner(resource, id, actor) do
+    case get_by_id(resource, id, actor) do
+      {:error, {:not_found, ^resource, _id}} -> {:error, :source_deleted}
+      result -> result
     end
   end
 

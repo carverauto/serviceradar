@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Plugins.AddonRolloutWorker do
   @moduledoc """
-  Periodically creates and advances managed native add-on fleet rollouts.
+  Periodically creates and advances managed fleet rollouts for every
+  `ServiceRadar.Plugins.RolloutArtifact` (native add-ons and Wasm plugins).
 
   A single globally unique job serializes source ownership and batch advancement;
   database uniqueness constraints remain the final concurrency backstop.

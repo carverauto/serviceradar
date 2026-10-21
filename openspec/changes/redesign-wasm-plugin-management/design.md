@@ -263,6 +263,51 @@ collaborators, so the generalization is an engine/adapter split (a
   candidate, and promoting would move a disabled owner's stable package to it.
   A source with no targets at all still promotes, as before.
 
+**Step E as built** (task 3.5, `WasmPluginRolloutArtifact.managed_sources/1`):
+- The trigger is level-based, not an approval hook. The rollout reconcile
+  (`AddonRolloutWorker`, every 30 seconds) asks `managed_sources/1` for every
+  enabled manual assignment and target policy whose `update_policy` is
+  `track_latest_approved` and whose stable package is behind the newest
+  eligible package, and starts a `:track_latest` rollout for each. That covers
+  an operator approval, a first-party auto-approval, a sync re-run, a restart,
+  and an owner switched to tracking after the approval, with no event to lose.
+- Pinned owners are never returned. Credential-rule owners are `source:
+  :policy` assignment rows, so they are not returned either; step F moves them.
+- Eligibility: approved, same `plugin_id`, newer, a stable release, ordered by
+  `LatestApprovedPluginPackage` (`AddonRolloutEligibility` now orders every
+  artifact's candidates by it, which for add-ons changes only how
+  semver-equal packages tie). Prereleases follow "excluded unless selected":
+  automatic tracking skips them, and an explicit `start/3` (any trigger other
+  than `:track_latest`) may select one
+  (`RolloutArtifact.explicit_selection_ignores_channel?/0`, true for Wasm,
+  false for add-ons, whose `release_channel` governs explicit upgrades). The
+  credential-rule materializer still resolves through the unfiltered
+  resolver, so it can float to an approved prerelease until step F.
+- Idempotent by construction: one active rollout per source (the coordinator
+  skips a source that has one, and `addon_rollouts_one_active_source_index`
+  backs it), approving an approved package is refused by the state machine,
+  and a completed rollout leaves the owner on the candidate, no longer behind.
+- An owner with an in-flight rollout when a newer package is approved keeps
+  the add-on supersede semantics: a running rollout finishes first and the
+  owner moves on to the newer package on a later pass; a paused one is
+  superseded (`newer_candidate_approved`) by a rollout to the newer package.
+  A rolled-back candidate stays blocked for the owner; a newer one is not.
+- Automatic rollouts are off by default
+  (`config :serviceradar_core, :wasm_plugin_automatic_rollouts`, overridden by
+  `SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS`). Migration Plan step 4
+  enables them once operators can see which owners are behind and pin them
+  (tasks 1.1, 2.5). The auto-approval kill switch (task 3.1) gates approval
+  only, so it does not apply here. Rollouts an operator starts run either way.
+- Every rollout audit event carries `trigger` and `automatic` (true for
+  `:track_latest`), for add-ons too.
+- A source deleted during its rollout cancels the rollout on the next advance,
+  whether it is running or paused, with `source_deleted`, instead of leaving it
+  active for a source no reconcile revisits.
+  Wasm does not refuse the delete the way add-ons do
+  (`NotHeldByActiveRollout`): a disable already releases rollout holds rather
+  than refusing (step C), a target policy's destroy retracts its members before
+  the row goes, and only the coordinator sees every way a source disappears.
+
 A related, pre-existing inconsistency is tracked separately in #5835. Per-owner
 coexistence in `AssignmentOwner` conflicts with the
 `one_enabled_per_edge_plugin` unique index and with `uniq_by` in config
