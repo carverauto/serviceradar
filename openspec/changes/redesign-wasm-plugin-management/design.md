@@ -143,6 +143,86 @@ here for review.
   They are switched to resolve through the rollout's stable/candidate overlay,
   so they move in batches like everyone else instead of all at once.
 
+### Decision 4 addendum: findings from the rollout spike (task 3.3)
+
+**Verdict: generalize, with adjustments; no hard blocker.**
+
+The rollout state machine carries over unchanged, and so does the
+coordinator's control flow. That covers the snapshot, canary/batches, soak,
+per-target and whole-rollout rollback, supersede, retry, and one active
+rollout per source. What is tied to add-ons is the coordinator's
+collaborators, so the generalization is an engine/adapter split (a
+`RolloutArtifact` behaviour with add-on and Wasm implementations) plus an
+`artifact_kind` column.
+
+**Adjustments:**
+- **Version-bound health evidence.** Plugin results carry no package, version
+  or content hash. The agent host stamps `{assignment_id, package_id,
+  content_hash}` on each pushed result, and that host-stamped provenance is
+  the only evidence that a result came from the candidate. The gate passes a
+  target as verified only on a fresh result whose provenance matches the
+  candidate. Time ordering is not version evidence: results from the old
+  package can still be flushed from `pendingPluginResults` after the agent
+  acknowledges the candidate config. Targets on agents that do not send
+  provenance can pass only through the snapshotted `on_no_evidence` policy
+  (default: pass after soak), recorded with reason code `no_version_evidence`
+  and never shown as verified healthy. An explicit failure still rolls the
+  target back.
+- **A stable package for credential-rule owners.** Today they resolve the
+  latest approved package and render params from its manifest on every
+  reconcile. A `plugin_owner_package_states` row holds each rule-plus-purpose
+  owner's stable package. The materializer resolves through it and renders
+  params from the resolved package's manifest.
+- **`tolerated_failures` is fixed at 0 for Wasm in v1.** The add-on pattern of
+  converting a tolerated failure into a manual pin conflicts with policy
+  reconcilers adopting and disabling manual duplicates.
+- **"Converged" checks desired state for Wasm**, i.e. every in-scope stable
+  package is at least the candidate, not observed versions.
+- **Schema:**
+  - nullable package FK pairs per artifact family on rollouts and targets,
+    with a CHECK that the pair matches `artifact_kind`;
+  - a `source_key` for the credential-rule purpose;
+  - Wasm targets keyed by `plugin_assignment_id`, plus `partition_id`;
+  - `rollout_plugin_package_id`, `rollout_id` and `rollout_started_at` on
+    `plugin_assignments`;
+  - add-on readers filter `artifact_kind = 'native_addon'`.
+- **Override hook.** It lives in `AgentConfigGenerator.load_plugin_assignments`.
+  The gateway calls core's generator, so this is the single hook point.
+  Readers of the package (the northbound dispatcher, service-state
+  placeholders) use the effective package,
+  `COALESCE(rollout_plugin_package_id, plugin_package_id)`.
+- **Reconcilers:**
+  - they keep writing only the stable package, so overrides never churn;
+  - a retraction that disables a held row clears its override in the same
+    update, records the reason, and cancels the target as
+    `assignment_retracted`;
+  - revoking a candidate rolls back an active rollout.
+- **Action-only plugins.** These pass as verified only on a successful
+  invocation whose dispatch record shows the candidate package and that was
+  dispatched after the agent acknowledged the candidate config. An action
+  invoked earlier can still run the old assignment. Without such an
+  invocation, the same `on_no_evidence` policy applies, recorded as
+  `no_version_evidence`.
+
+**Implementation steps:**
+- **A.** Engine/adapter split, with no behaviour change. Guarded by the
+  existing add-on rollout DB tests.
+- **B.** Schema and Ash actions; kind filters on the add-on readers.
+- **C.** Wasm adapter for manual and target-policy owners (task 3.4):
+  generator hook, retraction handling, effective-package readers, health gate
+  v1, revocation rollback. Until D ships, every target passes only through
+  `on_no_evidence` as `no_version_evidence`.
+- **D.** Agent-side result provenance (in parallel with C).
+- **E.** Trigger from tracking owners (task 3.5; needs tasks 2.1-2.3).
+- **F.** Credential-rule owners through owner state (task 3.6).
+- **G.** Bulk "Upgrade to latest" preview and execution (task 3.7), reusing the
+  kind-agnostic rollout UI.
+
+A related, pre-existing inconsistency is tracked separately in #5835. Per-owner
+coexistence in `AssignmentOwner` conflicts with the
+`one_enabled_per_edge_plugin` unique index and with `uniq_by` in config
+delivery.
+
 ### Decision 5: Bulk upgrade goes through rollouts too
 
 "Upgrade to latest" (per plugin, and "upgrade all plugins") targets the pinned
