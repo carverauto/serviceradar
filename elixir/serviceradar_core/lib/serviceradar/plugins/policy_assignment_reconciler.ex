@@ -12,7 +12,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   as a deliberate retraction. In that case the stale retraction is skipped, the
   enabled assignments are kept as they are, and the result carries
   `hold_reason: :targets_unresolved` with the number of rows `held`. A warning
-  naming the policy and agents is logged and `targets_unresolved_event/0` is
+  naming the policy and agents is logged and
+  `[:serviceradar, :plugins, :policy_assignments, :targets_unresolved]` is
   emitted. Retraction still happens when the policy is disabled, and when the
   query resolves rows that no longer include an assignment.
 
@@ -55,10 +56,6 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   @callback find_enabled_assignment(String.t(), String.t(), String.t(), map()) ::
               {:ok, map() | nil} | {:error, term()}
 
-  @doc "Telemetry event emitted when enabled assignments are held because targets resolved empty."
-  @spec targets_unresolved_event() :: [atom()]
-  def targets_unresolved_event, do: @targets_unresolved_event
-
   @spec reconcile(map(), [map()], keyword()) :: {:ok, reconcile_result()} | {:error, [String.t()]}
   def reconcile(policy, input_defs, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:plugin_target_policy_reconciler))
@@ -88,7 +85,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
              expected_partition_id,
              retraction
            ) do
-      report_hold(policy_id, stats)
+      report_hold(retraction, policy_id, stats.held, agent_scope)
 
       {:ok,
        %{
@@ -98,7 +95,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
          unchanged: stats.unchanged,
          disabled: stats.disabled,
          held: length(stats.held),
-         hold_reason: if(stats.held == [], do: nil, else: :targets_unresolved)
+         hold_reason: if(retraction == :hold, do: :targets_unresolved, else: nil)
        }}
     else
       {:error, errors} when is_list(errors) -> {:error, errors}
@@ -209,10 +206,10 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end)
   end
 
-  defp report_hold(_policy_id, %{held: []}), do: :ok
+  defp report_hold(:retract, _policy_id, _held, _agent_scope), do: :ok
 
-  defp report_hold(policy_id, %{held: held}) do
-    agent_uids = held |> Enum.map(&to_string(&1.agent_uid)) |> Enum.uniq() |> Enum.sort()
+  defp report_hold(:hold, policy_id, held, agent_scope) do
+    agent_uids = held_agent_uids(held, agent_scope)
 
     Logger.warning(
       "Plugin policy #{policy_id} target query resolved no rows; keeping " <>
@@ -228,6 +225,15 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       %{held: length(held)},
       %{policy_id: policy_id, agent_uids: agent_uids, reason: :targets_unresolved}
     )
+  end
+
+  defp held_agent_uids([], nil), do: []
+
+  defp held_agent_uids([], %MapSet{} = agent_scope),
+    do: agent_scope |> MapSet.to_list() |> Enum.sort()
+
+  defp held_agent_uids(held, _agent_scope) do
+    held |> Enum.map(&to_string(&1.agent_uid)) |> Enum.uniq() |> Enum.sort()
   end
 
   defp apply_plan(

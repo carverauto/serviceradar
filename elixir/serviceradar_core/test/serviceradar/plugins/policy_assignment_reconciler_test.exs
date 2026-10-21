@@ -572,15 +572,31 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
       assert stats.held == 0
       assert [%{agent_uid: "agent-a", enabled: false}] = MemoryStore.rows()
     end
+
+    test "an empty resolution with only disabled assignments still reports targets_unresolved",
+         %{policy: policy} do
+      assert {:ok, %{disabled: 1}} = reconcile_targets(%{policy | enabled: false}, [])
+
+      assert {:ok, stats} = reconcile_targets(policy, [], agent_scope: ["agent-a"])
+
+      assert stats.held == 0
+      assert stats.disabled == 0
+      assert stats.hold_reason == :targets_unresolved
+      assert [%{agent_uid: "agent-a", enabled: false}] = MemoryStore.rows()
+    end
   end
 
-  defp reconcile_targets(policy, rows) do
-    PolicyAssignmentReconciler.reconcile(policy, [],
-      resolver: RowsResolver,
-      target_rows: rows,
-      store: MemoryStore,
-      partition_resolver: fn _agent_uid -> {:ok, "site01"} end,
-      generated_at: "2026-10-20T00:00:00Z"
+  defp reconcile_targets(policy, rows, opts \\ []) do
+    PolicyAssignmentReconciler.reconcile(
+      policy,
+      [],
+      [
+        resolver: RowsResolver,
+        target_rows: rows,
+        store: MemoryStore,
+        partition_resolver: fn _agent_uid -> {:ok, "site01"} end,
+        generated_at: "2026-10-20T00:00:00Z"
+      ] ++ opts
     )
   end
 
