@@ -8,3 +8,21 @@ helm:
     forcestring: true
   - name: webNg.obanQueues.alerts
     value: "0"
+  - name: image.digests.core
+    value: sha256:a666c082267150453c0b1fd8e2647ee4546e90dd45de2ea884b6f4be3785aba9
+    forcestring: true
+  - name: image.digests.webNg
+    value: sha256:928e884559335af6ebb212cf12138a57889e0ded59ae91100585168de32e2ff1
+    forcestring: true
+  - name: image.digests.agentGateway
+    value: sha256:d2abf1794ef632906341a4d033276804de30a112cd136537a6fa9b9eccb720d6
+    forcestring: true
+  - name: image.digests.agent
+    value: sha256:cc2b437de2b4157d2b57b39aa89a1f48bcfcfec7e9a536387a61d5007fc35b28
+    forcestring: true
+  - name: image.digests.flowCollector
+    value: sha256:0c5e731ce7b302f703ac900eaa5734db0a2d1bcf98bf8ec8c57f0d312d6c285a
+    forcestring: true
+  - name: core.migrations.expectedVersion
+    value: "20261021150000"
+    forcestring: true
