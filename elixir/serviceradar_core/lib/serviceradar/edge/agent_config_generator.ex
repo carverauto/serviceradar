@@ -1363,6 +1363,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   @plugin_assignment_skip_catalog_key {__MODULE__, :plugin_assignment_skip_markers}
+  @plugin_assignment_skip_catalog_lock {__MODULE__, :plugin_assignment_skip_catalog}
   @max_plugin_assignment_skip_markers 256
 
   # Config is compiled on every agent poll, on core and again on each gateway,
@@ -1371,8 +1372,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # persistent_term marker per assignment holds the fingerprint of the last
   # skip reason. WARN when the skip first appears or its reason changes, DEBUG
   # while it persists, INFO once when the assignment is delivered again. The
-  # marker is erased on recovery, stale markers for deleted/disabled
-  # assignments are pruned, and the catalog is capped at
+  # steady path only reads markers. Catalog changes happen on those
+  # transitions, serialized on a node-local lock: the marker is erased on
+  # recovery, stale markers for deleted/disabled assignments are pruned when a
+  # new skip is recorded, and the catalog is capped at
   # @max_plugin_assignment_skip_markers entries so state stays bounded.
   defp report_plugin_assignment_skipped(assignment, package, reason) do
     assignment_id = to_string(assignment.id)
@@ -1386,7 +1389,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         "reason=#{inspect(reason)}"
 
     if :persistent_term.get(marker_key, :none) == fingerprint do
-      prune_stale_plugin_assignment_skip_markers(assignment_id)
       Logger.debug("Still skipping " <> message)
     else
       record_plugin_assignment_skip_marker(assignment_id, fingerprint)
@@ -1397,7 +1399,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp note_plugin_assignment_delivered(assignment, package) do
     assignment_id = to_string(assignment.id)
     marker_key = plugin_assignment_skip_marker_key(assignment_id)
-    prune_stale_plugin_assignment_skip_markers(assignment_id)
 
     case :persistent_term.get(marker_key, :none) do
       {:skipped, _fingerprint} ->
@@ -1415,40 +1416,39 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp record_plugin_assignment_skip_marker(assignment_id, fingerprint) do
-    kept_ids =
-      assignment_id
-      |> surviving_plugin_assignment_skip_marker_ids()
-      |> Enum.reject(&(&1 == assignment_id))
-      |> Kernel.++([assignment_id])
+    update_plugin_assignment_skip_marker_ids(fn tracked_ids ->
+      kept_ids =
+        tracked_ids
+        |> surviving_plugin_assignment_skip_marker_ids(assignment_id)
+        |> Enum.reject(&(&1 == assignment_id))
+        |> Kernel.++([assignment_id])
 
-    {evicted_ids, bounded_ids} =
-      if length(kept_ids) > @max_plugin_assignment_skip_markers do
-        Enum.split(kept_ids, length(kept_ids) - @max_plugin_assignment_skip_markers)
-      else
-        {[], kept_ids}
+      {evicted_ids, bounded_ids} =
+        if length(kept_ids) > @max_plugin_assignment_skip_markers do
+          Enum.split(kept_ids, length(kept_ids) - @max_plugin_assignment_skip_markers)
+        else
+          {[], kept_ids}
+        end
+
+      Enum.each(evicted_ids, &:persistent_term.erase(plugin_assignment_skip_marker_key(&1)))
+
+      if :persistent_term.get(plugin_assignment_skip_marker_key(assignment_id), :none) !=
+           fingerprint do
+        :persistent_term.put(plugin_assignment_skip_marker_key(assignment_id), fingerprint)
       end
 
-    Enum.each(evicted_ids, &:persistent_term.erase(plugin_assignment_skip_marker_key(&1)))
-    :persistent_term.put(plugin_assignment_skip_marker_key(assignment_id), fingerprint)
-    put_plugin_assignment_skip_marker_ids(bounded_ids)
+      bounded_ids
+    end)
   end
 
-  defp prune_stale_plugin_assignment_skip_markers(active_assignment_id) do
-    case :persistent_term.get(@plugin_assignment_skip_catalog_key, []) do
-      [] ->
-        :ok
-
-      [^active_assignment_id] ->
-        :ok
-
-      _ids ->
-        kept_ids = surviving_plugin_assignment_skip_marker_ids(active_assignment_id)
-        put_plugin_assignment_skip_marker_ids(kept_ids)
-    end
+  defp erase_plugin_assignment_skip_marker(assignment_id) do
+    update_plugin_assignment_skip_marker_ids(fn tracked_ids ->
+      :persistent_term.erase(plugin_assignment_skip_marker_key(assignment_id))
+      Enum.reject(tracked_ids, &(&1 == assignment_id))
+    end)
   end
 
-  defp surviving_plugin_assignment_skip_marker_ids(active_assignment_id) do
-    tracked_ids = :persistent_term.get(@plugin_assignment_skip_catalog_key, [])
+  defp surviving_plugin_assignment_skip_marker_ids(tracked_ids, active_assignment_id) do
     candidate_ids = Enum.reject(tracked_ids, &(&1 == active_assignment_id))
 
     case existing_enabled_plugin_assignment_ids(candidate_ids) do
@@ -1496,25 +1496,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     _ -> :error
   end
 
-  defp erase_plugin_assignment_skip_marker(assignment_id) do
-    :persistent_term.erase(plugin_assignment_skip_marker_key(assignment_id))
+  defp update_plugin_assignment_skip_marker_ids(update) do
+    :global.trans(
+      {@plugin_assignment_skip_catalog_lock, self()},
+      fn ->
+        tracked_ids = :persistent_term.get(@plugin_assignment_skip_catalog_key, [])
 
-    remaining_ids =
-      @plugin_assignment_skip_catalog_key
-      |> :persistent_term.get([])
-      |> Enum.reject(&(&1 == assignment_id))
+        case update.(tracked_ids) do
+          ^tracked_ids -> :ok
+          [] -> :persistent_term.erase(@plugin_assignment_skip_catalog_key)
+          ids -> :persistent_term.put(@plugin_assignment_skip_catalog_key, ids)
+        end
 
-    put_plugin_assignment_skip_marker_ids(remaining_ids)
-  end
-
-  defp put_plugin_assignment_skip_marker_ids([]) do
-    :persistent_term.erase(@plugin_assignment_skip_catalog_key)
-    :ok
-  end
-
-  defp put_plugin_assignment_skip_marker_ids(ids) when is_list(ids) do
-    :persistent_term.put(@plugin_assignment_skip_catalog_key, ids)
-    :ok
+        :ok
+      end,
+      [node()]
+    )
   end
 
   defp plugin_assignment_skip_marker_key(assignment_id),
