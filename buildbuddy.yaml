@@ -858,8 +858,18 @@ actions:
           # rejects them.
           bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test //elixir/web-ng:bitmap_websocket_transport_test
 
+          # The observer samples until cleanup touches $STOP_FILE, after teardown_db and
+          # release_generation, so its window spans provisioning, every suite below and
+          # teardown. --max-seconds is only the hard bound on that window. The binding
+          # limit is the hosted runner's one-hour action cap (3600s), and this action
+          # also spends part of that hour outside the window: checkout, the unit sweep,
+          # schema preflight and the integration compile before START_NS, and the
+          # benchmark and race steps after cleanup. Those took more than 300s in every
+          # observed run, so the window gets the rest:
+          #   3600s action cap - 300s outside the window = 3300s.
+          # A shorter bound fails a run whose suites and teardown all passed.
           START_NS="$(date +%s%N)"
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 3300 --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 

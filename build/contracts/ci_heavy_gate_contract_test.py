@@ -17,6 +17,15 @@ ROOT = Path(__file__).resolve().parents[2]
 BAZELRC = ROOT / ".bazelrc"
 MODULE_FILE = ROOT / "MODULE.bazel"
 WORKFLOW = ROOT / "buildbuddy.yaml"
+# The hosted runner ends a workflow action after one hour. BazelCI spends part of
+# that hour before its observer starts (checkout, unit sweep, schema preflight,
+# integration compile) and after it stops (benchmark and race steps); its
+# observer window is the remainder. LargeIngestionGate's focused pair finishes
+# well inside the original 30-minute window.
+HOSTED_ACTION_CAP_SECONDS = 3600
+BAZEL_CI_OUTSIDE_OBSERVER_SECONDS = 300
+BAZEL_CI_OBSERVER_MAX_SECONDS = HOSTED_ACTION_CAP_SECONDS - BAZEL_CI_OUTSIDE_OBSERVER_SECONDS
+LARGE_INGESTION_OBSERVER_MAX_SECONDS = 1800
 PLAYWRIGHT_BUILD = ROOT / "elixir/web-ng/test/playwright/BUILD.bazel"
 PLAYWRIGHT_EXECUTOR_IMAGE = (
     "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:"
@@ -1083,13 +1092,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "bazel run -c opt --config=ci --//build:enable_integration_tests "
         "--//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env"
     )
-    def observer_start(self, required_pool_slots: int) -> str:
+    def observer_start(self, required_pool_slots: int, max_seconds: int) -> str:
         return (
             "bazel run -c opt --config=ci --//build:enable_integration_tests "
             "--//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- "
             '--ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" '
             '--quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" '
-            f"--max-seconds 1800 --required-pool-slots {required_pool_slots} &"
+            f"--max-seconds {max_seconds} --required-pool-slots {required_pool_slots} &"
         )
     sweep = "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs"
 
@@ -1128,6 +1137,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         provision_command: str,
         suite_command: str,
         required_pool_slots: int,
+        max_seconds: int,
     ) -> None:
         measured = measured_database_lifecycle_shell(action)
         lines = normalized_shell_lines(measured)
@@ -1147,7 +1157,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.generation_prepare,
             self.measured_migrate_command,
             self.generation_ready,
-            self.observer_start(required_pool_slots),
+            self.observer_start(required_pool_slots, max_seconds),
             wait,
             provision_command,
             suite_command,
@@ -1325,7 +1335,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         provision_command: str,
         suite_command: str,
         required_pool_slots: int,
+        max_seconds: int,
     ) -> None:
+        # One literal observer bound per lifecycle, inside the action's hour.
+        self.assertEqual([str(max_seconds)], re.findall(r"--max-seconds (\S+) --required-pool-slots", action))
+        self.assertLessEqual(max_seconds, HOSTED_ACTION_CAP_SECONDS)
         for required in (
             'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "export BAZEL_PROFILE=ci",
@@ -1343,7 +1357,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             '--suite-complete-file "$SUITE_COMPLETE_FILE"',
             '--quiescent-file "$QUIESCENT_FILE"',
             '--stop-file "$STOP_FILE"',
-            "--max-seconds 1800",
             f"--required-pool-slots {required_pool_slots}",
             provision_command,
             suite_command,
@@ -1552,6 +1565,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_provision,
             self.ordinary_suite,
             114,
+            BAZEL_CI_OBSERVER_MAX_SECONDS,
         )
         self.assertEqual(1, action.count(self.ordinary_suite))
         self.assertNotIn(
@@ -1565,6 +1579,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_provision,
             self.ordinary_suite,
             114,
+            BAZEL_CI_OBSERVER_MAX_SECONDS,
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
@@ -2048,6 +2063,7 @@ print(open(sys.argv[2]).read().strip())
             self.heavy_provision,
             self.heavy_suite,
             15,
+            LARGE_INGESTION_OBSERVER_MAX_SECONDS,
         )
         self.assertEqual(1, action.count(self.heavy_provision))
         self.assertEqual(1, action.count(self.heavy_suite))
@@ -2070,6 +2086,7 @@ print(open(sys.argv[2]).read().strip())
             self.heavy_provision,
             self.heavy_suite,
             15,
+            LARGE_INGESTION_OBSERVER_MAX_SECONDS,
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
