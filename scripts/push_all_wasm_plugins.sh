@@ -5,6 +5,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAZEL_BIN="${BAZEL_BIN:-bazel}"
 BAZEL_QUERY='attr(name, ".*_push$", //build/wasm_plugins:*)'
 read -r -a BAZEL_BUILD_FLAGS <<<"${BAZEL_BUILD_FLAGS:-}"
+# Shared by the build-only pass and each publish `bazel run`, so both use the
+# same download mode and the run stays a cache hit.
+RUN_DOWNLOAD_FLAGS=(--remote_download_toplevel)
 
 extra_tag=""
 dry_run=false
@@ -93,8 +96,12 @@ if [[ "${build_only}" == true ]]; then
     build_cmd=("${BAZEL_BIN}" build "${BAZEL_BUILD_FLAGS[@]}" "${build_targets[@]}")
   else
     # The same targets the publish loop later runs, so each `bazel run` there is
-    # a cache hit.
-    build_cmd=("${BAZEL_BIN}" build "${push_targets[@]}")
+    # a cache hit. Release CI builds with --remote_download_minimal, which leaves
+    # a cache-hit push target's runfiles (the bundle and upload_signature_tool)
+    # as symlinks to files that were never downloaded; the later `bazel run`
+    # then fails publish_plugin.sh's executable check. Download each push
+    # target's outputs and runfiles here, before authentication.
+    build_cmd=("${BAZEL_BIN}" build "${RUN_DOWNLOAD_FLAGS[@]}" "${push_targets[@]}")
   fi
 
   printf '    '
@@ -165,7 +172,7 @@ for target in "${push_targets[@]}"; do
       "${publish_cmd[@]}"
     fi
   else
-    cmd=("${BAZEL_BIN}" run "${target}")
+    cmd=("${BAZEL_BIN}" run "${RUN_DOWNLOAD_FLAGS[@]}" "${target}")
     if [[ -n "${extra_tag}" ]]; then
       cmd+=(-- --tag "${extra_tag}")
     fi
