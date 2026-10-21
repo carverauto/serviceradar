@@ -17,24 +17,41 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   require Logger
 
+  @first_statement_error_key {__MODULE__, :first_statement_error}
+  @repo_query_event [:service_radar, :repo, :query]
+
   @impl true
   def table_name, do: "ocsf_events"
 
   @impl true
   def process_batch(messages) do
-    # DB connection's search_path determines the schema
-    rows = build_rows(messages)
+    with_statement_error_tracking(fn ->
+      # DB connection's search_path determines the schema
+      rows = build_rows(messages)
 
-    if Enum.empty?(rows) do
-      {:ok, 0}
-    else
-      insert_event_rows(rows)
-    end
-  rescue
-    e ->
-      Logger.error("OCSF events batch insert failed: #{inspect(e)}")
-      {:error, e}
+      if Enum.empty?(rows) do
+        {:ok, 0}
+      else
+        insert_event_rows(rows)
+      end
+    end)
   end
+
+  @doc false
+  def handle_repo_query_telemetry(
+        _event,
+        _measurements,
+        %{result: {:error, error}} = metadata,
+        owner
+      ) do
+    if self() == owner do
+      record_statement_error(error, metadata[:query])
+    end
+
+    :ok
+  end
+
+  def handle_repo_query_telemetry(_event, _measurements, _metadata, _owner), do: :ok
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
@@ -85,18 +102,48 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   (`<source>:<...>`) gets the canonical device uid there, resolved once for the
   whole batch by `PluginDeviceAttribution`; an unresolved reference is stored as
   emitted.
+
+  Rows are deduplicated on the `(time, id)` conflict key and returned sorted by
+  it, so concurrent batches take `ocsf_events` row and index locks in the same
+  order instead of deadlocking.
   """
-  @spec build_rows([map()]) :: [map()]
+  @spec build_rows(map() | [map()]) :: [map()]
+  def build_rows(messages) when is_map(messages) do
+    messages
+    |> Map.values()
+    |> build_rows()
+  end
+
   def build_rows(messages) do
     messages
     |> Enum.map(&parse_message/1)
     |> Enum.reject(&is_nil/1)
     |> PluginDeviceAttribution.attribute_event_rows()
+    |> dedupe_event_rows()
+  end
+
+  @doc false
+  @spec dedupe_event_rows(map() | [map()]) :: [map()]
+  def dedupe_event_rows(rows) when is_map(rows) do
+    rows
+    |> Map.values()
+    |> dedupe_event_rows()
+  end
+
+  def dedupe_event_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, acc ->
+      Map.put(acc, event_conflict_key(row), row)
+    end)
+    |> Map.values()
+    |> Enum.sort_by(&event_conflict_key/1)
   end
 
   # Private functions
 
   defp insert_event_rows(rows) do
+    rows = dedupe_event_rows(rows)
+
     # DB connection's search_path determines the schema
     {count, _} =
       BulkInsert.insert_all(
@@ -259,4 +306,130 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp severity_name(5), do: "Critical"
   defp severity_name(6), do: "Fatal"
   defp severity_name(_), do: "Unknown"
+
+  defp event_conflict_key(%{id: id, time: time}),
+    do: {time_conflict_value(time), uuid_conflict_value(id)}
+
+  defp event_conflict_key(%{"id" => id, "time" => time}),
+    do: {time_conflict_value(time), uuid_conflict_value(id)}
+
+  defp event_conflict_key(_row), do: nil
+
+  defp uuid_conflict_value(<<_::128>> = id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> id
+    end
+  end
+
+  defp uuid_conflict_value(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> id
+    end
+  end
+
+  defp uuid_conflict_value(id), do: id
+
+  defp time_conflict_value(%DateTime{} = time), do: DateTime.to_unix(time, :microsecond)
+
+  defp time_conflict_value(%NaiveDateTime{} = time) do
+    time
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_unix(:microsecond)
+  end
+
+  defp time_conflict_value(time), do: time
+
+  defp with_statement_error_tracking(fun) when is_function(fun, 0) do
+    owner = self()
+    handler_id = {__MODULE__, :statement_error_tracker, make_ref()}
+    Process.delete(@first_statement_error_key)
+
+    :telemetry.attach(
+      handler_id,
+      @repo_query_event,
+      &__MODULE__.handle_repo_query_telemetry/4,
+      owner
+    )
+
+    try do
+      fun.()
+    rescue
+      e ->
+        root_error = resolve_logged_error(e)
+        log_batch_insert_failure(root_error)
+        {:error, root_error}
+    after
+      :telemetry.detach(handler_id)
+      Process.delete(@first_statement_error_key)
+    end
+  end
+
+  defp record_statement_error(error, query) do
+    if not in_failed_sql_transaction?(error) and is_nil(Process.get(@first_statement_error_key)) do
+      Process.put(@first_statement_error_key, attach_query(error, query))
+    end
+
+    :ok
+  end
+
+  defp attach_query(%Postgrex.Error{query: nil} = error, query)
+       when is_binary(query) and query != "" do
+    %{error | query: query}
+  end
+
+  defp attach_query(error, _query), do: error
+
+  defp resolve_logged_error(error) do
+    case {in_failed_sql_transaction?(error), Process.get(@first_statement_error_key)} do
+      {true, first_error} when not is_nil(first_error) -> first_error
+      _ -> error
+    end
+  end
+
+  defp log_batch_insert_failure(error) do
+    case extract_sqlstate(error) do
+      nil ->
+        Logger.error("OCSF events batch insert failed: #{inspect(error)}")
+
+      sqlstate ->
+        Logger.error(
+          "OCSF events batch insert failed (sqlstate=#{sqlstate}): #{inspect(error)}",
+          sqlstate: sqlstate
+        )
+    end
+  end
+
+  defp in_failed_sql_transaction?(error) do
+    case extract_postgres_fields(error) do
+      %{pg_code: "25P02"} -> true
+      %{code: :in_failed_sql_transaction} -> true
+      _ -> false
+    end
+  end
+
+  defp extract_sqlstate(error) do
+    case extract_postgres_fields(error) do
+      %{pg_code: pg_code} when is_binary(pg_code) and pg_code != "" ->
+        pg_code
+
+      %{code: code} when is_atom(code) and not is_nil(code) ->
+        Atom.to_string(code)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_postgres_fields(%Postgrex.Error{postgres: postgres}) when is_map(postgres),
+    do: postgres
+
+  defp extract_postgres_fields(%MatchError{term: term}), do: extract_postgres_fields(term)
+
+  defp extract_postgres_fields({:error, reason}), do: extract_postgres_fields(reason)
+
+  defp extract_postgres_fields({:store_unavailable, reason}), do: extract_postgres_fields(reason)
+
+  defp extract_postgres_fields(_error), do: nil
 end

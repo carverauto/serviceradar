@@ -73,6 +73,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     "closed"
   ]
   @anomaly_pending_detector_state "pending_anomaly"
+  @first_statement_error_key {__MODULE__, :first_statement_error}
+  @repo_query_event [:service_radar, :repo, :query]
   @ocsf_event_conflict_target [:time, :id]
   @ocsf_event_replace_fields [
     :class_uid,
@@ -108,6 +110,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   @impl true
   def process_batch(messages) do
+    with_statement_error_tracking(fn ->
+      do_process_batch(messages)
+    end)
+  end
+
+  defp do_process_batch(messages) do
     parsed_rows =
       messages
       |> Enum.map(&parse_components/1)
@@ -144,6 +152,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             |> AnomalyEpisodeRegistry.transition_rows()
             |> Enum.split_with(&ash_recorded_row?/1)
 
+          bulk_rows = dedupe_rows_by_conflict_key(bulk_rows, &ocsf_event_conflict_key/1)
           count = insert_rows(table_name(), bulk_rows)
           {persisted, transitions} = record_ocsf_events(ash_rows)
 
@@ -178,11 +187,23 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         {:ok, length(parsed_rows)}
       end
     end
-  rescue
-    e ->
-      Logger.error("Causal signals batch insert failed: #{inspect(e)}")
-      {:error, e}
   end
+
+  @doc false
+  def handle_repo_query_telemetry(
+        _event,
+        _measurements,
+        %{result: {:error, error}} = metadata,
+        owner
+      ) do
+    if self() == owner do
+      record_statement_error(error, metadata[:query])
+    end
+
+    :ok
+  end
+
+  def handle_repo_query_telemetry(_event, _measurements, _metadata, _owner), do: :ok
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
@@ -251,6 +272,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp insert_rows(_table, []), do: 0
 
   defp insert_rows(table, rows) when is_list(rows) do
+    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_conflict_key/1)
     {count, _} = BulkInsert.insert_all(table, rows, on_conflict: :nothing, returning: false)
 
     count
@@ -310,6 +332,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_insert_only_ocsf_events([]), do: {[], []}
 
   defp record_insert_only_ocsf_events(rows) when is_list(rows) do
+    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_conflict_key/1)
+
     # Raw insert is intentional: build_ocsf_event_row/4 creates DB-complete rows,
     # including id, time, and created_at; the former Ash action was not providing
     # load-bearing normalization on this hot path.
@@ -357,6 +381,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       rows
       |> Enum.filter(&persist_inventory_vulnerability_lifecycle?(&1, existing))
       |> Enum.map(&prepare_inventory_vulnerability_lifecycle(&1, existing))
+      |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
 
     transition_keys =
       aligned_rows
@@ -569,6 +594,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @doc false
   def align_existing_ocsf_event_times(rows, repo \\ ServiceRadar.Repo)
 
+  def align_existing_ocsf_event_times(rows, repo) when is_map(rows) do
+    rows
+    |> Map.values()
+    |> align_existing_ocsf_event_times(repo)
+  end
+
   def align_existing_ocsf_event_times([], _repo), do: []
 
   def align_existing_ocsf_event_times(rows, repo) when is_list(rows) do
@@ -587,21 +618,24 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    case existing_ocsf_event_times(repo, ids) do
-      {:ok, existing_times} when map_size(existing_times) > 0 ->
-        aligned_rows =
-          Enum.map(rows, fn row ->
-            case Map.get(existing_times, ocsf_event_id_key(row)) do
-              %DateTime{} = existing_time -> %{row | time: existing_time}
-              _ -> row
-            end
-          end)
+    {aligned_rows, existing_id_keys} =
+      case existing_ocsf_event_times(repo, ids) do
+        {:ok, existing_times} when map_size(existing_times) > 0 ->
+          aligned =
+            Enum.map(rows, fn row ->
+              case Map.get(existing_times, ocsf_event_id_key(row)) do
+                %DateTime{} = existing_time -> %{row | time: existing_time}
+                _ -> row
+              end
+            end)
 
-        {aligned_rows, MapSet.new(Map.keys(existing_times))}
+          {aligned, MapSet.new(Map.keys(existing_times))}
 
-      _ ->
-        {rows, MapSet.new()}
-    end
+        _ ->
+          {rows, MapSet.new()}
+      end
+
+    {dedupe_rows_by_conflict_key(aligned_rows, &ocsf_event_id_key/1), existing_id_keys}
   end
 
   defp existing_ocsf_event_times(_repo, []), do: {:ok, %{}}
@@ -627,8 +661,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
           {:ok, Map.new(rows, &existing_ocsf_time_row/1)}
 
         {:error, reason} = error ->
+          record_statement_error(reason, sql)
+
           Logger.warning("Failed to load existing OCSF event times",
             reason: inspect(reason),
+            sqlstate: extract_sqlstate(reason),
             count: length(binary_ids)
           )
 
@@ -658,10 +695,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp ocsf_event_id_key(_row), do: nil
 
   defp ocsf_event_conflict_key(%{id: id, time: time}),
-    do: {uuid_conflict_value(id), time_conflict_value(time)}
+    do: {time_conflict_value(time), uuid_conflict_value(id)}
 
   defp ocsf_event_conflict_key(%{"id" => id, "time" => time}),
-    do: {uuid_conflict_value(id), time_conflict_value(time)}
+    do: {time_conflict_value(time), uuid_conflict_value(id)}
 
   defp ocsf_event_conflict_key(_row), do: nil
 
@@ -705,26 +742,105 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)
        when is_list(rows) and is_function(key_fun, 1) do
-    {latest_by_key, ordered_keys} =
-      Enum.reduce(rows, {%{}, []}, fn row, {acc, keys} ->
-        key = key_fun.(row)
-
-        keys =
-          if Map.has_key?(acc, key) do
-            keys
-          else
-            [key | keys]
-          end
-
-        # Preserve first-seen key order but keep the latest row value for that DB
-        # identity; the conflict key is the uniqueness contract enforced below.
-        {Map.put(acc, key, row), keys}
-      end)
-
-    ordered_keys
-    |> Enum.reverse()
-    |> Enum.map(&Map.fetch!(latest_by_key, &1))
+    rows
+    |> Enum.reduce(%{}, fn row, acc ->
+      Map.put(acc, key_fun.(row), row)
+    end)
+    |> Map.values()
+    |> Enum.sort_by(&ocsf_event_conflict_key/1)
   end
+
+  defp with_statement_error_tracking(fun) when is_function(fun, 0) do
+    owner = self()
+    handler_id = {__MODULE__, :statement_error_tracker, make_ref()}
+    Process.delete(@first_statement_error_key)
+
+    :telemetry.attach(
+      handler_id,
+      @repo_query_event,
+      &__MODULE__.handle_repo_query_telemetry/4,
+      owner
+    )
+
+    try do
+      fun.()
+    rescue
+      e ->
+        root_error = resolve_logged_error(e)
+        log_batch_insert_failure(root_error)
+        {:error, root_error}
+    after
+      :telemetry.detach(handler_id)
+      Process.delete(@first_statement_error_key)
+    end
+  end
+
+  defp record_statement_error(error, query) do
+    if not in_failed_sql_transaction?(error) and is_nil(Process.get(@first_statement_error_key)) do
+      Process.put(@first_statement_error_key, attach_query(error, query))
+    end
+
+    :ok
+  end
+
+  defp attach_query(%Postgrex.Error{query: nil} = error, query)
+       when is_binary(query) and query != "" do
+    %{error | query: query}
+  end
+
+  defp attach_query(error, _query), do: error
+
+  defp resolve_logged_error(error) do
+    case {in_failed_sql_transaction?(error), Process.get(@first_statement_error_key)} do
+      {true, first_error} when not is_nil(first_error) -> first_error
+      _ -> error
+    end
+  end
+
+  defp log_batch_insert_failure(error) do
+    case extract_sqlstate(error) do
+      nil ->
+        Logger.error("Causal signals batch insert failed: #{inspect(error)}")
+
+      sqlstate ->
+        Logger.error(
+          "Causal signals batch insert failed (sqlstate=#{sqlstate}): #{inspect(error)}",
+          sqlstate: sqlstate
+        )
+    end
+  end
+
+  defp in_failed_sql_transaction?(error) do
+    case extract_postgres_fields(error) do
+      %{pg_code: "25P02"} -> true
+      %{code: :in_failed_sql_transaction} -> true
+      _ -> false
+    end
+  end
+
+  defp extract_sqlstate(error) do
+    case extract_postgres_fields(error) do
+      %{pg_code: pg_code} when is_binary(pg_code) and pg_code != "" ->
+        pg_code
+
+      %{code: code} when is_atom(code) and not is_nil(code) ->
+        Atom.to_string(code)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_postgres_fields(%Postgrex.Error{postgres: postgres}) when is_map(postgres),
+    do: postgres
+
+  defp extract_postgres_fields(%MatchError{term: term}), do: extract_postgres_fields(term)
+
+  defp extract_postgres_fields({:error, reason}), do: extract_postgres_fields(reason)
+
+  defp extract_postgres_fields({:store_unavailable, reason}), do: extract_postgres_fields(reason)
+
+  defp extract_postgres_fields(_error), do: nil
 
   defp dispatch_northbound_inventory_transitions(ocsf_rows) when is_list(ocsf_rows) do
     ocsf_rows

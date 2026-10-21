@@ -99,6 +99,95 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert sql =~ "min(time)"
       assert sql =~ "platform.ocsf_events"
     end
+
+    test "deduplicates and sorts OCSF event rows in deterministic (time, id) order when built from a map above 32 keys" do
+      Process.put(:causal_signals_test_pid, self())
+      base_time = ~U[2026-06-12 12:00:00Z]
+
+      rows_by_key =
+        Map.new(64..1//-1, fn index ->
+          id =
+            "00000000-0000-4000-8000-~12..0B"
+            |> :io_lib.format([index])
+            |> IO.iodata_to_binary()
+
+          time = DateTime.shift(base_time, second: rem(index, 8))
+
+          {"finding-#{index}",
+           %{
+             id: id,
+             time: time,
+             class_uid: 2004,
+             metadata: %{"signal_type" => "prediction", "event_type" => "capacity_forecast"},
+             unmapped: %{}
+           }}
+        end)
+
+      aligned =
+        AnalyticsSignals.align_existing_ocsf_event_times(
+          Map.values(rows_by_key),
+          ExistingTimeRepo
+        )
+
+      assert length(aligned) == 64
+
+      keys =
+        Enum.map(aligned, fn row ->
+          {DateTime.to_unix(row.time, :microsecond), row.id}
+        end)
+
+      assert keys == Enum.sort(keys)
+    end
+  end
+
+  describe "process_batch/1 error logging" do
+    test "logs the first failing statement error and SQLSTATE instead of 25P02 in_failed_sql_transaction" do
+      first_error = %Postgrex.Error{
+        postgres: %{
+          code: :deadlock_detected,
+          pg_code: "40P01",
+          message: "deadlock detected"
+        }
+      }
+
+      aborted_tx_error = %Postgrex.Error{
+        postgres: %{
+          code: :in_failed_sql_transaction,
+          pg_code: "25P02",
+          message:
+            "current transaction is aborted, commands ignored until end of transaction block"
+        }
+      }
+
+      messages =
+        Stream.resource(
+          fn -> :init end,
+          fn :init ->
+            :telemetry.execute(
+              [:service_radar, :repo, :query],
+              %{total_time: 1},
+              %{
+                result: {:error, first_error},
+                query: "SELECT id::text, min(time) FROM platform.ocsf_events"
+              }
+            )
+
+            raise aborted_tx_error
+          end,
+          fn _ -> :ok end
+        )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, _} = AnalyticsSignals.process_batch(messages)
+        end)
+
+      assert log =~ "Causal signals batch insert failed"
+      assert log =~ "sqlstate=40P01"
+      assert log =~ "deadlock_detected"
+      refute log =~ "25P02"
+      refute log =~ "in_failed_sql_transaction"
+    end
   end
 
   describe "parse_message/1" do
