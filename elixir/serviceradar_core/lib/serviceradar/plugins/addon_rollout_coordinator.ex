@@ -1,25 +1,25 @@
 defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   @moduledoc """
-  Creates and advances durable, health-gated native add-on fleet rollouts.
+  Creates and advances durable, health-gated fleet rollouts.
 
-  The stable package on an assignment or profile is never changed during a
-  canary. A per-assignment override is delivered to the agent, and only fresh
-  status for the candidate version can pass the gate. A failed target has its
-  override removed before the rollout is stopped.
+  The stable package on a source is never changed during a canary. Each target
+  receives a per-target override, and only fresh evidence for the candidate
+  version can pass the gate. A failed target has its override removed before the
+  rollout is stopped.
+
+  The state machine here is artifact-agnostic. Where packages, sources, overrides
+  and health evidence live is the `ServiceRadar.Plugins.RolloutArtifact`
+  implementation's concern, resolved from each rollout or source.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Plugins.AddonAssignment
-  alias ServiceRadar.Plugins.AddonPackage
-  alias ServiceRadar.Plugins.AddonProfile
-  alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
   alias ServiceRadar.Plugins.AddonRolloutPolicy
   alias ServiceRadar.Plugins.AddonRolloutTarget
-  alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadar.Plugins.RolloutArtifact
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -40,56 +40,71 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     :rollback_pending
   ]
 
-  @type source :: AddonAssignment.t() | AddonProfile.t()
+  @type source :: RolloutArtifact.source()
 
   @spec reconcile(keyword()) :: {:ok, map()} | {:error, term()}
   def reconcile(opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_coordinator))
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    with {:ok, packages} <- read_all(AddonPackage, actor),
-         {:ok, recovered_sources} <- restore_non_explicit_managed_sources(packages, actor),
-         {:ok, assignments} <- managed_assignments(actor),
-         {:ok, profiles} <- managed_profiles(actor),
+    with {:ok, created} <- reconcile_artifacts(actor, now) do
+      advanced = advance_active_rollouts(actor: actor, now: now)
+      {:ok, Map.put(created, :advanced, advanced)}
+    end
+  end
+
+  defp reconcile_artifacts(actor, now) do
+    empty = %{started: 0, blocked: 0, skipped: 0, repaired: 0, recovered_sources: 0}
+
+    Enum.reduce_while(RolloutArtifact.implementations(), {:ok, empty}, fn artifact, {:ok, acc} ->
+      case reconcile_artifact(artifact, actor, now) do
+        {:ok, stats} ->
+          {:cont, {:ok, Map.merge(acc, stats, fn _key, left, right -> left + right end)}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp reconcile_artifact(artifact, actor, now) do
+    with {:ok, packages} <- artifact.list_packages(actor),
+         {:ok, recovered_sources} <- artifact.restore_managed_sources(packages, actor),
+         {:ok, sources} <- artifact.managed_sources(actor),
          {:ok, rollouts} <- read_all(AddonRollout, actor) do
       package_by_id = Map.new(packages, &{to_string(&1.id), &1})
 
       created =
-        assignments
-        |> Enum.concat(profiles)
-        |> Enum.reduce(%{started: 0, blocked: 0, skipped: 0, repaired: 0}, fn source, stats ->
+        Enum.reduce(sources, %{started: 0, blocked: 0, skipped: 0, repaired: 0}, fn source,
+                                                                                    stats ->
           reconcile_source(source, packages, package_by_id, rollouts, actor, now, stats)
         end)
 
-      advanced = advance_active_rollouts(actor: actor, now: now)
-
-      {:ok,
-       created
-       |> Map.put(:advanced, advanced)
-       |> Map.put(:recovered_sources, recovered_sources)}
+      {:ok, Map.put(created, :recovered_sources, recovered_sources)}
     end
   end
 
-  @spec start(source(), AddonPackage.t(), keyword()) ::
+  @spec start(source(), RolloutArtifact.package(), keyword()) ::
           {:ok, AddonRollout.t()} | {:error, term()}
-  def start(source, %AddonPackage{} = candidate, opts \\ []) do
+  def start(source, candidate, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_start))
     now = Keyword.get(opts, :now, DateTime.utc_now())
     trigger = Keyword.get(opts, :trigger, :manual)
+    artifact = RolloutArtifact.implementation(source)
 
-    with {:ok, previous} <- source_package(source, actor),
+    with {:ok, previous} <- stable_package(source, actor),
          :ok <- validate_candidate(source, previous, candidate),
-         {:ok, targets} <- source_targets(source, actor),
-         {:ok, agents} <- load_agents(targets, actor),
-         {:ok, direct_overrides} <- direct_override_keys(source, targets, actor),
+         {:ok, members} <- artifact.source_members(source, actor),
+         {:ok, agents} <- load_agents(members, actor),
+         {:ok, overridden} <- artifact.overridden_members(source, members, actor),
          {:ok, rollout} <-
            create_rollout_with_targets(
              source,
              previous,
              candidate,
-             targets,
+             members,
              agents,
-             direct_overrides,
+             overridden,
              actor,
              now,
              trigger
@@ -114,8 +129,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @failed_rollout_states,
          :ok <- vacate_target_slots(rollout, actor),
-         {:ok, source} <- source_for_rollout(rollout, actor),
-         {:ok, candidate} <- get_package(rollout.candidate_package_id, actor),
+         artifact = RolloutArtifact.implementation(rollout),
+         {:ok, source} <- artifact.source_for_rollout(rollout, actor),
+         {:ok, candidate} <- artifact.get_package(rollout.candidate_package_id, actor),
          {:ok, retried} <- start(source, candidate, actor: actor, now: now, trigger: :retry) do
       audit(:retry, retried, %{retried_rollout_id: rollout.id})
       emit(:retried, retried, %{retried_rollout_id: rollout.id})
@@ -185,7 +201,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       is_nil(candidate) or in_scope == [] ->
         :continue
 
-      converged_on_candidate?(in_scope, rollout.addon_id, candidate, actor) ->
+      converged_on_candidate?(rollout, in_scope, candidate, actor) ->
         mark_superseded(rollout, candidate, targets, length(in_scope), actor, now)
 
       true ->
@@ -193,18 +209,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp converged_on_candidate?(targets, addon_id, candidate, actor) do
-    statuses = load_statuses(targets, addon_id, actor)
+  defp converged_on_candidate?(rollout, targets, candidate, actor) do
+    artifact = RolloutArtifact.implementation(rollout)
+    evidence = artifact.load_evidence(targets, rollout, actor)
 
-    Enum.all?(targets, fn target ->
-      case Map.get(statuses, target.agent_uid) do
-        nil ->
-          false
-
-        status ->
-          Eligibility.version_at_least?(status.version, candidate.version)
-      end
-    end)
+    Enum.all?(targets, &artifact.converged?(Map.get(evidence, &1.agent_uid), candidate))
   end
 
   defp mark_superseded(rollout, candidate, targets, target_count, actor, now) do
@@ -239,20 +248,22 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # a superseded rollout can be older than the source's current package (a later
   # rollout already moved it), and finishing it must never move the source back.
   defp finish_superseded_source(rollout, candidate, targets, actor, now) do
-    with :ok <- pin_tolerated_profile_failures(rollout, targets, actor),
+    with :ok <- pin_tolerated_failures(rollout, targets, actor),
          :ok <- promote_source_if_behind(rollout, candidate, actor),
-         :ok <- clear_all_overrides(targets, actor) do
+         :ok <- clear_all_overrides(rollout, targets, actor) do
       release_superseded_slots(targets, actor, now)
     end
   end
 
   defp promote_source_if_behind(rollout, candidate, actor) do
-    with {:ok, source} <- source_for_rollout(rollout, actor),
-         {:ok, current} <- source_package(source, actor) do
+    artifact = RolloutArtifact.implementation(rollout)
+
+    with {:ok, source} <- artifact.source_for_rollout(rollout, actor),
+         {:ok, current} <- stable_package(source, actor) do
       if Eligibility.version_at_least?(current.version, candidate.version) do
         :ok
       else
-        promote_authoritative_source(rollout, actor)
+        artifact.promote_source(rollout, actor)
       end
     end
   end
@@ -299,7 +310,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> Enum.reduce(:none, fn rollout, acc ->
       candidate = Map.get(package_by_id, to_string(rollout.candidate_package_id))
 
-      with %AddonPackage{} <- candidate,
+      with %{} <- candidate,
            {:ok, targets} <- rollout_targets(rollout.id, actor),
            true <- Enum.any?(targets, &(&1.state in @slot_holding_target_states)),
            :ok <- finish_superseded_source(rollout, candidate, targets, actor, now) do
@@ -354,7 +365,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @active_rollout_states,
          {:ok, targets} <- rollout_targets(rollout.id, actor),
-         :ok <- clear_all_overrides(targets, actor),
+         :ok <- clear_all_overrides(rollout, targets, actor),
          :ok <- mark_targets_canceled(targets, actor, now),
          {:ok, _} <-
            update_rollout(
@@ -380,13 +391,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          true <- rollout.state in @active_rollout_states,
          {:ok, targets} <- rollout_targets(rollout.id, actor),
          {:ok, _} <- update_rollout(rollout, %{state: :rolling_back}, actor),
-         :ok <-
-           begin_whole_rollback(
-             targets,
-             actor,
-             now,
-             rollout.policy["health_timeout_seconds"] || 900
-           ) do
+         :ok <- begin_whole_rollback(rollout, targets, actor, now) do
       audit(:rollback, rollout, %{target_count: length(targets)})
       emit(:rolling_back, rollout, %{target_count: length(targets)})
       advance(rollout.id, actor: actor, now: now)
@@ -397,7 +402,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp reconcile_source(source, packages, package_by_id, rollouts, actor, now, stats) do
-    current = Map.get(package_by_id, to_string(source.addon_package_id))
+    current = Map.get(package_by_id, to_string(stable_package_id(source)))
     source_rollouts = Enum.filter(rollouts, &same_source?(&1, source))
     active = Enum.filter(source_rollouts, &(&1.state in @active_rollout_states))
 
@@ -441,16 +446,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
        ) do
     previous_candidate = Map.get(package_by_id, to_string(paused.candidate_package_id))
 
-    with %AddonPackage{} <- previous_candidate,
+    with %{} <- previous_candidate,
          {:ok, candidate} <-
            Eligibility.latest_candidate(previous_candidate, packages, source,
              blocked_candidate_ids: blocked_candidate_ids(source_rollouts)
            ),
          {:ok, superseded} <- supersede_failed_candidate(paused, candidate, actor, now),
-         {:ok, refreshed_source} <- source_for_rollout(superseded, actor) do
+         {:ok, refreshed_source} <-
+           RolloutArtifact.implementation(superseded).source_for_rollout(superseded, actor) do
       # Re-read after clearing overrides. The failed candidate is never promoted;
       # the replacement must prove health before the stable source moves.
-      current = Map.get(package_by_id, to_string(refreshed_source.addon_package_id))
+      current = Map.get(package_by_id, to_string(stable_package_id(refreshed_source)))
 
       rollouts =
         Enum.map(source_rollouts, fn rollout ->
@@ -480,7 +486,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         with {:ok, rollout} <- get_rollout(paused.id, actor),
              true <- rollout.state == :paused,
              {:ok, targets} <- rollout_targets(rollout.id, actor),
-             :ok <- clear_all_overrides(targets, actor),
+             :ok <- clear_all_overrides(rollout, targets, actor),
              :ok <- mark_targets_canceled(targets, actor, now),
              {:ok, updated} <-
                update_rollout(
@@ -575,17 +581,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          source,
          previous,
          candidate,
-         assignments,
+         members,
          agents,
-         direct_overrides,
+         overridden,
          actor,
          now,
          trigger
        ) do
     policy = AddonRolloutPolicy.normalize(source.rollout_policy)
-
-    target_specs =
-      target_specs(source, candidate, assignments, agents, direct_overrides, policy, now)
+    target_specs = target_specs(candidate, members, agents, overridden, policy, now)
 
     # A source whose targets all exist but none of which can take the candidate
     # has nothing to prove: every target would be terminal the moment it is
@@ -625,18 +629,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          now,
          trigger
        ) do
-    rollout_attrs = %{
-      addon_id: previous.addon_id,
-      source_type: source_type(source),
-      source_id: source.id,
-      previous_package_id: previous.id,
-      candidate_package_id: candidate.id,
-      trigger: trigger,
-      state: :running,
-      policy: policy,
-      target_snapshot: target_snapshot(target_specs),
-      started_at: now
-    }
+    rollout_attrs =
+      source
+      |> rollout_identity(previous, candidate)
+      |> Map.merge(%{
+        trigger: trigger,
+        state: :running,
+        policy: policy,
+        target_snapshot: target_snapshot(target_specs),
+        started_at: now
+      })
 
     transaction_result =
       Repo.transaction(fn ->
@@ -662,26 +664,24 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp target_specs(_source, candidate, assignments, agents, direct_overrides, policy, now) do
+  defp target_specs(candidate, members, agents, overridden, policy, now) do
     # Drop superseded identities before a target row exists. Classifying them
     # as excluded would still insert a row, and a rollout that counts every
     # target would keep waiting on an identity that will not report.
-    assignments = Enum.reject(assignments, &superseded_assignment?(&1, agents))
+    members = Enum.reject(members, &superseded_agent?(&1, agents))
 
     classified =
-      assignments
+      members
       |> Enum.sort_by(& &1.agent_uid)
-      |> Enum.map(fn assignment ->
-        override_key = {assignment.agent_uid, assignment.addon_id}
-
+      |> Enum.map(fn member ->
         {classification, reason} =
-          if MapSet.member?(direct_overrides, override_key) do
+          if MapSet.member?(overridden, member.id) do
             {:overridden, "direct_assignment_precedence"}
           else
-            Eligibility.classify_target(candidate, Map.get(agents, assignment.agent_uid), now)
+            Eligibility.classify_target(candidate, Map.get(agents, member.agent_uid), now)
           end
 
-        %{assignment: assignment, classification: classification, reason_code: reason}
+        %{member: member, classification: classification, reason_code: reason}
       end)
 
     # Only :eligible targets are batched. An agent that is not reporting must not
@@ -689,15 +689,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     # spending the canary on it means the batch behind it waits on a host that
     # will never answer.
     advanceable = Enum.filter(classified, &(&1.classification == :eligible))
-    batch_by_assignment = batch_indexes(advanceable, policy)
+    batch_by_member = batch_indexes(advanceable, policy)
 
     Enum.map(classified, fn spec ->
-      Map.put(spec, :batch_index, Map.get(batch_by_assignment, spec.assignment.id, 0))
+      Map.put(spec, :batch_index, Map.get(batch_by_member, spec.member.id, 0))
     end)
   end
 
-  defp superseded_assignment?(assignment, agents) do
-    case Map.get(agents, assignment.agent_uid) do
+  defp superseded_agent?(member, agents) do
+    case Map.get(agents, member.agent_uid) do
       %{status: :superseded} -> true
       %{status: "superseded"} -> true
       %{"status" => "superseded"} -> true
@@ -714,13 +714,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> Enum.with_index()
     |> Map.new(fn {spec, index} ->
       batch = if index < canary_size, do: 0, else: 1 + div(index - canary_size, batch_size)
-      {spec.assignment.id, batch}
+      {spec.member.id, batch}
     end)
   end
 
   defp create_targets(rollout, specs, previous, candidate, actor) do
+    artifact = RolloutArtifact.implementation(rollout)
+
     Enum.reduce_while(specs, {:ok, []}, fn spec, {:ok, notifications} ->
-      assignment = spec.assignment
       # :unavailable belongs with :incompatible, not with :eligible. An agent that
       # is not reporting cannot run the candidate now, and making it a :pending
       # target means the rollout waits out its health deadline and then pauses --
@@ -731,22 +732,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       # already see is not there.
       state = if spec.classification == :eligible, do: :pending, else: :excluded
 
-      attrs = %{
-        rollout_id: rollout.id,
-        assignment_id: assignment.id,
-        agent_uid: assignment.agent_uid,
-        addon_id: assignment.addon_id,
-        source_type: rollout.source_type,
-        source_id: rollout.source_id,
-        previous_package_id: assignment.addon_package_id || previous.id,
-        candidate_package_id: candidate.id,
-        previous_params: assignment.params || %{},
-        previous_args: assignment.args || [],
-        batch_index: spec.batch_index,
-        classification: spec.classification,
-        state: state,
-        reason_code: spec.reason_code
-      }
+      attrs =
+        spec.member
+        |> artifact.target_attrs(previous)
+        |> Map.merge(%{
+          rollout_id: rollout.id,
+          source_type: rollout.source_type,
+          source_id: rollout.source_id,
+          candidate_package_id: candidate.id,
+          batch_index: spec.batch_index,
+          classification: spec.classification,
+          state: state,
+          reason_code: spec.reason_code
+        })
 
       case create_target_with_notifications(attrs, actor) do
         {:ok, _target, target_notifications} ->
@@ -760,7 +758,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp evaluate_targets(rollout, targets, packages, actor, now) do
     evaluating = Enum.filter(targets, &(&1.state in @active_target_states))
-    statuses = load_statuses(evaluating, rollout.addon_id, actor)
+    evidence = RolloutArtifact.implementation(rollout).load_evidence(evaluating, rollout, actor)
 
     targets
     |> Enum.reduce_while({:ok, []}, fn target, {:ok, acc} ->
@@ -773,7 +771,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
               evaluate_candidate_target(
                 rollout,
                 target,
-                Map.get(statuses, target.agent_uid),
+                Map.get(evidence, target.agent_uid),
                 Map.fetch!(packages, to_string(target.candidate_package_id)),
                 actor,
                 now
@@ -781,8 +779,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
             :rollback_pending ->
               evaluate_rollback_target(
+                rollout,
                 target,
-                Map.get(statuses, target.agent_uid),
+                Map.get(evidence, target.agent_uid),
                 Map.fetch!(packages, to_string(target.previous_package_id)),
                 actor,
                 now
@@ -804,13 +803,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp evaluate_candidate_target(rollout, target, status, candidate, actor, now) do
+  defp evaluate_candidate_target(rollout, target, evidence, candidate, actor, now) do
+    artifact = RolloutArtifact.implementation(rollout)
+
     cond do
-      explicit_failure?(status, candidate, target.override_applied_at) ->
+      artifact.candidate_failed?(evidence, candidate, target.override_applied_at) ->
         fail_and_rollback_target(rollout, target, "candidate_reported_unhealthy", actor, now)
 
-      candidate_ready?(status, candidate, target.override_applied_at) ->
-        evaluate_soak(target, status, rollout.policy, actor, now)
+      artifact.candidate_ready?(evidence, candidate, target.override_applied_at) ->
+        evaluate_soak(target, artifact.observed_at(evidence), rollout.policy, actor, now)
 
       deadline_elapsed?(target.deadline_at, now) ->
         fail_and_rollback_target(rollout, target, "candidate_health_timeout", actor, now)
@@ -820,9 +821,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp evaluate_soak(target, status, policy, actor, now) do
+  defp evaluate_soak(target, observed_at, policy, actor, now) do
     soak_seconds = policy["soak_seconds"] || 300
-    observed_at = status.reported_at
 
     cond do
       is_nil(target.healthy_since) and soak_seconds == 0 ->
@@ -857,7 +857,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp fail_and_rollback_target(rollout, target, reason, actor, now) do
-    with :ok <- clear_assignment_override(target, actor),
+    with :ok <- RolloutArtifact.implementation(rollout).clear_override(target, actor),
          {:ok, target} <-
            update_target(
              target,
@@ -881,16 +881,18 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp evaluate_rollback_target(target, status, previous, actor, now) do
-    recovered? =
-      fresh_status?(status, target.rollback_started_at) and status.version == previous.version and
-        Eligibility.supervision_ready?(previous, status)
+  defp evaluate_rollback_target(rollout, target, evidence, previous, actor, now) do
+    artifact = RolloutArtifact.implementation(rollout)
 
     cond do
-      recovered? ->
+      artifact.recovered?(evidence, previous, target.rollback_started_at) ->
         update_target(
           target,
-          %{state: :rolled_back, rolled_back_at: now, health_observed_at: status.reported_at},
+          %{
+            state: :rolled_back,
+            rolled_back_at: now,
+            health_observed_at: artifact.observed_at(evidence)
+          },
           actor
         )
 
@@ -943,6 +945,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp launch_next_batch(rollout, targets, actor, now) do
     policy = AddonRolloutPolicy.normalize(rollout.policy)
+    artifact = RolloutArtifact.implementation(rollout)
     next_batch = targets |> Enum.filter(&(&1.state == :pending)) |> Enum.min_by(& &1.batch_index)
 
     selected =
@@ -969,18 +972,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       target, :ok ->
         deadline = DateTime.shift(now, second: policy["health_timeout_seconds"])
 
-        with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-             {:ok, _} <-
-               update_assignment(
-                 assignment,
-                 :apply_rollout_override,
-                 %{
-                   rollout_package_id: target.candidate_package_id,
-                   rollout_id: rollout.id,
-                   rollout_started_at: now
-                 },
-                 actor
-               ),
+        with :ok <- artifact.apply_override(target, rollout, now, actor),
              {:ok, _} <-
                update_target(
                  target,
@@ -1013,9 +1005,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp promote_source(rollout, targets, actor, now) do
-    with :ok <- pin_tolerated_profile_failures(rollout, targets, actor),
-         :ok <- promote_authoritative_source(rollout, actor),
-         :ok <- clear_all_overrides(targets, actor),
+    with :ok <- pin_tolerated_failures(rollout, targets, actor),
+         :ok <- RolloutArtifact.implementation(rollout).promote_source(rollout, actor),
+         :ok <- clear_all_overrides(rollout, targets, actor),
          :ok <- mark_targets_promoted(targets, actor, now),
          {:ok, completed} <-
            update_rollout(rollout, %{state: :completed, completed_at: now}, actor) do
@@ -1048,42 +1040,28 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp tolerated_failures?(%AddonRollout{source_type: :profile} = rollout, targets) do
-    tolerated = rollout.policy["tolerated_failures"] || 0
+  defp tolerated_failures?(rollout, targets) do
+    if RolloutArtifact.implementation(rollout).tolerates_failures?(rollout) do
+      tolerated = rollout.policy["tolerated_failures"] || 0
 
-    rolled_back =
-      Enum.count(targets, &(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
+      rolled_back =
+        Enum.count(targets, &(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
 
-    rolled_back > 0 and rolled_back <= tolerated
+      rolled_back > 0 and rolled_back <= tolerated
+    else
+      false
+    end
   end
 
-  defp tolerated_failures?(_rollout, _targets), do: false
-
-  defp pin_tolerated_profile_failures(
-         %AddonRollout{source_type: :profile} = rollout,
-         targets,
-         actor
-       ) do
+  defp pin_tolerated_failures(rollout, targets, actor) do
     if tolerated_failures?(rollout, targets) do
+      artifact = RolloutArtifact.implementation(rollout)
+
       targets
       |> Enum.filter(&(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
       |> Enum.reduce_while(:ok, fn target, :ok ->
-        with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-             {:ok, _} <-
-               update_assignment(
-                 assignment,
-                 :update,
-                 %{
-                   source: :manual,
-                   source_key: nil,
-                   addon_profile_id: nil,
-                   update_policy: :manual_pin,
-                   explicit_version_pin: true
-                 },
-                 actor
-               ) do
-          {:cont, :ok}
-        else
+        case artifact.pin_failed_member(target, actor) do
+          :ok -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
@@ -1092,40 +1070,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp pin_tolerated_profile_failures(_rollout, _targets, _actor), do: :ok
+  defp begin_whole_rollback(rollout, targets, actor, now) do
+    artifact = RolloutArtifact.implementation(rollout)
+    health_timeout_seconds = rollout.policy["health_timeout_seconds"] || 900
 
-  defp promote_authoritative_source(%AddonRollout{source_type: :assignment} = rollout, actor) do
-    with {:ok, assignment} <- get_assignment(rollout.source_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :promote_rollout,
-             %{
-               addon_package_id: rollout.candidate_package_id,
-               rollout_package_id: nil,
-               rollout_id: nil,
-               rollout_started_at: nil
-             },
-             actor
-           ) do
-      :ok
-    end
-  end
-
-  defp promote_authoritative_source(%AddonRollout{source_type: :profile} = rollout, actor) do
-    with {:ok, profile} <- get_profile(rollout.source_id, actor),
-         {:ok, _} <-
-           profile
-           |> Ash.Changeset.for_update(:promote_rollout, %{
-             addon_package_id: rollout.candidate_package_id
-           })
-           |> Ash.update(actor: actor, authorize?: true),
-         {:ok, _summary} <- AddonProfileOps.reconcile_by_id(profile.id, actor: actor) do
-      :ok
-    end
-  end
-
-  defp begin_whole_rollback(targets, actor, now, health_timeout_seconds) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
       cond do
         deleted_slot_holder?(target) ->
@@ -1135,7 +1083,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
           end
 
         target.state in [:waiting_health, :healthy_soak, :succeeded] ->
-          with :ok <- clear_assignment_override(target, actor),
+          with :ok <- artifact.clear_override(target, actor),
                {:ok, _} <-
                  update_target(
                    target,
@@ -1182,21 +1130,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp record_blocked_candidate(source, previous, candidate, reason, actor, now) do
-    attrs = %{
-      addon_id: previous.addon_id,
-      source_type: source_type(source),
-      source_id: source.id,
-      previous_package_id: previous.id,
-      candidate_package_id: candidate.id,
-      trigger: :track_latest,
-      state: :failed,
-      policy: AddonRolloutPolicy.normalize(source.rollout_policy),
-      target_snapshot: %{},
-      blocked_reason: to_string(reason),
-      error: to_string(reason),
-      started_at: now,
-      completed_at: now
-    }
+    attrs =
+      source
+      |> rollout_identity(previous, candidate)
+      |> Map.merge(%{
+        trigger: :track_latest,
+        state: :failed,
+        policy: AddonRolloutPolicy.normalize(source.rollout_policy),
+        target_snapshot: %{},
+        blocked_reason: to_string(reason),
+        error: to_string(reason),
+        started_at: now,
+        completed_at: now
+      })
 
     case create_rollout(attrs, actor) do
       {:ok, rollout} = ok ->
@@ -1225,34 +1171,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp source_targets(%AddonAssignment{} = assignment, _actor), do: {:ok, [assignment]}
-
-  defp source_targets(%AddonProfile{} = profile, actor) do
-    AddonAssignment
-    |> Ash.Query.for_read(:by_profile, %{addon_profile_id: profile.id}, actor: actor)
-    |> Ash.Query.filter(enabled == true)
-    |> Ash.read(actor: actor)
-  end
-
-  defp direct_override_keys(%AddonAssignment{}, _targets, _actor), do: {:ok, MapSet.new()}
-  defp direct_override_keys(%AddonProfile{}, [], _actor), do: {:ok, MapSet.new()}
-
-  defp direct_override_keys(%AddonProfile{}, targets, actor) do
-    agent_uids = Enum.map(targets, & &1.agent_uid)
-    addon_id = targets |> List.first() |> Map.get(:addon_id)
-
-    AddonAssignment
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      source == :manual and enabled == true and addon_id == ^addon_id and agent_uid in ^agent_uids
-    )
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, rows} -> {:ok, MapSet.new(rows, &{&1.agent_uid, &1.addon_id})}
-      error -> error
-    end
-  end
-
   defp load_agents([], _actor), do: {:ok, %{}}
 
   defp load_agents(targets, actor) do
@@ -1268,70 +1186,30 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp load_statuses([], _addon_id, _actor), do: %{}
-
-  defp load_statuses(targets, addon_id, actor) do
-    uids = targets |> Enum.map(& &1.agent_uid) |> Enum.uniq()
-
-    AddonStatus
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(addon_id == ^addon_id and agent_uid in ^uids)
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, statuses} -> Map.new(statuses, &{&1.agent_uid, &1})
-      {:error, _} -> %{}
-    end
-  end
-
-  # Readiness deliberately uses supervision_state_ready?/2, not supervision_ready?/2:
-  # an advisory degradation must not keep a candidate that has come up from ever
-  # being considered ready. Otherwise the target sits un-ready until its deadline
-  # and fails as `candidate_health_timeout`, which is how a host-level cgroup
-  # misconfiguration held anomaly three versions behind for a week.
-  defp candidate_ready?(status, candidate, applied_at) do
-    fresh_status?(status, applied_at) and status.version == candidate.version and
-      Eligibility.supervision_state_ready?(candidate, status)
-  end
-
-  defp explicit_failure?(nil, _candidate, _applied_at), do: false
-
-  # A candidate fails on its reported STATE. It does not fail merely because the
-  # add-on also reported a degradation reason: that reason is advisory, describes
-  # the deployment around the add-on as often as the add-on itself, and is
-  # identical before and after an upgrade -- so gating on it could only ever wedge
-  # the rollout, never protect it. The reason is still recorded and surfaced; see
-  # advisory_degradation/1 and the fleet row.
-  #
-  # And it fails only on a report ABOUT the candidate. The agent reports the add-on
-  # it is running; until it has applied the override that is still the previous
-  # version, so a fresh "unhealthy" from it says nothing about the candidate. On demo
-  # a wedged 0.3.10 failed the 0.3.11 target for its host 31 s after the override,
-  # before the agent had even polled for the new assignment. An agent that never
-  # applies the candidate still fails, as candidate_health_timeout.
-  defp explicit_failure?(status, candidate, applied_at) do
-    state = status.state |> to_string() |> String.downcase()
-
-    fresh_status?(status, applied_at) and status.version == candidate.version and
-      state in ["circuit_open", "failed", "unhealthy", "verification_failed"]
-  end
-
-  defp fresh_status?(%AddonStatus{reported_at: %DateTime{} = reported_at}, %DateTime{} = since),
-    do: DateTime.compare(reported_at, since) in [:gt, :eq]
-
-  defp fresh_status?(_, _), do: false
-
   defp deadline_elapsed?(%DateTime{} = deadline, %DateTime{} = now),
     do: DateTime.compare(now, deadline) in [:gt, :eq]
 
   defp deadline_elapsed?(_, _), do: false
 
-  defp source_package(source, actor), do: get_package(source.addon_package_id, actor)
+  defp stable_package(source, actor) do
+    artifact = RolloutArtifact.implementation(source)
+    artifact.get_package(artifact.stable_package_id(source), actor)
+  end
 
-  defp source_for_rollout(%AddonRollout{source_type: :assignment, source_id: source_id}, actor),
-    do: get_assignment(source_id, actor)
+  defp stable_package_id(source),
+    do: RolloutArtifact.implementation(source).stable_package_id(source)
 
-  defp source_for_rollout(%AddonRollout{source_type: :profile, source_id: source_id}, actor),
-    do: get_profile(source_id, actor)
+  defp rollout_identity(source, previous, candidate) do
+    artifact = RolloutArtifact.implementation(source)
+
+    %{
+      addon_id: artifact.artifact_id(previous),
+      source_type: artifact.source_type(source),
+      source_id: source.id,
+      previous_package_id: previous.id,
+      candidate_package_id: candidate.id
+    }
+  end
 
   defp packages_for_rollout(rollout, targets, actor) do
     ids =
@@ -1339,11 +1217,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       |> Enum.concat(Enum.map(targets, & &1.previous_package_id))
       |> Enum.uniq()
 
-    AddonPackage
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id in ^ids)
-    |> Ash.read(actor: actor)
-    |> case do
+    case RolloutArtifact.implementation(rollout).packages_by_id(ids, actor) do
       {:ok, packages} when length(packages) == length(ids) ->
         {:ok, Map.new(packages, &{to_string(&1.id), &1})}
 
@@ -1353,104 +1227,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       error ->
         error
     end
-  end
-
-  defp managed_assignments(actor) do
-    AddonAssignment
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      enabled == true and source != :profile and update_policy == :track_latest_approved and
-        explicit_version_pin == false
-    )
-    |> Ash.read(actor: actor)
-  end
-
-  # Older releases could leave verified first-party sources on `manual_pin`
-  # even though no operator selected a pin. Recover only those non-explicit
-  # sources, and only once a genuinely newer approved package exists. The
-  # approved candidate's capabilities become the ceiling, so a later
-  # permission expansion remains blocked for review.
-  defp restore_non_explicit_managed_sources(packages, actor) do
-    with {:ok, assignments} <- recoverable_assignments(actor),
-         {:ok, profiles} <- recoverable_profiles(actor) do
-      assignments
-      |> Enum.concat(profiles)
-      |> Enum.reduce_while({:ok, 0}, fn source, {:ok, count} ->
-        case restore_non_explicit_source(source, packages, actor) do
-          :unchanged -> {:cont, {:ok, count}}
-          {:ok, _source} -> {:cont, {:ok, count + 1}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-    end
-  end
-
-  defp recoverable_assignments(actor) do
-    AddonAssignment
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      enabled == true and source != :profile and update_policy == :manual_pin and
-        explicit_version_pin == false
-    )
-    |> Ash.read(actor: actor)
-  end
-
-  defp recoverable_profiles(actor) do
-    AddonProfile
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      enabled == true and update_policy == :manual_pin and explicit_version_pin == false
-    )
-    |> Ash.read(actor: actor)
-  end
-
-  defp restore_non_explicit_source(source, packages, actor) do
-    current = Enum.find(packages, &(to_string(&1.id) == to_string(source.addon_package_id)))
-
-    if recoverable_first_party_package?(current) do
-      ceiling = recovery_capability_ceiling(current, packages)
-      source_with_ceiling = Map.put(source, :capability_ceiling, ceiling)
-
-      case Eligibility.latest_candidate(current, packages, source_with_ceiling) do
-        {:ok, candidate} ->
-          source
-          |> Ash.Changeset.for_update(:restore_managed_update_policy, %{
-            update_policy: :track_latest_approved,
-            capability_ceiling: candidate.approved_capabilities || []
-          })
-          |> Ash.update(actor: actor, authorize?: true)
-
-        _ ->
-          :unchanged
-      end
-    else
-      :unchanged
-    end
-  end
-
-  defp recoverable_first_party_package?(%AddonPackage{} = package) do
-    package.source_type == :first_party and package.verification_status == "verified" and
-      is_nil(package.verification_error)
-  end
-
-  defp recoverable_first_party_package?(_package), do: false
-
-  defp recovery_capability_ceiling(current, packages) do
-    packages
-    |> Enum.filter(&Eligibility.trusted_approved?/1)
-    |> Enum.filter(&(&1.addon_id == current.addon_id))
-    |> Enum.flat_map(&(&1.approved_capabilities || []))
-    |> Enum.uniq()
-  end
-
-  defp managed_profiles(actor) do
-    AddonProfile
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      enabled == true and update_policy == :track_latest_approved and
-        explicit_version_pin == false
-    )
-    |> Ash.read(actor: actor)
   end
 
   defp active_rollouts(actor) do
@@ -1470,9 +1246,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp get_rollout(id, actor), do: get_by_id(AddonRollout, id, actor)
-  defp get_assignment(id, actor), do: get_by_id(AddonAssignment, id, actor)
-  defp get_profile(id, actor), do: get_by_id(AddonProfile, id, actor)
-  defp get_package(id, actor), do: get_by_id(AddonPackage, id, actor)
 
   defp get_by_id(resource, id, actor) do
     resource
@@ -1523,36 +1296,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> Ash.update(actor: actor, authorize?: true)
   end
 
-  defp update_assignment(assignment, action, attrs, actor) do
-    assignment
-    |> Ash.Changeset.for_update(action, attrs)
-    |> Ash.update(actor: actor, authorize?: true)
-  end
+  defp clear_all_overrides(rollout, targets, actor) do
+    artifact = RolloutArtifact.implementation(rollout)
 
-  defp clear_assignment_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
-
-  defp clear_assignment_override(target, actor) do
-    with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
-      if assignment.rollout_id == target.rollout_id do
-        assignment
-        |> update_assignment(
-          :clear_rollout_override,
-          %{rollout_package_id: nil, rollout_id: nil, rollout_started_at: nil},
-          actor
-        )
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-      else
-        :ok
-      end
-    end
-  end
-
-  defp clear_all_overrides(targets, actor) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      case clear_assignment_override(target, actor) do
+      case artifact.clear_override(target, actor) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -1636,11 +1384,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     }
   end
 
-  defp same_source?(rollout, source),
-    do: rollout.source_type == source_type(source) and rollout.source_id == source.id
-
-  defp source_type(%AddonAssignment{}), do: :assignment
-  defp source_type(%AddonProfile{}), do: :profile
+  defp same_source?(rollout, source) do
+    rollout.source_type == RolloutArtifact.implementation(source).source_type(source) and
+      rollout.source_id == source.id
+  end
 
   defp increment(map, key), do: Map.update!(map, key, &(&1 + 1))
 
@@ -1700,7 +1447,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp audit(action, rollout, details) do
     AuditWriter.write_async(
       action: action,
-      resource_type: "native_addon_rollout",
+      resource_type: RolloutArtifact.implementation(rollout).audit_resource_type(),
       resource_id: rollout.id,
       resource_name: rollout.addon_id,
       details:
@@ -1718,7 +1465,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp emit(state, rollout, metadata) do
     :telemetry.execute(
-      [:serviceradar, :plugins, :addon_rollout, :transition],
+      RolloutArtifact.implementation(rollout).telemetry_event(),
       %{count: 1},
       Map.merge(
         %{
