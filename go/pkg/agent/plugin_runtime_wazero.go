@@ -442,7 +442,9 @@ func pluginLoadFailureReason(err error) string {
 	}
 }
 
-func (m *PluginManager) assignmentState(assignmentID string) *assignmentState {
+// assignmentReadiness returns the assignment's ready flag and first-seen time,
+// read under stateMu, creating the state when it is missing.
+func (m *PluginManager) assignmentReadiness(assignmentID string) (ready bool, firstSeen time.Time) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 	state := m.states[assignmentID]
@@ -450,15 +452,15 @@ func (m *PluginManager) assignmentState(assignmentID string) *assignmentState {
 		state = &assignmentState{firstSeen: m.stateNow()}
 		m.states[assignmentID] = state
 	}
-	return state
+	return state.ready, state.firstSeen
 }
 
 func (m *PluginManager) shouldSkipWarmup(assignment *pluginAssignment) bool {
-	state := m.assignmentState(assignment.AssignmentID)
-	if state.ready {
+	ready, firstSeen := m.assignmentReadiness(assignment.AssignmentID)
+	if ready {
 		return false
 	}
-	return time.Since(state.firstSeen) < pluginWarmupGrace
+	return time.Since(firstSeen) < pluginWarmupGrace
 }
 
 func assignmentStateContentHash(assignment *pluginAssignment) string {
@@ -482,7 +484,7 @@ func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
 		return
 	}
 
-	if state := m.assignmentState(assignment.AssignmentID); state.ready {
+	if ready, _ := m.assignmentReadiness(assignment.AssignmentID); ready {
 		return
 	}
 
