@@ -29,18 +29,6 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicy do
   require Ash.Query
 
   @type t :: :track_latest_approved | :pinned
-  @type source :: :migration_default | :operator
-
-  @policies [:track_latest_approved, :pinned]
-  @sources [:migration_default, :operator]
-
-  @doc "The update policies an owner may have."
-  @spec policies() :: [t()]
-  def policies, do: @policies
-
-  @doc "The recorded origins of an owner's update policy."
-  @spec sources() :: [source()]
-  def sources, do: @sources
 
   @doc """
   The update policy a new owner of `package` defaults to.
