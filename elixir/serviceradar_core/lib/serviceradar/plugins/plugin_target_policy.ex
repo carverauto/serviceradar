@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy
   alias ServiceRadar.Plugins.PluginTargetPolicyOps
 
   @mutable_fields [
@@ -24,7 +25,9 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     :timeout_seconds,
     :chunk_size,
     :max_targets,
-    :enabled
+    :enabled,
+    :update_policy,
+    :update_policy_source
   ]
 
   postgres do
@@ -59,10 +62,12 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
 
     create :create do
       accept @mutable_fields
+      change ApplyPluginUpdatePolicy
     end
 
     update :update do
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
+      change ApplyPluginUpdatePolicy
     end
 
     action :preview do
@@ -160,6 +165,26 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
       allow_nil? false
       public? true
       default true
+    end
+
+    attribute :update_policy, :atom do
+      allow_nil? false
+      public? true
+      default :pinned
+      constraints one_of: [:track_latest_approved, :pinned]
+
+      description """
+      Whether the policy follows the latest approved package of its plugin or
+      keeps its selected package; see ServiceRadar.Plugins.PluginUpdatePolicy.
+      """
+    end
+
+    attribute :update_policy_source, :atom do
+      allow_nil? false
+      public? true
+      default :operator
+      constraints one_of: [:migration_default, :operator]
+      description "Who chose update_policy; only migration_default rows are backfilled."
     end
 
     attribute :last_reconciled_at, :utc_datetime_usec do

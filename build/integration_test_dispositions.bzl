@@ -382,6 +382,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/plugins/native_addon_importer_db_test.exs": 1,
     "test/serviceradar/plugins/plugin_assignment_recovery_test.exs": 1,
     "test/serviceradar/plugins/plugin_assignment_test.exs": 1,
+    "test/serviceradar/plugins/plugin_update_policy_db_test.exs": 1,
     "test/serviceradar/plugins/policy_owned_assignment_recovery_db_test.exs": 1,
     "test/serviceradar/plugins/producer_schedule_test.exs": 1,
     "test/serviceradar/plugins/run_overrides_db_test.exs": 1,
