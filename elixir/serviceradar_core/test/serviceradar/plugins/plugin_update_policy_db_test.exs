@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -100,8 +101,13 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
     current = approved_package!(ctx, "policy-owned", :trusted, version: "1.0.0")
     newer = approved_package!(ctx, "policy-owned", :trusted, version: "1.1.0", plugin?: false)
 
+    # Only a trusted system process may write policy-owned rows, as the real
+    # reconcilers do.
+    reconciler = SystemActor.system(:plugin_update_policy_db_test)
+
     assignment =
       manual_assignment!(ctx, current,
+        actor: reconciler,
         source: :policy,
         policy_id: "plugin-target-policy:#{ctx.unique}",
         source_key: "update-policy-#{ctx.unique}"
@@ -110,10 +116,11 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
     mark_migration_default!("plugin_assignments", assignment.id, "pinned")
 
     assert %{update_policy: :pinned, update_policy_source: :migration_default} =
-             update!(reload(PluginAssignment, assignment.id), %{
-               source: :policy,
-               plugin_package_id: newer.id
-             })
+             update!(
+               reload(PluginAssignment, assignment.id),
+               %{source: :policy, plugin_package_id: newer.id},
+               reconciler
+             )
   end
 
   test "the backfill converts only first-party owners still on the migration default", ctx do
@@ -224,6 +231,7 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
 
   defp manual_assignment!(ctx, package, opts \\ []) do
     {agent_suffix, opts} = Keyword.pop(opts, :agent_suffix)
+    {actor, opts} = Keyword.pop(opts, :actor, admin())
 
     agent_uid =
       if agent_suffix do
@@ -238,7 +246,7 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
     |> Ash.Changeset.for_create(
       :create,
       Map.merge(%{agent_uid: agent_uid, plugin_package_id: package.id}, Map.new(opts)),
-      actor: admin()
+      actor: actor
     )
     |> Ash.create!()
   end
@@ -259,9 +267,9 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
     |> Ash.create!()
   end
 
-  defp update!(record, attrs) do
+  defp update!(record, attrs, actor \\ admin()) do
     record
-    |> Ash.Changeset.for_update(:update, attrs, actor: admin())
+    |> Ash.Changeset.for_update(:update, attrs, actor: actor)
     |> Ash.update!()
   end
 
