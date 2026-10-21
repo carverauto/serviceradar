@@ -102,6 +102,30 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
            }
 
     refute inspect(safe) =~ secret
+
+    auth_failed =
+      AutomationResultSanitizer.sanitize(%{
+        command_id: @command_id,
+        command_type: "awx.ping",
+        agent_id: @agent_id,
+        partition_id: @partition_id,
+        success: false,
+        message: secret,
+        failure_reason: {:http_error, secret},
+        payload: %{
+          "verb" => "awx.ping",
+          "ok" => false,
+          "status" => "auth_failed",
+          "version" => "23.5.1",
+          "active_node" => "awx-1",
+          "error" => "AWX request failed: HTTP 401"
+        }
+      })
+
+    assert auth_failed.success == false
+    assert auth_failed.payload["status"] == "auth_failed"
+    assert auth_failed.payload["version"] == "23.5.1"
+    refute inspect(auth_failed) =~ secret
   end
 
   test "malformed successful results collapse to a fixed failure" do

@@ -2367,14 +2367,18 @@ func deleteJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
 	return resp, nil
 }
 
-// runPing handles `awx.ping` verb: GET /api/v2/ping/.
+// runPing handles `awx.ping` verb: GET /api/v2/ping/ followed by an
+// authenticated read-only GET /api/v2/me/.
 //
-// Result.Status reflects controller reachability for the plugin tile UI;
-// Result.Details carries the structured payload AwxClient parses on the
-// Elixir side.
+// Result.Status reflects controller reachability and credential validity for
+// the plugin tile UI; Result.Details carries the structured payload AwxClient
+// and EventIngestor parse on the Elixir side.
 func runPing(cfg Config) *sdk.Result {
 	resp, err := getJSON(cfg, "/api/v2/ping/")
 	if err != nil {
+		if isAWXAuthFailure(err) {
+			return authFailedPingResult(err, "", "")
+		}
 		return errorResult("awx.ping", err)
 	}
 
@@ -2387,6 +2391,13 @@ func runPing(cfg Config) *sdk.Result {
 	if !versionOK || !safeStaticText(version, 64) ||
 		!activeNodeOK || !safeStaticText(activeNode, 255) {
 		return errorResult("awx.ping", fmt.Errorf("AWX returned an invalid ping response"))
+	}
+
+	if _, err := getJSON(cfg, "/api/v2/me/"); err != nil {
+		if isAWXAuthFailure(err) {
+			return authFailedPingResult(err, version, activeNode)
+		}
+		return errorResult("awx.ping", err)
 	}
 
 	payload := map[string]any{
@@ -2404,6 +2415,39 @@ func runPing(cfg Config) *sdk.Result {
 		WithLabel("verb", "awx.ping")
 	result.WithLabel("awx_version", version)
 	result.WithLabel("active_node", activeNode)
+	return result
+}
+
+func isAWXAuthFailure(err error) bool {
+	statusErr, ok := err.(awxHTTPStatusError)
+	return ok && (int(statusErr) == http.StatusUnauthorized || int(statusErr) == http.StatusForbidden)
+}
+
+func authFailedPingResult(err error, version, activeNode string) *sdk.Result {
+	msg := sanitizeError(err)
+	payload := map[string]any{
+		"verb":   "awx.ping",
+		"ok":     false,
+		"status": "auth_failed",
+		"error":  msg,
+	}
+	if version != "" {
+		payload["version"] = version
+	}
+	if activeNode != "" {
+		payload["active_node"] = activeNode
+	}
+	body, _ := json.Marshal(payload)
+	result := sdk.Critical("awx.ping: "+msg).
+		WithDetails(string(body)).
+		WithLabel("verb", "awx.ping").
+		WithLabel("status", "auth_failed")
+	if version != "" {
+		result.WithLabel("awx_version", version)
+	}
+	if activeNode != "" {
+		result.WithLabel("active_node", activeNode)
+	}
 	return result
 }
 

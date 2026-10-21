@@ -463,6 +463,39 @@ func TestParseAWXPluginResultMapsCriticalToFailure(t *testing.T) {
 	}
 }
 
+func TestParseAWXPluginResultPreservesAuthFailedPingDetails(t *testing.T) {
+	t.Parallel()
+
+	resultBytes := []byte(`{
+		"status": "CRITICAL",
+		"summary": "awx.ping: AWX request failed: HTTP 401",
+		"details": "{\"verb\":\"awx.ping\",\"ok\":false,\"status\":\"auth_failed\",\"version\":\"23.5.1\",\"active_node\":\"awx-1\",\"error\":\"AWX request failed: HTTP 401\",\"secret\":\"Bearer must-not-survive\"}"
+	}`)
+
+	success, message, payload := parseAWXPluginResult(resultBytes, "awx.ping")
+	if success {
+		t.Fatal("success = true, want false for CRITICAL plugin status")
+	}
+	if message != "awx command failed" {
+		t.Fatalf("message = %q", message)
+	}
+	if got := payload["status"]; got != "auth_failed" {
+		t.Fatalf("payload.status = %v, want auth_failed", got)
+	}
+	if got := payload["version"]; got != "23.5.1" {
+		t.Fatalf("payload.version = %v, want 23.5.1", got)
+	}
+	if got := payload["active_node"]; got != "awx-1" {
+		t.Fatalf("payload.active_node = %v, want awx-1", got)
+	}
+	if got := payload["error"]; got != "AWX request failed: HTTP 401" {
+		t.Fatalf("payload.error = %v, want AWX request failed: HTTP 401", got)
+	}
+	if _, exists := payload["secret"]; exists {
+		t.Fatalf("payload retained unexpected field: %#v", payload)
+	}
+}
+
 func TestParseAWXPluginResultRejectsNonJSONDetailsWithoutRetainingThem(t *testing.T) {
 	t.Parallel()
 

@@ -125,6 +125,36 @@ func TestAWXInventorySyncReportsRequestFailureClass(t *testing.T) {
 	}
 }
 
+func TestAWXPingReportsAuthFailedWhenMeReturnsUnauthorized(t *testing.T) {
+	wasm := loadBuiltWasm(t, "awx.wasm")
+	config := map[string]any{
+		"verb":      "awx.ping",
+		"base_url":  "https://controller.example.com",
+		"api_token": "synthetic-placeholder",
+	}
+	responses := map[string]any{
+		"/api/v2/ping/": map[string]any{
+			"version":     "23.5.1",
+			"active_node": "awx-1",
+		},
+		"/api/v2/me/": awxStatus(http.StatusUnauthorized),
+	}
+	result, calls := runAWXWasm(t, wasm, config, responses)
+	if result["status"] != "CRITICAL" || calls != 2 {
+		t.Fatalf("status=%v calls=%d; want CRITICAL/2; summary=%v", result["status"], calls, result["summary"])
+	}
+	if result["summary"] != "awx.ping: AWX request failed: HTTP 401" {
+		t.Fatalf("summary=%v; want awx.ping: AWX request failed: HTTP 401", result["summary"])
+	}
+	var details map[string]any
+	if err := json.Unmarshal([]byte(result["details"].(string)), &details); err != nil {
+		t.Fatal(err)
+	}
+	if details["ok"] != false || details["status"] != "auth_failed" || details["version"] != "23.5.1" || details["active_node"] != "awx-1" {
+		t.Fatalf("details=%v; want ok=false status=auth_failed version=23.5.1 active_node=awx-1", details)
+	}
+}
+
 func awxRuntimeConfig(generation string) map[string]any {
 	controller := "11111111-1111-4111-8111-111111111111"
 	return map[string]any{"verb": "awx.fetch_launch_preflight", "base_url": "https://controller.example.com", "api_token": "synthetic-placeholder", "args": map[string]any{

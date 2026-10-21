@@ -1553,6 +1553,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp health_badge_variant(:ok), do: "success"
   defp health_badge_variant(:degraded), do: "warning"
   defp health_badge_variant(:unreachable), do: "error"
+  defp health_badge_variant(:auth_failed), do: "error"
   defp health_badge_variant(:unauthorized), do: "error"
   defp health_badge_variant(_), do: "ghost"
 

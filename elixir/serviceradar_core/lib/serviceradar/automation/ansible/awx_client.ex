@@ -814,7 +814,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp allowed_methods_for(_verb), do: []
 
   defp allowed_paths_for("awx.ping", args) do
-    if empty_args?(args), do: ["=/api/v2/ping/"], else: []
+    if empty_args?(args), do: ["=/api/v2/ping/", "=/api/v2/me/"], else: []
   end
 
   defp allowed_paths_for("awx.list_inventories", args) do
