@@ -232,6 +232,11 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     end)
   end
 
+  # Called from the owner's own action, which already holds the owner row, so
+  # the assignment rows are locked after it like everywhere else. `FOR UPDATE`
+  # re-checks the filter on rows that changed while it waited: an assignment a
+  # reconcile has just handed to another owner no longer matches and is left
+  # to that owner.
   defp enabled_owned_assignments(kind, owner_id) do
     actor = system_actor()
 
@@ -239,6 +244,8 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(source == :policy and enabled == true)
     |> filter_owner(kind, to_string(owner_id))
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock("FOR UPDATE")
     |> Ash.read(actor: actor)
   end
 
