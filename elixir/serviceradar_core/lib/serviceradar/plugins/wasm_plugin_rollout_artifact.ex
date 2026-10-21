@@ -93,6 +93,12 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   @evidence_rows_per_target 20
   @agent_clock_skew_seconds 3_600
 
+  # How far from its observation's timestamp the ingestor writes a downstream
+  # ingest marker, with room to spare.
+  @downstream_marker_window_seconds 1
+
+  @reported_marker_key "_serviceradar_plugin_result"
+
   @impl true
   def artifact_kind, do: :wasm_plugin
 
@@ -466,31 +472,16 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
         end
       end)
 
-    if scopes == [] do
-      {:ok, %{}}
-    else
-      {ids, agents, sinces} = unzip3(scopes)
-      since_by_id = Map.new(scopes, fn {id, _agent, since} -> {id, since} end)
-
-      case Repo.query(stamped_results_sql(), [
-             ids,
-             agents,
-             sinces,
-             @agent_clock_skew_seconds,
-             @evidence_rows_per_target
-           ]) do
-        {:ok, %{rows: rows}} ->
-          {:ok,
-           rows
-           |> Enum.flat_map(&stamped_row/1)
-           |> Enum.group_by(fn {id, _row} -> id end, fn {_id, row} -> row end)
-           |> Map.new(fn {id, id_rows} ->
-             {id, observations(id_rows, Map.fetch!(since_by_id, id))}
-           end)}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+    with {:ok, reported} <- reported_observations(scopes),
+         {:ok, failed} <- failed_downstream(reported) do
+      {:ok,
+       reported
+       |> Enum.map(fn {id, _agent, result} ->
+         if MapSet.member?(failed, {id, result.observation_key}),
+           do: {id, %{result | outcome: :failed}},
+           else: {id, result}
+       end)
+       |> Enum.group_by(fn {id, _result} -> id end, fn {_id, result} -> result end)}
     end
   end
 
@@ -499,15 +490,31 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   defp evidence_since(target), do: target.override_applied_at
 
-  # A downstream-ingest row is written with its observation's timestamp, not its
-  # receive time, so rows are scanned by the agent-reported timestamp, which
-  # keeps an observation's rows together, and freshness is decided per
-  # observation from its reported row. The assignment id must appear in a row's
-  # details for its provenance to name it, which keeps the rows to the target's
-  # own results.
-  defp stamped_results_sql do
+  defp reported_observations([]), do: {:ok, []}
+
+  defp reported_observations(scopes) do
+    {ids, agents, sinces} = unzip3(scopes)
+
+    case Repo.query(reported_observations_sql(), [
+           ids,
+           agents,
+           sinces,
+           @agent_clock_skew_seconds,
+           @evidence_rows_per_target
+         ]) do
+      {:ok, %{rows: rows}} -> {:ok, Enum.flat_map(rows, &reported_observation/1)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Each reported row is one observation. Freshness, order and the limit are the
+  # server's receive time (created_at), comparable with the override time; the
+  # agent-reported timestamp only narrows the index scan. The assignment id must
+  # appear in a row's details for its provenance to name it, which keeps the
+  # rows to the target's own results.
+  defp reported_observations_sql do
     """
-    SELECT scope.assignment_id, status.created_at, status."timestamp", status.details
+    SELECT scope.assignment_id, scope.agent_id, status.created_at, status."timestamp", status.details
     FROM unnest($1::text[], $2::text[], $3::timestamptz[]) AS scope(assignment_id, agent_id, since)
     CROSS JOIN LATERAL (
       SELECT result.created_at, result."timestamp", result.details
@@ -515,54 +522,92 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       WHERE result.service_type = 'plugin'
         AND result.agent_id = scope.agent_id
         AND result."timestamp" >= scope.since - make_interval(secs => $4)
+        AND result.created_at >= scope.since
         AND strpos(result.details, scope.assignment_id) > 0
-      ORDER BY result."timestamp" DESC, result.created_at DESC
+        AND strpos(result.details, '"#{@reported_marker_key}"') > 0
+      ORDER BY result.created_at DESC
       LIMIT $5
     ) AS status
     """
   end
 
-  defp stamped_row([assignment_id, received_at, observed_at, details]) do
+  defp reported_observation([assignment_id, agent_id, received_at, observed_at, details]) do
     decoded = decode(details)
 
-    case PluginResultProvenance.from_details(decoded) do
-      %{"assignment_id" => ^assignment_id} = provenance ->
-        [{assignment_id, stamped_kind(decoded, provenance, received_at, observed_at)}]
+    case {PluginResultProvenance.from_details(decoded), Map.get(decoded, @reported_marker_key)} do
+      {%{"assignment_id" => ^assignment_id} = provenance, %{} = marker} ->
+        [
+          {assignment_id, agent_id,
+           %{
+             received_at: received_at,
+             observed_at: observed_at,
+             observation_key: observation_key(marker),
+             package_id: provenance["plugin_package_id"],
+             content_hash: provenance["content_hash"],
+             outcome: outcome(decoded)
+           }}
+        ]
 
       _unstamped_or_another_assignment ->
         []
     end
   end
 
-  defp stamped_kind(%{"downstream_ingest" => ingest}, _provenance, _received_at, _observed_at)
-       when is_map(ingest) do
-    {:downstream, observation_key(ingest), Map.get(ingest, "status")}
-  end
+  # The {assignment, observation} pairs among `reported` whose downstream ingest
+  # failed. The ingestor writes a downstream marker just after its observation's
+  # timestamp and names the observation's timestamp and payload digest.
+  defp failed_downstream(reported) do
+    keyed =
+      for {id, agent, %{observation_key: {_observed, digest}} = result} <- reported,
+          do: {id, agent, result.observed_at, digest}
 
-  defp stamped_kind(decoded, provenance, received_at, observed_at) do
-    {:reported, observation_key(Map.get(decoded, "_serviceradar_plugin_result")),
-     %{
-       received_at: received_at,
-       observed_at: observed_at,
-       package_id: provenance["plugin_package_id"],
-       content_hash: provenance["content_hash"],
-       outcome: outcome(decoded)
-     }}
-  end
+    if keyed == [] do
+      {:ok, MapSet.new()}
+    else
+      {ids, agents, observed, digests} = unzip4(keyed)
 
-  # Each reported row received since `since` is one observation; a downstream
-  # ingest that failed for it fails it.
-  defp observations(rows, since) do
-    failed_keys =
-      for {:downstream, key, "failed"} <- rows, not is_nil(key), into: MapSet.new(), do: key
+      case Repo.query(failed_downstream_sql(), [
+             ids,
+             agents,
+             observed,
+             digests,
+             @downstream_marker_window_seconds
+           ]) do
+        {:ok, %{rows: rows}} ->
+          {:ok, rows |> Enum.flat_map(&failed_downstream_key/1) |> MapSet.new()}
 
-    observations =
-      for {:reported, key, result} <- rows,
-          DateTime.compare(result.received_at, since) != :lt do
-        if MapSet.member?(failed_keys, key), do: %{result | outcome: :failed}, else: result
+        {:error, reason} ->
+          {:error, reason}
       end
+    end
+  end
 
-    Enum.sort_by(observations, & &1.received_at, {:desc, DateTime})
+  defp failed_downstream_sql do
+    """
+    SELECT scope.assignment_id, result.details
+    FROM unnest($1::text[], $2::text[], $3::timestamptz[], $4::text[])
+      AS scope(assignment_id, agent_id, observed_at, payload_digest)
+    JOIN platform.service_status AS result
+      ON result.service_type = 'plugin'
+     AND result.agent_id = scope.agent_id
+     AND result."timestamp" >= scope.observed_at - make_interval(secs => $5)
+     AND result."timestamp" <= scope.observed_at + make_interval(secs => $5)
+     AND strpos(result.details, scope.assignment_id) > 0
+     AND strpos(result.details, scope.payload_digest) > 0
+     AND strpos(result.details, '"downstream_ingest"') > 0
+    """
+  end
+
+  defp failed_downstream_key([assignment_id, details]) do
+    decoded = decode(details)
+
+    with %{"assignment_id" => ^assignment_id} <- PluginResultProvenance.from_details(decoded),
+         %{"downstream_ingest" => %{"status" => "failed"} = ingest} <- decoded,
+         {_observed, _digest} = key <- observation_key(ingest) do
+      [{assignment_id, key}]
+    else
+      _ -> []
+    end
   end
 
   defp observation_key(%{"observation_timestamp" => observed, "payload_digest" => digest})
@@ -659,6 +704,11 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   defp unzip3(triples) do
     {Enum.map(triples, &elem(&1, 0)), Enum.map(triples, &elem(&1, 1)),
      Enum.map(triples, &elem(&1, 2))}
+  end
+
+  defp unzip4(quads) do
+    {Enum.map(quads, &elem(&1, 0)), Enum.map(quads, &elem(&1, 1)), Enum.map(quads, &elem(&1, 2)),
+     Enum.map(quads, &elem(&1, 3))}
   end
 
   defp get_by_id(resource, id, actor) do
