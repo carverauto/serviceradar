@@ -164,6 +164,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   """
   @spec reconcile_timescale_tables(keyword()) :: :ok
   def reconcile_timescale_tables(config) do
+    reconcile_cagg_refresh_windows(config)
+
     Enum.each(
       [
         {"otel_traces", :otel_traces_retention_days, @default_otel_traces_retention_days,
@@ -212,8 +214,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         drop_expired_chunks(table_name, retention_days)
       end
     )
-
-    reconcile_cagg_refresh_windows(config)
   end
 
   defp alert_on_undrained_cold_tier do
@@ -439,8 +439,10 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   end
 
   @doc """
-  Reconcile continuous-aggregate refresh windows (`start_offset`) so every
-  rollup stays strictly inside its raw source table's retention window.
+  Narrow continuous-aggregate refresh windows (`start_offset`) so every rollup
+  stays strictly inside its raw source table's retention window. A window that
+  is already narrower is kept. Raises on failure so raw retention is never
+  lowered while a wider refresh window is still registered.
   """
   @spec reconcile_cagg_refresh_windows(keyword()) :: :ok
   def reconcile_cagg_refresh_windows(config \\ []) do
@@ -450,10 +452,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
                                                       end_offset: end_offset,
                                                       schedule_interval: schedule_interval
                                                     } ->
-      run_rollup_sql(
-        view,
-        :refresh_policy,
-        cagg_refresh_policy_sql(view, start_offset, end_offset, schedule_interval)
+      SQL.query!(
+        Repo,
+        cagg_refresh_policy_sql(view, start_offset, end_offset, schedule_interval),
+        [],
+        timeout: @query_timeout_ms
       )
     end)
   end
@@ -542,7 +545,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         AND ca.view_name = '#{view}'
       LIMIT 1;
 
-      IF current_start IS DISTINCT FROM target_start THEN
+      IF current_start IS NULL OR target_start < current_start THEN
         EXECUTE format(
           'SELECT %I.remove_continuous_aggregate_policy(%L::regclass, if_exists => true)',
           ts_schema,
