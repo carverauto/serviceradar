@@ -356,7 +356,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   A nil or empty query, an unparseable query, and an uncastable filter
   return `{:ok, []}`. A failed read returns
-  `{:error, {:target_query_failed, reason}}`.
+  `{:error, {:target_query_failed, reason}}`, and a call made before
+  `ServiceRadar.Repo` has started returns `{:error, :repo_unavailable}`.
   """
   @spec execute_target_query(String.t() | nil, map()) ::
           {:ok, [Device.t()]} | {:error, term()}
