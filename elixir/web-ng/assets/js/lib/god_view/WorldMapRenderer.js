@@ -5,7 +5,7 @@ import GodViewRenderer from "../GodViewRenderer"
 import {GOD_VIEW_DEVICE_PROPS, createTopologyLabelMeasureText} from "./lifecycle_dom_setup_methods"
 import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
-import {WorldTileCache} from "./world_tile_cache"
+import {WorldTileCache, tileId} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
 import {WorldMembership} from "./world_membership"
 import {WorldFilterPanel} from "./world_filter_panel"
@@ -96,6 +96,8 @@ export default class WorldMapRenderer {
     })
     this.getTileData = ({index, signal}) => this.cache.get(index, {signal})
     this.onViewportLoad = tiles => this.viewportLoaded(tiles)
+    this.onTileSelection = tiles => this.membership.holdView(tiles.length === this.cache.visible.size &&
+      tiles.every(tile => this.cache.visible.has(tileId(tile.index))))
     this.onTileError = error => {
       if (error.name !== "AbortError") {this.retryTiles = true; this.status(error.message)}
     }
@@ -630,7 +632,7 @@ export default class WorldMapRenderer {
       membershipEnabled: membershipApplied || membershipBlocked,
       membershipPending: (membershipApplied && this.membership.pending && this.membership.entries.size === 0) || membershipBlocked,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
-      onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
+      onViewportLoad: this.onViewportLoad, onTileSelection: this.onTileSelection, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
   }
 

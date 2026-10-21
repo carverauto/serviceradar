@@ -141,6 +141,11 @@ function flowFrame(geometry, overlay, membership) {
 export default class WorldTileLayer extends TileLayer {
   updateState(params) {
     super.updateState(params)
+    const selected = this.state.tileset.selectedTiles
+    if (selected && (selected.length !== this.state.selectedTiles?.length || selected.some((tile, index) => tile !== this.state.selectedTiles[index]))) {
+      this.state.selectedTiles = [...selected]
+      this.props.onTileSelection?.(selected)
+    }
     // Filtered fallback geometry can stay visible while an already-cached
     // selection changes. Membership still needs the new viewport receipts.
     if (this.state.tileset.isLoaded) this._onViewportLoad()

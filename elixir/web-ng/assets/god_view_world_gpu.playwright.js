@@ -156,6 +156,41 @@ test("retained filtered geometry expires 10s after a stalled pan despite further
   await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
 })
 
+test("retained filtered geometry expires 10s after an uncached zoom whose geometry is still loading", async ({page}) => {
+  test.setTimeout(90000)
+  await openFilteredCapture(page)
+  await holdMembershipFrames(page)
+  // Holds every finer tile response; the cache's own 15s abort is later.
+  await page.evaluate(() => {
+    const harness = window.__SR_BITMAP_GPU__, fetch = window.fetch
+    harness.heldTiles = []
+    window.fetch = (input, options) => /^\/topology\/tiles\/[^/]+\/3\//.test(new URL(input, location.href).pathname) ?
+      new Promise(resolve => harness.heldTiles.push(() => resolve(fetch(input, options)))) : fetch(input, options)
+    harness.releaseTiles = () => {
+      window.fetch = fetch
+      for (const release of harness.heldTiles.splice(0)) release()
+    }
+  })
+  const started = Date.now()
+  await setView(page, {target: [192, 192, 0], zoom: 3})
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.heldTiles.length > 0)
+  await completedBitmapFrame(page)
+  expect(await pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
+  await setView(page, {target: [200, 200, 0], zoom: 3})
+  await expect.poll(() => page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.entries.size),
+    {timeout: Math.max(0, started + 12500 - Date.now()), intervals: [100]}).toBe(0)
+  expect(Date.now() - started).toBeLessThan(12500)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.heldTiles.length)).toBeGreaterThan(0)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toBeNull()
+  await page.evaluate(() => {window.__SR_BITMAP_GPU__.releaseTiles(); window.__SR_BITMAP_GPU__.releaseFrames()})
+  await membershipSettled(page)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 3})
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+})
+
 test("binary overlays survive refinement, reconnect and device teardown", async ({page}) => {
   await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
   await page.goto("http://localhost:4774/?bitmap=1")

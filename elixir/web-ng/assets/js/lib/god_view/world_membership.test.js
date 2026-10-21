@@ -277,6 +277,30 @@ describe("binary admitted-row membership", () => {
     } finally {state.clear(); vi.useRealTimers()}
   })
 
+  it("expires retained rows while replacement geometry loads unless the displayed view is selected again", () => {
+    vi.useFakeTimers()
+    const state = session()
+    try {
+      state.receive(bitmapFrame({tiles: [tile]}))
+      state.holdView(false)
+      vi.advanceTimersByTime(9000)
+      state.beginView()
+      vi.advanceTimersByTime(1000)
+      expect(state.entries.size).toBe(0)
+      expect(state.onReset).toHaveBeenCalledWith("Membership view timed out", undefined)
+      state.bind(bitmapBinding, [geometry])
+      state.receive(bitmapFrame({tiles: [tile]}))
+      state.holdView(false)
+      state.holdView(true)
+      vi.advanceTimersByTime(10000)
+      expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
+      state.beginView()
+      state.holdView(true)
+      vi.advanceTimersByTime(10000)
+      expect(state.entries.size).toBe(0)
+    } finally {state.clear(); vi.useRealTimers()}
+  })
+
   it.each(["aggregate", "boundary"])("rejects an oversized %s population before publishing any rows", kind => {
     const state = session()
     const nodes = [geometry.nodes[0], {kind, count: kind === "aggregate" ? 2 : 0}]
