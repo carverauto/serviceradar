@@ -96,19 +96,11 @@ config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
   repo: ServiceRadar.Repo,
   prefix: "platform",
-  # Keep :integrations runtime-only. Config deep-merges queue keywords, so a
-  # compile-time default would survive WEB_NG_OBAN_QUEUE_INTEGRATIONS=0.
-  queues: [
-    default: 10,
-    # AshOban queues
-    alerts: 5,
-    service_checks: 10,
-    notifications: 5,
-    onboarding: 3,
-    events: 10,
-    sweeps: 20,
-    edge: 10
-  ],
+  # No compile-time queues. config/runtime.exs builds the queue list from the
+  # WEB_NG_OBAN_QUEUE_* limits and leaves out every queue set to 0. Config
+  # deep-merges queue keywords, so any queue declared here would survive a 0
+  # limit: web-ng would keep working alerts and notifications jobs whose
+  # publishes its NATS identity is denied. test.exs sets `queues: false`.
   plugins: [
     # Keep jobs for 7 days
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
