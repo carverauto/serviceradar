@@ -26,14 +26,15 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar
 
 - **Distributed Architecture**: Multi-component design (Agent, Gateway, Core) for flexible edge deployments.
 - **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
-- **Topology**: GPU-native topology overview. Bounded world tiles use [deck.gl](https://deck.gl/) and [Apache Arrow](https://arrow.apache.org/); bounded scenes use a WASM logic layer. See [Network Topology](./docs/docs/network-topology.md).
+- **ServiceRadar Atlas**: GPU-native topology map of the whole estate. World tiles render with [deck.gl](https://deck.gl/) and [Apache Arrow](https://arrow.apache.org/), bounded scenes use a WASM logic layer, and a server-side [roaring bitmap](https://github.com/RoaringBitmap/roaring) index filters the map by inventory attributes. See [Network Topology](./docs/docs/network-topology.md).
 - **Custom React Dashboards**: Build powerful, data-driven dashboards with the [Dashboard SDK](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk). Dashboards run inside ServiceRadar, receive SRQL-backed data frames, and can be developed locally with hot module reloading before publishing.
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **Anomaly Engine**: Anomaly Engine scores numeric time series at the edge (robust median/MAD spikes plus CUSUM drift) and in core (seasonal hour-of-week baselines, episode lifecycle, severity, and capacity runway). Findings are episode-bounded—open/update/clear with cooldowns and storm shedding—so operators get durable alerts instead of noisy per-sample alarms.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
-- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and PGVector for relational, time-series, and vector data, with Dgraph as the topology graph store (Apache AGE still runs beside it during the rollout). See [docs/network-topology.md](./docs/docs/network-topology.md).
+- **Unified Data Layer**: CloudNativePG (PostgreSQL with TimescaleDB and pgvector) holds inventory, configuration and current state, and [Dgraph](https://dgraph.io/) is the topology graph store behind ServiceRadar Atlas. See [docs/network-topology.md](./docs/docs/network-topology.md).
+- **StarRocks Telemetry Warehouse**: an optional [StarRocks](https://www.starrocks.io/) warehouse becomes the system of record for flows, metrics, logs, events, OTel metrics and traces, MTR and BMP. Retention is set per dataset in the UI and defaults to one year. Run it shared-nothing on local disks, or shared-data, where tables live in S3-compatible object storage as a data lake and compute nodes cache hot data, so storage grows without adding compute. NetFlow and process-to-flow attribution require it; without it, telemetry is stored in CloudNativePG.
 - **Monitoring**: Monitor endpoints with ICMP/TCP checks, create composite service checks from multiple vantage points by deploying serviceradar-agent in edge/segmented networks.
-- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
+- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and NetFlow/IPFIX ([netflow_parser](https://github.com/mikemiles-dev/netflow_parser)). Telemetry goes through NATS JetStream before it is stored, so real-time consumers such as anomaly detection see it as it arrives.
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
 - **Notifications**: Notifications turn an alert into a page through routes, escalation policies, and channels (Slack, Discord, email, webhooks, plus declarative and Wasm providers). Every attempt—including silences and withheld sends—is written to the Delivery Log, with retry, failover, and escalation kept as three separate knobs.
 - **Ansible Automation**: Run AWX/AAP playbooks against devices in the inventory with live per-host run telemetry, projected to OCSF for the universal log viewer. AWX-sourced and git-sourced playbook catalogs coexist; cron-driven schedules ride the same launch pipeline. See [docs/ansible.md](./docs/docs/ansible.md).
@@ -134,6 +135,24 @@ kubectl get secret serviceradar-secrets -n serviceradar \
     -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
+To store telemetry in StarRocks, deploy a StarRocks cluster with the [StarRocks Kubernetes operator](https://github.com/StarRocks/starrocks-kubernetes-operator) (the profiles ServiceRadar is tested with are in [k8s/starrocks/](k8s/starrocks/)), then point the chart at its frontend in `my-values.yaml`. The shared-data profile keeps the tables in an S3-compatible bucket, and the chart creates the StarRocks storage volume for it; the Secret holds `access_key_id` and `secret_access_key`. Either profile also needs `catalog.fePasswordSecretName`: a Secret in the ServiceRadar release namespace whose `password` key holds the StarRocks Frontend root password, the same value as the StarRocks operator's `initPassword` Secret (see [Frontend root password](k8s/starrocks/README.md#frontend-root-password)):
+
+```yaml
+analytics:
+  starrocks:
+    enabled: true
+    profile: sharedData          # or sharedNothing for local disks
+    fe:
+      service: starrocks-fe-service.starrocks.svc
+    catalog:
+      fePasswordSecretName: starrocks-fe-root-password
+    sharedData:
+      objectStorageBucket: serviceradar-warehouse
+      objectStorageEndpoint: https://s3.example.com
+      objectStorageRegion: us-east-1
+      secretName: starrocks-object-store
+```
+
 Note: the chart and its images are published together and pull anonymously. If you leave `global.imageTag` empty (the default), every first-party image except `serviceradar-cnpg` (pinned by digest) uses the chart's own version, so `--version` alone selects matching images; if you set it, it must be `v<chart-version>`. Only the staging/dev example uses `latest`, with `global.imagePullPolicy=Always` to pick up new pushes on restart.
 
 ## Verifying Published Images
@@ -211,10 +230,11 @@ The chart version selects matching images, so the Application needs no `global.i
 
 1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection.
 2. **Agent-Gateway**: Ingestion point that receives gRPC streams from edge agents.
-3. **Core (core-elx)**: Control plane (Elixir/Phoenix/Ash) for orchestration, ERTS, and job scheduling (Oban).
-4. **Web UI (web-ng)**: Real-time LiveView dashboard and APIs for configuration and visualization.
+3. **Core (core-elx)**: Control plane (Elixir/Phoenix/Ash) for orchestration, ERTS, and job scheduling (Oban). Its EventWriter consumes the JetStream telemetry streams and writes them to StarRocks, or to CloudNativePG when the warehouse is off.
+4. **Web UI (web-ng)**: Real-time LiveView dashboard, ServiceRadar Atlas, and APIs for configuration and visualization.
 5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) message broker for bulk ingestion streams.
 6. **Collectors**: Collect bulk data (netflow, logs, SNMP, etc.).
+7. **Storage**: CloudNativePG for inventory and current state, Dgraph for the topology graph, and the optional StarRocks warehouse (local disks or S3-backed) for telemetry.
 
 ## Documentation
 
