@@ -1,8 +1,9 @@
 name: rust-check
 
 # Cargo-side Rust gates: clippy over the workspace, and RustSec advisories for every
-# Cargo.lock in the repository (scripts/ci/rustsec-audit.sh). Both live here because they share a runner shape (rustup +
-# Socket Firewall) and neither has a Bazel equivalent. Clippy also caches the crates.io
+# Cargo.lock in the repository (scripts/ci/rustsec-audit.sh). Both live here because they
+# share a runner shape (rustup; Socket Firewall for clippy only, see the audit job) and
+# neither has a Bazel equivalent. Clippy also caches the crates.io
 # registry; the audit job installs a pinned cargo-audit binary and does not compile
 # from crates.io.
 #
