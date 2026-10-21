@@ -12,8 +12,8 @@ import unittest
 from build.ci.select_integration_actions import ACTIONS, CORE_TARGETS, WEB_NG_TARGETS, decide, source_label
 
 
-def completed(returncode: int, stdout: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=["bazel"], returncode=returncode, stdout=stdout, stderr="")
+def completed(returncode: int, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=["bazel"], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 # An invented graph: each action's test targets and what every target depends on.
@@ -61,8 +61,11 @@ class GraphQuery:
             if self.fail == "existence":
                 return completed(7)
             labels = expression[len("set("):-1].split()
+            if self.fail == "loading":
+                return completed(3, "", "ERROR: error loading package 'go': BUILD file syntax error\n")
             present = [label for label in labels if label in KNOWN]
-            return completed(0 if len(present) == len(labels) else 3, "\n".join(present))
+            missing = "".join(f"ERROR: no such target '{label}'\n" for label in labels if label not in KNOWN)
+            return completed(0 if not missing else 3, "\n".join(present), missing)
         match = AFFECTED_QUERY.match(expression)
         if self.fail == "affected" or not match or match["targets"] not in ACTION_TESTS:
             return completed(7)
@@ -141,7 +144,7 @@ class SelectIntegrationActionsTest(unittest.TestCase):
                 self.assertEqual([], query.calls)
 
     def test_query_failures_run_the_action(self):
-        for failure in ("existence", "affected"):
+        for failure in ("existence", "loading", "affected"):
             with self.subTest(failure=failure):
                 self.assertEqual(
                     {"core": True, "web_ng": True},

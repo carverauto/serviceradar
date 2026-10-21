@@ -139,15 +139,25 @@ def bazel_query(args: Sequence[str]) -> subprocess.CompletedProcess:
 
 
 def existing_labels(labels: Iterable[str], query: QueryRunner) -> list[str] | None:
-    """Labels Bazel knows as targets. Unreferenced files are not targets and drop out."""
+    """Labels Bazel knows as targets. Unreferenced files are not targets and drop out.
+
+    Exit 0 resolves every label. Exit 3 is accepted only when Bazel reports
+    "no such target" for every label missing from the output; any other error
+    returns None so the action runs in full.
+    """
     labels = sorted(set(labels))
     if not labels:
         return []
     result = query(["--keep_going", "set({})".format(" ".join(labels))])
-    # 3 = partial success: some labels named no target, which is expected.
     if result.returncode not in (0, 3):
         return None
-    return sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
+    known = sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
+    if result.returncode == 3:
+        missing = set(labels) - set(known)
+        stderr = result.stderr or ""
+        if not missing or any(f"no such target '{label}'" not in stderr for label in missing):
+            return None
+    return known
 
 
 def affected_targets(action: str, labels: Sequence[str], query: QueryRunner) -> list[str] | None:
