@@ -145,7 +145,7 @@ fn decode_rfc_standard(
 
     // If we have less than 4 tokens, the input can't be valid
     if tokens_vec.len() > 3 {
-        // Parse the date, the next token is the hostname
+        // Parse the date; the next token is normally the hostname
         let (ts, log_tokens) = parse_date_token(&tokens_vec, default_timezone)?;
         let first = log_tokens
             .first()
