@@ -699,13 +699,13 @@ proto-lint: ## Lint protobuf definitions with Buf
 	@$(BUF) lint proto --path proto/agent/netprobe/v1
 
 # Wire-compatibility gate (GitHub #4026). Compares the working tree against the
-# merge base so a PR is judged on what it changes, not on how far behind it is.
+# base branch tip. The `#` is escaped so make does not read it as a comment.
 # PROTO_BREAKING_AGAINST is overridable for local runs against another ref.
 PROTO_BREAKING_BASE ?= origin/staging
-PROTO_BREAKING_AGAINST ?= .git#ref=$(PROTO_BREAKING_BASE)
+PROTO_BREAKING_AGAINST ?= .git\#ref=$(PROTO_BREAKING_BASE)
 
 .PHONY: proto-breaking
-proto-breaking: ## Fail on wire-incompatible protobuf changes vs the merge base
+proto-breaking: ## Fail on wire-incompatible protobuf changes vs the base branch tip
 	@$(BUF) breaking --against '$(PROTO_BREAKING_AGAINST)'
 
 .PHONY: build-binaries
