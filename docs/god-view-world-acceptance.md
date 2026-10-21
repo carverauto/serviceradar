@@ -73,6 +73,8 @@ proof uses a smaller 503-to-504-device fixture to verify atomic publication,
 follow-up scheduling, persisted identities, reload and stable coordinates.
 The same worker then persisted the invented 1,000,000-position and
 2,000,000-relation hierarchy on a scratch database and reloaded it.
+This test now runs in the `WorldWorkerScale` BuildBuddy action (nightly on
+staging and on dispatch), not in pull-request BazelCI, which only compiles it.
 `//rust/dgraph-topology:world_worker_test` passed in 386.7s on hosted run
 [4751bf7b-5a71-46eb-a07c-90016b563dcd](https://carverauto.buildbuddy.io/invocation/4751bf7b-5a71-46eb-a07c-90016b563dcd)
 at commit `b5e3e9cbb8`. The test log recorded persist 317,201 ms, publish

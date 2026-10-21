@@ -4,6 +4,12 @@ load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build:integration_tests.bzl", "requires_shared_fixture")
 
+# The CI contract checks WorldWorkerScale's observer budget against this test's own deadline.
+exports_files(
+    ["tests/world_worker.rs"],
+    visibility = ["//build/contracts:__pkg__"],
+)
+
 rust_library(
     name = "dgraph_topology",
     srcs = glob(

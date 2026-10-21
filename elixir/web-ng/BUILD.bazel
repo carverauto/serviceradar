@@ -882,9 +882,10 @@ ex_unit_test(
     ],
 )
 
-# The topology control lane uses only the Repo, and runs after the other web-ng
-# database lane on its migrated, quiescent serial_0 scratch clone. Its helper
-# rejects an empty selection of authorization/inventory/health cases.
+# The topology control lane uses only the Repo. It runs on serial_1, a clone the
+# ordinary lanes have already released, so BazelCI can run it concurrently with
+# networks_live_db_test on serial_0. Its helper rejects an empty selection of
+# authorization/inventory/health cases.
 ex_unit_test(
     name = "topology_atlas_db_test",
     size = "enormous",
@@ -926,7 +927,7 @@ ex_unit_test(
     env = {
         "SERVICERADAR_REQUIRE_DB_TESTS": "1",
         "SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "600000",
-        "SERVICERADAR_TEST_DB_SHARD": "serial_0",
+        "SERVICERADAR_TEST_DB_SHARD": "serial_1",
         "TEST_CNPG_POOL_SIZE": "4",
         "TEST_CNPG_QUEUE_INTERVAL_MS": "10000",
         "TEST_CNPG_QUEUE_TARGET_MS": "10000",

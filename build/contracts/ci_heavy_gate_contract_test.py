@@ -17,6 +17,24 @@ ROOT = Path(__file__).resolve().parents[2]
 BAZELRC = ROOT / ".bazelrc"
 MODULE_FILE = ROOT / "MODULE.bazel"
 WORKFLOW = ROOT / "buildbuddy.yaml"
+# The hosted runner ends a workflow action after one hour. BazelCI spends part of
+# that hour before its observer starts (checkout, unit sweep, schema preflight,
+# integration compile) and after it stops (benchmark and race steps); its
+# observer window is the remainder. LargeIngestionGate's focused pair finishes
+# well inside the original 30-minute window.
+HOSTED_ACTION_CAP_SECONDS = 3600
+BAZEL_CI_OUTSIDE_OBSERVER_SECONDS = 300
+BAZEL_CI_OBSERVER_MAX_SECONDS = HOSTED_ACTION_CAP_SECONDS - BAZEL_CI_OUTSIDE_OBSERVER_SECONDS
+LARGE_INGESTION_OBSERVER_MAX_SECONDS = 1800
+# WorldWorkerScale's observer covers the world worker's own scratch deadline
+# plus provisioning, Bazel startup, the quiescence wait, teardown and release.
+WORLD_WORKER_SELF_DEADLINE_SECONDS = 1320
+WORLD_WORKER_LIFECYCLE_RESERVE_SECONDS = 480
+WORLD_WORKER_OBSERVER_MAX_SECONDS = (
+    WORLD_WORKER_SELF_DEADLINE_SECONDS + WORLD_WORKER_LIFECYCLE_RESERVE_SECONDS
+)
+WORLD_WORKER_TEST_SOURCE = ROOT / "rust/dgraph-topology/tests/world_worker.rs"
+WEB_NG_BUILD = ROOT / "elixir/web-ng/BUILD.bazel"
 PLAYWRIGHT_BUILD = ROOT / "elixir/web-ng/test/playwright/BUILD.bazel"
 PLAYWRIGHT_EXECUTOR_IMAGE = (
     "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:"
@@ -255,7 +273,11 @@ bazel() {
     echo "build ${targets[*]}" >> "$LIFECYCLE_LOG"
     return "$BUILD_FAILURE"
   fi
-  echo "$1 $target" >> "$LIFECYCLE_LOG"
+  if [[ "$1" == test ]]; then
+    echo "test ${targets[*]}" >> "$LIFECYCLE_LOG"
+  else
+    echo "$1 $target" >> "$LIFECYCLE_LOG"
+  fi
   if [[ "$1" == test && ( " $* " != *" --nocache_test_results "* || " $* " != *" --noremote_upload_local_results "* ) ]]; then
     return 98
   fi
@@ -1050,11 +1072,20 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests "
         "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
     )
-    web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
+    # One invocation, so the three owners run concurrently on disjoint clones.
+    concurrent_db_targets = (
+        "//elixir/web-ng:networks_live_db_test",
+        "//elixir/web-ng:topology_atlas_db_test",
+        "//rust/dgraph-topology:schema_lifecycle_test",
+    )
+    concurrent_db_suite = "bazel test $FLAGS " + " ".join(concurrent_db_targets)
     plugin_config_cli_suite = "bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test"
-    topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
-    dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
     world_worker_suite = "bazel test $FLAGS //rust/dgraph-topology:world_worker_test"
+    world_worker_provision = (
+        'PROVISION_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:provision_generation_serial_0)"'
+    )
     playwright_targets = (
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance",
         "//elixir/web-ng/test/playwright:world_gpu_test",
@@ -1083,13 +1114,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "bazel run -c opt --config=ci --//build:enable_integration_tests "
         "--//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env"
     )
-    def observer_start(self, required_pool_slots: int) -> str:
+    def observer_start(self, required_pool_slots: int, max_seconds: int) -> str:
         return (
             "bazel run -c opt --config=ci --//build:enable_integration_tests "
             "--//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- "
             '--ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" '
             '--quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" '
-            f"--max-seconds 1800 --required-pool-slots {required_pool_slots} &"
+            f"--max-seconds {max_seconds} --required-pool-slots {required_pool_slots} &"
         )
     sweep = "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs"
 
@@ -1128,6 +1159,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         provision_command: str,
         suite_command: str,
         required_pool_slots: int,
+        max_seconds: int,
     ) -> None:
         measured = measured_database_lifecycle_shell(action)
         lines = normalized_shell_lines(measured)
@@ -1147,7 +1179,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.generation_prepare,
             self.measured_migrate_command,
             self.generation_ready,
-            self.observer_start(required_pool_slots),
+            self.observer_start(required_pool_slots, max_seconds),
             wait,
             provision_command,
             suite_command,
@@ -1178,7 +1210,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('GENERATION_MIGRATOR_STARTED=1', lines)
 
     def test_database_flags_disable_cache_and_remote_upload(self):
-        for action_name in ("BazelCI", "LargeIngestionGate"):
+        for action_name in ("BazelCI", "LargeIngestionGate", "WorldWorkerScale"):
             with self.subTest(action=action_name):
                 self.assert_cache_flags(action_name)
 
@@ -1187,6 +1219,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         for action_name in (
             "BazelCI",
             "LargeIngestionGate",
+            "WorldWorkerScale",
             "IntegrationBenchmark",
         ):
             with self.subTest(action=action_name):
@@ -1216,6 +1249,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         for action_name, expected, drift in (
             ("BazelCI", "errors", "all"),
             ("LargeIngestionGate", "errors", "all"),
+            ("WorldWorkerScale", "errors", "all"),
             ("IntegrationBenchmark", "all", "errors"),
         ):
             action = named_action(action_name)
@@ -1343,7 +1377,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             '--suite-complete-file "$SUITE_COMPLETE_FILE"',
             '--quiescent-file "$QUIESCENT_FILE"',
             '--stop-file "$STOP_FILE"',
-            "--max-seconds 1800",
             f"--required-pool-slots {required_pool_slots}",
             provision_command,
             suite_command,
@@ -1522,6 +1555,28 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     self.assert_observer_and_cleanup_contract(mutated)
 
+    def web_ng_db_shard(self, target: str) -> str:
+        name = target.removeprefix("//elixir/web-ng:")
+        rule = named_starlark_rule(WEB_NG_BUILD.read_text(encoding="utf-8"), "ex_unit_test", name)
+        shards = re.findall(r'"SERVICERADAR_TEST_DB_SHARD": "([a-z0-9_]+)"', rule)
+        self.assertEqual(1, len(shards), target)
+        return shards[0]
+
+    def assert_concurrent_web_ng_lanes_use_disjoint_clones(self) -> None:
+        """Lanes that share one bazel test invocation run at the same time.
+
+        Each must own a different clone that provision_generation creates, or
+        two suites write the same database concurrently.
+        """
+        shards = [
+            self.web_ng_db_shard(target)
+            for target in self.concurrent_db_targets
+            if target.startswith("//elixir/web-ng:")
+        ]
+        self.assertGreater(len(shards), 1)
+        self.assertEqual(len(shards), len(set(shards)), shards)
+        self.assertTrue(set(shards).issubset(parsed_integration_lanes()), shards)
+
     def test_bazel_ci_keeps_its_runner_trigger_and_measures_the_ordinary_suite(self):
         action = named_action("BazelCI")
         header = action[: action.index("    steps:")]
@@ -1565,6 +1620,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_provision,
             self.ordinary_suite,
             114,
+            BAZEL_CI_OBSERVER_MAX_SECONDS,
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
@@ -1576,19 +1632,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.sweep,
                 self.measured_migrate_command,
                 self.ordinary_suite,
-                self.web_db_suite,
+                self.concurrent_db_suite,
                 self.plugin_config_cli_suite,
-                self.topology_db_suite,
-                self.dgraph_schema_suite,
-                self.world_worker_suite,
             ),
             commands,
         )
-        self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
-        self.assertLess(action.index(self.web_db_suite), action.index(self.plugin_config_cli_suite))
-        self.assertLess(action.index(self.plugin_config_cli_suite), action.index(self.topology_db_suite))
-        self.assertLess(action.index(self.topology_db_suite), action.index(self.dgraph_schema_suite))
-        self.assertLess(action.index(self.dgraph_schema_suite), action.index(self.world_worker_suite))
+        self.assert_concurrent_web_ng_lanes_use_disjoint_clones()
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(
@@ -1618,7 +1667,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.assertLess(calls.index(compile_line), calls.index(observer))
             self.assertLess(calls.index(observer), calls.index(provision))
             self.assertLess(calls.index(provision), calls.index("test //..."))
-            self.assertIn("test //elixir/web-ng:topology_atlas_db_test", calls)
+            concurrent = "test " + " ".join(self.concurrent_db_targets)
+            self.assertLess(calls.index("test //..."), calls.index(concurrent))
+            self.assertLess(
+                calls.index(concurrent),
+                calls.index("test //elixir/web-ng:plugin_config_cli_db_test"),
+            )
         with tempfile.TemporaryDirectory() as tmp:
             result = run_lifecycle(lifecycle, tmp, BUILD_FAILURE="5")
             self.assertEqual(5, result.returncode, result.stderr)
@@ -2070,6 +2124,7 @@ print(open(sys.argv[2]).read().strip())
             self.heavy_provision,
             self.heavy_suite,
             15,
+            LARGE_INGESTION_OBSERVER_MAX_SECONDS,
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
@@ -2084,6 +2139,92 @@ print(open(sys.argv[2]).read().strip())
             commands,
         )
         self.assertFalse(any("$FLAGS //..." in command for command in commands))
+
+    def test_world_worker_scale_runs_nightly_and_on_dispatch_only(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        matches = [item for item in workflow["actions"] if item["name"] == "WorldWorkerScale"]
+        self.assertEqual(1, len(matches))
+        action = matches[0]
+        self.assertEqual({"schedule": {"crons": ["30 7 * * *"]}}, action["triggers"])
+        self.assertEqual("workflows", action["pool"])
+        self.assertIs(True, action["self_hosted"])
+        self.assertEqual(
+            "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5",
+            action["container_image"],
+        )
+        self.assertEqual("bridge", action["platform_properties"]["dockerNetwork"])
+        self.assertEqual(
+            {
+                "OCI_REGISTRY": "registry.carverauto.dev",
+                "OCI_AUTH_REQUIRED": "1",
+                "SRQL_FIXTURE_CA_URL": "https://srql-fixture-ca.carverauto.dev/ca.crt",
+            },
+            {key: action["env"][key] for key in ("OCI_REGISTRY", "OCI_AUTH_REQUIRED", "SRQL_FIXTURE_CA_URL")},
+        )
+        self.assertTrue(
+            any("//:buildbuddy_setup_docker_auth" in step.get("run", "") for step in action["steps"])
+        )
+
+    def test_world_worker_scale_owns_the_world_worker_lifecycle(self):
+        action = named_action("WorldWorkerScale")
+        self.assert_common_measured_lifecycle(
+            action,
+            self.world_worker_provision,
+            self.world_worker_suite,
+            15,
+        )
+        self.assert_preflight_and_clock_contract(action)
+        self.assert_preflight_command_order(action)
+        self.assert_exact_measured_execution_order(
+            action,
+            self.world_worker_provision,
+            self.world_worker_suite,
+            15,
+            WORLD_WORKER_OBSERVER_MAX_SECONDS,
+        )
+        self.assert_observer_and_cleanup_contract(action)
+        self.assert_teardown_suffix_mutations_are_rejected(action)
+        self.assertEqual(
+            (
+                "bazel test $FLAGS //rust/integration-db:teardown_db",
+                self.sweep,
+                self.measured_migrate_command,
+                self.world_worker_suite,
+            ),
+            normalized_bazel_test_commands(action),
+        )
+        shell = database_lifecycle_shell(action)
+        lifecycle = shell[shell.index("\nRUN_ID=") + 1:]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_lifecycle(lifecycle, tmp)
+            self.assertEqual(0, result.returncode, result.stderr)
+            calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+            self.assertLess(
+                calls.index("run //rust/integration-db:provision_generation_serial_0"),
+                calls.index("test //rust/dgraph-topology:world_worker_test"),
+            )
+            self.assertEqual(
+                ["test //rust/integration-db:teardown_db", "run //rust/integration-db:release_generation"],
+                calls[-2:],
+            )
+            summaries = [
+                line
+                for line in result.stdout.splitlines()
+                if line.startswith("SERVICERADAR_WORLD_WORKER_SCALE_LIFECYCLE ")
+            ]
+            self.assertEqual(1, len(summaries), result.stdout)
+            self.assertIn("suite_status=0 observer_status=0", summaries[0])
+
+    def test_world_worker_observer_outlasts_the_tests_own_deadline(self):
+        source = WORLD_WORKER_TEST_SOURCE.read_text(encoding="utf-8")
+        deadlines = [
+            deadline
+            for line in source.splitlines()
+            if not line.strip().startswith("//")
+            for deadline in re.findall(r"with_scratch\(Duration::from_secs\((\d+)\)", line)
+        ]
+        self.assertEqual([str(WORLD_WORKER_SELF_DEADLINE_SECONDS)], deadlines)
+        self.assertLessEqual(WORLD_WORKER_OBSERVER_MAX_SECONDS, HOSTED_ACTION_CAP_SECONDS)
 
     def test_fixed_external_resource_sources_are_serial_data_cases(self):
         self.assertEqual(FIXED_EXTERNAL_RESOURCE_PATHS, fixed_external_resource_sources())
