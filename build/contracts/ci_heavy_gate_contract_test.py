@@ -1637,8 +1637,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             ),
             commands,
         )
-        # The million-device world worker runs in WorldWorkerScale, not here.
-        self.assertNotIn("test $FLAGS //rust/dgraph-topology:world_worker_test", action)
         self.assert_concurrent_web_ng_lanes_use_disjoint_clones()
         self.assertEqual(
             (self.ordinary_suite,),
@@ -2143,28 +2141,29 @@ print(open(sys.argv[2]).read().strip())
         self.assertFalse(any("$FLAGS //..." in command for command in commands))
 
     def test_world_worker_scale_runs_nightly_and_on_dispatch_only(self):
-        action = named_action("WorldWorkerScale")
-        header = action[: action.index("    steps:")]
-        self.assertIn(
-            '    triggers:\n'
-            '      schedule:\n'
-            '        crons:\n'
-            '          - "30 7 * * *"\n',
-            header,
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        matches = [item for item in workflow["actions"] if item["name"] == "WorldWorkerScale"]
+        self.assertEqual(1, len(matches))
+        action = matches[0]
+        self.assertEqual({"schedule": {"crons": ["30 7 * * *"]}}, action["triggers"])
+        self.assertEqual("workflows", action["pool"])
+        self.assertIs(True, action["self_hosted"])
+        self.assertEqual(
+            "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5",
+            action["container_image"],
         )
-        self.assertNotIn("pull_request:", header)
-        self.assertNotIn("push:", header)
-        for required in (
-            'OCI_REGISTRY: "registry.carverauto.dev"',
-            'OCI_AUTH_REQUIRED: "1"',
-            'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
-            "self_hosted: true",
-            'pool: "workflows"',
-            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
-            'dockerNetwork: "bridge"',
-            "//:buildbuddy_setup_docker_auth",
-        ):
-            self.assertIn(required, action)
+        self.assertEqual("bridge", action["platform_properties"]["dockerNetwork"])
+        self.assertEqual(
+            {
+                "OCI_REGISTRY": "registry.carverauto.dev",
+                "OCI_AUTH_REQUIRED": "1",
+                "SRQL_FIXTURE_CA_URL": "https://srql-fixture-ca.carverauto.dev/ca.crt",
+            },
+            {key: action["env"][key] for key in ("OCI_REGISTRY", "OCI_AUTH_REQUIRED", "SRQL_FIXTURE_CA_URL")},
+        )
+        self.assertTrue(
+            any("//:buildbuddy_setup_docker_auth" in step.get("run", "") for step in action["steps"])
+        )
 
     def test_world_worker_scale_owns_the_world_worker_lifecycle(self):
         action = named_action("WorldWorkerScale")
@@ -2194,11 +2193,36 @@ print(open(sys.argv[2]).read().strip())
             ),
             normalized_bazel_test_commands(action),
         )
-        self.assertIn("SERVICERADAR_WORLD_WORKER_SCALE_LIFECYCLE", action)
+        shell = database_lifecycle_shell(action)
+        lifecycle = shell[shell.index("\nRUN_ID=") + 1:]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_lifecycle(lifecycle, tmp)
+            self.assertEqual(0, result.returncode, result.stderr)
+            calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+            self.assertLess(
+                calls.index("run //rust/integration-db:provision_generation_serial_0"),
+                calls.index("test //rust/dgraph-topology:world_worker_test"),
+            )
+            self.assertEqual(
+                ["test //rust/integration-db:teardown_db", "run //rust/integration-db:release_generation"],
+                calls[-2:],
+            )
+            summaries = [
+                line
+                for line in result.stdout.splitlines()
+                if line.startswith("SERVICERADAR_WORLD_WORKER_SCALE_LIFECYCLE ")
+            ]
+            self.assertEqual(1, len(summaries), result.stdout)
+            self.assertIn("suite_status=0 observer_status=0", summaries[0])
 
     def test_world_worker_observer_outlasts_the_tests_own_deadline(self):
         source = WORLD_WORKER_TEST_SOURCE.read_text(encoding="utf-8")
-        deadlines = re.findall(r"with_scratch\(Duration::from_secs\((\d+)\)", source)
+        deadlines = [
+            deadline
+            for line in source.splitlines()
+            if not line.strip().startswith("//")
+            for deadline in re.findall(r"with_scratch\(Duration::from_secs\((\d+)\)", line)
+        ]
         self.assertEqual([str(WORLD_WORKER_SELF_DEADLINE_SECONDS)], deadlines)
         self.assertLessEqual(WORLD_WORKER_OBSERVER_MAX_SECONDS, HOSTED_ACTION_CAP_SECONDS)
 
