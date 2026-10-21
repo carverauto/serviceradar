@@ -2,7 +2,8 @@ defmodule ServiceRadar.Plugins.RolloutArtifactKindDbTest do
   @moduledoc """
   The rollout tables hold native add-on and Wasm plugin rollouts side by side.
   The database keeps each row's package pair matched to its `artifact_kind`,
-  and add-on rollout readers never act on a Wasm row.
+  the coordinator acts on both kinds, and add-on-only readers never act on a
+  Wasm row.
   """
 
   use ServiceRadar.DataCase, async: true
@@ -92,7 +93,7 @@ defmodule ServiceRadar.Plugins.RolloutArtifactKindDbTest do
              create_target(Map.merge(target, plugin_pair), ctx.actor)
   end
 
-  test "add-on rollout readers ignore a Wasm rollout", ctx do
+  test "the coordinator drives a Wasm rollout, and add-on readers ignore it", ctx do
     {:ok, rollout} =
       create_rollout(ctx, %{
         artifact_kind: :wasm_plugin,
@@ -100,13 +101,10 @@ defmodule ServiceRadar.Plugins.RolloutArtifactKindDbTest do
         candidate_plugin_package_id: ctx.plugin_candidate.id
       })
 
-    # The coordinator has no Wasm implementation yet, so it cannot find the
-    # rollout to pause it, and the row keeps its state.
-    assert {:error, {:not_found, AddonRollout, id}} =
-             AddonRolloutCoordinator.pause(rollout.id, actor: ctx.actor)
-
-    assert id == rollout.id
-    assert reload_rollout(rollout.id, ctx.actor).state == :running
+    # The Wasm implementation is registered, so the coordinator finds the
+    # rollout and pauses it.
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: ctx.actor)
+    assert reload_rollout(rollout.id, ctx.actor).state == :paused
 
     # An active Wasm rollout whose manual-assignment source id coincides with an
     # add-on assignment does not hold that add-on assignment.

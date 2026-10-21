@@ -433,7 +433,7 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
     sources_by_package =
       assignments
       |> Map.values()
-      |> Enum.map(& &1.plugin_package_id)
+      |> Enum.map(&PluginAssignment.effective_package_id/1)
       |> Enum.uniq()
       |> read_by_ids(PluginPackage, actor)
       |> Map.new(&{&1.id, package_sources(&1)})
@@ -443,7 +443,7 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
         with [uuid] <- cast_uuid(assignment_id),
              %PluginAssignment{agent_uid: ^agent_id, partition_id: ^partition} = assignment <-
                Map.get(assignments, uuid) do
-          Map.get(sources_by_package, assignment.plugin_package_id, [])
+          Map.get(sources_by_package, PluginAssignment.effective_package_id(assignment), [])
         else
           _ -> []
         end

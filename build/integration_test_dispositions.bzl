@@ -167,6 +167,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/plugins/rollout_artifact_kind_db_test.exs",
     "test/serviceradar/plugins/single_enabled_addon_profile_db_test.exs",
     "test/serviceradar/plugins/snmp_requirement_catalog_test.exs",
+    "test/serviceradar/plugins/wasm_plugin_rollout_db_test.exs",
     "test/serviceradar/plugins/workload_identity_addon_package_seeder_test.exs",
     "test/serviceradar/prefix_tags/manual_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_fixture_config_test.exs",

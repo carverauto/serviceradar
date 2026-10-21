@@ -1,6 +1,14 @@
 defmodule ServiceRadar.Plugins.PluginAssignment do
   @moduledoc """
   Assignment of an approved plugin package to an agent.
+
+  `plugin_package_id` is the assignment's stable package: the one its owner (an
+  operator, a target policy, a credential rule) chose, and the only package
+  owners and reconcilers write. While a Wasm plugin rollout proves a candidate on
+  the assignment, `rollout_plugin_package_id` overrides it. The package an agent
+  runs is the effective package, `COALESCE(rollout_plugin_package_id,
+  plugin_package_id)` (`effective_package_id/1`), and every reader that asks what
+  an assignment runs reads that, not the stable package.
   """
 
   use Ash.Resource,
@@ -15,6 +23,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   alias ServiceRadar.Plugins.Changes.ClearRetractionOnEnable
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
+  alias ServiceRadar.Plugins.Changes.ReleaseRolloutOverride
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.Validations.AssignmentParams
@@ -54,9 +63,18 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   actions do
     defaults [:read]
 
+    # Enabled assignments whose effective package is the given one: a rollout
+    # candidate's assignments are found by the candidate, not by the stable
+    # package they will return to.
     read :by_package do
       argument :plugin_package_id, :uuid, allow_nil?: false
-      filter expr(plugin_package_id == ^arg(:plugin_package_id) and enabled == true)
+
+      filter expr(
+               enabled == true and
+                 (rollout_plugin_package_id == ^arg(:plugin_package_id) or
+                    (is_nil(rollout_plugin_package_id) and
+                       plugin_package_id == ^arg(:plugin_package_id)))
+             )
     end
 
     read :by_agent do
@@ -116,6 +134,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change ApplyConfigDefaults
       change ApplyPluginUpdatePolicy
       change ClearRetractionOnEnable
+      change ReleaseRolloutOverride
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate AssignmentParams
@@ -127,6 +146,8 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     # has since been revoked or the stored params no longer validate. See
     # ServiceRadar.Plugins.OwnedAssignmentRetraction.
     update :retract do
+      # ReleaseRolloutOverride reads the stored override and rollout holds.
+      require_atomic? false
       accept []
 
       argument :disabled_reason, :atom do
@@ -146,6 +167,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change set_attribute(:disabled_reason, arg(:disabled_reason))
       change set_attribute(:disabled_by, arg(:disabled_by))
       change set_attribute(:disabled_at, &DateTime.utc_now/0)
+      change ReleaseRolloutOverride
     end
 
     destroy :destroy do
@@ -165,6 +187,19 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     update :clear_rollout_override do
       require_atomic? false
       accept @rollout_override_fields
+    end
+
+    # A completed Wasm plugin rollout moves the stable package to its candidate
+    # and drops the override in one write, so delivery never falls back to the
+    # previous package in between. It is the rollout's write, not an operator's
+    # version choice, so it leaves the update policy alone.
+    update :promote_rollout do
+      require_atomic? false
+      accept [:plugin_package_id | @rollout_override_fields]
+
+      change SetAssignmentPluginId
+      validate PackageApproved
+      validate AssignmentParams
     end
   end
 
@@ -338,4 +373,29 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   identities do
     identity :unique_source_key, [:partition_id, :source, :source_key]
   end
+
+  @doc """
+  The id of the package an agent runs for `assignment`: the rollout candidate
+  while a rollout holds the assignment, otherwise the stable package.
+
+  Accepts any map with `plugin_package_id`; one without
+  `rollout_plugin_package_id` has no override.
+  """
+  @spec effective_package_id(map()) :: Ecto.UUID.t() | nil
+  def effective_package_id(%{rollout_plugin_package_id: package_id}) when not is_nil(package_id),
+    do: package_id
+
+  def effective_package_id(%{plugin_package_id: package_id}), do: package_id
+
+  @doc """
+  Puts the effective package in `plugin_package`, for readers that load the
+  `plugin_package` and `rollout_plugin_package` relationships and then work
+  from `plugin_package`. Without an override the assignment is returned as it
+  is.
+  """
+  @spec put_effective_package(map()) :: map()
+  def put_effective_package(%{rollout_plugin_package_id: nil} = assignment), do: assignment
+
+  def put_effective_package(%{rollout_plugin_package: candidate} = assignment),
+    do: %{assignment | plugin_package: candidate}
 end

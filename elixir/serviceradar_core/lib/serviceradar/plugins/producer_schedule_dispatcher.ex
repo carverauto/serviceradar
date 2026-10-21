@@ -48,7 +48,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
       "invocation_id" => Ash.UUID.generate(),
       "action_id" => action_id,
       "plugin_assignment_id" => to_string(assignment.id),
-      "plugin_package_id" => to_string(assignment.plugin_package_id),
+      "plugin_package_id" => to_string(PluginAssignment.effective_package_id(assignment)),
       "producer_schedule_id" => to_string(schedule.id),
       "schedule_id" => schedule.schedule_id,
       "input_values" => schedule.params || %{},
@@ -255,7 +255,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
           context: %{
             producer_schedule_id: to_string(schedule.id),
             plugin_assignment_id: to_string(assignment.id),
-            plugin_package_id: to_string(assignment.plugin_package_id),
+            plugin_package_id: to_string(PluginAssignment.effective_package_id(assignment)),
             schedule_id: schedule.schedule_id,
             action_id: payload["action_id"]
           }
@@ -877,7 +877,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
   defp credential_consumer_id(schedule, assignment) do
     case normalize_kind(schedule.producer_kind) do
       :native_addon -> to_string(assignment.addon_package_id)
-      _ -> to_string(assignment.plugin_package_id)
+      _ -> to_string(PluginAssignment.effective_package_id(assignment))
     end
   end
 

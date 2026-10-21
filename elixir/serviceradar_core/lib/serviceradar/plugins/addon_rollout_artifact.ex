@@ -21,6 +21,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
+  alias ServiceRadar.Plugins.AddonRolloutPolicy
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
 
@@ -83,6 +84,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def stable_package_id(source), do: source.addon_package_id
 
+  @impl true
+  def rollout_policy(source), do: source.rollout_policy
+
+  @impl true
+  def normalize_policy(policy), do: AddonRolloutPolicy.normalize(policy)
+
   # Packages.
 
   @impl true
@@ -105,6 +112,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
   @impl true
   def artifact_id(%AddonPackage{addon_id: addon_id}), do: addon_id
+
+  @impl true
+  def package_attrs(previous, candidate),
+    do: %{previous_package_id: previous.id, candidate_package_id: candidate.id}
+
+  @impl true
+  def previous_package_id(rollout_or_target), do: rollout_or_target.previous_package_id
+
+  @impl true
+  def candidate_package_id(rollout_or_target), do: rollout_or_target.candidate_package_id
 
   # Candidate eligibility.
 
@@ -194,6 +211,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
     }
   end
 
+  @impl true
+  def member_id(%AddonRolloutTarget{assignment_id: assignment_id}), do: assignment_id
+
   # Overrides and promotion.
 
   @impl true
@@ -239,6 +259,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def tolerates_failures?(%AddonRollout{source_type: :profile}), do: true
   def tolerates_failures?(_rollout), do: false
+
+  # A failed add-on target pauses the rollout; a profile may then absorb it as a
+  # tolerated failure, which a whole-rollout rollback would take away.
+  @impl true
+  def rolls_back_on_failure?(_rollout), do: false
 
   @impl true
   def pin_failed_member(target, actor) do
@@ -312,7 +337,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   end
 
   @impl true
+  def evidence_key(%AddonRolloutTarget{agent_uid: agent_uid}), do: agent_uid
+
+  @impl true
   def observed_at(%AddonStatus{reported_at: reported_at}), do: reported_at
+
+  # Add-on readiness is always status for the candidate version, so a ready
+  # target keeps the reason code it has.
+  @impl true
+  def ready_reason(_status, _candidate, _applied_at), do: nil
 
   # Readiness deliberately uses supervision_state_ready?/2, not supervision_ready?/2:
   # an advisory degradation must not keep a candidate that has come up from ever

@@ -371,6 +371,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     checks
   end
 
+  # Delivers each assignment's effective package: a Wasm plugin rollout's
+  # candidate while the rollout holds the assignment, otherwise the stable
+  # package. This is the single point where a rollout override reaches agents;
+  # the gateway builds agent config through this generator.
   defp load_plugin_assignments(agent_id, partition_id) do
     actor = SystemActor.system(:agent_config_generator)
 
@@ -383,12 +387,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       )
       |> Ash.Query.filter(enabled == true)
       |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
-      |> Ash.Query.load(:plugin_package)
+      |> Ash.Query.load([:plugin_package, :rollout_plugin_package])
       |> Ash.read!()
 
     grant_mode = plugin_credential_grant_mode(agent_id, actor)
 
     assignments
+    |> Enum.map(&PluginAssignment.put_effective_package/1)
     |> Enum.map(&ensure_plugin_package_loaded(&1, actor))
     |> Enum.filter(&has_approved_package?/1)
     |> Enum.uniq_by(&logical_plugin_id/1)
@@ -426,7 +431,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp ensure_plugin_package_loaded(%PluginAssignment{} = assignment, actor) do
-    case load_plugin_package(assignment.plugin_package_id, actor) do
+    case load_plugin_package(PluginAssignment.effective_package_id(assignment), actor) do
       {:ok, %PluginPackage{} = package} -> %{assignment | plugin_package: package}
       _ -> assignment
     end
@@ -1230,11 +1235,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         PluginAssignment
         |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.filter(id == ^id)
-        |> Ash.Query.load(:plugin_package)
+        |> Ash.Query.load([:plugin_package, :rollout_plugin_package])
         |> Ash.read_one(actor: actor)
         |> case do
-          {:ok, %PluginAssignment{} = assignment} -> {:ok, assignment}
-          _ -> {:error, :credential_binding_not_found}
+          # Rebuilt from the package config delivery hands the agent.
+          {:ok, %PluginAssignment{} = assignment} ->
+            {:ok, PluginAssignment.put_effective_package(assignment)}
+
+          _ ->
+            {:error, :credential_binding_not_found}
         end
 
       :error ->

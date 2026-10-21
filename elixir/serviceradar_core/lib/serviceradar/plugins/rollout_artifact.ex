@@ -17,14 +17,25 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
       and `:agent_uid`.
 
   Rollout and target rows record the `artifact_kind` of the implementation that
-  owns them. The coordinator reads only rows whose kind has an implementation in
-  `implementations/0`. Only `:native_addon` has one today, so `implementation/1`
-  has one answer and a `:wasm_plugin` row is invisible to the coordinator.
+  owns them, and each family keeps its package pair and member pointer in its
+  own columns. The coordinator therefore reads them through the implementation
+  (`previous_package_id/1`, `candidate_package_id/1`, `member_id/1`) and writes
+  them through `package_attrs/2` and `target_attrs/2`. It reads only rows whose
+  kind has an implementation in `implementations/0`.
+
+  Two implementations exist: `ServiceRadar.Plugins.AddonRolloutArtifact` for
+  native add-ons and `ServiceRadar.Plugins.WasmPluginRolloutArtifact` for Wasm
+  plugins. `implementation/1` picks one from a rollout or target's
+  `artifact_kind`, or from the struct of a source or package.
   """
 
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.AddonRolloutTarget
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginTargetPolicy
+  alias ServiceRadar.Plugins.WasmPluginRolloutArtifact
 
   @type actor :: term()
   @type package :: %{
@@ -68,6 +79,15 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @doc "The id of the stable package the source currently runs."
   @callback stable_package_id(source()) :: term()
 
+  @doc "The rollout controls the source carries, or nil for the defaults."
+  @callback rollout_policy(source()) :: map() | nil
+
+  @doc """
+  Normalizes rollout controls to bounded values. A rollout snapshots the result,
+  so it must be idempotent.
+  """
+  @callback normalize_policy(map() | nil) :: map()
+
   # Packages.
 
   @callback list_packages(actor()) :: {:ok, [package()]} | {:error, term()}
@@ -76,6 +96,15 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
 
   @doc "The artifact identifier a rollout records (`addon_id`)."
   @callback artifact_id(package()) :: String.t()
+
+  @doc "The package-pair columns of a new rollout or target row."
+  @callback package_attrs(previous :: package(), candidate :: package()) :: map()
+
+  @doc "The previous package id a rollout or target row records."
+  @callback previous_package_id(AddonRollout.t() | AddonRolloutTarget.t()) :: term()
+
+  @doc "The candidate package id a rollout or target row records."
+  @callback candidate_package_id(AddonRollout.t() | AddonRolloutTarget.t()) :: term()
 
   # Candidate eligibility, consulted by AddonRolloutEligibility.
 
@@ -100,8 +129,17 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @callback overridden_members(source(), [member()], actor()) ::
               {:ok, MapSet.t()} | {:error, term()}
 
-  @doc "Member-derived attributes of a new target row."
+  @doc """
+  Member-derived attributes of a new target row. They are merged over
+  `package_attrs/2`, so a member may record its own previous package.
+  """
   @callback target_attrs(member(), previous :: package()) :: map()
+
+  @doc """
+  The id of the member a target overrides, or nil once that member was deleted
+  (its pointer is `ON DELETE SET NULL`).
+  """
+  @callback member_id(AddonRolloutTarget.t()) :: term() | nil
 
   # Overrides and promotion.
 
@@ -114,6 +152,12 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @doc "Whether the rollout's source may absorb rolled-back members up to the policy tolerance."
   @callback tolerates_failures?(AddonRollout.t()) :: boolean()
 
+  @doc """
+  Whether one failed target rolls the whole rollout back. When false, a failed
+  target pauses the rollout for an operator decision.
+  """
+  @callback rolls_back_on_failure?(AddonRollout.t()) :: boolean()
+
   @doc "Detaches a tolerated rolled-back member so it stays on its previous package."
   @callback pin_failed_member(AddonRolloutTarget.t(), actor()) :: :ok | {:error, term()}
 
@@ -122,15 +166,25 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
 
   # Health evidence.
 
-  @doc "The latest evidence for each target, keyed by agent uid."
+  @doc "The latest evidence for each target, keyed by `evidence_key/1`."
   @callback load_evidence([AddonRolloutTarget.t()], AddonRollout.t(), actor()) ::
-              %{optional(String.t()) => evidence()}
+              %{optional(term()) => evidence()}
+
+  @doc "The key `load_evidence/3` files a target's evidence under."
+  @callback evidence_key(AddonRolloutTarget.t()) :: term()
 
   @callback observed_at(evidence()) :: DateTime.t() | nil
 
   @doc "Fresh evidence, reported since `applied_at`, that the candidate came up."
   @callback candidate_ready?(evidence() | nil, package(), applied_at :: DateTime.t() | nil) ::
               boolean()
+
+  @doc """
+  The reason code a target that `candidate_ready?/3` passed records, or nil to
+  leave the target's reason code as it is.
+  """
+  @callback ready_reason(evidence() | nil, package(), applied_at :: DateTime.t() | nil) ::
+              String.t() | nil
 
   @doc "Fresh evidence, reported since `applied_at`, that the candidate itself failed."
   @callback candidate_failed?(evidence() | nil, package(), applied_at :: DateTime.t() | nil) ::
@@ -148,13 +202,18 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @callback audit_resource_type() :: String.t()
   @callback telemetry_event() :: [atom()]
 
-  @doc "The implementation for a rollout, one of its sources, or one of its packages."
+  @doc "The implementation for a rollout or target, one of its sources, or one of its packages."
   @spec implementation(term()) :: module()
-  def implementation(_rollout_source_or_package), do: AddonRolloutArtifact
+  def implementation(%{artifact_kind: :wasm_plugin}), do: WasmPluginRolloutArtifact
+  def implementation(%{artifact_kind: :native_addon}), do: AddonRolloutArtifact
+  def implementation(%PluginAssignment{}), do: WasmPluginRolloutArtifact
+  def implementation(%PluginTargetPolicy{}), do: WasmPluginRolloutArtifact
+  def implementation(%PluginPackage{}), do: WasmPluginRolloutArtifact
+  def implementation(_addon_source_or_package), do: AddonRolloutArtifact
 
   @doc "Every implementation, for work that spans all rollouts."
   @spec implementations() :: [module()]
-  def implementations, do: [AddonRolloutArtifact]
+  def implementations, do: [AddonRolloutArtifact, WasmPluginRolloutArtifact]
 
   @doc "The artifact kinds that have an implementation."
   @spec kinds() :: [atom()]
