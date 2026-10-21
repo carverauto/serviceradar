@@ -40,9 +40,9 @@ Blocks every other slice.
   a rename is a real break here; and over `FILE`, which would forbid
   moving a message between files) plus a `make proto-breaking` target and
   a `buf breaking` step in `.github/workflows/golangci-lint.yml` beside
-  the existing `buf lint`. The checkout there needed `fetch-depth: 0`:
-  the default depth of 1 leaves the base ref absent and the comparison
-  silently has nothing to diff against.
+  the existing `buf lint`. The base ref must exist locally or the
+  comparison has nothing to diff against; the checkout is shallow and the
+  `buf breaking` step fetches the base tip itself (see the workflow).
 - [x] 0.3 Gate proven to fail, not merely to pass on a clean tree:
   removing `start_remote_capture` and reusing tag 24 for a different
   message type exits 2 with
