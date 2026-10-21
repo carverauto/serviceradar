@@ -27,7 +27,9 @@ type wasmHTTPRequest struct {
 type wasmHost struct {
 	config []byte
 	// http answers env.http_request; the status and body are written back in
-	// the "status_body" response mode the SDK requests by default.
+	// the "status_body" response mode the SDK requests by default. A negative
+	// status is returned as that host-call error code instead, the way the
+	// agent reports a denied, failed or timed-out request.
 	http func(t *testing.T, req wasmHTTPRequest) (status int, body []byte)
 
 	results   []map[string]any
@@ -128,6 +130,10 @@ func (h *wasmHost) call(t *testing.T, name string, module api.Module, stack []ui
 			t.Fatal(err)
 		}
 		status, body := h.http(t, request)
+		if status < 0 {
+			stack[0] = api.EncodeI32(int32(status))
+			return
+		}
 		response := append([]byte(fmt.Sprintf("%d\n", status)), body...)
 		if uint64(len(response)) > stack[3] || !module.Memory().Write(uint32(stack[2]), response) {
 			t.Fatal("response exceeds guest buffer")
