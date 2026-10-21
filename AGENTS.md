@@ -306,8 +306,8 @@ Start with generators wherever possible. They provide a starting point for your 
 After changes, compile and run applicable tests; read their output and report every check not run.
 
 **A test that commits data must delete it.** CI shares fixture databases across tests: the core
-serial lanes are partitioned deterministically from `SERIAL_INTEGRATION_MODULE_COUNTS`, and the
-web-ng `networks_live_db_test` reuses core's `serial_0` database. A row one test leaves behind
+serial lanes are partitioned deterministically from `SERIAL_INTEGRATION_MODULE_COUNTS`, and each
+web-ng `networks_live_db_test` shard shares one lane clone across its files. A row one test leaves behind
 breaks a count or pagination assertion in an unrelated test, and a PR that only adds a test file
 reshuffles the partition and turns that leak into a failure (#5681).
 - Prefer the boxed sandbox. Go unboxed (`sandbox: :unboxed`, `sandbox: false`, work in a process

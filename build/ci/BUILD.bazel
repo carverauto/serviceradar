@@ -5,6 +5,7 @@ load("@rules_python//python:py_test.bzl", "py_test")
 exports_files([
     "BUILD.bazel",
     "detect_docs_only.py",
+    "select_integration_actions.py",
     "large_ingestion_gate_contract.v1",
 ])
 
@@ -27,6 +28,19 @@ py_test(
     srcs = ["detect_docs_only_test.py"],
     data = ["//scripts:ci/unless_docs_only.sh"],
     deps = [":detect_docs_only_lib"],
+)
+
+py_library(
+    name = "select_integration_actions_lib",
+    srcs = ["select_integration_actions.py"],
+    deps = [":detect_docs_only_lib"],
+)
+
+py_test(
+    name = "select_integration_actions_test",
+    size = "small",
+    srcs = ["select_integration_actions_test.py"],
+    deps = [":select_integration_actions_lib"],
 )
 
 py_library(

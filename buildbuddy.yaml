@@ -514,11 +514,12 @@ actions:
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
           OBSERVER_MAX_SECONDS=1800
-          OBSERVER_POOL_SLOTS=15
+          # The three networks_live shards run concurrently at 15 slots each; plugin_config_cli
+          # (15) and the scale variant (24) each run alone.
+          OBSERVER_POOL_SLOTS=45
           if [[ -n "$SCALE_VARIANT" ]]; then
             bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //elixir/web-ng:networks_live_db_test //elixir/web-ng:plugin_config_cli_db_test //elixir/web-ng:topology_bitmap_scale_${SCALE_VARIANT}_acceptance
             OBSERVER_MAX_SECONDS=3300
-            OBSERVER_POOL_SLOTS=24
           fi
           START_NS="$(date +%s%N)"
           if [[ -n "$SCALE_VARIANT" ]]; then limit_scale_observer || exit 1; fi
@@ -526,14 +527,14 @@ actions:
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
-          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_serial_0)"
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_web_ng)"
           echo "$PROVISION_JSON"
           validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           # Run only one scale distribution under the hosted one-hour action cap.
           # Keep the existing generation, guarded clones, observer and cleanup.
           # Scale is admitted first, before the existing cases consume its
           # window. Either variant seeds only its own serial_1 clone, which
-          # teardown_db drops; the ordinary cases keep an untouched serial_0.
+          # teardown_db drops; the ordinary cases keep untouched web-ng lane clones.
           if [[ -n "$SCALE_VARIANT" ]]; then
             SCALE_PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_serial_1)"
             echo "$SCALE_PROVISION_JSON"
@@ -548,6 +549,14 @@ actions:
           if [[ -n "$SCALE_VARIANT" ]]; then limit_ordinary_suite || exit 1; fi
           "${ORDINARY_TIMEOUT[@]}" bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test
 
+  # BazelCI is split into three pull-request actions that run in parallel on the workflows-pr
+  # pool. Each reports its own GitHub status, and a failure in any of them fails the pull request:
+  #   * "BazelCI": the unit //... sweep, compile-only manual targets, benchmarks and Go race tests;
+  #   * "BazelCI Core Integration": the ordinary core integration lanes, own database lifecycle;
+  #   * "BazelCI Web-NG DB": the web-ng database suites and the Dgraph schema lifecycle, own
+  #     database lifecycle.
+  # The two database actions run only when a changed file is an input of one of their targets
+  # (build/ci/select_integration_actions.py); a build-graph, dependency or fixture change runs both.
   - name: "BazelCI"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
@@ -561,9 +570,10 @@ actions:
     # Redirects work to pods in the self hosted cluster.
     self_hosted: true
 
-    # The dedicated workflow fleet is defined in //k8s/buildbuddy/values-workflows.yaml;
-    # Matched against the executor's `poolName`, so the two must match at all times.
-    pool: "workflows"
+    # The pull-request fleet: four executors (32Gi/8 CPU requests each, one runner apiece), Helm
+    # release `buildbuddy-workflows-pr`. BazelCI and its two database actions run on it in
+    # parallel. Matched against the executor's `poolName`, so the two must match at all times.
+    pool: "workflows-pr"
 
     # OWN PATCH LINE (v1.0.24.x), NOT in lockstep with rbe-executor (v1.0.25.x since the
     # hermetic-LLVM migration). //docker/images/Dockerfile.workflow-runner records the policy.
@@ -581,15 +591,11 @@ actions:
         branches:
           - "staging"
 
-    # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
-    # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
-    # 40GB: at 36GB the runner VM ran at ~37.95/38.65GB (~98% of 36GiB,
-    # BuildBuddy low-memory warning), so 40GB is ~4GiB of headroom. GB here
-    # means GiB. The workflows executors advertise the full 56Gi limit
-    # (//k8s/buildbuddy/values-workflows.yaml, max_runner_count 1), so one
-    # 40GB run fits and a second does not.
+    # UNITS: `GB` HERE MEANS GiB, NOT 10^9. Each workflows-pr executor requests 32Gi and 8 CPU,
+    # so one run of any of the three BazelCI actions fits beside the executor's own overhead.
     resource_requests:
-      memory: "40GB"
+      cpu: "7"
+      memory: "28GB"
       disk: "40GB"
 
     steps:
@@ -604,13 +610,137 @@ actions:
           scripts/ci/unless_docs_only.sh bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
       # The one full //... invocation. Unit tests run here. Integration and
-      # acceptance tests are filtered out of execution. Their compile happens
-      # later, inside the database step, before a clone.
+      # acceptance tests are filtered out of execution; they run in the
+      # "BazelCI Core Integration" and "BazelCI Web-NG DB" actions, in parallel
+      # with this one, each with its own database lifecycle.
       #
       # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
       - run: >-
           scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests
           //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
+
+      # Compile-only manual targets: the wildcard above skips manual targets, and none of these
+      # executes in a pull-request lifecycle. //rust/netprobe:loaded_tcp_attribution_test needs
+      # Linux capabilities this runner cannot grant, the million-device world worker executes in
+      # WorldWorkerScale, and the bitmap transport measurement stays unexecuted. Same flags as the
+      # unit sweep, for configuration and cache continuity.
+      - run: >-
+          scripts/ci/unless_docs_only.sh bazel build -c opt --config=ci --//build:enable_integration_tests
+          //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test
+          //elixir/web-ng:bitmap_websocket_transport_test
+
+      # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
+      #
+      # These exist because `bazel test` compiles a Go Benchmark* function and then skips it --
+      # benchmarks need -test.bench, and nothing passed it. The first run of these targets found
+      # BenchmarkNetworkSweeper_OptimizedTCPScan already broken on two gomock expectations that
+      # runSweep gained after it was written, and fastsum's benchmarks sitting in no target at
+      # all. A benchmark nobody runs still passes review and still looks like coverage.
+      #
+      # NO THRESHOLD, deliberately. A benchmark on a shared runner is noisy, and a threshold set
+      # before that variance is measured produces failures that are not regressions -- the
+      # predictable response is to mute the check, and a muted gate still looks like protection.
+      # Gating is a later decision, argued from the numbers these runs collect.
+      #
+      # Cheap, and before the race step on purpose: the runner defaults to -test.benchtime=1x,
+      # so this proves the benchmarks still execute rather than producing numbers stable enough
+      # to compare.
+      # `--//build:enable_integration_tests` is here for the same reason the unit sweep carries
+      # it: CONFIGURATION and CACHE CONTINUITY. It is not that this step runs integration tests
+      # -- the tag filter selects `benchmark` alone. It is that a build setting is part of the
+      # configuration key, so omitting it makes `//...` a SECOND configuration and rebuilds the
+      # repo from scratch rather than reusing what the earlier steps just built. This step
+      # therefore matches the unit sweep's flags exactly.
+      - run: >-
+          scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests
+          --test_tag_filters=benchmark
+          --test_output=errors
+          //...
+
+      # Go race tests (race on, pure off). --flaky_test_attempts=1 overrides the repo default of 2.
+      #
+      # Private output base on purpose. pure and race change the configuration key,
+      # and ci_runner parks the default Bazel server (startup --max_idle_secs=0,
+      # startup --output_base under the runner workspace). Leaving those flags on
+      # that server makes the next pull request discard the analysis cache and
+      # reanalyze //... . The command-line --output_base overrides the rc and
+      # starts a second server. shutdown stops that JVM so a parked runner does
+      # not keep two servers resident; the output base stays on the runner rootfs
+      # for the next race step. /home/buildbuddy is uid 1001's home and sits
+      # outside the workspace recycle limit, same as the per-runner disk cache.
+      - run: |
+          set -euo pipefail
+          [ -e "${DOCS_ONLY_MARKER:-/tmp/serviceradar-docs-only-marker}" ] && { echo "docs-only change: BazelCI Go race tests skipped"; exit 0; }
+          race_output_base=/home/buildbuddy/output-base-race
+          set +e
+          bazel --output_base="$race_output_base" test -c opt --config=ci //go/... \
+            --@io_bazel_rules_go//go/config:pure=false \
+            --@io_bazel_rules_go//go/config:race \
+            --test_tag_filters=-integration_test,-acceptance_test,-benchmark \
+            --test_timeout=600 \
+            --flaky_test_attempts=1 \
+            --test_arg=-test.count=5 \
+            --test_arg=-test.short \
+            --test_arg=-test.shuffle=on
+          status=$?
+          set -e
+          bazel --output_base="$race_output_base" shutdown
+          exit "$status"
+
+  # The ordinary core integration lanes (see the BazelCI comment above). Its own run id leases
+  # the generation and clones every ordinary lane, so it never shares a database with the
+  # web-ng action that runs beside it.
+  - name: "BazelCI Core Integration"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+
+      # Cert server. in cluster.
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+
+      GIT_BASE_BRANCH: "staging"
+
+    # Redirects work to pods in the self hosted cluster.
+    self_hosted: true
+
+    # The pull-request fleet: four executors (32Gi/8 CPU requests each, one runner apiece), Helm
+    # release `buildbuddy-workflows-pr`. BazelCI and its two database actions run on it in
+    # parallel. Matched against the executor's `poolName`, so the two must match at all times.
+    pool: "workflows-pr"
+
+    # OWN PATCH LINE (v1.0.24.x), NOT in lockstep with rbe-executor (v1.0.25.x since the
+    # hermetic-LLVM migration). //docker/images/Dockerfile.workflow-runner records the policy.
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
+
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      # Under `oci` isolation this is a BOOLEAN in disguise. ociruntime.go reduces the property
+      # to `networkEnabled: networkMode != "off"`
+      dockerNetwork: "bridge"
+
+    triggers:
+      pull_request:
+        branches:
+          - "staging"
+
+    # UNITS: `GB` HERE MEANS GiB, NOT 10^9. Each workflows-pr executor requests 32Gi and 8 CPU,
+    # so one run of any of the three BazelCI actions fits beside the executor's own overhead.
+    resource_requests:
+      cpu: "7"
+      memory: "28GB"
+      disk: "40GB"
+
+    steps:
+      # Writes /tmp/serviceradar-skip-core-integration when no target of this action depends on a changed file.
+      # Always exits 0; any doubt runs the lifecycle.
+      - run: python3 build/ci/select_integration_actions.py --action core
+      - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
@@ -631,7 +761,7 @@ actions:
           set -euo pipefail
           umask 077
 
-          [ -e "${DOCS_ONLY_MARKER:-/tmp/serviceradar-docs-only-marker}" ] && { echo "docs-only change: BazelCI database lifecycle skipped"; exit 0; }
+          [ -e "${SERVICERADAR_SKIP_MARKER:-/tmp/serviceradar-skip-core-integration}" ] && { cat "${SERVICERADAR_SKIP_MARKER:-/tmp/serviceradar-skip-core-integration}"; echo "no core integration target is affected: database lifecycle skipped"; exit 0; }
 
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
@@ -796,7 +926,7 @@ actions:
             else
               LIFECYCLE_NS=$((END_NS - START_NS))
             fi
-            echo "SERVICERADAR_BAZEL_CI_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
+            echo "SERVICERADAR_BAZEL_CI_CORE_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
             rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
             rm -rf "$OBSERVER_DIR"
             if [ "$SUITE_STATUS" -ne 0 ]; then
@@ -846,29 +976,17 @@ actions:
           # is set, so a wildcard skips them and a compile error survives until
           # the suite selects the target after a fixture is provisioned. That is
           # how //integration_tests/srql failed with `no external crate
-          # serviceradar_integration_db`. //rust/netprobe:loaded_tcp_attribution_test
-          # and //rust/dgraph-topology:world_worker_test are manual, so the
-          # wildcard does not select them; name them so they stay compiled.
-          # //elixir/web-ng:bitmap_websocket_transport_test is manual too.
-          # This command only compiles it. The measurement stays unexecuted.
-          # This runner cannot grant the netprobe target's Linux capabilities,
-          # so the suite does not execute that target. The million-device world
-          # worker executes in the WorldWorkerScale action; this command keeps
-          # it compiled on every pull request. Leave $FLAGS
-          # off this command: those options are test-only and bazel build
-          # rejects them.
-          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test //rust/dgraph-topology:world_worker_test //elixir/web-ng:bitmap_websocket_transport_test
+          # serviceradar_integration_db`. Leave $FLAGS off this command: those
+          # options are test-only and bazel build rejects them.
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
 
           # The observer samples until cleanup touches $STOP_FILE, after teardown_db and
           # release_generation, so its window spans provisioning, every suite below and
-          # teardown. --max-seconds is only the hard bound on that window. The binding
-          # limit is the hosted runner's one-hour action cap (3600s), and this action
-          # also spends part of that hour outside the window: checkout, the unit sweep,
-          # schema preflight and the integration compile before START_NS, and the
-          # benchmark and race steps after cleanup. Those took more than 300s in every
-          # observed run, so the window gets the rest:
-          #   3600s action cap - 300s outside the window = 3300s.
-          # A shorter bound fails a run whose suites and teardown all passed.
+          # teardown. --max-seconds is only the hard bound on that window; the binding limit is
+          # the hosted runner's one-hour action cap (3600s). 300s of that hour is reserved for
+          # the work before START_NS (checkout, change selection, fixture setup, schema
+          # preflight, the compile above):
+          #   3600s action cap - 300s reserve = 3300s.
           START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 3300 --required-pool-slots 114 &
           OBSERVER_PID=$!
@@ -880,73 +998,315 @@ actions:
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of this wave.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
-          # web-ng's database-free unit allow-list excludes the focused shared-fixture DB cases.
-          # They reuse clones the ordinary lanes have released; the manual targets cannot be
-          # selected by the wildcard. One invocation runs three disjoint owners concurrently:
-          # networks_live on serial_0, topology_atlas on serial_1, and the Dgraph schema
-          # lifecycle in its own scratch namespace. Their pools (8 + 4 Repo connections) stay far
-          # below the ordinary wave's peak, so --required-pool-slots is unchanged.
-          # plugin_config_cli also uses serial_0, so it runs after networks_live has released it.
-          bazel test $FLAGS //elixir/web-ng:networks_live_db_test //elixir/web-ng:topology_atlas_db_test //rust/dgraph-topology:schema_lifecycle_test
-          bazel test $FLAGS //elixir/web-ng:plugin_config_cli_db_test
 
-      # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
-      #
-      # These exist because `bazel test` compiles a Go Benchmark* function and then skips it --
-      # benchmarks need -test.bench, and nothing passed it. The first run of these targets found
-      # BenchmarkNetworkSweeper_OptimizedTCPScan already broken on two gomock expectations that
-      # runSweep gained after it was written, and fastsum's benchmarks sitting in no target at
-      # all. A benchmark nobody runs still passes review and still looks like coverage.
-      #
-      # NO THRESHOLD, deliberately. A benchmark on a shared runner is noisy, and a threshold set
-      # before that variance is measured produces failures that are not regressions -- the
-      # predictable response is to mute the check, and a muted gate still looks like protection.
-      # Gating is a later decision, argued from the numbers these runs collect.
-      #
-      # Cheap, and before the race step on purpose: the runner defaults to -test.benchtime=1x,
-      # so this proves the benchmarks still execute rather than producing numbers stable enough
-      # to compare.
-      # `--//build:enable_integration_tests` is here for the same reason the unit sweep carries
-      # it: CONFIGURATION and CACHE CONTINUITY. It is not that this step runs integration tests
-      # -- the tag filter selects `benchmark` alone. It is that a build setting is part of the
-      # configuration key, so omitting it makes `//...` a SECOND configuration and rebuilds the
-      # repo from scratch rather than reusing what the earlier steps just built. This step
-      # therefore matches the unit sweep's flags exactly.
+  # The web-ng database suites (sharded, //build:web_ng_db_lanes.bzl) and the Dgraph schema
+  # lifecycle (see the BazelCI comment above). Its own run id clones only the web-ng lanes.
+  - name: "BazelCI Web-NG DB"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+
+      # Cert server. in cluster.
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+
+      GIT_BASE_BRANCH: "staging"
+
+    # Redirects work to pods in the self hosted cluster.
+    self_hosted: true
+
+    # The pull-request fleet: four executors (32Gi/8 CPU requests each, one runner apiece), Helm
+    # release `buildbuddy-workflows-pr`. BazelCI and its two database actions run on it in
+    # parallel. Matched against the executor's `poolName`, so the two must match at all times.
+    pool: "workflows-pr"
+
+    # OWN PATCH LINE (v1.0.24.x), NOT in lockstep with rbe-executor (v1.0.25.x since the
+    # hermetic-LLVM migration). //docker/images/Dockerfile.workflow-runner records the policy.
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
+
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      # Under `oci` isolation this is a BOOLEAN in disguise. ociruntime.go reduces the property
+      # to `networkEnabled: networkMode != "off"`
+      dockerNetwork: "bridge"
+
+    triggers:
+      pull_request:
+        branches:
+          - "staging"
+
+    # UNITS: `GB` HERE MEANS GiB, NOT 10^9. Each workflows-pr executor requests 32Gi and 8 CPU,
+    # so one run of any of the three BazelCI actions fits beside the executor's own overhead.
+    resource_requests:
+      cpu: "7"
+      memory: "28GB"
+      disk: "40GB"
+
+    steps:
+      # Writes /tmp/serviceradar-skip-web-ng-db when no target of this action depends on a changed file.
+      # Always exits 0; any doubt runs the lifecycle.
+      - run: python3 build/ci/select_integration_actions.py --action web_ng
       - run: >-
-          scripts/ci/unless_docs_only.sh bazel test -c opt --config=ci --//build:enable_integration_tests
-          --test_tag_filters=benchmark
-          --test_output=errors
-          //...
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
-      # Go race tests (race on, pure off). --flaky_test_attempts=1 overrides the repo default of 2.
+      # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
+      # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
       #
-      # Private output base on purpose. pure and race change the configuration key,
-      # and ci_runner parks the default Bazel server (startup --max_idle_secs=0,
-      # startup --output_base under the runner workspace). Leaving those flags on
-      # that server makes the next pull request discard the analysis cache and
-      # reanalyze //... . The command-line --output_base overrides the rc and
-      # starts a second server. shutdown stops that JVM so a parked runner does
-      # not keep two servers resident; the output base stays on the runner rootfs
-      # for the next race step. /home/buildbuddy is uid 1001's home and sits
-      # outside the workspace recycle limit, same as the per-runner disk cache.
+      # `--//build:enable_integration_tests` on every call: these targets are
+      # target_compatible_with = requires_shared_fixture(), and the guard stays explicit because
+      # they run DDL against a fixture concurrent branches share.
+      #
+      # `--strategy=TestRunner=local` moves ONLY the test action to the runner. NOT for
+      # routing -- a cluster executor reaches the fixture too, which is what makes the
+      # throwaway-password probe in .agents/skills/srql-fixtures-db-tests possible. It is for
+      # the CREDENTIAL: a remote action ships its environment to the executor and BuildBuddy
+      # records action metadata, so the two SERVICERADAR_SECRET_* values below stay on this
+      # runner and out of the remote action.
+      #
+      # $SERVICERADAR_TEST_ENV_FLAGS is materialized by //:buildbuddy_setup_fixture_env.
       - run: |
           set -euo pipefail
-          [ -e "${DOCS_ONLY_MARKER:-/tmp/serviceradar-docs-only-marker}" ] && { echo "docs-only change: BazelCI Go race tests skipped"; exit 0; }
-          race_output_base=/home/buildbuddy/output-base-race
-          set +e
-          bazel --output_base="$race_output_base" test -c opt --config=ci //go/... \
-            --@io_bazel_rules_go//go/config:pure=false \
-            --@io_bazel_rules_go//go/config:race \
-            --test_tag_filters=-integration_test,-acceptance_test,-benchmark \
-            --test_timeout=600 \
-            --flaky_test_attempts=1 \
-            --test_arg=-test.count=5 \
-            --test_arg=-test.short \
-            --test_arg=-test.shuffle=on
-          status=$?
-          set -e
-          bazel --output_base="$race_output_base" shutdown
-          exit "$status"
+          umask 077
+
+          [ -e "${SERVICERADAR_SKIP_MARKER:-/tmp/serviceradar-skip-web-ng-db}" ] && { cat "${SERVICERADAR_SKIP_MARKER:-/tmp/serviceradar-skip-web-ng-db}"; echo "no web-ng database target is affected: database lifecycle skipped"; exit 0; }
+
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+
+          # Every checkout selects an immutable generation from declared schema inputs. The
+          # same run id owns its lease before and during the measured lifecycle; there is no
+          # branch name in the identity and no fallback to sr_core_template.
+
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors
+             --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
+             --test_env=DGRAPH_TEST_STRATEGY=existing
+             --test_env=DGRAPH_TEST_HOST=dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
+             --test_env=DGRAPH_TEST_PORT=9080
+             --test_env=DGRAPH_TEST_SSLMODE=verify-ca
+             --test_env=DGRAPH_TEST_CA_BUNDLE_URL=https://dgraph-ci-ca.carverauto.dev/ca.crt
+             --test_env=DGRAPH_ADMIN_PASSWORD"
+
+          OBSERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-observer.XXXXXX")"
+          READY_FILE="$OBSERVER_DIR/ready"
+          SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
+          QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
+          STOP_FILE="$OBSERVER_DIR/stop"
+          test ! -e "$READY_FILE"
+          test ! -e "$SUITE_COMPLETE_FILE"
+          test ! -e "$QUIESCENT_FILE"
+          test ! -e "$STOP_FILE"
+          OBSERVER_PID=""
+          SUITE_STATUS=0
+          OBSERVER_STATUS=0
+          TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
+          START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
+
+          wait_for_marker() {
+            marker="$1"
+            limit="$2"
+            elapsed=0
+            while [ ! -e "$marker" ] && [ "$elapsed" -lt "$limit" ]; do
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            [ -e "$marker" ]
+          }
+
+          wait_for_observer_ready() {
+            limit="$1"
+            elapsed=0
+            while [ ! -e "$READY_FILE" ] && [ "$elapsed" -lt "$limit" ]; do
+              if ! kill -0 "$OBSERVER_PID" 2>/dev/null; then
+                set +e
+                wait "$OBSERVER_PID"
+                OBSERVER_STATUS=$?
+                set -e
+                OBSERVER_PID=""
+                echo "observer exited before readiness with status $OBSERVER_STATUS" >&2
+                return 1
+              fi
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            if [ ! -e "$READY_FILE" ]; then
+              echo "observer did not become ready within ${limit}s" >&2
+              return 1
+            fi
+            if ! kill -0 "$OBSERVER_PID" 2>/dev/null; then
+              set +e
+              wait "$OBSERVER_PID"
+              OBSERVER_STATUS=$?
+              set -e
+              OBSERVER_PID=""
+              echo "observer exited immediately after readiness with status $OBSERVER_STATUS" >&2
+              return 1
+            fi
+          }
+
+          cleanup() {
+            ORIGINAL_STATUS=$?
+            trap - EXIT
+            set +e
+            if [ "$ORIGINAL_STATUS" -ne 0 ] && [ "$SUITE_STATUS" -eq 0 ]; then
+              SUITE_STATUS=$ORIGINAL_STATUS
+            fi
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$SUITE_COMPLETE_FILE"
+              if ! wait_for_marker "$QUIESCENT_FILE" 30; then
+                if [ "$OBSERVER_STATUS" -eq 0 ]; then
+                  OBSERVER_STATUS=1
+                fi
+              fi
+            fi
+            bazel test $FLAGS //rust/integration-db:teardown_db
+            TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
+            END_NS="$(date +%s%N)"
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$STOP_FILE"
+              wait "$OBSERVER_PID"
+              OBSERVER_PROCESS_STATUS=$?
+              if [ "$OBSERVER_PROCESS_STATUS" -ne 0 ] && [ "$OBSERVER_STATUS" -eq 0 ]; then
+                OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
+              fi
+            fi
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_BAZEL_CI_WEB_NG_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
+            rm -rf "$OBSERVER_DIR"
+            if [ "$SUITE_STATUS" -ne 0 ]; then
+              exit "$SUITE_STATUS"
+            elif [ "$OBSERVER_STATUS" -ne 0 ]; then
+              exit "$OBSERVER_STATUS"
+            elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
+              exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
+            fi
+            exit "$ORIGINAL_STATUS"
+          }
+
+          trap cleanup EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          export DGRAPH_ADMIN_PASSWORD="${SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD:-}"
+          FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          # Compile the suites before cloning a database, and before the measured clock, with
+          # the run id the suite uses. Leave $FLAGS off: those options are test-only.
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //elixir/web-ng:networks_live_db_test //elixir/web-ng:topology_atlas_db_test //elixir/web-ng:plugin_config_cli_db_test //rust/dgraph-topology:schema_lifecycle_test
+
+          # The observer samples until cleanup touches $STOP_FILE, after teardown_db and
+          # release_generation, so its window spans provisioning, every suite below and
+          # teardown. --max-seconds is only the hard bound on that window; the binding limit is
+          # the hosted runner's one-hour action cap (3600s). 300s of that hour is reserved for
+          # the work before START_NS (checkout, change selection, fixture setup, schema
+          # preflight, the compile above):
+          #   3600s action cap - 300s reserve = 3300s.
+          # --required-pool-slots: three networks_live shards at 15 (an 8-connection Repo plus the
+          # application's own connections, the figure WebNgDbDiagnostic used for one shard), two
+          # Repo-only topology_atlas shards at 4, and plugin_config_cli at 15:
+          #   3 x 15 + 2 x 4 + 15 = 68.
+          START_NS="$(date +%s%N)"
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 3300 --required-pool-slots 68 &
+          OBSERVER_PID=$!
+          wait_for_observer_ready 30 || exit 1
+
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_web_ng)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
+          # web-ng's database-free unit allow-list excludes the shared-fixture DB cases; these
+          # manual targets select them. Every web-ng target owns a different clone and the Dgraph
+          # schema lifecycle owns its own scratch namespace, so one invocation runs them all
+          # concurrently.
+          bazel test $FLAGS //elixir/web-ng:networks_live_db_test //elixir/web-ng:topology_atlas_db_test //elixir/web-ng:plugin_config_cli_db_test //rust/dgraph-topology:schema_lifecycle_test
 
   - name: "LargeIngestionGate"
     env:

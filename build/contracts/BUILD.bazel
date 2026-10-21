@@ -82,7 +82,6 @@ py_test(
         "//elixir/serviceradar_core:test/support/data_case.ex",
         "//elixir/serviceradar_core:test/support/test_support.ex",
         "//elixir/serviceradar_core:test/test_helper.exs",
-        "//elixir/web-ng:BUILD.bazel",
         "//elixir/web-ng/test/playwright:BUILD.bazel",
         "//integration_tests/srql:integration_benchmark_input_files",
         "//integration_tests/srql:integration_capacity_contract_inputs",
@@ -101,9 +100,16 @@ py_test(
 
 genquery(
     name = "web_ng_db_target_query",
-    expression = "//elixir/web-ng:networks_live_db_test",
+    # Every web-ng database target BazelCI runs in one invocation, and the target that
+    # provisions their clones.
+    expression = "tests(//elixir/web-ng:networks_live_db_test) + tests(//elixir/web-ng:topology_atlas_db_test) + //elixir/web-ng:plugin_config_cli_db_test + //rust/integration-db:provision_generation_web_ng",
     opts = ["--output=xml"],
-    scope = ["//elixir/web-ng:networks_live_db_test"],
+    scope = [
+        "//elixir/web-ng:networks_live_db_test",
+        "//elixir/web-ng:plugin_config_cli_db_test",
+        "//elixir/web-ng:topology_atlas_db_test",
+        "//rust/integration-db:provision_generation_web_ng",
+    ],
 )
 
 genquery(

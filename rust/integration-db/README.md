@@ -2,9 +2,10 @@
 
 ## Keyed generation lifecycle
 
-Every active database workflow (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*`) uses
-these guarded targets: `cleanup_generations`, `prepare_generation`, `provision_generation`,
-`provision_generation_large_ingestion`, and `release_generation`, with
+Every active database workflow (`BazelCI Core Integration`, `BazelCI Web-NG DB`,
+`LargeIngestionGate`, `WorldWorkerScale`, `IntegrationBenchmark*`) uses these guarded targets:
+`cleanup_generations`, `prepare_generation`, `provision_generation`,
+`provision_generation_large_ingestion`, `provision_generation_web_ng`, and `release_generation`, with
 `//elixir/serviceradar_core:migrate_generation` as the builder, plus
 `provision_generation_<lane>` to clone a single lane. The legacy singleton lifecycle is
 retired; its rollback prerequisites are owned by

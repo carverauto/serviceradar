@@ -3,8 +3,8 @@
 web-ng selects tests by tag across three lanes:
 
   * ``//elixir/web-ng:unit_tests``            -> ``:db_free`` (allow-list tier)
-  * ``//elixir/web-ng:networks_live_db_test`` -> ``:web_ng_shared_fixture_db``
-  * ``//elixir/web-ng:topology_atlas_db_test`` -> ``:topology_atlas_db``
+  * ``//elixir/web-ng:networks_live_db_test_<n>`` shards -> ``:web_ng_shared_fixture_db``
+  * ``//elixir/web-ng:topology_atlas_db_test_<n>`` shards -> ``:topology_atlas_db``
 
 Other ``ex_unit_test`` targets in ``//elixir/web-ng`` are lanes too, including
 a manual target a workflow runs by name. A file that target lists in ``srcs``
@@ -27,8 +27,8 @@ test source. It checks the two routing facts a formatter cannot see:
     classified.
 
 Lane membership is the ``srcs`` attribute of ``web_ng_lane_target_query``, not
-the BUILD text. The two database lanes above must be present in that query;
-every other ``ex_unit_test`` rule in it counts as well.
+the BUILD text. At least one shard of each database lane above must be present
+in that query; every other ``ex_unit_test`` rule in it counts as well.
 
 Selection is stricter than loading: the database-free lane excludes every
 non-:db_free test at runtime, so a file declaring a database-lane tag is
@@ -59,15 +59,18 @@ LANE_QUERY = Path(
     )
 )
 
-NETWORKS_TARGET = "//elixir/web-ng:networks_live_db_test"
-TOPOLOGY_TARGET = "//elixir/web-ng:topology_atlas_db_test"
+NETWORKS_SHARD_PREFIX = "//elixir/web-ng:networks_live_db_test_"
+TOPOLOGY_SHARD_PREFIX = "//elixir/web-ng:topology_atlas_db_test_"
+NETWORKS_TARGET = NETWORKS_SHARD_PREFIX + "0"
+TOPOLOGY_TARGET = TOPOLOGY_SHARD_PREFIX + "0"
 WEB_NG_LABEL = "//elixir/web-ng:"
 
-DB_SELECTING_TARGETS = (
-    NETWORKS_TARGET,
-    TOPOLOGY_TARGET,
-    "//elixir/web-ng:plugin_config_cli_db_test",
-)
+DB_SHARD_PREFIXES = (NETWORKS_SHARD_PREFIX, TOPOLOGY_SHARD_PREFIX)
+PLUGIN_CONFIG_CLI_TARGET = "//elixir/web-ng:plugin_config_cli_db_test"
+
+
+def is_db_selecting_target(target):
+    return target == PLUGIN_CONFIG_CLI_TARGET or target.startswith(DB_SHARD_PREFIXES)
 
 DB_LANE_TAGS = frozenset({"web_ng_shared_fixture_db", "topology_atlas_db"})
 
@@ -99,8 +102,8 @@ def test_files():
 def evaluated_lane_srcs(query_path):
     """Map each evaluated test target to the test sources Bazel put in its srcs.
 
-    The two database lanes must be present. Every other rule in the query is a
-    lane as well; callers union the values.
+    A shard of each database lane must be present. Every other rule in the query
+    is a lane as well; callers union the values.
     """
     query = ET.parse(query_path)
     srcs = {}
@@ -119,7 +122,10 @@ def evaluated_lane_srcs(query_path):
             for value in values
             if value.startswith(WEB_NG_LABEL)
         }
-    missing = [target for target in (NETWORKS_TARGET, TOPOLOGY_TARGET) if target not in srcs]
+    missing = [
+        prefix for prefix in DB_SHARD_PREFIXES
+        if not any(target.startswith(prefix) for target in srcs)
+    ]
     if missing:
         raise AssertionError(
             "evaluated query %s has no rule for %s" % (query_path, ", ".join(missing))
@@ -159,8 +165,9 @@ def db_declared_sources(files):
 def db_selected(source, lane_srcs_by_target):
     """A database-tagged file is selected only when a database lane owns it."""
     return any(
-        source in lane_srcs_by_target.get(target, set())
-        for target in DB_SELECTING_TARGETS
+        source in sources
+        for target, sources in lane_srcs_by_target.items()
+        if is_db_selecting_target(target)
     )
 
 
@@ -175,13 +182,13 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
 
         query = """<?xml version="1.0" encoding="UTF-8"?>
         <query>
-          <rule name="//elixir/web-ng:networks_live_db_test" class="ex_unit_test">
+          <rule name="//elixir/web-ng:networks_live_db_test_0" class="ex_unit_test">
             <list name="srcs">
               <label value="//elixir/web-ng:test/app_domain/accounts_test.exs"/>
               <string value="//other:ignored"/>
             </list>
           </rule>
-          <rule name="//elixir/web-ng:topology_atlas_db_test" class="ex_unit_test">
+          <rule name="//elixir/web-ng:topology_atlas_db_test_0" class="ex_unit_test">
             <list name="srcs">
               <label value="//elixir/web-ng:test/phoenix/topology/world_health_source_db_test.exs"/>
             </list>

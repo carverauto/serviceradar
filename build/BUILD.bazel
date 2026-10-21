@@ -104,6 +104,7 @@ exports_files([
     "integration_test_dispositions.bzl",
     "integration_tests.bzl",
     "repo_alias.bzl",
+    "web_ng_db_lanes.bzl",
 ])
 
 # Opt-in switch for tests that talk to the shared CNPG fixture.
