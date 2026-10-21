@@ -61,7 +61,11 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
 
   # Sources and their stable package.
 
-  @doc "Enabled sources that track the latest approved package and are not explicitly pinned."
+  @doc """
+  Enabled sources that track the latest approved package and are not explicitly
+  pinned. The periodic reconcile starts a rollout for each one that is behind
+  the newest eligible package.
+  """
   @callback managed_sources(actor()) :: {:ok, [source()]} | {:error, term()}
 
   @doc """
@@ -111,6 +115,12 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
 
   @doc "Whether `candidate` is a later release of the same artifact from the same origin."
   @callback same_lineage?(candidate :: package(), current :: package()) :: boolean()
+
+  @doc """
+  Whether a candidate the caller names itself (an explicit `start/3` or a retry,
+  rather than a reconcile choosing it) may be on any release channel.
+  """
+  @callback explicit_selection_ignores_channel?() :: boolean()
 
   @doc "Whether the package's approval and provenance make it a candidate at all."
   @callback trusted_approved?(package()) :: boolean()

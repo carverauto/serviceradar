@@ -105,7 +105,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       artifact.normalize_policy(Keyword.get(opts, :policy) || artifact.rollout_policy(source))
 
     with {:ok, previous} <- stable_package(source, actor),
-         :ok <- validate_candidate(source, previous, candidate),
+         :ok <- validate_candidate(source, previous, candidate, trigger),
          {:ok, members} <- artifact.source_members(source, actor),
          {:ok, agents} <- load_agents(members, actor),
          {:ok, overridden} <- artifact.overridden_members(source, members, actor),
@@ -637,7 +637,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       start_next_candidate(refreshed_source, current, packages, rollouts, actor, now, stats)
     else
       {:error, reason} ->
-        Logger.warning("Failed to replace paused native add-on rollout",
+        Logger.warning("Failed to replace paused fleet rollout",
           rollout_id: to_string(paused.id),
           reason: inspect(reason)
         )
@@ -720,7 +720,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
             increment(stats, :skipped)
 
           {:error, reason} ->
-            Logger.warning("Failed to start native add-on rollout",
+            Logger.warning("Failed to start fleet rollout",
               source_id: to_string(source.id),
               reason: inspect(reason)
             )
@@ -739,8 +739,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp validate_candidate(source, previous, candidate) do
-    case Eligibility.latest_candidate(previous, [candidate], source) do
+  # A reconcile chose the candidate of a :track_latest start; every other
+  # trigger names its candidate.
+  defp validate_candidate(source, previous, candidate, trigger) do
+    case Eligibility.latest_candidate(previous, [candidate], source,
+           selected: trigger != :track_latest
+         ) do
       {:ok, ^candidate} -> :ok
       {:blocked, reason, _} -> {:error, reason}
       :none -> {:error, :candidate_not_eligible}
@@ -1263,6 +1267,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       {:ok, pinned ++ promoted ++ cleared}
     else
       {:error, :owner_package_changed} -> supersede_moved_owner(rollout, targets, actor, now)
+      {:error, :source_deleted} -> cancel_deleted_source(rollout, targets, actor, now)
       {:error, :stale_target} -> {:error, :stale_target}
       {:error, reason} -> {:error, {:pause_rollout, reason}}
     end
@@ -1284,6 +1289,24 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
            ) do
       audit(:supersede, updated, details)
       emit(:superseded, updated, details)
+      {:ok, notifications}
+    end
+  end
+
+  # The source row was deleted while the rollout ran, so there is nothing left
+  # to promote. Pausing would keep the rollout active for a source no reconcile
+  # will ever revisit; it ends canceled instead, releasing what it still holds.
+  defp cancel_deleted_source(rollout, targets, actor, now) do
+    with {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
+         :ok <- mark_targets_canceled(targets, actor, now),
+         {:ok, updated} <-
+           update_rollout(
+             rollout,
+             %{state: :canceled, canceled_at: now, blocked_reason: "source_deleted"},
+             actor
+           ) do
+      audit(:cancel, updated, %{reason: "source_deleted"})
+      emit(:canceled, updated, %{reason: "source_deleted"})
       {:ok, notifications}
     end
   end
@@ -1796,6 +1819,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp normalize_ash_result_with_notifications({:ok, record}), do: {:ok, record, []}
   defp normalize_ash_result_with_notifications({:error, reason}), do: {:error, reason}
 
+  # `automatic` marks a rollout the reconcile started for a source tracking the
+  # latest approved package, as opposed to one an operator or a retry started.
   defp audit(action, rollout, details) do
     AuditWriter.write_async(
       action: action,
@@ -1805,6 +1830,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       details:
         Map.merge(
           %{
+            trigger: rollout.trigger,
+            automatic: rollout.trigger == :track_latest,
             source_type: rollout.source_type,
             source_id: rollout.source_id,
             previous_package_id: previous_package_id(rollout),

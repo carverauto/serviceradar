@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonRollout
@@ -459,9 +460,215 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
       )
 
     assert delivered_package(member.agent_uid) == {ctx.candidate.id, "1.1.0"}
+    assert config_pushes(member) == 1
 
     assert :ok = AddonRolloutCoordinator.cancel(rollout.id, actor: @system)
     assert delivered_package(member.agent_uid) == {ctx.previous.id, "1.0.0"}
+    assert config_pushes(member) == 2
+  end
+
+  test "deleting a manual assignment during its rollout cancels the rollout", ctx do
+    member = manual_member!(ctx)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(assignment(member), ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 300)
+      )
+
+    member
+    |> assignment()
+    |> Ash.Changeset.for_destroy(:destroy)
+    |> Ash.destroy!(actor: @system)
+
+    _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 1))
+    _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+
+    assert %{state: :canceled, blocked_reason: "source_deleted"} = reload(rollout)
+
+    assert [%{state: :canceled, reason_code: "assignment_deleted", plugin_assignment_id: nil}] =
+             targets(rollout)
+  end
+
+  describe "automatic rollouts for owners tracking the latest approved package" do
+    setup :enable_automatic_rollouts
+
+    test "approving a newer package starts rollouts for tracking owners only", ctx do
+      tracking = member!(ctx, "agent-#{ctx.unique}-tracking", "manual", nil, tracking_owner(ctx))
+      pinned = member!(ctx, "agent-#{ctx.unique}-pinned", "manual", nil, package: ctx.candidate)
+
+      {policy, [policy_member]} = policy_with_members!(ctx, 1, tracking_owner(ctx))
+
+      # A credential rule's assignment: step F moves these owners.
+      rule_member =
+        member!(
+          ctx,
+          "agent-#{ctx.unique}-rule",
+          "policy",
+          "network-credential-rule:example-#{ctx.unique}",
+          package: ctx.candidate
+        )
+
+      newer = staged_package!(ctx.candidate.plugin_id, "1.2.0")
+      reconcile!(ctx, 0)
+      assert rollouts(:assignment, tracking) == []
+
+      approve!(newer)
+      reconcile!(ctx, 1)
+
+      for {source_type, source, member} <- [
+            {:assignment, tracking, tracking},
+            {:target_policy, policy, policy_member}
+          ] do
+        assert [%AddonRollout{trigger: :track_latest, candidate_plugin_package_id: candidate_id}] =
+                 rollouts(source_type, source)
+
+        assert candidate_id == newer.id
+        assert assignment(member).rollout_plugin_package_id == newer.id
+      end
+
+      for untouched <- [pinned, rule_member] do
+        assert %{plugin_package_id: stable_id, rollout_plugin_package_id: nil} =
+                 assignment(untouched)
+
+        assert stable_id == ctx.candidate.id
+        assert rollouts(:assignment, untouched) == []
+      end
+    end
+
+    test "a reconcile re-run or a repeated approval starts no second rollout", ctx do
+      tracking =
+        member!(ctx, "agent-#{ctx.unique}-tracking", "manual", nil,
+          update_policy: "track_latest_approved"
+        )
+
+      reconcile!(ctx, 0)
+      assert {:error, _already_approved} = approve(ctx.candidate)
+      reconcile!(ctx, 1)
+
+      assert [%AddonRollout{state: :running} = rollout] = rollouts(:assignment, tracking)
+
+      result!(tracking, ctx.candidate, "OK", at(ctx, 2))
+      reconcile!(ctx, 3)
+      reconcile!(ctx, 400)
+
+      assert %AddonRollout{state: :completed} = reload(rollout)
+      assert assignment(tracking).plugin_package_id == ctx.candidate.id
+
+      reconcile!(ctx, 401)
+      assert [%AddonRollout{id: only_id}] = rollouts(:assignment, tracking)
+      assert only_id == rollout.id
+    end
+
+    test "a newer approval waits for a running rollout and supersedes a paused one", ctx do
+      tracking =
+        member!(ctx, "agent-#{ctx.unique}-tracking", "manual", nil,
+          update_policy: "track_latest_approved"
+        )
+
+      reconcile!(ctx, 0)
+      assert [%AddonRollout{state: :running} = running] = rollouts(:assignment, tracking)
+
+      newer = approve!(staged_package!(ctx.candidate.plugin_id, "1.2.0"))
+      reconcile!(ctx, 1)
+
+      assert [%AddonRollout{id: running_id}] = rollouts(:assignment, tracking)
+      assert running_id == running.id
+      assert assignment(tracking).rollout_plugin_package_id == ctx.candidate.id
+
+      assert :ok = AddonRolloutCoordinator.pause(running.id, actor: @system, now: at(ctx, 2))
+      reconcile!(ctx, 3)
+
+      assert %{state: :superseded, blocked_reason: "newer_candidate_approved"} = reload(running)
+
+      assert [%AddonRollout{trigger: :track_latest, candidate_plugin_package_id: candidate_id}] =
+               :assignment |> rollouts(tracking) |> Enum.reject(&(&1.id == running.id))
+
+      assert candidate_id == newer.id
+      assert assignment(tracking).rollout_plugin_package_id == newer.id
+    end
+
+    test "a prerelease moves an owner only when selected explicitly", ctx do
+      tracking = member!(ctx, "agent-#{ctx.unique}-tracking", "manual", nil, tracking_owner(ctx))
+      prerelease = approve!(staged_package!(ctx.candidate.plugin_id, "1.2.0-rc.1"))
+
+      reconcile!(ctx, 0)
+      assert rollouts(:assignment, tracking) == []
+
+      assert {:ok, %AddonRollout{trigger: :manual}} =
+               AddonRolloutCoordinator.start(assignment(tracking), prerelease,
+                 actor: @system,
+                 now: at(ctx, 1),
+                 policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 300)
+               )
+
+      assert assignment(tracking).rollout_plugin_package_id == prerelease.id
+    end
+  end
+
+  test "owners tracking the latest approved package stay put while automatic rollouts are off",
+       ctx do
+    set_automatic_rollouts(false)
+
+    tracking =
+      member!(ctx, "agent-#{ctx.unique}-tracking", "manual", nil,
+        update_policy: "track_latest_approved"
+      )
+
+    reconcile!(ctx, 0)
+
+    assert rollouts(:assignment, tracking) == []
+    assert %{rollout_plugin_package_id: nil} = assignment(tracking)
+  end
+
+  defp enable_automatic_rollouts(_ctx), do: set_automatic_rollouts(true)
+
+  # The setting is global, so the case restores whatever was configured before.
+  defp set_automatic_rollouts(enabled?) do
+    previous = Application.get_env(:serviceradar_core, :wasm_plugin_automatic_rollouts)
+    Application.put_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, enabled?)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, previous)
+    end)
+  end
+
+  defp tracking_owner(ctx), do: [package: ctx.candidate, update_policy: "track_latest_approved"]
+
+  defp reconcile!(ctx, seconds) do
+    assert {:ok, _summary} =
+             AddonRolloutCoordinator.reconcile(actor: @system, now: at(ctx, seconds))
+  end
+
+  defp rollouts(source_type, %{id: id}) do
+    AddonRollout
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      artifact_kind == :wasm_plugin and source_type == ^source_type and source_id == ^id
+    )
+    |> Ash.read!(actor: @system)
+  end
+
+  defp targets(rollout) do
+    AddonRolloutTarget
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(rollout_id == ^rollout.id)
+    |> Ash.read!(actor: @system)
+  end
+
+  # Config pushes the agent-config dependency catalog dispatched for the
+  # member's assignment.
+  defp config_pushes(member) do
+    ServiceRadar.TestSupport.drain_dependency_dispatcher_tasks()
+
+    DependencyDiagnostics.recent()
+    |> Enum.filter(fn diagnostic ->
+      diagnostic.dependency_id == :plugin_assignment_agent_config and
+        to_string(diagnostic.resource_id) == member.id and
+        diagnostic.affected_agents == [member.agent_uid]
+    end)
+    |> length()
   end
 
   defp batches(opts) do
@@ -482,21 +689,26 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     {plugin.package_id, plugin.version}
   end
 
-  defp policy_with_members!(ctx, count) do
+  defp policy_with_members!(ctx, count, opts \\ []) do
+    package = Keyword.get(opts, :package, ctx.previous)
+
     policy =
       PluginTargetPolicy
       |> Ash.Changeset.for_create(:create, %{
         name: "example-rollout-policy-#{ctx.unique}",
-        plugin_package_id: ctx.previous.id,
+        plugin_package_id: package.id,
         input_definitions: [],
         params_template: %{},
-        enabled: true
+        enabled: true,
+        update_policy: Keyword.get(opts, :update_policy, "pinned")
       })
       |> Ash.create!(actor: @system)
 
     members =
       for index <- 1..count do
-        member!(ctx, "agent-#{ctx.unique}-#{index}", "policy", to_string(policy.id))
+        member!(ctx, "agent-#{ctx.unique}-#{index}", "policy", to_string(policy.id),
+          package: package
+        )
       end
 
     {policy, members}
@@ -504,25 +716,30 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
 
   defp manual_member!(ctx), do: member!(ctx, "agent-#{ctx.unique}-manual", "manual", nil)
 
-  defp member!(ctx, agent_uid, source, policy_id) do
+  # Options: `:package` (default the previous package) and `:update_policy`
+  # (default pinned, the column default).
+  defp member!(ctx, agent_uid, source, policy_id, opts \\ []) do
     agent!(agent_uid)
     id = Ecto.UUID.generate()
+    package = Keyword.get(opts, :package, ctx.previous)
 
     Repo.query!(
       """
       INSERT INTO platform.plugin_assignments
-        (id, agent_uid, partition_id, plugin_package_id, plugin_id, source, source_key, policy_id, enabled)
-      VALUES ($1::text::uuid, $2, $3, $4::text::uuid, $5, $6, $7, $8, true)
+        (id, agent_uid, partition_id, plugin_package_id, plugin_id, source, source_key, policy_id,
+         enabled, update_policy)
+      VALUES ($1::text::uuid, $2, $3, $4::text::uuid, $5, $6, $7, $8, true, $9)
       """,
       [
         id,
         agent_uid,
         @partition,
-        ctx.previous.id,
-        ctx.previous.plugin_id,
+        package.id,
+        package.plugin_id,
         source,
         "example-source-key-#{id}",
-        policy_id
+        policy_id,
+        Keyword.get(opts, :update_policy, "pinned")
       ]
     )
 
@@ -648,7 +865,20 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     |> Ash.create!(actor: @system)
   end
 
-  defp package!(plugin_id, version) do
+  defp package!(plugin_id, version), do: plugin_id |> staged_package!(version) |> approve!()
+
+  defp approve!(package) do
+    {:ok, approved} = approve(package)
+    approved
+  end
+
+  defp approve(package) do
+    package
+    |> Ash.Changeset.for_update(:approve, %{approved_by: "example-reviewer"})
+    |> Ash.update(actor: @system)
+  end
+
+  defp staged_package!(plugin_id, version) do
     PluginPackage
     |> Ash.Changeset.for_create(:create, %{
       plugin_id: plugin_id,
@@ -677,8 +907,6 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     |> Ash.Changeset.for_update(:update, %{
       wasm_object_key: "plugins/#{plugin_id}/#{version}/plugin.wasm"
     })
-    |> Ash.update!(actor: @system)
-    |> Ash.Changeset.for_update(:approve, %{approved_by: "example-reviewer"})
     |> Ash.update!(actor: @system)
   end
 end

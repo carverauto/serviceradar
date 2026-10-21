@@ -131,6 +131,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   def same_lineage?(candidate, current),
     do: same_addon?(candidate, current) and same_source_origin?(candidate, current)
 
+  # A source's release_channel governs an operator's explicit upgrade too: the
+  # upgrade sets the channel together with the package it asks for.
+  @impl true
+  def explicit_selection_ignores_channel?, do: false
+
   @impl true
   @spec trusted_approved?(AddonPackage.t()) :: boolean()
   def trusted_approved?(%AddonPackage{} = package) do

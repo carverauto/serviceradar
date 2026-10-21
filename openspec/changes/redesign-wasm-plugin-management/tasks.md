@@ -35,7 +35,7 @@
   - a health gate from fresh plugin results;
   - pause, resume and cancel;
   - rollback to the previous stable package.
-- [ ] 3.5 Trigger a rollout for tracking owners when a newer eligible package is approved, automatically or manually.
+- [x] 3.5 Trigger a rollout for tracking owners when a newer eligible package is approved, automatically or manually.
 - [ ] 3.6 Credential-rule owners resolve through the rollout stable/candidate overlay instead of floating instantly.
 - [ ] 3.7 Bulk "Upgrade to latest", per plugin and across all plugins, for selected pinned owners. It previews compatible, incompatible, unavailable and already-current targets, then executes through rollouts.
 
