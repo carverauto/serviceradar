@@ -324,6 +324,12 @@ Pool `workflows` has members on two clusters: `buildbuddy-workflows` (and
 | cluster | release | values | pool | replicas | volumes | runs |
 |---|---|---|---|---|---|---|
 | carverauto | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/cache`: `emptyDir` (`120Gi`); `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
+| carverauto | `buildbuddy-workflows-pr` | not yet checked in (installed by hand with chart `buildbuddy-executor` 0.0.461) | `workflows-pr` | 4 (one per node, pod anti-affinity) | own `hostPath` caches | BazelCI, BazelCI Core Integration, BazelCI Web-NG DB |
+
+Each `buildbuddy-workflows-pr` executor requests 32Gi/8 CPU with limits 40Gi/12 CPU and
+`max_runner_count: 1`, and otherwise uses the same oci, DNS, private-IP and Bazel-cache setup
+as `workflows`, with its own `hostPath` caches. Its values file belongs in this directory,
+with the API key redacted.
 
 Why a pool of its own: LargeIngestionGate (each staging push plus nightly, ~16 runs/day) and
 BazelCI (PRs, ~49 runs/day, ~22 min) shared pool `workflows` and kept evicting each other's
