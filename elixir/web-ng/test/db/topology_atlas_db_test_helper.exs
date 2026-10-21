@@ -18,6 +18,13 @@ end
 
 {:ok, repo} = ServiceRadar.Repo.start_link()
 Process.unlink(repo)
+
+# A freshly provisioned clone holds no built-in role profiles. Boot seeds them
+# in production, so seed them from the real catalog here instead of depending
+# on another suite having booted the app on the same clone.
+:ok = Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :auto)
+:ok = ServiceRadar.Identity.RoleProfileSeeder.seed()
+
 :ok = Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)
 
 ExUnit.start(exclude: [:test], include: [:topology_atlas_db], max_cases: 1)
