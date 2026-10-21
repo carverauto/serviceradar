@@ -528,8 +528,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
     assert %{advisories_upserted: 1, advisories_skipped: 0} = load_version.(1)
 
+    state_v1 = Loader.existing_advisory_state(@provider, feed_key)
+
+    assert Loader.comparable_count(feed_key, state_v1,
+             normalization_version: Nvd.normalization_version()
+           ) == 0
+
     assert %{advisories_upserted: 1, advisories_skipped: 0} =
              load_version.(Nvd.normalization_version())
+
+    state_current = Loader.existing_advisory_state(@provider, feed_key)
+
+    assert Loader.comparable_count(feed_key, state_current,
+             normalization_version: Nvd.normalization_version()
+           ) == 1
 
     assert %{advisories_upserted: 0, advisories_skipped: 1} =
              load_version.(Nvd.normalization_version())
