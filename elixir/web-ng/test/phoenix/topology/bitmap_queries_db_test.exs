@@ -564,8 +564,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     # Each held worker completes against the current binding; the change made
     # before the channel processes that queued result must stop its delivery.
+    # Every case runs on a freshly joined channel, whose first periodic refresh
+    # is at least five seconds away and so cannot reorder ahead of the result.
+    socket = rejoin(socket, scope)
     expired_ref = hold_completed_watch(socket, params)
-    assert_push "membership:frame", {:binary, _replaced_reset}, 5_000
     held = make_ref()
     Process.send_after(self(), {:deadline_elapsed, held}, 1_100)
     assert_receive {:deadline_elapsed, ^held}, 2_000
@@ -577,14 +579,19 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     # watch's one-second deadline; only its installation lands in that window.
     # Deliberate expiry is asserted separately above.
     remapping = seal_mapping(world, [included, excluded], snapshot.dictionary_epoch)
+    socket = rejoin(socket, scope)
     remapped_ref = hold_completed_watch(socket, params)
     :ok = WorldCache.install_ordinals(world, remapping)
     :ok = :sys.resume(socket.channel_pid)
     assert_reply remapped_ref, :error, %{reason: "source_changed"}, 5_000
     refute_push "membership:frame", _remapped_frame, 200
 
+    # A direct status write revokes read-time authority without the audit and
+    # session-revocation side effects of :deactivate, which the owner test above
+    # covers; those would otherwise spend the held watch's one-second deadline.
+    socket = rejoin(socket, scope)
     revoked_ref = hold_completed_watch(socket, params)
-    user |> Ash.Changeset.for_update(:deactivate, %{}, actor: @actor) |> Ash.update!()
+    {1, _} = Repo.update_all(from(u in User, where: u.id == ^user.id), set: [status: :inactive])
     :ok = :sys.resume(socket.channel_pid)
     assert_reply revoked_ref, :error, %{reason: "forbidden"}, 5_000
     refute_push "membership:frame", _revoked_frame, 200
@@ -876,6 +883,18 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
         assert_reply ref, :ok
         suspend_idle(socket)
     end
+  end
+
+  defp rejoin(socket, scope) do
+    ref = leave(socket)
+    assert_reply ref, :ok
+
+    {:ok, _fence, socket} =
+      UserSocket
+      |> socket("synthetic-bitmap-viewer", %{current_scope: scope})
+      |> subscribe_and_join(TopologyTileChannel, "topology:tiles", %{})
+
+    socket
   end
 
   defp stream_task(socket), do: :sys.get_state(socket.channel_pid).assigns.bitmap_stream.task
