@@ -52,10 +52,6 @@ members = [
 
 exclude = [
     #"elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
-    # Orphaned copy of the srql NIF: nothing in web-ng references it (its only Rustler
-    # module is god_view_nif), and its package name collides with
-    # elixir/serviceradar_srql/native/srql_nif, which cargo forbids in one workspace.
-    "elixir/web-ng/native/srql_nif",
     "rust/netprobe/ebpf",
 ]
 
