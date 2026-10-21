@@ -160,6 +160,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/plugins/endpoint_inventory_addon_package_seeder_test.exs",
     "test/serviceradar/plugins/netprobe_addon_package_seeder_test.exs",
     "test/serviceradar/plugins/otel_collector_addon_package_seeder_test.exs",
+    "test/serviceradar/plugins/owned_assignment_retraction_db_test.exs",
     "test/serviceradar/plugins/plugin_repository_db_test.exs",
     "test/serviceradar/plugins/plugin_repository_policy_db_test.exs",
     "test/serviceradar/plugins/retired_producer_schedule_cleaner_test.exs",

@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Admin.PluginPackageLive.OrphanedAssignments
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
@@ -146,6 +147,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         # the disconnected mount free of new database work and load it only
         # after the LiveView socket is connected.
         |> assign(:legacy_recovery_candidates, [])
+        # Same rule for the orphaned-assignment report: loaded once connected.
+        |> assign(:orphaned_assignments, [])
         |> allow_upload(:wasm_blob,
           accept: ~w(.wasm),
           max_entries: 1,
@@ -154,6 +157,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       if connected?(socket) do
         send(self(), :load_first_party_catalog)
+        send(self(), :load_orphaned_assignments)
       end
 
       {:ok, socket}
@@ -234,6 +238,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_info(:load_first_party_catalog, socket) do
     {:noreply, load_first_party_catalog(socket)}
+  end
+
+  def handle_info(:load_orphaned_assignments, socket) do
+    {:noreply, assign_orphaned_assignments(socket)}
   end
 
   def handle_info(:load_legacy_recovery_candidates, socket) do
@@ -345,6 +353,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
      |> assign(:verification_policy, plugin_verification_policy())
+     |> assign_orphaned_assignments()
      |> assign_first_party_catalog_view(
        socket.assigns.first_party_catalog_all,
        socket.assigns.first_party_release_tag
@@ -952,6 +961,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  def handle_event("retract_orphaned_assignment", _params, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to manage plugin assignments.")}
+  end
+
+  def handle_event("retract_orphaned_assignment", %{"id" => id}, socket) do
+    {:noreply, retract_orphaned_assignments(socket, [id])}
+  end
+
+  def handle_event("retract_all_orphaned_assignments", _params, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to manage plugin assignments.")}
+  end
+
+  def handle_event("retract_all_orphaned_assignments", _params, socket) do
+    {:noreply, retract_orphaned_assignments(socket, :all)}
+  end
+
   def handle_event("noop", _params, socket) do
     {:noreply, socket}
   end
@@ -1452,6 +1477,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </.ui_button>
           </div>
         </div>
+
+        <OrphanedAssignments.panel orphans={@orphaned_assignments} />
 
         <.ui_panel id="imported-plugin-packages">
           <:header>
@@ -3268,6 +3295,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     plugin_id
     |> then(&Assignments.list(%{"plugin_id" => &1}, scope: scope))
     |> Enum.reject(&legacy_unbound_assignment?/1)
+  end
+
+  # Only operators who can retract them see the report: it names credential
+  # rules and target policies the viewer may not otherwise read.
+  defp assign_orphaned_assignments(%{assigns: %{can_assign_plugins: false}} = socket), do: socket
+
+  defp assign_orphaned_assignments(socket) do
+    case Assignments.list_orphaned() do
+      {:ok, orphans} ->
+        assign(socket, :orphaned_assignments, orphans)
+
+      {:error, error} ->
+        Logger.warning("Failed to list orphaned plugin assignments", reason: inspect(error))
+        assign(socket, :orphaned_assignments, [])
+    end
+  end
+
+  defp retract_orphaned_assignments(socket, selection) do
+    case Assignments.retract_orphaned(selection, scope: socket.assigns.current_scope) do
+      {:ok, %{retracted: count}} ->
+        socket
+        |> assign_orphaned_assignments()
+        |> put_flash(:info, "Retracted #{count} orphaned assignment(s)")
+
+      {:error, error} ->
+        Logger.warning("Failed to retract orphaned plugin assignments", reason: inspect(error))
+
+        socket
+        |> assign_orphaned_assignments()
+        |> put_flash(:error, "Failed to retract orphaned assignments")
+    end
   end
 
   defp assign_legacy_recovery_candidates(socket, scope) do

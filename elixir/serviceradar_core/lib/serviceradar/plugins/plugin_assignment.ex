@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
   alias ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy
   alias ServiceRadar.Plugins.Changes.BindAssignmentPartition
+  alias ServiceRadar.Plugins.Changes.ClearRetractionOnEnable
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
@@ -106,9 +107,37 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change SetAssignmentPluginId
       change ApplyConfigDefaults
       change ApplyPluginUpdatePolicy
+      change ClearRetractionOnEnable
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate AssignmentParams
+    end
+
+    # Disables an assignment because its owner no longer covers it, and records
+    # why and on whose action. It deliberately skips the package and parameter
+    # validations of `:update`: a retraction must succeed even when the package
+    # has since been revoked or the stored params no longer validate. See
+    # ServiceRadar.Plugins.OwnedAssignmentRetraction.
+    update :retract do
+      accept []
+
+      argument :disabled_reason, :atom do
+        allow_nil? false
+
+        constraints one_of: [
+                      :owner_disabled,
+                      :owner_deleted,
+                      :owner_scope_narrowed,
+                      :orphaned_owner_cleanup
+                    ]
+      end
+
+      argument :disabled_by, :string, allow_nil?: true
+
+      change set_attribute(:enabled, false)
+      change set_attribute(:disabled_reason, arg(:disabled_reason))
+      change set_attribute(:disabled_by, arg(:disabled_by))
+      change set_attribute(:disabled_at, &DateTime.utc_now/0)
     end
 
     destroy :destroy do
@@ -222,6 +251,31 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       default :operator
       constraints one_of: [:migration_default, :operator]
       description "Who chose update_policy; only migration_default rows are backfilled."
+    end
+
+    attribute :disabled_reason, :atom do
+      allow_nil? true
+      public? true
+
+      constraints one_of: [
+                    :owner_disabled,
+                    :owner_deleted,
+                    :owner_scope_narrowed,
+                    :orphaned_owner_cleanup
+                  ]
+
+      description "Why the assignment was retracted; cleared when it is enabled again."
+    end
+
+    attribute :disabled_by, :string do
+      allow_nil? true
+      public? true
+      description "Actor whose action retracted the assignment."
+    end
+
+    attribute :disabled_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
     end
 
     create_timestamp :inserted_at
