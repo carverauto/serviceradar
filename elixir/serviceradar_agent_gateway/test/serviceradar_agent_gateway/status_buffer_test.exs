@@ -112,6 +112,68 @@ defmodule ServiceRadarAgentGateway.StatusBufferTest do
     assert 0 == StatusBuffer.size()
   end
 
+  # A failed delivery must not be retried at once into the core that just failed
+  # to answer: the periodic tick that fires while the reservation waits is not a
+  # flush request, so the retry waits a full flush interval after the failure.
+  test "a failed delivery waits a full flush interval before the next attempt" do
+    previous_admission = Application.fetch_env(:serviceradar_agent_gateway, :reserved_core_admission)
+    Application.put_env(:serviceradar_agent_gateway, :reserved_core_admission, true)
+    existing_handler = Process.whereis(ServiceRadar.StatusHandler)
+    StatusHandlerTestHelpers.unregister_quietly(ServiceRadar.StatusHandler)
+
+    parent = self()
+    core = spawn(fn -> unanswered_reserve_core_loop(parent, :ignore_next_reserve) end)
+    Process.register(core, ServiceRadar.StatusHandler)
+
+    on_exit(fn ->
+      StatusHandlerTestHelpers.kill_and_await(core)
+      StatusHandlerTestHelpers.restore(ServiceRadar.StatusHandler, existing_handler)
+
+      case previous_admission do
+        {:ok, value} -> Application.put_env(:serviceradar_agent_gateway, :reserved_core_admission, value)
+        :error -> Application.delete_env(:serviceradar_agent_gateway, :reserved_core_admission)
+      end
+    end)
+
+    # 1_000 ms is the flush floor, shorter than the 1_100 ms reservation wait,
+    # so a periodic tick fires while the first delivery is in flight.
+    start_supervised!({StatusBuffer, flush_interval_ms: 1_000})
+
+    assert :ok = StatusBuffer.enqueue(best_effort_status("first"))
+    StatusBuffer.request_flush()
+    assert_receive {:reserve, :ignored, first_at}, 1_000
+
+    assert_receive {:reserve, :answered, retry_at}, 4_000
+    assert_receive {:delivered, "first"}, 1_000
+
+    # The reservation fails at about first_at + 1_100; the retry must not come
+    # before one more flush interval has passed (about first_at + 2_100).
+    assert retry_at - first_at >= 2_000
+  end
+
+  # Never answers the first reservation, so its caller times out; answers every
+  # later one at once.
+  defp unanswered_reserve_core_loop(parent, mode) do
+    receive do
+      {:"$gen_call", from, {:reserve_status, _descriptor}} ->
+        now = System.monotonic_time(:millisecond)
+
+        if mode == :ignore_next_reserve do
+          send(parent, {:reserve, :ignored, now})
+        else
+          send(parent, {:reserve, :answered, now})
+          GenServer.reply(from, {:ok, {self(), make_ref()}})
+        end
+
+        unanswered_reserve_core_loop(parent, :answer)
+
+      {:"$gen_call", from, {:submit, _id, status, :best_effort}} ->
+        send(parent, {:delivered, status.service_name})
+        GenServer.reply(from, :ok)
+        unanswered_reserve_core_loop(parent, mode)
+    end
+  end
+
   # Answers the first reservation only after the test releases it, and every
   # later one at once. Submitted payloads are reported to the test.
   defp slow_core_loop(parent, mode) do
