@@ -71,6 +71,16 @@ defmodule ServiceRadar.Observability.HourlyRollupRetentionDbTest do
     refute Enum.any?(Map.values(first), &is_nil/1)
   end
 
+  test "clamps continuous aggregate refresh windows below source retention" do
+    assert :ok =
+             DataRetentionWorker.reconcile_timescale_tables(
+               otel_traces_retention_days: 1,
+               logs_retention_days: 1
+             )
+
+    assert ServiceRadar.ColdTier.RetentionFence.cagg_refresh_hazards() == []
+  end
+
   defp present_rollups do
     %{rows: rows} =
       SQL.query!(

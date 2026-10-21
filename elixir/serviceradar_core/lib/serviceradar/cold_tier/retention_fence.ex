@@ -316,10 +316,18 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
 
   # Timescale renders these configs like "32 days" / "10:00:00" / "7 days 00:00:00".
   defp parse_interval_days(value) when is_binary(value) do
-    case Regex.run(~r/(\d+)\s*day/, value) do
-      [_, days] -> String.to_integer(days)
+    cond do
+      match = Regex.run(~r/(\d+)\s*day/, value) ->
+        [_, days] = match
+        String.to_integer(days)
+
+      match = Regex.run(~r/^(\d+):\d{2}:\d{2}$/, String.trim(value)) ->
+        [_, hours] = match
+        div(String.to_integer(hours), 24)
+
       # sub-day intervals can never reach past a >=1 day retention window
-      nil -> 0
+      true ->
+        0
     end
   end
 

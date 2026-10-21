@@ -73,6 +73,40 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     timeseries_metrics_disk_hourly
     timeseries_metrics_interface_hourly
   )
+  # {view, retention_key, retention_default, default_start_hours, end_offset, schedule_interval}
+  #
+  # Default start_offset windows stay strictly below the minimum 1-day retention
+  # for sub-day rollups (`spans_red_1h`, `traces_stats_5m`, `logs_severity_stats_5m`)
+  # and strictly below the default raw retention for multi-day rollups. When an
+  # operator lowers a raw source table's retention, `cagg_refresh_policy_specs/1`
+  # clamps `start_offset` below that source retention so policy refreshes never
+  # recompute dropped raw regions as empty.
+  @cagg_refresh_policies [
+    {"cpu_metrics_hourly", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     5 * 24, "10 minutes", "10 minutes"},
+    {"memory_metrics_hourly", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     5 * 24, "10 minutes", "10 minutes"},
+    {"disk_metrics_hourly", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     5 * 24, "10 minutes", "10 minutes"},
+    {"process_metrics_hourly", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     5 * 24, "10 minutes", "10 minutes"},
+    {"timeseries_metrics_hourly", :timeseries_metrics_retention_days,
+     @default_timeseries_metrics_retention_days, 5 * 24, "10 minutes", "10 minutes"},
+    {"timeseries_metrics_disk_hourly", :timeseries_metrics_retention_days,
+     @default_timeseries_metrics_retention_days, 5 * 24, "10 minutes", "10 minutes"},
+    {"timeseries_metrics_interface_hourly", :timeseries_metrics_retention_days,
+     @default_timeseries_metrics_retention_days, 5 * 24, "10 minutes", "10 minutes"},
+    {"spans_red_1h", :otel_traces_retention_days, @default_otel_traces_retention_days, 12,
+     "10 minutes", "10 minutes"},
+    {"traces_stats_5m", :otel_traces_retention_days, @default_otel_traces_retention_days, 12,
+     "5 minutes", "5 minutes"},
+    {"otel_metrics_hourly_stats", :otel_metrics_retention_days,
+     @default_otel_metrics_retention_days, 28 * 24, "10 minutes", "10 minutes"},
+    {"ocsf_events_hourly_stats", :ocsf_events_retention_days, @default_ocsf_events_retention_days,
+     26, "5 minutes", "5 minutes"},
+    {"logs_severity_stats_5m", :logs_retention_days, @default_logs_retention_days, 3,
+     "30 minutes", "10 minutes"}
+  ]
   @query_timeout_ms 120_000
 
   @impl Oban.Worker
@@ -178,6 +212,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         drop_expired_chunks(table_name, retention_days)
       end
     )
+
+    reconcile_cagg_refresh_windows(config)
   end
 
   defp alert_on_undrained_cold_tier do
@@ -400,6 +436,135 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       run_rollup_sql(view, :retention, rollup_retention_sql(view, retention_days))
       run_rollup_sql(view, :compression, rollup_compression_sql(view))
     end)
+  end
+
+  @doc """
+  Reconcile continuous-aggregate refresh windows (`start_offset`) so every
+  rollup stays strictly inside its raw source table's retention window.
+  """
+  @spec reconcile_cagg_refresh_windows(keyword()) :: :ok
+  def reconcile_cagg_refresh_windows(config \\ []) do
+    Enum.each(cagg_refresh_policy_specs(config), fn %{
+                                                      view: view,
+                                                      start_offset: start_offset,
+                                                      end_offset: end_offset,
+                                                      schedule_interval: schedule_interval
+                                                    } ->
+      run_rollup_sql(
+        view,
+        :refresh_policy,
+        cagg_refresh_policy_sql(view, start_offset, end_offset, schedule_interval)
+      )
+    end)
+  end
+
+  @doc """
+  Effective continuous-aggregate refresh policy specifications for `config`,
+  with each `start_offset` clamped strictly below its raw source's retention.
+  """
+  @spec cagg_refresh_policy_specs(keyword()) :: [map()]
+  def cagg_refresh_policy_specs(config \\ []) do
+    Enum.map(@cagg_refresh_policies, fn {view, retention_key, retention_default,
+                                         default_start_hours, end_offset, schedule_interval} ->
+      retention_days =
+        config
+        |> Keyword.get(retention_key, retention_default)
+        |> positive_integer(retention_default)
+
+      start_offset_hours = clamp_cagg_start_offset_hours(default_start_hours, retention_days)
+
+      %{
+        view: view,
+        source_retention_days: retention_days,
+        start_offset_hours: start_offset_hours,
+        start_offset: format_cagg_interval_hours(start_offset_hours),
+        end_offset: end_offset,
+        schedule_interval: schedule_interval
+      }
+    end)
+  end
+
+  defp clamp_cagg_start_offset_hours(default_start_hours, 1) do
+    min(default_start_hours, 12)
+  end
+
+  defp clamp_cagg_start_offset_hours(default_start_hours, retention_days)
+       when is_integer(retention_days) and retention_days > 1 do
+    if default_start_hours < retention_days * 24 and div(default_start_hours, 24) < retention_days do
+      default_start_hours
+    else
+      (retention_days - 1) * 24
+    end
+  end
+
+  defp format_cagg_interval_hours(hours) when rem(hours, 24) == 0 and hours >= 24 do
+    days = div(hours, 24)
+    if days == 1, do: "1 day", else: "#{days} days"
+  end
+
+  defp format_cagg_interval_hours(hours), do: "#{hours} hours"
+
+  defp cagg_refresh_policy_sql(view, start_offset, end_offset, schedule_interval) do
+    """
+    DO $$
+    DECLARE
+      ts_schema text;
+      target_start interval := INTERVAL '#{start_offset}';
+      current_start interval;
+    BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NULL THEN
+        RETURN;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.continuous_aggregates
+        WHERE view_schema = 'platform'
+          AND view_name = '#{view}'
+      ) THEN
+        RETURN;
+      END IF;
+
+      SELECT (j.config->>'start_offset')::interval
+      INTO current_start
+      FROM timescaledb_information.continuous_aggregates ca
+      JOIN timescaledb_information.jobs j
+        ON j.proc_name = 'policy_refresh_continuous_aggregate'
+       AND j.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
+       AND j.hypertable_name IN (ca.materialization_hypertable_name, ca.view_name)
+      WHERE ca.view_schema = 'platform'
+        AND ca.view_name = '#{view}'
+      LIMIT 1;
+
+      IF current_start IS DISTINCT FROM target_start THEN
+        EXECUTE format(
+          'SELECT %I.remove_continuous_aggregate_policy(%L::regclass, if_exists => true)',
+          ts_schema,
+          'platform.#{view}'
+        );
+
+        EXECUTE format(
+          'SELECT %I.add_continuous_aggregate_policy(%L::regclass, '
+          || 'start_offset => %L::interval, '
+          || 'end_offset => %L::interval, '
+          || 'schedule_interval => %L::interval, '
+          || 'if_not_exists => true)',
+          ts_schema,
+          'platform.#{view}',
+          target_start,
+          INTERVAL '#{end_offset}',
+          INTERVAL '#{schedule_interval}'
+        );
+      END IF;
+    END;
+    $$;
+    """
   end
 
   defp hourly_rollup_retention_days(config) do
