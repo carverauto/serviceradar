@@ -75,16 +75,24 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyAutoApproval do
     end
   end
 
-  @doc "The decision record for a package this module approved."
-  @spec approved_record(PluginPackage.t()) :: record()
-  def approved_record(%PluginPackage{} = prior) do
-    record(
-      "approved",
-      "within_approved_grant",
+  @doc """
+  The decision record for a package this module approved. A
+  `post_approval_error` is the error a sync after the committed approval
+  returned.
+  """
+  @spec approved_record(PluginPackage.t(), term()) :: record()
+  def approved_record(%PluginPackage{} = prior, post_approval_error \\ nil) do
+    details =
       prior
       |> prior_details()
       |> Map.merge(%{"automatic" => true, "approved_by" => @approved_by})
-    )
+
+    details =
+      if is_nil(post_approval_error),
+        do: details,
+        else: Map.put(details, "post_approval_error", inspect(post_approval_error))
+
+    record("approved", "within_approved_grant", details)
   end
 
   @doc "The decision record for a qualifying package whose approval failed."

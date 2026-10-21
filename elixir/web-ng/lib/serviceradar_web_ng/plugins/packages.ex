@@ -563,8 +563,23 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
             "plugin_id=#{package.plugin_id} version=#{package.version} error=#{inspect(reason)}"
         )
 
-        record_auto_approval(package, FirstPartyAutoApproval.approval_failed_record(prior, reason))
+        case reload_package(package) do
+          {:ok, %PluginPackage{status: :approved} = approved} ->
+            FirstPartyAutoApproval.audit(approved, prior)
+
+            record_auto_approval(approved, FirstPartyAutoApproval.approved_record(prior, reason))
+
+          _staged_or_unreadable ->
+            record_auto_approval(package, FirstPartyAutoApproval.approval_failed_record(prior, reason))
+        end
     end
+  end
+
+  defp reload_package(%PluginPackage{id: id}) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(actor: FirstPartyAutoApproval.actor())
   end
 
   defp record_auto_approval(%PluginPackage{} = package, record) do
