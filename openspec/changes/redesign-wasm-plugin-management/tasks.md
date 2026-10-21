@@ -29,7 +29,7 @@
 
 - [ ] 3.1 First-party sync: auto-approve a signed, verified package whose capabilities, permissions and resources are a subset of the current approved grant for that `plugin_id`. Otherwise leave it `staged`. Never auto-approve a plugin's first version. Add a deployment kill switch, and an audit event marking the approval as automatic. This is the only exception to the modified "Staged Import Review and Capability Confirmation" requirement.
 - [ ] 3.2 Updates tab: list staged packages with a per-field grant diff, and approve or deny each. Show auto-approvals and rollouts as history.
-- [ ] 3.3 Spike: confirm that `AddonRollout` / `AddonRolloutTarget` generalize with an artifact kind (`native_addon | wasm_plugin`). Record any blocker in design.md for review.
+- [x] 3.3 Spike: confirm that `AddonRollout` / `AddonRolloutTarget` generalize with an artifact kind (`native_addon | wasm_plugin`). Record any blocker in design.md for review.
 - [ ] 3.4 Rollout coordinator for Wasm plugins:
   - snapshotted targets, batches and soak;
   - a health gate from fresh plugin results;

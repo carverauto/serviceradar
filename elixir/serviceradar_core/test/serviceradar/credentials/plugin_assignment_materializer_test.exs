@@ -11,13 +11,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
       send(opts[:test_pid], {:reconcile, policy, input_defs, opts})
 
       {:ok,
-       %{
+       Keyword.get(opts, :reconcile_result, %{
          resolved_inputs: 1,
          desired_assignments: 2,
          upserted: 1,
          unchanged: 1,
          disabled: 0
-       }}
+       })}
     end
   end
 
@@ -119,6 +119,23 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.params_template["username"] == "operator"
     assert policy.params_template["password_secret_ref"] =~ "credentialref:"
     assert policy.params_template["credential_broker"]["resolution_location"] == "control_plane"
+  end
+
+  test "a rule whose targets resolved empty is reported as targets_unresolved" do
+    held = %{
+      resolved_inputs: 1,
+      desired_assignments: 0,
+      upserted: 0,
+      unchanged: 0,
+      disabled: 0,
+      held: 2,
+      hold_reason: :targets_unresolved
+    }
+
+    assert {:ok, summary} = materialize([credential_rule(%{})], reconcile_result: held)
+
+    assert summary.skips == %{targets_unresolved: 1}
+    assert summary.disabled == 0
   end
 
   test "manifest transport constraints fail closed before materialization" do

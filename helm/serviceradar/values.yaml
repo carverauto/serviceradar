@@ -1377,6 +1377,17 @@ webNg:
     autoSyncEnabled: false
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
+    # Kill switch for first-party Wasm plugin auto-approval. When true (the
+    # default), a signed, verified package imported from the built-in
+    # first-party repository is approved without an operator if its requested
+    # capabilities, permissions (allowed domains, networks, ports) and
+    # resources stay within the grant of that plugin's latest approved
+    # version; the approval is audited as automatic. A plugin's first version,
+    # any widened grant, and every upload, GitHub or third-party repository
+    # package always stay staged for review, with the reason recorded on the
+    # package. Approval never changes which version an assignment runs. Set to
+    # false to require a manual decision for every import.
+    autoApproveWithinGrant: true
     cosignBinary: "/usr/local/bin/cosign"
     # Cosign public key used to verify first-party Wasm plugin OCI artifacts
     # published alongside each ServiceRadar release. This is the public release

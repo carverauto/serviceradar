@@ -9,7 +9,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonAssignment
-  alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
+  alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
@@ -455,7 +455,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         {"missing_required_capability",
          "target is missing package-required agent capabilities: #{Enum.join(missing_agent_capabilities, ", ")}"}
 
-      not Eligibility.hostable_addon?(package_supervision(profile), compatibility_row) ->
+      not AddonRolloutArtifact.hostable_addon?(package_supervision(profile), compatibility_row) ->
         {"cannot_host_native_addons",
          "target cannot host this add-on's supervision model (systemd add-ons need a bare-metal agent)"}
 

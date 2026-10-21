@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonRollout
-  alias ServiceRadar.Plugins.AddonRolloutEligibility
+  alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Plugins.RetiredNativeAddons
@@ -638,13 +638,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     do: DateTime.diff(now, observed_at, :second) > seconds
 
   defp expected_inactive?(%AddonPackage{supervision: :ephemeral_helper} = package, status),
-    do: AddonRolloutEligibility.supervision_ready?(package, status)
+    do: AddonRolloutArtifact.supervision_ready?(package, status)
 
   defp expected_inactive?(_package, _status), do: false
 
   defp converged?(base, %AddonPackage{} = package, status) do
     base.assigned_version == status.version and
-      AddonRolloutEligibility.supervision_ready?(package, status)
+      AddonRolloutArtifact.supervision_ready?(package, status)
   end
 
   defp converged?(_base, _package, _status), do: false

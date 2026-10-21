@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.SNMPRequirementCatalog
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Observability.ContractRegistry
+  alias ServiceRadarWebNG.Plugins.FirstPartyAutoApproval
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Repositories
@@ -525,10 +526,87 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
          {:ok, _plugin} <- ensure_plugin(import.manifest_struct, attrs, ash_opts),
          {:ok, package, store_blob?} <- create_first_party_package(import, attrs, ash_opts) do
       if store_blob? do
-        store_wasm_blob(package, import.wasm, import.content_hash, ash_opts)
+        with {:ok, stored} <- store_wasm_blob(package, import.wasm, import.content_hash, ash_opts) do
+          maybe_auto_approve(stored)
+        end
       else
         {:ok, package}
       end
+    end
+  end
+
+  # A newly stored first-party artifact that stays within the plugin's approved
+  # grant is approved by the system (see FirstPartyAutoApproval); any other is
+  # left staged with the reason recorded on it. The import already succeeded,
+  # so nothing here fails it: a failed approval leaves the package staged.
+  defp maybe_auto_approve(%PluginPackage{status: :staged} = package) do
+    case FirstPartyAutoApproval.evaluate(package) do
+      {:approve, prior, approval_attrs} -> auto_approve(package, prior, approval_attrs)
+      {:hold, record} -> record_auto_approval(package, record)
+    end
+  end
+
+  defp maybe_auto_approve(package), do: {:ok, package}
+
+  defp auto_approve(package, prior, approval_attrs) do
+    case approve(package.id, approval_attrs,
+           actor: FirstPartyAutoApproval.actor(),
+           approved_by: FirstPartyAutoApproval.approved_by()
+         ) do
+      {:ok, approved} ->
+        FirstPartyAutoApproval.audit(approved, prior)
+        record_auto_approval(approved, FirstPartyAutoApproval.approved_record(prior))
+
+      {:error, reason} ->
+        Logger.warning(
+          "First-party plugin auto-approval failed package_id=#{package.id} " <>
+            "plugin_id=#{package.plugin_id} version=#{package.version} error=#{inspect(reason)}"
+        )
+
+        case reload_package(package) do
+          {:ok, %PluginPackage{status: :approved} = approved} ->
+            FirstPartyAutoApproval.audit(approved, prior)
+
+            record_auto_approval(approved, FirstPartyAutoApproval.approved_record(prior, reason))
+
+          {:ok, %PluginPackage{status: :staged} = staged} ->
+            record_auto_approval(staged, FirstPartyAutoApproval.approval_failed_record(prior, reason))
+
+          other ->
+            Logger.warning(
+              "First-party plugin auto-approval outcome unknown package_id=#{package.id} " <>
+                "reload=#{inspect(other)}"
+            )
+
+            {:ok, package}
+        end
+    end
+  end
+
+  defp reload_package(%PluginPackage{id: id}) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(actor: FirstPartyAutoApproval.actor())
+  end
+
+  defp record_auto_approval(%PluginPackage{} = package, record) do
+    metadata = Map.put(package.source_metadata || %{}, FirstPartyAutoApproval.metadata_key(), record)
+
+    package
+    |> Ash.Changeset.for_update(:update, %{source_metadata: metadata})
+    |> Ash.update(actor: FirstPartyAutoApproval.actor())
+    |> case do
+      {:ok, updated} ->
+        {:ok, updated}
+
+      {:error, error} ->
+        Logger.warning(
+          "Could not record first-party auto-approval decision package_id=#{package.id} " <>
+            "error=#{inspect(error)}"
+        )
+
+        {:ok, package}
     end
   end
 

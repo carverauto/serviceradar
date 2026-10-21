@@ -88,24 +88,32 @@ const features = [
   {
     title: 'Network management',
     Icon: NetworkIcon,
+    to: '/docs/discovery',
+    linkLabel: 'Discovery guide',
     description:
       'Discover, map, and monitor your network — SNMP, NetFlow, BGP, sweeps, and topology out to the edge.',
   },
   {
     title: 'IT operations',
     Icon: OperationsIcon,
+    to: '/docs/agent-configuration',
+    linkLabel: 'Agent configuration',
     description:
       'Track devices, services, and infrastructure health with agents built for hard-to-reach environments.',
   },
   {
     title: 'Observability',
     Icon: ObservabilityIcon,
+    to: '/docs/otel',
+    linkLabel: 'OpenTelemetry ingest guide',
     description:
       'Collect metrics, traces, and logs with OpenTelemetry, and query everything with SRQL.',
   },
   {
     title: 'Security analytics',
     Icon: SecurityIcon,
+    to: '/docs/threat-investigation',
+    linkLabel: 'Threat investigation',
     description:
       'Ingest syslog, runtime security events, and vulnerability scans into one normalized event store.',
   },
@@ -128,18 +136,24 @@ function HomepageFeatures() {
           <div className="sr-docs-panel__head">
             <p className="sr-docs-panel__head-title">Documentation map</p>
             <p className="sr-docs-panel__head-meta">
-              Start with deploy and architecture, then go deep on operations and security
+              Choose an area to open its guide
             </p>
           </div>
           <div className="sr-docs-panel__grid">
             {features.map((feature) => (
-              <div key={feature.title} className="sr-docs-panel__cell">
+              <Link
+                key={feature.title}
+                className="sr-docs-panel__cell"
+                to={feature.to}>
                 <span className="sr-docs-panel__icon">
                   <feature.Icon />
                 </span>
                 <h3 className="sr-docs-panel__cell-title">{feature.title}</h3>
                 <p className="sr-docs-panel__cell-body">{feature.description}</p>
-              </div>
+                <span className="sr-docs-panel__cell-link">
+                  {feature.linkLabel} <span aria-hidden="true">&rarr;</span>
+                </span>
+              </Link>
             ))}
           </div>
         </div>

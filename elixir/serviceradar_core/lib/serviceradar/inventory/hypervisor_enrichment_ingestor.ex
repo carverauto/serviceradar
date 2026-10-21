@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.MergeAudit
@@ -1117,15 +1118,16 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp maybe_put_proxmox_candidate(metadata, _record, _role), do: metadata
 
+  # A guest's interfaces include the networks it runs for itself (container
+  # bridges, CNI overlays); GuestAddress keeps those from becoming its primary.
   defp primary_ip_by_guest(network_interfaces) do
-    Enum.reduce(network_interfaces, %{}, fn iface, acc ->
-      guest_ref = Map.get(iface, :guest_provider_ref)
-      ip = primary_interface_ip(iface)
-
-      if present?(guest_ref) and present?(ip) do
-        Map.put_new(acc, guest_ref, ip)
-      else
-        acc
+    network_interfaces
+    |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.group_by(&Map.get(&1, :guest_provider_ref))
+    |> Enum.reduce(%{}, fn {guest_ref, interfaces}, acc ->
+      case GuestAddress.primary(interfaces) do
+        nil -> acc
+        ip -> Map.put(acc, guest_ref, ip)
       end
     end)
   end

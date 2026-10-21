@@ -50,6 +50,13 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   outputs: serviceradar.plugin_result.v1
   capabilities:
     - get_config
+  permissions:
+    allowed_domains:
+      - api.example.com
+    allowed_networks:
+      - 192.0.2.0/24
+    allowed_ports:
+      - 443
   resources:
     requested_cpu_ms: 1000
     requested_memory_mb: 64
@@ -62,7 +69,23 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     "runtime" => "wasi-preview1",
     "outputs" => "serviceradar.plugin_result.v1",
     "capabilities" => ["get_config"],
+    "permissions" => %{
+      "allowed_domains" => ["api.example.com"],
+      "allowed_networks" => ["192.0.2.0/24"],
+      "allowed_ports" => [443]
+    },
     "resources" => %{"requested_cpu_ms" => 1000, "requested_memory_mb" => 64}
+  }
+  # The grant approved for the version before the one the first-party fixture
+  # imports: a strict superset of what that import requests.
+  @approved_prior_grant %{
+    "capabilities" => ["get_config", "submit_result"],
+    "permissions" => %{
+      "allowed_domains" => ["api.example.com", "status.example.com"],
+      "allowed_networks" => ["192.0.2.0/24", "198.51.100.0/24"],
+      "allowed_ports" => [443, 8443]
+    },
+    "resources" => %{"requested_cpu_ms" => 2000, "requested_memory_mb" => 128}
   }
   @first_party_wasm "first-party wasm payload"
 
@@ -164,6 +187,21 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
       end
+    end
+  end
+
+  defmodule CapturingPublisher do
+    @moduledoc false
+
+    # Stand-in for the acknowledged JetStream publisher: forwards each message
+    # to the test process registered by `capture_published_messages/0`.
+    def publish(subject, body, _opts) do
+      case Process.whereis(:packages_test_published_messages) do
+        nil -> :ok
+        pid -> send(pid, {:published, subject, body})
+      end
+
+      :ok
     end
   end
 
@@ -561,6 +599,115 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     refute successor.conflict?
     assert DateTime.after?(successor.scheduled_at, DateTime.utc_now())
+  end
+
+  describe "first-party auto-approval" do
+    test "a version within the approved grant is approved automatically and audited" do
+      trust_suite_key_on_builtin_repository!()
+      prior = approve_prior_version!(%{})
+      capture_published_messages()
+
+      assert {:ok, %{imported: 1, failed: []}} = sync_builtin_repository()
+
+      package = imported_package()
+      assert package.status == :approved
+      assert package.approved_by == "system:first_party_auto_approval"
+      assert package.approved_capabilities == ["get_config"]
+
+      assert package.approved_permissions == %{
+               "allowed_domains" => ["api.example.com"],
+               "allowed_networks" => ["192.0.2.0/24"],
+               "allowed_ports" => [443]
+             }
+
+      assert package.approved_resources == %{"requested_cpu_ms" => 1000, "requested_memory_mb" => 64}
+
+      assert %{
+               "decision" => "approved",
+               "automatic" => true,
+               "prior_package_id" => prior_id,
+               "prior_version" => "1.0.0"
+             } = package.source_metadata["auto_approval"]
+
+      assert prior_id == prior.id
+
+      audit = receive_audit_record(package.id)
+      assert audit["unmapped"]["action"] == "auto_approve"
+      assert audit["actor"]["user"]["uid"] == "system:first_party_plugin_auto_approval"
+
+      assert %{"automatic" => true, "prior_version" => "1.0.0", "prior_package_id" => ^prior_id} =
+               audit["unmapped"]["details"]
+    end
+
+    for {field, prior_grant} <- [
+          {"capabilities", %{"capabilities" => ["submit_result"]}},
+          {"allowed_domains", %{"permissions" => %{"allowed_domains" => ["status.example.com"]}}},
+          {"allowed_networks", %{"permissions" => %{"allowed_networks" => ["198.51.100.0/24"]}}},
+          {"allowed_ports", %{"permissions" => %{"allowed_ports" => [8443]}}},
+          {"requested_memory_mb", %{"resources" => %{"requested_memory_mb" => 32}}}
+        ] do
+      test "a version that widens #{field} stays staged with the widened field recorded" do
+        trust_suite_key_on_builtin_repository!()
+        approve_prior_version!(unquote(Macro.escape(prior_grant)))
+
+        assert {:ok, %{imported: 1, failed: []}} = sync_builtin_repository()
+
+        package = imported_package()
+        assert package.status == :staged
+
+        assert %{"decision" => "held", "reason" => "grant_widened", "prior_version" => "1.0.0", "widened" => widened} =
+                 package.source_metadata["auto_approval"]
+
+        assert [unquote(field)] == Enum.map(widened, & &1["field"])
+      end
+    end
+
+    test "a plugin's first version stays staged" do
+      trust_suite_key_on_builtin_repository!()
+
+      assert {:ok, %{imported: 1, failed: []}} = sync_builtin_repository()
+
+      package = imported_package()
+      assert package.status == :staged
+      assert %{"decision" => "held", "reason" => "first_version"} = package.source_metadata["auto_approval"]
+    end
+
+    test "a package from a third-party repository stays staged" do
+      create_worker_registry!()
+      approve_prior_version!(%{})
+
+      assert {:ok, %{imported: 1, failed: []}} =
+               Packages.sync_first_party_plugins(actor: system_actor(), repo_url: @worker_repo_url, limit: 10)
+
+      package = imported_package()
+      assert package.source_repo_url == @worker_repo_url
+      assert package.status == :staged
+      assert %{"decision" => "held", "reason" => "not_first_party"} = package.source_metadata["auto_approval"]
+    end
+
+    test "turning auto-approval off leaves a version within the grant staged" do
+      trust_suite_key_on_builtin_repository!()
+      approve_prior_version!(%{})
+      original_config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :first_party_plugin_import,
+        Keyword.put(original_config, :auto_approve_within_grant, false)
+      )
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :first_party_plugin_import, original_config)
+      end)
+
+      assert {:ok, %{imported: 1, failed: []}} = sync_builtin_repository()
+
+      package = imported_package()
+      assert package.status == :staged
+
+      assert %{"decision" => "held", "reason" => "auto_approval_disabled"} =
+               package.source_metadata["auto_approval"]
+    end
   end
 
   test "approve keeps previously approved versions available for assignment upgrades" do
@@ -969,6 +1116,106 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
   defp restore_system_env(key, nil), do: System.delete_env(key)
   defp restore_system_env(key, value), do: System.put_env(key, value)
+
+  defp sync_builtin_repository do
+    Packages.sync_first_party_plugins(actor: system_actor(), repo_url: @repo_url, limit: 10)
+  end
+
+  defp imported_package do
+    packages = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+    assert [%PluginPackage{} = package] = Enum.filter(packages, &(&1.version == "1.0.1"))
+    package
+  end
+
+  # Approves version 1.0.0 of the fixture plugin with `@approved_prior_grant`
+  # overridden by `changes`, so the 1.0.1 import has an approved grant to be
+  # compared with.
+  defp approve_prior_version!(changes) do
+    plugin_id = "first-party-dedupe"
+    _plugin = create_plugin(plugin_id)
+
+    grant =
+      Map.merge(@approved_prior_grant, changes, fn
+        _key, current, override when is_map(current) -> Map.merge(current, override)
+        _key, _current, override -> override
+      end)
+
+    package =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "First-party Dedupe",
+          version: "1.0.0",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: Map.merge(%{@first_party_manifest | "version" => "1.0.0"}, grant),
+          config_schema: %{},
+          signature: %{},
+          source_type: :github,
+          source_commit: "test-#{plugin_id}-1.0.0"
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    {:ok, approved} = Packages.approve(package.id, %{}, actor: system_actor())
+    approved
+  end
+
+  # Approval verifies a first-party package against its repository's key. The
+  # built-in row carries the production release key, which cannot sign test
+  # bundles, so these tests give it this suite's key instead. Sandbox-rolled
+  # back with the test.
+  defp trust_suite_key_on_builtin_repository! do
+    %{"packages-test" => public_key} =
+      :serviceradar_web_ng
+      |> Application.fetch_env!(:plugin_verification)
+      |> Keyword.fetch!(:trusted_upload_signing_keys)
+
+    assert {1, _rows} =
+             Repo.update_all(
+               from(repository in "plugin_repositories",
+                 where: repository.builtin == true and repository.repo_url == ^@repo_url
+               ),
+               [set: [signing_key_id: "packages-test", signing_public_key: public_key]],
+               prefix: "platform"
+             )
+  end
+
+  # Routes acknowledged JetStream publishes to this test process, so the test
+  # reads the audit record exactly as it would be stored.
+  defp capture_published_messages do
+    previous = Application.get_env(:serviceradar_core, :internal_telemetry_publisher)
+    Process.register(self(), :packages_test_published_messages)
+    Application.put_env(:serviceradar_core, :internal_telemetry_publisher, __MODULE__.CapturingPublisher)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:serviceradar_core, :internal_telemetry_publisher)
+      else
+        Application.put_env(:serviceradar_core, :internal_telemetry_publisher, previous)
+      end
+    end)
+  end
+
+  defp receive_audit_record(resource_id) do
+    receive do
+      {:published, subject, body} ->
+        record = Jason.decode!(body)
+
+        if String.ends_with?(subject, "logs.internal.audit") and
+             get_in(record, ["unmapped", "resource_id"]) == resource_id do
+          record
+        else
+          receive_audit_record(resource_id)
+        end
+    after
+      5_000 -> flunk("no audit record was published for plugin package #{resource_id}")
+    end
+  end
 
   # Registers the worker-test repository row carrying this suite's generated
   # signing key. Sandbox-rolled-back with the test; the built-in row keeps its

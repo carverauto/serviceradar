@@ -431,9 +431,9 @@ controller/edge boundary; it does not authorize another launch. A changed
 controller or dispatch principal can therefore block recovery even when the
 AWX job is terminal.
 
-### "AWX rejected the request" 401 / 403 on launch
+### `AWX request failed: HTTP 401` / `HTTP 403` on launch
 
-The plugin surfaces these as operator-safe typed errors with `"check controller token"` in the message. Either:
+The plugin reports a failed controller request by its class only: the HTTP status for a non-2xx response, or `denied by agent egress or credential policy`, `timeout`, `response too large` or `transport error` when the request never got a response. Response bodies are never included. For a 401 or 403, either:
 
 - The execution token expired — rotate its NetworkCredentialSecret.
 - The execution principal lacks exact inventory `Use`, template `Execute`, machine-credential `Use`, or generated callback-credential `Use`. Add only the missing object role; do not replace it with an admin/superuser token.

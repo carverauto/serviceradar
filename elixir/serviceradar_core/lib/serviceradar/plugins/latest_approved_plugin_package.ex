@@ -4,8 +4,9 @@ defmodule ServiceRadar.Plugins.LatestApprovedPluginPackage do
 
   An owner that tracks the latest approved version (see
   `ServiceRadar.Plugins.PluginUpdatePolicy`), a credential rule materializing
-  assignments, and the integration catalog all resolve a plugin to the same
-  package:
+  assignments, the integration catalog, and first-party auto-approval (which
+  compares a new version's grant with this package's) all resolve a plugin to
+  the same package:
 
   1. only approved packages with the same `plugin_id` are candidates (a revoked,
      denied or staged package is never approved);
@@ -42,11 +43,19 @@ defmodule ServiceRadar.Plugins.LatestApprovedPluginPackage do
     |> Ash.Query.filter(plugin_id == ^plugin_id)
     |> Ash.read(actor: actor)
     |> case do
-      {:ok, [_ | _] = packages} -> {:ok, packages |> newest_first() |> hd()}
+      {:ok, [_ | _] = packages} -> {:ok, latest(packages)}
       {:ok, []} -> {:error, {:plugin_package_not_found, plugin_id}}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc """
+  The newest of `packages` by the rule in the module doc, or `nil` for an empty
+  list.
+  """
+  @spec latest([map()]) :: map() | nil
+  def latest([]), do: nil
+  def latest(packages) when is_list(packages), do: packages |> newest_first() |> hd()
 
   @doc """
   Orders `packages` from newest to oldest by the rule in the module doc.

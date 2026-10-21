@@ -2106,6 +2106,38 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
   end
 
+  @doc """
+  The grant a plugin package delivers to an agent before any assignment
+  narrows it: capabilities, permissions and resources.
+
+  For an approved package this is its approved grant as the agent receives it.
+  A package with no approval fields set delivers exactly what its manifest
+  requests, so the same function describes both sides of a
+  requested-versus-approved comparison.
+  """
+  @spec package_grant(PluginPackage.t()) :: %{
+          capabilities: [String.t()],
+          permissions: %{
+            allowed_domains: [String.t()],
+            allowed_networks: [String.t()],
+            allowed_ports: [integer()]
+          },
+          resources: map()
+        }
+  def package_grant(%PluginPackage{} = package) do
+    manifest = package.manifest || %{}
+
+    %{
+      capabilities: effective_capabilities(package, manifest),
+      permissions: effective_permissions(%{}, package, manifest),
+      resources:
+        manifest
+        |> fetch_map_value(:resources, %{})
+        |> normalize_resources()
+        |> narrow_resources(package.approved_resources)
+    }
+  end
+
   defp effective_capabilities(%PluginPackage{} = package, manifest) do
     approved = package.approved_capabilities || []
 
