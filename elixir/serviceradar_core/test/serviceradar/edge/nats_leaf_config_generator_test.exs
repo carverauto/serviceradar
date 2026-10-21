@@ -7,7 +7,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
     config =
       NatsLeafConfigGenerator.render_direct_leaf_authorization([
         %{
-          component_id: "addon-f8828fb51df44058adc8e82e0825257b",
+          component_id: "addon-ff68b63bec90435e952b24e211067596",
           partition_id: "partition-a",
           # The renderer must ignore any accidental material fields; the leaf
           # bundle receives only the certificate identity and subject scope.
@@ -25,7 +25,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
         }
       ])
 
-    assert config =~ "CN=addon-f8828fb51df44058adc8e82e0825257b.partition-a.serviceradar"
+    assert config =~ "CN=addon-ff68b63bec90435e952b24e211067596.partition-a.serviceradar"
     assert config =~ "events.otlp.traces.>"
     assert config =~ "$JS.ACK.events.>"
     refute config =~ "BEGIN CERTIFICATE"

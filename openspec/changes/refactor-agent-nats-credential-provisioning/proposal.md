@@ -8,17 +8,16 @@ NATS access. The worker reads `:nats_account_name` and
 `:nats_account_seed`, but those settings are not configured in the deployed
 core, so it discards the job with `:nats_not_configured`.
 
-This produced a misleading partial-success state for package
-`f8828fb5-1df4-4058-adc8-e82e0825257b` (`vndcngrpexnap01`): the base package
-was delivered, but the optional NATS credential was absent. The credential
-belonged to a now-retired host-slice canary that granted experimental
-per-agent publication to `flow.host-slice.<agent-id>`; it is not required by
-the deployed OTLP or flow-attribution paths. Today raw sampled flows travel
-through the normal central/internal flow pipeline, while the agent sends local
-process attribution to the gateway as `FlowAttributionEventBatch` payloads on
-the dedicated `StreamStatus` path. Core persists that attribution in
-`platform.flow_process_attribution_current` and correlates it with sampled
-flows in CNPG.
+This produced a misleading partial-success state for a delivered agent
+package: the base package was delivered, but the optional NATS credential
+was absent. The credential belonged to a now-retired host-slice canary that
+granted experimental per-agent publication to `flow.host-slice.<agent-id>`;
+it is not required by the deployed OTLP or flow-attribution paths. Today raw
+sampled flows travel through the normal central/internal flow pipeline, while
+the agent sends local process attribution to the gateway as
+`FlowAttributionEventBatch` payloads on the dedicated `StreamStatus` path.
+Core persists that attribution in `platform.flow_process_attribution_current`
+and correlates it with sampled flows in CNPG.
 
 ## What Changes
 

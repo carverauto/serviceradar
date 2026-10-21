@@ -28,7 +28,7 @@ Neither failure names the real cause. Both surface as a path error from a tool t
 
 The fix is to resolve these packages the way the CLI already resolves its own: `dev.ts` uses `cliRequire.resolve()` for `mapbox-gl` and `@deck.gl/*` two lines below the broken code. Applying that existing house pattern — anchored at the project rather than at the CLI — makes hoisted, nested, and standalone layouts all work with no config from the author, because Node's own resolution already handles every one of them.
 
-This also unblocks a real consumer: the UAL dashboards monorepo currently ships a `postinstall` script that symlinks `react`, `react-dom`, and the SDK into each dashboard purely to make the CLI's assumed path true. That workaround exists only because of this bug and is deleted once a release carries this change.
+This also unblocks a real consumer: a consumer's dashboards monorepo currently ships a `postinstall` script that symlinks `react`, `react-dom`, and the SDK into each dashboard purely to make the CLI's assumed path true. That workaround exists only because of this bug and is deleted once a release carries this change.
 
 ## What Changes
 
@@ -55,7 +55,7 @@ This also unblocks a real consumer: the UAL dashboards monorepo currently ships 
   - `js/cli/src/doctor.ts` — SDK probe via the helper.
   - `js/cli/tests/` — unit tests over the resolver for project-local, hoisted, and missing layouts; a regression test asserting a config alias overrides the CLI default in `dev`.
   - `js/cli/CHANGELOG.md` — patch entry.
-- Consumer follow-up (separate repo, not this change): delete the `postinstall` symlink workaround in the UAL `serviceradar-dashboards` monorepo once a CLI release carries this fix. **Done** — United-Airlines-Org/serviceradar-dashboards#5 removed it and raised the floor to `^0.1.7`.
+- Consumer follow-up (separate repo, not this change): delete the `postinstall` symlink workaround in a consumer's dashboards monorepo once a CLI release carries this fix. **Done**: the consumer removed it and raised its floor to `^0.1.7`.
 - Risk: low. The change is additive at the resolution layer with a fallback to today's behavior. The one behavioral change beyond bug-fixing is `dev` alias precedence, which makes `dev` agree with `build`; an author who was (unknowingly) relying on the CLI's React alias winning in `dev` would now get their own override — which is what writing the override meant.
 
 ## Note on OpenSpec conventions
