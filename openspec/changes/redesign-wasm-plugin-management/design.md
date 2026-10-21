@@ -218,6 +218,24 @@ collaborators, so the generalization is an engine/adapter split (a
 - **G.** Bulk "Upgrade to latest" preview and execution (task 3.7), reusing the
   kind-agnostic rollout UI.
 
+**Step C as built** (`WasmPluginRolloutArtifact`):
+- The coordinator reads every package pair, member pointer and evidence key
+  through the implementation, since each family keeps them in its own columns.
+- A failed Wasm target rolls the whole rollout back. With
+  `tolerated_failures` fixed at 0 a failure always ends the rollout, and a
+  pause would leave the other targets on the candidate with no rollout to clear
+  them. Add-on targets still pause.
+- Health classification of a provenance-stamped result: `OK`, `WARNING` and
+  `CRITICAL` mean the plugin ran (a critical target is not a failed plugin);
+  `UNKNOWN`, failed downstream ingest or another module's hash is a failure.
+- An agent that stamps its results, but only for the previous package, gets no
+  `on_no_evidence` pass: it has not loaded the candidate, and times out.
+- A rollout that is rolling back ends as `rolled_back` even when no target was
+  left to recover, instead of falling through to promotion.
+- Revocation rolls back inside the revoke transaction. Disabling an assignment
+  by any path (owner retraction, reconcile, operator) clears its override and
+  cancels every target holding it.
+
 A related, pre-existing inconsistency is tracked separately in #5835. Per-owner
 coexistence in `AssignmentOwner` conflicts with the
 `one_enabled_per_edge_plugin` unique index and with `uniq_by` in config

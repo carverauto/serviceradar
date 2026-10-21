@@ -151,6 +151,31 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     assert %{state: :waiting_health} = target(rollout, stale)
   end
 
+  test "an action verifies the candidate only when dispatched after the candidate config was acknowledged",
+       ctx do
+    {policy, [early, acknowledged]} = policy_with_members!(ctx, 2)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(policy, ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 2, max_parallel: 2, soak_seconds: 0)
+      )
+
+    # Both agents acknowledge the config that carries the override. One ran the
+    # action before that, when it could still hold the previous package.
+    for member <- [early, acknowledged], do: config_ack!(member, at(ctx, 2))
+    completed_action!(early, ctx.candidate, at(ctx, 1))
+    completed_action!(acknowledged, ctx.candidate, at(ctx, 3))
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 4))
+
+    assert %{state: :succeeded, reason_code: "no_version_evidence"} = target(rollout, early)
+
+    assert %{state: :succeeded, reason_code: "candidate_health_verified"} =
+             target(rollout, acknowledged)
+  end
+
   test "retracting an assignment during a rollout clears its override and cancels its target",
        ctx do
     {policy, [member]} = policy_with_members!(ctx, 1)
@@ -331,9 +356,46 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
       INSERT INTO platform.service_status
         ("timestamp", gateway_id, agent_id, service_name, service_type, available,
          message, details, partition, created_at)
-      VALUES ($1, 'example-gateway', $2, $3, 'plugin', $4, 'example result', $5, $6, $1)
+      VALUES ($1, $2, $3, $4, 'plugin', $5, 'example result', $6, $7, $1)
       """,
-      [received_at, member.agent_uid, package.name, status == "OK", details, @partition]
+      [
+        received_at,
+        "example-gateway-#{member.agent_uid}",
+        member.agent_uid,
+        package.name,
+        status == "OK",
+        details,
+        @partition
+      ]
+    )
+  end
+
+  defp config_ack!(member, acked_at) do
+    Repo.query!(
+      "UPDATE platform.ocsf_agents SET acked_config_version = 'example-version', config_acked_at = $2 WHERE uid = $1",
+      [member.agent_uid, acked_at |> DateTime.truncate(:second) |> DateTime.to_naive()]
+    )
+  end
+
+  # A plugin action as the northbound dispatcher records it on the agent
+  # command bus, once the agent reported it complete.
+  defp completed_action!(member, package, dispatched_at) do
+    Repo.query!(
+      """
+      INSERT INTO platform.agent_commands
+        (command_type, agent_id, partition_id, status, payload, context, inserted_at, updated_at)
+      VALUES ('plugin.run_action', $1, $2, 'completed', '{}'::jsonb, $3, $4, $4)
+      """,
+      [
+        member.agent_uid,
+        @partition,
+        %{
+          "plugin_assignment_id" => member.id,
+          "plugin_package_id" => package.id,
+          "action_id" => "example-action"
+        },
+        DateTime.to_naive(dispatched_at)
+      ]
     )
   end
 

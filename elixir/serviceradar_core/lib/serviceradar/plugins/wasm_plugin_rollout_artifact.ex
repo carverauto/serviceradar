@@ -35,9 +35,16 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     * **Failed.** The latest result stamped with the candidate package is
       `UNKNOWN` (the plugin, or the host running it, could not complete the
       run), failed downstream ingest, or carries another module's hash.
+    * **Verified by an invocation.** Without a stamped result that decides,
+      an action the agent completed for the assignment also verifies the
+      candidate, when its dispatch record names the candidate package and it
+      was dispatched after the agent acknowledged a config newer than the
+      override. An action invoked before that acknowledgement can still have
+      run the previous package. This is how action-only plugins, which push no
+      scheduled results, are verified.
     * **No version evidence.** The agent pushed no stamped result for the
       assignment since the override: it predates provenance, or the plugin only
-      runs actions. The rollout's snapshotted `on_no_evidence` policy decides:
+      runs actions and none was invoked. The rollout's snapshotted `on_no_evidence` policy decides:
       `pass_after_soak` (the default) passes the target after the soak with the
       reason code `no_version_evidence`, which never counts as verified;
       `fail` lets the target time out. An agent that does stamp its results but
@@ -55,6 +62,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @behaviour ServiceRadar.Plugins.RolloutArtifact
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.PluginResultProvenance
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
@@ -77,6 +85,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   # an agent clock may run behind the server before its results are missed.
   @evidence_rows_per_target 20
   @agent_clock_skew_seconds 3_600
+
+  # The command type the northbound dispatcher and producer schedules use to
+  # invoke a plugin action.
+  @plugin_action_command "plugin.run_action"
 
   @impl true
   def artifact_kind, do: :wasm_plugin
@@ -272,9 +284,11 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       with {:ok, policy} <- get_by_id(PluginTargetPolicy, rollout.source_id, actor),
            {:ok, _policy} <-
              policy
-             |> Ash.Changeset.for_update(:promote_rollout, %{
-               plugin_package_id: rollout.candidate_plugin_package_id
-             })
+             |> Ash.Changeset.for_update(
+               :promote_rollout,
+               %{plugin_package_id: rollout.candidate_plugin_package_id},
+               actor: actor
+             )
              |> Ash.update(actor: actor, authorize?: true),
            {:ok, members} <- policy_members(policy, actor),
            {:ok, notifications} <- promote_members(members, rollout, actor) do
@@ -304,6 +318,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     on_no_evidence = normalize_policy(rollout.policy)["on_no_evidence"]
     stable_versions = stable_versions(targets, actor)
     results = stamped_results(targets)
+    invocations = completed_invocations(targets, actor)
 
     Map.new(targets, fn target ->
       id = target.plugin_assignment_id
@@ -312,7 +327,8 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
        %{
          stable_version: Map.get(stable_versions, id),
          on_no_evidence: on_no_evidence,
-         results: Map.get(results, id, [])
+         results: Map.get(results, id, []),
+         invocations: Map.get(invocations, id, [])
        }}
     end)
   end
@@ -370,14 +386,24 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def telemetry_event, do: [:serviceradar, :plugins, :wasm_plugin_rollout, :transition]
 
   # The newest result stamped with `package` and received since `since` that
-  # says something about it: :healthy, :failed, or nil when there is none.
+  # says something about it decides: :healthy or :failed. Without one, a
+  # completed invocation of `package` is :healthy. Otherwise nil.
   defp verdict(nil, _package, _since), do: nil
 
   defp verdict(evidence, package, since) do
-    evidence
-    |> results_since(since)
-    |> Enum.find_value(&classify(&1, package))
+    case evidence |> results_since(since) |> Enum.find_value(&classify(&1, package)) do
+      nil -> invoked_verdict(evidence, package)
+      stamped -> stamped
+    end
   end
+
+  # load_evidence/3 keeps only invocations dispatched after a config
+  # acknowledgement that followed the target's override (or rollback).
+  defp invoked_verdict(%{invocations: invocations}, package) do
+    if Enum.any?(invocations, &same_id?(&1.package_id, package.id)), do: :healthy
+  end
+
+  defp invoked_verdict(_evidence, _package), do: nil
 
   defp passes_without_evidence?(evidence, applied_at) do
     evidence.on_no_evidence == @default_on_no_evidence and
@@ -460,6 +486,90 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
           %{}
       end
     end
+  end
+
+  # Completed plugin actions per assignment, newest first, that were dispatched
+  # after the agent acknowledged a config newer than the target's override or
+  # rollback. The acknowledgement is the only sign the agent holds the config
+  # that names the package; an action dispatched before it can have run the
+  # previous one.
+  defp completed_invocations(targets, actor) do
+    acks = config_acks(targets, actor)
+
+    scopes =
+      Enum.flat_map(targets, fn target ->
+        since = evidence_since(target)
+        acked_at = Map.get(acks, target.agent_uid)
+
+        if acknowledged_after?(acked_at, since),
+          do: [{target.plugin_assignment_id, target.agent_uid, DateTime.to_naive(acked_at)}],
+          else: []
+      end)
+
+    if scopes == [] do
+      %{}
+    else
+      {ids, agents, acked} = unzip3(scopes)
+
+      case Repo.query(completed_invocations_sql(), [
+             ids,
+             agents,
+             acked,
+             @plugin_action_command,
+             @evidence_rows_per_target
+           ]) do
+        {:ok, %{rows: rows}} ->
+          Enum.group_by(
+            rows,
+            fn [id, _dispatched_at, _package_id] -> id end,
+            fn [_id, dispatched_at, package_id] ->
+              %{dispatched_at: dispatched_at, package_id: package_id}
+            end
+          )
+
+        {:error, _reason} ->
+          %{}
+      end
+    end
+  end
+
+  # config_acked_at has second precision, so an acknowledgement in the same
+  # second as the override may be of the config before it; only a later second
+  # counts.
+  defp acknowledged_after?(%DateTime{} = acked_at, %DateTime{} = since),
+    do: DateTime.after?(acked_at, DateTime.truncate(since, :second))
+
+  defp acknowledged_after?(_acked_at, _since), do: false
+
+  defp config_acks(targets, actor) do
+    uids = targets |> Enum.map(& &1.agent_uid) |> Enum.uniq()
+
+    Agent
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(uid in ^uids)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, agents} -> Map.new(agents, &{&1.uid, &1.config_acked_at})
+      {:error, _} -> %{}
+    end
+  end
+
+  defp completed_invocations_sql do
+    """
+    SELECT scope.assignment_id, command.inserted_at, command.context ->> 'plugin_package_id'
+    FROM unnest($1::text[], $2::text[], $3::timestamp[]) AS scope(assignment_id, agent_id, acked_at)
+    CROSS JOIN LATERAL (
+      SELECT invocation.inserted_at, invocation.context
+      FROM platform.agent_commands AS invocation
+      WHERE invocation.status = 'completed'
+        AND invocation.command_type = $4
+        AND invocation.agent_id = scope.agent_id
+        AND invocation.inserted_at > scope.acked_at
+        AND invocation.context ->> 'plugin_assignment_id' = scope.assignment_id
+      ORDER BY invocation.inserted_at DESC
+      LIMIT $5
+    ) AS command
+    """
   end
 
   defp evidence_since(%AddonRolloutTarget{state: :rollback_pending} = target),
@@ -576,8 +686,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
           do: Map.put(cleared_override(), :plugin_package_id, candidate_id),
           else: %{plugin_package_id: candidate_id}
 
+      # The actor goes on the changeset too: AssignmentParams checks it when it
+      # validates, and only a system actor may change a policy-owned row.
       member
-      |> Ash.Changeset.for_update(:promote_rollout, attrs)
+      |> Ash.Changeset.for_update(:promote_rollout, attrs, actor: actor)
       |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
       |> case do
         {:ok, _member, member_notifications} ->
@@ -613,7 +725,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   defp update(record, action, attrs, actor) do
     record
-    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.Changeset.for_update(action, attrs, actor: actor)
     |> Ash.update(actor: actor, authorize?: true)
   end
 end
