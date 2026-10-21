@@ -219,9 +219,17 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
          ), request}
 
       {:error, reason} ->
-        {{:error, {reason, opts[:label]}}, request}
+        if stopping_reason?(reason) do
+          exit(reason)
+        else
+          {{:error, {reason, opts[:label]}}, request}
+        end
     end
   end
+
+  defp stopping_reason?(reason) when reason in [:terminating, :shutdown, :noproc], do: true
+  defp stopping_reason?({reason, _}) when reason in [:terminating, :shutdown, :noproc], do: true
+  defp stopping_reason?(_reason), do: false
 
   defp remaining(deadline), do: deadline - System.monotonic_time(:millisecond)
 
@@ -595,23 +603,21 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     # switch to disable that. Req's explicit retry/redirect controls keep this
     # module in charge of both the attempt budget and the actual dialed host.
     result =
-      with {:ok, _} <- Application.ensure_all_started(:req) do
-        Req.request(
-          method: request.method,
-          url: request.url,
-          headers: request.headers ++ request_auth(request),
-          body: request.body,
-          decode_body: false,
-          retry: false,
-          redirect: false,
-          request_timeout: timeout,
-          receive_timeout: timeout,
-          finch: [
-            pool_timeout: min(5_000, timeout),
-            conn_opts: [transport_opts: [timeout: min(5_000, timeout)]]
-          ]
-        )
-      end
+      Req.request(
+        method: request.method,
+        url: request.url,
+        headers: request.headers ++ request_auth(request),
+        body: request.body,
+        decode_body: false,
+        retry: false,
+        redirect: false,
+        request_timeout: timeout,
+        receive_timeout: timeout,
+        finch: [
+          pool_timeout: min(5_000, timeout),
+          conn_opts: [transport_opts: [timeout: min(5_000, timeout)]]
+        ]
+      )
 
     case result do
       {:ok, response} ->
@@ -629,7 +635,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         {:error, {:connect_failed, reason}}
 
       {:error, reason} ->
-        {:error, reason}
+        if stopping_reason?(reason) do
+          exit(reason)
+        else
+          {:error, reason}
+        end
     end
   end
 
