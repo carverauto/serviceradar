@@ -6,7 +6,7 @@ use rustler::{
 };
 use serviceradar_topology_atlas::{CanonicalOrdinals, Error, OrdinalInfo};
 
-use crate::details::{read_reply, AggregateResource, SelectionResource};
+use crate::details::{read_reply, AggregateResource, SelectionResource, WireRelationCursor};
 use crate::WorldResource;
 
 mod atoms {
@@ -241,6 +241,38 @@ fn tile_device_ordinals(
                 ordinals
                     .tile_device_ordinals(&world.0.geometry, &selection.0)
                     .map_err(engine_error)
+            })
+        })
+    })
+}
+
+#[derive(NifMap)]
+struct WireRelationOrdinals<'a> {
+    pairs: Binary<'a>,
+    candidates: usize,
+    next_cursor: Option<WireRelationCursor>,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn tile_relation_ordinals<'a>(
+    env: Env<'a>,
+    world: ResourceArc<WorldResource>,
+    mapping: ResourceArc<OrdinalResource>,
+    selection: ResourceArc<SelectionResource>,
+    cursor: Option<WireRelationCursor>,
+) -> Term<'a> {
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            let cursor = cursor.map(Into::into);
+            let page = with_ordinals(&mapping, |ordinals| {
+                ordinals
+                    .relation_ordinals(&world.0.geometry, &selection.0, cursor.as_ref())
+                    .map_err(engine_error)
+            })?;
+            Ok(WireRelationOrdinals {
+                pairs: binary(env, &page.pairs)?,
+                candidates: page.candidates,
+                next_cursor: page.next.map(Into::into),
             })
         })
     })

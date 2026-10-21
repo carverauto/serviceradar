@@ -46,6 +46,7 @@ export class WorldMembership {
     try {
       const frame = decodeBitmapFrame(input)
       if (frame.view_digest !== this.binding.view_digest) return
+      if (frame.protocol !== (this.binding.protocol ?? 1)) throw new Error("Membership protocol changed")
       if (BINDING_FIELDS.some(field => frame[field] !== this.binding[field])) {this.reset("Membership binding changed"); return}
       if (frame.kind === "reset") {this.reset("Membership server reset"); return}
       if (this.sequence !== null && frame.sequence <= this.sequence) {
@@ -65,6 +66,10 @@ export class WorldMembership {
           const population = geometry.nodes[row].kind === "boundary" ? 1 : geometry.nodes[row].count
           if (tile.counts[row] > population || tile.counts[row] > frame.total) throw new Error("Invalid represented membership count")
         }
+        if (frame.protocol === 2 && (tile.edgeCounts.length !== geometry.edges.length ||
+            geometry.edges.some((edge, row) => tile.edgeCounts[row] > edge.count))) {
+          throw new Error("Invalid relation membership count")
+        }
       }
       // The old view remains untouched until the entire replacement validates.
       clearTimeout(this.viewTimer)
@@ -75,7 +80,7 @@ export class WorldMembership {
       this.total = frame.total
       this.prefixSources = frame.prefix_sources
       this.pending = false
-      this.retainedBufferBytes = frame.byteLength + [...frame.tiles.values()].reduce((sum, tile) => sum + tile.counts.byteLength, 0)
+      this.retainedBufferBytes = frame.byteLength + [...frame.tiles.values()].reduce((sum, tile) => sum + tile.counts.byteLength + (tile.edgeCounts?.byteLength || 0), 0)
       this.onAck({sequence: frame.sequence.toString(), view_digest: this.binding.view_digest})
       this.onChange()
     } catch (error) {this.reset(error.message)}

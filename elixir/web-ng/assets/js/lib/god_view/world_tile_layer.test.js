@@ -57,6 +57,18 @@ describe("world tile rendering contract", () => {
     expect(nodes(selected).props.getFillColor(null, {index: 0})).toEqual([245, 117, 88, 240])
     expect(selected.some(item => item.id.endsWith("-packets"))).toBe(false)
     expect(edges(selected).props.getWidth(null, {index: 0})).toBe(0)
+    // Exact relation membership can prove a connection even when the endpoint
+    // aggregates also represent devices excluded by the active query.
+    const exact = draw(layer.clone({membership: new Map([["1/1/0", {...entry,
+      edgeCounts: new Uint32Array([1])}]])}))
+    expect(edges(exact).props.getWidth(null, {index: 0})).toBeGreaterThan(0)
+    expect(exact.some(item => item.id.endsWith("-packets"))).toBe(false)
+    const allRelations = draw(layer.clone({membership: new Map([["1/1/0", {...entry,
+      edgeCounts: new Uint32Array([geometry.edges[0].count])}]])}))
+    expect(allRelations.some(item => item.id.endsWith("-packets"))).toBe(true)
+    const disconnected = draw(layer.clone({membership: new Map([["1/1/0", {...entry,
+      edgeCounts: new Uint32Array([0])}]])}))
+    expect(edges(disconnected).props.getWidth(null, {index: 0})).toBe(0)
     const complete = draw(layer.clone({membership: new Map([["1/1/0", {...entry,
       counts: Uint32Array.from(geometry.nodes.map(node => node.count))}]])}))
     expect(complete.some(item => item.id.endsWith("-packets"))).toBe(true)

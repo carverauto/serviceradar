@@ -334,7 +334,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     start_supervised!(BitmapQueries)
     start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     {:ok, snapshot} = await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
-    world = install_world([included, excluded], snapshot.dictionary_epoch)
+
+    world =
+      install_world([included, excluded], snapshot.dictionary_epoch, [
+        %{
+          relation_id: "invented-filtered-connection",
+          source_id: included.uid,
+          target_id: excluded.uid,
+          evidence_class: "direct-physical"
+        }
+      ])
+
     {:ok, key} = TileKey.new(@version, 16, 0, 0)
     {:ok, tile} = WorldCache.fetch(key)
 
@@ -345,6 +355,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert response.status == 200
     manifest = Jason.decode!(response.resp_body)
     assert manifest["bitmap_membership_protocol"] == 1
+    assert manifest["bitmap_membership_protocols"] == [1, 2]
     assert manifest["world_overlay_protocol"] == 1
     assert manifest["bitmap"]["ready"]
     assert manifest["bitmap"]["query"]["tag_keys"] == ["rack"]
@@ -438,12 +449,29 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     # No second frame is queued while the client owes an acknowledgement.
     send(socket.channel_pid, :tile_tick)
     refute_push "membership:frame", _frame, 100
+
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
     assert_reply ref, :ok
     ref = push(socket, "membership:unwatch", %{})
     assert_reply ref, :ok
     send(socket.channel_pid, :tile_tick)
     refute_push "membership:frame", _frame, 100
+
+    # Both native owners execute behind the real channel. The same edge is
+    # excluded when only one endpoint matches, included when both match.
+    assert length(tile.flow_edges) == 1
+
+    for {query, expected} <- [{params["query"], 0}, {within_cohort(cohort, %{"all" => []}), 1}] do
+      ref = push(socket, "membership:watch", %{params | "protocol" => 2, "query" => query})
+      assert_reply ref, :ok, %{view_digest: edge_digest}, 5_000
+      assert edge_digest != digest
+      assert_push "membership:frame", {:binary, edge_frame}, 5_000
+      assert <<"SRMO", 2, 0, _::binary>> = edge_frame
+      footer_offset = byte_size(edge_frame) - 6
+      assert <<_::binary-size(footer_offset), 1::little-16, ^expected::little-32>> = edge_frame
+      ref = push(socket, "membership:unwatch", %{})
+      assert_reply ref, :ok
+    end
 
     stale = put_in(params, ["tiles"], [%{"z" => 16, "x" => 0, "y" => 0, "revision" => String.duplicate("f", 64)}])
     ref = push(socket, "membership:watch", stale)
@@ -536,8 +564,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
 
     # Each held worker completes against the current binding; the change made
     # before the channel processes that queued result must stop its delivery.
+    # Every case runs on a freshly joined channel, whose first periodic refresh
+    # is at least five seconds away and so cannot reorder ahead of the result.
+    socket = rejoin(socket, scope)
     expired_ref = hold_completed_watch(socket, params)
-    assert_push "membership:frame", {:binary, _replaced_reset}, 5_000
     held = make_ref()
     Process.send_after(self(), {:deadline_elapsed, held}, 1_100)
     assert_receive {:deadline_elapsed, ^held}, 2_000
@@ -545,14 +575,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_reply expired_ref, :error, %{reason: "query_timeout"}, 5_000
     refute_push "membership:frame", _expired_frame, 200
 
+    # Seal the replacement before holding so DB lookups cannot spend the held
+    # watch's one-second deadline; only its installation lands in that window.
+    # Deliberate expiry is asserted separately above.
+    remapping = seal_mapping(world, [included, excluded], snapshot.dictionary_epoch)
+    socket = rejoin(socket, scope)
     remapped_ref = hold_completed_watch(socket, params)
-    :ok = WorldCache.install_ordinals(world, seal_mapping(world, [included, excluded], snapshot.dictionary_epoch))
+    :ok = WorldCache.install_ordinals(world, remapping)
     :ok = :sys.resume(socket.channel_pid)
     assert_reply remapped_ref, :error, %{reason: "source_changed"}, 5_000
     refute_push "membership:frame", _remapped_frame, 200
 
+    # A direct status write revokes read-time authority without the audit and
+    # session-revocation side effects of :deactivate, which the owner test above
+    # covers; those would otherwise spend the held watch's one-second deadline.
+    socket = rejoin(socket, scope)
     revoked_ref = hold_completed_watch(socket, params)
-    user |> Ash.Changeset.for_update(:deactivate, %{}, actor: @actor) |> Ash.update!()
+    {1, _} = Repo.update_all(from(u in User, where: u.id == ^user.id), set: [status: :inactive])
     :ok = :sys.resume(socket.channel_pid)
     assert_reply revoked_ref, :error, %{reason: "forbidden"}, 5_000
     refute_push "membership:frame", _revoked_frame, 200
@@ -846,6 +885,23 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     end
   end
 
+  defp rejoin(socket, scope) do
+    # Leaving a linked channel exits it with {:shutdown, :left}, which would
+    # take the test down; only this intentional teardown is unlinked.
+    Process.unlink(socket.channel_pid)
+    monitor = Process.monitor(socket.channel_pid)
+    ref = leave(socket)
+    assert_reply ref, :ok
+    assert_receive {:DOWN, ^monitor, :process, _pid, {:shutdown, :left}}, 5_000
+
+    {:ok, _fence, socket} =
+      UserSocket
+      |> socket("synthetic-bitmap-viewer", %{current_scope: scope})
+      |> subscribe_and_join(TopologyTileChannel, "topology:tiles", %{})
+
+    socket
+  end
+
   defp stream_task(socket), do: :sys.get_state(socket.channel_pid).assigns.bitmap_stream.task
 
   # Returns with the watch worker finished and its result queued behind a
@@ -913,7 +969,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     digest
   end
 
-  defp install_world(devices, epoch) do
+  defp install_world(devices, epoch, relations \\ []) do
     {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
 
     positions =
@@ -937,6 +993,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       end)
 
     :ok = TopologyAtlas.add_positions(builder, positions)
+    :ok = TopologyAtlas.add_relations(builder, relations)
     {:ok, world} = TopologyAtlas.finish_world(builder)
     publish_layout(positions)
     manifest = %{layout_version: @version, generation: 1, zmax: 16}

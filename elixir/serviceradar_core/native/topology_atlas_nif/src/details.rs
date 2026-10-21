@@ -356,7 +356,7 @@ fn bundle_detail<'a>(
 }
 
 #[derive(NifMap)]
-struct WireRelationCursor {
+pub(crate) struct WireRelationCursor {
     world_revision: String,
     tile_revision: String,
     offset: usize,

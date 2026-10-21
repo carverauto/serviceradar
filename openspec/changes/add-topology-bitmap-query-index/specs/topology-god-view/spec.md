@@ -205,7 +205,8 @@ The system SHALL apply membership to the persistent tiled world without changing
 #### Scenario: Partial aggregate telemetry
 - **GIVEN** a filter selects only part of an aggregate's represented population
 - **WHEN** an incident edge's telemetry still summarizes its complete bundle
-- **THEN** the client SHALL hide that relation and suppress its traffic rates and animation
+- **THEN** the client SHALL show that relation only when an exact canonical relation projection proves a positive matching count
+- **AND** traffic rates and animation SHALL remain suppressed unless every represented relation matches and existing telemetry eligibility checks pass
 - **AND** the whole-bundle rate SHALL NOT be shown as a filtered-population rate
 
 #### Scenario: Exact boundary endpoint survives tile refinement
@@ -214,7 +215,8 @@ The system SHALL apply membership to the persistent tiled world without changing
 - **THEN** the clipped relation SHALL remain visible when zooming crosses a tile boundary
 - **AND** the portal SHALL project zero or one authorized match without becoming a visible device or increasing tile or global device counts
 - **AND** an unmapped endpoint or a portal shared by distinct devices SHALL have zero membership
-- **AND** native projection SHALL remain bounded by admitted tile rows without scanning all relations per query
+- **AND** version-1 endpoint projection SHALL remain bounded by admitted tile rows without scanning all relations per query
+- **AND** version-2 exact relation projection SHALL use bounded candidate pages under one shared view work budget and deadline
 
 #### Scenario: Browser compatibility during rolling updates
 - **WHEN** a client does not opt in to exact boundary endpoint membership

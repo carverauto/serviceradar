@@ -134,7 +134,9 @@ SRMO total was 160: four individual glyphs, four aggregates containing 23 matche
 each, and eight containing 8 each. Four zero-match aggregates and excluded
 individuals are masked by the production policy; they do not display zero badges.
 Filtered relations with partial aggregate membership are hidden, as the panel
-explains. No exact filtered relation projection is implied by this capture.
+explains. No exact filtered relation projection is implied by this capture,
+which used membership protocol version 1; version 2 relation counts are
+specified in [the membership protocol](topology-bitmap-protocol.md).
 
 Before and after have identical decoded geometry and camera target `[128,256,0]`
 at zoom `0.75`. Chrome used a dark 1600 x 1000 CSS-pixel viewport at DPR 2. The

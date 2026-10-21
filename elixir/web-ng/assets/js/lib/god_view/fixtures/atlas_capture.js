@@ -8,12 +8,14 @@ export const atlasCaptureInventory = Array.from({length: 16}, (_, cluster) =>
   Array.from({length: 64}, (_, member) => ({
     id: `synthetic-${cluster}-${member}`, cluster, member,
     vlan: ["20", "30", "40", "40"][member % 4],
+    vendor: member < 4 || member % 4 === 3 ? "Example A" : "Example B",
     availability: Math.floor(cluster / 4) === 0 ? "healthy" :
       member % 2 === 0 || Math.floor(cluster / 4) === 1 ? "unavailable" : "healthy",
     "tag:maintenance": member % 8 === 0 ? "true" : "false",
   }))).flat()
 
 export const atlasCaptureQueryDescriptor = {entity_kind: "device", facets: [
+  {key: "vendor", label: "Vendor", operators: ["eq"]},
   {key: "vlan", label: "Inventory VLAN", operators: ["eq"]},
   {key: "availability", label: "Availability", operators: ["eq"]},
   {key: "tag:maintenance", label: "Tag: maintenance", operators: ["eq"]},
@@ -41,14 +43,21 @@ export function atlasCaptureTile(z, x, y) {
   const edges = selected.flatMap((glyph, target) => {
     if (glyph.members.length !== 1) return []
     const source = selected.findIndex(other => other.id === `synthetic-aggregate-${glyph.members[0].cluster}`)
-    return source < 0 ? [] : [{source, target, details: {id: `synthetic-relation-${glyph.id}`, represented_count: 1, topology_class: "backbone", phase_start: 0, phase_end: 1}}]
+    return source < 0 ? [] : [{source, target, details: {id: `synthetic-relation-${glyph.id}`, represented_count: 2, topology_class: "backbone", phase_start: 0, phase_end: 1}}]
+  })
+  // Independent canonical endpoints: selecting Example A gives zero, two,
+  // zero and one connection, even though every rendered endpoint is selected.
+  const relations = edges.map(edge => {
+    const device = selected[edge.target].members[0]
+    return [[4, 8], [7, 11], [6, 10], [7, 12]][device.member].map(member =>
+      [`synthetic-${device.cluster}-${member}`, device.id])
   })
   const bytes = worldTileIpc({metadata: {z, x, y, origin_x: x * width * 32768, origin_y: y * width * 32768,
     coordinate_scale: width * 32768 / 65535, device_count: selected.reduce((sum, glyph) => sum + glyph.members.length, 0)},
     nodes: selected.map(glyph => ({x: Math.round((glyph.x / width - x) * 65535), y: Math.round((glyph.y / width - y) * 65535),
       label: `Access ${glyph.members[0].cluster + 1}-${glyph.members[0].member + 1}`, details: {id: glyph.id,
         type: glyph.members.length === 1 ? "device" : "aggregate", cluster_member_count: glyph.members.length}})), edges})
-  return {bytes, geometry: {...decodeWorldTile(bytes, {...worldTileKey, z, x, y}), generation: 1}, populations: selected.map(glyph => glyph.members)}
+  return {bytes, geometry: {...decodeWorldTile(bytes, {...worldTileKey, z, x, y}), generation: 1}, populations: selected.map(glyph => glyph.members), relations}
 }
 
 export function atlasCaptureHealth(population) {

@@ -184,6 +184,14 @@
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },
   {
+    "path": "assets/js/lib/god_view/world_tile_layer.js",
+    "matcher": "js_to_locale_time",
+    "occurrence": 3,
+    "fingerprint": "360f224fea81b94cde1f3bad75757a7a3eb345125c15a6f573c6696d8f87b6a2",
+    "classification": "infrastructure",
+    "reason": "Numeric filtered relation count; not a timestamp."
+  },
+  {
     "path": "assets/js/utils/timezone_options.js",
     "matcher": "intl_date_time_format",
     "occurrence": 1,

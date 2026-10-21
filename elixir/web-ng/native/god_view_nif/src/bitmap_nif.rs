@@ -151,6 +151,29 @@ fn bitmap_query_row_overlay<'a>(
         bytes(counts)?,
     ))
 }
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn bitmap_query_relation_counts<'a>(
+    env: Env<'a>,
+    query: ResourceArc<BitmapQueryResource>,
+    authority: Binary<'a>,
+    dictionary_epoch: Binary<'a>,
+    index_epoch: Binary<'a>,
+    pairs: Binary<'a>,
+    counts: Binary<'a>,
+    timeout_ms: u64,
+) -> Result<Binary<'a>, &'static str> {
+    let result = query.0.relation_counts(
+        authority.as_slice(),
+        dictionary_epoch.as_slice(),
+        index_epoch.as_slice(),
+        pairs.as_slice(),
+        counts.as_slice(),
+        timeout_ms,
+    )?;
+    vec_into_binary(env, result).map_err(|_| "allocation_failed")
+}
+
 #[derive(NifMap)]
 pub struct BitmapPendingStatus {
     pending_count: u64,

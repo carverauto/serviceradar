@@ -1,17 +1,25 @@
-# ServiceRadar Atlas membership protocol, version 1
+# ServiceRadar Atlas membership protocol
 
 The server evaluates bitmap queries. Browsers receive complete binary overlays
 for the rows already admitted by the tile renderer. Membership never changes
 ELK geometry or sends fleet-wide ID lists to the browser.
 
-The manifest field `bitmap_membership_protocol: 1` enables membership on the
-existing topology channel. `membership:watch` carries the bounded query and
+The manifest retains `bitmap_membership_protocol: 1` for existing clients and
+advertises `bitmap_membership_protocols: [1, 2]`. Updated clients request version
+2 when advertised, otherwise version 1. Both versions use the existing topology
+channel. Version 1 keeps its exact bytes and conservative relation behavior.
+The manifest and the channel can be served by different replicas during a
+rolling update. A manifest of the same generation that omits the capability
+list does not withdraw version 2. A channel that rejects version 2 with
+`unsupported_membership_protocol` keeps that client on version 1 until the
+socket rejoins, when it requests version 2 again.
+`membership:watch` carries the selected protocol, bounded query and
 exact admitted tile receipts. A client that sets `boundary_endpoints: true`
 in the watch opts in to exact boundary endpoint counts; without it, every
 boundary count stays zero, so older browser bundles keep their decoder
 contract during rolling updates. Its reply binds dictionary epoch, query
 digest, authority fingerprint and admitted-view digest; the view digest also
-binds the boundary opt-in. `membership:frame` carries raw
+binds the boundary opt-in and, for version 2, the selected protocol. `membership:frame` carries raw
 binary. `membership:ack` carries the view digest and a decimal string sequence.
 Membership receipts include only displayed geometry. Retained offscreen prefetch
 can remain in the separate geometry watch without invalidating an unchanged
@@ -54,7 +62,7 @@ nonempty, at most 128 bytes, and contain no NUL. The whole frame is at most
 | Field | Encoding |
 | --- | --- |
 | Magic | Four bytes `SRMO` |
-| Version | uint8 `1` |
+| Version | uint8 `1` or `2`, matching the negotiated watch |
 | Kind | uint8 `0` full replacement, `1` reset |
 | Reserved | uint16 `0` |
 | Whole frame length | uint32 |
@@ -90,6 +98,8 @@ each tile:
 | Causal state | One uint8 per row: root 0, affected 1, healthy 2, unknown 3 |
 | Availability | One uint8 per row: healthy 0, unavailable 1, unknown 2 |
 | Matching count | One uint32 per row |
+| Edge row count (version 2 only) | uint16, at most 512 |
+| Matching relation count (version 2 only) | One uint32 per edge row |
 
 Rows have the exact order of the receipt's geometry. Device counts are 0 or 1;
 aggregate counts are the exact authorized query intersection and cannot exceed
@@ -100,10 +110,19 @@ and that device matches. Shared or unmapped portals count zero. A flag is 1 if
 and only if the count is positive. Aggregate availability is unknown unless all
 matching members share one state. Missing causal evidence stays unknown.
 
-At 8192 admitted rows, column data is 57,344 bytes. Even maximum-length metadata
+Version 2 edge rows have the exact Arrow edge order and count. Each value counts
+canonical relations whose source AND target belong to the same pinned authorized
+query result, and cannot exceed that edge's represented count. Parallel relations
+retain their multiplicity. Unknown endpoints do not match. Shared portals can
+have matching edges without receiving a device identity or becoming visible.
+Node and edge columns validate and replace atomically, including retained views
+during pan and zoom; a malformed column clears the whole membership view.
+
+At 8192 admitted node rows, column data is 57,344 bytes. Version 2 adds at most
+131,072 edge-count bytes and 128 edge-row-count bytes. Even maximum-length metadata
 and tile receipts fit in a single 256 KiB frame, so there is no chunk assembly,
 XOR history, browser bitmap codec, worker or secondary WASM heap. The decoder
-retains views for the three byte columns and copies counts into aligned typed
+retains views for the three byte columns and copies node and edge counts into aligned typed
 arrays. Replacements release old arrays on eviction, disable and disconnect.
 The renderer updates masks/colors/counts while retaining geometry attributes.
 GPU upload remains a copy.
@@ -121,12 +140,26 @@ Each request evaluates current membership; page cursors bind query, authority
 and dictionary continuity. The browser discards responses from older local
 query generations and does not reuse filtered scene cache entries. Unsupported
 filtered scenes report an error instead of opening an unfiltered scene.
-Relations and packet animation require full represented membership at both
-endpoints while a query is active; a boundary endpoint is complete at a count
-of 1 and is never drawn or picked as a device. A partially matched aggregate has no filtered
-relation or traffic estimate until the server can evaluate the exact relation
-intersection. Its full bundle is never presented as the query's relation.
-Unsupported boundary rows and unmapped geometry remain excluded, and the
+Version 1 relations and packet animation require full represented membership
+at both endpoints. A boundary endpoint is complete at a count of 1 and is never
+drawn or picked as a device. Version 2 draws and picks an edge whenever its exact
+matching relation count is positive, including partially selected aggregates.
+Picks report matching connections, never the full geometry bundle count.
+Filtered bundle details remain explicitly unavailable; newly visible edges do
+not open unfiltered members. Traffic remains eligible only when ALL represented
+relations match and the existing telemetry freshness and coverage checks pass.
+A partial bundle has no traffic estimate or packet animation.
+
+Native relation projection reuses the Atlas spatial/selection owner. Each page
+examines at most 4096 candidates and returns at most 256 packed ordinal triples
+(3072 bytes); the count accumulator is at most 2048 bytes per tile. All tiles
+share a 262,144-candidate ceiling and the existing one-second query deadline.
+The caller reserves a whole candidate page before starting it. Exhaustion,
+timeout, source changes or an incomplete traversal discard the entire tentative
+view; they never publish partial counts as exact. No relation ID list or query
+cache crosses into the browser.
+
+Unmapped geometry remains excluded, and the
 watch projection receipt reports incomplete canonical identity coverage.
 
 ## Binary health and traffic
