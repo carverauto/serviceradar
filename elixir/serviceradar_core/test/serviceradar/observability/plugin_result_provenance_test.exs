@@ -49,13 +49,20 @@ defmodule ServiceRadar.Observability.PluginResultProvenanceTest do
              )
 
     assert %{"assignment_id" => boundary} =
-             PluginResultProvenance.from_status(status(%{assignment_id: String.duplicate("a", 255)}))
+             PluginResultProvenance.from_status(
+               status(%{assignment_id: String.duplicate("a", 255)})
+             )
 
     assert byte_size(boundary) == 255
   end
 
   test "content_hash must be lowercase 64-hex" do
-    for bad <- [String.upcase(@module_hash), String.duplicate("ab", 31), @module_hash <> "\n", "zz"] do
+    for bad <- [
+          String.upcase(@module_hash),
+          String.duplicate("ab", 31),
+          @module_hash <> "\n",
+          "zz"
+        ] do
       assert nil == PluginResultProvenance.from_status(status(%{content_hash: bad}))
     end
   end
@@ -69,10 +76,13 @@ defmodule ServiceRadar.Observability.PluginResultProvenanceTest do
   test "from_details prefers the server-authored marker over a payload's downstream_ingest" do
     details =
       Jason.encode!(%{
-        "_serviceradar_plugin_result" => %{"provenance" => %{"plugin_package_id" => "real-package"}},
+        "_serviceradar_plugin_result" => %{
+          "provenance" => %{"plugin_package_id" => "real-package"}
+        },
         "downstream_ingest" => %{"provenance" => %{"plugin_package_id" => "forged-package"}}
       })
 
-    assert %{"plugin_package_id" => "real-package"} == PluginResultProvenance.from_details(details)
+    assert %{"plugin_package_id" => "real-package"} ==
+             PluginResultProvenance.from_details(details)
   end
 end
