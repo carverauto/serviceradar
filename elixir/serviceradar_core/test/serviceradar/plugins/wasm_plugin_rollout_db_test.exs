@@ -180,6 +180,29 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
              target(rollout, member)
   end
 
+  test "a downstream ingest that recovered after a failure verifies its observation", ctx do
+    {policy, [member]} = policy_with_members!(ctx, 1)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(policy, ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 0)
+      )
+
+    observation = %{observed_at: at(ctx, 1), digest: "example-recovered-#{ctx.unique}"}
+    result!(member, ctx.candidate, "OK", at(ctx, 2), observation)
+    downstream_failure!(member, ctx.candidate, observation)
+    downstream_recovery!(member, ctx.candidate, observation)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 3))
+
+    assert %AddonRollout{state: :completed} = reload(rollout)
+
+    assert %{state: :promoted, reason_code: "candidate_health_verified"} =
+             target(rollout, member)
+  end
+
   test "older results with later agent timestamps do not hide a fresh candidate failure",
        ctx do
     {policy, [member]} = policy_with_members!(ctx, 1)
@@ -479,19 +502,27 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
 
   # The marker row PluginResultIngestor writes when a downstream handler failed
   # for an observation: timestamped and created at the observation's time.
-  defp downstream_failure!(member, package, observation) do
-    marked_at = DateTime.add(observation.observed_at, 1, :microsecond)
+  defp downstream_failure!(member, package, observation),
+    do: downstream_marker!(member, package, observation, "failed", 1)
+
+  # The marker the ingestor writes when a retried downstream ingest succeeds for
+  # an observation whose earlier attempt failed: timestamped after the failure.
+  defp downstream_recovery!(member, package, observation),
+    do: downstream_marker!(member, package, observation, "succeeded", 2)
+
+  defp downstream_marker!(member, package, observation, status, offset_us) do
+    marked_at = DateTime.add(observation.observed_at, offset_us, :microsecond)
 
     details =
       Jason.encode!(%{
-        "status" => "CRITICAL",
-        "summary" => "example downstream failure",
+        "status" => if(status == "failed", do: "CRITICAL", else: "OK"),
+        "summary" => "example downstream #{status}",
         "downstream_ingest" =>
-          %{"status" => "failed", "provenance" => provenance(member, package)}
+          %{"status" => status, "provenance" => provenance(member, package)}
           |> Map.merge(observation_marker(observation))
       })
 
-    status_row!(member, package, marked_at, marked_at, false, details)
+    status_row!(member, package, marked_at, marked_at, status != "failed", details)
   end
 
   defp provenance(member, package) do

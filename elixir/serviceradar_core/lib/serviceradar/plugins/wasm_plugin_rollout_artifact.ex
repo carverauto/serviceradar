@@ -47,9 +47,16 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   Evidence is classified per observation, not per row. The ingestor stores a
   downstream-ingest outcome as a separate row keyed by the reported row's
-  observation timestamp and payload digest, so a failed downstream ingest fails
-  that observation wherever its row sorts. Freshness and order are the reported
-  row's server receipt time.
+  observation timestamp and payload digest, and the latest such row decides the
+  observation wherever it sorts: a failure fails it, a later recovery restores
+  it. Freshness and order are the reported row's server receipt time.
+
+  The ingestor writes that row only when downstream ingest failed, or recovered
+  from a failure; an ordinary success leaves none. An observation without one
+  therefore counts as ingested, which includes one whose handlers are still
+  running: a pass that reads it between the reported row's commit and its
+  failure row sees a healthy observation. Closing that window needs the
+  ingestor to record completion for every observation.
 
   An action-only plugin that ingests its action results is verified through
   those stamped results. A completed action command is no evidence: nothing
@@ -646,7 +653,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
              @downstream_marker_window_seconds
            ]) do
         {:ok, %{rows: rows}} ->
-          {:ok, rows |> Enum.flat_map(&failed_downstream_key/1) |> MapSet.new()}
+          {:ok, rows |> Enum.flat_map(&downstream_marker/1) |> latest_failed()}
 
         {:error, reason} ->
           {:error, reason}
@@ -656,7 +663,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   defp failed_downstream_sql do
     """
-    SELECT scope.assignment_id, result.details
+    SELECT scope.assignment_id, result."timestamp", result.details
     FROM unnest($1::text[], $2::text[], $3::timestamptz[], $4::text[])
       AS scope(assignment_id, agent_id, observed_at, payload_digest)
     JOIN platform.service_status AS result
@@ -670,16 +677,28 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     """
   end
 
-  defp failed_downstream_key([assignment_id, details]) do
+  defp downstream_marker([assignment_id, marked_at, details]) do
     decoded = decode(details)
 
     with %{"assignment_id" => ^assignment_id} <- PluginResultProvenance.from_details(decoded),
-         %{"downstream_ingest" => %{"status" => "failed"} = ingest} <- decoded,
+         %{"downstream_ingest" => %{"status" => status} = ingest} <- decoded,
          {_observed, _digest} = key <- observation_key(ingest) do
-      [{assignment_id, key}]
+      [{{assignment_id, key}, marked_at, status}]
     else
       _ -> []
     end
+  end
+
+  # The ingestor timestamps an observation's markers in the order it writes
+  # them, so the newest one is its current downstream outcome.
+  defp latest_failed(markers) do
+    markers
+    |> Enum.group_by(fn {key, _marked_at, _status} -> key end)
+    |> Enum.flat_map(fn {key, rows} ->
+      {_key, _marked_at, status} = Enum.max_by(rows, &elem(&1, 1), DateTime)
+      if status == "failed", do: [key], else: []
+    end)
+    |> MapSet.new()
   end
 
   defp observation_key(%{"observation_timestamp" => observed, "payload_digest" => digest})
