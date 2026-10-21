@@ -162,6 +162,42 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert :counters.get(states, 1) == 2
   end
 
+  test "a load that timed out before its transaction began is loaded again under the same label" do
+    parent = self()
+    puts = :counters.new(1, [])
+
+    http = fn
+      %{method: :put} = request ->
+        :counters.add(puts, 1, 1)
+        send(parent, {:put, List.keyfind(request.headers, "label", 0)})
+
+        if :counters.get(puts, 1) == 1 do
+          {:error, :timeout}
+        else
+          {:ok,
+           %{
+             status: 200,
+             body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})
+           }}
+        end
+
+      # The FE has no transaction for the label: the timed-out attempt never
+      # began one, so nothing was persisted under it.
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("UNKNOWN")}}
+    end
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{loaded: 2}} = StreamLoad.persist("otel_metrics", @rows, http: http)
+      end)
+
+    assert_received {:put, {"label", label}}
+    assert_received {:put, {"label", ^label}}
+    assert :counters.get(puts, 1) == 2
+    assert log =~ "trigger=:http_timeout state_answer={:ok, \"UNKNOWN\"}"
+  end
+
   # Bounded poll for an expected eventual condition (supervisor restart).
   # Returns true when fun yields a pid within timeout_ms, false otherwise.
   defp eventually(fun, timeout_ms) do

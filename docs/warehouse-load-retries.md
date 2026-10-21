@@ -17,7 +17,10 @@ in use polls that label the same way. While the label is PREPARE or PREPARED,
 whether under this caller's lost attempt or under another loader of the same
 batch, the client waits and polls after 200 ms, doubling to at most 2 s, until
 it commits, aborts, or the budget runs out. UNKNOWN or no answer is
-unresolved. StarRocks retains successful labels to prevent
+unresolved, and the next attempt loads the batch again under the same label:
+if a transaction exists under it after all, StarRocks refuses the label and
+the client polls it as above, so the batch is not loaded twice. Only an aborted
+label is retried under a new label. StarRocks retains successful labels to prevent
 duplicate loading, as described in its
 [Stream Load protocol](https://docs.starrocks.io/docs/sql-reference/sql-statements/loading_unloading/STREAM_LOAD/).
 
@@ -39,8 +42,8 @@ not change readers or backend selection.
 Each failed attempt logs dataset, table, batch row count, label, attempt,
 frontend/coordinator role, dialed host and port, underlying error, and whether
 another attempt is planned. An unresolved label also logs a warning with the
-table, label, what started reconciliation (the load's status, an HTTP timeout,
-or a retry), and the `get_load_state` answer: the state, the HTTP status and
+table, label, what started reconciliation (the load's status or an HTTP
+timeout), and the `get_load_state` answer: the state, the HTTP status and
 body, a payload without `state`, or the transport error. Only the frontend's
 response is logged, never the request. Partial-write errors retain the underlying
 warehouse error alongside completed and missing destinations.
