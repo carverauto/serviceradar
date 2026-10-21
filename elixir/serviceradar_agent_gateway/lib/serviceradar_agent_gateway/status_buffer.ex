@@ -77,17 +77,18 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
     flush_interval_ms =
       Keyword.get(opts, :flush_interval_ms, env_int("GATEWAY_RESULTS_BUFFER_FLUSH_MS", @default_flush_interval_ms))
 
-    schedule_flush(flush_interval_ms)
     emit_buffer_depth(0, 0)
 
     {:ok,
-     %{
+     schedule_flush(%{
        queue: :queue.new(),
        retained_bytes: 0,
        max_entries: max_entries,
        flush_interval_ms: flush_interval_ms,
-       delivery: nil
-     }}
+       delivery: nil,
+       flush_timer: nil,
+       flush_token: nil
+     })}
   end
 
   @impl true
@@ -124,9 +125,21 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   end
 
   @impl true
-  def handle_info(:flush, state) do
-    schedule_flush(state.flush_interval_ms)
-    {:noreply, start_delivery(state)}
+  def handle_info({:flush, token}, %{flush_token: token} = state) do
+    state = %{state | flush_timer: nil}
+
+    case state.delivery do
+      nil -> {:noreply, ensure_flush_scheduled(start_delivery(state))}
+      _delivery -> {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info({:flush, _stale_token}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_info(:request_flush, %{delivery: %{} = delivery} = state) do
+    {:noreply, %{state | delivery: %{delivery | requested_again?: true}}}
   end
 
   @impl true
@@ -143,20 +156,17 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
         retained_bytes = state.retained_bytes - encoded_status_bytes(delivery.status)
         state = %{state | retained_bytes: retained_bytes}
         emit_buffer_depth(depth(state), retained_bytes)
-        {:noreply, start_delivery(state)}
+        {:noreply, ensure_flush_scheduled(start_delivery(state))}
 
       {:error, error} ->
-        # Pause until the next flush tick or request: retrying at once would
-        # repeat the call into a core that just failed to answer it. A request
-        # that arrived during the failed delivery is honored now.
+        # Pause for a full flush interval measured from the failure: retrying
+        # at once would repeat the call into a core that just failed to answer
+        # it. A request that arrived during the failed delivery is honored now.
         Logger.debug("Results buffer flush paused: #{inspect(error)}")
         state = requeue_oldest(state, delivery.status)
-        {:noreply, if(delivery.requested_again?, do: start_delivery(state), else: state)}
+        {:noreply, if(delivery.requested_again?, do: start_delivery(state), else: schedule_flush(state))}
     end
   end
-
-  @impl true
-  def handle_info(_message, state), do: {:noreply, state}
 
   defp enqueue_status(queue, status, max_entries) do
     if :queue.len(queue) >= max_entries do
@@ -166,8 +176,6 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
       {:queue.in(status, queue), nil}
     end
   end
-
-  defp start_delivery(%{delivery: %{} = delivery} = state), do: %{state | delivery: %{delivery | requested_again?: true}}
 
   defp start_delivery(state) do
     case :queue.out(state.queue) do
@@ -208,9 +216,15 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   defp depth(%{queue: queue, delivery: nil}), do: :queue.len(queue)
   defp depth(%{queue: queue}), do: :queue.len(queue) + 1
 
-  defp schedule_flush(flush_interval_ms) do
-    Process.send_after(self(), :flush, max(flush_interval_ms, 1_000))
+  defp schedule_flush(state) do
+    if state.flush_timer, do: Process.cancel_timer(state.flush_timer)
+    token = make_ref()
+    timer = Process.send_after(self(), {:flush, token}, max(state.flush_interval_ms, 1_000))
+    %{state | flush_timer: timer, flush_token: token}
   end
+
+  defp ensure_flush_scheduled(%{delivery: nil, flush_timer: nil} = state), do: schedule_flush(state)
+  defp ensure_flush_scheduled(state), do: state
 
   defp emit_buffer_drop(status, reason) do
     :telemetry.execute(
