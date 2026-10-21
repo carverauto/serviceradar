@@ -7,6 +7,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   JetStream metrics stream as `serviceradar.metric.v1` protobuf envelopes and
   persisted by event_writer. Plugin-result JSON payloads are not a metric
   ingestion path.
+
+  Host-stamped result provenance (assignment, package and module hash) is
+  stored with each status row; `ServiceRadar.Observability.PluginResultProvenance`
+  documents where it lives and how a rollout health gate reads it.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -20,6 +24,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
   alias ServiceRadar.NetworkConfig.PluginIngestor
   alias ServiceRadar.Observability.AdvisoryLocks
+  alias ServiceRadar.Observability.PluginResultProvenance
   alias ServiceRadar.Observability.PluginResultReportedMarker
   alias ServiceRadar.Observability.PluginResultSlot
   alias ServiceRadar.Observability.ServiceIdentity
@@ -486,14 +491,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
     payload_digest = payload_digest(reported_payload)
 
-    details =
-      Map.put(reported_payload, @reported_status_marker_key, %{
-        "kind" => "reported",
-        "observation_timestamp" => DateTime.to_iso8601(observed_at),
-        "payload_digest" => payload_digest,
-        "service_id" => to_string(service_id),
-        "version" => @reported_status_marker_version
-      })
+    marker =
+      PluginResultProvenance.put(
+        %{
+          "kind" => "reported",
+          "observation_timestamp" => DateTime.to_iso8601(observed_at),
+          "payload_digest" => payload_digest,
+          "service_id" => to_string(service_id),
+          "version" => @reported_status_marker_version
+        },
+        PluginResultProvenance.from_status(status)
+      )
+
+    details = Map.put(reported_payload, @reported_status_marker_key, marker)
 
     %{
       timestamp: observed_at,
@@ -735,20 +745,24 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         "status" => "CRITICAL",
         "summary" => message,
         "reported_result" => reported_payload,
-        "downstream_ingest" => %{
-          "status" => "failed",
-          "generation" => marker.generation,
-          "handler_set" => marker.handler_set,
-          "observation_timestamp" => marker.observation_timestamp,
-          "payload_digest" => marker.payload_digest,
-          "handlers" =>
-            Enum.map(errors, fn {handler, error_text} ->
-              %{
-                "handler" => handler_label(handler),
-                "error" => error_text
-              }
-            end)
-        }
+        "downstream_ingest" =>
+          PluginResultProvenance.put(
+            %{
+              "status" => "failed",
+              "generation" => marker.generation,
+              "handler_set" => marker.handler_set,
+              "observation_timestamp" => marker.observation_timestamp,
+              "payload_digest" => marker.payload_digest,
+              "handlers" =>
+                Enum.map(errors, fn {handler, error_text} ->
+                  %{
+                    "handler" => handler_label(handler),
+                    "error" => error_text
+                  }
+                end)
+            },
+            PluginResultProvenance.from_details(status_row.details)
+          )
       })
       |> FieldParser.encode_json()
 
@@ -772,14 +786,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         "status" => fetch_string(payload, ["status"]),
         "summary" => status_row.message,
         "reported_result" => reported_payload,
-        "downstream_ingest" => %{
-          "status" => "succeeded",
-          "generation" => marker.generation,
-          "handler_set" => marker.handler_set,
-          "observation_timestamp" => marker.observation_timestamp,
-          "payload_digest" => marker.payload_digest,
-          "recovered_from_failure" => marker.failure_recorded?
-        }
+        "downstream_ingest" =>
+          PluginResultProvenance.put(
+            %{
+              "status" => "succeeded",
+              "generation" => marker.generation,
+              "handler_set" => marker.handler_set,
+              "observation_timestamp" => marker.observation_timestamp,
+              "payload_digest" => marker.payload_digest,
+              "recovered_from_failure" => marker.failure_recorded?
+            },
+            PluginResultProvenance.from_details(status_row.details)
+          )
       })
       |> FieldParser.encode_json()
 

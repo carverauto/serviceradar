@@ -278,6 +278,7 @@ go_test(
         "plugin_condition_scope_test.go",
         "plugin_http_trust_test.go",
         "plugin_manifest_egress_test.go",
+        "plugin_result_provenance_test.go",
         "plugin_runtime_action_test.go",
         "plugin_runtime_artifact_test.go",
         "plugin_runtime_awx_inventory_credentials_test.go",

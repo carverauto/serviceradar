@@ -86,7 +86,7 @@ func TestPluginDownloadUsesArtifactHTTPClient(t *testing.T) {
 	})
 	defer manager.Stop()
 
-	data, err := manager.loadWasm(context.Background(), &pluginAssignment{
+	module, err := manager.loadWasm(context.Background(), &pluginAssignment{
 		AssignmentID: "assignment-1",
 		PackageID:    "package-1",
 		DownloadURL:  server.URL,
@@ -94,8 +94,8 @@ func TestPluginDownloadUsesArtifactHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadWasm: %v", err)
 	}
-	if string(data) != string(expectedBody) {
-		t.Fatalf("downloaded wasm = %q, want %q", data, expectedBody)
+	if string(module.wasm) != string(expectedBody) {
+		t.Fatalf("downloaded wasm = %q, want %q", module.wasm, expectedBody)
 	}
 }
 
@@ -226,7 +226,7 @@ func TestExecuteWithWasmHonorsContextCancellation(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- manager.executeWithWasm(ctx, assignment, infiniteLoopWasm)
+		done <- manager.executeWithWasm(ctx, assignment, pluginModule{wasm: infiniteLoopWasm})
 	}()
 
 	select {
@@ -289,7 +289,7 @@ func TestExecuteWithWasmHarness(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+	if err := manager.executeWithWasm(ctx, assignment, pluginModule{wasm: wasm}); err != nil {
 		t.Fatalf("executeWithWasm: %v", err)
 	}
 
@@ -359,7 +359,7 @@ func TestDuskCheckerWithConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+	if err := manager.executeWithWasm(ctx, assignment, pluginModule{wasm: wasm}); err != nil {
 		t.Fatalf("executeWithWasm: %v", err)
 	}
 
@@ -474,7 +474,7 @@ func TestProxmoxInventoryWasmRuntimeFetchesInventory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+	if err := manager.executeWithWasm(ctx, assignment, pluginModule{wasm: wasm}); err != nil {
 		t.Fatalf("executeWithWasm: %v", err)
 	}
 
@@ -595,7 +595,7 @@ func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+	if err := manager.executeWithWasm(ctx, assignment, pluginModule{wasm: wasm}); err != nil {
 		t.Fatalf("executeWithWasm: %v", err)
 	}
 

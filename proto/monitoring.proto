@@ -279,6 +279,21 @@ message GatewayServiceStatus {
   string source = 9;           // Source of the message: "status" or "results"
   string kv_store_id = 10;     // KV store identifier this service is using
   reserved 11, 12;             // Removed: deployment identifiers (single-deployment)
+  // Host-stamped provenance of a Wasm plugin result (source "plugin-result").
+  // Unset on every other source and on results from agents that predate it.
+  PluginResultProvenance plugin_provenance = 13;
+}
+
+// PluginResultProvenance identifies the assignment, package and Wasm module that
+// produced a plugin result. The agent host fills it from its own assignment
+// record and from the module bytes it loaded for the run. It is never read from
+// the plugin-supplied payload, so a plugin cannot forge it.
+message PluginResultProvenance {
+  string assignment_id = 1;     // Plugin assignment that ran
+  string plugin_id = 2;         // Logical plugin identifier
+  string plugin_package_id = 3; // Plugin package the assignment config named
+  string plugin_version = 4;    // Package version the assignment config named
+  string content_hash = 5;      // Lowercase hex SHA-256 of the executed module; empty when none loaded
 }
 
 // ============================================================================

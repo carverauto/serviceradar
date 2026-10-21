@@ -139,7 +139,7 @@ func (m *PluginManager) OpenProxmoxConsoleStream(
 		return nil, err
 	}
 
-	wasm, err := m.loadWasm(runCtx, assignment)
+	module, err := m.loadWasm(runCtx, assignment)
 	if err != nil {
 		cancel()
 		m.unregisterStreamingExecution(executionID)
@@ -162,7 +162,7 @@ func (m *PluginManager) OpenProxmoxConsoleStream(
 		defer m.unregisterStreamingExecution(executionID)
 		defer m.releaseSlot()
 
-		execErr := m.executeProxmoxConsolePlugin(runCtx, assignment, wasm, configJSON, bridge, spec)
+		execErr := m.executeProxmoxConsolePlugin(runCtx, assignment, module.wasm, configJSON, bridge, spec)
 		switch {
 		case execErr != nil:
 			m.recordExecution(false)

@@ -36,6 +36,9 @@ type pluginExecution struct {
 	// expiredRunOverrides are the ids delivered to this scheduled run marked
 	// expired; submitting a result acknowledges them.
 	expiredRunOverrides []string
+	// moduleContentHash is the SHA-256 of the module bytes this run executes,
+	// stamped on the results it submits.
+	moduleContentHash string
 	// assignmentGenerationBound is set only by the manager-owned Proxmox
 	// streaming path after it registers the execution generation. Standalone
 	// scheduled/action executions do not participate in that revocation lease.
@@ -274,14 +277,9 @@ func (e *pluginExecution) submitScheduledResult(ctx context.Context, payload []b
 		acknowledged = e.expiredRunOverrides
 	}
 
-	err := e.manager.enqueueResult(ctx, PluginResult{
-		AssignmentID:             e.assignment.AssignmentID,
-		PluginID:                 e.assignment.PluginID,
-		PluginName:               e.assignment.Name,
-		Payload:                  payload,
-		ObservedAt:               time.Now().UTC(),
-		AcknowledgedRunOverrides: acknowledged,
-	})
+	result := newHostPluginResult(e.assignment, e.moduleContentHash, payload, time.Now().UTC())
+	result.AcknowledgedRunOverrides = acknowledged
+	err := e.manager.enqueueResult(ctx, result)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return pluginErrTimeout

@@ -36,6 +36,7 @@ const (
 func (m *PluginManager) enqueueActionResult(
 	ctx context.Context,
 	assignment *pluginAssignment,
+	moduleContentHash string,
 	payload []byte,
 ) ([]byte, error) {
 	if assignment == nil || len(payload) == 0 || len(payload) > pluginMaxActionIngestResultBytes {
@@ -59,13 +60,8 @@ func (m *PluginManager) enqueueActionResult(
 	}
 
 	ack := boundedActionResultAck(result, status)
-	if err := m.enqueueResult(ctx, PluginResult{
-		AssignmentID: assignment.AssignmentID,
-		PluginID:     assignment.PluginID,
-		PluginName:   assignment.Name,
-		Payload:      append([]byte(nil), payload...),
-		ObservedAt:   time.Now().UTC(),
-	}); err != nil {
+	queued := newHostPluginResult(assignment, moduleContentHash, append([]byte(nil), payload...), time.Now().UTC())
+	if err := m.enqueueResult(ctx, queued); err != nil {
 		return nil, fmt.Errorf("%w: %w", errPluginActionResultBackpressure, err)
 	}
 
