@@ -326,7 +326,7 @@ config :serviceradar_core,
        # test needs it. Query telemetry is emitted either way; only the log line goes.
        |> Keyword.put(
          :log,
-         if(System.get_env("SERVICERADAR_TEST_LOG_SQL") in ["1", "true"], do: :debug, else: false)
+         if(System.get_env("SERVICERADAR_TEST_LOG_SQL") == "1", do: :debug, else: false)
        )
 
 # Keep config pushes inside the test process. Production coalesces them.
