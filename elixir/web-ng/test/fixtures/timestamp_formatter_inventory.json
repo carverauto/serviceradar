@@ -432,6 +432,14 @@
     "reason": "canonical UTC encoding of the GitHub rate-limit reset instant in an operator error reason"
   },
   {
+    "path": "lib/serviceradar_web_ng/plugins/first_party_auto_approval.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "bd366aa248c8541d97e74f86da23897d8e46b17620d72ca9353037dfb4b4bd17",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng/plugins/first_party_importer.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
