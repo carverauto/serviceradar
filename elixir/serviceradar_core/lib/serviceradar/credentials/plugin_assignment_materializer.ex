@@ -24,6 +24,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginPackageOrder
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
@@ -737,8 +738,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         |> Ash.read(actor: actor)
         |> case do
           {:ok, packages} when is_list(packages) and packages != [] ->
-            package = Enum.max_by(packages, &package_sort_key/1)
-            {:ok, package}
+            {:ok, PluginPackageOrder.latest(packages)}
 
           {:ok, []} ->
             {:error, {:plugin_package_not_found, plugin_id}}
@@ -748,41 +748,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         end
     end
   end
-
-  defp package_sort_key(package) do
-    {
-      semver_sort_key(value_string(package, [:version, "version"])),
-      timestamp_sort_key(ValueUtils.raw_value(package, [:imported_at, "imported_at"])),
-      timestamp_sort_key(ValueUtils.raw_value(package, [:approved_at, "approved_at"])),
-      timestamp_sort_key(ValueUtils.raw_value(package, [:inserted_at, "inserted_at"]))
-    }
-  end
-
-  defp semver_sort_key(version) when is_binary(version) do
-    case Regex.run(~r/^v?(\d+)\.(\d+)\.(\d+)/, version) do
-      [_match, major, minor, patch] ->
-        {String.to_integer(major), String.to_integer(minor), String.to_integer(patch), version}
-
-      _ ->
-        {-1, -1, -1, version}
-    end
-  end
-
-  defp semver_sort_key(_version), do: {-1, -1, -1, ""}
-
-  defp timestamp_sort_key(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
-
-  defp timestamp_sort_key(%NaiveDateTime{} = timestamp),
-    do: NaiveDateTime.to_gregorian_seconds(timestamp)
-
-  defp timestamp_sort_key(timestamp) when is_binary(timestamp) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, datetime, _offset} -> timestamp_sort_key(datetime)
-      _ -> 0
-    end
-  end
-
-  defp timestamp_sort_key(_timestamp), do: 0
 
   defp agent_scopes(agent_id, actor) do
     agent = load_agent(agent_id, actor)

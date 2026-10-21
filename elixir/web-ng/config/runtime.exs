@@ -1088,6 +1088,11 @@ first_party_plugin_import_overrides =
     System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_INTERVAL_SECONDS"),
     to_int
   )
+  |> maybe_put_env.(
+    :auto_approve_within_grant,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_APPROVE"),
+    to_bool
+  )
   |> maybe_put_env_simple.(
     :cosign_binary,
     System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_BINARY")

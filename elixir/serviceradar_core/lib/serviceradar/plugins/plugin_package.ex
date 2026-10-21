@@ -3,7 +3,10 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   Wasm plugin package metadata and import review state.
 
   Each record represents a specific plugin version (plugin_id + version).
-  Packages are staged on import and require explicit approval before use.
+  Packages are staged on import and require explicit approval before use. The
+  one exception is a verified first-party package that asks for nothing beyond
+  its plugin's approved grant, which web-ng approves automatically
+  (`ServiceRadarWebNG.Plugins.FirstPartyAutoApproval`).
   """
 
   use Ash.Resource,

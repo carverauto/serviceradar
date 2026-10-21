@@ -1,0 +1,29 @@
+suite: web-ng first-party plugin auto-approval kill switch
+templates:
+  - templates/web.yaml
+tests:
+  - it: enables first-party auto-approval within the approved grant by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_APPROVE
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: lets an operator turn first-party auto-approval off
+    set:
+      webNg.firstPartyPluginImport.autoApproveWithinGrant: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_APPROVE
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
