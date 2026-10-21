@@ -83,7 +83,11 @@
       "@luma.gl/shadertools": "9.4.2",
       "@luma.gl/webgl": "9.4.2",
       "@luma.gl/webgpu": "9.4.2",
-      "@deck.gl/geo-layers": "9.4.0"
+      "@deck.gl/geo-layers": "9.4.0",
+      "@loaders.gl/compression>fflate": "0.7.5",
+      "exceljs>uuid": "11.1.1",
+      "texture-compressor": "-",
+      "vite": "8.2.4"
     },
     "packageExtensions": {
       "@loaders.gl/terrain@4.5.2": {

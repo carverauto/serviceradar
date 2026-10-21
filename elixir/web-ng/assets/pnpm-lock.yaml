@@ -18,6 +18,10 @@ overrides:
   '@luma.gl/webgl': 9.4.2
   '@luma.gl/webgpu': 9.4.2
   '@deck.gl/geo-layers': 9.4.0
+  '@loaders.gl/compression>fflate': 0.7.5
+  exceljs>uuid: 11.1.1
+  texture-compressor: '-'
+  vite: 8.2.4
 
 packageExtensionsChecksum: sha256-6XahfesqOwfzf3ZGv6YLJ/eXVN+54PmHlFX79Ct7O6o=
 
@@ -41,7 +45,7 @@ importers:
         version: 9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
       '@deck.gl/geo-layers':
         specifier: 9.4.0
-        version: 9.4.0(e327247aa18751d4414bc7925630dc0d)
+        version: 9.4.0(dff9fd15815199a0b3ae7f9b89f40822)
       '@deck.gl/layers':
         specifier: 9.4.0
         version: 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
@@ -50,7 +54,7 @@ importers:
         version: 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(@math.gl/web-mercator@4.1.0)
       '@deck.gl/mesh-layers':
         specifier: 9.4.0
-        version: 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/gltf@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))(texture-compressor@1.0.2)
+        version: 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/gltf@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))
       '@gorules/jdm-editor':
         specifier: ^1.50.4
         version: 1.52.0(@types/node@25.9.6)(@types/react@19.3.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -59,7 +63,7 @@ importers:
         version: 4.5.1
       '@loaders.gl/gltf':
         specifier: ^4.4.3
-        version: 4.5.1(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+        version: 4.5.1(@loaders.gl/core@4.5.1)
       '@luma.gl/core':
         specifier: 9.4.2
         version: 9.4.2
@@ -162,7 +166,7 @@ importers:
         version: 4.1.12
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@types/node@25.9.6)(happy-dom@20.14.3)(vite@8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
+        version: 4.1.11(@types/node@25.9.6)(happy-dom@20.14.3)(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
       wgsl_reflect:
         specifier: 1.2.3
         version: 1.2.3
@@ -690,7 +694,7 @@ packages:
     resolution: {integrity: sha512-MSmOx+uYHpMlwzjqX2uiubDHBxzd8nAanCnSn8CxbpdtpJCEVjLi/VN7iJTNpojj9VsNYNYljAAKKvc1Pbapcg==}
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
-      texture-compressor: ^1.0.2
+      texture-compressor: '*'
     peerDependenciesMeta:
       texture-compressor:
         optional: true
@@ -699,7 +703,7 @@ packages:
     resolution: {integrity: sha512-X3ocrevlzXmUQFVUuxGciWoemwC8ZsU0CAKGP1vDrWawENHCuZB6l/gXWiAi2O/xSe8tAvbTLPAqpDV/FLSNVQ==}
     peerDependencies:
       '@loaders.gl/core': ~4.5.0
-      texture-compressor: ^1.0.2
+      texture-compressor: '*'
     peerDependenciesMeta:
       texture-compressor:
         optional: true
@@ -1443,7 +1447,7 @@ packages:
     resolution: {integrity: sha512-2XJVD55d1o5AZous5CCGKS74g/riOj9odEt2bQpCVZeblHyHdnMeFl4jl0XjU21stf4mbjUkew2eXQZt65g5CQ==}
     peerDependencies:
       msw: ^2.4.9
-      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
+      vite: 8.2.4
     peerDependenciesMeta:
       msw:
         optional: true
@@ -1523,9 +1527,6 @@ packages:
     resolution: {integrity: sha512-+25nxyyznAXF7Nef3y0EbBeqmGZgeN/BxHX29Rs39djAfaFalmQ89SE6CWyDCHzGL0yt/ycBtNOmGTW0FyGWNw==}
     engines: {node: '>= 10'}
 
-  argparse@1.0.10:
-    resolution: {integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==}
-
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
@@ -1566,11 +1567,11 @@ packages:
   bluebird@3.4.7:
     resolution: {integrity: sha512-iD3898SR7sWVRHbiQv+sHUtHnMvC1o3nW5rAcqnq3uOn07DSAppZYUkIGslDz6gXC7HfunPe7YVBgoEJASPcHA==}
 
-  brace-expansion@1.1.18:
-    resolution: {integrity: sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw==}
+  brace-expansion@1.1.21:
+    resolution: {integrity: sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==}
 
-  brace-expansion@2.1.4:
-    resolution: {integrity: sha512-hGfVzPxthbf3+2yjg/RBs60cB0FhqBS/zvdV/4wn4/BmN0bNMMHPc4V/BbFieqf1TKAGGAHnY4eSjajCl0f2Xg==}
+  brace-expansion@2.1.7:
+    resolution: {integrity: sha512-uZbew1NqdmPDTMJ8ah1y+b+9QEJrfkXFk3RcTQw3X0jW/xRUvFKsg1CfQdSYGdTbXZWExtU3J3ccxtnfw1Fi0g==}
 
   brotli@1.3.3:
     resolution: {integrity: sha512-oTKjJdShmDuGW94SyyaoQvAjf30dZaHnjJ8uAF+u2/vGJkJbJPJAT1gDiOJP5v1Zb6f9KEyW/1HpuaWIXtGHPg==}
@@ -2009,8 +2010,8 @@ packages:
       picomatch:
         optional: true
 
-  fflate@0.7.4:
-    resolution: {integrity: sha512-5u2V/CDW15QM1XbbgS+0DfPxVB+jUKhWEKuuFuHncbk3tEEqzmoXL+2KyOFuKGqOnmdIy0/davWF1CkuwtibCw==}
+  fflate@0.7.5:
+    resolution: {integrity: sha512-QieYf//cis6ywHNi5qW1+PXPQ4bC+XVJAtS4AXIML8P76GroEiOxm/oQtn1f02UkJY1+KsXMJcC+R2v/Eg4G3g==}
 
   file-entry-cache@8.0.0:
     resolution: {integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==}
@@ -2104,11 +2105,6 @@ packages:
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
     engines: {node: '>= 4'}
-
-  image-size@0.7.5:
-    resolution: {integrity: sha512-Hiyv+mXHfFEP7LzUL/llg9RwFxxY+o9N3JVLIeG5E7iFIFAalxvRU9UZthBdYDEVnzHMgjnKJPPpay5BWf1g9g==}
-    engines: {node: '>=6.9.0'}
-    hasBin: true
 
   immediate@3.0.6:
     resolution: {integrity: sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==}
@@ -3023,12 +3019,9 @@ packages:
   snappyjs@0.6.1:
     resolution: {integrity: sha512-YIK6I2lsH072UE0aOFxxY1dPDCS43I5ktqHpeAsuLNYWkE5pGxRGWfDM4/vSUfNzXjC1Ivzt3qx31PCLmc9yqg==}
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+  source-map-js@1.2.2:
+    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
-
-  sprintf-js@1.0.3:
-    resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -3086,10 +3079,6 @@ packages:
   tar@7.5.22:
     resolution: {integrity: sha512-MFO/QzvtAOmJbkhOaCTvbGcFN9L9b+JunIsDwaKljSOdcLMea3NJ1k9Usz/rjdfSXTq4dfzfeS7W4p4YOAAHeA==}
     engines: {node: '>=18'}
-
-  texture-compressor@1.0.2:
-    resolution: {integrity: sha512-dStVgoaQ11mA5htJ+RzZ51ZxIZqNOgWKAIvtjLrW1AliQQLCmrDqNzQZ8Jh91YealQ95DXt4MEduLzJmbs6lig==}
-    hasBin: true
 
   throttle-debounce@5.0.2:
     resolution: {integrity: sha512-B71/4oyj61iNH0KeCamLuE2rmKuTO5byTOSVwECM5FA7TiAiAW+UqTKZ9ERueC4qvgSttUhdmq1mXC3kJqGX7A==}
@@ -3180,16 +3169,15 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+  uuid@11.1.1:
+    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
   victory-vendor@37.3.6:
     resolution: {integrity: sha512-SbPDPdDBYp+5MJHhBCAyI7wKM3d5ivekigc2Dk2s7pgbZ9wIgIBYGVw4zGHBml/qTFbexrofXW6Gu4noGxrOwQ==}
 
-  vite@8.2.2:
-    resolution: {integrity: sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==}
+  vite@8.2.4:
+    resolution: {integrity: sha512-lfauXnrf2x0p+UoA+wXh0dgFWnUjCyG6Js95KBkgaCwUU9k0DAHI4W6Q0WCx+h+5g+Alce1y4Zi2QjjK0UvGBw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -3247,7 +3235,7 @@ packages:
       '@vitest/ui': 4.1.11
       happy-dom: '*'
       jsdom: '*'
-      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
+      vite: 8.2.4
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true
@@ -3513,13 +3501,13 @@ snapshots:
       '@luma.gl/webgl': 9.4.2(@luma.gl/core@9.4.2)
       '@math.gl/core': 4.1.0
 
-  '@deck.gl/geo-layers@9.4.0(e327247aa18751d4414bc7925630dc0d)':
+  '@deck.gl/geo-layers@9.4.0(dff9fd15815199a0b3ae7f9b89f40822)':
     dependencies:
       '@deck.gl/core': 9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
       '@deck.gl/extensions': 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
       '@deck.gl/layers': 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
-      '@deck.gl/mesh-layers': 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/gltf@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))(texture-compressor@1.0.2)
-      '@loaders.gl/3d-tiles': 4.5.2(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@deck.gl/mesh-layers': 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/gltf@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))
+      '@loaders.gl/3d-tiles': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/gis': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/loader-utils': 4.5.1(@loaders.gl/core@4.5.1)
@@ -3564,10 +3552,10 @@ snapshots:
       '@luma.gl/core': 9.4.2
       '@math.gl/web-mercator': 4.1.0
 
-  '@deck.gl/mesh-layers@9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/gltf@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))(texture-compressor@1.0.2)':
+  '@deck.gl/mesh-layers@9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/gltf@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))':
     dependencies:
       '@deck.gl/core': 9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
-      '@loaders.gl/gltf': 4.5.1(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@loaders.gl/gltf': 4.5.1(@loaders.gl/core@4.5.1)
       '@loaders.gl/schema': 4.5.1
       '@luma.gl/core': 9.4.2
       '@luma.gl/engine': 9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))
@@ -3836,13 +3824,13 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.2
 
-  '@loaders.gl/3d-tiles@4.5.2(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+  '@loaders.gl/3d-tiles@4.5.2(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/compression': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/crypto': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/draco': 4.5.2(@loaders.gl/core@4.5.1)
-      '@loaders.gl/gltf': 4.5.2(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@loaders.gl/gltf': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/images': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/loader-utils': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/math': 4.5.2(@loaders.gl/core@4.5.1)
@@ -3862,7 +3850,7 @@ snapshots:
       '@loaders.gl/loader-utils': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/worker-utils': 4.5.2(@loaders.gl/core@4.5.1)
       '@types/pako': 1.0.7
-      fflate: 0.7.4
+      fflate: 0.7.5
       pako: 1.0.11
       snappyjs: 0.6.1
     optionalDependencies:
@@ -3950,27 +3938,27 @@ snapshots:
       '@math.gl/core': 4.1.0
       meshoptimizer: 1.2.0
 
-  '@loaders.gl/gltf@4.5.1(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+  '@loaders.gl/gltf@4.5.1(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/draco': 4.5.1(@loaders.gl/core@4.5.1)
       '@loaders.gl/images': 4.5.1(@loaders.gl/core@4.5.1)
       '@loaders.gl/loader-utils': 4.5.1(@loaders.gl/core@4.5.1)
       '@loaders.gl/schema': 4.5.1
-      '@loaders.gl/textures': 4.5.1(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@loaders.gl/textures': 4.5.1(@loaders.gl/core@4.5.1)
       '@math.gl/core': 4.1.0
       meshoptimizer: 1.2.0
     transitivePeerDependencies:
       - texture-compressor
 
-  '@loaders.gl/gltf@4.5.2(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+  '@loaders.gl/gltf@4.5.2(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/draco': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/images': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/loader-utils': 4.5.2(@loaders.gl/core@4.5.1)
       '@loaders.gl/schema': 4.5.1
-      '@loaders.gl/textures': 4.5.2(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@loaders.gl/textures': 4.5.2(@loaders.gl/core@4.5.1)
       '@math.gl/core': 4.1.0
       meshoptimizer: 1.2.0
     transitivePeerDependencies:
@@ -4088,9 +4076,8 @@ snapshots:
       '@loaders.gl/worker-utils': 4.4.5(@loaders.gl/core@4.4.5)
       '@math.gl/types': 4.1.0
       ktx-parse: 0.7.1
-      texture-compressor: 1.0.2
 
-  '@loaders.gl/textures@4.5.1(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+  '@loaders.gl/textures@4.5.1(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/images': 4.5.1(@loaders.gl/core@4.5.1)
@@ -4099,10 +4086,8 @@ snapshots:
       '@loaders.gl/worker-utils': 4.5.1(@loaders.gl/core@4.5.1)
       '@math.gl/types': 4.1.0
       ktx-parse: 0.7.1
-    optionalDependencies:
-      texture-compressor: 1.0.2
 
-  '@loaders.gl/textures@4.5.2(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+  '@loaders.gl/textures@4.5.2(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/images': 4.5.2(@loaders.gl/core@4.5.1)
@@ -4111,8 +4096,6 @@ snapshots:
       '@loaders.gl/worker-utils': 4.5.2(@loaders.gl/core@4.5.1)
       '@math.gl/types': 4.1.0
       ktx-parse: 0.7.1
-    optionalDependencies:
-      texture-compressor: 1.0.2
 
   '@loaders.gl/tiles@4.5.2(@loaders.gl/core@4.5.1)':
     dependencies:
@@ -4584,7 +4567,7 @@ snapshots:
       jiti: 2.7.0
       lightningcss: 1.30.1
       magic-string: 0.30.21
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
       tailwindcss: 4.1.12
 
   '@tailwindcss/oxide-android-arm64@4.1.12':
@@ -4866,13 +4849,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.1
 
-  '@vitest/mocker@4.1.11(vite@8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))':
+  '@vitest/mocker@4.1.11(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))':
     dependencies:
       '@vitest/spy': 4.1.11
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)
+      vite: 8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)
 
   '@vitest/pretty-format@4.1.11':
     dependencies:
@@ -5042,10 +5025,6 @@ snapshots:
       tar-stream: 2.2.0
       zip-stream: 4.1.1
 
-  argparse@1.0.10:
-    dependencies:
-      sprintf-js: 1.0.3
-
   argparse@2.0.1: {}
 
   array-back@3.1.0: {}
@@ -5077,12 +5056,12 @@ snapshots:
 
   bluebird@3.4.7: {}
 
-  brace-expansion@1.1.18:
+  brace-expansion@1.1.21:
     dependencies:
       balanced-match: 1.0.2
       concat-map: 0.0.1
 
-  brace-expansion@2.1.4:
+  brace-expansion@2.1.7:
     dependencies:
       balanced-match: 1.0.2
 
@@ -5548,7 +5527,7 @@ snapshots:
       saxes: 5.0.1
       tmp: 0.2.7
       unzipper: 0.10.14
-      uuid: 8.3.2
+      uuid: 11.1.1
 
   expect-type@1.4.0: {}
 
@@ -5581,7 +5560,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
-  fflate@0.7.4: {}
+  fflate@0.7.5: {}
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -5673,8 +5652,6 @@ snapshots:
   ieee754@1.2.1: {}
 
   ignore@5.3.2: {}
-
-  image-size@0.7.5: {}
 
   immediate@3.0.6: {}
 
@@ -5943,11 +5920,11 @@ snapshots:
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 1.1.18
+      brace-expansion: 1.1.21
 
   minimatch@5.1.9:
     dependencies:
-      brace-expansion: 2.1.4
+      brace-expansion: 2.1.7
 
   minimist@1.2.8: {}
 
@@ -6043,7 +6020,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.18
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   prelude-ls@1.2.1: {}
 
@@ -6575,9 +6552,7 @@ snapshots:
 
   snappyjs@0.6.1: {}
 
-  source-map-js@1.2.1: {}
-
-  sprintf-js@1.0.3: {}
+  source-map-js@1.2.2: {}
 
   stackback@0.0.2: {}
 
@@ -6638,11 +6613,6 @@ snapshots:
       minipass: 7.1.3
       minizlib: 3.1.0
       yallist: 5.0.0
-
-  texture-compressor@1.0.2:
-    dependencies:
-      argparse: 1.0.10
-      image-size: 0.7.5
 
   throttle-debounce@5.0.2: {}
 
@@ -6726,7 +6696,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@8.3.2: {}
+  uuid@11.1.1: {}
 
   victory-vendor@37.3.6:
     dependencies:
@@ -6745,7 +6715,7 @@ snapshots:
       d3-time: 3.1.0
       d3-timer: 3.0.1
 
-  vite@8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0):
+  vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -6758,10 +6728,10 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.7.0
 
-  vitest@4.1.11(@types/node@25.9.6)(happy-dom@20.14.3)(vite@8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)):
+  vitest@4.1.11(@types/node@25.9.6)(happy-dom@20.14.3)(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)):
     dependencies:
       '@vitest/expect': 4.1.11
-      '@vitest/mocker': 4.1.11(vite@8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
+      '@vitest/mocker': 4.1.11(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
       '@vitest/pretty-format': 4.1.11
       '@vitest/runner': 4.1.11
       '@vitest/snapshot': 4.1.11
@@ -6778,7 +6748,7 @@ snapshots:
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.1
-      vite: 8.2.2(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)
+      vite: 8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.9.6
