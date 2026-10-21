@@ -29,6 +29,7 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   `artifact_kind`, or from the struct of a source or package.
   """
 
+  alias Ash.Notifier.Notification
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutArtifact
   alias ServiceRadar.Plugins.AddonRolloutTarget
@@ -167,7 +168,7 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   is canceled as `assignment_retracted`.
   """
   @callback apply_override(AddonRolloutTarget.t(), AddonRollout.t(), DateTime.t(), actor()) ::
-              {:ok, [Ash.Notifier.Notification.t()]} | {:error, term()}
+              {:ok, [Notification.t()]} | {:error, term()}
 
   @doc """
   Removes the target's override, if this rollout still owns it.
@@ -177,7 +178,7 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   once its outermost transaction commits.
   """
   @callback clear_override(AddonRolloutTarget.t(), actor()) ::
-              {:ok, [Ash.Notifier.Notification.t()]} | {:error, term()}
+              {:ok, [Notification.t()]} | {:error, term()}
 
   @doc "Whether the rollout's source may absorb rolled-back members up to the policy tolerance."
   @callback tolerates_failures?(AddonRollout.t()) :: boolean()
@@ -190,11 +191,11 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
 
   @doc "Detaches a tolerated rolled-back member so it stays on its previous package."
   @callback pin_failed_member(AddonRolloutTarget.t(), actor()) ::
-              {:ok, [Ash.Notifier.Notification.t()]} | {:error, term()}
+              {:ok, [Notification.t()]} | {:error, term()}
 
   @doc "Moves the rollout's source to the candidate as its stable package."
   @callback promote_source(AddonRollout.t(), actor()) ::
-              {:ok, [Ash.Notifier.Notification.t()]} | {:error, term()}
+              {:ok, [Notification.t()]} | {:error, term()}
 
   # Health evidence.
 

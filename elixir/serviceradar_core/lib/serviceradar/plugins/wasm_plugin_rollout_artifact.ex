@@ -736,8 +736,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   end
 
   defp observation_key(%{"observation_timestamp" => observed, "payload_digest" => digest})
-       when is_binary(observed) and is_binary(digest),
-       do: {observed, digest}
+       when is_binary(observed) and is_binary(digest), do: {observed, digest}
 
   defp observation_key(_marker), do: nil
 

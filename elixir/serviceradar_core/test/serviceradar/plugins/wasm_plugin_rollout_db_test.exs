@@ -43,7 +43,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
 
     # Far enough in the past that every result a case writes relative to it
     # has outlived the downstream-ingest settle period.
-    now = DateTime.add(DateTime.utc_now(), -900, :second)
+    now = DateTime.shift(DateTime.utc_now(), minute: -15)
 
     {:ok,
      unique: unique,
@@ -547,8 +547,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
   # with the assignment, package and module hash that produced it.
   defp result!(member, package, status, received_at, observation \\ nil) do
     marker =
-      %{"kind" => "reported", "provenance" => provenance(member, package)}
-      |> Map.merge(observation_marker(observation))
+      Map.merge(
+        %{"kind" => "reported", "provenance" => provenance(member, package)},
+        observation_marker(observation)
+      )
 
     details =
       Jason.encode!(%{
@@ -579,8 +581,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
         "status" => if(status == "failed", do: "CRITICAL", else: "OK"),
         "summary" => "example downstream #{status}",
         "downstream_ingest" =>
-          %{"status" => status, "provenance" => provenance(member, package)}
-          |> Map.merge(observation_marker(observation))
+          Map.merge(
+            %{"status" => status, "provenance" => provenance(member, package)},
+            observation_marker(observation)
+          )
       })
 
     status_row!(member, package, marked_at, marked_at, status != "failed", details)

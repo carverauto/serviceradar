@@ -488,7 +488,6 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     @moduledoc false
     @behaviour ServiceRadar.Plugins.PolicyAssignmentReconciler
 
-    alias ServiceRadar.Actors.SystemActor
     alias ServiceRadar.Plugins.OwnedAssignmentRetraction
     alias ServiceRadar.Plugins.PluginAssignment
     alias ServiceRadar.Plugins.PluginPackage
@@ -602,6 +601,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       end
     end
 
+    defp admit_owner(_spec), do: :ok
+
     # Under that same share lock: a target policy whose stable package moved
     # since the spec was planned (a rollout promotion, an operator's choice)
     # would be reverted by writing the spec's package.
@@ -629,8 +630,6 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
           :ok
       end
     end
-
-    defp admit_owner(_spec), do: :ok
 
     @impl true
     def disable_assignment(assignment, actor) do
