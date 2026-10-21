@@ -192,6 +192,25 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert File.ls!(ctx.tmp_dir) == []
   end
 
+  @tag :tmp_dir
+  test "a download removes its destination's day-old temporaries and keeps the rest", ctx do
+    dest = Path.join(ctx.tmp_dir, "GeoLite2-City.mmdb")
+    two_days_ago = System.os_time(:second) - 2 * 86_400
+    File.touch!(dest <> ".abandoned.tmp", two_days_ago)
+    File.touch!(dest <> ".live.tmp")
+    File.touch!(Path.join(ctx.tmp_dir, "other.mmdb.old.tmp"), two_days_ago)
+
+    assert {:ok, ^dest} =
+             EgressClient.download_to_file("https://localhost/redirect", dest, opts(ctx, []))
+
+    assert Enum.sort(File.ls!(ctx.tmp_dir)) ==
+             Enum.sort([
+               "GeoLite2-City.mmdb",
+               "GeoLite2-City.mmdb.live.tmp",
+               "other.mmdb.old.tmp"
+             ])
+  end
+
   # Two callers fetching one file at once shared a temporary name: each unlinked
   # the other's in-flight file, so one rename failed with :enoent and the other
   # promoted a file that was still being written.
