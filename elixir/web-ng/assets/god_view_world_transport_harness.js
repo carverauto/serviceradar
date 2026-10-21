@@ -33,7 +33,9 @@ export function mountTransportHarness() {
     const onAfterRender = renderer.deck.props.onAfterRender
     renderer.deck.setProps({onAfterRender: context => {
       onAfterRender?.(context)
-      const usable = renderer.cache.entries.size > 0 && renderer.deck.props.layers[0]?.isLoaded
+      // A viewport callback can replace props.layers during Deck's update.
+      // Measure the layer that was drawn, not an uninitialized requested layer.
+      const usable = renderer.cache.entries.size > 0 && renderer.deck.layerManager.getLayers()[0]?.isLoaded
       const recording = measurements.recordFrames
       if ((!usable || measurements.firstFrame != null) && !recording) return
       // GPU completion, not merely CPU submission. Retained frames still count
