@@ -209,6 +209,38 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
              target(rollout, member)
   end
 
+  test "results arriving faster than the settle period are judged by the settled ones", ctx do
+    {policy, [steady, failing]} = policy_with_members!(ctx, 2)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(policy, ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 2, max_parallel: 2, soak_seconds: 0)
+      )
+
+    # A plugin reporting every 10 seconds: settled results, then the newest one
+    # received just now, whose downstream ingest may still be running.
+    for member <- [steady, failing], seconds <- [10, 20, 30] do
+      result!(member, ctx.candidate, "OK", at(ctx, seconds))
+    end
+
+    result!(failing, ctx.candidate, "UNKNOWN", at(ctx, 40))
+
+    for member <- [steady, failing] do
+      received_at = DateTime.utc_now()
+      observation = %{observed_at: received_at, digest: "example-latest-#{member.id}"}
+      result!(member, ctx.candidate, "OK", received_at, observation)
+    end
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 50))
+
+    assert %{reason_code: "candidate_health_verified"} = target(rollout, steady)
+
+    assert %{state: :rollback_pending, reason_code: "candidate_reported_unhealthy"} =
+             target(rollout, failing)
+  end
+
   test "a downstream ingest that recovered after a failure verifies its observation", ctx do
     {policy, [member]} = policy_with_members!(ctx, 1)
 

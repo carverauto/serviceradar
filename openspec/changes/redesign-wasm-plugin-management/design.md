@@ -237,8 +237,10 @@ collaborators, so the generalization is an engine/adapter split (a
   the reported row commits, so a failure row lands within seconds. An
   observation without one counts as ingested only once its reported row was
   received at least 60 seconds before the evidence read; a younger one is
-  pending and neither verifies, fails, nor counts as absent evidence. A
-  failure row fails its observation at once.
+  pending. The newest failed or settled observation decides, passing over
+  pending ones, so a plugin reporting faster than the settle period is judged
+  by its settled results; a failure counts at once whatever its age, and a
+  pending observation never counts as absent evidence.
 - Action-only plugins that ingest their action results are verified through
   those stamped results. Action-only plugins without result ingest pass only
   through `on_no_evidence` as `no_version_evidence`. A completed

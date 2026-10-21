@@ -56,9 +56,14 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   synchronously right after the reported row commits, so a failure row lands
   within seconds of it. An observation without a downstream row therefore
   counts as ingested only once its reported row was received at least
-  60 seconds before the evidence was read; a younger one is pending: it
-  neither verifies, nor fails, nor counts as absent evidence. A failure row
-  fails its observation at once, whatever its age.
+  60 seconds before the evidence was read; a younger one is pending. Pending
+  observations are passed over when choosing the deciding one, so the newest
+  observation that is failed or settled decides; a plugin reporting more often
+  than the settle period is still judged by its settled results. A failure
+  (a failure row, `UNKNOWN`, another module's hash) counts at once, whatever its
+  age. A pending observation is still stamped evidence, so it never lets the
+  target pass as `no_version_evidence`. The read keeps the newest 20 results,
+  which reaches past the settle period down to a 10 second reporting interval.
 
   An action-only plugin that ingests its action results is verified through
   those stamped results. A completed action command is no evidence: nothing
@@ -450,7 +455,6 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     case verdict(evidence, candidate, applied_at) do
       :healthy -> true
       :failed -> false
-      :pending -> false
       nil -> passes_without_evidence?(evidence, applied_at)
     end
   end
@@ -492,8 +496,8 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def telemetry_event, do: [:serviceradar, :plugins, :wasm_plugin_rollout, :transition]
 
   # The newest observation stamped with `package` and received since `since`
-  # that says something about it decides: :healthy, :failed, or :pending while
-  # its downstream ingest may still fail. Otherwise nil.
+  # that says something about it decides: :healthy or :failed. A pending one,
+  # whose downstream ingest may still fail, says nothing yet. Otherwise nil.
   defp verdict(nil, _package, _since), do: nil
 
   defp verdict(evidence, package, since),
@@ -517,9 +521,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       cond do
         result.outcome == :failed -> :failed
         not is_nil(hash) and hash != expected -> :failed
-        is_nil(hash) -> nil
-        result.outcome == :pending -> :pending
-        result.outcome == :ran -> :healthy
+        result.outcome == :ran and not is_nil(hash) -> :healthy
         true -> nil
       end
     end
