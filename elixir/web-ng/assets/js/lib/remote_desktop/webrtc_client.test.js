@@ -59,6 +59,7 @@ class MockPeerConnection {
     this.handlers = {}
     this.connectionState = "new"
     this.closed = false
+    this.addedCandidates = []
   }
 
   addEventListener(event, callback) {
@@ -67,6 +68,10 @@ class MockPeerConnection {
 
   async setRemoteDescription(description) {
     this.remoteDescription = description
+  }
+
+  async addIceCandidate(candidate) {
+    this.addedCandidates.push(candidate)
   }
 
   async createAnswer() {
@@ -1581,6 +1586,58 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(fetchMock.mock.calls[3][0]).toBe("/api/desktop-sessions/session-4/webrtc/session/viewer-4")
     expect(fetchMock.mock.calls[3][1].method).toBe("DELETE")
     expect(peer.closed).toBe(true)
+  })
+
+  // A relay-only server peer is unreachable until the browser installs a TURN
+  // permission for its relay candidate, and it only does that for candidates
+  // it was given. core-elx trickles them after the offer.
+  it("adds every server ICE candidate from the answer and from polling until connected", async () => {
+    vi.useFakeTimers()
+    try {
+      const host = {candidate: "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", sdpMid: "0"}
+      const relay = {candidate: "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay", sdpMid: "0"}
+      const pollUrl = "/api/desktop-sessions/session-ice/webrtc/session/viewer-ice-test"
+      const fetchMock = vi.fn(async (url, options = {}) => {
+        let data = {signaling_state: "answer_applied"}
+        if (options.method === "POST" && !options.body) {
+          data = {
+            viewer_session_id: "viewer-ice-test",
+            offer_sdp: "v=0\r\nm=application",
+            remote_ice_candidates: [],
+          }
+        } else if (url.endsWith("/answer")) {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: [host]}
+        } else if (url === pollUrl && options.method === "GET") {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: [host, relay]}
+        }
+        return {ok: true, json: async () => ({data})}
+      })
+
+      const peer = new MockPeerConnection({})
+      const client = new RemoteDesktopWebRTCClient({
+        signalingPath: "/api/desktop-sessions/session-ice/webrtc/session",
+        fetchImpl: fetchMock,
+        documentRef: documentStub(),
+        peerConnectionFactory: () => peer,
+      })
+
+      await client.connect()
+      const polls = () =>
+        fetchMock.mock.calls.filter(([url, options]) => url === pollUrl && options?.method === "GET")
+
+      expect(peer.addedCandidates).toEqual([host])
+
+      await vi.advanceTimersByTimeAsync(250)
+      expect(polls()).toHaveLength(1)
+      expect(peer.addedCandidates).toEqual([host, relay])
+
+      peer.emitConnectionState("connected")
+      const pollsWhenConnected = polls().length
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(polls()).toHaveLength(pollsWhenConnected)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("filters unsafe ICE candidates before posting them to the server", async () => {

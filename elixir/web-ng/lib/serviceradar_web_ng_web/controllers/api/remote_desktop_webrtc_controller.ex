@@ -96,37 +96,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCController do
            ) do
       json(conn, %{data: Map.merge(%{session_id: normalized_session_id}, stringify_keys(result))})
     else
-      {:error, :invalid_request, message} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "invalid_request", message: message})
-
-      {:error, :remote_access_desktop_rdp_disabled} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "not_found", message: "RDP remote access is not enabled"})
-
-      {:error, :not_found} ->
-        render_missing_or_activating(conn, nil)
-
-      {:error, :viewer_session_not_found} ->
-        render_viewer_session_not_found(conn)
-
-      {:error, :unsupported_remote_desktop_session} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{
-          error: "unsupported_remote_desktop_session",
-          message: "remote access session is not an RDP desktop session"
-        })
-
-      {:error, reason} when is_binary(reason) ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "desktop_webrtc_unavailable", message: reason})
-
-      {:error, other} ->
-        {:error, other}
+      error -> render_signal_error(conn, error)
     end
   end
 
@@ -147,37 +117,28 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCController do
            ) do
       json(conn, %{data: Map.merge(%{session_id: normalized_session_id}, stringify_keys(result))})
     else
-      {:error, :invalid_request, message} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "invalid_request", message: message})
+      error -> render_signal_error(conn, error)
+    end
+  end
 
-      {:error, :remote_access_desktop_rdp_disabled} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "not_found", message: "RDP remote access is not enabled"})
-
-      {:error, :not_found} ->
-        render_missing_or_activating(conn, nil)
-
-      {:error, :viewer_session_not_found} ->
-        render_viewer_session_not_found(conn)
-
-      {:error, :unsupported_remote_desktop_session} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{
-          error: "unsupported_remote_desktop_session",
-          message: "remote access session is not an RDP desktop session"
-        })
-
-      {:error, reason} when is_binary(reason) ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "desktop_webrtc_unavailable", message: reason})
-
-      {:error, other} ->
-        {:error, other}
+  # Polled by the browser until it connects: the provider keeps trickling its
+  # ICE candidates after the offer, and the browser needs every one of them.
+  def show_session(conn, %{"id" => session_id, "viewer_session_id" => viewer_session_id}) do
+    with :ok <- require_remote_desktop_enabled(),
+         :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @remote_desktop_permission),
+         {:ok, normalized_session_id} <- normalize_uuid(session_id, "id"),
+         {:ok, normalized_viewer_session_id} <- normalize_uuid(viewer_session_id, "viewer_session_id"),
+         {:ok, _session} <- fetch_desktop_session_for_scope(normalized_session_id, get_scope(conn)),
+         {:ok, result} <-
+           RemoteDesktopWebRTC.get_session(
+             normalized_session_id,
+             normalized_viewer_session_id,
+             scope: get_scope(conn)
+           ) do
+      json(conn, %{data: Map.merge(%{session_id: normalized_session_id}, stringify_keys(result))})
+    else
+      error -> render_signal_error(conn, error)
     end
   end
 
@@ -196,39 +157,46 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCController do
            ) do
       json(conn, %{data: Map.merge(%{session_id: normalized_session_id}, stringify_keys(result))})
     else
-      {:error, :invalid_request, message} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "invalid_request", message: message})
-
-      {:error, :remote_access_desktop_rdp_disabled} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "not_found", message: "RDP remote access is not enabled"})
-
-      {:error, :not_found} ->
-        render_missing_or_activating(conn, nil)
-
-      {:error, :viewer_session_not_found} ->
-        render_viewer_session_not_found(conn)
-
-      {:error, :unsupported_remote_desktop_session} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{
-          error: "unsupported_remote_desktop_session",
-          message: "remote access session is not an RDP desktop session"
-        })
-
-      {:error, reason} when is_binary(reason) ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "desktop_webrtc_unavailable", message: reason})
-
-      {:error, other} ->
-        {:error, other}
+      error -> render_signal_error(conn, error)
     end
   end
+
+  defp render_signal_error(conn, {:error, :invalid_request, message}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_request", message: message})
+  end
+
+  defp render_signal_error(conn, {:error, :remote_access_desktop_rdp_disabled}) do
+    conn
+    |> put_status(:not_found)
+    |> json(%{error: "not_found", message: "RDP remote access is not enabled"})
+  end
+
+  defp render_signal_error(conn, {:error, :not_found}) do
+    render_missing_or_activating(conn, nil)
+  end
+
+  defp render_signal_error(conn, {:error, :viewer_session_not_found}) do
+    render_viewer_session_not_found(conn)
+  end
+
+  defp render_signal_error(conn, {:error, :unsupported_remote_desktop_session}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "unsupported_remote_desktop_session",
+      message: "remote access session is not an RDP desktop session"
+    })
+  end
+
+  defp render_signal_error(conn, {:error, reason}) when is_binary(reason) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "desktop_webrtc_unavailable", message: reason})
+  end
+
+  defp render_signal_error(_conn, {:error, other}), do: {:error, other}
 
   defp fetch_desktop_session_for_scope(session_id, scope) do
     with {:ok, session} <- remote_access_session_fetcher().(session_id, scope: scope),

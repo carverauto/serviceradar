@@ -5,6 +5,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   This binds an authorized RDP remote-access session to a viewer-scoped WebRTC
   signaling lifecycle. The desktop media manager owns the actual screen/control
   media path and plugs in behind this module.
+
+  The provider trickles its own ICE candidates after the offer has been
+  returned. Every one is kept and returned as `remote_ice_candidates` in each
+  signaling response, and `get_session/3` lets the browser poll for late ones.
+  The browser must add them: a relay candidate behind TURN is unreachable until
+  the browser has installed a TURN permission for it, and it can only do that
+  for a candidate it knows.
   """
 
   use GenServer
@@ -20,6 +27,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   @default_max_viewers_per_session 2
   @default_max_viewers_per_actor 4
   @default_max_viewers_global 64
+  @max_remote_candidates 64
   @transport "webrtc_desktop_media"
 
   def start_link(opts \\ []) do
@@ -38,6 +46,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   def add_ice_candidate(session_id, viewer_session_id, candidate, opts \\ [])
       when is_binary(session_id) and is_binary(viewer_session_id) do
     GenServer.call(server_name(opts), {:add_ice_candidate, session_id, viewer_session_id, candidate, opts})
+  end
+
+  def get_session(session_id, viewer_session_id, opts \\ [])
+      when is_binary(session_id) and is_binary(viewer_session_id) do
+    GenServer.call(server_name(opts), {:get_session, session_id, viewer_session_id, opts})
   end
 
   def apply_media_ack(session_id, viewer_session_id, ack, opts \\ [])
@@ -150,7 +163,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
         signaling_state: "viewer_authorized",
         answer_sdp: nil,
         last_candidate: nil,
-        last_remote_candidate: nil,
+        remote_candidates: [],
         offer_sdp: nil,
         signaling: signaling,
         signaling_pid: signaling.pid,
@@ -236,6 +249,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
 
       {:error, :viewer_session_not_found} = error ->
         {:reply, error, state}
+    end
+  end
+
+  def handle_call({:get_session, session_id, viewer_session_id, opts}, _from, state) do
+    case fetch_session(state, session_id, viewer_session_id, opts) do
+      {:ok, session} -> {:reply, {:ok, session_response(session)}, state}
+      {:error, :viewer_session_not_found} = error -> {:reply, error, state}
     end
   end
 
@@ -413,7 +433,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
             updated =
               session
               |> refresh_session(state.session_ttl_ms)
-              |> Map.put(:last_remote_candidate, candidate)
+              |> keep_remote_candidate(candidate)
 
             {:noreply, put_session(state, updated)}
 
@@ -734,9 +754,21 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
       viewer_session_id: session.viewer_session_id,
       signaling_state: session.signaling_state,
       offer_sdp: session.offer_sdp,
-      remote_ice_candidate: session.last_remote_candidate,
+      remote_ice_candidates: session.remote_candidates,
       expires_at: DateTime.to_iso8601(session.expires_at)
     }
+  end
+
+  # Bounded like the camera relay viewer: the provider gathers a handful per
+  # viewer (host, server-reflexive, relay).
+  defp keep_remote_candidate(session, candidate) do
+    remote = Map.get(session, :remote_candidates, [])
+
+    if length(remote) < @max_remote_candidates do
+      Map.put(session, :remote_candidates, remote ++ [candidate])
+    else
+      session
+    end
   end
 
   defp start_registered_signaling do

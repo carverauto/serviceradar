@@ -88,6 +88,56 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
     end
   end
 
+  defmodule TricklingMediaManagerStub do
+    @moduledoc false
+
+    def add_webrtc_viewer(session_id, viewer_session_id, signaling, opts) do
+      test_pid = test_pid()
+      send(test_pid, {:add_webrtc_viewer, session_id, viewer_session_id, opts})
+
+      spawn(fn ->
+        :ok = Signaling.register_peer(signaling, message_format: :json_data, pid: self())
+
+        :ok =
+          Signaling.signal(
+            signaling,
+            %{"type" => "sdp_offer", "data" => %{"type" => "offer", "sdp" => "v=0\r\ndesktop-offer"}}
+          )
+
+        send(test_pid, {:provider_peer, self()})
+        forward_signals(test_pid, signaling)
+      end)
+
+      :ok
+    end
+
+    def remove_webrtc_viewer(session_id, viewer_session_id) do
+      send(test_pid(), {:remove_webrtc_viewer, session_id, viewer_session_id})
+      :ok
+    end
+
+    defp forward_signals(test_pid, signaling) do
+      receive do
+        {:membrane_webrtc_signaling, _pid, message, _metadata} ->
+          send(test_pid, {:provider_received, message})
+          forward_signals(test_pid, signaling)
+
+        # Trickles candidates the way the real ExWebRTC provider does after its
+        # offer. The :sys round trip returns once Signaling has forwarded them,
+        # so the manager holds them before the test's next call.
+        {:trickle, candidates} ->
+          Enum.each(candidates, &Signaling.signal(signaling, %{"type" => "ice_candidate", "data" => &1}))
+          _ = :sys.get_state(signaling.pid)
+          send(test_pid, :trickled)
+          forward_signals(test_pid, signaling)
+      end
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
+    end
+  end
+
   # Registers like the real data channel provider (an element peer), so when
   # this process dies the Signaling process stops with its crash reason.
   defmodule ElementPeerMediaManagerStub do
@@ -560,6 +610,66 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
 
     assert {:ok, %{signaling_state: "candidate_buffered"}} =
              WebRTCSignalingManager.add_ice_candidate(session_id, viewer_session_id, candidate,
+               server: server_name,
+               actor_id: "actor-1"
+             )
+  end
+
+  test "returns every ICE candidate the provider trickles after the offer, not only the latest" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name,
+       session_tracker: SessionTrackerStub,
+       media_manager: TricklingMediaManagerStub,
+       session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id, remote_ice_candidates: []}} =
+             WebRTCSignalingManager.create_session(session_id,
+               server: server_name,
+               actor_id: "actor-1"
+             )
+
+    assert_receive {:provider_peer, provider}
+
+    host = %{"candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", "sdpMid" => "0"}
+
+    relay = %{
+      "candidate" => "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay raddr 192.0.2.20 rport 40000",
+      "sdpMid" => "0"
+    }
+
+    send(provider, {:trickle, [host, relay]})
+    assert_receive :trickled
+
+    # A browser behind TURN can only reach the relay candidate, so losing it to
+    # a later candidate leaves the viewer unable to connect.
+    assert {:ok, %{remote_ice_candidates: [^host, ^relay]}} =
+             WebRTCSignalingManager.get_session(session_id, viewer_session_id,
+               server: server_name,
+               actor_id: "actor-1"
+             )
+
+    assert {:ok, %{remote_ice_candidates: [^host, ^relay]}} =
+             WebRTCSignalingManager.submit_answer(
+               session_id,
+               viewer_session_id,
+               valid_answer_sdp(),
+               server: server_name,
+               actor_id: "actor-1"
+             )
+
+    assert {:error, :viewer_session_not_found} =
+             WebRTCSignalingManager.get_session(session_id, viewer_session_id,
+               server: server_name,
+               actor_id: "actor-2"
+             )
+
+    assert {:error, :viewer_session_not_found} =
+             WebRTCSignalingManager.get_session(session_id, Ecto.UUID.generate(),
                server: server_name,
                actor_id: "actor-1"
              )
