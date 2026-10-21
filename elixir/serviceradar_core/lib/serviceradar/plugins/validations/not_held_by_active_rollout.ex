@@ -85,7 +85,8 @@ defmodule ServiceRadar.Plugins.Validations.NotHeldByActiveRollout do
     AddonRollout
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
-      source_type == ^source_type and source_id == ^id and state in ^@active_rollout_states
+      artifact_kind == :native_addon and source_type == ^source_type and source_id == ^id and
+        state in ^@active_rollout_states
     )
     |> Ash.Query.limit(1)
     |> Ash.read_one(actor: actor)
@@ -98,7 +99,10 @@ defmodule ServiceRadar.Plugins.Validations.NotHeldByActiveRollout do
   defp holding_target(:assignment, id, actor) do
     AddonRolloutTarget
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(assignment_id == ^id and state in ^@slot_holding_target_states)
+    |> Ash.Query.filter(
+      artifact_kind == :native_addon and assignment_id == ^id and
+        state in ^@slot_holding_target_states
+    )
     |> Ash.Query.limit(1)
     |> Ash.read_one(actor: actor)
   end

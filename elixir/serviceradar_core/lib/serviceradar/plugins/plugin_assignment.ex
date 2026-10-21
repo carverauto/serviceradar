@@ -16,6 +16,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.Validations.AssignmentParams
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment
   alias ServiceRadar.Plugins.Validations.PackageApproved
@@ -37,10 +38,17 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
   @create_fields [:agent_uid, :plugin_package_id | @mutable_fields]
 
+  @rollout_override_fields [:rollout_plugin_package_id, :rollout_id, :rollout_started_at]
+
   postgres do
     table "plugin_assignments"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      check_constraint :rollout_id, "plugin_assignments_rollout_override_check",
+        message: "rollout package, rollout and start time are set or cleared together"
+    end
   end
 
   actions do
@@ -144,6 +152,19 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       require_atomic? false
       change RejectLegacyUnboundAssignmentMutation
       change RejectPolicyOwnedAssignmentDestroy
+    end
+
+    # A rollout's per-target override. It changes only the override columns, so
+    # the stable plugin_package_id that owners and reconcilers write is never
+    # touched while a candidate is being proven.
+    update :apply_rollout_override do
+      require_atomic? false
+      accept @rollout_override_fields
+    end
+
+    update :clear_rollout_override do
+      require_atomic? false
+      accept @rollout_override_fields
     end
   end
 
@@ -278,16 +299,38 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       public? true
     end
 
+    # The candidate package a Wasm plugin rollout is proving on this row. The
+    # three are set or cleared together (plugin_assignments_rollout_override_check).
+    attribute :rollout_plugin_package_id, :uuid, public?: true
+    attribute :rollout_id, :uuid, public?: true
+    attribute :rollout_started_at, :utc_datetime_usec, public?: true
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   relationships do
-    belongs_to :plugin_package, ServiceRadar.Plugins.PluginPackage do
+    belongs_to :plugin_package, PluginPackage do
       allow_nil? false
       public? true
       destination_attribute :id
       source_attribute :plugin_package_id
+      define_attribute? false
+    end
+
+    belongs_to :rollout_plugin_package, PluginPackage do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :rollout_plugin_package_id
+      define_attribute? false
+    end
+
+    belongs_to :rollout, ServiceRadar.Plugins.AddonRollout do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :rollout_id
       define_attribute? false
     end
   end

@@ -1,7 +1,16 @@
 defmodule ServiceRadar.Plugins.AddonRollout do
   @moduledoc """
-  Durable, health-gated promotion of one native add-on package for one
-  authoritative direct assignment or profile.
+  Durable, health-gated promotion of one package for one authoritative source.
+
+  `artifact_kind` says which artifact family the rollout moves, and with it
+  which package pair is set: a `:native_addon` rollout records
+  `previous_package_id`/`candidate_package_id` (add-on packages) for a direct
+  assignment or profile; a `:wasm_plugin` rollout records
+  `previous_plugin_package_id`/`candidate_plugin_package_id` (plugin packages)
+  for a manual assignment, target policy or credential rule, with the rule's
+  purpose in `source_key`. The `addon_rollouts_artifact_kind_check` constraint
+  enforces the pairing. Readers that act on add-on rollouts filter
+  `artifact_kind == :native_addon`.
   """
 
   use Ash.Resource,
@@ -10,13 +19,18 @@ defmodule ServiceRadar.Plugins.AddonRollout do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.PluginPackage
 
   @create_fields [
+    :artifact_kind,
     :addon_id,
     :source_type,
     :source_id,
+    :source_key,
     :previous_package_id,
     :candidate_package_id,
+    :previous_plugin_package_id,
+    :candidate_plugin_package_id,
     :trigger,
     :state,
     :policy,
@@ -42,6 +56,11 @@ defmodule ServiceRadar.Plugins.AddonRollout do
     table "addon_rollouts"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      check_constraint :artifact_kind, "addon_rollouts_artifact_kind_check",
+        message: "must match the package pair and source type of its artifact kind"
+    end
   end
 
   actions do
@@ -66,17 +85,30 @@ defmodule ServiceRadar.Plugins.AddonRollout do
   attributes do
     uuid_primary_key :id
 
+    attribute :artifact_kind, :atom do
+      allow_nil? false
+      public? true
+      default :native_addon
+      constraints one_of: [:native_addon, :wasm_plugin]
+    end
+
+    # The artifact identifier: the add-on id, or the plugin id of a Wasm rollout.
     attribute :addon_id, :string, allow_nil?: false, public?: true
 
     attribute :source_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:assignment, :profile]
+      # :assignment and :profile are add-on sources; :assignment,
+      # :target_policy and :credential_rule are Wasm plugin owners.
+      constraints one_of: [:assignment, :profile, :target_policy, :credential_rule]
     end
 
     attribute :source_id, :uuid, allow_nil?: false, public?: true
-    attribute :previous_package_id, :uuid, allow_nil?: false, public?: true
-    attribute :candidate_package_id, :uuid, allow_nil?: false, public?: true
+    attribute :source_key, :string, public?: true
+    attribute :previous_package_id, :uuid, public?: true
+    attribute :candidate_package_id, :uuid, public?: true
+    attribute :previous_plugin_package_id, :uuid, public?: true
+    attribute :candidate_plugin_package_id, :uuid, public?: true
 
     attribute :trigger, :atom do
       allow_nil? false
@@ -125,7 +157,7 @@ defmodule ServiceRadar.Plugins.AddonRollout do
       source_attribute :previous_package_id
       destination_attribute :id
       define_attribute? false
-      allow_nil? false
+      allow_nil? true
       public? true
     end
 
@@ -133,7 +165,23 @@ defmodule ServiceRadar.Plugins.AddonRollout do
       source_attribute :candidate_package_id
       destination_attribute :id
       define_attribute? false
-      allow_nil? false
+      allow_nil? true
+      public? true
+    end
+
+    belongs_to :previous_plugin_package, PluginPackage do
+      source_attribute :previous_plugin_package_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? true
+      public? true
+    end
+
+    belongs_to :candidate_plugin_package, PluginPackage do
+      source_attribute :candidate_plugin_package_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? true
       public? true
     end
 
