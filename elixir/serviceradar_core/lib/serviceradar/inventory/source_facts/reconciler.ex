@@ -80,6 +80,70 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
 
   def reconcile_device(_device_uid, _authorities, _now), do: :ok
 
+  @doc """
+  Records one fact an external caller reported under its own source and
+  instance, then reconciles the device.
+
+  A sync update replaces everything its source knows about a device, so keys it
+  omits are marked absent. A report names one key and says nothing about the
+  others, so the caller's other facts are left as they are.
+  """
+  @spec report(String.t(), String.t(), String.t(), SourceFacts.fact(), keyword()) :: :ok
+  def report(device_uid, source, instance, fact, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    upsert_fact(device_uid, source, instance, fact, true, now)
+    reconcile_device(device_uid, nil, now)
+  end
+
+  @doc """
+  Withdraws a caller's fact, then reconciles the device.
+
+  Reconciliation keeps a canonical value when no source reports the fact any
+  more, which suits a sync source that skipped one snapshot. A caller that
+  withdraws its value has said the value is gone. So when the withdrawn value is
+  the canonical one and no present source still reports it, the canonical value
+  is cleared rather than left with nothing behind it. Withdrawing a fact that is
+  not present is a no-op.
+  """
+  @spec retract(String.t(), String.t(), String.t(), String.t(), keyword()) :: :ok
+  def retract(device_uid, source, instance, fact_key, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    case load_fact(device_uid, source, instance, fact_key) do
+      %{present: true, compare_hash: withdrawn_hash} ->
+        mark_absent(device_uid, source, instance, fact_key, now)
+        reconcile_device(device_uid, nil, now)
+        clear_unsupported_canonical(device_uid, fact_key, withdrawn_hash, now)
+
+      _absent ->
+        :ok
+    end
+  end
+
+  @doc """
+  The caller's recorded fact for one key, the device's canonical value for that
+  key, and whether a disagreement is open on it.
+  """
+  @spec snapshot(String.t(), String.t(), String.t(), String.t()) :: %{
+          fact: map() | nil,
+          canonical: term(),
+          disagreement_open: boolean()
+        }
+  def snapshot(device_uid, source, instance, fact_key) do
+    fact =
+      case load_fact(device_uid, source, instance, fact_key) do
+        nil -> nil
+        loaded -> Map.take(loaded, [:value, :present, :observed_at])
+      end
+
+    %{
+      fact: fact,
+      canonical: device_uid |> load_canonical() |> current_for(fact_key),
+      disagreement_open: not is_nil(open_disagreement(device_uid, fact_key))
+    }
+  end
+
   @spec backfill(keyword()) :: %{promoted: non_neg_integer(), scanned: non_neg_integer()}
   def backfill(opts \\ []) do
     limit = Keyword.get(opts, :limit, 50_000)
@@ -186,6 +250,54 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
       set: [present: false, updated_at: now]
     )
   end
+
+  defp load_fact(device_uid, source, instance, fact_key) do
+    Repo.one(
+      from(f in DeviceSourceFact,
+        where:
+          f.device_uid == ^device_uid and f.source == ^source and f.source_instance == ^instance and
+            f.fact_key == ^fact_key,
+        select: %{
+          value: f.value,
+          present: f.present,
+          observed_at: f.observed_at,
+          compare_hash: f.compare_hash
+        },
+        limit: 1
+      )
+    )
+  end
+
+  defp clear_unsupported_canonical(device_uid, fact_key, withdrawn_hash, now) do
+    canonical = device_uid |> load_canonical() |> current_for(fact_key)
+    canonical_hash = canonical_compare_hash(fact_key, canonical)
+
+    supported? =
+      device_uid
+      |> load_present_facts()
+      |> Enum.any?(&(&1.fact_key == fact_key and &1.compare_hash == withdrawn_hash))
+
+    if canonical_hash == withdrawn_hash and not supported? do
+      Repo.update_all(from(d in Device, where: d.uid == ^device_uid),
+        set: [
+          {canonical_column(fact_key), nil},
+          {:modified_time, DateTime.truncate(now, :second)}
+        ]
+      )
+    end
+
+    :ok
+  end
+
+  defp canonical_compare_hash(fact_key, canonical) do
+    case SourceFacts.parse_explicit_facts(%{fact_key => canonical}) do
+      [%{compare_hash: hash}] -> hash
+      _unparsed -> nil
+    end
+  end
+
+  defp canonical_column("switch_port_attachment"), do: :switch_port_attachment
+  defp canonical_column("vlan_uid"), do: :vlan_uid
 
   defp promote(device_uid, winner, now) do
     updates =

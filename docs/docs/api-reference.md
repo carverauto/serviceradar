@@ -236,6 +236,9 @@ endpoints, including:
 - `GET` and `POST /api/v1/identity/resolve` — turn an address into a device
   UID without probing it. See [Resolve a Device
   Identity](./identity-resolve.md).
+- `PUT` and `DELETE /api/devices/{uid}/source-facts/{fact_key}` — report or
+  withdraw a device's switch port or VLAN as an external source. See [Device
+  Source Facts API](./device-source-facts.md).
 - `GET /api/v1/source-inventory` — read a collection-consistent, cursor-paginated
   snapshot emitted by an approved inventory plugin. The `source` and `instance`
   query parameters are required.

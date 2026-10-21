@@ -74,7 +74,8 @@ login.
   `switch_port_attachment`, `sync_service_id`, `agent_id`,
   `source_agent_id`, `discovered_by_agent_id`, and `__fact_provenance`.
   A fact at one of these keys would read as identity or routing evidence
-  that no source reported.
+  that no source reported. To report a device's switch port or VLAN, use the
+  [Device Source Facts API](./device-source-facts.md).
 
 If any fact in a request is invalid, the whole request is rejected and
 nothing is written. A partial write would leave the caller believing
