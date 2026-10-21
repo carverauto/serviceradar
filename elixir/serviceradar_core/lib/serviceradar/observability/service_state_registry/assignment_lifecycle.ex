@@ -109,8 +109,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
   def deactivate_package(%PluginPackage{} = package) do
     actor = SystemActor.system(:service_state_registry)
 
+    # Assignments that run the package: a rollout's candidate runs where it
+    # overrides an assignment, and the stable package runs everywhere else.
     PluginAssignment
-    |> filter(plugin_package_id == ^package.id)
+    |> filter(
+      rollout_plugin_package_id == ^package.id or
+        (is_nil(rollout_plugin_package_id) and plugin_package_id == ^package.id)
+    )
     |> Ash.read(actor: actor, domain: ServiceRadar.Plugins)
     |> case do
       {:ok, assignments} ->
@@ -308,9 +313,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
     |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
   end
 
+  # The package the agent runs for the assignment, which names its service.
   defp load_package(%PluginAssignment{} = assignment, actor) do
+    package_id = PluginAssignment.effective_package_id(assignment)
+
     PluginPackage
-    |> Ash.Query.filter(id == ^assignment.plugin_package_id)
+    |> Ash.Query.filter(id == ^package_id)
     |> Ash.read_one(actor: actor, domain: ServiceRadar.Plugins)
   end
 
@@ -359,7 +367,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
       SELECT 1
       FROM platform.plugin_assignments AS assignment
       JOIN platform.plugin_packages AS package
-        ON package.id = assignment.plugin_package_id
+        ON package.id = COALESCE(assignment.rollout_plugin_package_id, assignment.plugin_package_id)
       WHERE assignment.enabled = true
         AND package.status = 'approved'
         AND assignment.agent_uid = $1

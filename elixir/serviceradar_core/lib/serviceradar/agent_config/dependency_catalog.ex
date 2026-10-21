@@ -99,7 +99,15 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         generator: AgentConfigGenerator,
         affected_agents: {DependencyResolvers, :record_agent_id, []},
         dispatch: :push_affected_agents,
-        action_names: [:create, :update, :retract, :destroy],
+        action_names: [
+          :create,
+          :update,
+          :retract,
+          :destroy,
+          :apply_rollout_override,
+          :clear_rollout_override,
+          :promote_rollout
+        ],
         secret_fields: [:params, "params"],
         description: "Plugin assignments are delivered in the unified plugin_config section."
       },

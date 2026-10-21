@@ -76,6 +76,16 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
     refute Jason.encode!(row) =~ "synthetic-secret"
   end
 
+  test "an assignment a rollout holds is reported at the candidate it runs, not as version drift" do
+    stable = package()
+    candidate = %{stable | id: Ecto.UUID.generate(), version: "1.1.0"}
+    assignment = %{assignment(stable) | rollout_plugin_package_id: candidate.id}
+    state = state(details: Jason.encode!(%{"plugin_id" => "example-check", "package_version" => "1.1.0"}))
+
+    assert [%{"assigned_version" => "1.1.0", "version_drift" => false, "category" => "healthy"}] =
+             PluginFleet.build_rows([assignment], [stable, candidate], [state], @now)
+  end
+
   test "same agent and plugin in another partition remains observed-only and cannot satisfy assignment" do
     package = package()
     assignment = assignment(package)

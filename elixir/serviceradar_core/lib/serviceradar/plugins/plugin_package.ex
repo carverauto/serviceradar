@@ -143,6 +143,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       accept @denial_fields
 
       change transition_state(:revoked)
+      change ServiceRadar.Plugins.Changes.RollBackRevokedCandidate
     end
 
     update :restage do

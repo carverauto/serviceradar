@@ -274,7 +274,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
             northbound_descriptor_id: invocation.descriptor_id,
             northbound_provider_id: invocation.provider_id,
             plugin_assignment_id: assignment.id,
-            plugin_package_id: assignment.plugin_package_id,
+            plugin_package_id: PluginAssignment.effective_package_id(assignment),
             action_id: invocation.action_id
           })
       )
@@ -329,7 +329,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
             northbound_descriptor_id: invocation.descriptor_id,
             northbound_provider_id: invocation.provider_id,
             plugin_assignment_id: assignment.id,
-            plugin_package_id: assignment.plugin_package_id,
+            plugin_package_id: PluginAssignment.effective_package_id(assignment),
             action_id: invocation.action_id,
             action_phase: "poll"
           })
@@ -352,7 +352,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "result_schema_version" => invocation.descriptor.result_schema_version,
       "max_override_duration_seconds" => invocation.descriptor.max_override_duration_seconds,
       "plugin_assignment_id" => assignment.id,
-      "plugin_package_id" => assignment.plugin_package_id,
+      "plugin_package_id" => PluginAssignment.effective_package_id(assignment),
       "targets" => target_payloads,
       "input_values" => invocation.input_values || %{},
       "redacted_input_values" => invocation.redacted_input_values || %{},
@@ -382,7 +382,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "result_schema_version" => invocation.descriptor.result_schema_version,
       "max_override_duration_seconds" => invocation.descriptor.max_override_duration_seconds,
       "plugin_assignment_id" => assignment.id,
-      "plugin_package_id" => assignment.plugin_package_id,
+      "plugin_package_id" => PluginAssignment.effective_package_id(assignment),
       "targets" => target_payloads,
       "input_values" => invocation.input_values || %{},
       "redacted_input_values" => invocation.redacted_input_values || %{},

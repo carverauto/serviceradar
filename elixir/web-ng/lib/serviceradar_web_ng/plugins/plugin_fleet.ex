@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
         :partition_id,
         :plugin_id,
         :plugin_package_id,
+        :rollout_plugin_package_id,
         :enabled,
         :source,
         :policy_id,
@@ -65,7 +66,9 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
 
     assigned =
       Enum.map(assignments, fn assignment ->
-        package = Map.get(packages_by_id, assignment.plugin_package_id)
+        # The package the agent runs: a rollout candidate while one holds the
+        # assignment, so its results are not mistaken for version drift.
+        package = Map.get(packages_by_id, PluginAssignment.effective_package_id(assignment))
 
         state =
           states_by_agent

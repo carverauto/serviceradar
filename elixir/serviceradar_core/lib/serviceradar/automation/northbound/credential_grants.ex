@@ -23,6 +23,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ActionCredentialRequirements
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SRQLQuery
@@ -382,12 +383,16 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
     end
   end
 
+  # The provider must belong to the package the assignment runs, which is a
+  # rollout's candidate while one holds the assignment.
   defp plugin_package_invocation?(invocation, assignment) do
     provider = invocation.provider
 
     match?(%{provider_type: :wasm_plugin}, provider) and
       present?(Map.get(provider, :plugin_package_id)) and
-      to_string(provider.plugin_package_id) == to_string(Map.get(assignment, :plugin_package_id))
+      is_map_key(assignment, :plugin_package_id) and
+      to_string(provider.plugin_package_id) ==
+        to_string(PluginAssignment.effective_package_id(assignment))
   end
 
   defp trimmed(value) when is_binary(value) do

@@ -45,7 +45,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginAssignmentEligib
       SELECT 1
       FROM platform.plugin_assignments AS assignment
       JOIN platform.plugin_packages AS package
-        ON package.id = assignment.plugin_package_id
+        ON package.id = COALESCE(assignment.rollout_plugin_package_id, assignment.plugin_package_id)
       WHERE assignment.enabled = true
         AND package.status = 'approved'
         AND assignment.agent_uid = $1

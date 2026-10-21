@@ -202,7 +202,8 @@ collaborators, so the generalization is an engine/adapter split (a
   dispatched after the agent acknowledged the candidate config. An action
   invoked earlier can still run the old assignment. Without such an
   invocation, the same `on_no_evidence` policy applies, recorded as
-  `no_version_evidence`.
+  `no_version_evidence`. Step C did not build command-based verification;
+  see "Step C as built" below.
 
 **Implementation steps:**
 - **A.** Engine/adapter split, with no behaviour change. Guarded by the
@@ -217,6 +218,45 @@ collaborators, so the generalization is an engine/adapter split (a
 - **F.** Credential-rule owners through owner state (task 3.6).
 - **G.** Bulk "Upgrade to latest" preview and execution (task 3.7), reusing the
   kind-agnostic rollout UI.
+
+**Step C as built** (`WasmPluginRolloutArtifact`):
+- The coordinator reads every package pair, member pointer and evidence key
+  through the implementation, since each family keeps them in its own columns.
+- A failed Wasm target rolls the whole rollout back. With
+  `tolerated_failures` fixed at 0 a failure always ends the rollout, and a
+  pause would leave the other targets on the candidate with no rollout to clear
+  them. Add-on targets still pause.
+- Health classification of a provenance-stamped result: `OK`, `WARNING` and
+  `CRITICAL` mean the plugin ran (a critical target is not a failed plugin);
+  `UNKNOWN`, failed downstream ingest or another module's hash is a failure.
+  Results are classified per observation: a downstream-ingest row carries its
+  observation's timestamp and payload digest, and the latest one decides that
+  observation regardless of row order (a failure fails it, a later recovery
+  restores it). Freshness and order use the reported row's server receipt time.
+- The ingestor writes a downstream-ingest row only on failure or recovery; an
+  ordinary success writes none. It runs the handlers synchronously right after
+  the reported row commits, so a failure row lands within seconds. An
+  observation without one counts as ingested only once its reported row was
+  received at least 60 seconds before the evidence read; a younger one is
+  pending. The newest failed or settled observation decides, passing over
+  pending ones, so a plugin reporting faster than the settle period is judged
+  by its settled results; a failure counts at once whatever its age, and a
+  pending observation never counts as absent evidence.
+- Action-only plugins that ingest their action results are verified through
+  those stamped results. Action-only plugins without result ingest pass only
+  through `on_no_evidence` as `no_version_evidence`. A completed
+  `plugin.run_action` command is not evidence: a config acknowledgement time
+  cannot prove which package ran the action, so binding an invocation to the
+  candidate needs host provenance on command results (a follow-up).
+- A failed evidence read is not an empty one. Targets it covers neither pass,
+  fail, recover nor converge; they wait and eventually time out.
+- An agent that stamps its results, but only for the previous package, gets no
+  `on_no_evidence` pass: it has not loaded the candidate, and times out.
+- A rollout that is rolling back ends as `rolled_back` even when no target was
+  left to recover, instead of falling through to promotion.
+- Revocation rolls back inside the revoke transaction. Disabling an assignment
+  by any path (owner retraction, reconcile, operator) clears its override and
+  cancels every target holding it.
 
 A related, pre-existing inconsistency is tracked separately in #5835. Per-owner
 coexistence in `AssignmentOwner` conflicts with the

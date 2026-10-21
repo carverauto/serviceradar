@@ -77,6 +77,15 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
       change {RetractOwnedAssignments, owner: :plugin_target_policy}
     end
 
+    # A completed Wasm plugin rollout moves the policy's stable package to its
+    # candidate. It is the rollout's write, not an operator's version choice, so
+    # it leaves the update policy alone, and it changes nothing that decides
+    # which agents the policy covers. No policy grants it, so only the system
+    # actor that runs rollouts can call it.
+    update :promote_rollout do
+      accept [:plugin_package_id]
+    end
+
     action :preview do
       argument :id, :uuid, allow_nil?: false
       argument :sample_limit, :integer, allow_nil?: true, default: 10

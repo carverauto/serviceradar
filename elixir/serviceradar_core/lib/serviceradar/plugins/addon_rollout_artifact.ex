@@ -21,9 +21,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
+  alias ServiceRadar.Plugins.AddonRolloutPolicy
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadar.Plugins.RolloutArtifact
 
+  require Ash.Expr
   require Ash.Query
 
   # Reported by an agent that actually accepts native add-on assignments. Kept as a
@@ -83,6 +86,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def stable_package_id(source), do: source.addon_package_id
 
+  @impl true
+  def rollout_policy(source), do: source.rollout_policy
+
+  @impl true
+  def normalize_policy(policy), do: AddonRolloutPolicy.normalize(policy)
+
   # Packages.
 
   @impl true
@@ -106,6 +115,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def artifact_id(%AddonPackage{addon_id: addon_id}), do: addon_id
 
+  @impl true
+  def package_attrs(previous, candidate),
+    do: %{previous_package_id: previous.id, candidate_package_id: candidate.id}
+
+  @impl true
+  def previous_package_id(rollout_or_target), do: rollout_or_target.previous_package_id
+
+  @impl true
+  def candidate_package_id(rollout_or_target), do: rollout_or_target.candidate_package_id
+
   # Candidate eligibility.
 
   @impl true
@@ -118,6 +137,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
     package.status == :approved and package.verification_status == "verified" and
       is_nil(package.verification_error) and
       is_binary(package.source_oci_digest) and package.source_oci_digest != ""
+  end
+
+  @impl true
+  def lock_candidate(%AddonPackage{id: id}, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock("FOR SHARE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %AddonPackage{} = package} ->
+        if trusted_approved?(package), do: :ok, else: {:error, :candidate_not_eligible}
+
+      {:ok, nil} ->
+        {:error, :candidate_not_eligible}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @impl true
@@ -194,101 +232,165 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
     }
   end
 
+  @impl true
+  def member_id(%AddonRolloutTarget{assignment_id: assignment_id}), do: assignment_id
+
+  @impl true
+  def lock_members(rollout, targets, actor) do
+    ids = targets |> Enum.map(& &1.assignment_id) |> Enum.reject(&is_nil/1)
+
+    with :ok <- lock_owner(rollout, actor) do
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> filter_members(rollout, ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock("FOR UPDATE")
+      |> Ash.read(actor: actor)
+      |> locked()
+    end
+  end
+
+  defp lock_owner(%AddonRollout{source_type: :profile, source_id: owner_id}, actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^owner_id)
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read(actor: actor)
+    |> locked()
+  end
+
+  defp lock_owner(_rollout, _actor), do: :ok
+
+  defp filter_members(query, %AddonRollout{source_type: :profile, source_id: owner_id}, ids),
+    do: Ash.Query.filter(query, id in ^ids or addon_profile_id == ^owner_id)
+
+  defp filter_members(query, %AddonRollout{source_id: source_id}, ids),
+    do: Ash.Query.filter(query, id in ^[source_id | ids])
+
+  defp locked({:ok, _rows}), do: :ok
+  defp locked({:error, reason}), do: {:error, reason}
+
   # Overrides and promotion.
 
   @impl true
   def apply_override(target, rollout, now, actor) do
-    with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :apply_rollout_override,
-             %{
-               rollout_package_id: target.candidate_package_id,
-               rollout_id: rollout.id,
-               rollout_started_at: now
-             },
-             actor
-           ) do
-      :ok
-    end
-  end
-
-  @impl true
-  def clear_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
-
-  def clear_override(target, actor) do
     with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
-      if assignment.rollout_id == target.rollout_id do
-        assignment
-        |> update_assignment(
-          :clear_rollout_override,
-          %{rollout_package_id: nil, rollout_id: nil, rollout_started_at: nil},
-          actor
-        )
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-      else
-        :ok
+      assignment
+      |> Ash.Changeset.for_update(:apply_rollout_override, %{
+        rollout_package_id: target.candidate_package_id,
+        rollout_id: rollout.id,
+        rollout_started_at: now
+      })
+      |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+      |> case do
+        {:ok, _assignment, notifications} -> {:ok, notifications}
+        {:error, reason} -> {:error, reason}
       end
     end
   end
 
   @impl true
+  def clear_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: {:ok, []}
+
+  # An assignment that no longer carries this rollout's override needs no write.
+  # The UPDATE itself requires the override to still belong to this rollout, so
+  # an override another rollout has put on the assignment since is left alone.
+  def clear_override(target, actor) do
+    owner = target.rollout_id
+
+    case get_assignment(target.assignment_id, actor) do
+      {:ok, %AddonAssignment{rollout_id: ^owner} = assignment} ->
+        assignment
+        |> Ash.Changeset.for_update(:clear_rollout_override, %{
+          rollout_package_id: nil,
+          rollout_id: nil,
+          rollout_started_at: nil
+        })
+        |> Ash.Changeset.filter(Ash.Expr.expr(rollout_id == ^owner))
+        |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+        |> case do
+          {:ok, _assignment, notifications} -> {:ok, notifications}
+          {:error, error} -> stale_as_cleared(error)
+        end
+
+      {:ok, %AddonAssignment{}} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stale_as_cleared(error),
+    do: if(RolloutArtifact.stale_write?(error), do: {:ok, []}, else: {:error, error})
+
+  @impl true
   def tolerates_failures?(%AddonRollout{source_type: :profile}), do: true
   def tolerates_failures?(_rollout), do: false
 
+  # A failed add-on target pauses the rollout; a profile may then absorb it as a
+  # tolerated failure, which a whole-rollout rollback would take away.
+  @impl true
+  def rolls_back_on_failure?(_rollout), do: false
+
   @impl true
   def pin_failed_member(target, actor) do
-    with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :update,
-             %{
-               source: :manual,
-               source_key: nil,
-               addon_profile_id: nil,
-               update_policy: :manual_pin,
-               explicit_version_pin: true
-             },
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
+      update_assignment(
+        assignment,
+        :update,
+        %{
+          source: :manual,
+          source_key: nil,
+          addon_profile_id: nil,
+          update_policy: :manual_pin,
+          explicit_version_pin: true
+        },
+        actor
+      )
     end
   end
 
   @impl true
   def promote_source(%AddonRollout{source_type: :assignment} = rollout, actor) do
-    with {:ok, assignment} <- get_assignment(rollout.source_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :promote_rollout,
-             %{
-               addon_package_id: rollout.candidate_package_id,
-               rollout_package_id: nil,
-               rollout_id: nil,
-               rollout_started_at: nil
-             },
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- get_assignment(rollout.source_id, actor) do
+      update_assignment(
+        assignment,
+        :promote_rollout,
+        %{
+          addon_package_id: rollout.candidate_package_id,
+          rollout_package_id: nil,
+          rollout_id: nil,
+          rollout_started_at: nil
+        },
+        actor
+      )
     end
   end
 
+  # The profile reconcile writes assignments through actions of its own, so
+  # their notifications are collected by Ash.transact/3 and returned with the
+  # profile's, to be sent once the caller's transaction commits.
   def promote_source(%AddonRollout{source_type: :profile} = rollout, actor) do
-    with {:ok, profile} <- get_profile(rollout.source_id, actor),
-         {:ok, _} <-
-           profile
-           |> Ash.Changeset.for_update(:promote_rollout, %{
-             addon_package_id: rollout.candidate_package_id
-           })
-           |> Ash.update(actor: actor, authorize?: true),
-         {:ok, _summary} <- AddonProfileOps.reconcile_by_id(profile.id, actor: actor) do
-      :ok
+    [AddonProfile, AddonAssignment]
+    |> Ash.transact(
+      fn ->
+        with {:ok, profile} <- get_profile(rollout.source_id, actor),
+             {:ok, _} <-
+               profile
+               |> Ash.Changeset.for_update(:promote_rollout, %{
+                 addon_package_id: rollout.candidate_package_id
+               })
+               |> Ash.update(actor: actor, authorize?: true) do
+          AddonProfileOps.reconcile_by_id(profile.id, actor: actor)
+        end
+      end,
+      return_notifications?: true
+    )
+    |> case do
+      {:ok, {:error, reason}, _notifications} -> {:error, reason}
+      {:ok, _summary, notifications} -> {:ok, notifications}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -312,7 +414,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   end
 
   @impl true
+  def evidence_key(%AddonRolloutTarget{agent_uid: agent_uid}), do: agent_uid
+
+  @impl true
   def observed_at(%AddonStatus{reported_at: reported_at}), do: reported_at
+
+  # Add-on readiness is always status for the candidate version, so a ready
+  # target keeps the reason code it has.
+  @impl true
+  def ready_reason(_status, _candidate, _applied_at), do: nil
 
   # Readiness deliberately uses supervision_state_ready?/2, not supervision_ready?/2:
   # an advisory degradation must not keep a candidate that has come up from ever
@@ -680,7 +790,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   defp update_assignment(assignment, action, attrs, actor) do
     assignment
     |> Ash.Changeset.for_update(action, attrs)
-    |> Ash.update(actor: actor, authorize?: true)
+    |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+    |> case do
+      {:ok, _assignment, notifications} -> {:ok, notifications}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp normalize_strings(values),
