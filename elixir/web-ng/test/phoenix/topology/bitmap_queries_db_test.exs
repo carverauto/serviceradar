@@ -886,8 +886,13 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
   end
 
   defp rejoin(socket, scope) do
+    # Leaving a linked channel exits it with {:shutdown, :left}, which would
+    # take the test down; only this intentional teardown is unlinked.
+    Process.unlink(socket.channel_pid)
+    monitor = Process.monitor(socket.channel_pid)
     ref = leave(socket)
     assert_reply ref, :ok
+    assert_receive {:DOWN, ^monitor, :process, _pid, {:shutdown, :left}}, 5_000
 
     {:ok, _fence, socket} =
       UserSocket
