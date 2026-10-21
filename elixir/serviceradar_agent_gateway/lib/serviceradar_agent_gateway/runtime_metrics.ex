@@ -23,7 +23,7 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
 
   @subject "metrics.agent_gateway"
   @max_pending 100
-  @publish_timeout_ms 1_000
+  @publish_timeout_ms 5_000
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
