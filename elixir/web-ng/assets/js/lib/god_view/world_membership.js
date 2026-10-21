@@ -14,15 +14,31 @@ export class WorldMembership {
   }
 
   bind(binding, geometries) {
-    this.clear(true)
     if (BINDING_FIELDS.some(field => typeof binding[field] !== "string" || !binding[field] ||
         new TextEncoder().encode(binding[field]).length > 128 || binding[field].includes("\0")) ||
         geometries.length > 64 || geometries.some(tile => tile.nodes.length > 128)) {
+      this.clear(true)
       this.onReset("Invalid membership admission")
       return
     }
+    // A camera move changes the view digest, not the query's authority. Keep
+    // the last validated view only while that identity remains unchanged.
+    if (BINDING_FIELDS.some(field => field !== "view_digest" && binding[field] !== this.displayBinding?.[field])) this.clear(true)
+    else this.beginView()
     this.binding = binding
     for (const geometry of geometries) this.receipts.set(tileId(geometry.key), geometry)
+  }
+
+  beginView() {
+    this.binding = null
+    this.sequence = null
+    this.receipts.clear()
+    this.pending = true
+    // Repeated camera moves cannot extend an unconfirmed view indefinitely.
+    if (this.entries.size > 0 && !this.viewTimer) {
+      this.viewTimer = setTimeout(() => this.reset("Membership view timed out"), 10000)
+    }
+    this.onChange()
   }
 
   receive(input) {
@@ -51,7 +67,10 @@ export class WorldMembership {
         }
       }
       // The old view remains untouched until the entire replacement validates.
+      clearTimeout(this.viewTimer)
+      this.viewTimer = null
       this.entries = frame.tiles
+      this.displayBinding = this.binding
       this.sequence = frame.sequence
       this.total = frame.total
       this.prefixSources = frame.prefix_sources
@@ -69,7 +88,10 @@ export class WorldMembership {
   }
 
   clear(pending = false) {
+    clearTimeout(this.viewTimer)
+    this.viewTimer = null
     this.binding = null
+    this.displayBinding = null
     this.sequence = null
     this.total = null
     this.prefixSources = []

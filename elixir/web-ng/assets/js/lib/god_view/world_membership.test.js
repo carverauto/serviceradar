@@ -55,7 +55,7 @@ describe("binary admitted-row membership", () => {
     expect(draw().some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
 
-  it("keeps an accepted displayed view through offscreen prefetch, then replaces the new viewport atomically", async () => {
+  it("keeps filtered nodes and links visible through prefetch and a pending pan replacement", async () => {
     vi.useFakeTimers()
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     const requests = []
@@ -73,14 +73,24 @@ describe("binary admitted-row membership", () => {
       extent: 2 ** 24, node_count: 70000, relation_count: 90000})
     renderer.membershipEnabled = true
     renderer.bitmapQuery = {all: []}
+    renderer.deck = {setProps: vi.fn()}
     vi.stubGlobal("fetch", vi.fn(async url => {
       const [z, x, y] = url.split("/").slice(-3).map(Number), width = 2 ** (24 - z)
       return new Response(worldTileIpc({metadata: {z, x, y, origin_x: x * width, origin_y: y * width, coordinate_scale: width / 65535}}),
         {headers: {"x-sr-topology-layout-version": worldTileKey.layout_version, "x-sr-topology-generation": "1",
           etag: `"${worldTileKey.layout_version}:${worldTileRevision}"`}})
     }))
-    const matches = key => ({...key, revision: worldTileRevision, mask: [1, 0], causal: [3, 3], availability: [2, 2], counts: [70000, 0]})
+    const matches = key => ({...key, revision: worldTileRevision, mask: [1, 1], causal: [3, 3], availability: [2, 2], counts: [70000, 1]})
     const watches = () => requests.filter(request => request.name === "membership:watch")
+    const drawn = key => {
+      const layer = renderer.deck.setProps.mock.lastCall[0].layers[0]
+      const geometry = renderer.cache.entries.get(`${key.z}/${key.x}/${key.y}`).geometry
+      const layers = layer.renderSubLayers({id: "pan-tile", data: geometry}).filter(Boolean)
+      return {
+        node: layers.find(item => item.id.endsWith("-nodes")).props.getRadius(null, {index: 0}),
+        edge: layers.find(item => item.id.endsWith("-edges")).props.getWidth(null, {index: 0}),
+      }
+    }
     try {
       renderer.cache.setVisible([worldTileKey])
       await renderer.cache.get(worldTileKey)
@@ -88,6 +98,9 @@ describe("binary admitted-row membership", () => {
       watches()[0].ok(bitmapBinding)
       expect(watches()[0].payload.boundary_endpoints).toBe(true)
       renderer.membership.receive(bitmapFrame({total: 70000, tiles: [matches(worldTileKey)]}))
+      const before = drawn(worldTileKey)
+      expect(before.node).toBeGreaterThan(0)
+      expect(before.edge).toBeGreaterThan(0)
       const accepted = renderer.membership.entries
       const neighbor = {...worldTileKey, x: 0}
       await renderer.cache.get(neighbor, {prefetch: true})
@@ -96,19 +109,27 @@ describe("binary admitted-row membership", () => {
       await vi.advanceTimersByTimeAsync(50)
       expect(watches()).toHaveLength(1)
       expect(requests.filter(request => request.name === "tiles:watch").at(-1).payload.tiles).toHaveLength(2)
-      renderer.cache.setVisible([neighbor])
+      renderer.cache.setVisible([worldTileKey, neighbor])
       renderer.scheduleWatch()
       expect(renderer.membership.pending).toBe(true)
+      expect(drawn(worldTileKey)).toEqual(before)
+      expect(drawn(neighbor)).toEqual({node: 0, edge: 0})
       renderer.syncWatch()
       expect(watches()).toHaveLength(2)
-      expect(watches()[1].payload.tiles).toEqual([{z: 1, x: 0, y: 0, revision: worldTileRevision}])
+      expect(watches()[1].payload.tiles).toEqual([
+        {z: 1, x: 0, y: 0, revision: worldTileRevision}, {z: 1, x: 1, y: 0, revision: worldTileRevision},
+      ])
       expect(renderer.membership.pending).toBe(true)
       watches()[1].ok({...bitmapBinding, view_digest: "new-visible-view"})
+      expect(drawn(worldTileKey)).toEqual(before)
       renderer.membership.receive(bitmapFrame({tiles: [matches(worldTileKey)]}))
       expect(renderer.membership.pending).toBe(true)
-      renderer.membership.receive(bitmapFrame({binding: {view_digest: "new-visible-view"}, total: 70000, tiles: [matches(neighbor)]}))
+      renderer.membership.receive(bitmapFrame({binding: {view_digest: "new-visible-view"}, total: 70000, tiles: [matches(worldTileKey), matches(neighbor)]}))
       expect(renderer.membership.pending).toBe(false)
-      expect([...renderer.membership.entries.keys()]).toEqual(["1/0/0"])
+      expect(drawn(worldTileKey)).toEqual(before)
+      expect(drawn(neighbor)).toEqual(before)
+      renderer.setBitmapQuery({facet: "vendor", value: "Synthetic Vendor"})
+      expect(drawn(worldTileKey)).toEqual({node: 0, edge: 0})
     } finally {
       renderer.destroyed = true; renderer.clearMembershipRetry(); clearTimeout(renderer.watchTimer)
       renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals(); vi.useRealTimers()
@@ -222,6 +243,53 @@ describe("binary admitted-row membership", () => {
     expect(state.pending).toBe(true)
     expect(state.onAck).not.toHaveBeenCalled()
     expect(state.onReset).toHaveBeenCalledWith("Membership binding changed", bitmapBinding.view_digest)
+  })
+
+  it.each(["dictionary_epoch", "query_digest", "authority_fingerprint"])("clears retained rows when a viewport rebind changes %s", field => {
+    const state = session()
+    state.receive(bitmapFrame({tiles: [tile]}))
+    state.beginView()
+    expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
+    const binding = {...bitmapBinding, view_digest: "next-view", [field]: "changed-identity"}
+    state.bind(binding, [geometry])
+    expect(state.entries.size).toBe(0)
+    expect(state.total).toBeNull()
+    expect(state.pending).toBe(true)
+    state.receive(bitmapFrame({binding, total: 1, tiles: [{...tile, mask: [1, 0], counts: [1, 0]}]}))
+    expect([...state.entries.get("0/0/0").counts]).toEqual([1, 0])
+    expect(state.pending).toBe(false)
+  })
+
+  it("expires retained rows if repeated camera moves never receive a replacement", () => {
+    vi.useFakeTimers()
+    const state = session()
+    try {
+      state.receive(bitmapFrame({tiles: [tile]}))
+      state.beginView()
+      vi.advanceTimersByTime(9000)
+      state.bind({...bitmapBinding, view_digest: "next-view"}, [geometry])
+      expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
+      vi.advanceTimersByTime(1000)
+      expect(state.entries.size).toBe(0)
+      expect(state.retainedBufferBytes).toBe(0)
+      expect(state.pending).toBe(true)
+      expect(state.onReset).toHaveBeenCalledWith("Membership view timed out", "next-view")
+    } finally {state.clear(); vi.useRealTimers()}
+  })
+
+  it("does not let a refresh of the previous view cancel the retained-row deadline", () => {
+    vi.useFakeTimers()
+    const state = session()
+    try {
+      state.receive(bitmapFrame({sequence: 1n, tiles: [tile]}))
+      state.beginView()
+      vi.advanceTimersByTime(5000)
+      state.receive(bitmapFrame({sequence: 2n, tiles: [{...tile, counts: [1, 9000]}]}))
+      expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
+      vi.advanceTimersByTime(5000)
+      expect(state.entries.size).toBe(0)
+      expect(state.onReset).toHaveBeenCalledWith("Membership view timed out", undefined)
+    } finally {state.clear(); vi.useRealTimers()}
   })
 
   it.each(["aggregate", "boundary"])("rejects an oversized %s population before publishing any rows", kind => {

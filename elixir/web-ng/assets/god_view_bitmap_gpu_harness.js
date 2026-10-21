@@ -212,7 +212,7 @@ export function mountBitmapGpuHarness() {
       overlayChargedBytes: renderer.overlays.retainedBytes, gpuInfo: renderer.deck?.device?.info,
       frameIntervals: measurements.frames.slice(1).map((time, index) => time - measurements.frames[index])}
   }
-  window.__SR_BITMAP_GPU__ = {get renderer() {return renderer}, get measurements() {return measurements}, samples, metrics}
+  window.__SR_BITMAP_GPU__ = {get renderer() {return renderer}, get measurements() {return measurements}, samples, metrics, refreshMembership: deliver}
   setInterval(() => {output.textContent = JSON.stringify(metrics(), null, 2)}, 250)
   window.addEventListener("pagehide", () => {
     window.fetch = originalFetch; window.WebSocket = originalSocket; ArrayBuffer.prototype.slice = originalSlice
