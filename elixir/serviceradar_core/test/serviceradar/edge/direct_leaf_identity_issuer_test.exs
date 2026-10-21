@@ -4,7 +4,7 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuerTest do
   alias ServiceRadar.Edge.DirectLeafIdentityIssuer
   alias ServiceRadar.Edge.DirectLeafScope
 
-  @assignment_id "f8828fb5-1df4-4058-adc8-e82e0825257b"
+  @assignment_id "ff68b63b-ec90-435e-952b-24e211067596"
 
   test "issues only through the authenticated agent gateway and scopes the add-on identity" do
     parent = self()

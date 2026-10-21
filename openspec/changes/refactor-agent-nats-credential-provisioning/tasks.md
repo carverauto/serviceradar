@@ -51,8 +51,8 @@
       packages with legacy NATS metadata or without required direct-leaf
       material. Add `mix serviceradar.edge.nats_legacy` with a read-only
       default and an explicit, audited `--apply` cleanup mode.
-- [ ] 4.2 Add a safe reissue/remediation operation for packages such as
-      `vndcngrpexnap01` without mutating onboarding rows directly in SQL.
+- [ ] 4.2 Add a safe reissue/remediation operation for packages in that
+      partial-success state without mutating onboarding rows directly in SQL.
 - [x] 4.3 Add legacy credential revocation and agent-side cleanup for known
       `nats-agent.creds`/`nats.creds` paths after verifying no registered leaf
       depends on them. The application cleanup action clears package material
