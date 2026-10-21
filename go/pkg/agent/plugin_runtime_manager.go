@@ -37,7 +37,30 @@ import (
 // Stack traces from WASM panics can be very long; truncate to keep payloads manageable.
 const maxSummaryLen = 2048
 
-func buildPluginErrorResult(assignment *pluginAssignment, summary string) PluginResult {
+// newHostPluginResult builds a result whose identity and provenance come from
+// the host's assignment record and the module hash the host computed, never from
+// the plugin payload.
+func newHostPluginResult(
+	assignment *pluginAssignment,
+	moduleContentHash string,
+	payload []byte,
+	observedAt time.Time,
+) PluginResult {
+	return PluginResult{
+		AssignmentID:   assignment.AssignmentID,
+		PluginID:       assignment.PluginID,
+		PluginName:     assignment.Name,
+		PackageID:      assignment.PackageID,
+		PackageVersion: assignment.Version,
+		ContentHash:    moduleContentHash,
+		Payload:        payload,
+		ObservedAt:     observedAt,
+	}
+}
+
+// buildPluginErrorResult reports a run the host could not complete. Pass the
+// module hash when a module was loaded for the run and "" when none was.
+func buildPluginErrorResult(assignment *pluginAssignment, moduleContentHash, summary string) PluginResult {
 	observed := time.Now().UTC()
 
 	// Truncate very long summaries (e.g., WASM stack traces) to prevent
@@ -59,13 +82,7 @@ func buildPluginErrorResult(assignment *pluginAssignment, summary string) Plugin
 
 	data, _ := json.Marshal(payload)
 
-	return PluginResult{
-		AssignmentID: assignment.AssignmentID,
-		PluginID:     assignment.PluginID,
-		PluginName:   assignment.Name,
-		Payload:      data,
-		ObservedAt:   observed,
-	}
+	return newHostPluginResult(assignment, moduleContentHash, data, observed)
 }
 
 // NewPluginManager initializes a new plugin manager.
@@ -240,7 +257,7 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	}
 
 	for _, assignment := range rejected {
-		m.tryEnqueueResult(buildPluginErrorResult(assignment, "admission denied: engine limits exceeded"))
+		m.tryEnqueueResult(buildPluginErrorResult(assignment, "", "admission denied: engine limits exceeded"))
 	}
 
 	for _, assignment := range admitted {
@@ -470,6 +487,7 @@ func (m *PluginManager) Snapshot() PluginEngineSnapshot {
 	m.statsMu.Unlock()
 
 	return PluginEngineSnapshot{
+		Assignments:          m.assignmentLoadStatuses(),
 		ObservedAt:           now,
 		Limits:               limits,
 		RequestedMemoryMB:    stats.requestedMemoryMB,
@@ -488,19 +506,17 @@ func (m *PluginManager) Snapshot() PluginEngineSnapshot {
 	}
 }
 
-func (m *PluginManager) DebugSnapshot() PluginEngineDebugSnapshot {
-	if m == nil {
-		return PluginEngineDebugSnapshot{}
-	}
+type assignmentWithMode struct {
+	assignment *pluginAssignment
+	mode       string
+}
 
-	engine := m.Snapshot()
-
-	type assignmentWithMode struct {
-		assignment *pluginAssignment
-		mode       string
-	}
-
+// configuredAssignments lists every configured assignment with its execution
+// mode, in no particular order.
+func (m *PluginManager) configuredAssignments() []assignmentWithMode {
 	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	assignments := make(
 		[]assignmentWithMode,
 		0,
@@ -533,7 +549,51 @@ func (m *PluginManager) DebugSnapshot() PluginEngineDebugSnapshot {
 			mode:       string(pluginExecutionModeAction),
 		})
 	}
-	m.mu.RUnlock()
+
+	return assignments
+}
+
+// assignmentLoadStatuses reports each configured assignment's most recent
+// module load outcome, sorted by assignment ID.
+func (m *PluginManager) assignmentLoadStatuses() []PluginAssignmentLoadStatus {
+	assignments := m.configuredAssignments()
+	out := make([]PluginAssignmentLoadStatus, 0, len(assignments))
+
+	for _, item := range assignments {
+		assignment := item.assignment
+		load := m.readAssignmentState(assignment.AssignmentID).load
+
+		status := load.status
+		if status == "" {
+			status = pluginLoadStatusPending
+		}
+
+		out = append(out, PluginAssignmentLoadStatus{
+			AssignmentID:   assignment.AssignmentID,
+			PluginID:       assignment.PluginID,
+			PackageID:      assignment.PackageID,
+			PackageVersion: assignment.Version,
+			Status:         status,
+			ContentHash:    load.contentHash,
+			Reason:         load.reason,
+			UpdatedAt:      load.at,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].AssignmentID < out[j].AssignmentID
+	})
+
+	return out
+}
+
+func (m *PluginManager) DebugSnapshot() PluginEngineDebugSnapshot {
+	if m == nil {
+		return PluginEngineDebugSnapshot{}
+	}
+
+	engine := m.Snapshot()
+	assignments := m.configuredAssignments()
 
 	out := PluginEngineDebugSnapshot{
 		Engine:      engine,
@@ -957,7 +1017,7 @@ func (m *PluginManager) OpenCameraRelayStream(
 		return nil, err
 	}
 
-	wasm, err := m.loadWasm(runCtx, assignment)
+	module, err := m.loadWasm(runCtx, assignment)
 	if err != nil {
 		cancel()
 		m.unregisterStreamingExecution(executionID)
@@ -981,7 +1041,7 @@ func (m *PluginManager) OpenCameraRelayStream(
 		defer m.unregisterStreamingExecution(executionID)
 		defer m.releaseSlot()
 
-		execErr := m.executeStreamingPlugin(runCtx, assignment, wasm, configJSON, bridge)
+		execErr := m.executeStreamingPlugin(runCtx, assignment, module.wasm, configJSON, bridge)
 		switch {
 		case execErr != nil:
 			m.recordExecution(false)
@@ -1187,12 +1247,12 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 
 	if !r.manager.acquireSlot() {
 		r.manager.recordExecution(false)
-		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "admission denied: max concurrent reached"))
+		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "", "admission denied: max concurrent reached"))
 		return
 	}
 	defer r.manager.releaseSlot()
 
-	wasm, err := r.manager.loadWasm(runCtx, r.assignment)
+	module, err := r.manager.loadWasm(runCtx, r.assignment)
 	if err != nil {
 		if r.manager.shouldSkipWarmup(r.assignment) {
 			r.manager.logger.Info().
@@ -1202,7 +1262,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 			return
 		}
 		r.manager.recordExecution(false)
-		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
+		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "", fmt.Sprintf("execution failed: %s", err)))
 		r.manager.logger.Warn().
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
@@ -1210,9 +1270,13 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 		return
 	}
 
-	if err := r.manager.executeWithWasm(runCtx, r.assignment, wasm); err != nil {
+	if err := r.manager.executeWithWasm(runCtx, r.assignment, module); err != nil {
 		r.manager.recordExecution(false)
-		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
+		r.manager.tryEnqueueResult(buildPluginErrorResult(
+			r.assignment,
+			module.contentHash,
+			fmt.Sprintf("execution failed: %s", err),
+		))
 		r.manager.logger.Warn().
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
@@ -1267,7 +1331,7 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 	}
 	defer m.releaseSlot()
 
-	wasm, err := m.loadWasm(runCtx, assignment)
+	module, err := m.loadWasm(runCtx, assignment)
 	if err != nil {
 		m.recordExecution(false)
 		return nil, err
@@ -1286,7 +1350,7 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 	}
 
 	entrypoint := notificationActionEntrypoint(assignment, invocationPayload)
-	result, err := m.executeActionWithWasm(runCtx, assignment, entrypoint, wasm, configJSON, credentialGrants, nil, nil)
+	result, err := m.executeActionWithWasm(runCtx, assignment, entrypoint, module.wasm, configJSON, credentialGrants, nil, nil)
 	if err == nil {
 		// Let the next scheduled run see overrides this action set or ended,
 		// without waiting for the control plane's copy to arrive by config poll.
@@ -1294,7 +1358,7 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		m.runOverrides.recordActionResult(assignment.AssignmentID, result, time.Now(), maxOverrideDurationSeconds)
 	}
 	if err == nil && assignment.ingestsActionResults() {
-		result, err = m.enqueueActionResult(runCtx, assignment, result)
+		result, err = m.enqueueActionResult(runCtx, assignment, module.contentHash, result)
 	}
 	m.recordExecution(err == nil)
 	return result, err
@@ -1402,7 +1466,7 @@ func (m *PluginManager) runPluginVerb(
 	}
 	defer m.releaseSlot()
 
-	wasm, err := m.loadWasm(runCtx, assignment)
+	module, err := m.loadWasm(runCtx, assignment)
 	if err != nil {
 		m.recordExecution(false)
 		return nil, err
@@ -1412,7 +1476,7 @@ func (m *PluginManager) runPluginVerb(
 		runCtx,
 		assignment,
 		assignment.Entrypoint,
-		wasm,
+		module.wasm,
 		configJSON,
 		credentialGrants,
 		authorizedRequestBody,

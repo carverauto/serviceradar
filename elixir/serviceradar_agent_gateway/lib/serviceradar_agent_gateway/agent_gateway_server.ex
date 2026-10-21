@@ -693,7 +693,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp build_service_status(service, metadata, service_name, service_type, source) do
-    %{
+    status = %{
       service_name: service_name,
       available: service.available == true,
       message: normalize_service_message(service.message, source),
@@ -713,7 +713,28 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       is_final: Map.get(metadata, :is_final, true),
       delivery_capabilities: Map.get(metadata, :delivery_capabilities, [])
     }
+
+    put_plugin_provenance(status, service, source)
   end
+
+  # The agent host stamps which assignment, package and Wasm module produced a
+  # plugin result. Core validates and persists it (PluginResultProvenance);
+  # agents that predate it send none and the key is left out.
+  defp put_plugin_provenance(
+         status,
+         %{plugin_provenance: %Monitoring.PluginResultProvenance{} = provenance},
+         @plugin_result_source
+       ) do
+    Map.put(status, :plugin_provenance, %{
+      assignment_id: provenance.assignment_id,
+      plugin_id: provenance.plugin_id,
+      plugin_package_id: provenance.plugin_package_id,
+      plugin_version: provenance.plugin_version,
+      content_hash: provenance.content_hash
+    })
+  end
+
+  defp put_plugin_provenance(status, _service, _source), do: status
 
   # Source routing keeps its existing partition semantics. Authority checks use
   # the separate authenticated_partition stamped from the raw mTLS identity.

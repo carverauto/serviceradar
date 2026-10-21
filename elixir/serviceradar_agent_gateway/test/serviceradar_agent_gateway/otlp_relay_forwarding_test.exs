@@ -105,6 +105,51 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     assert_receive {:plugin_result_forwarded, status}
     assert status.partition == "cert-partition"
     assert status.agent_id == "agent-1"
+    # An agent that predates result provenance sends none; nothing is synthesized.
+    refute Map.has_key?(status, :plugin_provenance)
+  end
+
+  test "plugin-result statuses forward the agent's host-stamped provenance to core" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            send(parent, {:plugin_result_forwarded, status})
+            GenServer.reply(from, :ok)
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    content_hash = String.duplicate("ab", 32)
+
+    service = %{
+      plugin_result_service()
+      | plugin_provenance: %Monitoring.PluginResultProvenance{
+          assignment_id: "assignment-1",
+          plugin_id: "example-check",
+          plugin_package_id: "example-check-package-2",
+          plugin_version: "2.0.0",
+          content_hash: content_hash
+        }
+    }
+
+    assert %Monitoring.GatewayStatusResponse{received: true} =
+             AgentGatewayServer.process_status_stream([
+               {[service], retained_plugin_result_metadata()}
+             ])
+
+    assert_receive {:plugin_result_forwarded, status}
+
+    assert status.plugin_provenance == %{
+             assignment_id: "assignment-1",
+             plugin_id: "example-check",
+             plugin_package_id: "example-check-package-2",
+             plugin_version: "2.0.0",
+             content_hash: content_hash
+           }
   end
 
   test "invalid non-relay statuses are still dropped without failing the stream" do

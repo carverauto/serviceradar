@@ -42,16 +42,31 @@ func (p *PushLoop) buildPluginGatewayStatus(
 	gatewayID := gatewayIDFromClient(p.gateway)
 
 	return &proto.GatewayServiceStatus{
-		ServiceName:  serviceName,
-		Available:    available,
-		Message:      payload,
-		ServiceType:  "plugin",
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "plugin-result",
-		KvStoreId:    kvStoreID,
+		ServiceName:      serviceName,
+		Available:        available,
+		Message:          payload,
+		ServiceType:      "plugin",
+		ResponseTime:     0,
+		AgentId:          agentID,
+		GatewayId:        gatewayID,
+		Partition:        partition,
+		Source:           "plugin-result",
+		KvStoreId:        kvStoreID,
+		PluginProvenance: pluginResultProvenance(result),
+	}
+}
+
+// pluginResultProvenance puts the host-authored provenance of a result on the
+// wire. It reads only fields the host set from its assignment record and the
+// module bytes it loaded; the plugin payload never contributes, so a plugin
+// cannot claim to be another package or module.
+func pluginResultProvenance(result PluginResult) *proto.PluginResultProvenance {
+	return &proto.PluginResultProvenance{
+		AssignmentId:    result.AssignmentID,
+		PluginId:        result.PluginID,
+		PluginPackageId: result.PackageID,
+		PluginVersion:   result.PackageVersion,
+		ContentHash:     result.ContentHash,
 	}
 }
 
@@ -332,6 +347,7 @@ func buildPluginTelemetryPayload(
 		"config": map[string]interface{}{
 			"last_updated_at": formatTimestamp(snapshot.LastConfigAt),
 		},
+		"assignment_loads": pluginAssignmentLoadsPayload(snapshot.Assignments),
 	}
 
 	data, err := json.Marshal(payload)
@@ -340,6 +356,25 @@ func buildPluginTelemetryPayload(
 	}
 
 	return data, healthy
+}
+
+// pluginAssignmentLoadsPayload reports which package and module each assignment
+// is running, so a rollout can confirm a candidate actually loaded.
+func pluginAssignmentLoadsPayload(loads []PluginAssignmentLoadStatus) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(loads))
+	for _, load := range loads {
+		out = append(out, map[string]interface{}{
+			"assignment_id":     load.AssignmentID,
+			"plugin_id":         load.PluginID,
+			"plugin_package_id": load.PackageID,
+			"plugin_version":    load.PackageVersion,
+			"status":            load.Status,
+			"content_hash":      load.ContentHash,
+			"reason":            load.Reason,
+			"updated_at":        formatTimestamp(load.UpdatedAt),
+		})
+	}
+	return out
 }
 
 func pluginTelemetryHealth(snapshot PluginEngineSnapshot) (bool, string) {

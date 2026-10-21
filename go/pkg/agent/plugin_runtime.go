@@ -183,6 +183,27 @@ type assignmentState struct {
 	ready       bool
 	prefetching bool
 	contentHash string
+	// load records the outcome of the most recent module load for this
+	// assignment generation.
+	load pluginAssignmentLoad
+}
+
+// Wire values for the per-assignment module load status in plugin engine
+// telemetry.
+const (
+	pluginLoadStatusPending = "pending"
+	pluginLoadStatusLoaded  = "loaded"
+	pluginLoadStatusFailed  = "failed"
+)
+
+// pluginAssignmentLoad is the outcome of the most recent Wasm module load.
+// reason is a fixed classification, never a raw error string, so download URLs
+// and transport details stay out of telemetry.
+type pluginAssignmentLoad struct {
+	status      string
+	contentHash string
+	reason      string
+	at          time.Time
 }
 
 type credentialBrokerCacheEntry struct {
@@ -197,12 +218,24 @@ type activePluginStreamExecution struct {
 }
 
 // PluginResult captures a raw plugin result payload.
+//
+// Every field except Payload is host-authored: it comes from the agent's
+// assignment record and the module bytes the host loaded, never from the
+// plugin. Build results with newHostPluginResult so provenance is always set.
 type PluginResult struct {
 	AssignmentID string
 	PluginID     string
 	PluginName   string
-	Payload      []byte
-	ObservedAt   time.Time
+	// PackageID and PackageVersion name the plugin package the assignment
+	// config delivered.
+	PackageID      string
+	PackageVersion string
+	// ContentHash is the lowercase hex SHA-256 of the Wasm module the run
+	// executed. It is empty when no module was loaded (admission or load
+	// failure).
+	ContentHash string
+	Payload     []byte
+	ObservedAt  time.Time
 	// AcknowledgedRunOverrides lists the expired run overrides the run that
 	// produced this result received. Host-authored; never read from Payload.
 	AcknowledgedRunOverrides []string
@@ -238,6 +271,23 @@ type PluginEngineSnapshot struct {
 	LastExecAt           time.Time
 	LastFailureAt        time.Time
 	LastConfigAt         time.Time
+	// Assignments reports, per configured assignment, which package it names
+	// and whether its module loaded, sorted by assignment ID.
+	Assignments []PluginAssignmentLoadStatus
+}
+
+// PluginAssignmentLoadStatus is one assignment's module load state. ContentHash
+// is the SHA-256 of the module bytes the host last loaded successfully, so a
+// rollout can tell which package version is actually running.
+type PluginAssignmentLoadStatus struct {
+	AssignmentID   string
+	PluginID       string
+	PackageID      string
+	PackageVersion string
+	Status         string
+	ContentHash    string
+	Reason         string
+	UpdatedAt      time.Time
 }
 
 type PluginEngineDebugSnapshot struct {
