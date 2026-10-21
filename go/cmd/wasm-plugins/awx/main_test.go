@@ -71,6 +71,7 @@ func TestRunPingHappyPath(t *testing.T) {
 	}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/ping/": {Status: http.StatusOK, Body: body},
+		"/api/v2/me/":   {Status: http.StatusOK, Body: []byte(`{"count":1,"results":[{"id":1,"username":"sr"}]}`)},
 	}}
 	swapHTTP(t, fake)
 
@@ -102,8 +103,8 @@ func TestRunPingHappyPath(t *testing.T) {
 		t.Fatalf("ping topology leaked into result: %s", res.Details)
 	}
 
-	if len(fake.requests) != 1 {
-		t.Fatalf("expected 1 HTTP call, got %d", len(fake.requests))
+	if len(fake.requests) != 2 {
+		t.Fatalf("expected 2 HTTP calls, got %d", len(fake.requests))
 	}
 	got := fake.requests[0]
 	if got.URL != "https://awx.example.com/api/v2/ping/" {
@@ -114,6 +115,13 @@ func TestRunPingHappyPath(t *testing.T) {
 	}
 	if got.Headers["Accept"] != "application/json" {
 		t.Errorf("Accept = %q", got.Headers["Accept"])
+	}
+	gotMe := fake.requests[1]
+	if gotMe.URL != "https://awx.example.com/api/v2/me/" {
+		t.Errorf("me URL = %q", gotMe.URL)
+	}
+	if gotMe.Headers["Authorization"] != "Bearer tok" {
+		t.Errorf("me Authorization = %q (want Bearer tok)", gotMe.Headers["Authorization"])
 	}
 }
 
@@ -135,6 +143,7 @@ func TestRunPingTrimsTrailingSlashOnBaseURL(t *testing.T) {
 	body := []byte(`{"version":"23.5.1","active_node":"awx"}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/ping/": {Status: http.StatusOK, Body: body},
+		"/api/v2/me/":   {Status: http.StatusOK, Body: []byte(`{}`)},
 	}}
 	swapHTTP(t, fake)
 
@@ -143,6 +152,45 @@ func TestRunPingTrimsTrailingSlashOnBaseURL(t *testing.T) {
 
 	if got := fake.requests[0].URL; got != "https://awx.example.com/api/v2/ping/" {
 		t.Errorf("trailing slash should be trimmed; got %q", got)
+	}
+}
+
+func TestRunPingMeUnauthorizedReportsAuthFailed(t *testing.T) {
+	pingBody := []byte(`{"version":"23.5.1","active_node":"awx-1"}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/ping/": {Status: http.StatusOK, Body: pingBody},
+		"/api/v2/me/":   {Status: http.StatusUnauthorized, Body: []byte(`{"detail":"Authentication credentials were not provided."}`)},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "expired-token", Verb: "awx.ping"}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusCritical {
+		t.Fatalf("expected CRITICAL when /api/v2/me/ returns 401, got %s (%s)", res.Status, res.Summary)
+	}
+	if res.Summary != "awx.ping: AWX request failed: HTTP 401" {
+		t.Errorf("expected status-only upstream failure, got %q", res.Summary)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("Details should be JSON: %v", err)
+	}
+	if payload["ok"] != false {
+		t.Errorf("payload.ok = %v, want false", payload["ok"])
+	}
+	if payload["status"] != "auth_failed" {
+		t.Errorf("payload.status = %v, want auth_failed", payload["status"])
+	}
+	if payload["version"] != "23.5.1" {
+		t.Errorf("payload.version = %v, want 23.5.1", payload["version"])
+	}
+	if payload["active_node"] != "awx-1" {
+		t.Errorf("payload.active_node = %v, want awx-1", payload["active_node"])
+	}
+	if payload["error"] != "AWX request failed: HTTP 401" {
+		t.Errorf("payload.error = %v, want status-only upstream failure", payload["error"])
 	}
 }
 

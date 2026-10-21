@@ -310,7 +310,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
       allow_nil? false
       public? true
       default :unknown
-      constraints one_of: [:unknown, :ok, :degraded, :unreachable, :unauthorized]
+      constraints one_of: [:unknown, :ok, :degraded, :unreachable, :auth_failed, :unauthorized]
       description "Last-known health derived from awx.ping responses"
     end
 

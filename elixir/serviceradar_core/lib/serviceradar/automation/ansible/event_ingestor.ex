@@ -468,6 +468,14 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
     }
   end
 
+  defp ping_args(%{"status" => "auth_failed"} = payload) do
+    %{
+      status: :auth_failed,
+      awx_version: Map.get(payload, "version"),
+      last_health_summary: Map.get(payload, "error", "AWX authentication failed")
+    }
+  end
+
   defp ping_args(payload) do
     %{
       status: :unreachable,

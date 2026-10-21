@@ -397,9 +397,9 @@ contains it, how to re-materialise an existing assignment, and whether the
 Services page keeps the last failed card are in
 [Credential Management](./credentials.md#awx-configuration-invalid-api_token-is-required-resolved-from-credential-broker-grant).
 
-### Status flips to `:unauthorized`
+### Status flips to `:auth_failed`
 
-The token is wrong, expired, or missing scope. Check `Controller.last_health_summary`; it surfaces the operator-safe 401 message from the plugin. Save a new value for that credential under **Settings -> Networks -> Credential Rules** and re-trigger health by editing any field on the controller (re-save trips the health check).
+`awx.ping` reads the version from the unauthenticated `GET /api/v2/ping/`, then makes an authenticated `GET /api/v2/me/` with the sync credential. HTTP 401 or 403 from AWX sets `:auth_failed`; network errors and 5xx responses set `:unreachable`. The token is wrong, expired, revoked, or missing scope. Check `Controller.last_health_summary`; it surfaces the operator-safe 401/403 message from the plugin. Save a new value for that credential under **Settings -> Networks -> Credential Rules** and re-trigger health by editing any field on the controller (re-save trips the health check).
 
 ### No playbooks appear in `/ansible/catalog`
 

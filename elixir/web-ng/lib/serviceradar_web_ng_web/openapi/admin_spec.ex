@@ -546,7 +546,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         "enabled" => %{"type" => "boolean"},
         "observed_health" => %{
           "type" => "string",
-          "enum" => ["unknown", "ok", "degraded", "unreachable", "unauthorized"]
+          "enum" => ["unknown", "ok", "degraded", "unreachable", "auth_failed", "unauthorized"]
         },
         "last_health_at" => %{"type" => "string", "format" => "date-time", "nullable" => true},
         "credential_configuration" => %{

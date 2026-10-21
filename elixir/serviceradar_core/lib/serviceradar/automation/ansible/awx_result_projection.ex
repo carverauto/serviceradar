@@ -54,6 +54,10 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   )
   @task_events ~w(playbook_on_task_start playbook_on_handler_task_start)
   @stats_keys ~w(ok failures dark skipped changed)
+  @auth_failed_ping_errors [
+    "AWX request failed: HTTP 401",
+    "AWX request failed: HTTP 403"
+  ]
 
   @type projection_result :: {:ok, map()} | :error
 
@@ -61,19 +65,49 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   def project(verb, payload), do: verb |> do_project(payload) |> enforce_aggregate_budget()
 
   defp do_project("awx.ping" = verb, payload) do
-    with {:ok, shape} <- ping_shape(payload),
+    if value(payload, :ok) == false and value(payload, :status) == "auth_failed" do
+      project_auth_failed_ping(verb, payload)
+    else
+      with {:ok, shape} <- ping_shape(payload),
+           true <- value(payload, :verb) == verb,
+           true <- value(payload, :ok) == true,
+           {:ok, version} <- bounded_text(value(payload, :version), 64),
+           {:ok, active_node} <- bounded_text(value(payload, :active_node), 255),
+           :ok <- validate_legacy_ping_topology(shape, payload) do
+        {:ok,
+         %{
+           "verb" => verb,
+           "ok" => true,
+           "version" => version,
+           "active_node" => active_node
+         }}
+      else
+        _ -> :error
+      end
+    end
+  end
+
+  defp project_auth_failed_ping(verb, payload) do
+    expected_keys =
+      ~w(verb ok status) ++
+        Enum.filter([:version, :active_node, :error], &has_key?(payload, &1))
+
+    with true <- exact_keys?(payload, Enum.map(expected_keys, &to_string/1)),
          true <- value(payload, :verb) == verb,
-         true <- value(payload, :ok) == true,
-         {:ok, version} <- bounded_text(value(payload, :version), 64),
-         {:ok, active_node} <- bounded_text(value(payload, :active_node), 255),
-         :ok <- validate_legacy_ping_topology(shape, payload) do
+         true <- value(payload, :ok) == false,
+         true <- value(payload, :status) == "auth_failed",
+         {:ok, version} <- optional_nonempty_text(value(payload, :version), 64),
+         {:ok, active_node} <- optional_nonempty_text(value(payload, :active_node), 255),
+         {:ok, error} <- optional_enum(value(payload, :error), @auth_failed_ping_errors) do
       {:ok,
        %{
          "verb" => verb,
-         "ok" => true,
-         "version" => version,
-         "active_node" => active_node
-       }}
+         "ok" => false,
+         "status" => "auth_failed"
+       }
+       |> maybe_put("version", version)
+       |> maybe_put("active_node", active_node)
+       |> maybe_put("error", error)}
     else
       _ -> :error
     end
@@ -1007,6 +1041,14 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
 
   defp optional_text(nil, _max_bytes), do: {:ok, nil}
   defp optional_text(value, max_bytes), do: bounded_text(value, max_bytes)
+
+  defp optional_nonempty_text(nil, _max_bytes), do: {:ok, nil}
+
+  defp optional_nonempty_text(value, max_bytes),
+    do: bounded_text(value, max_bytes, allow_empty?: false)
+
+  defp optional_enum(nil, _allowed), do: {:ok, nil}
+  defp optional_enum(value, allowed), do: enum(value, allowed)
 
   defp optional_token(nil, _max_bytes), do: {:ok, nil}
   defp optional_token(value, max_bytes), do: bounded_token(value, max_bytes, allow_empty?: false)

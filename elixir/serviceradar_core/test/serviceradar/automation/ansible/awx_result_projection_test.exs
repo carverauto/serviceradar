@@ -51,6 +51,32 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjectionTest do
                "awx.ping",
                Map.put(ping_payload(), "active_node", "awx-task-0\u202Ehidden")
              )
+
+    assert {:ok,
+            %{
+              "verb" => "awx.ping",
+              "ok" => false,
+              "status" => "auth_failed",
+              "version" => "24.6.1",
+              "active_node" => "awx-task-0",
+              "error" => "AWX request failed: HTTP 401"
+            }} =
+             AWXResultProjection.project("awx.ping", %{
+               "verb" => "awx.ping",
+               "ok" => false,
+               "status" => "auth_failed",
+               "version" => "24.6.1",
+               "active_node" => "awx-task-0",
+               "error" => "AWX request failed: HTTP 401"
+             })
+
+    assert :error =
+             AWXResultProjection.project("awx.ping", %{
+               "verb" => "awx.ping",
+               "ok" => false,
+               "status" => "auth_failed",
+               "error" => @sentinel
+             })
   end
 
   test "inventory, host, group, and project lists rebuild safe rows" do

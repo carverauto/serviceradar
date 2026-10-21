@@ -110,9 +110,25 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
           failure(base, safe_command_type, "invalid_automation_result")
       end
     else
-      failure(base, safe_command_type, "automation_command_failed")
+      case sanitize_failure_payload(safe_command_type, value(data, :payload)) do
+        {:ok, payload} ->
+          failure(base, safe_command_type, "automation_command_failed", payload)
+
+        :error ->
+          failure(base, safe_command_type, "automation_command_failed")
+      end
     end
   end
+
+  defp sanitize_failure_payload("awx.ping", payload) when is_map(payload) do
+    if value(payload, :ok) == false and value(payload, :status) == "auth_failed" do
+      AWXResultProjection.project("awx.ping", payload)
+    else
+      :error
+    end
+  end
+
+  defp sanitize_failure_payload(_command_type, _payload), do: :error
 
   defp within_aggregate_budget?(payload) do
     case Jason.encode_to_iodata(payload) do
@@ -121,12 +137,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
     end
   end
 
-  defp failure(base, command_type, code) do
+  defp failure(base, command_type, code, payload \\ nil) do
     Map.merge(base, %{
       success: false,
       message: "automation command failed",
       failure_reason: code,
-      payload: %{"verb" => command_type, "ok" => false}
+      payload: payload || %{"verb" => command_type, "ok" => false}
     })
   end
 

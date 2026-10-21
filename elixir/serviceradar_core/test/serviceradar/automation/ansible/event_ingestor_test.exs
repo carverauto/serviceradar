@@ -469,7 +469,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         command_id: "cmd-1",
         result_payload: %{
           "ok" => false,
-          "error" => "AWX HTTP 401: authentication failed"
+          "error" => "AWX request failed: HTTP 503"
         }
       }
 
@@ -477,6 +477,39 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
       assert {:record_controller_health, "ctrl-1",
               %{status: :unreachable, awx_version: nil, last_health_summary: summary}} =
+               Enum.find(
+                 FakeActions.state().calls,
+                 &match?({:record_controller_health, _, _}, &1)
+               )
+
+      assert summary =~ "503"
+    end
+
+    test "status=auth_failed sets status :auth_failed and preserves version from ping" do
+      controller = %{id: "ctrl-1", name: "Production AWX"}
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}},
+        controllers_by_id: %{"ctrl-1" => {:ok, controller}}
+      )
+
+      result = %{
+        command_type: "awx.ping",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.ping",
+          "ok" => false,
+          "status" => "auth_failed",
+          "version" => "23.5.1",
+          "active_node" => "awx-1",
+          "error" => "AWX request failed: HTTP 401"
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      assert {:record_controller_health, "ctrl-1",
+              %{status: :auth_failed, awx_version: "23.5.1", last_health_summary: summary}} =
                Enum.find(
                  FakeActions.state().calls,
                  &match?({:record_controller_health, _, _}, &1)

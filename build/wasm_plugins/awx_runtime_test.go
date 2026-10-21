@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -120,6 +121,74 @@ func TestAWXInventorySyncReportsRequestFailureClass(t *testing.T) {
 			result := host.results[0]
 			if result["status"] != "CRITICAL" || result["summary"] != prefix+tc.want {
 				t.Fatalf("status=%v summary=%v; want CRITICAL/%s", result["status"], result["summary"], prefix+tc.want)
+			}
+		})
+	}
+}
+
+// awx.ping must prove the configured token still authenticates: a controller
+// that answers the anonymous ping but rejects the token on /api/v2/me/ is
+// auth_failed, while a controller-side 5xx stays an ordinary failure.
+func TestAWXPingReportsAuthFailedWhenMeReturnsUnauthorized(t *testing.T) {
+	wasm := loadBuiltWasm(t, "awx.wasm")
+	config := map[string]any{
+		"verb":      "awx.ping",
+		"base_url":  "https://controller.example.com",
+		"api_token": "synthetic-placeholder",
+	}
+	ping := map[string]any{"version": "23.5.1", "active_node": "awx-1"}
+	for _, tc := range []struct {
+		name        string
+		pingStatus  awxStatus
+		meResponse  any
+		wantStatus  string
+		wantCalls   int
+		wantSummary string
+		wantDetails map[string]any
+	}{
+		{
+			name: "token accepted", meResponse: map[string]any{"count": 1, "results": []any{map[string]any{"id": 1}}},
+			wantStatus: "OK", wantCalls: 2, wantSummary: "AWX 23.5.1 reachable (active: awx-1)",
+			wantDetails: map[string]any{"verb": "awx.ping", "ok": true, "version": "23.5.1", "active_node": "awx-1"},
+		},
+		{
+			name: "token rejected", meResponse: awxStatus(http.StatusUnauthorized),
+			wantStatus: "CRITICAL", wantCalls: 2, wantSummary: "awx.ping: AWX request failed: HTTP 401",
+			wantDetails: map[string]any{"verb": "awx.ping", "ok": false, "status": "auth_failed", "version": "23.5.1", "active_node": "awx-1", "error": "AWX request failed: HTTP 401"},
+		},
+		{
+			name: "token forbidden", meResponse: awxStatus(http.StatusForbidden),
+			wantStatus: "CRITICAL", wantCalls: 2, wantSummary: "awx.ping: AWX request failed: HTTP 403",
+			wantDetails: map[string]any{"verb": "awx.ping", "ok": false, "status": "auth_failed", "version": "23.5.1", "active_node": "awx-1", "error": "AWX request failed: HTTP 403"},
+		},
+		{
+			name: "controller error is not an auth failure", meResponse: awxStatus(http.StatusInternalServerError),
+			wantStatus: "CRITICAL", wantCalls: 2, wantSummary: "awx.ping: AWX request failed: HTTP 500",
+			wantDetails: map[string]any{"verb": "awx.ping", "ok": false, "error": "AWX request failed: HTTP 500"},
+		},
+		{
+			name: "ping unavailable skips me", pingStatus: awxStatus(http.StatusServiceUnavailable),
+			wantStatus: "CRITICAL", wantCalls: 1, wantSummary: "awx.ping: AWX request failed: HTTP 503",
+			wantDetails: map[string]any{"verb": "awx.ping", "ok": false, "error": "AWX request failed: HTTP 503"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			responses := map[string]any{"/api/v2/ping/": ping}
+			if tc.pingStatus != 0 {
+				responses["/api/v2/ping/"] = tc.pingStatus
+			} else {
+				responses["/api/v2/me/"] = tc.meResponse
+			}
+			result, calls := runAWXWasm(t, wasm, config, responses)
+			if result["status"] != tc.wantStatus || calls != tc.wantCalls || result["summary"] != tc.wantSummary {
+				t.Fatalf("status=%v calls=%d summary=%v; want %s/%d/%s", result["status"], calls, result["summary"], tc.wantStatus, tc.wantCalls, tc.wantSummary)
+			}
+			var details map[string]any
+			if err := json.Unmarshal([]byte(result["details"].(string)), &details); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(details, tc.wantDetails) {
+				t.Fatalf("details=%v; want %v", details, tc.wantDetails)
 			}
 		})
 	}

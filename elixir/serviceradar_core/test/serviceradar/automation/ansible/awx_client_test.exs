@@ -185,7 +185,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert payload["credential_broker"]["allow"] == %{
                "hosts" => ["awx.example.com"],
                "methods" => ["GET"],
-               "paths" => ["=/api/v2/ping/"],
+               "paths" => ["=/api/v2/ping/", "=/api/v2/me/"],
                "ports" => [8443],
                "schemes" => ["https"]
              }
@@ -242,7 +242,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       digest = String.duplicate("a", 64)
 
       cases = [
-        {"awx.ping", %{}, ["GET"], ["=/api/v2/ping/"]},
+        {"awx.ping", %{}, ["GET"], ["=/api/v2/ping/", "=/api/v2/me/"]},
         {"awx.list_inventories", %{}, ["GET"], ["=/api/v2/inventories/"]},
         {"awx.list_hosts", %{"inventory_id" => 7}, ["GET"], ["=/api/v2/inventories/7/hosts/"]},
         {"awx.list_inventory_groups", %{"inventory_id" => 7}, ["GET"],
@@ -697,7 +697,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
              }
 
       assert grant["allow"]["methods"] == ["GET"]
-      assert grant["allow"]["paths"] == ["=/api/v2/ping/"]
+      assert grant["allow"]["paths"] == ["=/api/v2/ping/", "=/api/v2/me/"]
       assert grant["allow"]["hosts"] == ["awx.example.com"]
       assert grant["allow"]["ports"] == [443]
       assert grant["ttl_seconds"] == 300

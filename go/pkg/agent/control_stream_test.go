@@ -230,6 +230,8 @@ func waitForCommandResult(t *testing.T, stream *fakeControlStreamClient, command
 
 const (
 	testAWXFetchJobVerb   = "awx.fetch_job"
+	testAWXPingVerb       = "awx.ping"
+	testAWXCommandFailed  = "awx command failed"
 	testAWXCommandPayload = `{
 	"schema": "serviceradar.awx_command.v1",
 	"verb": "awx.ping",
@@ -261,7 +263,7 @@ func TestHandleCommandRoutesAWXVerbsToAWXPlugin(t *testing.T) {
 
 	loop.handleCommand(t.Context(), &proto.CommandRequest{
 		CommandId:   "cmd-awx-route",
-		CommandType: "awx.ping",
+		CommandType: testAWXPingVerb,
 		PayloadJson: []byte(testAWXCommandPayload),
 	}, sender)
 
@@ -448,18 +450,51 @@ func TestParseAWXPluginResultMapsCriticalToFailure(t *testing.T) {
 		"details": "{\"verb\":\"awx.ping\",\"ok\":false,\"error\":\"connect timeout\"}"
 	}`)
 
-	success, message, payload := parseAWXPluginResult(resultBytes, "awx.ping")
+	success, message, payload := parseAWXPluginResult(resultBytes, testAWXPingVerb)
 	if success {
 		t.Fatal("success = true, want false for CRITICAL plugin status")
 	}
-	if message != "awx command failed" {
+	if message != testAWXCommandFailed {
 		t.Fatalf("message = %q", message)
 	}
 	if got := payload["ok"]; got != false {
 		t.Fatalf("payload.ok = %v, want false", got)
 	}
-	if got := payload["verb"]; got != "awx.ping" {
+	if got := payload["verb"]; got != testAWXPingVerb {
 		t.Fatalf("payload.verb = %v", got)
+	}
+}
+
+func TestParseAWXPluginResultPreservesAuthFailedPingDetails(t *testing.T) {
+	t.Parallel()
+
+	resultBytes := []byte(`{
+		"status": "CRITICAL",
+		"summary": "awx.ping: AWX request failed: HTTP 401",
+		"details": "{\"verb\":\"awx.ping\",\"ok\":false,\"status\":\"auth_failed\",\"version\":\"23.5.1\",\"active_node\":\"awx-1\",\"error\":\"AWX request failed: HTTP 401\",\"secret\":\"Bearer must-not-survive\"}"
+	}`)
+
+	success, message, payload := parseAWXPluginResult(resultBytes, testAWXPingVerb)
+	if success {
+		t.Fatal("success = true, want false for CRITICAL plugin status")
+	}
+	if message != testAWXCommandFailed {
+		t.Fatalf("message = %q", message)
+	}
+	if got := payload["status"]; got != "auth_failed" {
+		t.Fatalf("payload.status = %v, want auth_failed", got)
+	}
+	if got := payload["version"]; got != "23.5.1" {
+		t.Fatalf("payload.version = %v, want 23.5.1", got)
+	}
+	if got := payload["active_node"]; got != "awx-1" {
+		t.Fatalf("payload.active_node = %v, want awx-1", got)
+	}
+	if got := payload["error"]; got != "AWX request failed: HTTP 401" {
+		t.Fatalf("payload.error = %v, want AWX request failed: HTTP 401", got)
+	}
+	if _, exists := payload["secret"]; exists {
+		t.Fatalf("payload retained unexpected field: %#v", payload)
 	}
 }
 

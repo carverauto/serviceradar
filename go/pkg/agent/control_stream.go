@@ -32,6 +32,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
@@ -1309,6 +1311,11 @@ func parseAWXPluginResult(resultBytes []byte, expectedVerb string) (success bool
 
 	success = strings.EqualFold(strings.TrimSpace(envelope.Status), "OK")
 	if !success {
+		if expectedVerb == "awx.ping" {
+			if authFailed := parseAWXAuthFailedPingDetails(envelope.Details); authFailed != nil {
+				return false, "awx command failed", authFailed
+			}
+		}
 		return safeAWXPluginFailure(expectedVerb, "awx command failed")
 	}
 
@@ -1326,6 +1333,54 @@ func parseAWXPluginResult(resultBytes []byte, expectedVerb string) (success bool
 	}
 
 	return true, "awx command completed", decoded
+}
+
+func parseAWXAuthFailedPingDetails(details string) map[string]any {
+	details = strings.TrimSpace(details)
+	if details == "" {
+		return nil
+	}
+	decoded := map[string]any{}
+	if err := json.Unmarshal([]byte(details), &decoded); err != nil {
+		return nil
+	}
+	if verb, ok := decoded["verb"].(string); !ok || verb != "awx.ping" {
+		return nil
+	}
+	if okVal, ok := decoded["ok"].(bool); !ok || okVal {
+		return nil
+	}
+	if status, ok := decoded["status"].(string); !ok || status != "auth_failed" {
+		return nil
+	}
+	safe := map[string]any{
+		"verb":   "awx.ping",
+		"ok":     false,
+		"status": "auth_failed",
+	}
+	if version, ok := decoded["version"].(string); ok && safeBoundedStaticText(version, 64) {
+		safe["version"] = version
+	}
+	if activeNode, ok := decoded["active_node"].(string); ok && safeBoundedStaticText(activeNode, 255) {
+		safe["active_node"] = activeNode
+	}
+	if errText, ok := decoded["error"].(string); ok &&
+		(errText == "AWX request failed: HTTP 401" || errText == "AWX request failed: HTTP 403") {
+		safe["error"] = errText
+	}
+	return safe
+}
+
+func safeBoundedStaticText(value string, maxBytes int) bool {
+	if value == "" || len(value) > maxBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }
 
 func safeAWXPluginFailure(expectedVerb, message string) (bool, string, map[string]any) {
