@@ -478,7 +478,10 @@ export default class WorldMapRenderer {
   scheduleWatch() {
     if (this.destroyed) return
     if (this.membershipSignature && this.cache.manifest &&
-        JSON.stringify(this.membershipRequest(this.cache.watchPayload())) !== this.membershipSignature) this.invalidateMembership()
+        JSON.stringify(this.membershipRequest(this.cache.watchPayload())) !== this.membershipSignature) {
+      this.membershipSignature = null
+      this.membership.beginView()
+    }
     if (this.watchTimer) return
     this.watchTimer = setTimeout(() => {this.watchTimer = null; this.syncWatch()}, 50)
   }
@@ -552,7 +555,7 @@ export default class WorldMapRenderer {
     this.membershipSignature = signature
     this.membershipPush = (this.membershipPush || 0) + 1
     const pushId = this.membershipPush
-    this.membership.clear(true)
+    this.membership.beginView()
     this.channel.push("membership:watch", request).receive("ok", binding => {
       if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
       const geometries = tiles.map(tile => this.cache.entries.get(`${tile.z}/${tile.x}/${tile.y}`)?.geometry)
@@ -565,6 +568,7 @@ export default class WorldMapRenderer {
       try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
       if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
+      this.membership.clear(true)
       this.membershipError = error.reason || "unsupported filter"
       this.updateFilterPanel()
       this.status(`Topology query unavailable: ${error.reason || "unsupported filter"}`)
@@ -624,7 +628,7 @@ export default class WorldMapRenderer {
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
       membership: membershipApplied ? this.membership.entries : null, membershipRevision: this.membershipRevision,
       membershipEnabled: membershipApplied || membershipBlocked,
-      membershipPending: (membershipApplied && this.membership.pending) || membershipBlocked,
+      membershipPending: (membershipApplied && this.membership.pending && this.membership.entries.size === 0) || membershipBlocked,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})

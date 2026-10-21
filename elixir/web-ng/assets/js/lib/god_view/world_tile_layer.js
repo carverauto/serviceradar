@@ -139,6 +139,55 @@ function flowFrame(geometry, overlay, membership) {
 
 /** Schema-3 binary sublayers, sharing #4749's glyph packing and packet shader. */
 export default class WorldTileLayer extends TileLayer {
+  updateState(params) {
+    super.updateState(params)
+    // Filtered fallback geometry can stay visible while an already-cached
+    // selection changes. Membership still needs the new viewport receipts.
+    if (this.state.tileset.isLoaded) this._onViewportLoad()
+  }
+
+  _onViewportLoad() {
+    const selected = this.state.tileset.selectedTiles
+    const reported = this.state.reportedTiles
+    // A membership-only visibility change does not need another watch or
+    // telemetry request. Content changes on retained tile headers do.
+    if (reported?.length === selected.length && selected.every((tile, index) =>
+      tile === reported[index].tile && tile.content === reported[index].content)) return
+    this.state.reportedTiles = selected.map(tile => ({tile, content: tile.content}))
+    super._onViewportLoad()
+  }
+
+  _getTilesetOptions() {
+    const options = super._getTilesetOptions()
+    if (this.props.membershipEnabled) options.refinementStrategy = tiles => this.refineMembershipTiles(tiles)
+    return options
+  }
+
+  refineMembershipTiles(tiles) {
+    const ready = tile => tile.content && !this.props.membershipPending && this.tileMembership(tile.content)
+    const visible = new Set()
+    const children = tile => {
+      for (const child of tile.children) {
+        if (ready(child)) visible.add(child)
+        else children(child)
+      }
+    }
+    for (const tile of tiles) {
+      if (!tile.isSelected) continue
+      let fallback = tile
+      while (fallback && !ready(fallback)) fallback = fallback.parent
+      if (fallback) visible.add(fallback)
+      else children(tile)
+    }
+    // Keep parent/child representations disjoint, just like no-overlap
+    // refinement, but require validated membership as well as geometry.
+    for (const tile of tiles) {
+      let parent = tile.parent
+      while (parent && !visible.has(parent)) parent = parent.parent
+      tile.isVisible = visible.has(tile) && !parent
+    }
+  }
+
   tileOverlay(geometry) {
     const candidate = this.props.overlays?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
     return candidate?.layout_version === geometry.key.layout_version &&
