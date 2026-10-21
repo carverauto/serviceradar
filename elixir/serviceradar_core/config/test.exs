@@ -322,8 +322,12 @@ config :serviceradar_core,
        # be diagnosed from CI at all.
        #
        # Silencing the queries here rather than lowering the primary Logger level, which would
-       # break capture_log assertions. Flip to `:debug` locally when a test needs the SQL.
-       |> Keyword.put(:log, false)
+       # break capture_log assertions. SERVICERADAR_TEST_LOG_SQL=1 brings the SQL back when a
+       # test needs it. Query telemetry is emitted either way; only the log line goes.
+       |> Keyword.put(
+         :log,
+         if(System.get_env("SERVICERADAR_TEST_LOG_SQL") in ["1", "true"], do: :debug, else: false)
+       )
 
 # Keep config pushes inside the test process. Production coalesces them.
 config :serviceradar_core, :config_invalidation_sync, true

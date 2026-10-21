@@ -137,7 +137,11 @@ git_override(
     module_name = "rules_elixir",
     commit = "31e99980a43598211d2a6c5fbb893a21a9c0644b",
     patch_strip = 1,
-    patches = ["//third_party/patches/rules_elixir:ex_unit_erl_libs.patch"],
+    # Applied in order: the second patch's context is the first one's result.
+    patches = [
+        "//third_party/patches/rules_elixir:ex_unit_erl_libs.patch",
+        "//third_party/patches/rules_elixir:ex_unit_parallel_require.patch",
+    ],
     remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
