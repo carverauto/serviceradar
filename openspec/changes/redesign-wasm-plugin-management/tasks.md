@@ -18,16 +18,16 @@
 
 ## 2. Update policy
 
-- [ ] 2.1 Migration: add `update_policy` (`track_latest_approved | pinned`, default `pinned`) and `update_policy_source` (`migration_default | operator`) to `plugin_assignments` and `plugin_target_policies`. Mark rows that exist at migration time `migration_default`; new rows record `operator`. Catalog-only DDL, startup-safe.
-- [ ] 2.2 Ash: expose `update_policy` on the create and update actions. Any operator action (pin, track, version change) sets `update_policy_source` to `operator`. Selecting a concrete version from the UI sets `pinned`.
-- [ ] 2.3 Resolve tracking owners to the latest approved package with the same `plugin_id`, using one shared resolver also used by `PluginAssignmentMaterializer.approved_plugin_package/3`.
+- [x] 2.1 Migration: add `update_policy` (`track_latest_approved | pinned`, default `pinned`) and `update_policy_source` (`migration_default | operator`) to `plugin_assignments` and `plugin_target_policies`. Mark rows that exist at migration time `migration_default`; new rows record `operator`. Catalog-only DDL, startup-safe.
+- [x] 2.2 Ash: expose `update_policy` on the create and update actions. Any operator action (pin, track, version change) sets `update_policy_source` to `operator`. Selecting a concrete version from the UI sets `pinned`.
+- [x] 2.3 Resolve tracking owners to the latest approved package with the same `plugin_id`, using one shared resolver also used by `PluginAssignmentMaterializer.approved_plugin_package/3`.
 - [ ] 2.4 One-shot Oban backfill: manual and target-policy owners on signed, verified first-party packages whose `update_policy_source` is still `migration_default` become `track_latest_approved`; everything else is left unchanged. Run it in bounded, skip-locked batches that re-check `migration_default` inside each batch, so an operator pin made before or during the backfill is never overwritten. Expose a one-click "Pin" before automatic rollouts are enabled.
 - [ ] 2.5 UI: show the update policy per owner, with a "Track latest" / "Pin to version" control.
 - [ ] 2.6 Remove the hidden upgrade-on-reassign path in the Assign form.
 
 ## 3. Auto-approval and rollouts
 
-- [ ] 3.1 First-party sync: auto-approve a signed, verified package whose capabilities, permissions and resources are a subset of the current approved grant for that `plugin_id`. Otherwise leave it `staged`. Never auto-approve a plugin's first version. Add a deployment kill switch, and an audit event marking the approval as automatic. This is the only exception to the modified "Staged Import Review and Capability Confirmation" requirement.
+- [x] 3.1 First-party sync: auto-approve a signed, verified package whose capabilities, permissions and resources are a subset of the current approved grant for that `plugin_id`. Otherwise leave it `staged`. Never auto-approve a plugin's first version. Add a deployment kill switch, and an audit event marking the approval as automatic. This is the only exception to the modified "Staged Import Review and Capability Confirmation" requirement.
 - [ ] 3.2 Updates tab: list staged packages with a per-field grant diff, and approve or deny each. Show auto-approvals and rollouts as history.
 - [x] 3.3 Spike: confirm that `AddonRollout` / `AddonRolloutTarget` generalize with an artifact kind (`native_addon | wasm_plugin`). Record any blocker in design.md for review.
 - [ ] 3.4 Rollout coordinator for Wasm plugins:
