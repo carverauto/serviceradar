@@ -229,9 +229,16 @@ collaborators, so the generalization is an engine/adapter split (a
   `CRITICAL` mean the plugin ran (a critical target is not a failed plugin);
   `UNKNOWN`, failed downstream ingest or another module's hash is a failure.
   Results are classified per observation: a downstream-ingest row carries its
-  observation's timestamp and payload digest, and a failed one fails that
-  observation regardless of row order. Freshness and order use the reported
-  row's server receipt time.
+  observation's timestamp and payload digest, and the latest one decides that
+  observation regardless of row order (a failure fails it, a later recovery
+  restores it). Freshness and order use the reported row's server receipt time.
+- The ingestor writes a downstream-ingest row only on failure or recovery; an
+  ordinary success writes none. It runs the handlers synchronously right after
+  the reported row commits, so a failure row lands within seconds. An
+  observation without one counts as ingested only once its reported row was
+  received at least 60 seconds before the evidence read; a younger one is
+  pending and neither verifies, fails, nor counts as absent evidence. A
+  failure row fails its observation at once.
 - Action-only plugins that ingest their action results are verified through
   those stamped results. Action-only plugins without result ingest pass only
   through `on_no_evidence` as `no_version_evidence`. A completed

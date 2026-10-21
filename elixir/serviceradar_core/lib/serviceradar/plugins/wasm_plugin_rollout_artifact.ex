@@ -52,11 +52,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   it. Freshness and order are the reported row's server receipt time.
 
   The ingestor writes that row only when downstream ingest failed, or recovered
-  from a failure; an ordinary success leaves none. An observation without one
-  therefore counts as ingested, which includes one whose handlers are still
-  running: a pass that reads it between the reported row's commit and its
-  failure row sees a healthy observation. Closing that window needs the
-  ingestor to record completion for every observation.
+  from a failure; an ordinary success leaves none. It runs the handlers
+  synchronously right after the reported row commits, so a failure row lands
+  within seconds of it. An observation without a downstream row therefore
+  counts as ingested only once its reported row was received at least
+  60 seconds before the evidence was read; a younger one is pending: it
+  neither verifies, nor fails, nor counts as absent evidence. A failure row
+  fails its observation at once, whatever its age.
 
   An action-only plugin that ingests its action results is verified through
   those stamped results. A completed action command is no evidence: nothing
@@ -98,6 +100,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   # Bounds the evidence read to the newest stamped results per target.
   @evidence_rows_per_target 20
+
+  # How long after its reported row an observation without a downstream-ingest
+  # row is taken as ingested: well past the handlers that run right after it.
+  @handler_settle_seconds 60
 
   # How far from its observation's timestamp the ingestor writes a downstream
   # ingest marker, with room to spare.
@@ -444,6 +450,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     case verdict(evidence, candidate, applied_at) do
       :healthy -> true
       :failed -> false
+      :pending -> false
       nil -> passes_without_evidence?(evidence, applied_at)
     end
   end
@@ -485,7 +492,8 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def telemetry_event, do: [:serviceradar, :plugins, :wasm_plugin_rollout, :transition]
 
   # The newest observation stamped with `package` and received since `since`
-  # that says something about it decides: :healthy or :failed. Otherwise nil.
+  # that says something about it decides: :healthy, :failed, or :pending while
+  # its downstream ingest may still fail. Otherwise nil.
   defp verdict(nil, _package, _since), do: nil
 
   defp verdict(evidence, package, since),
@@ -509,7 +517,9 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       cond do
         result.outcome == :failed -> :failed
         not is_nil(hash) and hash != expected -> :failed
-        result.outcome == :ran and not is_nil(hash) -> :healthy
+        is_nil(hash) -> nil
+        result.outcome == :pending -> :pending
+        result.outcome == :ran -> :healthy
         true -> nil
       end
     end
@@ -552,18 +562,29 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
         end
       end)
 
+    read_at = DateTime.utc_now()
+
     with {:ok, reported} <- reported_observations(scopes),
-         {:ok, failed} <- failed_downstream(reported) do
+         {:ok, downstream} <- downstream_outcomes(reported) do
       {:ok,
        reported
        |> Enum.map(fn {id, _agent, result} ->
-         if MapSet.member?(failed, {id, result.observation_key}),
-           do: {id, %{result | outcome: :failed}},
-           else: {id, result}
+         {id, ingested(result, Map.get(downstream, {id, result.observation_key}), read_at)}
        end)
        |> Enum.group_by(fn {id, _result} -> id end, fn {_id, result} -> result end)}
     end
   end
+
+  defp ingested(result, "failed", _read_at), do: %{result | outcome: :failed}
+  defp ingested(result, "succeeded", _read_at), do: result
+
+  defp ingested(%{outcome: :ran} = result, _no_downstream_row, read_at) do
+    if DateTime.diff(read_at, result.received_at, :second) >= @handler_settle_seconds,
+      do: result,
+      else: %{result | outcome: :pending}
+  end
+
+  defp ingested(result, _no_downstream_row, _read_at), do: result
 
   defp evidence_since(%AddonRolloutTarget{state: :rollback_pending} = target),
     do: target.rollback_started_at
@@ -635,13 +656,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   # The {assignment, observation} pairs among `reported` whose downstream ingest
   # failed. The ingestor writes a downstream marker just after its observation's
   # timestamp and names the observation's timestamp and payload digest.
-  defp failed_downstream(reported) do
+  defp downstream_outcomes(reported) do
     keyed =
       for {id, agent, %{observation_key: {_observed, digest}} = result} <- reported,
           do: {id, agent, result.observed_at, digest}
 
     if keyed == [] do
-      {:ok, MapSet.new()}
+      {:ok, %{}}
     else
       {ids, agents, observed, digests} = unzip4(keyed)
 
@@ -653,7 +674,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
              @downstream_marker_window_seconds
            ]) do
         {:ok, %{rows: rows}} ->
-          {:ok, rows |> Enum.flat_map(&downstream_marker/1) |> latest_failed()}
+          {:ok, rows |> Enum.flat_map(&downstream_marker/1) |> latest_outcomes()}
 
         {:error, reason} ->
           {:error, reason}
@@ -691,14 +712,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   # The ingestor timestamps an observation's markers in the order it writes
   # them, so the newest one is its current downstream outcome.
-  defp latest_failed(markers) do
+  defp latest_outcomes(markers) do
     markers
     |> Enum.group_by(fn {key, _marked_at, _status} -> key end)
-    |> Enum.flat_map(fn {key, rows} ->
+    |> Map.new(fn {key, rows} ->
       {_key, _marked_at, status} = Enum.max_by(rows, &elem(&1, 1), DateTime)
-      if status == "failed", do: [key], else: []
+      {key, status}
     end)
-    |> MapSet.new()
   end
 
   defp observation_key(%{"observation_timestamp" => observed, "payload_digest" => digest})

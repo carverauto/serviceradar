@@ -41,11 +41,15 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     plugin_id = "example-rollout-#{unique}"
     plugin!(plugin_id)
 
+    # Far enough in the past that every result a case writes relative to it
+    # has outlived the downstream-ingest settle period.
+    now = DateTime.add(DateTime.utc_now(), -900, :second)
+
     {:ok,
      unique: unique,
      previous: package!(plugin_id, "1.0.0"),
      candidate: package!(plugin_id, "1.1.0"),
-     now: DateTime.utc_now()}
+     now: now}
   end
 
   test "a canary then a batch move overrides and promote the stable package after verified health",
@@ -175,6 +179,31 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
              reload(rollout)
 
     assert assignment(member).rollout_plugin_package_id == nil
+
+    assert %{state: :rollback_pending, reason_code: "candidate_reported_unhealthy"} =
+             target(rollout, member)
+  end
+
+  test "a result whose downstream ingest may still fail waits, then fails with it", ctx do
+    {policy, [member]} = policy_with_members!(ctx, 1)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(policy, ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 0)
+      )
+
+    # Received just now: the ingestor may still be running its handlers.
+    received_at = DateTime.utc_now()
+    observation = %{observed_at: received_at, digest: "example-pending-#{ctx.unique}"}
+    result!(member, ctx.candidate, "OK", received_at, observation)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+    assert %{state: :waiting_health} = target(rollout, member)
+
+    downstream_failure!(member, ctx.candidate, observation)
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 3))
 
     assert %{state: :rollback_pending, reason_code: "candidate_reported_unhealthy"} =
              target(rollout, member)
