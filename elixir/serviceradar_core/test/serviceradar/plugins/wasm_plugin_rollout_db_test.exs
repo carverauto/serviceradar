@@ -345,6 +345,14 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
 
     assert %{state: :canceled, reason_code: "assignment_retracted", error: "owner_disabled"} =
              target(rollout, member)
+
+    # No target ran the candidate, so the rollout ends without moving the
+    # disabled owner or its member to it.
+    _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 1))
+
+    assert %{state: :canceled, blocked_reason: "every_target_canceled"} = reload(rollout)
+    assert reload(policy).plugin_package_id == ctx.previous.id
+    assert assignment(member).plugin_package_id == ctx.previous.id
   end
 
   test "a batch launch cancels a target whose assignment was disabled after it was planned",
