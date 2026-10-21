@@ -202,7 +202,8 @@ collaborators, so the generalization is an engine/adapter split (a
   dispatched after the agent acknowledged the candidate config. An action
   invoked earlier can still run the old assignment. Without such an
   invocation, the same `on_no_evidence` policy applies, recorded as
-  `no_version_evidence`.
+  `no_version_evidence`. Step C did not build command-based verification;
+  see "Step C as built" below.
 
 **Implementation steps:**
 - **A.** Engine/adapter split, with no behaviour change. Guarded by the
