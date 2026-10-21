@@ -37,14 +37,14 @@ jobs:
       - name: Set GOCACHE
         run: echo "GOCACHE=${{ runner.temp }}/go-build" >> "$GITHUB_ENV"
 
+      # Shallow on purpose: nothing in this job reads history, and a full clone
+      # of this repository costs several minutes per run. `buf breaking` needs
+      # only the base branch's tip, which its own step fetches below.
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # `buf breaking` compares against the base branch, so the base ref has
-          # to exist locally. The default fetch-depth of 1 gives only the head
-          # commit and the comparison silently has nothing to diff against.
-          fetch-depth: 0
-        
+          fetch-depth: 1
+
       - name: setup go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -86,9 +86,14 @@ jobs:
       # accepted silently and mis-decodes against peers still running the old
       # encoding, with no error on either side. Verified to fail on exactly
       # that change, not just to pass on a clean tree.
+      # `.git#ref=origin/<base>` reads only that commit's tree, so one commit is
+      # enough. The explicit refspec creates the remote-tracking ref a shallow
+      # checkout does not have; without it buf has nothing to compare against.
       - name: buf breaking
         run: |
-          git fetch --no-tags origin "${PROTO_BREAKING_BASE#origin/}"
+          base="${PROTO_BREAKING_BASE#origin/}"
+          git fetch --no-tags --depth=1 origin "+refs/heads/${base}:refs/remotes/origin/${base}"
+          git rev-parse --verify "refs/remotes/origin/${base}^{commit}"
           make proto-breaking
         env:
           PROTO_BREAKING_BASE: origin/${{ github.event_name == 'pull_request' && github.base_ref || 'staging' }}
