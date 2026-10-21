@@ -153,9 +153,10 @@ defmodule ServiceRadar.HTTP.EgressClient do
   @doc """
   Streams `url` into `dest_path`, following redirects.
 
-  The body lands in `dest_path <> ".tmp"` and is renamed into place only after a
-  complete 200, so a failed or partial transfer never replaces a good file and
-  leaves no temporary behind. A final status other than 200 is
+  The body lands in a temporary next to `dest_path` that belongs to this call
+  alone, and is renamed into place only after a complete 200, so a failed or
+  partial transfer never replaces a good file and leaves no temporary behind.
+  Concurrent downloads of the same `dest_path` each promote a complete file. A final status other than 200 is
   `{:error, {:http_status, status}}`.
 
   Takes the options of `get/2` except `:into`, plus `:max_redirects` (default
@@ -163,8 +164,11 @@ defmodule ServiceRadar.HTTP.EgressClient do
   """
   @spec download_to_file(String.t(), Path.t(), [option()]) :: {:ok, Path.t()} | {:error, term()}
   def download_to_file(url, dest_path, opts \\ []) when is_binary(url) and is_binary(dest_path) do
-    tmp = dest_path <> ".tmp"
-    _ = File.rm(tmp)
+    # A per-call temporary: callers fetching the same file at once (replicas on
+    # one volume, or two startup tasks in one VM) shared a fixed name, so each
+    # unlinked the other's in-flight file. One call failed its rename with
+    # :enoent, and the other promoted a file that was still being written.
+    tmp = "#{dest_path}.#{Base.url_encode64(:crypto.strong_rand_bytes(6), padding: false)}.tmp"
 
     result =
       case File.open(tmp, [:write, :binary], fn file ->
