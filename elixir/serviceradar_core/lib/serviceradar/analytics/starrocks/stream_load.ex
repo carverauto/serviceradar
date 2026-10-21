@@ -254,10 +254,20 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   defp retryable?({:label_aborted, _label}), do: true
   defp retryable?({:http_status, status, _label}), do: status in [408, 429, 500, 502, 503, 504]
 
+  defp retryable?({:load_status, status, msg, _label})
+       when status in ["Fail", "FAIL"] and is_binary(msg),
+       do: retryable_load_message?(msg)
+
   defp retryable?({reason, _label})
        when reason in [:closed, :econnreset, :socket_closed_remotely], do: true
 
   defp retryable?(_reason), do: false
+
+  defp retryable_load_message?(msg) do
+    String.contains?(msg, "Couldn't open transport for :0") or
+      String.contains?(msg, "Could not resolve host for client socket") or
+      String.contains?(msg, "[E104]Fail to read from Socket")
+  end
 
   def load_label(table, rows) when is_binary(table) and is_list(rows) do
     identities =
