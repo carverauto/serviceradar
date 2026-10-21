@@ -989,8 +989,8 @@ test_suite(
 
 # Manual full-server acceptance. Both peer replicas in a variant share one
 # guarded clone; each dispatch selects one variant in the existing diagnostic lifecycle.
-# Every variant seeds the run's dedicated serial_1 clone, never the ordinary
-# serial_0, and the lifecycle's clone drop owns its data cleanup.
+# Every variant seeds the run's dedicated serial_1 clone, never a web-ng lane
+# clone, and the lifecycle's clone drop owns its data cleanup.
 _TOPOLOGY_SCALE_DATA = glob(
     ["config/**", "lib/**", "priv/**", "test/integration/topology_bitmap_scale/**"],
     exclude = ["priv/plts/**"],

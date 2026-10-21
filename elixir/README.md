@@ -386,7 +386,8 @@ recovery are in [docs/docs/ci-schema-templates.md](../docs/docs/ci-schema-templa
 ### Lifecycle targets
 
 Bazel deliberately does not order tests, so sequencing is the caller's job. Every active
-workflow (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*` in `//buildbuddy.yaml`) runs:
+workflow (`BazelCI Core Integration`, `BazelCI Web-NG DB`, `LargeIngestionGate`, `WorldWorkerScale`,
+`IntegrationBenchmark*` in `//buildbuddy.yaml`) runs:
 
 ```
 //rust/integration-db:sweep_stale_dbs          drop leaked run databases (never sr_tpl_*)

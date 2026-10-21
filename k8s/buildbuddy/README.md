@@ -261,7 +261,7 @@ confused:
 | `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `emptyDir` (`120Gi`, `80GB` cache) | `/mnt/buildbuddy/bazel-caches` | build actions |
 | `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 40Gi | `emptyDir` (`120Gi`, `40GB` cache + `60GB` runner) | `/mnt/buildbuddy/bazel-caches-workflows` | the CI runner |
 
-The fleet places one BazelCI run (40GB). `limits.memory` is 56Gi, matching farm01, and that
+The fleet places one 40GB workflow run. `limits.memory` is 56Gi, matching farm01, and that
 limit is advertised in full (60,129,542,144 bytes), so a second 40GB run does not fit. An
 unmeasured benchmark action still requests 50GB and fits alone. Putting this on the build
 fleet means either it cannot be placed (22.7 GiB advertised) or, if you size the build fleet up,
@@ -329,7 +329,9 @@ Why a pool of its own: LargeIngestionGate (each staging push plus nightly, ~16 r
 BazelCI (PRs, ~49 runs/day, ~22 min) shared pool `workflows` and kept evicting each other's
 warm runner, so ~45% of runs started cold (cold `bazel build //...` up to 36 min against 1-5
 min warm; one PR run hit BuildBuddy's 1h remote-run cap). `buildbuddy.yaml` sends
-LargeIngestionGate to `pool: "workflows-lig"`; every other action stays on `workflows`. Deploy
+LargeIngestionGate to `pool: "workflows-lig"` and the three pull-request BazelCI actions to
+`pool: "workflows-pr"` (Helm release `buildbuddy-workflows-pr`, whose values are not in this
+directory); every other action stays on `workflows`. Deploy
 the executor BEFORE merging a pool change, or the next staging push fails with
 `no registered executors in pool "workflows-lig"`.
 
