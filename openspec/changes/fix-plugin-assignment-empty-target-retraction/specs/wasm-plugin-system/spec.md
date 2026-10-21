@@ -28,7 +28,7 @@ An empty resolution means the targets are unknown, not that there are none. The 
 
 ### Requirement: Owner Lifecycle Retracts Plugin Assignments
 The control plane SHALL disable the enabled policy-derived plugin assignments of a credential rule or plugin target policy, in the same transaction as the owner action, when that owner is disabled, deleted, or changed so that it no longer covers the assignment's agent. Each disabled assignment SHALL record the reason (`owner_disabled`, `owner_deleted` or `owner_scope_narrowed`), the acting operator, and the time.
-The retraction SHALL run for every caller of the owner's update and destroy actions (UI, API, MCP), and SHALL NOT require the operator to hold the plugin-management permission. A credential rule covers an assignment when its edge scope matches the assignment's agent, the agent's gateway, or the assignment's authenticated partition. A target policy covers an assignment when its input definitions resolve to a row owned by the assignment's agent; when they resolve zero rows, no assignment SHALL be disabled, and when resolving them fails, the owner change SHALL fail. Enabling an assignment again SHALL clear its recorded reason, actor and time.
+The retraction SHALL run for every caller of the owner's update and destroy actions (UI, API, MCP), and SHALL NOT require the operator to hold the plugin-management permission. A credential rule covers an assignment when its edge scope matches the assignment's agent, the agent's gateway, or the assignment's authenticated partition. A target policy covers an assignment when its input definitions resolve to a row owned by the assignment's agent; when they resolve zero rows, no assignment SHALL be disabled, and when resolving them fails, the owner change SHALL fail. Enabling an assignment again SHALL clear its recorded reason, actor and time. A reconcile that loaded the owner before the change SHALL NOT write the assignment back enabled: the assignment store SHALL check, in the same transaction and under a lock on the owner row, that the owner still exists, is enabled, and (for a credential rule) covers the agent before it writes an enabled policy-owned assignment.
 
 #### Scenario: Disabling a credential rule
 - **GIVEN** an enabled credential rule with enabled assignments on agents `agent-a` and `agent-b`
@@ -40,6 +40,11 @@ The retraction SHALL run for every caller of the owner's update and destroy acti
 - **GIVEN** a target policy with an enabled assignment on agent `agent-a`
 - **WHEN** an operator deletes the policy
 - **THEN** the assignment is disabled with the reason `owner_deleted`
+
+#### Scenario: A stale reconcile does not undo the retraction
+- **GIVEN** a reconcile that loaded target policy `p` while it was enabled
+- **WHEN** an operator disables `p`, its assignment is retracted, and the reconcile then writes the assignment back enabled
+- **THEN** the write is refused and the assignment stays disabled with the reason `owner_disabled`
 
 #### Scenario: Narrowing an owner's scope
 - **GIVEN** an enabled credential rule scoped to partition `site-1` with enabled assignments on `agent-a` and `agent-b` in that partition

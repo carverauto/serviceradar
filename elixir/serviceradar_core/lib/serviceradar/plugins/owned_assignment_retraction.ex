@@ -28,6 +28,15 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
   of the orphan report. As in `PolicyAssignmentReconciler`, a resolution with
   no rows means the targets are unknown and retracts nothing.
 
+  Retraction alone would not hold: a reconcile that loaded an owner just before
+  it was disabled or narrowed could re-enable the assignment right after the
+  owner action retracted it, and no later reconcile would visit that owner
+  again. `admit_enabled_assignment/3` closes that window. The assignment store
+  of `PolicyAssignmentReconciler` calls it before writing an enabled row, in
+  the same transaction, holding a share lock on the owner row. An owner update
+  therefore either waits for that write and then retracts the new row, or
+  commits first and the write is refused.
+
   Owners are always read as the system: an operator who may manage plugins but
   not credentials must not see a rule they cannot read as missing.
   """
@@ -89,14 +98,12 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
   Retracts the enabled assignments of an enabled owner whose agent the owner no
   longer covers, with the reason `owner_scope_narrowed`.
 
-  `opts[:resolver]` resolves a target policy's input definitions (default
-  `SRQLInputResolver`). A resolver error is returned and fails the owner action.
+  A target policy's input definitions are resolved with `SRQLInputResolver`; a
+  resolver error is returned and fails the owner action.
   """
-  @spec retract_uncovered(owner_kind(), map(), term(), keyword()) ::
+  @spec retract_uncovered(owner_kind(), map(), term()) ::
           {:ok, [Notification.t()]} | {:error, term()}
-  def retract_uncovered(kind, owner, actor, opts \\ [])
-
-  def retract_uncovered(:credential_rule, rule, actor, _opts) do
+  def retract_uncovered(:credential_rule, rule, actor) do
     with {:ok, rows} <- enabled_owned_assignments(:credential_rule, rule.id),
          {:ok, gateways} <- agent_gateways(rows, [rule]) do
       rows
@@ -105,10 +112,8 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     end
   end
 
-  def retract_uncovered(:plugin_target_policy, policy, actor, opts) do
-    resolver = Keyword.get(opts, :resolver, SRQLInputResolver)
-
-    with {:ok, resolved} <- resolver.resolve(policy.input_definitions || [], opts),
+  def retract_uncovered(:plugin_target_policy, policy, actor) do
+    with {:ok, resolved} <- SRQLInputResolver.resolve(policy.input_definitions || []),
          {:ok, rows} <- enabled_owned_assignments(:plugin_target_policy, policy.id) do
       if resolved_row_count(resolved) == 0 do
         log_unresolved_hold(policy, rows)
@@ -135,29 +140,13 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
   def list_orphaned_assignments do
     actor = system_actor()
 
-    with {:ok, rows} <- enabled_policy_assignments(actor),
-         owned = owned_rows(rows),
-         {:ok, rules} <-
-           load_by_id(NetworkCredentialRule, owner_ids(owned, :credential_rule), actor),
-         {:ok, policies} <-
-           load_by_id(PluginTargetPolicy, owner_ids(owned, :plugin_target_policy), actor),
-         {:ok, gateways} <- agent_gateways(owned_by(owned, :credential_rule), Map.values(rules)) do
-      orphans =
-        Enum.flat_map(owned, fn {row, ref} ->
-          owner = owner_record(ref, rules, policies)
-
-          case owner_state(ref.kind, owner, row, gateways) do
-            :covered -> []
-            state -> [{row, ref, owner, state}]
-          end
-        end)
-
-      with {:ok, packages} <- load_packages(orphans, actor) do
-        {:ok,
-         orphans
-         |> Enum.map(&to_orphan(&1, packages))
-         |> Enum.sort_by(&{&1.owner_kind, &1.owner_id, &1.agent_uid, &1.plugin_id})}
-      end
+    with {:ok, rows} <- read_enabled_policy_assignments(:all, nil),
+         {:ok, orphans} <- orphans_among(rows, nil),
+         {:ok, packages} <- load_packages(orphans, actor) do
+      {:ok,
+       orphans
+       |> Enum.map(&to_orphan(&1, packages))
+       |> Enum.sort_by(&{&1.owner_kind, &1.owner_id, &1.agent_uid, &1.plugin_id})}
     end
   end
 
@@ -165,44 +154,63 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
   Retracts orphaned assignments selected by an operator, with the reason
   `orphaned_owner_cleanup`. `:all` retracts every current orphan.
 
-  The selection is re-checked against the current orphan list, so an id whose
-  owner covers it again, or which is not an orphan at all, is left alone. The
-  update is authorized as `actor` and either every selected row is retracted or
-  none is.
+  Eligibility is decided inside the transaction that retracts: the selected
+  assignment rows are locked, their owners are share-locked and classified
+  again, and only rows that are still orphans are retracted. An id whose owner
+  covers it again, or that a reconcile handed to another owner, is left alone,
+  and the result counts the rows actually retracted. The update is authorized
+  as `actor`; either every eligible row is retracted or none is.
   """
   @spec retract_orphaned_assignments([String.t()] | :all, term()) ::
           {:ok, %{retracted: non_neg_integer()}} | {:error, term()}
   def retract_orphaned_assignments(selection, actor) do
-    with {:ok, orphans} <- list_orphaned_assignments(),
-         ids = selected_ids(orphans, selection),
-         {:ok, notifications} <- retract_ids_in_transaction(ids, actor) do
-      _unsent = Ash.Notifier.notify(notifications)
-      {:ok, %{retracted: length(ids)}}
-    end
-  end
-
-  defp selected_ids(orphans, :all), do: Enum.map(orphans, & &1.assignment_id)
-
-  defp selected_ids(orphans, ids) when is_list(ids) do
-    wanted = MapSet.new(ids, &to_string/1)
-
-    orphans
-    |> Enum.map(& &1.assignment_id)
-    |> Enum.filter(&MapSet.member?(wanted, &1))
-  end
-
-  defp retract_ids_in_transaction([], _actor), do: {:ok, []}
-
-  defp retract_ids_in_transaction(ids, actor) do
-    Repo.transaction(fn ->
-      with {:ok, rows} <- read_assignments(ids, system_actor()),
+    fn ->
+      with {:ok, rows} <- read_enabled_policy_assignments(selection, "FOR UPDATE"),
+           {:ok, orphans} <- orphans_among(rows, "FOR SHARE"),
+           orphan_rows = Enum.map(orphans, fn {row, _ref, _owner, _state} -> row end),
            {:ok, notifications} <-
-             retract_rows(rows, :orphaned_owner_cleanup, actor_label(actor), actor) do
-        notifications
+             retract_rows(orphan_rows, :orphaned_owner_cleanup, actor_label(actor), actor) do
+        {length(orphan_rows), notifications}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
-    end)
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {count, notifications}} ->
+        _unsent = Ash.Notifier.notify(notifications)
+        {:ok, %{retracted: count}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Whether the owner named by `policy_id` still admits an enabled assignment on
+  this agent and partition.
+
+  Call it inside the transaction that writes the enabled row: it takes a share
+  lock on the owner row, so an owner update cannot commit between this check
+  and that write. A `policy_id` that names neither a credential rule nor a
+  target policy is not this module's to judge and is admitted.
+  """
+  @spec admit_enabled_assignment(String.t() | nil, String.t(), String.t() | nil) ::
+          :ok | {:error, {:assignment_owner_not_current, owner_state()}} | {:error, term()}
+  def admit_enabled_assignment(policy_id, agent_uid, partition_id) do
+    case OwnerReference.parse(policy_id) do
+      {:ok, ref} ->
+        row = %{agent_uid: agent_uid, partition_id: partition_id}
+
+        case orphans_among([{row, ref}], "FOR SHARE") do
+          {:ok, []} -> :ok
+          {:ok, [{_row, _ref, _owner, state}]} -> {:error, {:assignment_owner_not_current, state}}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, _not_an_owner} ->
+        :ok
+    end
   end
 
   defp retract_rows(rows, reason, disabled_by, actor) do
@@ -246,24 +254,62 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     )
   end
 
-  defp enabled_policy_assignments(actor) do
+  defp read_enabled_policy_assignments(selection, lock) do
+    actor = system_actor()
+
     PluginAssignment
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(source == :policy and enabled == true and not is_nil(policy_id))
+    |> filter_selection(selection)
+    |> maybe_lock(lock)
     |> Ash.read(actor: actor)
   end
 
-  defp read_assignments(ids, actor) do
-    PluginAssignment
-    |> Ash.Query.for_read(:read, %{}, actor: actor)
-    |> Ash.Query.filter(id in ^ids and enabled == true)
-    |> Ash.read(actor: actor)
+  defp filter_selection(query, :all), do: query
+
+  defp filter_selection(query, ids) when is_list(ids) do
+    ids = Enum.map(ids, &to_string/1)
+    Ash.Query.filter(query, id in ^ids)
+  end
+
+  defp maybe_lock(query, nil), do: query
+  defp maybe_lock(query, lock), do: Ash.Query.lock(query, lock)
+
+  # Classifies assignment rows (or `{row, owner_ref}` pairs) by their owner and
+  # returns the ones the owner no longer admits, as `{row, ref, owner, state}`.
+  # `lock` share-locks the owner rows for the caller's transaction.
+  defp orphans_among(rows, lock) do
+    owned = owned_rows(rows)
+    actor = system_actor()
+
+    with {:ok, rules} <-
+           load_by_id(NetworkCredentialRule, owner_ids(owned, :credential_rule), actor, lock),
+         {:ok, policies} <-
+           load_by_id(PluginTargetPolicy, owner_ids(owned, :plugin_target_policy), actor, lock),
+         {:ok, gateways} <- agent_gateways(owned_by(owned, :credential_rule), Map.values(rules)) do
+      {:ok,
+       Enum.flat_map(owned, fn {row, ref} ->
+         owner = owner_record(ref, rules, policies)
+
+         case owner_state(ref.kind, owner, row, gateways) do
+           :covered -> []
+           state -> [{row, ref, owner, state}]
+         end
+       end)}
+    end
   end
 
   defp owned_rows(rows) do
-    for row <- rows,
-        {:ok, ref} <- [OwnerReference.parse(row.policy_id)],
-        do: {row, ref}
+    Enum.flat_map(rows, fn
+      {row, ref} ->
+        [{row, ref}]
+
+      row ->
+        case OwnerReference.parse(row.policy_id) do
+          {:ok, ref} -> [{row, ref}]
+          {:error, _not_an_owner} -> []
+        end
+    end)
   end
 
   defp owned_by(owned, kind) do
@@ -277,12 +323,13 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     |> Enum.uniq()
   end
 
-  defp load_by_id(_resource, [], _actor), do: {:ok, %{}}
+  defp load_by_id(_resource, [], _actor, _lock), do: {:ok, %{}}
 
-  defp load_by_id(resource, ids, actor) do
+  defp load_by_id(resource, ids, actor, lock) do
     resource
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(id in ^ids)
+    |> maybe_lock(lock)
     |> Ash.read(actor: actor)
     |> case do
       {:ok, records} -> {:ok, Map.new(records, &{to_string(&1.id), &1})}

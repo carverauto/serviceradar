@@ -49,7 +49,13 @@ disabled rule is refused, but the assignment itself stayed enabled.
   any periodic job. Core reports them, and an operator with
   `settings.plugins.manage` retracts a selected set or all of them from the
   plugins page with the reason `orphaned_owner_cleanup`.
-- The periodic reconcilers are unchanged.
+- The reconcilers' assignment store checks, under a share lock on the owner
+  row and in the write's transaction, that the owner still admits an enabled
+  assignment before writing it. A reconcile that loaded the owner before it
+  changed can therefore not write a retracted assignment back. Orphan cleanup
+  decides eligibility under the same locks.
+- The periodic reconcilers still load only enabled owners and never retract a
+  disabled owner's assignments on their own.
 
 ## Impact
 - Affected specs: `wasm-plugin-system`

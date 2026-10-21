@@ -17,9 +17,11 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetractionDbTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.OwnedAssignmentRetraction
   alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
+  alias ServiceRadar.Plugins.PolicyAssignmentReconciler.AshStore
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
@@ -105,6 +107,39 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetractionDbTest do
                assignment(dropped)
 
       assert by == ctx.credential_operator.id
+    end
+  end
+
+  describe "reconcile after an owner change" do
+    test "the assignment store will not re-enable what the owner retracted", ctx do
+      partition = "SITE04-#{ctx.unique}"
+      policy = policy!(ctx, [])
+      id = assignment!(ctx, to_string(policy.id), partition)
+
+      policy
+      |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: ctx.plugin_operator)
+      |> Ash.update!()
+
+      # A reconcile that loaded the policy while it was still enabled now
+      # writes its desired row back.
+      retracted = Ash.get!(PluginAssignment, id, actor: @system)
+
+      spec = %{
+        assignment_key: retracted.source_key,
+        agent_uid: retracted.agent_uid,
+        partition_id: partition,
+        plugin_package_id: ctx.package.id,
+        enabled: true,
+        interval_seconds: 60,
+        timeout_seconds: 10,
+        params: %{},
+        metadata: %{"policy_id" => to_string(policy.id)}
+      }
+
+      assert {:error, {:assignment_owner_not_current, :disabled}} =
+               AshStore.update_assignment(retracted, spec, @system)
+
+      assert %{enabled: false, disabled_reason: "owner_disabled"} = assignment(id)
     end
   end
 
@@ -300,6 +335,8 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetractionDbTest do
       actor: @system
     )
     |> Ash.create!()
+    |> Ash.Changeset.for_update(:approve, %{approved_by: "example-reviewer"}, actor: @system)
+    |> Ash.update!()
   end
 
   defp rule!(ctx, attrs) do
