@@ -23,13 +23,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.IntegrationCatalog
-  alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadar.Plugins.PluginPackageOrder
+  alias ServiceRadar.Plugins.LatestApprovedPluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
-
-  require Ash.Query
 
   @reconcile_telemetry_event [:serviceradar, :credential_rules, :reconcile]
   @policy_recovery_executor SystemActor.system(:plugin_policy_assignment_recovery_executor)
@@ -728,24 +725,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp approved_plugin_package(plugin_id, actor, opts) do
     case Keyword.fetch(opts, :plugin_package) do
-      {:ok, package} ->
-        {:ok, package}
-
-      :error ->
-        PluginPackage
-        |> Ash.Query.for_read(:approved, %{}, actor: actor)
-        |> Ash.Query.filter(plugin_id == ^plugin_id)
-        |> Ash.read(actor: actor)
-        |> case do
-          {:ok, packages} when is_list(packages) and packages != [] ->
-            {:ok, PluginPackageOrder.latest(packages)}
-
-          {:ok, []} ->
-            {:error, {:plugin_package_not_found, plugin_id}}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+      {:ok, package} -> {:ok, package}
+      :error -> LatestApprovedPluginPackage.resolve(plugin_id, actor: actor)
     end
   end
 

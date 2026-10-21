@@ -10,6 +10,7 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Plugins.IntegrationDescriptor
+  alias ServiceRadar.Plugins.LatestApprovedPluginPackage
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -145,7 +146,7 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
 
   defp latest_package_versions(packages) do
     packages
-    |> Enum.sort(&newer_package?/2)
+    |> LatestApprovedPluginPackage.newest_first()
     |> Enum.uniq_by(&(value(&1, :plugin_id) || get_in(value(&1, :manifest) || %{}, ["id"])))
   end
 
@@ -165,42 +166,6 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
       _ -> profile
     end
   end
-
-  defp newer_package?(left, right) do
-    case compare_versions(package_version(left), package_version(right)) do
-      :gt -> true
-      :lt -> false
-      :eq -> package_tiebreaker(left) >= package_tiebreaker(right)
-    end
-  end
-
-  defp package_version(package) do
-    version = value(package, :version) || get_in(value(package, :manifest) || %{}, ["version"])
-
-    case version do
-      value when is_binary(value) ->
-        case Version.parse(String.trim_leading(value, "v")) do
-          {:ok, parsed} -> {:valid, parsed}
-          :error -> :invalid
-        end
-
-      _ ->
-        :invalid
-    end
-  end
-
-  defp compare_versions({:valid, left}, {:valid, right}), do: Version.compare(left, right)
-  defp compare_versions({:valid, _left}, :invalid), do: :gt
-  defp compare_versions(:invalid, {:valid, _right}), do: :lt
-  defp compare_versions(:invalid, :invalid), do: :eq
-
-  defp package_tiebreaker(package) do
-    {timestamp(value(package, :approved_at)), timestamp(value(package, :inserted_at)),
-     to_string(value(package, :id) || "")}
-  end
-
-  defp timestamp(%DateTime{} = value), do: DateTime.to_unix(value, :microsecond)
-  defp timestamp(_value), do: 0
 
   defp validate_unique_claims(catalog) do
     with :ok <- unique_claim(catalog.credential_profiles, "provider", :duplicate_plugin_provider),

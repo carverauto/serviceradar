@@ -28,8 +28,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyAutoApproval do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Plugins.LatestApprovedPluginPackage
   alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadar.Plugins.PluginPackageOrder
   alias ServiceRadarWebNG.Plugins.GrantCeiling
   alias ServiceRadarWebNG.Plugins.Repositories
 
@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyAutoApproval do
     |> Ash.read(actor: actor())
     |> case do
       {:ok, packages} ->
-        case PluginPackageOrder.latest(packages) do
+        case LatestApprovedPluginPackage.latest(packages) do
           nil -> {:hold, "first_version", %{}}
           prior -> {:ok, prior}
         end

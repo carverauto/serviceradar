@@ -10,6 +10,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+  alias ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy
   alias ServiceRadar.Plugins.Changes.BindAssignmentPartition
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
@@ -28,7 +29,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     :timeout_seconds,
     :params,
     :permissions_override,
-    :resources_override
+    :resources_override,
+    :update_policy,
+    :update_policy_source
   ]
 
   @create_fields [:agent_uid, :plugin_package_id | @mutable_fields]
@@ -86,6 +89,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change BindAssignmentPartition
       change SetAssignmentPluginId
       change ApplyConfigDefaults
+      change ApplyPluginUpdatePolicy
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate ServiceRadar.Plugins.Validations.NoShadowedManualAssignment
@@ -101,6 +105,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change RejectLegacyUnboundAssignmentMutation
       change SetAssignmentPluginId
       change ApplyConfigDefaults
+      change ApplyPluginUpdatePolicy
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate AssignmentParams
@@ -196,6 +201,27 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :update_policy, :atom do
+      allow_nil? false
+      public? true
+      default :pinned
+      constraints one_of: [:track_latest_approved, :pinned]
+
+      description """
+      Whether a manual assignment follows the latest approved package of its
+      plugin or keeps its selected package. Policy-materialized rows follow
+      their owner instead; see ServiceRadar.Plugins.PluginUpdatePolicy.
+      """
+    end
+
+    attribute :update_policy_source, :atom do
+      allow_nil? false
+      public? true
+      default :operator
+      constraints one_of: [:migration_default, :operator]
+      description "Who chose update_policy; only migration_default rows are backfilled."
     end
 
     create_timestamp :inserted_at
