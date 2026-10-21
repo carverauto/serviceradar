@@ -721,10 +721,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       {:ok, package, false}
     else
       package
-      |> Ash.Changeset.for_update(
-        :update,
-        Map.take(attrs, [:source_release_tag, :source_oci_ref, :source_metadata])
-      )
+      |> Ash.Changeset.for_update(:update, Map.take(attrs, [:source_release_tag]))
       |> update_resource_with_opts(ash_opts)
       |> case do
         {:ok, updated} -> {:ok, updated, false}

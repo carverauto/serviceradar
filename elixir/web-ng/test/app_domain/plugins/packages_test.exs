@@ -429,6 +429,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.source_release_tag == "v1.0.2"
     assert package.source_bundle_digest == original.source_bundle_digest
     assert package.wasm_object_key == original.wasm_object_key
+    assert package.source_metadata == original.source_metadata
 
     assert {:ok, %{imported: 0, skipped: 1, failed: []}} =
              Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.2"])
