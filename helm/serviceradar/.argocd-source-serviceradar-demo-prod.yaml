@@ -6,3 +6,5 @@ helm:
   - name: image.name
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
     forcestring: true
+  - name: webNg.obanQueues.alerts
+    value: "0"
