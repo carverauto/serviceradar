@@ -135,7 +135,7 @@ kubectl get secret serviceradar-secrets -n serviceradar \
     -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
-To store telemetry in StarRocks, deploy a StarRocks cluster with the [StarRocks Kubernetes operator](https://github.com/StarRocks/starrocks-kubernetes-operator) (the profiles ServiceRadar is tested with are in [k8s/starrocks/](k8s/starrocks/)), then point the chart at its frontend in `my-values.yaml`. The shared-data profile keeps the tables in an S3-compatible bucket, and the chart creates the StarRocks storage volume for it; the Secret holds `access_key_id` and `secret_access_key`:
+To store telemetry in StarRocks, deploy a StarRocks cluster with the [StarRocks Kubernetes operator](https://github.com/StarRocks/starrocks-kubernetes-operator) (the profiles ServiceRadar is tested with are in [k8s/starrocks/](k8s/starrocks/)), then point the chart at its frontend in `my-values.yaml`. The shared-data profile keeps the tables in an S3-compatible bucket, and the chart creates the StarRocks storage volume for it; the Secret holds `access_key_id` and `secret_access_key`. Either profile also needs `catalog.fePasswordSecretName`: a Secret in the ServiceRadar release namespace whose `password` key holds the StarRocks Frontend root password, the same value as the StarRocks operator's `initPassword` Secret (see [Frontend root password](k8s/starrocks/README.md#frontend-root-password)):
 
 ```yaml
 analytics:
@@ -144,6 +144,8 @@ analytics:
     profile: sharedData          # or sharedNothing for local disks
     fe:
       service: starrocks-fe-service.starrocks.svc
+    catalog:
+      fePasswordSecretName: starrocks-fe-root-password
     sharedData:
       objectStorageBucket: serviceradar-warehouse
       objectStorageEndpoint: https://s3.example.com
