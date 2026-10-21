@@ -1,6 +1,6 @@
 {
   "name": "@carverauto/create-dashboard",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "npm-create scaffolder for ServiceRadar dashboards. `npm create @carverauto/dashboard <name>` forwards to `serviceradar-cli dashboard init`.",
   "type": "module",
   "license": "UNLICENSED",
@@ -28,6 +28,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@carverauto/serviceradar-cli": "^0.1.4"
+    "@carverauto/serviceradar-cli": "^0.2.2"
   }
 }
