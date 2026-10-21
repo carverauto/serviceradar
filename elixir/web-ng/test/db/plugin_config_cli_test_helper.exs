@@ -1,4 +1,4 @@
-# Run against the guarded lifecycle's quiescent serial_0 scratch clone.
+# Run against the guarded lifecycle's dedicated plugin CLI clone.
 Code.require_file("../test_helper.exs", __DIR__)
 
 ExUnit.configure(exclude: [:test], include: [:web_ng_shared_fixture_db], max_cases: 1)
