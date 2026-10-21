@@ -216,9 +216,10 @@ jobs:
     #
     # No Socket Firewall here, deliberately. cargo audit downloads no crate -- it reads
     # the advisory database and crates.io index metadata -- so there is nothing for
-    # Socket to vet. And its MITM certificate is not in the trust store cargo-audit's
-    # HTTP client uses, so under `sfw` every index lookup fails TLS verification and the
-    # yanked check cannot run.
+    # Socket to vet. And cargo-audit's HTTP client does not trust the sfw proxy's
+    # certificate: run locally under `sfw`, every crates.io index lookup failed TLS
+    # verification (UnknownIssuer) and the run stalled, so the yanked check could not
+    # run. The script fails in that case rather than passing.
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
