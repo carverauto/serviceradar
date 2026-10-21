@@ -80,7 +80,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
           resolver: __MODULE__.Resolver,
           planner: __MODULE__.Planner,
           store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore),
-          agent_scope: Keyword.get(opts, :agent_scope)
+          agent_scope: Keyword.get(opts, :agent_scope),
+          # The rows are the enabled controller list itself, not a target
+          # query result: an empty list means every controller was removed or
+          # disabled, so its assignments must be retracted.
+          hold_unresolved_targets: false
         ]
 
         reconcile_opts =

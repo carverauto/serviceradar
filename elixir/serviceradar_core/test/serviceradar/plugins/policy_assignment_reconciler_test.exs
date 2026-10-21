@@ -33,6 +33,24 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
   end
 
+  defmodule RowsResolver do
+    @moduledoc false
+    # Resolves the target query to exactly the rows the test passes in
+    # `:target_rows`, so a test can shrink or empty the resolution between
+    # reconciles.
+    def resolve(_input_defs, opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: "devices",
+           query: "in:devices vendor:Example",
+           rows: Keyword.fetch!(opts, :target_rows)
+         }
+       ]}
+    end
+  end
+
   defmodule MemoryStore do
     @moduledoc false
     @behaviour PolicyAssignmentReconciler
@@ -484,5 +502,105 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
 
     assert ^tonka_assignment =
              Enum.find(MemoryStore.rows(), &(&1.id == tonka_assignment.id))
+  end
+
+  describe "target query resolution" do
+    setup do
+      policy = %{
+        policy_id:
+          "network-credential-rule:00000000-0000-4000-8000-0000000000c1:camera_inventory",
+        policy_version: 1,
+        plugin_package_id: Ecto.UUID.generate(),
+        params_template: %{},
+        enabled: true
+      }
+
+      assert {:ok, %{upserted: 1}} =
+               reconcile_targets(policy, [target_row("agent-a", "192.0.2.10")])
+
+      %{policy: policy}
+    end
+
+    test "an empty resolution keeps enabled assignments and reports targets_unresolved", %{
+      policy: policy
+    } do
+      handler_id = {__MODULE__, make_ref()}
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :plugins, :policy_assignments, :targets_unresolved],
+          fn _event, measurements, metadata, _config ->
+            send(test_pid, {:targets_unresolved, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, stats} = reconcile_targets(policy, [])
+
+      assert stats.disabled == 0
+      assert stats.upserted == 0
+      assert stats.held == 1
+      assert stats.hold_reason == :targets_unresolved
+      assert [%{agent_uid: "agent-a", enabled: true}] = MemoryStore.rows()
+
+      policy_id = policy.policy_id
+
+      assert_receive {:targets_unresolved, %{held: 1},
+                      %{policy_id: ^policy_id, agent_uids: ["agent-a"]}}
+    end
+
+    test "a non-empty resolution that excludes an assignment still retracts it", %{
+      policy: policy
+    } do
+      assert {:ok, stats} = reconcile_targets(policy, [target_row("agent-b", "192.0.2.11")])
+
+      assert stats.disabled == 1
+      assert stats.held == 0
+      assert stats.hold_reason == nil
+      assert %{enabled: false} = Enum.find(MemoryStore.rows(), &(&1.agent_uid == "agent-a"))
+      assert %{enabled: true} = Enum.find(MemoryStore.rows(), &(&1.agent_uid == "agent-b"))
+    end
+
+    test "a disabled policy retracts even when its targets resolve empty", %{policy: policy} do
+      assert {:ok, stats} = reconcile_targets(%{policy | enabled: false}, [])
+
+      assert stats.disabled == 1
+      assert stats.held == 0
+      assert [%{agent_uid: "agent-a", enabled: false}] = MemoryStore.rows()
+    end
+
+    test "an empty resolution with only disabled assignments still reports targets_unresolved",
+         %{policy: policy} do
+      assert {:ok, %{disabled: 1}} = reconcile_targets(%{policy | enabled: false}, [])
+
+      assert {:ok, stats} = reconcile_targets(policy, [], agent_scope: ["agent-a"])
+
+      assert stats.held == 0
+      assert stats.disabled == 0
+      assert stats.hold_reason == :targets_unresolved
+      assert [%{agent_uid: "agent-a", enabled: false}] = MemoryStore.rows()
+    end
+  end
+
+  defp reconcile_targets(policy, rows, opts \\ []) do
+    PolicyAssignmentReconciler.reconcile(
+      policy,
+      [],
+      [
+        resolver: RowsResolver,
+        target_rows: rows,
+        store: MemoryStore,
+        partition_resolver: fn _agent_uid -> {:ok, "site01"} end,
+        generated_at: "2026-10-20T00:00:00Z"
+      ] ++ opts
+    )
+  end
+
+  defp target_row(agent_uid, ip) do
+    %{"uid" => "sr:device:#{ip}", "agent_id" => agent_uid, "ip" => ip}
   end
 end

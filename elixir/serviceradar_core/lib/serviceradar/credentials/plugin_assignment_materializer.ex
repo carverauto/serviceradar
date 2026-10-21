@@ -909,9 +909,18 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       upserted: acc.upserted + Map.get(result, :upserted, 0),
       unchanged: acc.unchanged + Map.get(result, :unchanged, 0),
       disabled: acc.disabled + Map.get(result, :disabled, 0),
-      skips: merge_skips(acc.skips, Map.get(result, :skips, %{}))
+      skips:
+        acc.skips |> merge_skips(Map.get(result, :skips, %{})) |> merge_skips(hold_skip(result))
     }
   end
+
+  # The reconciler kept this rule's enabled assignments because its target
+  # query resolved no rows. Surface that as a skip reason so the reconcile
+  # worker's summary line and the reconcile telemetry name it.
+  defp hold_skip(%{hold_reason: reason}) when is_atom(reason) and not is_nil(reason),
+    do: %{reason => 1}
+
+  defp hold_skip(_result), do: %{}
 
   defp add_summaries(acc, summary) do
     %{
