@@ -206,7 +206,11 @@ async function main() {
     }
     unhealthy = true
     const beforeTelemetry = requests.length
-    await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.overlays.poll())
+    await page.evaluate(async () => {
+      const {overlays} = window.__SR_WORLD_TRANSPORT__.renderer
+      while (overlays.polling) await overlays.polling
+      await overlays.poll()
+    })
     assert.equal(requests.length, beforeTelemetry, "telemetry must not refetch geometry")
     const unavailable = await page.evaluate(() => {
       const {overlays} = window.__SR_WORLD_TRANSPORT__.renderer
