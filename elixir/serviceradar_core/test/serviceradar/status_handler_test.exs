@@ -315,7 +315,12 @@ defmodule ServiceRadar.StatusHandlerTest do
         )
 
       on_exit(fn ->
-        if Process.alive?(lane), do: :sys.resume(lane)
+        try do
+          :sys.resume(lane)
+        catch
+          :exit, _reason -> :ok
+        end
+
         :telemetry.detach(handler_id)
       end)
 

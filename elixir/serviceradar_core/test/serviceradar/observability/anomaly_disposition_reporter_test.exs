@@ -82,8 +82,7 @@ defmodule ServiceRadar.Observability.AnomalyDispositionReporterTest do
     # Per-test reporter instance with the stub runner injected (no DB), under a unique
     # name so it never collides with the application-started reporter.
     name = :"disp_reporter_#{System.unique_integer([:positive])}"
-    {:ok, pid} = Reporter.start_link(name: name, report_opts: [runner: StubRunner])
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    _pid = start_supervised!({Reporter, name: name, report_opts: [runner: StubRunner]}, id: name)
 
     %{reporter: name}
   end
@@ -202,13 +201,14 @@ defmodule ServiceRadar.Observability.AnomalyDispositionReporterTest do
 
   describe "peak-profile memoization (bounded DB load)" do
     test "reuses one fetch for findings sharing a (metric_class, metric_name)" do
-      {:ok, pid} =
-        Reporter.start_link(
-          name: :"memo_reporter_#{System.unique_integer([:positive])}",
-          report_opts: [runner: CountingRunner, runner_opts: [parent: self()]]
-        )
+      name = :"memo_reporter_#{System.unique_integer([:positive])}"
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      pid =
+        start_supervised!(
+          {Reporter,
+           name: name, report_opts: [runner: CountingRunner, runner_opts: [parent: self()]]},
+          id: name
+        )
 
       # Three findings, same metric -> a single SRQL peak query (one DB round-trip).
       for _ <- 1..3, do: assert(:ok = Reporter.report(finding(92.0), pid))
@@ -263,14 +263,16 @@ defmodule ServiceRadar.Observability.AnomalyDispositionReporterTest do
 
       on_exit(fn -> :telemetry.detach(handler) end)
 
-      {:ok, pid} =
-        Reporter.start_link(
-          name: :"bound_reporter_#{System.unique_integer([:positive])}",
-          max_mailbox: 2,
-          report_opts: [runner: BlockingRunner, runner_opts: [parent: parent]]
-        )
+      name = :"bound_reporter_#{System.unique_integer([:positive])}"
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      pid =
+        start_supervised!(
+          {Reporter,
+           name: name,
+           max_mailbox: 2,
+           report_opts: [runner: BlockingRunner, runner_opts: [parent: parent]]},
+          id: name
+        )
 
       # Finding #1 starts and BLOCKS inside the runner, holding the reporter so the mailbox
       # can build up past the bound.

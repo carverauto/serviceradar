@@ -85,8 +85,10 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
       })
 
     on_exit(fn ->
-      if Process.alive?(pid) do
+      try do
         :gen_statem.stop(reg, :normal, 2_000)
+      catch
+        :exit, _reason -> :ok
       end
     end)
 

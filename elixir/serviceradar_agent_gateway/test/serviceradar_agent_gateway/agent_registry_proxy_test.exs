@@ -149,7 +149,9 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
       end)
 
     on_exit(fn ->
-      if Process.alive?(fake), do: Process.exit(fake, :kill)
+      ref = Process.monitor(fake)
+      Process.exit(fake, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^fake, _reason}
     end)
 
     assert_receive :proxy_replaced, 1_000
@@ -188,16 +190,11 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
         status: :connected
       })
 
-    {:ok, gateway} =
-      GatewayProcess.start_link(
-        gateway_id: "gateway-#{System.unique_integer([:positive])}",
-        partition_id: ctx.partition_id,
-        domain: ctx.domain
+    gateway =
+      start_supervised!(
+        {GatewayProcess,
+         gateway_id: "gateway-#{System.unique_integer([:positive])}", partition_id: ctx.partition_id, domain: ctx.domain}
       )
-
-    on_exit(fn ->
-      if Process.alive?(gateway), do: GenServer.stop(gateway)
-    end)
 
     assert {:ok, %{failed: 1, results: [%{error: :agent_not_found}]}} =
              GatewayProcess.execute_job(gateway, %{
