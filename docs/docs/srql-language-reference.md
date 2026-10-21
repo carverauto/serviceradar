@@ -1119,8 +1119,9 @@ only for an unambiguous plugin name. Disabled assignments remain visible as
 `observed_only`. An enabled assignment whose package submits no scheduled
 results (an `action-only:v1` package without `action-result-ingest:v1`) is
 `expected_inactive` with reason `runtime_results_not_expected`: the agent gives
-it no periodic runner, so older evidence is not a failing runtime. Assignment placeholders appear as `pending` or `ready`, with
-no result timestamp or inferred availability. They are never reported results.
+it no periodic runner, so older evidence is not a failing runtime. Assignment
+placeholders appear as `pending` or `ready`, with no result timestamp or
+inferred availability. They are never reported results.
 
 `stale` compares native evidence age with the configured add-on freshness
 threshold (180 seconds by default). WASM evidence is stale after the greater of
