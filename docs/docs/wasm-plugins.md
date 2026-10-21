@@ -452,7 +452,7 @@ See the [SDKs & Plugin Development](./sdks.md) overview for a summary of the ava
 The plugin lifecycle is operator-facing and gated by an approval step:
 
 1. Upload or import a plugin package in the admin UI.
-2. The package is staged and must be approved before it can be used.
+2. The package is staged and must be approved before it can be used (some first-party updates are approved automatically; see [First-party plugin import](#first-party-plugin-import)).
 3. During review, confirm the requested capabilities, permissions, and resource budget.
 4. Approved packages can be assigned to agents.
 5. Agents download packages only from the ServiceRadar control plane — never directly from GitHub.
@@ -585,7 +585,16 @@ actions so the historical row remains available for investigation.
 
 ### First-party plugin import
 
-ServiceRadar ships first-party Wasm plugins as signed artifacts published by release automation. The Plugins UI can sync a first-party plugin index, verify the referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed plugin storage, and stage the package for normal capability review. Imported first-party packages are not assignable until an authorized operator approves them.
+ServiceRadar ships first-party Wasm plugins as signed artifacts published by release automation. The Plugins UI can sync a first-party plugin index, verify the referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed plugin storage, and stage the package for normal capability review. Imported first-party packages are not assignable until they are approved.
+
+A new version of a first-party plugin is approved automatically, and audited as an automatic approval, when every one of these holds:
+
+- it was imported from the built-in first-party repository (third-party repositories and uploads never qualify);
+- its signature verified;
+- the plugin already has an approved version (a plugin's first version always needs an operator);
+- it requests no capability, allowed domain, network or port, or resource budget beyond the grant of the plugin's latest approved version. Coverage is compared literally, so a wildcard or CIDR that would contain the new value still counts as a widening.
+
+The automatic approval grants exactly what the new version requests. Any other package stays staged, and the reason (including which fields widened) is recorded on the package. Approval never changes which version an assignment runs. Set the Helm value `webNg.firstPartyPluginImport.autoApproveWithinGrant` to `false` to require a manual decision for every import.
 
 ### Third-party plugin repositories
 
