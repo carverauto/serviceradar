@@ -205,6 +205,28 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
              target(rollout, member)
   end
 
+  test "a candidate failure observed by an agent clock far behind the server still fails",
+       ctx do
+    {policy, [member]} = policy_with_members!(ctx, 1)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(policy, ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 0)
+      )
+
+    # Received after the override, stamped with an observation time two hours
+    # before it.
+    observation = %{observed_at: at(ctx, -7_200), digest: "example-behind-#{ctx.unique}"}
+    result!(member, ctx.candidate, "UNKNOWN", at(ctx, 1), observation)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+
+    assert %{state: :rollback_pending, reason_code: "candidate_reported_unhealthy"} =
+             target(rollout, member)
+  end
+
   test "retracting an assignment during a rollout clears its override and cancels its target",
        ctx do
     {policy, [member]} = policy_with_members!(ctx, 1)

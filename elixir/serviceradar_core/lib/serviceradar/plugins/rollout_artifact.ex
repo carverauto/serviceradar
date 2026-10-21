@@ -148,6 +148,15 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   """
   @callback member_id(AddonRolloutTarget.t()) :: term() | nil
 
+  @doc """
+  Locks, `FOR UPDATE`, the rows a coordinator unit may write for the rollout:
+  its owner row (a target policy or profile) and then every member assignment,
+  in id order. Each unit takes them right after the rollout row and before any
+  target row, the order a retraction or an owner disable also takes them in.
+  """
+  @callback lock_members(AddonRollout.t(), [AddonRolloutTarget.t()], actor()) ::
+              :ok | {:error, term()}
+
   # Overrides and promotion.
 
   @doc """

@@ -234,6 +234,41 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def member_id(%AddonRolloutTarget{assignment_id: assignment_id}), do: assignment_id
 
+  @impl true
+  def lock_members(rollout, targets, actor) do
+    ids = targets |> Enum.map(& &1.assignment_id) |> Enum.reject(&is_nil/1)
+
+    with :ok <- lock_owner(rollout, actor) do
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> filter_members(rollout, ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock("FOR UPDATE")
+      |> Ash.read(actor: actor)
+      |> locked()
+    end
+  end
+
+  defp lock_owner(%AddonRollout{source_type: :profile, source_id: owner_id}, actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^owner_id)
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read(actor: actor)
+    |> locked()
+  end
+
+  defp lock_owner(_rollout, _actor), do: :ok
+
+  defp filter_members(query, %AddonRollout{source_type: :profile, source_id: owner_id}, ids),
+    do: Ash.Query.filter(query, id in ^ids or addon_profile_id == ^owner_id)
+
+  defp filter_members(query, %AddonRollout{source_id: source_id}, ids),
+    do: Ash.Query.filter(query, id in ^[source_id | ids])
+
+  defp locked({:ok, _rows}), do: :ok
+  defp locked({:error, reason}), do: {:error, reason}
+
   # Overrides and promotion.
 
   @impl true

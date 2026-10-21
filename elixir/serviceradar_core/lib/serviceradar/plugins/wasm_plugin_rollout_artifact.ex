@@ -89,10 +89,8 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   @on_no_evidence_values [@default_on_no_evidence, "fail"]
   @determinate_statuses ["OK", "WARNING", "CRITICAL"]
 
-  # Bounds the evidence read: the newest stamped results per target, and how far
-  # an agent clock may run behind the server before its results are missed.
+  # Bounds the evidence read to the newest stamped results per target.
   @evidence_rows_per_target 20
-  @agent_clock_skew_seconds 3_600
 
   # How far from its observation's timestamp the ingestor writes a downstream
   # ingest marker, with room to spare.
@@ -247,6 +245,43 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @impl true
   def member_id(%AddonRolloutTarget{plugin_assignment_id: assignment_id}), do: assignment_id
+
+  @impl true
+  def lock_members(rollout, targets, actor) do
+    ids = targets |> Enum.map(& &1.plugin_assignment_id) |> Enum.reject(&is_nil/1)
+
+    with :ok <- lock_owner(rollout, actor) do
+      PluginAssignment
+      |> Ash.Query.for_read(:read)
+      |> filter_members(rollout, ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock("FOR UPDATE")
+      |> Ash.read(actor: actor)
+      |> locked()
+    end
+  end
+
+  defp lock_owner(%AddonRollout{source_type: :target_policy, source_id: owner_id}, actor) do
+    PluginTargetPolicy
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^owner_id)
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read(actor: actor)
+    |> locked()
+  end
+
+  defp lock_owner(_rollout, _actor), do: :ok
+
+  defp filter_members(query, %AddonRollout{source_type: :target_policy} = rollout, ids) do
+    owner_id = to_string(rollout.source_id)
+    Ash.Query.filter(query, id in ^ids or (source == :policy and policy_id == ^owner_id))
+  end
+
+  defp filter_members(query, %AddonRollout{source_id: source_id}, ids),
+    do: Ash.Query.filter(query, id in ^[source_id | ids])
+
+  defp locked({:ok, _rows}), do: :ok
+  defp locked({:error, reason}), do: {:error, reason}
 
   # Overrides and promotion.
 
@@ -516,7 +551,6 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
            ids,
            agents,
            sinces,
-           @agent_clock_skew_seconds,
            @evidence_rows_per_target
          ]) do
       {:ok, %{rows: rows}} -> {:ok, Enum.flat_map(rows, &reported_observation/1)}
@@ -525,10 +559,11 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   end
 
   # Each reported row is one observation. Freshness, order and the limit are the
-  # server's receive time (created_at), comparable with the override time; the
-  # agent-reported timestamp only narrows the index scan. The assignment id must
-  # appear in a row's details for its provenance to name it, which keeps the
-  # rows to the target's own results.
+  # server's receive time (created_at), comparable with the override time. The
+  # agent-reported timestamp bounds nothing: an agent clock running behind would
+  # otherwise hide the very results that decide the target. The assignment id
+  # must appear in a row's details for its provenance to name it, which keeps
+  # the rows to the target's own results.
   defp reported_observations_sql do
     """
     SELECT scope.assignment_id, scope.agent_id, status.created_at, status."timestamp", status.details
@@ -538,12 +573,11 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       FROM platform.service_status AS result
       WHERE result.service_type = 'plugin'
         AND result.agent_id = scope.agent_id
-        AND result."timestamp" >= scope.since - make_interval(secs => $4)
         AND result.created_at >= scope.since
         AND strpos(result.details, scope.assignment_id) > 0
         AND strpos(result.details, '"#{@reported_marker_key}"') > 0
       ORDER BY result.created_at DESC
-      LIMIT $5
+      LIMIT $4
     ) AS status
     """
   end
