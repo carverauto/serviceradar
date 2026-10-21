@@ -46,7 +46,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v5.0.1
         with:
+          # Blobless: full commit history (the merge base and commit ranges this
+          # job needs) without downloading every file version up front, which
+          # made a full clone of this repository take five to six minutes.
+          # Blobs for the files the job actually reads are fetched on demand.
           fetch-depth: 0
+          filter: blob:none
 
       # THE BASE DIFFERS BY EVENT, and getting it wrong makes this step vacuous rather than
       # wrong-looking. On a pull request the target branch is the right comparison. On
