@@ -278,9 +278,12 @@ type PluginEngineSnapshot struct {
 	Assignments []PluginAssignmentLoadStatus
 }
 
-// PluginAssignmentLoadStatus is one assignment's module load state. ContentHash
-// is the SHA-256 of the module bytes the host last loaded successfully, so a
-// rollout can tell which package version is actually running.
+// PluginAssignmentLoadStatus is one assignment's module load state for its
+// current config generation: pending until that generation loads, so the
+// package fields and the load outcome always describe the same config.
+// ContentHash is the SHA-256 of the module bytes that generation loaded, empty
+// unless Status is loaded, so a rollout can tell which package version is
+// actually running.
 type PluginAssignmentLoadStatus struct {
 	AssignmentID   string
 	PluginID       string

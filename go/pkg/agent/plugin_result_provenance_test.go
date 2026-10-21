@@ -142,6 +142,85 @@ func TestPluginEngineTelemetryReportsPerAssignmentModuleLoad(t *testing.T) {
 	}
 }
 
+// A load outcome describes one config generation. Re-applying an assignment
+// with a new package version over the same module bytes must not inherit the
+// old generation's "loaded" status, and a load that completes for a superseded
+// or removed generation must not overwrite or resurrect state.
+func TestPluginAssignmentLoadIsBoundToConfigGeneration(t *testing.T) {
+	module := writeProvenanceTestModule(t, []byte(`{"status":"OK","summary":"example check passed"}`))
+	const assignmentID = "assignment-rollout-1"
+
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:        logger.NewTestLogger(),
+		CacheDir:      t.TempDir(),
+		LocalStoreDir: filepath.Dir(module.path),
+	})
+	t.Cleanup(manager.Stop)
+
+	applyVersion := func(version string) *pluginAssignment {
+		t.Helper()
+		config := provenanceTestAssignment(assignmentID, module.hex, "submit_result", pluginCapabilityActionOnly)
+		config.Version = version
+		manager.ApplyConfig(&proto.PluginConfig{Assignments: []*proto.PluginAssignmentConfig{config}})
+		for _, item := range manager.configuredAssignments() {
+			if item.assignment.AssignmentID == assignmentID {
+				return item.assignment
+			}
+		}
+		t.Fatalf("assignment %s not configured after ApplyConfig", assignmentID)
+		return nil
+	}
+
+	first := applyVersion("2.0.0")
+	if _, err := manager.RunAction(t.Context(), assignmentID, json.RawMessage(`{}`), 5*time.Second); err != nil {
+		t.Fatalf("RunAction 2.0.0: %v", err)
+	}
+	if got := telemetryAssignmentLoads(t, manager)[assignmentID]; got["status"] != pluginLoadStatusLoaded ||
+		got["plugin_version"] != "2.0.0" || got["content_hash"] != module.hex {
+		t.Fatalf("telemetry after 2.0.0 load = %v", got)
+	}
+
+	second := applyVersion("2.1.0")
+	if first.generation == second.generation {
+		t.Fatalf("re-applied config kept generation %q; test cannot distinguish generations", first.generation)
+	}
+	if got := telemetryAssignmentLoads(t, manager)[assignmentID]; got["status"] != pluginLoadStatusPending ||
+		got["plugin_version"] != "2.1.0" || got["content_hash"] != "" {
+		t.Fatalf("telemetry after re-apply = %v, want pending 2.1.0 with no hash", got)
+	}
+
+	// A prefetch for the superseded generation completes late.
+	manager.recordAssignmentLoad(first, pluginModule{contentHash: module.hex}, nil)
+	if got := telemetryAssignmentLoads(t, manager)[assignmentID]; got["status"] != pluginLoadStatusPending {
+		t.Fatalf("stale completion changed current generation telemetry: %v", got)
+	}
+
+	if _, err := manager.RunAction(t.Context(), assignmentID, json.RawMessage(`{}`), 5*time.Second); err != nil {
+		t.Fatalf("RunAction 2.1.0: %v", err)
+	}
+	if got := telemetryAssignmentLoads(t, manager)[assignmentID]; got["status"] != pluginLoadStatusLoaded ||
+		got["plugin_version"] != "2.1.0" || got["content_hash"] != module.hex {
+		t.Fatalf("telemetry after 2.1.0 load = %v", got)
+	}
+
+	// A failure that completes late for the superseded generation must not
+	// overwrite the current generation's success either.
+	manager.recordAssignmentLoad(first, pluginModule{}, errContentHashMismatch)
+	if got := telemetryAssignmentLoads(t, manager)[assignmentID]; got["status"] != pluginLoadStatusLoaded {
+		t.Fatalf("stale failure overwrote current generation telemetry: %v", got)
+	}
+
+	// Once the assignment is removed, a late completion must not recreate state.
+	manager.ApplyConfig(&proto.PluginConfig{})
+	manager.recordAssignmentLoad(second, pluginModule{contentHash: module.hex}, nil)
+	manager.stateMu.Lock()
+	_, resurrected := manager.states[assignmentID]
+	manager.stateMu.Unlock()
+	if resurrected {
+		t.Fatalf("late load for removed assignment recreated its state")
+	}
+}
+
 type provenanceTestModule struct {
 	path string
 	hex  string
