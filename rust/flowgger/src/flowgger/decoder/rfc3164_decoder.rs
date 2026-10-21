@@ -146,25 +146,35 @@ fn decode_rfc_standard(
     // If we have less than 4 tokens, the input can't be valid
     if tokens_vec.len() > 3 {
         // Parse the date, the next token is the hostname
-        let (ts, _log_tokens) = parse_date_token(&tokens_vec, default_timezone)?;
-        let _hostname = _log_tokens
+        let (ts, log_tokens) = parse_date_token(&tokens_vec, default_timezone)?;
+        let first = log_tokens
             .first()
             .copied()
             .ok_or("Malformed RFC3164 standard event: Missing hostname")?;
 
+        // A sender that omits HOSTNAME puts MSG right after the header timestamp.
+        // When MSG starts with its own timestamp, that token is not a hostname:
+        // leave the hostname empty, as for an RFC5424 NILVALUE, and keep the
+        // timestamp in the message.
+        let (hostname, message_tokens) = if rfc3339_to_unix(first).is_ok() {
+            ("", &log_tokens[..])
+        } else {
+            (first, &log_tokens[1..])
+        };
+
         // All that remains is the message that may contain several spaces, so rebuild it
-        let _message = _log_tokens[1..].join(" ");
+        let message = message_tokens.join(" ");
 
         let record = Record {
             ts,
-            hostname: _hostname.to_owned(),
+            hostname: hostname.to_owned(),
             remote_addr: None,
             facility: pri.facility,
             severity: pri.severity,
             appname: None,
             procid: None,
             msgid: None,
-            msg: Some(_message.to_owned()),
+            msg: Some(message),
             full_msg: Some(line.trim_end().to_owned()),
             sd: None,
         };
@@ -708,4 +718,22 @@ fn rfc3164_records_identify_the_format_for_durable_clock_skew_guard() {
     assert!(record.sd.as_ref().is_some_and(|data| data.iter().any(|sd| sd.pairs.iter().any(|(key, value)| {
         key == "_syslog_format" && matches!(value, crate::flowgger::record::SDValue::String(format) if format == "rfc3164")
     }))));
+}
+
+#[test]
+fn rfc3164_timestamp_after_the_header_is_not_a_hostname() {
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n").unwrap();
+    let decoder = RFC3164Decoder::new(&cfg);
+    for line in [
+        "<14>Mar  7 09:15:42 2030-03-07T09:15:42.517Z INFO synthetic worker started",
+        "<14>2030-03-07T09:15:42Z 2030-03-07T09:15:42.517Z INFO synthetic worker started",
+    ] {
+        let record = decoder.decode(line).unwrap();
+        assert_eq!(record.hostname, "", "{line}");
+        assert_eq!(
+            record.msg.as_deref(),
+            Some("2030-03-07T09:15:42.517Z INFO synthetic worker started"),
+            "{line}"
+        );
+    }
 }
