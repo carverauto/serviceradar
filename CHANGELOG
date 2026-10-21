@@ -1,3 +1,29 @@
+# ServiceRadar v1.4.97
+
+v1.4.96 was tagged but never published: its Wasm plugin publish failed
+and the release was stopped before signing. This release ships
+everything listed under v1.4.96, plus the fixes below. Read the
+v1.4.96 Upgrade Notes when upgrading from v1.4.95 or earlier.
+
+## Whats New
+
+**Release and install fixes**
+
+- Fresh installs bootstrapped from the schema baseline finish their
+  migrations again. The baseline no longer carries TimescaleDB's
+  internal compressed-chunk tables, which collided with the tables a
+  later compression migration creates (PR #5826).
+- The Wasm plugin publish downloads each plugin's bundle and signing
+  tool before it runs, so a release no longer fails with "upload
+  signature tool is not executable" (PR #5828).
+
+**Ingestion**
+
+- OCSF event batches are upserted in a fixed `(time, id)` order, so
+  concurrent batches no longer deadlock on the events index, and a
+  failed batch logs the first failing statement instead of the
+  follow-on "transaction aborted" error (PR #5827).
+
 # ServiceRadar v1.4.96
 
 This release fixes StarRocks Stream Load failures that dead-lettered
