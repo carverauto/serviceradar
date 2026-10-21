@@ -4,7 +4,10 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
 
   The active coordinator is chosen via a Postgres advisory lock held on a
   dedicated connection. While the lock is held, coordinator-only children run
-  under `ServiceRadar.Cluster.CoordinatorRuntimeSupervisor`.
+  under `ServiceRadar.Cluster.CoordinatorRuntimeSupervisor`. Leader heartbeats
+  verify that the current backend session still owns the advisory lock using a
+  15-second query timeout and a single retry before demoting on transient query
+  failures.
   """
 
   use GenServer
@@ -17,6 +20,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   @lock_key 42_600_101
   @retry_interval_ms 5_000
   @connection_timeout_ms 5_000
+  @heartbeat_timeout_ms 15_000
   @lock_sql "SELECT pg_try_advisory_lock($1)"
   @unlock_sql "SELECT pg_advisory_unlock($1)"
 
@@ -121,18 +125,31 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   end
 
   defp ensure_lock(%{conn: conn, leader?: true} = state) when is_pid(conn) do
-    case Postgrex.query(conn, @lock_held_sql, [@lock_classid, @lock_objid],
-           timeout: @connection_timeout_ms
-         ) do
+    case query_lock_held(conn) do
       {:ok, %Postgrex.Result{rows: [[true]]}} ->
         state
 
       {:ok, _result} ->
-        Logger.error("Core coordinator lock lost by this database session; demoting",
-          node: Node.self()
+        demote_after_lock_lost(state)
+
+      {:error, reason} ->
+        Logger.warning("Coordinator lock heartbeat failed; retrying before demoting",
+          reason: inspect(reason)
         )
 
-        demote_after_connection_error(state)
+        retry_lock_heartbeat(state)
+    end
+  end
+
+  defp ensure_lock(state), do: state
+
+  defp retry_lock_heartbeat(%{conn: conn} = state) do
+    case query_lock_held(conn) do
+      {:ok, %Postgrex.Result{rows: [[true]]}} ->
+        state
+
+      {:ok, _result} ->
+        demote_after_lock_lost(state)
 
       {:error, reason} ->
         Logger.warning("Coordinator lock heartbeat failed", reason: inspect(reason))
@@ -140,7 +157,19 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
     end
   end
 
-  defp ensure_lock(state), do: state
+  defp query_lock_held(conn) do
+    Postgrex.query(conn, @lock_held_sql, [@lock_classid, @lock_objid],
+      timeout: @heartbeat_timeout_ms
+    )
+  end
+
+  defp demote_after_lock_lost(state) do
+    Logger.error("Core coordinator lock lost by this database session; demoting",
+      node: Node.self()
+    )
+
+    demote_after_connection_error(state)
+  end
 
   defp promote(state) do
     case DynamicSupervisor.start_child(CoordinatorRuntimeSupervisor, coordinator_child_spec()) do
@@ -255,10 +284,17 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   end
 
   @doc false
-  def coordinator_connection_opts(opts, nil), do: opts
-  def coordinator_connection_opts(opts, ""), do: opts
+  def coordinator_connection_opts(opts, host) when is_list(opts) do
+    opts
+    |> apply_coordinator_host(host)
+    |> Keyword.put(:pool_size, 1)
+    |> Keyword.put(:timeout, normalize_heartbeat_timeout(Keyword.get(opts, :timeout)))
+  end
 
-  def coordinator_connection_opts(opts, host) when is_list(opts) and is_binary(host) do
+  defp apply_coordinator_host(opts, nil), do: opts
+  defp apply_coordinator_host(opts, ""), do: opts
+
+  defp apply_coordinator_host(opts, host) when is_binary(host) do
     host = String.trim(host)
 
     cond do
@@ -272,6 +308,11 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
         Keyword.put(opts, :hostname, host)
     end
   end
+
+  defp normalize_heartbeat_timeout(timeout)
+       when is_integer(timeout) and timeout > @heartbeat_timeout_ms, do: timeout
+
+  defp normalize_heartbeat_timeout(_timeout), do: @heartbeat_timeout_ms
 
   defp replace_url_host(url, host) when is_binary(url) do
     case URI.parse(url) do
