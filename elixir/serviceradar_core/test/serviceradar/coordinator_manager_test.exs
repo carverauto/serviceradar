@@ -37,4 +37,20 @@ defmodule ServiceRadar.CoordinatorManagerTest do
     assert Keyword.fetch!(new_opts, :url) ==
              "ecto://serviceradar:secret@cnpg-rw.demo.svc.cluster.local:5432/serviceradar"
   end
+
+  test "coordinator connection enforces single-connection pool and at least a 15s heartbeat timeout" do
+    opts = [
+      hostname: "cnpg-rw.demo.svc.cluster.local",
+      timeout: 5_000,
+      ssl: true
+    ]
+
+    new_opts = CoordinatorManager.coordinator_connection_opts(opts, nil)
+
+    assert Keyword.fetch!(new_opts, :pool_size) == 1
+    assert Keyword.fetch!(new_opts, :timeout) == 15_000
+
+    larger_opts = CoordinatorManager.coordinator_connection_opts([timeout: 30_000], "")
+    assert Keyword.fetch!(larger_opts, :timeout) == 30_000
+  end
 end
