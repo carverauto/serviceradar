@@ -15,7 +15,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     def heartbeat_session(relay_session_id, media_ingest_id, attrs, opts) do
       send(opts[:test_pid], {:heartbeat_session, relay_session_id, media_ingest_id, attrs})
-      {:ok, %{id: relay_session_id, media_ingest_id: media_ingest_id}}
+      Keyword.get(opts, :heartbeat_result, {:ok, %{id: relay_session_id, media_ingest_id: media_ingest_id}})
     end
 
     def close_session(relay_session_id, media_ingest_id, attrs, opts) do
@@ -401,6 +401,66 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
                       status: "closing",
                       playback_state: "closing"
                     }}
+
+    assert :ok =
+             CameraMediaSessionTracker.close_session(
+               session.relay_session_id,
+               session.media_ingest_id,
+               %{reason: "viewer closed device details"}
+             )
+  end
+
+  test "transitions to closing or relay_closed without failure events when persisted session is already closing or closed" do
+    relay_session_id = unique_relay_session_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
+    test_pid = self()
+
+    assert {:ok, session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert_receive {:activate_session, ^relay_session_id, media_ingest_id, _attrs}
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "active"}}
+
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      Map.put(state, :sync_opts,
+        test_pid: test_pid,
+        heartbeat_result: {:error, {:invalid_status, :closing}}
+      )
+    end)
+
+    assert {:ok, closing_session} =
+             CameraMediaSessionTracker.heartbeat(
+               relay_session_id,
+               media_ingest_id,
+               %{last_sequence: 11, sent_bytes: 64}
+             )
+
+    assert closing_session.status == "closing"
+    refute_receive {:telemetry_event, [:serviceradar, :camera_relay, :session, :failed], _, _}, 50
+
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      state
+      |> put_in([:sessions, relay_session_id, :status], "active")
+      |> Map.put(:sync_opts,
+        test_pid: test_pid,
+        heartbeat_result: {:error, {:invalid_status, :closed}}
+      )
+    end)
+
+    assert {:error, :relay_closed} =
+             CameraMediaSessionTracker.heartbeat(
+               relay_session_id,
+               media_ingest_id,
+               %{last_sequence: 12, sent_bytes: 128}
+             )
+
+    refute_receive {:telemetry_event, [:serviceradar, :camera_relay, :session, :failed], _, _}, 50
 
     assert :ok =
              CameraMediaSessionTracker.close_session(

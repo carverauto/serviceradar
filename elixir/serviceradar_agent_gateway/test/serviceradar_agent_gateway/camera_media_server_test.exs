@@ -149,6 +149,76 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
                     %{last_sequence: 13, sent_bytes: 2_048, lease_expires_at_unix: 1_800_000_060}}
   end
 
+  test "maps upstream heartbeat invalid_status closing and closed to drain or relay_closed without raising RPCError" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_fetch_result,
+      %{
+        relay_session_id: "relay-gw-closing-race-1",
+        media_ingest_id: "core-media-closing-race-1",
+        ingress_pid: self(),
+        agent_id: "agent-1"
+      }
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_mark_closing_result,
+      {:ok, %{status: "closing", close_reason: "upstream relay drain"}}
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_heartbeat_result,
+      {:ok, %{status: "closing", lease_expires_at_unix: 1_800_000_060}}
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_forwarder_heartbeat_result,
+      {:error, {:invalid_status, :closing}}
+    )
+
+    closing_ack =
+      CameraMediaServer.heartbeat(
+        %Camera.RelayHeartbeat{
+          relay_session_id: "relay-gw-closing-race-1",
+          media_ingest_id: "core-media-closing-race-1",
+          agent_id: "agent-1",
+          last_sequence: 14,
+          sent_bytes: 4_096
+        },
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+
+    assert closing_ack.accepted == true
+    assert closing_ack.message == "core heartbeat accepted during relay drain"
+
+    assert_receive {:mark_closing, "relay-gw-closing-race-1", "core-media-closing-race-1",
+                    %{close_reason: "upstream relay drain"}}
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_forwarder_heartbeat_result,
+      {:error, {:invalid_status, :closed}}
+    )
+
+    closed_ack =
+      CameraMediaServer.heartbeat(
+        %Camera.RelayHeartbeat{
+          relay_session_id: "relay-gw-closing-race-1",
+          media_ingest_id: "core-media-closing-race-1",
+          agent_id: "agent-1",
+          last_sequence: 15,
+          sent_bytes: 4_096
+        },
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+
+    assert closed_ack.accepted == false
+    assert closed_ack.message == "relay session closed; drain"
+  end
+
   test "marks the gateway relay session closing when upstream upload enters drain" do
     Application.put_env(
       :serviceradar_agent_gateway,

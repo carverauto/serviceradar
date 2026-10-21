@@ -469,8 +469,26 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
            },
            sync_opts(state)
          ) do
-      {:ok, _persisted_session} ->
-        persist_local_heartbeat(state, relay_session_id, updated)
+      {:ok, persisted_session} ->
+        next_updated =
+          if closing_session?(persisted_session) do
+            updated
+            |> Map.put(:status, "closing")
+            |> put_optional_reason(
+              :close_reason,
+              persisted_value(persisted_session, :close_reason, Map.get(updated, :close_reason))
+            )
+          else
+            updated
+          end
+
+        persist_local_heartbeat(state, relay_session_id, next_updated)
+
+      {:error, {:invalid_status, status}} when status in [:closing, "closing"] ->
+        persist_local_heartbeat(state, relay_session_id, Map.put(updated, :status, "closing"))
+
+      {:error, {:invalid_status, status}} when status in [:closed, "closed"] ->
+        {:reply, {:error, :relay_closed}, state}
 
       {:error, reason} ->
         log_session(:warning, "Core camera relay heartbeat failed", updated, %{reason: inspect(reason)})
