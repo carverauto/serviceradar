@@ -154,9 +154,11 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
   Retracts orphaned assignments selected by an operator, with the reason
   `orphaned_owner_cleanup`. `:all` retracts every current orphan.
 
-  Eligibility is decided inside the transaction that retracts: the selected
-  assignment rows are locked, their owners are share-locked and classified
-  again, and only rows that are still orphans are retracted. An id whose owner
+  Eligibility is decided inside the transaction that retracts: the owners of
+  the selected assignments are share-locked first and the assignment rows
+  after them, the same order an owner action and the reconcilers' assignment
+  store take, then the rows are classified again and only those that are still
+  orphans are retracted. An id whose owner
   covers it again, or that a reconcile handed to another owner, is left alone,
   and the result counts the rows actually retracted. The update is authorized
   as `actor`; either every eligible row is retracted or none is.
@@ -165,8 +167,9 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
           {:ok, %{retracted: non_neg_integer()}} | {:error, term()}
   def retract_orphaned_assignments(selection, actor) do
     fn ->
-      with {:ok, rows} <- read_enabled_policy_assignments(selection, "FOR UPDATE"),
-           {:ok, orphans} <- orphans_among(rows, "FOR SHARE"),
+      with {:ok, candidates} <- read_enabled_policy_assignments(selection, nil),
+           {:ok, rows} <- lock_owners_then_assignments(candidates),
+           {:ok, orphans} <- orphans_among(rows, nil),
            orphan_rows = Enum.map(orphans, fn {row, _ref, _owner, _state} -> row end),
            {:ok, notifications} <-
              retract_rows(orphan_rows, :orphaned_owner_cleanup, actor_label(actor), actor) do
@@ -261,6 +264,7 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(source == :policy and enabled == true and not is_nil(policy_id))
     |> filter_selection(selection)
+    |> Ash.Query.sort(id: :asc)
     |> maybe_lock(lock)
     |> Ash.read(actor: actor)
   end
@@ -274,6 +278,36 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
 
   defp maybe_lock(query, nil), do: query
   defp maybe_lock(query, lock), do: Ash.Query.lock(query, lock)
+
+  # Owner rows before assignment rows, as everywhere else that takes both. An
+  # assignment whose owner changed between the unlocked read and its lock is
+  # skipped: its new owner is not locked.
+  defp lock_owners_then_assignments([]), do: {:ok, []}
+
+  defp lock_owners_then_assignments(candidates) do
+    owned = owned_rows(candidates)
+    actor = system_actor()
+    owner_of = Map.new(candidates, &{&1.id, &1.policy_id})
+
+    with {:ok, _rules} <-
+           load_by_id(
+             NetworkCredentialRule,
+             owner_ids(owned, :credential_rule),
+             actor,
+             "FOR SHARE"
+           ),
+         {:ok, _policies} <-
+           load_by_id(
+             PluginTargetPolicy,
+             owner_ids(owned, :plugin_target_policy),
+             actor,
+             "FOR SHARE"
+           ),
+         {:ok, rows} <-
+           read_enabled_policy_assignments(Map.keys(owner_of), "FOR UPDATE") do
+      {:ok, Enum.filter(rows, &(Map.get(owner_of, &1.id) == &1.policy_id))}
+    end
+  end
 
   # Classifies assignment rows (or `{row, owner_ref}` pairs) by their owner and
   # returns the ones the owner no longer admits, as `{row, ref, owner, state}`.
@@ -329,6 +363,7 @@ defmodule ServiceRadar.Plugins.OwnedAssignmentRetraction do
     resource
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(id in ^ids)
+    |> Ash.Query.sort(id: :asc)
     |> maybe_lock(lock)
     |> Ash.read(actor: actor)
     |> case do
