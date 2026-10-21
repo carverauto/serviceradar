@@ -25,12 +25,12 @@ find plugin-proposed SNMP configuration in the same list as their own.
 
 Each was verified against source, and each changed a decision.
 
-**Walk mode is already wired through core.** The fjb tracking note claiming
-7.1.1 is "not wired through core, reachable only via local agent JSON" is
-stale. `compile_oid/1` emits `mode`/`max_rows`/`walk_timeout_seconds` and
-`build_snmp_oid_config/1` maps them into `Monitoring.SNMPOIDConfig`. A plugin
-can declare a walked table today, so `mode: walk` is in scope for slice 1
-rather than deferred.
+**Walk mode is already wired through core.** A tracking note in a consumer
+plugin repository claiming 7.1.1 is "not wired through core, reachable only via
+local agent JSON" is stale. `compile_oid/1` emits
+`mode`/`max_rows`/`walk_timeout_seconds` and `build_snmp_oid_config/1` maps
+them into `Monitoring.SNMPOIDConfig`. A plugin can declare a walked table
+today, so `mode: walk` is in scope for slice 1 rather than deferred.
 
 **Built-in OID templates are not selectable and are not in the database.**
 `BuiltinTemplates.seed!/1` has no caller anywhere in `elixir/` - the only
@@ -120,10 +120,11 @@ therefore ship collection on the path that already works without foreclosing B.
 ## D7. Deferred, with reasons
 
 - **Table/index correlation.** Two walked columns of one MIB table are declared
-  independently; nothing states they join on index suffix. That is fjb's open
-  7.1.2 (`oid_index` currently rides through as `interface_uid`, semantically
-  wrong for a non-interface table). A plugin can declare the walks now;
-  downstream still re-derives the join, exactly as today.
+  independently; nothing states they join on index suffix. That is the
+  consumer plugin's open item 7.1.2 (`oid_index` currently rides through as
+  `interface_uid`, semantically wrong for a non-interface table). A plugin can
+  declare the walks now; downstream still re-derives the join, exactly as
+  today.
 - **Derivation rules** (`port > 0 => running`, `used/total => pct`, Timeticks
   / 100). Genuinely valuable, but needs a new evaluation surface in the
   compiler *and* a datapoint shape to hold the result.

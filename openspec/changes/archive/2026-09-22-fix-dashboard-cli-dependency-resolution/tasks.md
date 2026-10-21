@@ -27,7 +27,7 @@
 - [x] 5.6 Run the existing suite (`npm run ci` in `js/cli`: typecheck, build, tests, pack dry-run) and confirm no regression. (Exit 0; 86 tests pass, up from 71 — 15 new.)
 
 ## 6. End-to-end verification against a real monorepo
-- [x] 6.1 Point the UAL `serviceradar-dashboards` monorepo at the locally built CLI, with the `postinstall` symlink workaround disabled, and confirm `dashboard build` succeeds for both dashboards.
+- [x] 6.1 Point a consumer's dashboards monorepo at the locally built CLI, with the `postinstall` symlink workaround disabled, and confirm `dashboard build` succeeds for both dashboards.
 - [x] 6.2 Confirm `dashboard dev` serves the harness page and the renderer entry with no resolution error, for both dashboards.
 - [x] 6.3 Confirm `doctor` reports the hoisted SDK version.
 - [x] 6.4 Confirm a standalone dashboard repo still builds byte-identically, so the fallback path is exercised. (Built the same standalone dashboard against an unpatched `HEAD` tarball and the patched one: `dist/renderer.js` sha256 `02c718873dc5936b0b0a2bbf771da06efcc2aeabac47c091613620f9a78061ba` from both.)

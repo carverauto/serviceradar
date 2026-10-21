@@ -28,7 +28,7 @@ Neither failure names the real cause. Both surface as a path error from a tool t
 
 The fix is to resolve these packages the way the CLI already resolves its own: `dev.ts` uses `cliRequire.resolve()` for `mapbox-gl` and `@deck.gl/*` two lines below the broken code. Applying that existing house pattern — anchored at the project rather than at the CLI — makes hoisted, nested, and standalone layouts all work with no config from the author, because Node's own resolution already handles every one of them.
 
-This also unblocks a real consumer: the UAL dashboards monorepo currently ships a `postinstall` script that symlinks `react`, `react-dom`, and the SDK into each dashboard purely to make the CLI's assumed path true. That workaround exists only because of this bug and is deleted once a release carries this change.
+This also unblocks a real consumer: a consumer's dashboards monorepo currently ships a `postinstall` script that symlinks `react`, `react-dom`, and the SDK into each dashboard purely to make the CLI's assumed path true. That workaround exists only because of this bug and is deleted once a release carries this change.
 
 ## What Changes
 
