@@ -69,9 +69,9 @@ defmodule ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy do
     end
   end
 
+  # PluginAssignment actions are never atomic, so the cast source is available.
   defp owner?(%{resource: PluginAssignment} = changeset) do
-    to_string(param(changeset, :source) || Map.get(changeset.data, :source) || :manual) ==
-      "manual"
+    Ash.Changeset.get_attribute(changeset, :source) != :policy
   end
 
   defp owner?(_changeset), do: true
