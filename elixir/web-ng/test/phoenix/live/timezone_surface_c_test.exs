@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.TimezoneSurfaceCTest do
   @external_resource @compare_source
 
   @plugin_package_source Path.expand(
-                           "../../../lib/serviceradar_web_ng_web/live/admin/plugin_package_live/index.ex",
+                           "../../../lib/serviceradar_web_ng_web/live/plugins/updates_live.ex",
                            __DIR__
                          )
   @external_resource @plugin_package_source

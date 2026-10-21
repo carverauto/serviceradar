@@ -1,20 +1,20 @@
 ## 1. Read model and information architecture
 
-- [ ] 1.1 Extend `ServiceRadarWebNG.Plugins.PluginFleet` to return one summary per `plugin_id`:
+- [x] 1.1 Extend `ServiceRadarWebNG.Plugins.PluginFleet` to return one summary per `plugin_id`:
   - the latest approved and the newest staged package;
   - running versions with assignment counts;
   - the owner breakdown (manual, target policy, credential rule) with links;
   - the update-policy mix;
   - "behind latest" counts;
   - a health rollup from the services read model.
-- [ ] 1.2 Split `PluginPackageLive.Index` into `Plugins.InstalledLive`, `Plugins.UpdatesLive`, `Plugins.CatalogLive` and `Plugins.ShowLive`, with shared function components. Register each as a Settings catalog view.
-- [ ] 1.3 Installed tab: one row per plugin, streamed and server-paginated. No 100-row cap.
+- [x] 1.2 Split `PluginPackageLive.Index` into `Plugins.InstalledLive`, `Plugins.UpdatesLive`, `Plugins.CatalogLive` and `Plugins.ShowLive`, with shared function components. Register each as a Settings catalog view.
+- [x] 1.3 Installed tab: one row per plugin, streamed and server-paginated. No 100-row cap.
 - [ ] 1.4 Plugin detail at `/settings/agents/plugins/:plugin_id` with Overview, Assignments (grouped by owner, linking to the rule or policy), Versions (pin-to-version), Permissions (requested vs approved) and Advanced (manifest, schemas, provenance, artifact tokens).
 - [ ] 1.5 Redirect the old per-package route to the plugin detail with that version selected.
 - [ ] 1.6 Move the Capacity Snapshot to the agent detail page.
 - [ ] 1.7 Move repositories, the release picker, Sync, Test egress, Import and the verification policy into the Catalog tab. Show the first-party sync worker's last run, next run and errors there, and add a "Sync now" that enqueues the worker.
-- [ ] 1.8 Remove the dead legacy-recovery candidate assigns, events and handlers.
-- [ ] 1.9 No database or GitHub work in the disconnected mount. Move catalog fetches to `start_async` or Oban.
+- [x] 1.8 Remove the dead legacy-recovery candidate assigns, events and handlers.
+- [x] 1.9 No database or GitHub work in the disconnected mount. Move catalog fetches to `start_async` or Oban.
 
 ## 2. Update policy
 

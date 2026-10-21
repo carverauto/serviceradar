@@ -1,13 +1,13 @@
-defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
+defmodule ServiceRadarWebNGWeb.Plugins.ShowLiveRenderTest do
   @moduledoc false
 
   # Regression test for https://github.com/carverauto/serviceradar/issues/338:
   # viewing a plugin package whose manifest carries integrations
   # credential profiles (an api_token and an ssh_private_key auth method with
-  # ssh_host_key_policies) crashed the detail view because details_modal
-  # read @current_scope without receiving it.
+  # ssh_host_key_policies) crashed the detail view because the details
+  # component read @current_scope without receiving it.
   #
-  # Renders Index.render/1 directly with a fabricated package so the test runs
+  # Renders ShowLive.render/1 directly with a fabricated package so the test runs
   # in the database-free tier. Fails with KeyError :current_scope without the
   # fix, passes with it.
 
@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
 
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
-  alias ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index
+  alias ServiceRadarWebNGWeb.Plugins.ShowLive
 
   @moduletag :unit
   @moduletag :db_free
@@ -96,13 +96,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
     :ok
   end
 
-  test "renders the detail modal for a manifest with api_token and ssh_private_key methods" do
+  test "renders the package detail for a manifest with api_token and ssh_private_key methods" do
     package = package_fixture()
     assigns = assigns_fixture(package)
 
     html =
       assigns
-      |> Index.render()
+      |> ShowLive.render()
       |> rendered_to_string()
 
     assert html =~ "Example Inventory"
@@ -112,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
     assert html =~ "example_api_token"
     assert html =~ "ssh_private_key"
     assert html =~ "ssh_host_key_policies"
-    # Display contract key, config schema, and read-only modal sections render.
+    # Display contract key, config schema, and read-only detail sections render.
     assert html =~ "com.example.inventory.display@1.0.0"
     assert html =~ "Timeout"
     refute html =~ "Upload Wasm Blob"
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
 
     html =
       assigns
-      |> Index.render()
+      |> ShowLive.render()
       |> rendered_to_string()
 
     refute html =~ "Upload Wasm Blob"
@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
     stager_html =
       assigns
       |> Map.put(:can_stage_plugins, true)
-      |> Index.render()
+      |> ShowLive.render()
       |> rendered_to_string()
 
     assert stager_html =~ "Upload Wasm Blob"
@@ -221,39 +221,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
       can_approve_plugins: true,
       can_assign_plugins: true,
       can_reconcile_credential_rules: true,
-      can_manage_repositories: false,
-      packages: [package],
-      catalog_packages: [package],
-      package_page: 1,
-      package_page_size: 10,
-      filter_status: nil,
-      filter_source_type: nil,
-      first_party_catalog: [],
-      first_party_catalog_all: [],
-      first_party_catalog_page: 1,
-      first_party_catalog_page_size: 10,
-      first_party_catalog_error: nil,
-      first_party_catalog_status: nil,
-      first_party_release_options: [],
-      first_party_release_tag: nil,
-      first_party_release_selected?: false,
-      plugin_repositories: [],
-      enabled_plugin_repositories: [],
-      selected_repository: nil,
-      first_party_repo_url: nil,
-      capacity_rows: [],
-      capacity_totals: %{assignments: 0, cpu_ms: 0, memory_mb: 0, connections: 0},
-      show_repository_modal: false,
-      repository_form: %{},
-      repository_errors: [],
-      editing_repository_id: nil,
-      import_running?: false,
-      egress_check_running?: false,
-      egress_check: nil,
-      show_create_modal: false,
-      show_details_modal: true,
-      create_form: %{"manifest_yaml" => ""},
-      create_errors: [],
       selected_package: package,
       review_form: %{
         "approved_capabilities" => "",
@@ -273,11 +240,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
       authenticated_partition_preview: nil,
       recovery_confirmation: nil,
       policy_recovery_polls: %{},
-      legacy_recovery_candidate_page: 1,
-      legacy_recovery_candidate_after_ids: %{1 => nil},
-      legacy_recovery_candidates_more?: false,
-      legacy_recovery_candidates: [],
-      orphaned_assignments: [],
       credential_fields: CredentialCoverage.materialized_fields(package.config_schema),
       credential_coverage: nil,
       assignment_coverage: %{},

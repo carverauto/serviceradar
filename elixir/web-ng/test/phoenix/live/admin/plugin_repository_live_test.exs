@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginRepositoryLiveTest do
 
   @moduletag :integration
 
-  @plugins_path "/settings/agents/plugins"
+  @plugins_path "/settings/agents/plugins/catalog"
 
   defp grant_permissions(user, permissions) do
     profile =
