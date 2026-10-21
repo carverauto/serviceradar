@@ -1,5 +1,12 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## Unreleased
+
+- Require `vite` `^7.3.7`, the first 7.x release with the fixes for the dev
+  server's `server.fs` checks, cross-origin requests through custom middleware,
+  and the bundled `launch-editor`. `dashboard dev` runs Vite in middleware mode,
+  so the older floor let an install keep an affected version.
+
 ## 0.2.1
 
 - `edge install leaf` and `edge install collector` download the matching package
