@@ -17,6 +17,8 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   # version-stability assertions below then read.
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler
@@ -364,22 +366,87 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   # assignment is withheld from the agent.
   test "a console assignment completes a legacy PVE host row from its credential-rule scope",
        %{admin: admin, system: system, agent_uid: agent_uid} do
+    previous_level = Logger.level()
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: previous_level) end)
+
     {:ok, _agent} =
       create_connected_agent(admin, agent_uid, ["credential_broker_resolve_by_binding"])
 
     secret = create_proxmox_secret!(admin, System.unique_integer([:positive]))
     rule = create_proxmox_console_rule!(system, secret, agent_uid)
-    device_uid = insert_legacy_pve_host!(system, "192.0.2.20")
-    insert_proxmox_console_assignment!(rule, secret, agent_uid, device_uid)
+    missing_device_uid = "sr:device:missing-pve-#{System.unique_integer([:positive])}"
 
-    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    stale_assignment_id =
+      insert_proxmox_console_assignment!(rule, secret, agent_uid, missing_device_uid)
 
-    assert [%{plugin_id: "proxmox-console"} = plugin] = config.plugins
-    assert [binding] = plugin.host_params["bindings"]
-    assert binding["origin"] == "https://192.0.2.20:8006"
-    assert binding["target_ids"]["device_uid"] == device_uid
-    assert binding["target_ids"]["integration_id"] == rule.integration_id
-    assert binding["target_ids"]["controller_id"] == rule.controller_id
+    first_skip_log =
+      capture_log([level: :debug], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+        assert config.plugins == []
+      end)
+
+    assert first_skip_log =~ "Skipping plugin assignment #{stale_assignment_id}"
+    assert first_skip_log =~ missing_device_uid
+    assert first_skip_log =~ ":console_target_device_not_found"
+
+    assert {:skipped, _} =
+             :persistent_term.get(
+               {AgentConfigGenerator, :plugin_assignment_skipped, stale_assignment_id},
+               :none
+             )
+
+    repeat_skip_log =
+      capture_log([level: :debug], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+        assert config.plugins == []
+      end)
+
+    refute repeat_skip_log =~ "Skipping plugin assignment #{stale_assignment_id}"
+    assert repeat_skip_log =~ "Still skipping plugin assignment #{stale_assignment_id}"
+
+    Repo.query!("DELETE FROM platform.plugin_assignments WHERE id = $1", [
+      Ecto.UUID.dump!(stale_assignment_id)
+    ])
+
+    {node, device_uid} = insert_pve_device!("192.0.2.20")
+    assignment_id = insert_proxmox_console_assignment!(rule, secret, agent_uid, device_uid)
+
+    uninventoried_skip_log =
+      capture_log([level: :debug], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+        assert config.plugins == []
+      end)
+
+    assert uninventoried_skip_log =~ "Skipping plugin assignment #{assignment_id}"
+    assert uninventoried_skip_log =~ device_uid
+    assert uninventoried_skip_log =~ ":unsupported_console_target"
+
+    assert :persistent_term.get(
+             {AgentConfigGenerator, :plugin_assignment_skipped, stale_assignment_id},
+             :none
+           ) == :none
+
+    insert_legacy_pve_host_row!(system, node, device_uid)
+
+    recovery_log =
+      capture_log([level: :info], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+        assert [%{plugin_id: "proxmox-console"} = plugin] = config.plugins
+        assert [binding] = plugin.host_params["bindings"]
+        assert binding["origin"] == "https://192.0.2.20:8006"
+        assert binding["target_ids"]["device_uid"] == device_uid
+        assert binding["target_ids"]["integration_id"] == rule.integration_id
+        assert binding["target_ids"]["controller_id"] == rule.controller_id
+      end)
+
+    assert recovery_log =~ "Plugin assignment #{assignment_id} is delivered again"
+
+    assert :persistent_term.get(
+             {AgentConfigGenerator, :plugin_assignment_skipped, assignment_id},
+             :none
+           ) == :none
   end
 
   test "fresh policy broker grant is reused and still resolves with an audit row",
@@ -940,7 +1007,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   # A PVE host whose virtualization row carries native identity but no v3
   # source scope, as rows written before the v3 insert guard do. The guard is
   # disabled only for this insert.
-  defp insert_legacy_pve_host!(system, ip) do
+  defp insert_pve_device!(ip) do
     now = DateTime.utc_now()
     node = "pve-node-#{System.unique_integer([:positive])}"
     device_uid = "sr:device:#{node}"
@@ -959,6 +1026,10 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       }
     ])
 
+    {node, device_uid}
+  end
+
+  defp insert_legacy_pve_host_row!(system, node, device_uid) do
     Repo.query!(
       "ALTER TABLE platform.virtualization_hosts DISABLE TRIGGER virtualization_hosts_identity_immutable_guard"
     )
@@ -982,8 +1053,6 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         "ALTER TABLE platform.virtualization_hosts ENABLE TRIGGER virtualization_hosts_identity_immutable_guard"
       )
     end
-
-    device_uid
   end
 
   # The console form PluginAssignmentMaterializer writes: a ":console_access"
@@ -1012,21 +1081,25 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         ttl_seconds: 300
       })
 
-    Repo.insert_all("plugins", [
-      %{
-        plugin_id: "proxmox-console",
-        name: "proxmox-console",
-        inserted_at: now,
-        updated_at: now
-      }
-    ])
+    Repo.insert_all(
+      "plugins",
+      [
+        %{
+          plugin_id: "proxmox-console",
+          name: "proxmox-console",
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      on_conflict: :nothing
+    )
 
     Repo.insert_all("plugin_packages", [
       %{
         id: Ecto.UUID.dump!(package_id),
         plugin_id: "proxmox-console",
         name: "proxmox-console",
-        version: "0.1.0",
+        version: "0.1.#{System.unique_integer([:positive])}",
         entrypoint: "run_console",
         wasm_object_key: "plugins/proxmox-console/#{assignment_id}/plugin.wasm",
         status: "approved",
