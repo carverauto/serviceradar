@@ -93,11 +93,9 @@ jspm_packages/
 # package.json/package-lock.json here that belongs to nothing in the build.
 #
 # ROOT-ANCHORED ON PURPOSE. There are a dozen tracked package.json /
-# package-lock.json files under docs/, elixir/web-ng/assets/, js/cli/ and
-# js/create-dashboard/, and one of them is a declared Bazel input
-# (npm_translate_lock resolves @web_ng_npm from it -- see the pnpm-lock note
-# below). An unanchored `package.json` would match every one of those. The
-# leading slash keeps this to the repo root only.
+# package-lock.json files under demo/, docs/, elixir/web-ng/assets/, js/cli/
+# and js/create-dashboard/. An unanchored `package.json` would match every one
+# of those. The leading slash keeps this to the repo root only.
 /package.json
 /package-lock.json
 
@@ -172,8 +170,8 @@ pnpm-lock.yaml
 !web/pnpm-lock.yaml
 # Bazel input, not a developer artifact: npm_translate_lock in //MODULE.bazel resolves
 # @web_ng_npm from this file. Ignored, it is absent on every other checkout and in CI, and
-# //elixir/web-ng/assets:node_modules fails to fetch. rules_js generates it from
-# package-lock.json and instructs you to commit it.
+# //elixir/web-ng/assets:node_modules fails to fetch. See the npm_translate_lock note
+# in //MODULE.bazel for how to update it.
 !elixir/web-ng/assets/pnpm-lock.yaml
 
 .vscode
