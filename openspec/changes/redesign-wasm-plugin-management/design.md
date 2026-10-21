@@ -295,8 +295,9 @@ collaborators, so the generalization is an engine/adapter split (a
   only, so it does not apply here. Rollouts an operator starts run either way.
 - Every rollout audit event carries `trigger` and `automatic` (true for
   `:track_latest`), for add-ons too.
-- A source deleted during its rollout ends the rollout `canceled` with
-  `source_deleted` instead of pausing it for a source no reconcile revisits.
+- A source deleted during its rollout cancels the rollout on the next advance,
+  whether it is running or paused, with `source_deleted`, instead of leaving it
+  active for a source no reconcile revisits.
   Wasm does not refuse the delete the way add-ons do
   (`NotHeldByActiveRollout`): a disable already releases rollout holds rather
   than refusing (step C), a target policy's destroy retracts its members before

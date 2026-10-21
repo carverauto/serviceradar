@@ -197,16 +197,27 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp advance_locked(rollout, targets, actor, now) do
     if rollout.state in @active_rollout_states do
-      with {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
-           :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
-           {:ok, targets, finished} <- finish_rolling_back(rollout, targets, actor, now),
-           {:ok, rollout, targets, evaluated} <-
-             evaluate_targets(rollout, targets, packages, actor, now),
-           {:ok, next, advanced} <- finish_or_advance(rollout, targets, actor, now) do
-        {:ok, next, finished ++ evaluated ++ advanced}
+      case RolloutArtifact.implementation(rollout).source_for_rollout(rollout, actor) do
+        {:error, {:not_found, _resource, _id}} ->
+          with {:ok, notifications} <- cancel_deleted_source(rollout, targets, actor, now),
+               do: {:ok, :canceled, notifications}
+
+        _source ->
+          advance_active(rollout, targets, actor, now)
       end
     else
       {:ok, :inactive, []}
+    end
+  end
+
+  defp advance_active(rollout, targets, actor, now) do
+    with {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
+         :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
+         {:ok, targets, finished} <- finish_rolling_back(rollout, targets, actor, now),
+         {:ok, rollout, targets, evaluated} <-
+           evaluate_targets(rollout, targets, packages, actor, now),
+         {:ok, next, advanced} <- finish_or_advance(rollout, targets, actor, now) do
+      {:ok, next, finished ++ evaluated ++ advanced}
     end
   end
 
@@ -1302,7 +1313,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          {:ok, updated} <-
            update_rollout(
              rollout,
-             %{state: :canceled, canceled_at: now, blocked_reason: "source_deleted"},
+             %{
+               state: :canceled,
+               canceled_at: now,
+               paused_at: nil,
+               blocked_reason: "source_deleted"
+             },
              actor
            ) do
       audit(:cancel, updated, %{reason: "source_deleted"})

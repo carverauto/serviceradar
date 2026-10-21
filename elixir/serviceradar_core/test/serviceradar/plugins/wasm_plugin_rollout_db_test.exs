@@ -467,30 +467,35 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     assert config_pushes(member) == 2
   end
 
-  test "deleting a manual assignment during its rollout cancels the rollout", ctx do
-    member = manual_member!(ctx)
+  for state <- [:running, :paused] do
+    test "deleting a manual assignment during its #{state} rollout cancels the rollout", ctx do
+      member = manual_member!(ctx)
 
-    {:ok, rollout} =
-      AddonRolloutCoordinator.start(assignment(member), ctx.candidate,
-        actor: @system,
-        now: ctx.now,
-        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 300)
-      )
+      {:ok, rollout} =
+        AddonRolloutCoordinator.start(assignment(member), ctx.candidate,
+          actor: @system,
+          now: ctx.now,
+          policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 300)
+        )
 
-    member
-    |> assignment()
-    |> Ash.Changeset.for_destroy(:destroy)
-    |> Ash.destroy!(actor: @system)
+      if unquote(state) == :paused do
+        assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: @system, now: at(ctx, 1))
+        assert %{state: :paused} = reload(rollout)
+      end
 
-    _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 1))
-    _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+      member
+      |> assignment()
+      |> Ash.Changeset.for_destroy(:destroy)
+      |> Ash.destroy!(actor: @system)
 
-    # The contract is that the rollout ends instead of pausing for a source
-    # that is gone; the reason records whichever check ended it.
-    assert %{state: :canceled} = reload(rollout)
+      _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+      _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 3))
 
-    assert [%{state: :canceled, reason_code: "assignment_deleted", plugin_assignment_id: nil}] =
-             targets(rollout)
+      assert %{state: :canceled, paused_at: nil} = reload(rollout)
+
+      assert [%{state: :canceled, reason_code: "assignment_deleted", plugin_assignment_id: nil}] =
+               targets(rollout)
+    end
   end
 
   describe "automatic rollouts for owners tracking the latest approved package" do
