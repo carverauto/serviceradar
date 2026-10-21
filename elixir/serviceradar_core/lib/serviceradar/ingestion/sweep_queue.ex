@@ -131,12 +131,18 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
   end
 
   # A reservation forwarded by the status router, answered here so the router
-  # never waits on this queue (see `ServiceRadar.Ingestion.Admission.forward_reserve/2`).
+  # never waits on this queue (see `ServiceRadar.Ingestion.Admission.forward_reserve/3`).
   @impl true
-  def handle_cast({:reserve_for, descriptor, owner, from}, state) do
-    {reply, next_state} = reserve_reply(state, descriptor, owner, nil)
-    GenServer.reply(from, reply)
-    {:noreply, next_state}
+  def handle_cast({:reserve_for, descriptor, owner, from, expires_at}, state) do
+    if Lane.forward_expired?(expires_at) do
+      emit(:rejected, %{count: 1}, %{reason: :admission_timeout})
+      GenServer.reply(from, {:error, :admission_timeout})
+      {:noreply, state}
+    else
+      {reply, next_state} = reserve_reply(state, descriptor, owner, nil)
+      GenServer.reply(from, reply)
+      {:noreply, next_state}
+    end
   end
 
   def handle_cast({:cancel, id}, state) do

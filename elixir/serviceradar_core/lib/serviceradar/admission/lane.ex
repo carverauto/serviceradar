@@ -41,19 +41,23 @@ defmodule ServiceRadar.Admission.Lane do
   # The lane replies to `from` directly, so the process that forwards the
   # reservation never waits on the lane. A lane that is not running is reported
   # at once; one that stops after the hand-off leaves the caller to its own
-  # deadline, holding no payload.
-  def forward_reserve(server, descriptor, owner, from) do
+  # deadline, holding no payload. A lane that reaches the reservation after
+  # `timeout` refuses it without holding capacity.
+  def forward_reserve(server, descriptor, owner, from, timeout) do
     with :ok <- validate_descriptor(descriptor),
          {:ok, target} <- reservation_target(server) do
       case GenServer.whereis(target) do
         pid when is_pid(pid) ->
-          GenServer.cast(pid, {:reserve_for, descriptor, owner, from})
+          expires_at = System.monotonic_time(:millisecond) + timeout
+          GenServer.cast(pid, {:reserve_for, descriptor, owner, from, expires_at})
 
         _missing ->
           {:error, {:admission_lane_unavailable, :noproc}}
       end
     end
   end
+
+  def forward_expired?(expires_at), do: System.monotonic_time(:millisecond) >= expires_at
 
   defp reserve_call(target, descriptor, owner, timeout, call_ref) do
     GenServer.call(target, {:reserve, descriptor, owner, timeout, call_ref}, timeout)
@@ -260,10 +264,16 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   @impl true
-  def handle_cast({:reserve_for, descriptor, owner, from}, state) do
-    {reply, next_state} = reserve_reply(descriptor, owner, state, nil)
-    GenServer.reply(from, reply)
-    {:noreply, next_state}
+  def handle_cast({:reserve_for, descriptor, owner, from, expires_at}, state) do
+    if forward_expired?(expires_at) do
+      emit(state.lane, :rejected, %{count: 1}, %{reason: :admission_timeout})
+      GenServer.reply(from, {:error, :admission_timeout})
+      {:noreply, state}
+    else
+      {reply, next_state} = reserve_reply(descriptor, owner, state, nil)
+      GenServer.reply(from, reply)
+      {:noreply, next_state}
+    end
   end
 
   def handle_cast({:cancel, id}, state) do

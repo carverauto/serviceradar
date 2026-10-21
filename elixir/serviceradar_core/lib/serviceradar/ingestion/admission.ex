@@ -47,14 +47,16 @@ defmodule ServiceRadar.Ingestion.Admission do
   The router that receives reservations for every lane must not wait for any
   one of them: a lane that is slow to answer would otherwise stall reservations
   for every other lane queued behind it. The caller that owns `from` keeps its
-  own deadline and holds no payload until the lane has answered.
+  own deadline and holds no payload until the lane has answered. A reservation
+  the lane reaches more than `timeout` milliseconds after it was forwarded is
+  refused with `{:error, :admission_timeout}` without holding capacity.
   """
-  def forward_reserve(%{headers: headers} = descriptor, {owner, _tag} = from)
+  def forward_reserve(%{headers: headers} = descriptor, {owner, _tag} = from, timeout)
       when is_map(headers) and is_pid(owner) do
-    Lane.forward_reserve(lane_server(classify(headers)), descriptor, owner, from)
+    Lane.forward_reserve(lane_server(classify(headers)), descriptor, owner, from, timeout)
   end
 
-  def forward_reserve(_descriptor, _from), do: {:error, :invalid_admission_descriptor}
+  def forward_reserve(_descriptor, _from, _timeout), do: {:error, :invalid_admission_descriptor}
 
   def admit(status, reply_to, timeout \\ 1_000) do
     descriptor = Lane.descriptor(status, @core_budget_ms)

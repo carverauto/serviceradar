@@ -349,6 +349,50 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert_empty(lane)
   end
 
+  test "a forwarded reserve the lane reaches after its deadline never captures credits" do
+    parent = self()
+
+    lane =
+      start_lane(
+        fn status ->
+          send(parent, {:reserve_processed, status[:message]})
+          :ok
+        end,
+        queue_wait_ms: 2_000,
+        gateway_call_timeout_ms: 5_100
+      )
+
+    :ok = :sys.suspend(lane)
+    ref = make_ref()
+
+    :ok =
+      Lane.forward_reserve(
+        lane,
+        Lane.descriptor(status("agent-a", "stale"), 10_000),
+        self(),
+        {self(), ref},
+        20
+      )
+
+    Process.sleep(40)
+    :ok = :sys.resume(lane)
+
+    assert_receive {^ref, {:error, :admission_timeout}}, 500
+    assert_empty(lane)
+
+    fresh = status("agent-b", "fresh")
+    fresh_ref = make_ref()
+
+    assert {:ok, {_lane, fresh_id}} =
+             Lane.reserve(lane, Lane.descriptor(fresh, 10_000), self(), 500)
+
+    assert :ok = Lane.submit(lane, fresh_id, fresh, {self(), fresh_ref}, 500)
+    assert_receive {:reserve_processed, "fresh"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:reserve_processed, "stale"}
+    assert_empty(lane)
+  end
+
   test "a timed-out single-phase admission never invokes its processor" do
     parent = self()
 

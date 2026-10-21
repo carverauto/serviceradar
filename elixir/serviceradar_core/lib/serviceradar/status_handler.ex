@@ -22,7 +22,7 @@ defmodule ServiceRadar.StatusHandler do
   # reply would make each reservation queue behind the slowest lane's answer.
   @impl true
   def handle_call({:reserve_status, descriptor}, from, state) do
-    case Admission.forward_reserve(descriptor, from) do
+    case Admission.forward_reserve(descriptor, from, 1_000) do
       :ok -> {:noreply, state}
       {:error, _reason} = error -> {:reply, error, state}
     end
