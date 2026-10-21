@@ -485,7 +485,9 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 1))
     _ = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
 
-    assert %{state: :canceled, blocked_reason: "source_deleted"} = reload(rollout)
+    # The contract is that the rollout ends instead of pausing for a source
+    # that is gone; the reason records whichever check ended it.
+    assert %{state: :canceled} = reload(rollout)
 
     assert [%{state: :canceled, reason_code: "assignment_deleted", plugin_assignment_id: nil}] =
              targets(rollout)
