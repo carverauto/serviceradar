@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.LoadAdmission
@@ -72,6 +74,69 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     end
 
     refute_received {:request, _}
+  end
+
+  test "transient compute-node transport Fail messages retry with the same label at warning while unrelated Fail messages do not" do
+    transient_messages = [
+      "Couldn't open transport for :0 (Could not resolve host for client socket.)",
+      "[E104]Fail to read from Socket"
+    ]
+
+    for message <- transient_messages do
+      calls = :counters.new(1, [])
+      parent = self()
+
+      http = fn %{headers: headers} ->
+        :counters.add(calls, 1, 1)
+        send(parent, {:attempt_label, header_value(headers, "label")})
+
+        body =
+          if :counters.get(calls, 1) == 1 do
+            Jason.encode!(%{"Status" => "Fail", "Message" => message})
+          else
+            Jason.encode!(%{
+              "Status" => "Success",
+              "NumberLoadedRows" => 2,
+              "NumberFilteredRows" => 0
+            })
+          end
+
+        {:ok, %{status: 200, body: body}}
+      end
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{loaded: 2, label: persisted_label}} =
+                   StreamLoad.persist("otel_traces", @rows, http: http)
+
+          assert_received {:attempt_label, ^persisted_label}
+          assert_received {:attempt_label, ^persisted_label}
+          refute_received {:attempt_label, _}
+        end)
+
+      assert :counters.get(calls, 1) == 2
+      assert log =~ "[warning]"
+      assert log =~ "StarRocks Stream Load attempt failed"
+      assert log =~ message
+      refute log =~ "[error]"
+    end
+
+    unrelated_calls = :counters.new(1, [])
+
+    unrelated_http = fn _request ->
+      :counters.add(unrelated_calls, 1, 1)
+
+      {:ok,
+       %{
+         status: 200,
+         body: Jason.encode!(%{"Status" => "Fail", "Message" => "too many filtered rows"})
+       }}
+    end
+
+    assert {:error, {:load_status, "Fail", "too many filtered rows", _label}} =
+             StreamLoad.persist("otel_traces", @rows, http: unrelated_http)
+
+    assert :counters.get(unrelated_calls, 1) == 1
   end
 
   test "an uncertain commit polls its label without resubmitting a running load" do
