@@ -95,7 +95,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
          unchanged: stats.unchanged,
          disabled: stats.disabled,
          held: length(stats.held),
-         hold_reason: if(retraction == :hold, do: :targets_unresolved, else: nil)
+         hold_reason: if(retraction == :hold, do: :targets_unresolved)
        }}
     else
       {:error, errors} when is_list(errors) -> {:error, errors}
