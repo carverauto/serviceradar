@@ -114,6 +114,13 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @doc "Whether the package's approval and provenance make it a candidate at all."
   @callback trusted_approved?(package()) :: boolean()
 
+  @doc """
+  Re-reads the candidate with a share lock, inside the transaction that creates
+  its rollout, and rechecks `trusted_approved?/1` on the stored row.
+  `{:error, :candidate_not_eligible}` when it no longer qualifies.
+  """
+  @callback lock_candidate(package(), actor()) :: :ok | {:error, term()}
+
   @doc "Whether the package's approved capabilities stay inside the source's ceiling."
   @callback within_capability_ceiling?(package(), source() | map()) :: boolean()
 

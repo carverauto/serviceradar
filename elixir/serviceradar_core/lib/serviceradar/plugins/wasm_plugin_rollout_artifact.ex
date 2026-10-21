@@ -184,6 +184,25 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def trusted_approved?(%PluginPackage{status: status}), do: status == :approved
 
   @impl true
+  def lock_candidate(%PluginPackage{id: id}, actor) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock("FOR SHARE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %PluginPackage{} = package} ->
+        if trusted_approved?(package), do: :ok, else: {:error, :candidate_not_eligible}
+
+      {:ok, nil} ->
+        {:error, :candidate_not_eligible}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
   def within_capability_ceiling?(_package, _source), do: true
 
   @impl true

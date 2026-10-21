@@ -269,6 +269,24 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     refute reload(rollout).state == :paused
   end
 
+  test "a rollout does not start for a candidate revoked after the caller read it", ctx do
+    member = manual_member!(ctx)
+    read_before_revocation = ctx.candidate
+
+    ctx.candidate
+    |> Ash.Changeset.for_update(:revoke, %{denied_reason: "example revocation"})
+    |> Ash.update!(actor: @system)
+
+    assert {:error, :candidate_not_eligible} =
+             AddonRolloutCoordinator.start(assignment(member), read_before_revocation,
+               actor: @system,
+               now: ctx.now,
+               policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 300)
+             )
+
+    assert %{rollout_plugin_package_id: nil, rollout_id: nil} = assignment(member)
+  end
+
   test "revoking the candidate rolls its active rollout back", ctx do
     member = manual_member!(ctx)
 

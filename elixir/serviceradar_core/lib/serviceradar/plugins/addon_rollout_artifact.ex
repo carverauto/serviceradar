@@ -138,6 +138,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   end
 
   @impl true
+  def lock_candidate(%AddonPackage{id: id}, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock("FOR SHARE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %AddonPackage{} = package} ->
+        if trusted_approved?(package), do: :ok, else: {:error, :candidate_not_eligible}
+
+      {:ok, nil} ->
+        {:error, :candidate_not_eligible}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
   @spec within_capability_ceiling?(AddonPackage.t(), map()) :: boolean()
   def within_capability_ceiling?(%AddonPackage{} = package, source) do
     ceiling = source |> value(:capability_ceiling, []) |> normalize_strings() |> MapSet.new()
