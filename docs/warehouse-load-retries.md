@@ -1,8 +1,11 @@
 # Warehouse load retries
 
 EventWriter's shared Stream Load client makes at most three attempts for a
-transient connection failure, an unresolved load label, or HTTP 408, 429, 500,
-502, 503, or 504. Backoff starts at 250 ms, doubles, and includes up to 20%
+transient connection failure, an unresolved load label, HTTP 408, 429, 500,
+502, 503, or 504, or a load `Status` of `Fail` whose message reports a
+compute-node transport failure during a restart (`Couldn't open transport for
+:0`, `Could not resolve host for client socket`, or `[E104]Fail to read from
+Socket`). Any other `Fail` message is not retried. Backoff starts at 250 ms, doubles, and includes up to 20%
 jitter. The call has a 90-second budget; a caller's shorter `http_timeout`
 also bounds retries. Redirects and HTTP requests consume that same budget.
 
