@@ -45,6 +45,29 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     assert worker[:timeseries_metrics_chunk_interval_hours] == 4
   end
 
+  test "cagg refresh policy specs clamp start_offset strictly below source retention" do
+    specs =
+      DataRetentionWorker.cagg_refresh_policy_specs(
+        otel_traces_retention_days: 1,
+        logs_retention_days: 1,
+        ocsf_events_retention_days: 1,
+        otel_metrics_retention_days: 1,
+        timeseries_metrics_retention_days: 1,
+        raw_metrics_retention_days: 1
+      )
+
+    by_view = Map.new(specs, &{&1.view, &1})
+
+    assert by_view["spans_red_1h"].start_offset == "12 hours"
+    assert by_view["traces_stats_5m"].start_offset == "12 hours"
+    assert by_view["logs_severity_stats_5m"].start_offset == "3 hours"
+    assert by_view["ocsf_events_hourly_stats"].start_offset == "12 hours"
+
+    for spec <- specs do
+      assert spec.start_offset_hours < spec.source_retention_days * 24
+    end
+  end
+
   defp worker_config(overrides) do
     environment = Map.merge(@base_env, overrides)
     previous = Map.new(environment, fn {key, _value} -> {key, System.get_env(key)} end)

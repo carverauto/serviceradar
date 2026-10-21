@@ -71,6 +71,24 @@ defmodule ServiceRadar.Observability.HourlyRollupRetentionDbTest do
     refute Enum.any?(Map.values(first), &is_nil/1)
   end
 
+  test "clamps continuous aggregate refresh windows below source retention" do
+    assert :ok =
+             DataRetentionWorker.reconcile_timescale_tables(
+               otel_traces_retention_days: 1,
+               logs_retention_days: 1
+             )
+
+    assert ServiceRadar.ColdTier.RetentionFence.cagg_refresh_hazards() == []
+  end
+
+  test "keeps a narrowed refresh window when source retention is raised again" do
+    DataRetentionWorker.reconcile_cagg_refresh_windows(raw_metrics_retention_days: 1)
+    assert refresh_start_offset("cpu_metrics_hourly") == "12:00:00"
+
+    DataRetentionWorker.reconcile_cagg_refresh_windows(raw_metrics_retention_days: 7)
+    assert refresh_start_offset("cpu_metrics_hourly") == "12:00:00"
+  end
+
   defp present_rollups do
     %{rows: rows} =
       SQL.query!(
@@ -85,6 +103,25 @@ defmodule ServiceRadar.Observability.HourlyRollupRetentionDbTest do
       )
 
     List.flatten(rows)
+  end
+
+  defp refresh_start_offset(view) do
+    %{rows: [[start_offset]]} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT (j.config->>'start_offset')::interval::text
+        FROM timescaledb_information.continuous_aggregates ca
+        JOIN timescaledb_information.jobs j
+          ON j.proc_name = 'policy_refresh_continuous_aggregate'
+         AND j.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
+         AND j.hypertable_name IN (ca.materialization_hypertable_name, ca.view_name)
+        WHERE ca.view_schema = 'platform' AND ca.view_name = $1
+        """,
+        [view]
+      )
+
+    start_offset
   end
 
   defp rollup_state(view) do
