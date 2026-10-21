@@ -98,6 +98,41 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
     assert Process.whereis(StatusHandler) == handler
   end
 
+  test "a lane slow to answer its reservation does not delay another lane's reservation", %{
+    handler: handler
+  } do
+    plugin_lane = Process.whereis(ServiceRadar.Admission.RetainedPluginLane)
+    :ok = :sys.suspend(plugin_lane)
+
+    # Sent first from this process, so the handler takes it before the status
+    # reservation below.
+    plugin_request =
+      :gen_server.send_request(
+        handler,
+        {:reserve_status, Lane.descriptor(retained_plugin_status(), 15_000)}
+      )
+
+    heartbeat = %{
+      source: "synthetic-heartbeat",
+      service_name: "agent",
+      agent_id: "agent01",
+      partition: "test-partition",
+      message: nil
+    }
+
+    # The gateway allows a reservation 1.1 s; this one must not wait for the
+    # suspended plugin lane at all.
+    assert {:ok, {status_lane, _reservation}} =
+             GenServer.call(handler, {:reserve_status, Lane.descriptor(heartbeat, 15_000)}, 500)
+
+    refute status_lane == plugin_lane
+
+    :ok = :sys.resume(plugin_lane)
+
+    assert {:reply, {:ok, {^plugin_lane, _reservation}}} =
+             :gen_server.receive_response(plugin_request, 1_000)
+  end
+
   test "held retained plugin ingestion does not delay flow completion", %{
     handler: handler,
     release_ref: release_ref

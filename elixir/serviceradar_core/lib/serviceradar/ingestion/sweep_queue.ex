@@ -104,15 +104,8 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
 
   @impl true
   def handle_call({:reserve, descriptor, owner, _timeout, call_ref}, _from, state) do
-    case reserve(state, descriptor, owner, call_ref) do
-      {:ok, id, next_state} ->
-        emit(:admitted, %{count: 1}, %{})
-        {:reply, {:ok, {self(), id}}, emit_state(next_state)}
-
-      {:error, reason} ->
-        emit(:rejected, %{count: 1}, %{reason: reason})
-        {:reply, {:error, reason}, state}
-    end
+    {reply, next_state} = reserve_reply(state, descriptor, owner, call_ref)
+    {:reply, reply, next_state}
   end
 
   def handle_call({:submit, id, status, mode}, _from, state),
@@ -125,7 +118,27 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
   def handle_call({:submit, _id, _status, _mode, _timeout}, _from, state),
     do: {:reply, {:error, :invalid_admission_mode}, state}
 
+  defp reserve_reply(state, descriptor, owner, call_ref) do
+    case reserve(state, descriptor, owner, call_ref) do
+      {:ok, id, next_state} ->
+        emit(:admitted, %{count: 1}, %{})
+        {{:ok, {self(), id}}, emit_state(next_state)}
+
+      {:error, reason} ->
+        emit(:rejected, %{count: 1}, %{reason: reason})
+        {{:error, reason}, state}
+    end
+  end
+
+  # A reservation forwarded by the status router, answered here so the router
+  # never waits on this queue (see `ServiceRadar.Ingestion.Admission.forward_reserve/2`).
   @impl true
+  def handle_cast({:reserve_for, descriptor, owner, from}, state) do
+    {reply, next_state} = reserve_reply(state, descriptor, owner, nil)
+    GenServer.reply(from, reply)
+    {:noreply, next_state}
+  end
+
   def handle_cast({:cancel, id}, state) do
     case Map.get(state.jobs, id) do
       nil -> {:noreply, state}

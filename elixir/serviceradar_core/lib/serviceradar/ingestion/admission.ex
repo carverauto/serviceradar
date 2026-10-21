@@ -36,14 +36,25 @@ defmodule ServiceRadar.Ingestion.Admission do
   def prepare(status), do: status
 
   def reserve(%{headers: headers} = descriptor, owner, timeout) when is_map(headers) do
-    case classify(headers) do
-      :flow -> FlowLane.reserve(descriptor, owner, timeout)
-      :retained_plugin -> RetainedPluginLane.reserve(descriptor, owner, timeout)
-      type -> Lane.reserve(server(type), descriptor, owner, timeout)
-    end
+    Lane.reserve(lane_server(classify(headers)), descriptor, owner, timeout)
   end
 
   def reserve(_descriptor, _owner, _timeout), do: {:error, :invalid_admission_descriptor}
+
+  @doc """
+  Hands a reservation to its lane, which answers `from` itself.
+
+  The router that receives reservations for every lane must not wait for any
+  one of them: a lane that is slow to answer would otherwise stall reservations
+  for every other lane queued behind it. The caller that owns `from` keeps its
+  own deadline and holds no payload until the lane has answered.
+  """
+  def forward_reserve(%{headers: headers} = descriptor, {owner, _tag} = from)
+      when is_map(headers) and is_pid(owner) do
+    Lane.forward_reserve(lane_server(classify(headers)), descriptor, owner, from)
+  end
+
+  def forward_reserve(_descriptor, _from), do: {:error, :invalid_admission_descriptor}
 
   def admit(status, reply_to, timeout \\ 1_000) do
     descriptor = Lane.descriptor(status, @core_budget_ms)
@@ -97,6 +108,10 @@ defmodule ServiceRadar.Ingestion.Admission do
   def classify(_), do: :status
 
   def server(type), do: {:via, Registry, {ServiceRadar.Ingestion.Registry, {:lane, type}}}
+
+  defp lane_server(:flow), do: FlowLane.server()
+  defp lane_server(:retained_plugin), do: RetainedPluginLane.server()
+  defp lane_server(type), do: server(type)
 
   defp retained?(%{source: source} = status) when source in ["plugin-result", :plugin_result],
     do: @retained_capability in (status[:delivery_capabilities] || [])
