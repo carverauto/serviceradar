@@ -61,7 +61,7 @@
     "eslint": "^9.39.3",
     "happy-dom": "^20.14.0",
     "tailwindcss": "4.1.12",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "wgsl_reflect": "1.2.3"
   },
   "pnpm": {
