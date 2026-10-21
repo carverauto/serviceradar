@@ -340,6 +340,35 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
       assert Loader.comparable_count("nist-nvd2", state) == 1
     end
 
+    test "excludes timestamp state from prior normalization versions when counting comparable rows" do
+      state = %{
+        "CVE-2026-0001" => %{
+          modified_at: ~U[2026-01-15 12:34:56Z],
+          content_hash: nil,
+          normalization_version: 2
+        },
+        "CVE-2026-0002" => %{
+          modified_at: ~U[2026-01-16 12:34:56Z],
+          content_hash: nil,
+          normalization_version: 3
+        }
+      }
+
+      assert Loader.comparable_count("nist-nvd2", state, normalization_version: 3) == 1
+      assert Loader.comparable_count("nist-nvd2", state, normalization_version: 4) == 0
+
+      table = :ets.new(:advisory_comparison_state_test, [:set, :private])
+
+      try do
+        Enum.each(state, fn {id, entry} -> :ets.insert(table, {id, entry}) end)
+
+        assert Loader.comparable_count("nist-nvd2", table, normalization_version: 3) == 1
+        assert Loader.comparable_count("nist-nvd2", table, normalization_version: 4) == 0
+      after
+        :ets.delete(table)
+      end
+    end
+
     test "normalizes legacy modified state when newer state options are omitted" do
       modified_at = ~U[2026-01-15 12:34:56.123Z]
 
