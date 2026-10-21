@@ -22,7 +22,6 @@ import (
 
 var (
 	errInvalidDuration        = errors.New("invalid duration")
-	errSweepConfigNil         = errors.New("sweep config is nil")
 	errSweepRunnerUnavailable = errors.New("sweep runner unavailable")
 	errSweepGroupIDRequired   = errors.New("sweep_group_id is required")
 	errSweepGroupNotFound     = errors.New("sweep group not found")

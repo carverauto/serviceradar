@@ -19,6 +19,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -38,9 +39,7 @@ func (f *FileConfigLoader) Load(_ context.Context, path string, dst interface{})
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if f.logger != nil {
-			f.logger.Error().Str("path", path).Err(err).Msg("Failed to read configuration file")
-		}
+		f.logReadFailure(path, err)
 
 		return fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
@@ -59,4 +58,20 @@ func (f *FileConfigLoader) Load(_ context.Context, path string, dst interface{})
 	}
 
 	return nil
+}
+
+// logReadFailure leaves a missing file to the caller: an optional file such as
+// a checker config that the gateway has not delivered yet is a normal state,
+// and the caller knows whether the file was required.
+func (f *FileConfigLoader) logReadFailure(path string, err error) {
+	if f.logger == nil {
+		return
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
+		f.logger.Debug().Str("path", path).Msg("Configuration file does not exist")
+		return
+	}
+
+	f.logger.Error().Str("path", path).Err(err).Msg("Failed to read configuration file")
 }
