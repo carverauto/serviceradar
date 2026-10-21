@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadarWebNG.DataCase
 
   require Ash.Query
 
@@ -144,6 +145,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     User
     |> Ash.Changeset.for_create(:register_with_password, attrs, actor: system_actor())
     |> Ash.create!()
+    |> DataCase.delete_on_exit_if_unboxed()
   end
 
   @doc """

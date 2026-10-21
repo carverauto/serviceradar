@@ -1,1 +1,4 @@
-exports_files(["ex_unit_erl_libs.patch"])
+exports_files([
+    "ex_unit_erl_libs.patch",
+    "ex_unit_parallel_require.patch",
+])

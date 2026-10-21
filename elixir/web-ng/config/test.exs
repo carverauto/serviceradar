@@ -192,7 +192,14 @@ config :serviceradar_core,
            parameters: [
              search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
            ],
-           types: ServiceRadar.PostgresTypes
+           types: ServiceRadar.PostgresTypes,
+           # Ecto logs every query, with its parameters, at :debug. `mix test` hides that behind
+           # the :warning level above, but the Bazel lanes run at :debug because Logger reads
+           # its level at VM boot (see //build:elixir_test_config_loader.exs), and the
+           # shared-fixture lane wrote tens of megabytes of QUERY lines per run. Same setting
+           # as serviceradar_core's config/test.exs; SERVICERADAR_TEST_LOG_SQL=1 restores the
+           # SQL for debugging. Query telemetry is emitted either way.
+           log: if(System.get_env("SERVICERADAR_TEST_LOG_SQL") == "1", do: :debug, else: false)
          ]
 
 # Keep config pushes inside the test process. Production coalesces them.

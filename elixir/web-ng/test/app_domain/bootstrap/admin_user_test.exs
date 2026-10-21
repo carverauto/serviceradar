@@ -9,6 +9,19 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
 
   @moduletag :web_ng_shared_fixture_db
 
+  # Bootstrap only creates an admin on an install that has none, and the first test counts the
+  # users it leaves. Make that install inside the sandbox instead of assuming the shared
+  # database holds no committed users; the transaction rolls the deletes back. The unboxed
+  # test commits, so it registers its own user rather than clearing everyone else's.
+  setup tags do
+    if tags[:sandbox] != :unboxed do
+      Repo.query!("DELETE FROM platform.api_tokens")
+      Repo.query!("DELETE FROM platform.ng_users")
+    end
+
+    :ok
+  end
+
   setup do
     System.put_env("SERVICERADAR_ADMIN_EMAIL", "root@localhost")
     System.put_env("SERVICERADAR_ADMIN_PASSWORD", "test_admin_password_123!")
