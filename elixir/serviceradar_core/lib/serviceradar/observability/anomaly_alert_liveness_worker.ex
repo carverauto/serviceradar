@@ -36,6 +36,15 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
 
   @check_name "anomaly-alert-liveness"
   @series_key "synthetic:anomaly-alert-liveness:tripwire"
+  @transient_pg_codes [
+    :lock_not_available,
+    :query_canceled,
+    :deadlock_detected,
+    :serialization_failure,
+    :too_many_connections,
+    :admin_shutdown,
+    :cannot_connect_now
+  ]
 
   @impl Oban.Worker
   def perform(_job), do: run()
@@ -114,15 +123,15 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   end
 
   defp transient_failure?(:anomaly_alert_liveness_timeout), do: true
-  defp transient_failure?(:timeout), do: true
-  defp transient_failure?(:lock_busy), do: true
   defp transient_failure?(:alert_evaluation_not_activated), do: true
   defp transient_failure?(:alert_evaluation_draining), do: true
   defp transient_failure?(:alert_evaluation_capability_unavailable), do: true
   defp transient_failure?(:alert_evaluation_peer_not_ready), do: true
-  defp transient_failure?({:alert_evaluation_peer_not_ready, _}), do: true
   defp transient_failure?({:overloaded, _}), do: true
-  defp transient_failure?({:store_unavailable, _}), do: true
+  defp transient_failure?(%Postgrex.Error{postgres: %{code: code}}),
+    do: code in @transient_pg_codes
+  defp transient_failure?(%DBConnection.ConnectionError{}), do: true
+  defp transient_failure?({:store_unavailable, reason}), do: transient_failure?(reason)
   defp transient_failure?({:rule_load_failed, _}), do: true
   defp transient_failure?({:alert_lookup_failed, _}), do: true
   defp transient_failure?({:synthetic_artifact_cleanup_failed, _, _}), do: true
