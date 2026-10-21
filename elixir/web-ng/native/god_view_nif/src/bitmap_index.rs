@@ -1098,16 +1098,16 @@ impl Query {
             return Err("identity_mismatch");
         }
         if pairs.len() > 256 * 12
-            || pairs.len() % 12 != 0
+            || !pairs.len().is_multiple_of(12)
             || counts.len() > 512 * 4
-            || counts.len() % 4 != 0
+            || !counts.len().is_multiple_of(4)
         {
             return Err("bitmap_budget");
         }
         self.with_pin(authority, timeout_ms, |pin, end| {
             let _columns = self.budget.reserve(counts.len() + 4096)?;
             let mut result = counts.to_vec();
-            for triple in pairs.chunks_exact(12) {
+            for triple in pairs.as_chunks::<12>().0 {
                 check_time(end)?;
                 let row = u32::from_le_bytes(triple[0..4].try_into().unwrap()) as usize;
                 if row >= result.len() / 4 {
