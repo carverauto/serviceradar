@@ -38,18 +38,65 @@ import (
 // awxHTTP is package-level so tests can swap it for a fake.
 var awxHTTP httpClient = &sdk.HTTPClient{MaxResponseBytes: sdk.MaxHTTPResponseBytes}
 
-// awxRequestError is string-kinded so errAWXRequestFailed can be a constant.
-// The agent calls exported TinyGo entrypoints without WASI _start, so a
-// package-level error built by a function call stays nil, and every
-// `return nil, errAWXRequestFailed` would then report success with no response.
+// awxRequestError is string-kinded so the request errors below can be
+// constants. The agent calls exported TinyGo entrypoints without WASI _start,
+// so a package-level error built by a function call stays nil, and every
+// `return nil, err` would then report success with no response.
 type awxRequestError string
 
 func (e awxRequestError) Error() string { return string(e) }
 
-// errAWXRequestFailed is the only error allowed to cross the controller HTTP
-// boundary. The underlying client error and response text are never retained
-// in a plugin result.
-const errAWXRequestFailed awxRequestError = "AWX request failed"
+// These are the only errors allowed to cross the controller HTTP boundary,
+// alongside awxHTTPStatusError. Each names the failure class so an operator can
+// tell a rejected token from an unreachable controller; the underlying client
+// error and response text are never retained in a plugin result.
+const (
+	errAWXRequestFailed    awxRequestError = "AWX request failed"
+	errAWXRequestDenied    awxRequestError = "AWX request failed: denied by agent egress or credential policy"
+	errAWXRequestTimeout   awxRequestError = "AWX request failed: timeout"
+	errAWXRequestTooLarge  awxRequestError = "AWX request failed: response too large"
+	errAWXRequestTransport awxRequestError = "AWX request failed: transport error"
+)
+
+// awxHTTPStatusError reports a non-2xx controller response by status code
+// alone. It is integer-kinded and built at the failing call, so like
+// awxRequestError it needs no package initializer.
+type awxHTTPStatusError int
+
+func (e awxHTTPStatusError) Error() string {
+	status := int(e)
+	if status < 100 || status > 599 {
+		return string(errAWXRequestFailed) + ": invalid HTTP status"
+	}
+	return string(errAWXRequestFailed) + ": HTTP " + strconv.Itoa(status)
+}
+
+// Status codes of the agent's http_request host call, carried in
+// sdk.HostError.Code. The SDK does not export them.
+const (
+	hostCallDenied   int32 = -2
+	hostCallTooLarge int32 = -3
+	hostCallTimeout  int32 = -6
+)
+
+// awxTransportFailure maps a failed host HTTP call to its failure class. The
+// agent logs the underlying transport error itself.
+func awxTransportFailure(err error) awxRequestError {
+	hostErr, ok := err.(sdk.HostError)
+	if !ok {
+		return errAWXRequestTransport
+	}
+	switch hostErr.Code {
+	case hostCallDenied:
+		return errAWXRequestDenied
+	case hostCallTooLarge:
+		return errAWXRequestTooLarge
+	case hostCallTimeout:
+		return errAWXRequestTimeout
+	default:
+		return errAWXRequestTransport
+	}
+}
 
 type httpClient interface {
 	Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
@@ -2281,10 +2328,10 @@ func postJSON(cfg Config, path string, body any) (*sdk.HTTPResponse, error) {
 
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, errAWXRequestFailed
+		return nil, awxTransportFailure(err)
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		return nil, errAWXRequestFailed
+		return nil, awxHTTPStatusError(resp.Status)
 	}
 	return resp, nil
 }
@@ -2309,13 +2356,13 @@ func deleteJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
 	}
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, errAWXRequestFailed
+		return nil, awxTransportFailure(err)
 	}
 	if resp.Status == http.StatusNotFound {
 		return resp, nil
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		return nil, errAWXRequestFailed
+		return nil, awxHTTPStatusError(resp.Status)
 	}
 	return resp, nil
 }
@@ -3324,10 +3371,10 @@ func getJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
 
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, errAWXRequestFailed
+		return nil, awxTransportFailure(err)
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		return nil, errAWXRequestFailed
+		return nil, awxHTTPStatusError(resp.Status)
 	}
 	return resp, nil
 }
@@ -3350,27 +3397,31 @@ func getJSONAllowNotFound(cfg Config, path string) (*sdk.HTTPResponse, bool, err
 	}
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, false, errAWXRequestFailed
+		return nil, false, awxTransportFailure(err)
 	}
 	if resp.Status == http.StatusNotFound {
 		return resp, true, nil
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		return nil, false, errAWXRequestFailed
+		return nil, false, awxHTTPStatusError(resp.Status)
 	}
 	return resp, false, nil
 }
 
-// sanitizeError deliberately collapses all upstream text to a fixed message.
-// HTTP/client errors can contain credentials, response bodies, query strings,
-// or multiple internal URLs in forms that cannot be safely recovered with a
-// blacklist. Structural status is carried separately by each verb.
+// sanitizeError deliberately collapses all upstream text to a fixed failure
+// class or HTTP status code. HTTP/client errors can contain credentials,
+// response bodies, query strings, or multiple internal URLs in forms that
+// cannot be safely recovered with a blacklist. Structural status is carried
+// separately by each verb.
 func sanitizeError(err error) string {
 	if err == nil {
 		return ""
 	}
-	if err == errAWXRequestFailed {
-		return errAWXRequestFailed.Error()
+	switch typed := err.(type) {
+	case awxRequestError:
+		return typed.Error()
+	case awxHTTPStatusError:
+		return typed.Error()
 	}
 	raw := err.Error()
 	s := strings.TrimSpace(raw)

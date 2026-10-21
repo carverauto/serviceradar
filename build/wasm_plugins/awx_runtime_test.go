@@ -31,7 +31,7 @@ func TestAWXPreflightWithoutWASIStart(t *testing.T) {
 		{name: "generation overflow denied", generation: "9223372036854775808", surveyVariable: "release_version", wantCalls: 0, wantStatus: "CRITICAL"},
 		{name: "secret survey denied", generation: "1800000000000000001", surveyVariable: "client_secret", wantCalls: 2, wantStatus: "CRITICAL"},
 		{name: "reserved survey denied", generation: "1800000000000000001", surveyVariable: "hostvars", wantCalls: 2, wantStatus: "CRITICAL"},
-		{name: "controller error fails closed", generation: "1800000000000000001", surveyVariable: "release_version", unavailable: true, wantCalls: 1, wantStatus: "CRITICAL", wantSummary: "awx.fetch_launch_preflight: AWX request failed"},
+		{name: "controller error fails closed", generation: "1800000000000000001", surveyVariable: "release_version", unavailable: true, wantCalls: 1, wantStatus: "CRITICAL", wantSummary: "awx.fetch_launch_preflight: AWX request failed: HTTP 503"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := awxRuntimeConfig(tc.generation)
@@ -76,6 +76,50 @@ func TestAWXPreflightWithoutWASIStart(t *testing.T) {
 						t.Fatalf("noncanonical %s: got %s want %s", key, details[key], expected)
 					}
 				}
+			}
+		})
+	}
+}
+
+// A failed inventory listing must say why it failed: a rejected controller
+// token and an unreachable controller need different operator fixes. Only the
+// failure class or status code crosses into the result, never upstream text.
+func TestAWXInventorySyncReportsRequestFailureClass(t *testing.T) {
+	wasm := loadBuiltWasm(t, "awx.wasm")
+	config, err := json.Marshal(map[string]any{"controllers": []any{map[string]any{
+		"controller_id": "11111111-1111-4111-8111-111111111111",
+		"base_url":      "https://controller.example.com",
+		"api_token":     "__SERVICERADAR_AWX_INVENTORY_HOST_CREDENTIAL__",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "AWX inventory_sync failed listing inventories: AWX request failed: "
+	for _, tc := range []struct {
+		name   string
+		status int
+		want   string
+	}{
+		{name: "rejected token", status: http.StatusUnauthorized, want: "HTTP 401"},
+		{name: "host policy denial", status: -2, want: "denied by agent egress or credential policy"},
+		{name: "oversized response", status: -3, want: "response too large"},
+		{name: "transport failure", status: -5, want: "transport error"},
+		{name: "timeout", status: -6, want: "timeout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host := &wasmHost{config: config, http: func(t *testing.T, request wasmHTTPRequest) (int, []byte) {
+				if request.URL != "https://controller.example.com/api/v2/inventories/?page_size=200" {
+					t.Fatalf("unexpected HTTP request: %+v", request)
+				}
+				return tc.status, []byte(`{"detail":"upstream text that must not be retained"}`)
+			}}
+			host.run(t, wasm, "inventory_sync")
+			if len(host.results) != 1 || host.httpCalls != 1 {
+				t.Fatalf("results=%d calls=%d; want 1/1", len(host.results), host.httpCalls)
+			}
+			result := host.results[0]
+			if result["status"] != "CRITICAL" || result["summary"] != prefix+tc.want {
+				t.Fatalf("status=%v summary=%v; want CRITICAL/%s", result["status"], result["summary"], prefix+tc.want)
 			}
 		})
 	}

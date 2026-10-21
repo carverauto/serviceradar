@@ -146,7 +146,7 @@ func TestRunPingTrimsTrailingSlashOnBaseURL(t *testing.T) {
 	}
 }
 
-func TestRunPingUnauthorizedUsesFixedUpstreamFailure(t *testing.T) {
+func TestRunPingUnauthorizedReportsOnlyStatus(t *testing.T) {
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/ping/": {Status: http.StatusUnauthorized, Body: []byte(`{"detail":"Authentication credentials were not provided."}`)},
 	}}
@@ -158,8 +158,8 @@ func TestRunPingUnauthorizedUsesFixedUpstreamFailure(t *testing.T) {
 	if res.Status != sdk.StatusCritical {
 		t.Fatalf("expected CRITICAL, got %s", res.Status)
 	}
-	if res.Summary != "awx.ping: AWX request failed" {
-		t.Errorf("expected fixed upstream failure, got %q", res.Summary)
+	if res.Summary != "awx.ping: AWX request failed: HTTP 401" {
+		t.Errorf("expected status-only upstream failure, got %q", res.Summary)
 	}
 
 	var payload map[string]any
@@ -169,8 +169,8 @@ func TestRunPingUnauthorizedUsesFixedUpstreamFailure(t *testing.T) {
 	if payload["ok"] != false {
 		t.Errorf("payload.ok = %v, want false", payload["ok"])
 	}
-	if payload["error"] != "AWX request failed" {
-		t.Errorf("payload.error = %v, want fixed upstream failure", payload["error"])
+	if payload["error"] != "AWX request failed: HTTP 401" {
+		t.Errorf("payload.error = %v, want status-only upstream failure", payload["error"])
 	}
 }
 
