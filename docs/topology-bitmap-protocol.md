@@ -8,6 +8,11 @@ The manifest retains `bitmap_membership_protocol: 1` for existing clients and
 advertises `bitmap_membership_protocols: [1, 2]`. Updated clients request version
 2 when advertised, otherwise version 1. Both versions use the existing topology
 channel. Version 1 keeps its exact bytes and conservative relation behavior.
+The manifest and the channel can be served by different replicas during a
+rolling update. A manifest of the same generation that omits the capability
+list does not withdraw version 2. A channel that rejects version 2 with
+`unsupported_membership_protocol` keeps that client on version 1 until the
+socket rejoins, when it requests version 2 again.
 `membership:watch` carries the selected protocol, bounded query and
 exact admitted tile receipts. A client that sets `boundary_endpoints: true`
 in the watch opts in to exact boundary endpoint counts; without it, every

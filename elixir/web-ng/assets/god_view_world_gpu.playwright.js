@@ -16,9 +16,9 @@ async function completedBitmapFrame(page) {
 
 const filterQuery = {facet: "availability", value: "unavailable"}
 
-async function openFilteredCapture(page, {query = filterQuery, legacy = false} = {}) {
+async function openFilteredCapture(page, {query = filterQuery, legacy = false, legacySocket = false} = {}) {
   await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
-  await page.goto(`http://localhost:4774/?bitmap=1&capture=1${legacy ? "&legacy_membership=1" : ""}`)
+  await page.goto(`http://localhost:4774/?bitmap=1&capture=1${legacy ? "&legacy_membership=1" : ""}${legacySocket ? "&legacy_socket=1" : ""}`)
   await page.waitForFunction(() => {
     const renderer = window.__SR_BITMAP_GPU__?.renderer
     return renderer?.cache.watch && renderer.deck.props.layers[0]?.isLoaded
@@ -69,37 +69,96 @@ const holdMembershipFrames = (page, rebind = null) => page.evaluate(rebind => {
 
 const setView = (page, view) => page.evaluate(view => window.__SR_BITMAP_GPU__.renderer.setView(view), view)
 
+const vendorQuery = {facet: "vendor", value: "Example A"}
+
+async function expectFilteredConnections(page, zoom, legacy) {
+  await setView(page, {target: [192, 192, 0], zoom})
+  await membershipSettled(page)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0], true)).toEqual({id: "synthetic-aggregate-5", zoom, count: 15})
+  expect(await pickWorld(page, [166, 166, 0], true)).toEqual({id: "synthetic-5-0", zoom, count: 1})
+  expect(await pickWorld(page, [179, 179, 0])).toBeNull()
+  expect(await pickWorld(page, [205, 205, 0], true)).toEqual(legacy ? null : {id: "synthetic-relation-synthetic-5-3", zoom, count: 1})
+  // The synthetic transport does not generate clipped portals. Both ends
+  // of this fully selected bundle share a tile through level two.
+  if (zoom <= 2) {
+    expect(await pickWorld(page, [205, 179, 0], true)).toEqual(legacy ? null : {id: "synthetic-relation-synthetic-5-1", zoom, count: 2})
+    const animatedTargets = await page.evaluate(() => {
+      const {deck} = window.__SR_BITMAP_GPU__.renderer
+      return deck.layerManager.getLayers().filter(layer => layer.id.endsWith("-packets"))
+        .flatMap(layer => {
+          const endpoints = layer.props.data.attributes.instanceEndpoints
+          return Array.from({length: layer.props.data.length}, (_, row) => Array.from(endpoints.subarray(row * 4, row * 4 + 4)))
+        }).filter(([x, y]) => Math.abs(x - 192) < 0.01 && Math.abs(y - 192) < 0.01)
+        .map(([, , x, y]) => [Math.round(x), Math.round(y)])
+    })
+    expect(animatedTargets).toEqual(legacy ? [] : [[218, 166]])
+  }
+}
+
+const watchProtocols = page => page.evaluate(() => window.__SR_BITMAP_GPU__.samples.watchProtocols.slice())
+// Requests sent before the first rejection ask for version 2; every later one stays on version 1.
+const fellBackOnce = protocols => {
+  const pinned = protocols.indexOf(1)
+  return pinned > 0 && protocols.slice(0, pinned).every(protocol => protocol === 2) && protocols.slice(pinned).every(protocol => protocol === 1)
+}
+
 for (const legacy of [false, true]) {
   test(`partial aggregates preserve exact filtered connections across zooms (legacy=${legacy})`, async ({page}) => {
-    await openFilteredCapture(page, {query: {facet: "vendor", value: "Example A"}, legacy})
-    for (const zoom of [2, 1, 3]) {
-      await setView(page, {target: [192, 192, 0], zoom})
-      await membershipSettled(page)
-      await completedBitmapFrame(page)
-      await expect.poll(() => pickWorld(page, [192, 192, 0], true)).toEqual({id: "synthetic-aggregate-5", zoom, count: 15})
-      expect(await pickWorld(page, [166, 166, 0], true)).toEqual({id: "synthetic-5-0", zoom, count: 1})
-      expect(await pickWorld(page, [179, 179, 0])).toBeNull()
-      expect(await pickWorld(page, [205, 205, 0], true)).toEqual(legacy ? null : {id: "synthetic-relation-synthetic-5-3", zoom, count: 1})
-      // The synthetic transport does not generate clipped portals. Both ends
-      // of this fully selected bundle share a tile through level two.
-      if (zoom <= 2) {
-        expect(await pickWorld(page, [205, 179, 0], true)).toEqual(legacy ? null : {id: "synthetic-relation-synthetic-5-1", zoom, count: 2})
-        const animatedTargets = await page.evaluate(() => {
-          const {deck} = window.__SR_BITMAP_GPU__.renderer
-          return deck.layerManager.getLayers().filter(layer => layer.id.endsWith("-packets"))
-            .flatMap(layer => {
-              const endpoints = layer.props.data.attributes.instanceEndpoints
-              return Array.from({length: layer.props.data.length}, (_, row) => Array.from(endpoints.subarray(row * 4, row * 4 + 4)))
-            }).filter(([x, y]) => Math.abs(x - 192) < 0.01 && Math.abs(y - 192) < 0.01)
-            .map(([, , x, y]) => [Math.round(x), Math.round(y)])
-        })
-        expect(animatedTargets).toEqual(legacy ? [] : [[218, 166]])
-      }
-    }
+    await openFilteredCapture(page, {query: vendorQuery, legacy})
+    for (const zoom of [2, 1, 3]) await expectFilteredConnections(page, zoom, legacy)
+    expect(await watchProtocols(page)).not.toContain(legacy ? 2 : 1)
     expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
     await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
   })
 }
+
+test("a version 1 socket behind a version 2 manifest falls back to version 1 until it rejoins a version 2 replica", async ({page}) => {
+  await openFilteredCapture(page, {query: vendorQuery, legacySocket: true})
+  for (const zoom of [2, 1]) await expectFilteredConnections(page, zoom, true)
+  const fallback = await watchProtocols(page)
+  expect(fellBackOnce(fallback)).toBe(true)
+  await expect(page.getByRole("status")).not.toContainText("Topology query unavailable")
+  await page.evaluate(() => {
+    const harness = window.__SR_BITMAP_GPU__
+    harness.setReplicas({socketV2: true})
+    harness.renderer.channel.socket.conn.close()
+  })
+  await page.waitForFunction(count => window.__SR_BITMAP_GPU__.samples.watchProtocols.length > count, fallback.length)
+  await expectFilteredConnections(page, 2, false)
+  expect((await watchProtocols(page)).slice(fallback.length).every(protocol => protocol === 2)).toBe(true)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+})
+
+test("a version 1 replica stays on version 1 when it rejects version 2 again after a reconnect", async ({page}) => {
+  await openFilteredCapture(page, {query: vendorQuery, legacySocket: true})
+  await expectFilteredConnections(page, 2, true)
+  const before = (await watchProtocols(page)).length
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.channel.socket.conn.close())
+  await page.waitForFunction(count => window.__SR_BITMAP_GPU__.samples.watchProtocols.slice(count).includes(1), before)
+  await expectFilteredConnections(page, 2, true)
+  expect(fellBackOnce((await watchProtocols(page)).slice(before))).toBe(true)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+})
+
+test("an equal-generation manifest from a version 1 replica does not withdraw version 2", async ({page}) => {
+  await openFilteredCapture(page, {query: vendorQuery})
+  await expectFilteredConnections(page, 2, false)
+  const before = (await watchProtocols(page)).length
+  for (const manifestV2 of [false, true, false]) {
+    await page.evaluate(async manifestV2 => {
+      const harness = window.__SR_BITMAP_GPU__
+      harness.setReplicas({manifestV2})
+      await harness.renderer.refreshManifest()
+    }, manifestV2)
+    await expectFilteredConnections(page, 2, false)
+  }
+  expect((await watchProtocols(page)).slice(before)).not.toContain(1)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+})
 
 test("filtered geometry remains pickable while pan and zoom membership is delayed", async ({page}) => {
   await openFilteredCapture(page)

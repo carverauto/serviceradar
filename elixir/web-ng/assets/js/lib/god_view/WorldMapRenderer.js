@@ -58,6 +58,7 @@ export default class WorldMapRenderer {
     this.membershipRevision = 0
     this.bitmapQuery = null
     this.membershipEnabled = false
+    this.membershipProtocolPinned = false
     this.packetFlow = true
     this.links = true
     this.inferred = false
@@ -430,7 +431,12 @@ export default class WorldMapRenderer {
       const accepted = this.cache.manifest
       const capability = value => [value?.bitmap?.ready, value?.bitmap?.reason, capabilityIdentity(value?.bitmap?.query)]
       const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(accepted))
-      const protocol = Array.isArray(accepted?.bitmap_membership_protocols) && accepted.bitmap_membership_protocols.includes(2) ? 2 : accepted?.bitmap_membership_protocol === 1 ? 1 : 0
+      const protocols = accepted?.bitmap_membership_protocols
+      // A replica that predates the capability list may answer for the same
+      // generation; it cannot withdraw a version another replica advertised.
+      const retained = !Array.isArray(protocols) && accepted?.bitmap_membership_protocol === 1 && this.membershipProtocol === 2 &&
+        previous?.layout_version === accepted.layout_version && previous.generation === accepted.generation
+      const protocol = (Array.isArray(protocols) && protocols.includes(2)) || retained ? 2 : accepted?.bitmap_membership_protocol === 1 ? 1 : 0
       const membershipChanged = this.membershipProtocol !== protocol
       this.membershipProtocol = protocol
       this.membershipEnabled = protocol > 0
@@ -482,6 +488,7 @@ export default class WorldMapRenderer {
     this.channel.onError(() => {this.watchSignature = null; this.invalidateMembership(); this.status("Topology connection interrupted; reconnecting…")})
     this.channel.join().receive("ok", fence => {
       this.watchSignature = null
+      this.membershipProtocolPinned = false
       void generation(fence).catch(error => this.status(error.message))
     }).receive("error", error => this.status(`Topology unavailable: ${error.reason}`))
   }
@@ -552,7 +559,7 @@ export default class WorldMapRenderer {
     // displayed membership view. Canonical order also ignores cache LRU churn.
     const tiles = payload.tiles.filter(tile => this.cache.visible.has(`${tile.z}/${tile.x}/${tile.y}`) && typeof tile.revision === "string")
       .sort((left, right) => left.z - right.z || left.x - right.x || left.y - right.y)
-    return {protocol: this.membershipProtocol || 1, boundary_endpoints: true, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
+    return {protocol: this.membershipProtocolPinned ? 1 : this.membershipProtocol || 1, boundary_endpoints: true, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
   }
 
   syncMembership(payload) {
@@ -579,6 +586,13 @@ export default class WorldMapRenderer {
       try {this.membership.bind({...binding, protocol: request.protocol}, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
       if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
+      if (error.reason === "unsupported_membership_protocol" && request.protocol === 2) {
+        // The joined replica predates version 2. Keep version 1 until the socket rejoins.
+        this.membershipProtocolPinned = true
+        this.invalidateMembership()
+        this.scheduleWatch()
+        return
+      }
       this.membership.clear(true)
       this.membershipError = error.reason || "unsupported filter"
       this.updateFilterPanel()

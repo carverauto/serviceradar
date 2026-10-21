@@ -77,6 +77,10 @@ server advertises it; servers continue accepting protocol 1. Bind the selected
 protocol into the admitted view digest. Version 1 keeps its current bytes and
 conservative behavior.
 
+The manifest and the channel may reach different replicas. An equal-generation
+manifest without the capability list keeps an already advertised version 2. A
+channel that rejects version 2 pins that socket to version 1 until it rejoins.
+
 Version 2 retains existing metadata and node columns. After each tile's node
 columns it appends a uint16 edge row count, then one little-endian uint32 matching
 count for each geometry edge in exact Arrow order. Counts cannot exceed the

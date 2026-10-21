@@ -10,13 +10,15 @@ import {atlasCaptureHealth, atlasCaptureInventory, atlasCaptureMatches, atlasCap
 // decoder and WebGPU execute unchanged. This is not a running Phoenix server.
 export function mountBitmapGpuHarness() {
   const capture = new URLSearchParams(location.search).has("capture")
-  const legacyMembership = new URLSearchParams(location.search).has("legacy_membership")
+  // Rolling-update replicas: the manifest and the joined socket may each predate version 2.
+  let manifestV2 = !new URLSearchParams(location.search).has("legacy_membership")
+  let socketV2 = !new URLSearchParams(location.search).has("legacy_socket")
   let enabled = true, unavailable = false, authority = 0, sequence = 0n, watchId = 0, connection, watch, pan = 0
   const version = worldTileKey.layout_version
   const geometries = new Map()
   const samples = {tileRequests: 0, overlayRequests: 0, membershipFrames: 0, acknowledgements: 0,
     arrowBytes: 0, membershipBytes: 0, telemetryBytes: 0, arrayBufferSliceBytes: 0, gpuUploadBytes: 0,
-    gpuBuffers: 0, gpuBufferBytes: 0, gpuPeakBufferBytes: 0, gpuDevices: 0, membershipDecodeSliceBytes: 0, errors: []}
+    gpuBuffers: 0, gpuBufferBytes: 0, gpuPeakBufferBytes: 0, gpuDevices: 0, membershipDecodeSliceBytes: 0, watchProtocols: [], errors: []}
   const originalFetch = window.fetch, originalSocket = window.WebSocket
   const originalSlice = ArrayBuffer.prototype.slice
   ArrayBuffer.prototype.slice = function(...args) {
@@ -90,7 +92,7 @@ export function mountBitmapGpuHarness() {
     if (url.pathname.endsWith("/manifest")) return Response.json({layout_version: version, generation: 1, zmax: 8,
       extent: 2 ** 24, node_count: capture ? 1024 : 4096, relation_count: capture ? 128 : 4095, bounds: [[0, 0], [2 ** 24, 2 ** 24]],
       bitmap_membership_protocol: enabled ? 1 : 0, world_overlay_protocol: enabled ? 1 : 0,
-      ...(!legacyMembership && {bitmap_membership_protocols: enabled ? [1, 2] : []}),
+      ...(manifestV2 && {bitmap_membership_protocols: enabled ? [1, 2] : []}),
       bitmap: {ready: enabled, query: capture ? atlasCaptureQueryDescriptor : {entity_kind: "device", facets: [
         {key: "vlan", label: "Inventory VLAN", operators: ["eq", "prefix"]},
         {key: "tag:owner", label: "Device tag: owner", operators: ["eq", "prefix"]},
@@ -157,7 +159,10 @@ export function mountBitmapGpuHarness() {
       if (event === "tiles:watch") response = {watch_id: ++watchId}
       if (event === "membership:ack") samples.acknowledgements += 1
       if (event === "membership:unwatch") watch = null
-      if (event === "membership:watch") {
+      if (event === "membership:watch") samples.watchProtocols.push(payload.protocol)
+      if (event === "membership:watch" && payload.protocol === 2 && !socketV2) {
+        watch = null; status = "error"; response = {reason: "unsupported_membership_protocol"}
+      } else if (event === "membership:watch") {
         const binding = {...bitmapBinding, authority_fingerprint: `synthetic-authority-${authority}`, view_digest: `synthetic-view-${++sequence}`}
         try {
           const selected = capture ? new Set(atlasCaptureInventory.filter(device => atlasCaptureMatches(device, payload.query)).map(device => device.id)) : null
@@ -215,7 +220,8 @@ export function mountBitmapGpuHarness() {
       overlayChargedBytes: renderer.overlays.retainedBytes, gpuInfo: renderer.deck?.device?.info,
       frameIntervals: measurements.frames.slice(1).map((time, index) => time - measurements.frames[index])}
   }
-  window.__SR_BITMAP_GPU__ = {get renderer() {return renderer}, get measurements() {return measurements}, samples, metrics, refreshMembership: deliver}
+  window.__SR_BITMAP_GPU__ = {get renderer() {return renderer}, get measurements() {return measurements}, samples, metrics, refreshMembership: deliver,
+    setReplicas(replicas) {({manifestV2 = manifestV2, socketV2 = socketV2} = replicas)}}
   setInterval(() => {output.textContent = JSON.stringify(metrics(), null, 2)}, 250)
   window.addEventListener("pagehide", () => {
     window.fetch = originalFetch; window.WebSocket = originalSocket; ArrayBuffer.prototype.slice = originalSlice
