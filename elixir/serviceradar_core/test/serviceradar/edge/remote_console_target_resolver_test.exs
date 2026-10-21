@@ -137,37 +137,83 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolverTest do
 
   test "legacy native inventory is completed from a unique credential-rule source scope" do
     host = %{
+      id: "host-legacy-1",
       provider: "proxmox",
       provider_ref: "proxmox:node:pve02",
       device_uid: "sr:host-legacy",
       name: "pve02",
       identity_state: :legacy,
-      native_cluster_id: "tonka",
+      native_cluster_id: "cluster-a",
       object_kind: "node",
       native_object_id: "pve02",
       metadata: %{}
     }
 
+    guest = %{
+      id: "guest-legacy-202",
+      provider: "proxmox",
+      provider_ref: "proxmox:qemu:202",
+      host_id: "host-legacy-1",
+      device_uid: "sr:guest-legacy-202",
+      name: "guest-202",
+      guest_type: "qemu",
+      vmid: 202,
+      identity_state: :legacy,
+      native_cluster_id: "cluster-a",
+      object_kind: "qemu",
+      native_object_id: "202",
+      metadata: %{}
+    }
+
+    host_device = %{
+      uid: "sr:host-legacy",
+      hostname: "pve02",
+      ip: "192.0.2.10",
+      agent_id: "agent-edge-1",
+      metadata: %{}
+    }
+
+    guest_device = %{
+      uid: "sr:guest-legacy-202",
+      hostname: "guest-202",
+      ip: "198.51.100.202",
+      metadata: %{}
+    }
+
     lookup = fn
       VirtualizationHost, "sr:host-legacy", _ash_opts -> {:ok, [host]}
-      VirtualizationGuest, "sr:host-legacy", _ash_opts -> flunk("guest lookup must not run")
+      VirtualizationGuest, "sr:host-legacy", _ash_opts -> {:ok, []}
+      VirtualizationHost, "sr:guest-legacy-202", _ash_opts -> {:ok, []}
+      VirtualizationGuest, "sr:guest-legacy-202", _ash_opts -> {:ok, [guest]}
     end
+
+    assert {:error, :unsupported_console_target} =
+             RemoteConsoleTargetResolver.resolve_proxmox(
+               host_device,
+               %{},
+               virtualization_lookup: lookup
+             )
+
+    assert {:error, :unsupported_console_target} =
+             RemoteConsoleTargetResolver.resolve_proxmox(
+               guest_device,
+               %{},
+               virtualization_lookup: lookup,
+               host_lookup: fn "host-legacy-1", _ -> {:ok, host} end,
+               device_lookup: fn "sr:host-legacy", _ -> {:ok, host_device} end
+             )
+
+    scope = %{
+      integration_id: @integration_id,
+      controller_id: @farm_controller_id
+    }
 
     assert {:ok, target} =
              RemoteConsoleTargetResolver.resolve_proxmox(
-               %{
-                 uid: "sr:host-legacy",
-                 hostname: "pve02",
-                 ip: "192.0.2.10",
-                 agent_id: "agent-dusk01",
-                 metadata: %{}
-               },
+               host_device,
                %{},
                virtualization_lookup: lookup,
-               identity_scope: %{
-                 integration_id: @integration_id,
-                 controller_id: @farm_controller_id
-               }
+               identity_scope: scope
              )
 
     assert target.target_kind == :pve_host
@@ -176,6 +222,24 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolverTest do
     assert target.integration_id == @integration_id
     assert target.controller_id == @farm_controller_id
     assert target.controller.base_url == "https://192.0.2.10:8006"
+
+    assert {:ok, guest_target} =
+             RemoteConsoleTargetResolver.resolve_proxmox(
+               guest_device,
+               %{},
+               virtualization_lookup: lookup,
+               host_lookup: fn "host-legacy-1", _ -> {:ok, host} end,
+               device_lookup: fn "sr:host-legacy", _ -> {:ok, host_device} end,
+               identity_scope: scope
+             )
+
+    assert guest_target.target_kind == :qemu_guest
+    assert guest_target.vmid == 202
+    assert guest_target.identity_version == 3
+    assert guest_target.identity_state == :authoritative
+    assert guest_target.integration_id == @integration_id
+    assert guest_target.controller_id == @farm_controller_id
+    assert guest_target.controller.base_url == "https://192.0.2.10:8006"
   end
 
   test "legacy v2 aliases are never authorized for native console" do

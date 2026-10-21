@@ -1362,20 +1362,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
+  @plugin_assignment_skip_catalog_key {__MODULE__, :plugin_assignment_skip_markers}
+  @plugin_assignment_skip_catalog_lock {__MODULE__, :plugin_assignment_skip_catalog}
+  @max_plugin_assignment_skip_markers 256
+
   # Config is compiled on every agent poll, on core and again on each gateway,
   # so a skip that persists would otherwise WARN every cycle. Mirror the
   # refuse_addon_delivery/note_addon_delivery_resumed pattern: one
   # persistent_term marker per assignment holds the fingerprint of the last
   # skip reason. WARN when the skip first appears or its reason changes, DEBUG
   # while it persists, INFO once when the assignment is delivered again. The
-  # marker is erased on recovery and holds one entry per skipped assignment, so
-  # it stays bounded; persistent_term is written only on those transitions.
+  # steady path only reads markers. Catalog changes happen on those
+  # transitions, serialized on a node-local lock: the marker is erased on
+  # recovery, stale markers for deleted/disabled assignments are pruned when a
+  # new skip is recorded, and the catalog is capped at
+  # @max_plugin_assignment_skip_markers entries so state stays bounded.
   defp report_plugin_assignment_skipped(assignment, package, reason) do
-    marker_key = plugin_assignment_skip_marker_key(assignment.id)
+    assignment_id = to_string(assignment.id)
+    marker_key = plugin_assignment_skip_marker_key(assignment_id)
     fingerprint = {:skipped, :erlang.phash2(reason)}
 
     message =
-      "plugin assignment #{assignment.id}: authoritative source and host " <>
+      "plugin assignment #{assignment_id}: authoritative source and host " <>
         "binding validation failed: plugin=#{package.plugin_id} " <>
         "entrypoint=#{package.entrypoint} agent=#{assignment.agent_uid} " <>
         "reason=#{inspect(reason)}"
@@ -1383,20 +1391,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     if :persistent_term.get(marker_key, :none) == fingerprint do
       Logger.debug("Still skipping " <> message)
     else
-      :persistent_term.put(marker_key, fingerprint)
+      record_plugin_assignment_skip_marker(assignment_id, fingerprint)
       Logger.warning("Skipping " <> message)
     end
   end
 
   defp note_plugin_assignment_delivered(assignment, package) do
-    marker_key = plugin_assignment_skip_marker_key(assignment.id)
+    assignment_id = to_string(assignment.id)
+    marker_key = plugin_assignment_skip_marker_key(assignment_id)
 
     case :persistent_term.get(marker_key, :none) do
       {:skipped, _fingerprint} ->
-        :persistent_term.erase(marker_key)
+        erase_plugin_assignment_skip_marker(assignment_id)
 
         Logger.info(
-          "Plugin assignment #{assignment.id} is delivered again: " <>
+          "Plugin assignment #{assignment_id} is delivered again: " <>
             "plugin=#{package.plugin_id} entrypoint=#{package.entrypoint} " <>
             "agent=#{assignment.agent_uid}"
         )
@@ -1406,8 +1415,107 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
+  defp record_plugin_assignment_skip_marker(assignment_id, fingerprint) do
+    update_plugin_assignment_skip_marker_ids(fn tracked_ids ->
+      kept_ids =
+        tracked_ids
+        |> surviving_plugin_assignment_skip_marker_ids(assignment_id)
+        |> Enum.reject(&(&1 == assignment_id))
+        |> Kernel.++([assignment_id])
+
+      {evicted_ids, bounded_ids} =
+        if length(kept_ids) > @max_plugin_assignment_skip_markers do
+          Enum.split(kept_ids, length(kept_ids) - @max_plugin_assignment_skip_markers)
+        else
+          {[], kept_ids}
+        end
+
+      Enum.each(evicted_ids, &:persistent_term.erase(plugin_assignment_skip_marker_key(&1)))
+
+      if :persistent_term.get(plugin_assignment_skip_marker_key(assignment_id), :none) !=
+           fingerprint do
+        :persistent_term.put(plugin_assignment_skip_marker_key(assignment_id), fingerprint)
+      end
+
+      bounded_ids
+    end)
+  end
+
+  defp erase_plugin_assignment_skip_marker(assignment_id) do
+    update_plugin_assignment_skip_marker_ids(fn tracked_ids ->
+      :persistent_term.erase(plugin_assignment_skip_marker_key(assignment_id))
+      Enum.reject(tracked_ids, &(&1 == assignment_id))
+    end)
+  end
+
+  defp surviving_plugin_assignment_skip_marker_ids(tracked_ids, active_assignment_id) do
+    candidate_ids = Enum.reject(tracked_ids, &(&1 == active_assignment_id))
+
+    case existing_enabled_plugin_assignment_ids(candidate_ids) do
+      {:ok, existing_ids} ->
+        {surviving, stale} =
+          Enum.split_with(tracked_ids, fn id ->
+            id == active_assignment_id or MapSet.member?(existing_ids, id)
+          end)
+
+        Enum.each(stale, &:persistent_term.erase(plugin_assignment_skip_marker_key(&1)))
+        surviving
+
+      :error ->
+        tracked_ids
+    end
+  end
+
+  defp existing_enabled_plugin_assignment_ids([]), do: {:ok, MapSet.new()}
+
+  defp existing_enabled_plugin_assignment_ids(assignment_ids) do
+    valid_ids =
+      Enum.flat_map(assignment_ids, fn id ->
+        case Ecto.UUID.cast(to_string(id)) do
+          {:ok, uuid} -> [uuid]
+          :error -> []
+        end
+      end)
+
+    if valid_ids == [] do
+      {:ok, MapSet.new()}
+    else
+      actor = SystemActor.system(:agent_config_generator)
+
+      PluginAssignment
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(id in ^valid_ids and enabled == true)
+      |> Ash.Query.select([:id])
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, rows} -> {:ok, MapSet.new(rows, &to_string(&1.id))}
+        {:error, _reason} -> :error
+      end
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp update_plugin_assignment_skip_marker_ids(update) do
+    :global.trans(
+      {@plugin_assignment_skip_catalog_lock, self()},
+      fn ->
+        tracked_ids = :persistent_term.get(@plugin_assignment_skip_catalog_key, [])
+
+        case update.(tracked_ids) do
+          ^tracked_ids -> :ok
+          [] -> :persistent_term.erase(@plugin_assignment_skip_catalog_key)
+          ids -> :persistent_term.put(@plugin_assignment_skip_catalog_key, ids)
+        end
+
+        :ok
+      end,
+      [node()]
+    )
+  end
+
   defp plugin_assignment_skip_marker_key(assignment_id),
-    do: {__MODULE__, :plugin_assignment_skipped, assignment_id}
+    do: {__MODULE__, :plugin_assignment_skipped, to_string(assignment_id)}
 
   defp resolve_proxmox_assignment_scope(
          %PluginAssignment{} = assignment,
@@ -1772,23 +1880,39 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp proxmox_console_target_device(device_uid, actor)
        when is_binary(device_uid) and device_uid != "" do
-    case Device.get_by_uid(device_uid, false, actor: actor) do
+    case Device.get_by_uid(device_uid, false, actor: actor, not_found_error?: false) do
       {:ok, %Device{} = device} ->
         {:ok, device}
 
       {:ok, nil} ->
         {:error, :console_target_device_not_found}
 
-      {:error, error} when is_exception(error) ->
-        {:error, {:console_target_device_lookup_failed, Exception.message(error)}}
-
       {:error, error} ->
-        {:error, {:console_target_device_lookup_failed, error}}
+        if ash_not_found?(error) do
+          {:error, :console_target_device_not_found}
+        else
+          {:error, {:console_target_device_lookup_failed, format_lookup_error(error)}}
+        end
     end
   end
 
   defp proxmox_console_target_device(_device_uid, _actor),
     do: {:error, :console_target_device_uid_missing}
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(_error), do: false
+
+  defp format_lookup_error(error) when is_exception(error), do: Exception.message(error)
+  defp format_lookup_error(error), do: error
 
   # The assignment's own credential rule names the Proxmox source, so legacy
   # virtualization rows are completed against it exactly as an interactive
