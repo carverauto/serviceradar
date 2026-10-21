@@ -895,12 +895,11 @@ register_toolchains(
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
 
 #
-# pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it
-# to pnpm form on every repository-rule evaluation -- 141s here, on a cold fetch, before a
-# single asset is built. The converted file is checked in instead, so the conversion happens
-# once when a dependency actually changes. Regenerate by pointing this at
-# npm_package_lock = "//elixir/web-ng/assets:package-lock.json", building once, and
-# switching back; rules_js writes the file and tells you to commit it.
+# pnpm_lock, not npm_package_lock: converting an npm lock on every repository-rule
+# evaluation cost 141s on a cold fetch before a single asset was built. The checked-in
+# pnpm-lock.yaml is the source of truth. Change dependencies with pnpm 10 in
+# elixir/web-ng/assets (`pnpm install --lockfile-only`) and commit the updated lock; keep
+# the change targeted rather than regenerating the whole file.
 npm.npm_translate_lock(
     name = "web_ng_npm",
     data = [
@@ -925,7 +924,7 @@ npm.npm_import(
 use_repo(npm, "cli_yaml", "cli_yaml__links")
 
 # Remote God View pre-commit typecheck; reuse the compiler receipt already
-# pinned by assets/component/package-lock.json, without a bunx runtime fetch.
+# pinned by assets/component/bun.lock, without a bunx runtime fetch.
 npm.npm_import(
     name = "web_ng_typescript",
     package = "typescript",

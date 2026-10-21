@@ -116,7 +116,7 @@ filegroup(
             ".git/**",
         ],
     ) + [
-        # assets/ is its own package now (it owns package-lock.json for npm_translate_lock),
+        # assets/ is its own package now (it owns pnpm-lock.yaml for npm_translate_lock),
         # and a glob does not cross a package boundary. Without this label the assets would
         # drop out of every consumer silently -- the excluded "assets/**" above is there to
         # make that fact explicit rather than implied.
