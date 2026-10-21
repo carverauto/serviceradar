@@ -546,17 +546,14 @@ assignment -- reapproval required**. This is expected after the partition-bindin
 migration: ServiceRadar intentionally did not infer an old assignment's partition
 from current inventory metadata.
 
-The Plugins index has a **Legacy recovery candidates** table scoped to the current
-workspace. It shows the affected agent, plugin package, recovery kind, safe
-status, and a **Review** link. The queue is bounded to 50 cursor-backed rows per
-page and shows only rows that still need action; a successfully reapproved or
-reconciled historical row leaves the queue and retains only its safe completion
-state in package detail. Treat it as a review queue, not a bulk repair tool: it
-deliberately has no bulk enable action, deep offset scan, or `default`
-partition assumption.
+Recovery is per assignment, from the package page's assignment list: an unbound
+legacy row carries its own recovery action. A successfully reapproved or
+reconciled historical row keeps only its safe completion state in package
+detail. Treat recovery as a reviewed, one-row-at-a-time action, not a bulk repair
+tool: there is no bulk enable action and no `default` partition assumption.
 
-1. Use **Review**, confirm the target agent is connected, and verify the package
-   is still approved.
+1. Open the package, confirm the target agent is connected, and verify the
+   package is still approved.
 2. For a manually owned assignment, use **Reapprove** and explicitly confirm the
    replacement. ServiceRadar creates a new, partition-bound assignment and leaves
    the historical row disabled for audit.
