@@ -43,11 +43,14 @@ defmodule ServiceRadarWebNG.DataCase do
     :ok
   end
 
+  @unboxed_key {__MODULE__, :unboxed}
+
   @doc """
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(%{sandbox: :unboxed}) do
     Sandbox.mode(ServiceRadar.Repo, :auto)
+    Process.put(@unboxed_key, true)
 
     on_exit(fn ->
       Sandbox.mode(ServiceRadar.Repo, :manual)
@@ -58,6 +61,32 @@ defmodule ServiceRadarWebNG.DataCase do
     # Use ServiceRadar.Repo directly for sandbox operations (from serviceradar_core)
     pid = Sandbox.start_owner!(ServiceRadar.Repo, shared: not tags[:async])
     on_exit(fn -> Sandbox.stop_owner(pid) end)
+  end
+
+  @doc """
+  Deletes a user that a fixture created, when the calling test commits (`sandbox: :unboxed`).
+
+  Fixtures create users the caller never sees -- `operator_user_fixture/1` first creates an
+  admin when none exists -- so an unboxed caller cannot delete them itself. A leaked user is
+  not harmless: the first registered user becomes admin, so one committed user changes the
+  role every later test's first `user_fixture/0` gets. Boxed tests roll the row back with
+  the sandbox transaction, so nothing is registered for them.
+
+  Call it from the test process (a test body or `setup`). Its API tokens go with it; any
+  other row that still references the user is the test's own to delete.
+  """
+  def delete_on_exit_if_unboxed(%{id: id} = user) do
+    if Process.get(@unboxed_key) do
+      on_exit(fn ->
+        ServiceRadar.Repo.query!("DELETE FROM platform.api_tokens WHERE user_id = $1", [
+          Ecto.UUID.dump!(id)
+        ])
+
+        ServiceRadar.Repo.query!("DELETE FROM platform.ng_users WHERE id = $1", [Ecto.UUID.dump!(id)])
+      end)
+    end
+
+    user
   end
 
   @doc """

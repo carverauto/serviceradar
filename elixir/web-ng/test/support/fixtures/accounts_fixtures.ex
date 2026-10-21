@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
 
   alias ServiceRadar.Identity.Users
   alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadarWebNG.DataCase
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello_world_123!"
@@ -38,6 +39,8 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       |> Map.put(:password, password)
       |> Map.put(:password_confirmation, password)
       |> Users.register_with_password(actor: AshTestHelpers.system_actor())
+
+    DataCase.delete_on_exit_if_unboxed(user)
 
     case role do
       nil ->
@@ -113,6 +116,8 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       |> Map.put(:password, password)
       |> Map.put(:password_confirmation, password)
       |> Users.register_with_password(actor: AshTestHelpers.system_actor())
+
+    DataCase.delete_on_exit_if_unboxed(user)
 
     # Confirm the user
     {:ok, confirmed_user} = Users.confirm(user)

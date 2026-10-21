@@ -206,7 +206,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
     Application.put_env(:serviceradar_web_ng, :dashboard_live_test_pid, self())
 
-    user = AccountsFixtures.user_fixture()
+    # Explicit role: a plain user_fixture() is admin only while it is the first user in the
+    # database, which depends on what the tests before this one left committed.
+    user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
 
     on_exit(fn ->
@@ -1083,7 +1085,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
     end
 
     test "rejects a stream token minted for another user", %{user: user, scope: scope} do
-      other = AccountsFixtures.user_fixture()
+      other = AccountsFixtures.user_fixture(%{role: :viewer})
       other_scope = Scope.for_user(other, permissions: RBAC.permissions_for_user(other))
       route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
       data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
