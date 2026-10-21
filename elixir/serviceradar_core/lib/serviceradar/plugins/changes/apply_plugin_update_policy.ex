@@ -45,7 +45,7 @@ defmodule ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy do
   end
 
   def change(changeset, _opts, _context) do
-    Ash.Changeset.change_attributes(changeset, update_changes(changeset))
+    Ash.Changeset.atomic_update(changeset, update_changes(changeset))
   end
 
   @impl true
@@ -59,7 +59,10 @@ defmodule ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy do
   defp update_changes(changeset) do
     cond do
       param_provided?(changeset, :update_policy) ->
-        %{update_policy_source: :operator}
+        case changeset |> param(:update_policy) |> supplied_policy() do
+          nil -> %{}
+          policy -> %{update_policy: policy, update_policy_source: :operator}
+        end
 
       owner?(changeset) and package_changed?(changeset) ->
         %{update_policy: :pinned, update_policy_source: :operator}
@@ -68,6 +71,11 @@ defmodule ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy do
         %{}
     end
   end
+
+  defp supplied_policy(policy) when policy in [:pinned, :track_latest_approved], do: policy
+  defp supplied_policy("pinned"), do: :pinned
+  defp supplied_policy("track_latest_approved"), do: :track_latest_approved
+  defp supplied_policy(_policy), do: nil
 
   # PluginAssignment actions are never atomic, so the cast source is available.
   defp owner?(%{resource: PluginAssignment} = changeset) do

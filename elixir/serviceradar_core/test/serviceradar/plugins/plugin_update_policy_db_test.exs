@@ -85,6 +85,16 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
              update!(reload(PluginTargetPolicy, policy.id), %{
                update_policy: :track_latest_approved
              })
+
+    # The backfill commits after the operator's form loaded the row.
+    stale = manual_assignment!(ctx, current, agent_suffix: "stale")
+    mark_migration_default!("plugin_assignments", stale.id, "pinned")
+    stale = reload(PluginAssignment, stale.id)
+    mark_migration_default!("plugin_assignments", stale.id, "track_latest_approved")
+
+    update!(stale, %{plugin_package_id: newer.id})
+
+    assert policy_of(PluginAssignment, stale) == {:pinned, :operator}
   end
 
   test "a reconciler moving a policy-owned assignment records no operator choice", ctx do
