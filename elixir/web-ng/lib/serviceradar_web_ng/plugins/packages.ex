@@ -569,8 +569,16 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
             record_auto_approval(approved, FirstPartyAutoApproval.approved_record(prior, reason))
 
-          _staged_or_unreadable ->
-            record_auto_approval(package, FirstPartyAutoApproval.approval_failed_record(prior, reason))
+          {:ok, %PluginPackage{status: :staged} = staged} ->
+            record_auto_approval(staged, FirstPartyAutoApproval.approval_failed_record(prior, reason))
+
+          other ->
+            Logger.warning(
+              "First-party plugin auto-approval outcome unknown package_id=#{package.id} " <>
+                "reload=#{inspect(other)}"
+            )
+
+            {:ok, package}
         end
     end
   end
