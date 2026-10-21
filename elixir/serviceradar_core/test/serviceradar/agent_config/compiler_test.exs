@@ -83,20 +83,5 @@ defmodule ServiceRadar.AgentConfig.CompilerTest do
 
     refute log =~ "SNMPCompiler"
     refute log =~ "SNMP ownership lookup failed"
-
-    assert SNMPCompiler.repo_unavailable_error?(%RuntimeError{
-             message:
-               "could not lookup Ecto repo ServiceRadar.Repo because it was not started or it does not exist"
-           })
-
-    assert SNMPCompiler.repo_unavailable_error?({
-             :target_query_failed,
-             %RuntimeError{
-               message:
-                 "could not lookup Ecto repo ServiceRadar.Repo because it was not started or it does not exist"
-             }
-           })
-
-    refute SNMPCompiler.repo_unavailable_error?(%RuntimeError{message: "database timeout"})
   end
 end

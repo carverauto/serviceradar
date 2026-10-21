@@ -99,12 +99,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   rescue
     e ->
-      if repo_unavailable_error?(e) do
-        {:error, :repo_unavailable}
-      else
-        Logger.error("SNMPCompiler: error compiling config - #{inspect(e)}")
-        {:error, {:compilation_error, e}}
-      end
+      Logger.error("SNMPCompiler: error compiling config - #{inspect(e)}")
+      {:error, {:compilation_error, e}}
   end
 
   defp do_compile(partition, agent_id, opts) do
@@ -126,15 +122,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
             {:ok, config}
 
           {:error, reason} ->
-            if repo_unavailable_error?(reason) do
-              {:error, :repo_unavailable}
-            else
-              # A failed target, template, or profile-target read is not an empty
-              # config. ConfigServer caches every {:ok, _}, so returning one here
-              # would make agents poll nothing until the next :snmp invalidation.
-              Logger.error("SNMPCompiler: failed to compile profile - #{inspect(reason)}")
-              {:error, reason}
-            end
+            # A failed target, template, or profile-target read is not an empty
+            # config. ConfigServer caches every {:ok, _}, so returning one here
+            # would make agents poll nothing until the next :snmp invalidation.
+            Logger.error("SNMPCompiler: failed to compile profile - #{inspect(reason)}")
+            {:error, reason}
         end
 
       {:ok, _no_enabled_profile} ->
@@ -144,11 +136,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       # A failed profile read is not "no profile": returning the disabled
       # config here would be cached by ConfigServer as this agent's SNMP config.
       {:error, reason} ->
-        if repo_unavailable_error?(reason) do
-          {:error, :repo_unavailable}
-        else
-          {:error, {:profile_resolution_failed, reason}}
-        end
+        {:error, {:profile_resolution_failed, reason}}
     end
   end
 
@@ -188,34 +176,20 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
           profile
 
         {:error, reason} ->
-          if !repo_unavailable_error?(reason) do
-            Logger.warning("SNMPCompiler: profile resolution failed - #{inspect(reason)}")
-          end
-
+          Logger.warning("SNMPCompiler: profile resolution failed - #{inspect(reason)}")
           nil
       end
     end
-  rescue
-    error ->
-      if !repo_unavailable_error?(error) do
-        Logger.warning("SNMPCompiler: profile resolution failed - #{inspect(error)}")
-      end
-
-      nil
   end
 
   defp fetch_profile(device_uid, agent_id, actor) do
-    if repo_ready?() do
-      TargetedProfileResolver.resolve(device_uid, actor,
-        resolver: fn device_uid, actor ->
-          SrqlTargetResolver.resolve_for_device(device_uid, agent_id, actor)
-        end,
-        default_resolver: fn actor -> get_default_profile(agent_id, actor) end,
-        log_prefix: "SNMPCompiler"
-      )
-    else
-      {:error, :repo_unavailable}
-    end
+    TargetedProfileResolver.resolve(device_uid, actor,
+      resolver: fn device_uid, actor ->
+        SrqlTargetResolver.resolve_for_device(device_uid, agent_id, actor)
+      end,
+      default_resolver: fn actor -> get_default_profile(agent_id, actor) end,
+      log_prefix: "SNMPCompiler"
+    )
   end
 
   @doc """
@@ -231,13 +205,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     else
       :all_online
     end
-  rescue
-    error ->
-      if !repo_unavailable_error?(error) do
-        Logger.warning("SNMP ownership lookup failed: #{Exception.message(error)}")
-      end
-
-      :all_online
   end
 
   defp do_affected_agents_for_device(device_uid) do
@@ -284,6 +251,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     else
       _ -> :all_online
     end
+  rescue
+    error ->
+      Logger.warning("SNMP ownership lookup failed: #{Exception.message(error)}")
+      :all_online
   end
 
   defp profile_consumes_device?(profile, device_uid, explicit_profiles, actor) do
@@ -393,33 +364,29 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   def execute_target_query("", _actor), do: {:ok, []}
 
   def execute_target_query(target_query, actor) do
-    target_query = String.trim(target_query)
-
-    if target_query == "" do
-      {:ok, []}
+    if repo_ready?() do
+      do_execute_target_query(target_query, actor)
     else
-      case SRQLAst.parse(target_query) do
-        {:ok, ast} ->
-          if repo_ready?() do
-            entity = SRQLAst.entity(target_query)
-            execute_parsed_query(entity, ast, actor)
-          else
-            {:error, :repo_unavailable}
-          end
-
-        {:error, reason} ->
-          Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
-          {:ok, []}
-      end
+      {:error, :repo_unavailable}
     end
   rescue
     e ->
-      if repo_unavailable_error?(e) do
-        {:error, :repo_unavailable}
-      else
-        Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
-        {:error, {:target_query_failed, e}}
-      end
+      Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
+      {:error, {:target_query_failed, e}}
+  end
+
+  defp do_execute_target_query(target_query, actor) do
+    target_query = String.trim(target_query)
+
+    case SRQLAst.parse(target_query) do
+      {:ok, ast} ->
+        entity = SRQLAst.entity(target_query)
+        execute_parsed_query(entity, ast, actor)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
+        {:ok, []}
+    end
   end
 
   defp normalize_target_query(target_query, is_default) do
@@ -518,12 +485,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         {:ok, []}
 
       {:error, reason} ->
-        if repo_unavailable_error?(reason) do
-          {:error, :repo_unavailable}
-        else
-          Logger.error("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
-          {:error, {:target_query_failed, reason}}
-        end
+        Logger.error("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
+        {:error, {:target_query_failed, reason}}
     end
   end
 
@@ -555,12 +518,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         {:ok, []}
 
       exception ->
-        if repo_unavailable_error?(exception) do
-          {:error, :repo_unavailable}
-        else
-          Logger.error("SNMPCompiler: failed to query devices - #{inspect(exception)}")
-          {:error, {:target_query_failed, exception}}
-        end
+        Logger.error("SNMPCompiler: failed to query devices - #{inspect(exception)}")
+        {:error, {:target_query_failed, exception}}
     end
   end
 
@@ -597,14 +556,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     else
       {:error, :repo_unavailable}
     end
-  rescue
-    e ->
-      if repo_unavailable_error?(e) do
-        {:error, :repo_unavailable}
-      else
-        Logger.error("SNMPCompiler: failed to load OID templates - #{inspect(e)}")
-        {:error, e}
-      end
   end
 
   defp do_load_template_oids(template_ids, actor) do
@@ -622,12 +573,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         {:ok, oids}
 
       {:error, reason} ->
-        if repo_unavailable_error?(reason) do
-          {:error, :repo_unavailable}
-        else
-          Logger.error("SNMPCompiler: failed to load OID templates - #{inspect(reason)}")
-          {:error, reason}
-        end
+        Logger.error("SNMPCompiler: failed to load OID templates - #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -936,22 +883,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp maybe_put_positive_int(map, key, value), do: Map.put(map, key, value)
 
   defp load_profile_targets(profile, actor, opts) do
-    if repo_ready?() do
-      do_load_profile_targets(profile, actor, opts)
-    else
-      {:error, :repo_unavailable}
-    end
-  rescue
-    e ->
-      if repo_unavailable_error?(e) do
-        {:error, :repo_unavailable}
-      else
-        Logger.error("SNMPCompiler: failed to load profile targets - #{inspect(e)}")
-        {:error, e}
-      end
-  end
-
-  defp do_load_profile_targets(profile, actor, opts) do
     query =
       SNMPTarget
       |> Ash.Query.filter(snmp_profile_id == ^profile.id)
@@ -976,12 +907,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         end
 
       {:error, reason} ->
-        if repo_unavailable_error?(reason) do
-          {:error, :repo_unavailable}
-        else
-          Logger.error("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
-          {:error, reason}
-        end
+        Logger.error("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -1463,28 +1390,4 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     Application.get_env(:serviceradar_core, :repo_enabled, true) != false and
       is_pid(Process.whereis(Repo))
   end
-
-  @doc false
-  def repo_unavailable_error?(:repo_unavailable), do: true
-  def repo_unavailable_error?({:target_query_failed, reason}), do: repo_unavailable_error?(reason)
-
-  def repo_unavailable_error?({:profile_resolution_failed, reason}),
-    do: repo_unavailable_error?(reason)
-
-  def repo_unavailable_error?({:compilation_error, reason}), do: repo_unavailable_error?(reason)
-
-  def repo_unavailable_error?(%RuntimeError{message: message}) when is_binary(message) do
-    String.contains?(message, "could not lookup Ecto repo")
-  end
-
-  def repo_unavailable_error?(message) when is_binary(message) do
-    String.contains?(message, "could not lookup Ecto repo")
-  end
-
-  def repo_unavailable_error?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &repo_unavailable_error?/1)
-  end
-
-  def repo_unavailable_error?(%{error: error}), do: repo_unavailable_error?(error)
-  def repo_unavailable_error?(_), do: false
 end
