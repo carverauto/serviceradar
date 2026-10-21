@@ -241,7 +241,11 @@ defmodule ServiceRadarWebNGWeb.Plugins.Components do
   def dom_id_segment(value) do
     value
     |> to_string()
-    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
+    |> String.replace(~r/[^A-Za-z0-9_]/, fn char ->
+      for <<byte <- char>>,
+        into: "",
+        do: "-" <> (byte |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(2, "0"))
+    end)
   end
 
   @doc "Parses an optional JSON object from a form field."

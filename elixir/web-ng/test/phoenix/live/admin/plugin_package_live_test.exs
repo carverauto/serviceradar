@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
   alias ServiceRadarWebNGWeb.Plugins.CatalogLive
+  alias ServiceRadarWebNGWeb.Plugins.Components
   alias ServiceRadarWebNGWeb.Plugins.InstalledLive
   alias ServiceRadarWebNGWeb.Plugins.ShowLive
   alias ServiceRadarWebNGWeb.Plugins.UpdatesLive
@@ -659,7 +660,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/plugins")
 
-    row = "#installed-plugin-#{plugin_id}"
+    row = "#installed-plugin-#{Components.dom_id_segment(plugin_id)}"
     assert find_installed_row(lv, row) == :found
 
     assert has_element?(lv, row, "1.1.0")

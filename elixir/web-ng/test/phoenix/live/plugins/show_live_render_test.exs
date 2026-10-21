@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLiveRenderTest do
 
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
+  alias ServiceRadarWebNGWeb.Plugins.Components
   alias ServiceRadarWebNGWeb.Plugins.ShowLive
 
   @moduletag :unit
@@ -153,6 +154,12 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLiveRenderTest do
 
     assert stager_html =~ "Upload Wasm Blob"
     assert stager_html =~ "synthetic-upload-token"
+  end
+
+  test "plugin ids that differ only in punctuation get distinct DOM id segments" do
+    assert Components.dom_id_segment("snmp.if") == "snmp-2eif"
+    assert Components.dom_id_segment("snmp-if") == "snmp-2dif"
+    assert Components.dom_id_segment("snmp_if") == "snmp_if"
   end
 
   defp package_fixture do

@@ -582,7 +582,8 @@ defmodule ServiceRadarWebNGWeb.Plugins.CatalogLive do
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_errors, [])}
+     |> assign(:create_errors, [])
+     |> push_patch(to: plugins_tab_path(socket.assigns.plugins_base_path, "catalog"))}
   end
 
   def handle_event("sync_first_party_catalog", _params, socket) do
