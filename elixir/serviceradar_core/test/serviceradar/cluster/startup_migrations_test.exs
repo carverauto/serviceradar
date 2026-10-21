@@ -30,13 +30,7 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
   end
 
   test "run! executes configured migration hooks when enabled" do
-    {:ok, tracker} = Agent.start_link(fn -> %{run: 0} end)
-
-    on_exit(fn ->
-      if Process.alive?(tracker) do
-        Agent.stop(tracker)
-      end
-    end)
+    tracker = start_supervised!({Agent, fn -> %{run: 0} end})
 
     migrations_fun = fn ->
       Agent.update(tracker, fn state ->
