@@ -21,6 +21,8 @@ A camera-only change (pan or zoom) that changes just the view digest keeps the
 last validated view displayed until its replacement validates. Retained rows
 expire 10 seconds after the first unconfirmed view change, including time spent
 loading replacement geometry, and further camera moves do not extend that
+deadline. Changing the selected tiles releases the previous view's binding, so
+a later frame for that view neither completes the replacement nor cancels the
 deadline. A changed query digest, dictionary epoch or
 authority fingerprint, a watch error, or a reset clears them immediately.
 Membership watches start only for an explicitly selected query; even `{all:[]}`
