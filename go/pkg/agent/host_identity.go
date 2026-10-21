@@ -6,22 +6,24 @@ import (
 	"strings"
 )
 
-var hostInternalInterfacePrefixes = []string{
-	"docker",
-	"br-",
-	"cni",
-	"flannel",
-	"veth",
-	"virbr",
-	"cali",
-	"vxlan",
-	"tunl",
-	"cilium",
-	"kube-",
-	"weave",
-	"podman",
-	"lxcbr",
-	"lxdbr",
+func hostInternalInterfacePrefixes() []string {
+	return []string{
+		"docker",
+		"br-",
+		"cni",
+		"flannel",
+		"veth",
+		"virbr",
+		"cali",
+		"vxlan",
+		"tunl",
+		"cilium",
+		"kube-",
+		"weave",
+		"podman",
+		"lxcbr",
+		"lxdbr",
+	}
 }
 
 const maxGatewayPrefixLen = 30
@@ -139,7 +141,7 @@ func isHostInternalInterfaceName(name string) bool {
 	if normalized == "" {
 		return false
 	}
-	for _, prefix := range hostInternalInterfacePrefixes {
+	for _, prefix := range hostInternalInterfacePrefixes() {
 		if strings.HasPrefix(normalized, prefix) {
 			return true
 		}

@@ -57,16 +57,18 @@ func TestSelectSourceIPPrefersPrivateIPv4WhenUnconfigured(t *testing.T) {
 func TestSelectSourceIPSkipsDockerBridgeAndOverlayInterfacesWhenFallingBack(t *testing.T) {
 	t.Parallel()
 
+	const hostNICIP = "192.0.2.20"
+
 	if got := selectSourceIP("", []net.IP{
 		net.ParseIP("172.17.0.1"),
-		net.ParseIP("192.0.2.20"),
-	}); got != "192.0.2.20" {
+		net.ParseIP(hostNICIP),
+	}); got != hostNICIP {
 		t.Fatalf("selectSourceIP() = %q, want 192.0.2.20 instead of docker0 default bridge", got)
 	}
 
 	if got := selectSourceIP("172.17.0.1", []net.IP{
 		net.ParseIP("172.17.0.1"),
-		net.ParseIP("192.0.2.20"),
+		net.ParseIP(hostNICIP),
 	}); got != "172.17.0.1" {
 		t.Fatalf("selectSourceIP(configured) = %q, want configured host_ip 172.17.0.1", got)
 	}
@@ -96,7 +98,7 @@ func TestSelectSourceIPSkipsDockerBridgeAndOverlayInterfacesWhenFallingBack(t *t
 	}
 
 	gotIP, gotMACs := selectHostIdentity("", interfaces)
-	if gotIP != "192.0.2.20" {
+	if gotIP != hostNICIP {
 		t.Fatalf("selectHostIdentity() IP = %q, want 192.0.2.20 instead of container bridge", gotIP)
 	}
 	if len(gotMACs) != 1 || gotMACs[0] != "00:00:5e:00:53:20" {
@@ -113,7 +115,7 @@ func TestSelectSourceIPSkipsDockerBridgeAndOverlayInterfacesWhenFallingBack(t *t
 
 	loop := NewPushLoop(&Server{config: &ServerConfig{HostIP: "203.0.113.9"}}, nil, 0, logger.NewTestLogger())
 	loop.hostInventory = func() []hostInterface { return interfaces }
-	if got := loop.getSourceIP(); got != "192.0.2.20" {
+	if got := loop.getSourceIP(); got != hostNICIP {
 		t.Fatalf("getSourceIP() = %q, want 192.0.2.20 instead of container bridge", got)
 	}
 }
