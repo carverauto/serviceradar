@@ -9,6 +9,7 @@
 - [x] 2.2 Reconciler: a non-empty resolution that excludes a row still disables it.
 - [x] 2.3 Reconciler: a disabled policy still retracts on an empty resolution.
 - [x] 2.4 Materializer: a held result is reported as the `targets_unresolved` skip.
+- [x] 2.5 Reconciler: an empty resolution whose only assignment is already disabled reports `held: 0` with `:targets_unresolved` and does not re-enable the row.
 
 ## 3. Follow-up
 - [ ] 3.1 Retract a credential rule's assignments when the rule is disabled, deleted, or no longer scoped to the agent (the periodic workers never reconcile such rules).
