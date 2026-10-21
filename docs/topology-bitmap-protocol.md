@@ -17,6 +17,11 @@ Membership receipts include only displayed geometry. Retained offscreen prefetch
 can remain in the separate geometry watch without invalidating an unchanged
 accepted membership view. A newly displayed receipt requires a matching complete
 replacement before its filtered rows become visible.
+A camera-only change (pan or zoom) that changes just the view digest keeps the
+last validated view displayed until its replacement validates. Retained rows
+expire 10 seconds after the first unconfirmed view change, and further camera
+moves do not extend that deadline. A changed query digest, dictionary epoch or
+authority fingerprint, a watch error, or a reset clears them immediately.
 Membership watches start only for an explicitly selected query; even `{all:[]}`
 is explicit. A null query keeps the authorized base map and its boundary clips
 without waiting for index readiness. Clearing a query sends `membership:unwatch`
