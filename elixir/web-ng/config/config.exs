@@ -263,6 +263,12 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   auto_sync_enabled: false,
   sync_release_limit: 10,
   sync_interval_seconds: 3_600,
+  # Approve a verified package from the built-in first-party repository without
+  # an operator when its requested capabilities, permissions and resources stay
+  # within the plugin's latest approved grant. A plugin's first version, a
+  # widened grant, and every upload, GitHub or third-party package still wait
+  # for review. See ServiceRadarWebNG.Plugins.FirstPartyAutoApproval.
+  auto_approve_within_grant: true,
   cosign_binary: "cosign",
   # Verification key for the first-party plugin artifacts published from the
   # repo_url above. It pairs with that default: a hardcoded first-party source
