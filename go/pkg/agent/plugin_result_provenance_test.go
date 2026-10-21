@@ -34,6 +34,8 @@ import (
 
 const provenanceTestWasmObject = "example-check.wasm"
 
+const provenanceTestVersion = "2.0.0"
+
 // A rollout gate trusts a result as evidence about a package only if the host,
 // not the plugin, says which assignment, package and module produced it. The
 // plugin here claims another identity everywhere its payload can reach.
@@ -81,7 +83,7 @@ func TestPluginResultProvenanceIsHostStampedAndUnforgeable(t *testing.T) {
 			AssignmentId:    result.AssignmentID,
 			PluginId:        "example-check",
 			PluginPackageId: "example-check-package-2",
-			PluginVersion:   "2.0.0",
+			PluginVersion:   provenanceTestVersion,
 			ContentHash:     module.hex,
 		}
 		if !gproto.Equal(status.GetPluginProvenance(), want) {
@@ -131,7 +133,7 @@ func TestPluginEngineTelemetryReportsPerAssignmentModuleLoad(t *testing.T) {
 	if loaded["status"] != pluginLoadStatusLoaded ||
 		loaded["content_hash"] != module.hex ||
 		loaded["plugin_package_id"] != "example-check-package-2" ||
-		loaded["plugin_version"] != "2.0.0" {
+		loaded["plugin_version"] != provenanceTestVersion {
 		t.Fatalf("loaded assignment telemetry = %v", loaded)
 	}
 	failed := loads["assignment-mismatch-1"]
@@ -171,12 +173,12 @@ func TestPluginAssignmentLoadIsBoundToConfigGeneration(t *testing.T) {
 		return nil
 	}
 
-	first := applyVersion("2.0.0")
+	first := applyVersion(provenanceTestVersion)
 	if _, err := manager.RunAction(t.Context(), assignmentID, json.RawMessage(`{}`), 5*time.Second); err != nil {
 		t.Fatalf("RunAction 2.0.0: %v", err)
 	}
 	if got := telemetryAssignmentLoads(t, manager)[assignmentID]; got["status"] != pluginLoadStatusLoaded ||
-		got["plugin_version"] != "2.0.0" || got["content_hash"] != module.hex {
+		got["plugin_version"] != provenanceTestVersion || got["content_hash"] != module.hex {
 		t.Fatalf("telemetry after 2.0.0 load = %v", got)
 	}
 
@@ -244,7 +246,7 @@ func provenanceTestAssignment(assignmentID, contentHash string, capabilities ...
 		AssignmentId:  assignmentID,
 		PluginId:      "example-check",
 		PackageId:     "example-check-package-2",
-		Version:       "2.0.0",
+		Version:       provenanceTestVersion,
 		Name:          "Example Check",
 		Entrypoint:    "run_check",
 		Enabled:       true,
@@ -316,13 +318,15 @@ func submitResultTestModule(payload []byte) []byte {
 	exports = append(exports, name("run_check")...)
 	exports = append(exports, 0x00, 0x01) // function index 1 (after the import)
 
-	body := []byte{0x00, 0x41, 0x00, 0x41} // no locals; i32.const 0; i32.const len
+	body := make([]byte, 0, 16)
+	body = append(body, 0x00, 0x41, 0x00, 0x41) // no locals; i32.const 0; i32.const len
 	body = append(body, wasmSLEB128(int32(len(payload)))...)
 	body = append(body, 0x10, 0x00, 0x1a, 0x0b) // call submit_result; drop; end
 	code := append([]byte{0x01}, wasmULEB128(uint32(len(body)))...)
 	code = append(code, body...)
 
-	data := []byte{0x01, 0x00, 0x41, 0x00, 0x0b} // active segment at offset 0
+	data := make([]byte, 0, 10+len(payload))
+	data = append(data, 0x01, 0x00, 0x41, 0x00, 0x0b) // active segment at offset 0
 	data = append(data, wasmULEB128(uint32(len(payload)))...)
 	data = append(data, payload...)
 
