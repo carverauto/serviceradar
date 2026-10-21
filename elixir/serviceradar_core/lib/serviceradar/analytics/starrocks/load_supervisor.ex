@@ -9,6 +9,8 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadSupervisor do
 
   @impl true
   def init(opts) do
+    {:ok, _} = Application.ensure_all_started(:req)
+
     Supervisor.init(
       [
         {ServiceRadar.Analytics.StarRocks.LoadAdmission, opts},

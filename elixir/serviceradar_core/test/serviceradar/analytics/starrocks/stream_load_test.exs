@@ -356,6 +356,46 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("logs", @rows, http: fn _ -> exit(:shutdown) end)
   end
 
+  test "stopping-node exits and load path do not call ensure_all_started or crash the caller" do
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows, http: fn _ -> exit(:terminating) end)
+
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows,
+               http: fn _ -> exit({:terminating, :application_controller}) end
+             )
+
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows, http: fn _ -> {:error, :terminating} end)
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+    label = StreamLoad.load_label("otel_traces", @rows)
+
+    start_supervised!({Task, fn -> serve_publish_timeout_then_state(listener, parent) end})
+
+    :erlang.trace(:new_processes, true, [:call, {:tracer, parent}])
+    :erlang.trace_pattern({Application, :ensure_all_started, :_}, true, [:global])
+
+    on_exit(fn ->
+      :erlang.trace(:new_processes, false, [:call])
+      :erlang.trace_pattern({Application, :ensure_all_started, :_}, false, [:global])
+    end)
+
+    assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
+             StreamLoad.persist("otel_traces", @rows,
+               config: %{fe_http: "http://127.0.0.1:#{port}"},
+               label: label,
+               http_timeout: 8_000
+             )
+
+    refute_received {:trace, _pid, :call, {Application, :ensure_all_started, _args}}
+  end
+
   test "unrelated callback exits are re-raised instead of retried" do
     assert catch_exit(StreamLoad.persist("logs", @rows, http: fn _ -> exit(:my_bug) end)) ==
              :my_bug

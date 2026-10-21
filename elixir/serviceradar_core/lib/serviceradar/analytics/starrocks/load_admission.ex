@@ -68,10 +68,11 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
             result
 
           {:raised, :exit, reason, _stacktrace}
-          when reason in [:shutdown, :killed] ->
+          when reason in [:shutdown, :killed, :terminating, :noproc] ->
             {:error, :load_admission_unavailable}
 
-          {:raised, :exit, {:shutdown, _}, _} ->
+          {:raised, :exit, {reason, _}, _}
+          when reason in [:shutdown, :terminating, :noproc] ->
             {:error, :load_admission_unavailable}
 
           {:raised, kind, reason, stacktrace} ->

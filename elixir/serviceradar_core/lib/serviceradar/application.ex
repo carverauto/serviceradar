@@ -62,6 +62,7 @@ defmodule ServiceRadar.Application do
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
+    ensure_started(:req)
 
     children =
       [
