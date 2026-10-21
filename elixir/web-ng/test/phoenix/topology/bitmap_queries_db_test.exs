@@ -573,8 +573,12 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert_reply expired_ref, :error, %{reason: "query_timeout"}, 5_000
     refute_push "membership:frame", _expired_frame, 200
 
+    # Seal the replacement before holding so DB lookups cannot spend the held
+    # watch's one-second deadline; only its installation lands in that window.
+    # Deliberate expiry is asserted separately above.
+    remapping = seal_mapping(world, [included, excluded], snapshot.dictionary_epoch)
     remapped_ref = hold_completed_watch(socket, params)
-    :ok = WorldCache.install_ordinals(world, seal_mapping(world, [included, excluded], snapshot.dictionary_epoch))
+    :ok = WorldCache.install_ordinals(world, remapping)
     :ok = :sys.resume(socket.channel_pid)
     assert_reply remapped_ref, :error, %{reason: "source_changed"}, 5_000
     refute_push "membership:frame", _remapped_frame, 200
