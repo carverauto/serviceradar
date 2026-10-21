@@ -102,8 +102,8 @@ per-plugin detail view:
   - Versions: history, with a deliberate pin-to-version action.
   - Permissions: requested vs approved.
   - Advanced: manifest, schemas, provenance, artifact tokens.
-- The **Capacity Snapshot** moves to the agent detail page (per agent) and to an
-  optional capacity view in Installed. It no longer occupies the main page.
+- The **Capacity Snapshot** moves to the agent detail page (per agent). It no
+  longer occupies the main page.
 
 ### Versions and update policy
 
@@ -119,10 +119,14 @@ per-plugin detail view:
   first-party package whose requested capabilities, permissions and resources
   stay within the currently approved grant for that plugin is approved
   automatically. A version that widens any of them stays `staged` and appears in
-  **Updates** with the diff. Approval never rewrites assignments by itself.
+  **Updates** with the diff. The first approved version of any plugin always
+  needs an explicit decision. Approval never rewrites assignments by itself.
+  This modifies the existing `wasm-plugin-system` requirement "Staged Import
+  Review and Capability Confirmation", which today requires an explicit decision
+  for every import.
 - **Fleet upgrades.** When a newer eligible version is approved, a plugin
-  rollout moves tracking assignments in batches. It reuses the native add-on
-  rollout coordinator where practical (snapshotted targets, batches, a health
+  rollout moves tracking assignments in batches. It generalizes the native
+  add-on rollout coordinator (snapshotted targets, batches, a health
   gate from plugin results and `/services`, pause/resume/cancel, rollback to the
   previous package). Pinned assignments are reported as "behind" but not moved.
 - **Bulk "Upgrade to latest"** per plugin and across all plugins. It upgrades
@@ -147,7 +151,11 @@ per-plugin detail view:
 
 ## Impact
 
-- **Affected specs:** `plugin-configuration-ui`, `wasm-plugin-system`.
+- **Affected specs:**
+  - `plugin-configuration-ui`: added requirements.
+  - `wasm-plugin-system`: added requirements, and a modified "Staged Import
+    Review and Capability Confirmation" that permits first-party auto-approval
+    within the approved grant.
 - **Related changes:**
   - `add-native-addon-fleet-rollouts`: its rollout coordinator, update-policy
     vocabulary and fleet health classification are reused.
@@ -167,8 +175,12 @@ per-plugin detail view:
   - `credentials/plugin_assignment_materializer.ex`: the reported owner status.
   - LiveView, domain and integration tests for the above.
 - **Data:**
-  - new columns for the update policy on assignments and target policies;
-  - plugin rollout records (or a generalization of `AddonRollout`);
-  - a one-shot backfill that sets existing first-party manual assignments to
-    `track_latest_approved` unless they are explicitly pinned (see design
-    Migration).
+  - new `update_policy` and `update_policy_source`
+    (`migration_default | operator`) columns on assignments and target
+    policies;
+  - an artifact kind on `AddonRollout` / `AddonRolloutTarget` so they also
+    carry Wasm plugin rollouts;
+  - a one-shot backfill that sets existing first-party manual assignments and
+    target policies to `track_latest_approved` only while their policy is still
+    the `migration_default`, so an operator pin is never overwritten (see
+    design Migration).

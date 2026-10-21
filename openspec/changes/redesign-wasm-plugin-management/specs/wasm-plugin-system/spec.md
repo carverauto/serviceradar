@@ -32,8 +32,9 @@ latest approved version.
   automatically and record an audit event marking the approval as automatic.
 - **Any widening:** leave it staged for operator review.
 
-The first approved version of a plugin SHALL always require operator approval.
-A deployment setting SHALL be able to disable auto-approval.
+This is the only exception to the explicit decision required by "Staged Import
+Review and Capability Confirmation". A deployment setting SHALL be able to
+disable auto-approval.
 
 #### Scenario: Unchanged grant
 - **WHEN** a first-party release ships a new plugin version requesting the same capabilities, permissions and resources as the approved version
@@ -74,3 +75,39 @@ The status SHALL be visible in the plugin management UI.
 - **WHEN** a credential rule's target query resolves no devices
 - **THEN** its assignments are not disabled
 - **AND** the rule and plugin show `targets_unresolved`
+
+## MODIFIED Requirements
+
+### Requirement: Staged Import Review and Capability Confirmation
+The system MUST stage every plugin import and require an explicit approve/deny decision with a diff view of requested vs approved capabilities and allowlists before a plugin is distributable, EXCEPT a signed, verified first-party package whose requested capabilities, permissions and resources are a subset of the plugin's currently approved grant, which the system MAY approve automatically under "First-party plugin auto-approval within the approved grant". The first approved version of any plugin MUST always require an explicit decision.
+
+#### Scenario: Import is staged with approve/deny
+- **GIVEN** a newly uploaded or GitHub-sourced plugin package
+- **WHEN** the package is staged for import
+- **THEN** the system presents an approve/deny decision
+- **AND** shows a diff view of requested vs approved capabilities and allowlists
+- **AND** the package remains inactive until approved
+
+#### Scenario: Capability override on import
+- **GIVEN** a plugin requesting `http_request` and an allowlist of `api.example.com`
+- **WHEN** an admin removes `http_request` or narrows the allowlist during import
+- **THEN** the approved policy is persisted
+- **AND** the plugin executes with the approved (reduced) capabilities
+
+#### Scenario: Unapproved plugin not distributable
+- **GIVEN** a plugin package that has not been approved
+- **WHEN** an agent config is generated
+- **THEN** the plugin is excluded from assignments
+
+#### Scenario: Denied import remains blocked
+- **GIVEN** a plugin package that was denied during import review
+- **WHEN** an admin attempts to assign the plugin to an agent
+- **THEN** the assignment is blocked
+
+#### Scenario: First-party update within the approved grant
+- **GIVEN** a first-party plugin with an approved version
+- **AND** a signed, verified first-party package of a newer version whose requested capabilities, permissions and resources are a subset of the approved grant
+- **WHEN** the package is imported
+- **THEN** it is approved automatically without an operator decision
+- **AND** an audit event records the approval as automatic
+

@@ -73,6 +73,16 @@ Add `update_policy` (`track_latest_approved | pinned`) to `PluginAssignment`
 documented as `track_latest_approved`, which is their existing behaviour, and
 the UI shows them that way.
 
+Alongside it, add a durable `update_policy_source`
+(`migration_default | operator`), as add-on Decision 1 does, so the migration
+can tell a default it assigned from an operator's choice:
+- the schema migration marks only rows that exist at migration time as
+  `migration_default`;
+- any operator action on an owner (pin, track, version change) sets
+  `operator`;
+- the backfill (Migration Plan step 2) changes only rows that are still
+  `migration_default`.
+
 - **Defaults:**
   - signed, verified `first_party` packages default to `track_latest_approved`;
   - `upload`, `github` and third-party repository packages default to `pinned`;
@@ -99,6 +109,11 @@ currently approved grant for that `plugin_id` (the latest approved version).
 - **First version:** a plugin with no approved version is never auto-approved;
   the first approval is always manual.
 
+This modifies the `wasm-plugin-system` requirement "Staged Import Review and
+Capability Confirmation", which today requires an explicit approve/deny
+decision for every import. The modified requirement keeps that rule and adds
+this auto-approval as its only exception.
+
 A deployment setting can turn auto-approval off. It defaults on for first-party
 packages only, mirroring `autoApproveAddonIds` for native add-ons. Approval
 never rewrites assignments in the approval transaction.
@@ -115,9 +130,9 @@ Moving tracking owners to a newly approved version is an asynchronous rollout:
 - rollback to the previous stable package.
 
 The plan is to generalize `AddonRollout` / `AddonRolloutTarget` with an artifact
-kind (`native_addon | wasm_plugin`), not to build a second coordinator. If the
-generalization proves too invasive, a parallel `PluginRollout` with the same
-state machine is the fallback; tasks 3.x decide this after a spike.
+kind (`native_addon | wasm_plugin`), not to build a second coordinator. Task 3.3
+is a spike that confirms the generalization; any blocker it finds is recorded
+here for review.
 
 **Target membership:**
 - **Manual tracking rows:** each row is a target.
@@ -189,14 +204,18 @@ They share function components. Rules:
 
 ## Migration Plan
 
-1. Schema: add `update_policy` (default `pinned`) to assignments and target
-   policies, plus the rollout artifact kind or new rollout tables. Migrations
-   are catalog-only (constant defaults), per startup-safety rules.
+1. Schema: add `update_policy` (default `pinned`) and `update_policy_source`
+   to assignments and target policies, plus the rollout artifact kind. Rows
+   that exist at migration time are marked `migration_default`; new rows and
+   every later operator action record `operator`. Migrations are catalog-only
+   (constant defaults), per startup-safety rules.
 2. One-shot Oban backfill: manual and target-policy owners whose package is
-   signed, verified `first_party` become `track_latest_approved`. Everything
-   else stays `pinned`. It runs in bounded, skip-locked batches. Expose a
-   one-click "Pin" before enabling automatic rollouts, as add-on Decision 1
-   does.
+   signed, verified `first_party` and whose `update_policy_source` is still
+   `migration_default` become `track_latest_approved`. Everything else stays
+   as it is. It runs in bounded, skip-locked batches and re-checks
+   `migration_default` inside each batch, so an operator pin made before or
+   during the backfill is never overwritten. Expose a one-click "Pin" before
+   enabling automatic rollouts, as add-on Decision 1 does.
 3. Ship the new UI behind the Settings catalog with the old route redirecting.
    Remove the old LiveView once the new tabs cover every action.
 4. Enable auto-approval and automatic rollouts. Before enabling, report
@@ -209,5 +228,3 @@ They share function components. Rules:
 - What health signal gates a plugin rollout? Plugin result freshness plus status
   per assignment is the proposal. Do action-only plugins (no service identity)
   get a "first successful run" gate instead?
-- Where should capacity live long-term: the agent detail page only, or also a
-  fleet capacity view in Installed?
