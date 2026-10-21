@@ -170,9 +170,11 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 4))
 
-    assert %{state: :succeeded, reason_code: "no_version_evidence"} = target(rollout, early)
+    # Both pass, so the rollout promotes; only the acknowledged one is verified.
+    assert %AddonRollout{state: :completed} = reload(rollout)
+    assert %{state: :promoted, reason_code: "no_version_evidence"} = target(rollout, early)
 
-    assert %{state: :succeeded, reason_code: "candidate_health_verified"} =
+    assert %{state: :promoted, reason_code: "candidate_health_verified"} =
              target(rollout, acknowledged)
   end
 
