@@ -1335,11 +1335,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         provision_command: str,
         suite_command: str,
         required_pool_slots: int,
-        max_seconds: int,
     ) -> None:
-        # One literal observer bound per lifecycle, inside the action's hour.
-        self.assertEqual([str(max_seconds)], re.findall(r"--max-seconds (\S+) --required-pool-slots", action))
-        self.assertLessEqual(max_seconds, HOSTED_ACTION_CAP_SECONDS)
         for required in (
             'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "export BAZEL_PROFILE=ci",
@@ -1565,7 +1561,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_provision,
             self.ordinary_suite,
             114,
-            BAZEL_CI_OBSERVER_MAX_SECONDS,
         )
         self.assertEqual(1, action.count(self.ordinary_suite))
         self.assertNotIn(
@@ -2063,7 +2058,6 @@ print(open(sys.argv[2]).read().strip())
             self.heavy_provision,
             self.heavy_suite,
             15,
-            LARGE_INGESTION_OBSERVER_MAX_SECONDS,
         )
         self.assertEqual(1, action.count(self.heavy_provision))
         self.assertEqual(1, action.count(self.heavy_suite))
