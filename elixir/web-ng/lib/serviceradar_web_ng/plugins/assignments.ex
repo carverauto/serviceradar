@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   Context module for agent plugin assignments.
   """
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.OwnedAssignmentRetraction
   alias ServiceRadar.Plugins.PluginAssignment
@@ -35,6 +36,28 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     |> read(scope)
     |> decorate_legacy_recovery(opts)
   end
+
+  @doc """
+  Agents an operator can assign a plugin to: those seen in the last 30
+  minutes, at most 200, sorted by name. An unreadable agent list is empty.
+  """
+  @spec assignable_agents(term()) :: [Agent.t()]
+  def assignable_agents(scope) do
+    Agent
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.limit(200)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read!(scope: scope)
+    |> Enum.filter(&active_agent?/1)
+  rescue
+    _ -> []
+  end
+
+  defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(_agent), do: false
 
   @spec get(String.t(), keyword()) ::
           {:ok, PluginAssignment.t()} | {:error, :not_found} | {:error, term()}
@@ -90,20 +113,6 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       _no_actor ->
         {:error, :forbidden}
     end
-  end
-
-  @doc """
-  Lists the current scope's disabled, partition-unbound assignments that need
-  an explicit recovery decision. The core query is tenant-scoped and returns
-  identifiers and recovery kind only; package UI code may decorate a row with
-  the already-authorized secret-free legacy detail when it needs more context.
-  """
-  @spec list_legacy(keyword()) :: {:ok, [map()]} | {:error, term()}
-  def list_legacy(opts \\ []) do
-    recovery_opts = recovery_context_opts(opts)
-    pagination_opts = Keyword.take(opts, [:limit, :after_id])
-
-    PluginAssignmentRecovery.list_legacy(Keyword.merge(recovery_opts, pagination_opts))
   end
 
   @doc """

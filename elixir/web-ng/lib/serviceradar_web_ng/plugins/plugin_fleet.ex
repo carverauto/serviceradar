@@ -1,16 +1,56 @@
 defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   @moduledoc """
-  Safe WASM assignment and current runtime evidence, keyed by partition and agent.
+  Safe WASM assignment and current runtime evidence.
+
+  `rows/1` is keyed by partition and agent (the `in:plugin_fleet` SRQL entity).
   Success/failure timestamps describe the latest result, not a history scan.
   Neither assignment parameters nor raw result messages/payloads are returned.
+
+  `summaries/2` is keyed by logical plugin (`plugin_id`): one summary per
+  plugin, paginated on the server, for the Installed plugins view.
   """
 
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
+  alias ServiceRadar.Plugins.AssignmentOwner
+  alias ServiceRadar.Plugins.LatestApprovedPluginPackage
+  alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginTargetPolicy
 
   require Ash.Query
+
+  @default_page_size 50
+  @max_page_size 200
+
+  @summary_package_fields [
+    :plugin_id,
+    :name,
+    :version,
+    :status,
+    :content_hash,
+    :runtime,
+    :outputs,
+    :approved_at,
+    :imported_at,
+    :inserted_at
+  ]
+
+  @summary_assignment_fields [
+    :agent_uid,
+    :partition_id,
+    :plugin_id,
+    :plugin_package_id,
+    :rollout_plugin_package_id,
+    :enabled,
+    :source,
+    :policy_id,
+    :update_policy,
+    :interval_seconds,
+    :timeout_seconds,
+    :updated_at
+  ]
 
   def rows(scope) do
     assignments =
@@ -92,6 +132,299 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
 
     assigned ++ observed_only
   end
+
+  @doc """
+  One summary per logical plugin, a page at a time.
+
+  Every plugin with at least one imported package is listed, sorted by name and
+  then `plugin_id`. Only the page's plugins, their packages, assignments and
+  target policies, and the plugin service states of their agents are read, so
+  the cost of a page does not grow with the number of plugins.
+
+  Options: `:page` (1-based, clamped to the last page) and `:page_size`
+  (default #{@default_page_size}, at most #{@max_page_size}).
+  """
+  @spec summaries(term(), keyword()) :: %{
+          entries: [map()],
+          total: non_neg_integer(),
+          page: pos_integer(),
+          page_size: pos_integer()
+        }
+  def summaries(scope, opts \\ []) do
+    page_size = opts |> Keyword.get(:page_size, @default_page_size) |> clamp(1, @max_page_size)
+
+    plugins_query =
+      Plugin
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(exists(packages, true))
+
+    total = Ash.count!(plugins_query, scope: scope)
+    page = opts |> Keyword.get(:page, 1) |> clamp(1, max(div(total + page_size - 1, page_size), 1))
+
+    plugins =
+      plugins_query
+      |> Ash.Query.select([:plugin_id, :name])
+      |> Ash.Query.sort(name: :asc, plugin_id: :asc)
+      |> Ash.Query.offset((page - 1) * page_size)
+      |> Ash.Query.limit(page_size)
+      |> Ash.read!(scope: scope)
+
+    %{entries: page_entries(plugins, scope), total: total, page: page, page_size: page_size}
+  end
+
+  defp page_entries([], _scope), do: []
+
+  defp page_entries(plugins, scope) do
+    plugin_ids = Enum.map(plugins, & &1.plugin_id)
+
+    packages =
+      PluginPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(plugin_id in ^plugin_ids)
+      |> Ash.Query.select(@summary_package_fields)
+      |> Ash.read!(scope: scope)
+
+    assignments =
+      PluginAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(plugin_id in ^plugin_ids)
+      |> Ash.Query.select(@summary_assignment_fields)
+      |> Ash.read!(scope: scope)
+
+    fleet_rows = page_fleet_rows(plugin_ids, packages, assignments, scope)
+
+    build_summaries(plugins, packages, assignments, target_policies(assignments, scope), fleet_rows)
+  end
+
+  # Runtime evidence for the page's assignments. Packages of other plugins that
+  # share a display name are included only so legacy name-only evidence stays
+  # ambiguous exactly as it is in `rows/1`.
+  defp page_fleet_rows(plugin_ids, packages, assignments, scope) do
+    agent_uids = assignments |> Enum.map(& &1.agent_uid) |> Enum.uniq()
+    names = packages |> Enum.map(& &1.name) |> Enum.uniq()
+
+    states =
+      if agent_uids == [] do
+        []
+      else
+        ServiceState
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(service_type == "plugin" and agent_id in ^agent_uids)
+        |> Ash.read!(scope: scope)
+      end
+
+    same_name_packages =
+      PluginPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(name in ^names)
+      |> Ash.Query.select([:plugin_id, :name])
+      |> Ash.read!(scope: scope)
+
+    # The page's fully loaded packages come last so they win the id lookup.
+    build_rows(assignments, same_name_packages ++ packages, states, DateTime.utc_now())
+  end
+
+  defp target_policies(assignments, scope) do
+    policy_ids =
+      assignments
+      |> Enum.flat_map(fn assignment ->
+        with {:policy, id} <- AssignmentOwner.owner(assignment.policy_id),
+             {:ok, uuid} <- Ecto.UUID.cast(id) do
+          [uuid]
+        else
+          _ -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    if policy_ids == [] do
+      []
+    else
+      PluginTargetPolicy
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id in ^policy_ids)
+      |> Ash.Query.select([:id, :name, :update_policy])
+      |> Ash.read!(scope: scope)
+    end
+  end
+
+  @doc false
+  def build_summaries(plugins, packages, assignments, target_policies, fleet_rows) do
+    packages_by_plugin = Enum.group_by(packages, & &1.plugin_id)
+    packages_by_id = Map.new(packages, &{&1.id, &1})
+    policies_by_id = Map.new(target_policies, &{to_string(&1.id), &1})
+
+    assignments_by_plugin =
+      assignments
+      |> Enum.reject(&blank?(&1.partition_id))
+      |> Enum.group_by(& &1.plugin_id)
+
+    rows_by_plugin =
+      fleet_rows
+      |> Enum.filter(&(&1["assigned"] and &1["enabled"]))
+      |> Enum.group_by(& &1["plugin_id"])
+
+    Enum.map(plugins, fn plugin ->
+      plugin_packages = Map.get(packages_by_plugin, plugin.plugin_id, [])
+      plugin_assignments = Map.get(assignments_by_plugin, plugin.plugin_id, [])
+
+      summary(
+        plugin,
+        plugin_packages,
+        plugin_assignments,
+        packages_by_id,
+        policies_by_id,
+        Map.get(rows_by_plugin, plugin.plugin_id, [])
+      )
+    end)
+  end
+
+  defp summary(plugin, packages, assignments, packages_by_id, policies_by_id, fleet_rows) do
+    latest_approved = packages |> Enum.filter(&(&1.status == :approved)) |> LatestApprovedPluginPackage.latest()
+    newest_staged = packages |> Enum.filter(&(&1.status == :staged)) |> newest()
+    {enabled, disabled} = Enum.split_with(assignments, & &1.enabled)
+    owners = owners(enabled)
+
+    %{
+      plugin_id: plugin.plugin_id,
+      name: plugin.name,
+      latest_approved: package_ref(latest_approved),
+      newest_staged: package_ref(newest_staged),
+      primary_package_id: package_id(latest_approved || newest_staged || newest(packages)),
+      awaiting_review?: newer?(newest_staged, latest_approved),
+      running_versions: running_versions(enabled, packages_by_id),
+      assignments: %{
+        enabled: length(enabled),
+        disabled: length(disabled),
+        behind_latest: Enum.count(enabled, &behind_latest?(&1, packages_by_id, latest_approved))
+      },
+      owners: owner_breakdown(owners, policies_by_id),
+      update_policies: update_policy_mix(owners, policies_by_id),
+      health: health(fleet_rows)
+    }
+  end
+
+  defp newest([]), do: nil
+  defp newest(packages), do: packages |> LatestApprovedPluginPackage.newest_first() |> hd()
+
+  defp newer?(nil, _package), do: false
+  defp newer?(_candidate, nil), do: true
+
+  defp newer?(candidate, package) do
+    candidate.id != package.id and LatestApprovedPluginPackage.latest([package, candidate]).id == candidate.id
+  end
+
+  defp package_ref(nil), do: nil
+  defp package_ref(package), do: %{id: package.id, version: package.version}
+
+  defp package_id(nil), do: nil
+  defp package_id(package), do: package.id
+
+  # Newest version first; an assignment whose package is gone sorts last.
+  defp running_versions(assignments, packages_by_id) do
+    counts = Enum.frequencies_by(assignments, &PluginAssignment.effective_package_id/1)
+    {known, missing} = counts |> Map.keys() |> Enum.split_with(&Map.has_key?(packages_by_id, &1))
+
+    known_packages =
+      known
+      |> Enum.map(&Map.fetch!(packages_by_id, &1))
+      |> LatestApprovedPluginPackage.newest_first()
+
+    Enum.map(known_packages, &%{package_id: &1.id, version: &1.version, assignments: Map.fetch!(counts, &1.id)}) ++
+      Enum.map(missing, &%{package_id: &1, version: nil, assignments: Map.fetch!(counts, &1)})
+  end
+
+  defp behind_latest?(_assignment, _packages_by_id, nil), do: false
+
+  defp behind_latest?(assignment, packages_by_id, latest_approved) do
+    case Map.get(packages_by_id, PluginAssignment.effective_package_id(assignment)) do
+      nil -> false
+      package -> newer?(latest_approved, package)
+    end
+  end
+
+  # Every enabled assignment has exactly one owner: itself when it is manual, or
+  # the target policy or credential rule named by its policy id.
+  defp owners(assignments) do
+    Enum.group_by(assignments, fn assignment ->
+      case AssignmentOwner.owner(assignment.policy_id) do
+        :manual -> {:manual, assignment.id}
+        {:rule, rule_id} -> {:credential_rule, rule_id}
+        {:policy, policy_id} -> {:target_policy, policy_id}
+      end
+    end)
+  end
+
+  defp owner_breakdown(owners, policies_by_id) do
+    grouped = Enum.group_by(owners, fn {{kind, _id}, _assignments} -> kind end)
+
+    %{
+      manual: grouped |> Map.get(:manual, []) |> length(),
+      target_policies:
+        grouped
+        |> Map.get(:target_policy, [])
+        |> Enum.map(fn {{_kind, id}, assignments} ->
+          policy = Map.get(policies_by_id, id)
+
+          %{
+            id: id,
+            name: policy && policy.name,
+            update_policy: owner_update_policy({:target_policy, id}, assignments, policies_by_id),
+            assignments: length(assignments)
+          }
+        end)
+        |> Enum.sort_by(&{&1.name || "", &1.id}),
+      credential_rules:
+        grouped
+        |> Map.get(:credential_rule, [])
+        |> Enum.map(fn {{_kind, id}, assignments} ->
+          %{id: id, href: "/settings/networks/credentials/#{URI.encode(id)}/edit", assignments: length(assignments)}
+        end)
+        |> Enum.sort_by(& &1.id)
+    }
+  end
+
+  defp update_policy_mix(owners, policies_by_id) do
+    Enum.reduce(owners, %{track_latest_approved: 0, pinned: 0}, fn {owner, assignments}, mix ->
+      Map.update!(mix, owner_update_policy(owner, assignments, policies_by_id), &(&1 + 1))
+    end)
+  end
+
+  # Credential rules always resolve the latest approved package. A target policy
+  # whose record is gone keeps the package it stored, so it counts as pinned.
+  defp owner_update_policy({:manual, _id}, [assignment], _policies_by_id), do: assignment.update_policy || :pinned
+  defp owner_update_policy({:credential_rule, _id}, _assignments, _policies_by_id), do: :track_latest_approved
+
+  defp owner_update_policy({:target_policy, id}, _assignments, policies_by_id) do
+    case Map.get(policies_by_id, id) do
+      %{update_policy: policy} when policy in [:track_latest_approved, :pinned] -> policy
+      _ -> :pinned
+    end
+  end
+
+  defp health([]), do: %{status: "unassigned", counts: %{}}
+
+  defp health(rows) do
+    counts = Enum.frequencies_by(rows, & &1["category"])
+
+    status =
+      Enum.find(["action_required", "unavailable"], "healthy", &Map.has_key?(counts, &1))
+
+    %{status: status, counts: counts}
+  end
+
+  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
+
+  defp clamp(value, low, high) when is_integer(value), do: value |> max(low) |> min(high)
+
+  defp clamp(value, low, high) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> clamp(parsed, low, high)
+      _ -> low
+    end
+  end
+
+  defp clamp(_value, low, _high), do: low
 
   defp matches_package?(_state, nil, _names), do: false
 

@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonFleet
+  alias ServiceRadarWebNG.Plugins.PluginFleet
   alias ServiceRadarWebNG.SRQL
 
   @moduletag :web_ng_shared_fixture_db
@@ -258,5 +259,58 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
     assert {:ok, %{payload: payload}} = SRQL.query_arrow(query, %{scope: scope})
     assert byte_size(payload) > 0
     assert {:error, :forbidden} = SRQL.query(query, %{scope: %Scope{permissions: MapSet.new(["devices.view"])}})
+  end
+
+  test "plugin summaries are one per plugin and every one of more than 100 plugins is reachable by page", %{
+    scope: scope
+  } do
+    prefix = "example-paged-" <> Ecto.UUID.generate() <> "-"
+    count = 105
+
+    SQL.query!(
+      Repo,
+      "INSERT INTO platform.plugins (plugin_id, name) SELECT $1 || lpad(i::text, 3, '0'), 'Example Paged ' || lpad(i::text, 3, '0') FROM generate_series(1, $2::int) AS i",
+      [prefix, count]
+    )
+
+    # Two versions of every plugin: the list must still show one row each.
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO platform.plugin_packages (id, plugin_id, name, version, entrypoint, outputs, status)
+      SELECT gen_random_uuid(), $1 || lpad(i::text, 3, '0'), 'Example Paged', v.version, 'run_check',
+             'serviceradar.plugin_result.v1', v.status
+      FROM generate_series(1, $2::int) AS i
+      CROSS JOIN (VALUES ('1.0.0', 'approved'), ('1.1.0', 'staged')) AS v(version, status)
+      """,
+      [prefix, count]
+    )
+
+    page_size = 50
+    %{total: total} = PluginFleet.summaries(scope, page: 1, page_size: page_size)
+    assert total >= count
+
+    pages =
+      for page <- 1..div(total + page_size - 1, page_size),
+          do: PluginFleet.summaries(scope, page: page, page_size: page_size)
+
+    assert Enum.all?(pages, &(length(&1.entries) <= page_size))
+
+    mine =
+      pages
+      |> Enum.flat_map(& &1.entries)
+      |> Enum.filter(&String.starts_with?(&1.plugin_id, prefix))
+
+    assert length(mine) == count
+    assert mine |> Enum.map(& &1.plugin_id) |> Enum.uniq() |> length() == count
+
+    for summary <- mine do
+      assert %{latest_approved: %{version: "1.0.0"}, newest_staged: %{version: "1.1.0"}, awaiting_review?: true} =
+               summary
+    end
+
+    # A page past the end is clamped to the last page rather than coming back empty.
+    assert %{page: last_page, entries: [_ | _]} = PluginFleet.summaries(scope, page: 10_000, page_size: page_size)
+    assert last_page == length(pages)
   end
 end

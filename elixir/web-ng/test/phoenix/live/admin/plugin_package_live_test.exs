@@ -12,8 +12,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       system_actor: 0
     ]
 
+  alias Phoenix.LiveView.Lifecycle
+  alias Phoenix.LiveView.Socket
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RBAC.Catalog, as: RBACCatalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
@@ -21,10 +24,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
+  alias ServiceRadarWebNGWeb.Plugins.CatalogLive
+  alias ServiceRadarWebNGWeb.Plugins.Components
+  alias ServiceRadarWebNGWeb.Plugins.InstalledLive
+  alias ServiceRadarWebNGWeb.Plugins.ShowLive
+  alias ServiceRadarWebNGWeb.Plugins.UpdatesLive
+  alias ServiceRadarWebNGWeb.Settings.ShellHook
 
   require Ash.Query
 
@@ -253,11 +263,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       restore_env(:plugin_live_test_index, original_index)
     end)
 
-    %{conn: log_in_user(conn, user), actor: actor_for_user(user)}
+    %{conn: log_in_user(conn, user), actor: actor_for_user(user), user: user}
   end
 
   test "syncs the first-party plugin catalog", %{conn: conn} do
-    {:ok, lv, html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/catalog")
 
     assert html =~ "Plugin catalog"
     refute html =~ "Live First-party Plugin"
@@ -266,6 +276,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     |> element("button[phx-click='sync_first_party_catalog']")
     |> render_click()
 
+    render_async(lv)
     html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Live First-party Plugin"
@@ -301,12 +312,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       )
       |> Ash.create!()
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
     lv
     |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
     |> render_change()
 
+    render_async(lv)
     html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ @external_repo_url
@@ -330,12 +342,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     # against that foreign tag and reported finding nothing.
     repository = create_repository!("per-plugin", @per_plugin_repo_url)
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
     lv
     |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
     |> render_change()
 
+    render_async(lv)
     html = lv |> element("#plugin-catalog") |> render()
 
     refute html =~ "no import-ready plugin entries were found"
@@ -361,12 +374,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       @repo_url
     )
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
     lv
     |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
     |> render_change()
 
+    render_async(lv)
     html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Alpha Sensor"
@@ -386,12 +400,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       "2.0.0"
     )
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
     lv
     |> element("button[phx-click='sync_first_party_catalog']")
     |> render_click()
 
+    render_async(lv)
     html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Showing 1 first-party plugin entry(s) from release v2.0.0"
@@ -414,34 +429,26 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Live live-imported-plugin-#{unique}"
   end
 
-  test "keeps imported packages visible after the connected catalog load", %{
+  test "the connected catalog load keeps the latest official release selected", %{
     conn: conn,
     actor: actor
   } do
     unique = System.unique_integer([:positive])
 
-    package =
-      create_catalog_package!(
-        actor,
-        "v1.0.0",
-        "connected-mount-import-#{unique}",
-        "1.0.0"
-      )
+    # An imported package from an older release adds its tag to the options;
+    # it must not displace the newest release once the catalog arrives.
+    create_catalog_package!(actor, "v1.0.0", "connected-mount-import-#{unique}", "1.0.0")
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
+    render_async(lv)
 
     assert has_element?(
              lv,
              "#select-plugin-release-form option[value='v2.0.0'][selected]"
            )
-
-    assert has_element?(
-             lv,
-             "#imported-plugin-packages #imported-plugin-package-#{package.id}"
-           )
   end
 
-  test "filtering imported packages does not change catalog import state", %{
+  test "catalog rows link imported packages instead of offering their import", %{
     conn: conn,
     actor: actor
   } do
@@ -449,29 +456,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       create_catalog_package!(actor, "v2.0.0", "live-first-party-plugin", "2.0.0")
 
     package_path = ~p"/admin/plugins/#{package.id}"
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
-
-    assert has_element?(
-             lv,
-             "#plugin-catalog a[href='#{package_path}']"
-           )
-
-    refute has_element?(
-             lv,
-             "#plugin-catalog button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']"
-           )
-
-    lv
-    |> form("#filter-imported-plugin-packages", %{
-      "status" => "approved",
-      "source_type" => ""
-    })
-    |> render_change()
-
-    refute has_element?(
-             lv,
-             "#imported-plugin-packages #imported-plugin-package-#{package.id}"
-           )
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
+    render_async(lv)
 
     assert has_element?(
              lv,
@@ -484,15 +470,39 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
            )
   end
 
+  test "the Updates view lists staged packages first and filters by status", %{
+    conn: conn,
+    actor: actor
+  } do
+    staged =
+      create_catalog_package!(actor, "v2.0.0", "live-updates-plugin-#{System.unique_integer([:positive])}", "2.0.0")
+
+    approved =
+      create_approved_package_version!(actor, "live-updates-approved-#{System.unique_integer([:positive])}", "1.0.0")
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/updates")
+
+    assert has_element?(lv, "#imported-plugin-packages #imported-plugin-package-#{staged.id}")
+    refute has_element?(lv, "#imported-plugin-packages #imported-plugin-package-#{approved.id}")
+
+    lv
+    |> form("#filter-imported-plugin-packages", %{"status" => "approved", "source_type" => ""})
+    |> render_change()
+
+    refute has_element?(lv, "#imported-plugin-packages #imported-plugin-package-#{staged.id}")
+    assert has_element?(lv, "#imported-plugin-packages #imported-plugin-package-#{approved.id}")
+  end
+
   test "first-party repository plugins are paginated ten at a time", %{conn: conn} do
     Application.put_env(:serviceradar_web_ng, :plugin_live_test_index, index_with_plugins(12))
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
-    html =
-      lv
-      |> element("button[phx-click='sync_first_party_catalog']")
-      |> render_click()
+    lv
+    |> element("button[phx-click='sync_first_party_catalog']")
+    |> render_click()
+
+    html = render_async(lv)
 
     assert html =~ "Showing 1-10 of 12"
     assert html =~ "Catalog Plugin 01"
@@ -511,28 +521,24 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Catalog Plugin 01"
   end
 
-  test "catalog and imported package panels paginate independently", %{conn: conn, actor: actor} do
+  test "catalog rows and the Updates package list paginate on their own pages", %{conn: conn, actor: actor} do
     unique = System.unique_integer([:positive])
     plugin_id = fn index -> "installed-plugin-#{unique}-#{String.pad_leading("#{index}", 2, "0")}" end
 
-    # The imported panel lists every package in the instance, and the shared
-    # fixture database can hold packages committed before this test began.
-    # Count them the way the panel does. It sorts newest first, so this test's
-    # twelve packages always fill the first twelve rows and the page
+    # The Updates list shows every staged package in the instance, and the
+    # shared fixture database can hold packages committed before this test
+    # began. Count them the way the list does. It sorts newest first, so this
+    # test's twelve packages always fill the first twelve rows and the page
     # boundaries below stay exact.
-    imported_total = length(Packages.list(%{}, actor: actor)) + 12
+    # The list reads at most 100 packages.
+    staged_total = min(length(Packages.list(%{"status" => "staged"}, actor: actor)) + 12, 100)
 
     for index <- 1..12 do
       create_catalog_package!(actor, "v9.0.0", plugin_id.(index), "1.0.#{index}")
     end
 
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
-
-    imported_html = lv |> element("#imported-plugin-packages") |> render()
-
-    assert imported_html =~ "Showing 1-10 of #{imported_total}"
-    for index <- 3..12, do: assert(imported_html =~ "Live #{plugin_id.(index)}")
-    for index <- 1..2, do: refute(imported_html =~ "Live #{plugin_id.(index)}")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
+    render_async(lv)
 
     html = lv |> element("#plugin-catalog") |> render()
 
@@ -553,23 +559,33 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "Live #{plugin_id.(12)}"
     refute html =~ "Live #{plugin_id.(1)}"
 
-    lv
+    {:ok, updates, _html} = live(conn, ~p"/admin/plugins/updates")
+
+    updates_html = updates |> element("#imported-plugin-packages") |> render()
+
+    assert updates_html =~ "Showing 1-10 of #{staged_total}"
+    for index <- 3..12, do: assert(updates_html =~ "Live #{plugin_id.(index)}")
+    for index <- 1..2, do: refute(updates_html =~ "Live #{plugin_id.(index)}")
+
+    updates
     |> element("#plugin-packages-next-page")
     |> render_click()
 
-    imported_html = lv |> element("#imported-plugin-packages") |> render()
+    updates_html = updates |> element("#imported-plugin-packages") |> render()
 
-    assert imported_html =~ "Showing 11-#{min(imported_total, 20)} of #{imported_total}"
-    for index <- 1..2, do: assert(imported_html =~ "Live #{plugin_id.(index)}")
-    for index <- 3..12, do: refute(imported_html =~ "Live #{plugin_id.(index)}")
+    assert updates_html =~ "Showing 11-#{min(staged_total, 20)} of #{staged_total}"
+    for index <- 1..2, do: assert(updates_html =~ "Live #{plugin_id.(index)}")
+    for index <- 3..12, do: refute(updates_html =~ "Live #{plugin_id.(index)}")
   end
 
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
     lv
     |> element("button[phx-click='sync_first_party_catalog']")
     |> render_click()
+
+    render_async(lv)
 
     lv
     |> element("button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']")
@@ -583,15 +599,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   end
 
   test "Import All reflects state, shows progress, and is idempotent", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/catalog")
 
-    html =
-      lv
-      |> element("button[phx-click='sync_first_party_catalog']")
-      |> render_click()
+    lv
+    |> element("button[phx-click='sync_first_party_catalog']")
+    |> render_click()
 
     # Importable work is visible before acting.
-    assert html =~ "Import All (1)"
+    assert render_async(lv) =~ "Import All (1)"
 
     # The click itself flips the button into an in-progress state while the
     # async import runs.
@@ -623,6 +638,136 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
              Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: system_actor())
 
     assert same_id == package.id
+  end
+
+  test "Installed shows one row per plugin with its versions, behind-latest count and owner links", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    plugin_id = "live-installed-plugin-#{unique}"
+    old = create_approved_package_version!(actor, plugin_id, "1.0.0")
+    _latest = create_approved_package_version!(actor, plugin_id, "1.1.0")
+    _staged = create_catalog_package!(actor, "v1.2.0", plugin_id, "1.2.0")
+    rule_id = Ecto.UUID.generate()
+
+    create_assignment!(actor, "agent-installed-manual-#{unique}", old.id)
+
+    create_assignment!(actor, "agent-installed-rule-#{unique}", old.id,
+      source: :policy,
+      policy_id: "network-credential-rule:#{rule_id}:inventory"
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/plugins")
+
+    row = "#installed-plugin-#{Components.dom_id_segment(plugin_id)}"
+    assert find_installed_row(lv, row) == :found
+
+    assert has_element?(lv, row, "1.1.0")
+    assert has_element?(lv, "#{row}-awaiting-review", "1.2.0 awaiting review")
+    assert has_element?(lv, "#{row}-behind", "2 behind latest")
+    assert has_element?(lv, "#{row} a[href='/settings/networks/credentials/#{rule_id}/edit']")
+
+    # Three versions, one row: versions are history on the package page.
+    rows =
+      lv
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#installed-plugins-rows tr")
+      |> Enum.count(&(LazyHTML.text(&1) =~ plugin_id))
+
+    assert rows == 1
+  end
+
+  test "plugin views are tabs that link to each other under the prefix they were opened with", %{conn: conn} do
+    {:ok, installed, _html} = live(conn, ~p"/settings/agents/plugins")
+
+    assert has_element?(installed, "#plugins-tab-installed[aria-current='page']")
+    assert has_element?(installed, "#installed-plugins")
+
+    {:ok, updates, _html} =
+      installed
+      |> element("#plugins-tab-updates")
+      |> render_click()
+      |> follow_redirect(conn, ~p"/settings/agents/plugins/updates")
+
+    assert has_element?(updates, "#plugins-tab-updates[aria-current='page']")
+    assert has_element?(updates, "#imported-plugin-packages")
+
+    {:ok, catalog, _html} =
+      updates
+      |> element("#plugins-tab-catalog")
+      |> render_click()
+      |> follow_redirect(conn, ~p"/settings/agents/plugins/catalog")
+
+    assert has_element?(catalog, "#plugins-tab-catalog[aria-current='page']")
+    assert has_element?(catalog, "#plugin-catalog")
+
+    {:ok, staging, _html} =
+      catalog
+      |> element("#plugins-new-package")
+      |> render_click()
+      |> follow_redirect(conn, ~p"/settings/agents/plugins/new")
+
+    assert has_element?(staging, "form[phx-submit='create_package']")
+
+    {:ok, legacy, _html} = live(conn, ~p"/admin/plugins")
+    assert has_element?(legacy, "#plugins-tab-catalog[href='/admin/plugins/catalog']")
+  end
+
+  for {view, path} <- [
+        {InstalledLive, "/settings/agents/plugins"},
+        {UpdatesLive, "/settings/agents/plugins/updates"},
+        {CatalogLive, "/settings/agents/plugins/catalog"},
+        {ShowLive, "/settings/agents/plugins/:id"}
+      ] do
+    @view view
+    @path path
+
+    test "#{inspect(view)} disconnected mount and render make no database queries", %{user: user} do
+      view = @view
+      id = Ecto.UUID.generate()
+      params = if view == ShowLive, do: %{"id" => id}, else: %{}
+      url = "http://localhost" <> String.replace(@path, ":id", id)
+
+      # The socket the LiveView runtime provides before connecting: a resolved
+      # Scope with precomputed permissions, a flash and a lifecycle for streams.
+      socket = %Socket{
+        assigns: %{
+          __changed__: %{},
+          flash: %{},
+          live_action: if(view == ShowLive, do: :show, else: :index),
+          current_scope: Scope.for_user(user, permissions: RBACCatalog.permissions_for_role(:admin))
+        },
+        private: %{live_temp: %{}, lifecycle: %Lifecycle{}},
+        router: ServiceRadarWebNGWeb.Router,
+        view: view,
+        endpoint: ServiceRadarWebNGWeb.Endpoint
+      }
+
+      test_pid = self()
+      handler_id = "plugins-repo-query-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:service_radar, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          # Handlers run in the querying process; count only this test's
+          # direct mount/handle_params/render calls, not other processes'.
+          if self() == test_pid, do: send(test_pid, {:repo_query, metadata.query})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, socket} = view.mount(params, %{}, socket)
+      assert {:noreply, socket} = view.handle_params(params, url, socket)
+      {:cont, socket} = ShellHook.on_mount(:default, %{}, %{}, socket)
+      _html = render_component(&view.render/1, socket.assigns)
+
+      refute_received {:repo_query, _}
+    end
   end
 
   test "plugin assignment agent selector excludes stale agents", %{conn: conn, actor: actor} do
@@ -1829,6 +1974,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   # catalog is scoped by that origin, so the default has to be the built-in repo
   # rather than nil -- a nil-origin package cannot be attributed to any
   # repository and is deliberately absent from every repository's catalog.
+  defp find_installed_row(lv, selector) do
+    Enum.reduce_while(1..1_000, :not_found, fn _page, _acc ->
+      cond do
+        has_element?(lv, selector) ->
+          {:halt, :found}
+
+        not has_element?(lv, "#installed-plugins-next-page:not([disabled])") ->
+          {:halt, :not_found}
+
+        true ->
+          lv |> element("#installed-plugins-next-page") |> render_click()
+          assert_patch(lv)
+          {:cont, :not_found}
+      end
+    end)
+  end
+
   defp create_catalog_package!(actor, release_tag, plugin_id, version),
     do: create_catalog_package!(actor, release_tag, plugin_id, version, @repo_url)
 

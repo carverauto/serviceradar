@@ -126,7 +126,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
   # Sentinel release option in the Plugins settings UI meaning "every release
   # this repository publishes" (see @all_releases_tag in
-  # Admin.PluginPackageLive.Index). It is not a GitHub tag, so the
+  # Plugins.CatalogLive). It is not a GitHub tag, so the
   # unattended-sync fallback must not treat it as an unpublished deployed tag:
   # the admin import keeps its historical exact-only lookup and the 404
   # surfaces instead of silently importing another feed.

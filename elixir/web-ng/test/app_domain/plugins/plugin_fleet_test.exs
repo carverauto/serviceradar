@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadarWebNG.Plugins.PluginFleet
   alias ServiceRadarWebNG.SRQL.FleetQuery
   alias ServiceRadarWebNG.SRQL.Native
@@ -216,6 +217,67 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
                ],
                plan
              )
+  end
+
+  test "summaries are one per plugin: latest approved, staged, running versions, owners, policy mix and health" do
+    [p0, p1, p2, p3] =
+      for {version, status} <- [{"0.9.0", :denied}, {"1.0.0", :approved}, {"1.1.0", :approved}, {"1.2.0", :staged}] do
+        %{package() | id: Ecto.UUID.generate(), version: version, status: status}
+      end
+
+    other = %{package() | id: Ecto.UUID.generate(), plugin_id: "other-check", version: "0.1.0", status: :staged}
+    policy = %PluginTargetPolicy{id: Ecto.UUID.generate(), name: "Example policy", update_policy: :pinned}
+
+    owned = fn agent, package, attrs -> Map.merge(%{assignment(package) | agent_uid: agent}, Map.new(attrs)) end
+
+    assignments = [
+      owned.("agent-1", p1, update_policy: :track_latest_approved),
+      owned.("agent-2", p2, update_policy: :pinned),
+      owned.("agent-3", p1, source: :policy, policy_id: policy.id),
+      owned.("agent-4", p2, source: :policy, policy_id: "network-credential-rule:rule-1:inventory"),
+      owned.("agent-5", p2, source: :policy, policy_id: "network-credential-rule:rule-1:interfaces"),
+      owned.("agent-6", p1, enabled: false),
+      # Partition-unbound legacy history is not part of the fleet.
+      owned.("agent-7", p2, partition_id: nil)
+    ]
+
+    packages = [p0, p1, p2, p3, other]
+    fleet_rows = PluginFleet.build_rows(assignments, packages, [], @now)
+
+    plugins = [%{plugin_id: "example-check", name: "Example Check"}, %{plugin_id: "other-check", name: "Other Check"}]
+
+    assert [example, staged_only] =
+             PluginFleet.build_summaries(plugins, packages, assignments, [policy], fleet_rows)
+
+    assert example.plugin_id == "example-check"
+    assert example.latest_approved == %{id: p2.id, version: "1.1.0"}
+    assert example.newest_staged == %{id: p3.id, version: "1.2.0"}
+    assert example.awaiting_review?
+    assert example.primary_package_id == p2.id
+
+    assert example.running_versions == [
+             %{package_id: p2.id, version: "1.1.0", assignments: 3},
+             %{package_id: p1.id, version: "1.0.0", assignments: 2}
+           ]
+
+    assert example.assignments == %{enabled: 5, disabled: 1, behind_latest: 2}
+
+    assert example.owners == %{
+             manual: 2,
+             target_policies: [%{id: policy.id, name: "Example policy", update_policy: :pinned, assignments: 1}],
+             credential_rules: [%{id: "rule-1", href: "/settings/networks/credentials/rule-1/edit", assignments: 2}]
+           }
+
+    # Manual rows count one owner each; a credential rule always tracks latest.
+    assert example.update_policies == %{track_latest_approved: 2, pinned: 2}
+    assert example.health == %{status: "unavailable", counts: %{"unavailable" => 5}}
+
+    assert staged_only.latest_approved == nil
+    assert staged_only.awaiting_review?
+    assert staged_only.primary_package_id == other.id
+    assert staged_only.running_versions == []
+    assert staged_only.assignments == %{enabled: 0, disabled: 0, behind_latest: 0}
+    assert staged_only.health == %{status: "unassigned", counts: %{}}
   end
 
   defp package do

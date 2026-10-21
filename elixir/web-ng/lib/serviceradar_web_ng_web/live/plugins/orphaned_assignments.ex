@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.OrphanedAssignments do
+defmodule ServiceRadarWebNGWeb.Plugins.OrphanedAssignments do
   @moduledoc """
   Needs-attention panel for plugin assignments that still run after their
   owner went away.
@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.OrphanedAssignments do
   An enabled policy assignment whose credential rule or target policy is
   missing, disabled, or no longer covers the agent is not retracted
   automatically. This panel lists them and lets an operator retract one or all
-  of them. The plugins page loads the list only for operators with
+  of them. The Installed plugins page loads the list only for operators with
   `settings.plugins.manage` and owns the events
   (`retract_orphaned_assignment`, `retract_all_orphaned_assignments`).
   """
