@@ -1,8 +1,9 @@
 name: rust-check
 
-# Cargo-side Rust gates: clippy over the workspace, and RustSec advisories for the
-# review-only IronRDP probe. Both live here because they share a runner shape (rustup +
-# Socket Firewall) and neither has a Bazel equivalent. Clippy also caches the crates.io
+# Cargo-side Rust gates: clippy over the workspace, and RustSec advisories for every
+# Cargo.lock in the repository (scripts/ci/rustsec-audit.sh). Both live here because they
+# share a runner shape (rustup; Socket Firewall for clippy only, see the audit job) and
+# neither has a Bazel equivalent. Clippy also caches the crates.io
 # registry; the audit job installs a pinned cargo-audit binary and does not compile
 # from crates.io.
 #
@@ -20,7 +21,9 @@ name: rust-check
 #     UNION of the two originals. The audit job consequently runs on any `rust/**`
 #     change rather than only on `rust/rdp-connector-probe/**`. That is a superset of
 #     the old triggers -- more runs, never fewer -- and is cheaper than gating a job on
-#     a third-party paths-filter action.
+#     a third-party paths-filter action. `**/Cargo.lock` and `**/Cargo.toml` cover the
+#     standalone crates outside rust/ (the NIF and wasm crates under elixir/), whose
+#     lockfiles the audit job reads.
 #   * `runs-on` moves from the Forgejo `ubuntu24` label to GitHub's `ubuntu-24.04`.
 #   * The actions below are on majors that run the Node 24 runtime, which requires Actions
 #     Runner >= v2.327.1. GitHub-hosted runners are current, so this is free. It stops
@@ -32,18 +35,20 @@ on:
     branches: [staging, main]
     paths:
       - 'rust/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
       - '.github/workflows/rust-checks.yml'
       - 'scripts/ci/install-sfw.sh'
+      - 'scripts/ci/rustsec-audit.sh'
   pull_request:
     branches: [staging, main]
     paths:
       - 'rust/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
       - '.github/workflows/rust-checks.yml'
       - 'scripts/ci/install-sfw.sh'
+      - 'scripts/ci/rustsec-audit.sh'
   schedule:
     # Mondays 05:17 UTC. Off the hour so it does not pile onto every other cron.
     #
@@ -206,13 +211,19 @@ jobs:
   audit:
     name: RustSec audit
     runs-on: ubuntu-24.04
-    # RustSec advisories for rust/rdp-connector-probe, the review-only IronRDP probe.
+    # RustSec advisories, unmaintained/unsound warnings and yanked crates for every
+    # Cargo.lock in the repository; see scripts/ci/rustsec-audit.sh for the accepted
+    # advisories and the reason each one is accepted.
+    #
+    # No Socket Firewall here, deliberately. cargo audit downloads no crate -- it reads
+    # the advisory database and crates.io index metadata -- so there is nothing for
+    # Socket to vet. And cargo-audit's HTTP client does not trust the sfw proxy's
+    # certificate: run locally under `sfw`, every crates.io index lookup failed TLS
+    # verification (UnknownIssuer) and the run stalled, so the yanked check could not
+    # run. The script fails in that case rather than passing.
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
-
-      - name: Install Socket Firewall
-        run: bash scripts/ci/install-sfw.sh
 
       - name: Setup Rust
         run: |
@@ -278,37 +289,11 @@ jobs:
           cargo audit --version
           cargo audit --version | grep -F "${CARGO_AUDIT_VERSION}" >/dev/null
 
-      # --no-fetch against a freshly cloned database, rather than letting cargo-audit fetch:
-      # the clone is visible in the log, so a run can be reproduced against exactly the
-      # advisory set it saw.
-      - name: Audit RDP connector probe dependencies
-        run: |
-          set -euo pipefail
-
-          if ! command -v cargo-audit >/dev/null 2>&1; then
-            echo "cargo-audit is not on PATH; refusing to run cargo audit" >&2
-            cargo --list || true
-            ls -la "${HOME}/.cargo/bin" || true
-            exit 1
-          fi
-
-          advisory_db="${RUNNER_TEMP:-/tmp}/rustsec-advisory-db"
-          rm -rf "${advisory_db}"
-          git clone --depth 1 https://github.com/RustSec/advisory-db.git "${advisory_db}"
-
-          cd rust/rdp-connector-probe
-          sfw cargo audit --db "${advisory_db}" --no-fetch --deny warnings \
-            --ignore RUSTSEC-2023-0071 \
-            --ignore RUSTSEC-2023-0089
-
-          {
-            echo "## RDP Connector Probe RustSec Audit"
-            echo
-            echo "Known accepted advisories for the review-only IronRDP connector probe:"
-            echo "- RUSTSEC-2023-0071: rsa Marvin timing issue via connector 0.10.0 -> sspi 0.21.1 -> picky 7.0.0-rc.25; no fixed upgrade is available in this IronRDP family."
-            echo "- RUSTSEC-2023-0089: atomic-polyfill is unmaintained in connector 0.10.0's forced sspi/scard build subtree; ServiceRadar rejects smart-card redirection at runtime."
-            echo "- Reviewed exact family: blocking/connector 0.10.0, core 0.2.1, graphics/pdu 0.9.0, session 0.11.0."
-            echo "- Yanked spin 0.9.8 is absent. Non-yanked spin 0.9.9 remains unreachable smart-card build baggage until IronRDP feature-gates sspi/scard."
-            echo
-            echo "Any additional RustSec vulnerability or warning fails this job."
-          } >> "${GITHUB_STEP_SUMMARY}"
+      # cargo-audit fetches the advisory database into a fresh directory and the
+      # crates.io index entries for the yanked check; the script prints the advisory-db
+      # commit it audited against, so a run can be reproduced. Do not add --no-fetch:
+      # cargo-audit ties the index refresh to the database fetch, so --no-fetch on a
+      # fresh runner leaves the yanked check reading an empty cache (the script fails
+      # rather than passing in that case).
+      - name: Audit every Cargo.lock
+        run: bash scripts/ci/rustsec-audit.sh "${RUNNER_TEMP:-/tmp}/rustsec-advisory-db"
