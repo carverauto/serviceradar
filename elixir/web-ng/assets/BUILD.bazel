@@ -330,6 +330,19 @@ vitest_bin.vitest_test(
 )
 
 vitest_bin.vitest_test(
+    name = "remote_desktop_test",
+    args = [
+        "run",
+        "js/lib/remote_desktop/webrtc_client.test.js",
+    ],
+    chdir = package_name(),
+    data = glob(["js/lib/remote_desktop/*.js"]) + [
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
     name = "dashboard_host_test",
     args = [
         "run",

@@ -854,9 +854,12 @@ func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t
 	assignment := &pluginAssignment{
 		AssignmentID: "inventory-assignment-1",
 		PluginID:     "example-inventory",
+		PackageID:    "example-inventory-package-7",
+		Version:      "1.2.0",
 		Name:         "Example Inventory",
 		Capabilities: map[string]bool{pluginCapabilityActionResultIngest: true},
 	}
+	moduleHash := strings.Repeat("ab", 32)
 	payload := []byte(`{
 		"status":"OK",
 		"summary":"Collected example inventory",
@@ -878,7 +881,7 @@ func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t
 		}]
 	}`)
 
-	ackPayload, err := manager.enqueueActionResult(t.Context(), assignment, payload)
+	ackPayload, err := manager.enqueueActionResult(t.Context(), assignment, moduleHash, payload)
 	if err != nil {
 		t.Fatalf("enqueueActionResult returned error: %v", err)
 	}
@@ -908,6 +911,12 @@ func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t
 	if got := string(queued[0].Payload); got != string(payload) {
 		t.Fatalf("queued payload changed\ngot:  %s\nwant: %s", got, payload)
 	}
+	if queued[0].PackageID != assignment.PackageID ||
+		queued[0].PackageVersion != assignment.Version ||
+		queued[0].ContentHash != moduleHash {
+		t.Fatalf("queued provenance = %q/%q/%q, want host assignment package and module hash",
+			queued[0].PackageID, queued[0].PackageVersion, queued[0].ContentHash)
+	}
 }
 
 func TestPluginManagerEnqueueActionResultRejectsInvalidAndBackpressure(t *testing.T) {
@@ -927,7 +936,7 @@ func TestPluginManagerEnqueueActionResultRejectsInvalidAndBackpressure(t *testin
 		[]byte(`{"status":"not-a-status","summary":"bad"}`),
 	}
 	for _, payload := range invalidPayloads {
-		if _, err := manager.enqueueActionResult(t.Context(), assignment, payload); !errors.Is(err, errPluginActionResultInvalid) {
+		if _, err := manager.enqueueActionResult(t.Context(), assignment, "", payload); !errors.Is(err, errPluginActionResultInvalid) {
 			t.Fatalf("expected invalid action result for %q, got %v", payload, err)
 		}
 	}
@@ -938,6 +947,7 @@ func TestPluginManagerEnqueueActionResultRejectsInvalidAndBackpressure(t *testin
 	if _, err := manager.enqueueActionResult(
 		ctx,
 		assignment,
+		"",
 		[]byte(`{"status":"OK","summary":"valid"}`),
 	); !errors.Is(err, errPluginActionResultBackpressure) {
 		t.Fatalf("expected action result backpressure, got %v", err)

@@ -1,6 +1,10 @@
 defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest do
   use ServiceRadar.Observability.PluginResultIngestorTestSupport
 
+  alias ServiceRadar.Observability.PluginResultProvenance
+
+  @module_hash String.duplicate("ab", 32)
+
   test "handler-set generations order new failures and same-set replay success" do
     {payload, status, observed_at} = plugin_result_fixture()
 
@@ -159,5 +163,105 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
            } = Jason.decode!(returned_failure_details)
 
     assert [[false, _, ^returned_failure_at]] = current_state_rows(status)
+  end
+
+  describe "host-stamped result provenance" do
+    test "reported row and state keep the host's provenance, not the plugin's claim" do
+      Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+      {payload, status, _observed_at} = plugin_result_fixture()
+
+      forged = %{
+        "plugin_package_id" => "forged-package",
+        "content_hash" => String.duplicate("0", 64)
+      }
+
+      payload =
+        payload
+        |> Map.put("_serviceradar_plugin_result", %{"provenance" => forged})
+        |> Map.put("downstream_ingest", %{"provenance" => forged})
+
+      status = Map.put(status, :plugin_provenance, host_provenance("assignment-reported-1"))
+
+      assert :ok = PluginResultIngestor.ingest(payload, status)
+
+      assert [[_reported_at, true, _message, details]] = reported_history_rows(status)
+
+      assert PluginResultProvenance.from_details(details) ==
+               stored_provenance("assignment-reported-1")
+
+      assert PluginResultProvenance.from_details(current_state_details(status)) ==
+               stored_provenance("assignment-reported-1")
+    end
+
+    test "downstream-ingest outcomes keep the provenance of the result they processed" do
+      for {handler, outcome} <- [{SuccessfulHandler, "succeeded"}, {FailingHandler, "failed"}] do
+        Application.put_env(:serviceradar_core, :plugin_result_handlers, [handler])
+        {payload, status, _observed_at} = plugin_result_fixture()
+        status = Map.put(status, :plugin_provenance, host_provenance("assignment-#{outcome}-1"))
+
+        _ = PluginResultIngestor.ingest(payload, status)
+
+        details = current_state_details(status)
+        assert %{"downstream_ingest" => %{"status" => ^outcome}} = Jason.decode!(details)
+
+        assert PluginResultProvenance.from_details(details) ==
+                 stored_provenance("assignment-#{outcome}-1")
+      end
+    end
+
+    test "results from agents without provenance ingest unchanged" do
+      Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+      {payload, status, _observed_at} = plugin_result_fixture()
+
+      assert :ok = PluginResultIngestor.ingest(payload, status)
+
+      assert [[_reported_at, true, "edge plugin completed", details]] =
+               reported_history_rows(status)
+
+      marker = details |> Jason.decode!() |> Map.fetch!("_serviceradar_plugin_result")
+      refute Map.has_key?(marker, "provenance")
+      assert PluginResultProvenance.from_details(details) == nil
+    end
+
+    test "malformed provenance fields are dropped rather than trusted" do
+      Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+      {payload, status, _observed_at} = plugin_result_fixture()
+
+      status =
+        Map.put(status, :plugin_provenance, %{
+          assignment_id: " assignment-trimmed-1 ",
+          plugin_package_id: "",
+          plugin_version: "2.0.0\nforged",
+          content_hash: String.upcase(@module_hash)
+        })
+
+      assert :ok = PluginResultIngestor.ingest(payload, status)
+
+      assert [[_reported_at, true, _message, details]] = reported_history_rows(status)
+
+      assert PluginResultProvenance.from_details(details) == %{
+               "assignment_id" => "assignment-trimmed-1"
+             }
+    end
+  end
+
+  defp host_provenance(assignment_id) do
+    %{
+      assignment_id: assignment_id,
+      plugin_id: "example-check",
+      plugin_package_id: "example-check-package-2",
+      plugin_version: "2.0.0",
+      content_hash: @module_hash
+    }
+  end
+
+  defp stored_provenance(assignment_id) do
+    %{
+      "assignment_id" => assignment_id,
+      "plugin_id" => "example-check",
+      "plugin_package_id" => "example-check-package-2",
+      "plugin_version" => "2.0.0",
+      "content_hash" => @module_hash
+    }
   end
 end

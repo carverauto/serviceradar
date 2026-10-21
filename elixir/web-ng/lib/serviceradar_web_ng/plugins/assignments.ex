@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   """
 
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Plugins.OwnedAssignmentRetraction
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginAssignmentRecovery
   alias ServiceRadar.Plugins.PolicyOwnedAssignmentRecovery
@@ -65,6 +66,31 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   end
 
   def authenticated_partition_preview(_agent_uid, _opts), do: {:error, :invalid_agent_uid}
+
+  @doc """
+  Lists enabled policy assignments whose owning credential rule or target
+  policy is missing, disabled, or no longer covers the agent. They are left
+  running until an operator retracts them; see
+  `ServiceRadar.Plugins.OwnedAssignmentRetraction`.
+  """
+  @spec list_orphaned() :: {:ok, [map()]} | {:error, term()}
+  def list_orphaned, do: OwnedAssignmentRetraction.list_orphaned_assignments()
+
+  @doc """
+  Retracts the selected orphaned assignments (`:all` for every one) as the
+  scope's user, who needs `settings.plugins.manage`.
+  """
+  @spec retract_orphaned([String.t()] | :all, keyword()) ::
+          {:ok, %{retracted: non_neg_integer()}} | {:error, term()}
+  def retract_orphaned(selection, opts) do
+    case Ash.Scope.ToOpts.get_actor(Keyword.fetch!(opts, :scope)) do
+      {:ok, actor} when not is_nil(actor) ->
+        OwnedAssignmentRetraction.retract_orphaned_assignments(selection, actor)
+
+      _no_actor ->
+        {:error, :forbidden}
+    end
+  end
 
   @doc """
   Lists the current scope's disabled, partition-unbound assignments that need

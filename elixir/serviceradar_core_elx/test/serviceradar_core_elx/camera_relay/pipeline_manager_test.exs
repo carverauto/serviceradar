@@ -233,6 +233,45 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
+  test "drops a disconnected webrtc viewer on ICE connection_failed without logging Membrane errors or warnings" do
+    relay_session_id = "relay-webrtc-disconnect-#{System.unique_integer([:positive])}"
+    viewer_session_id = "viewer-webrtc-disconnect-1"
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+    signaling = Signaling.start()
+    signaling_pid = signaling.pid
+    :ok = Signaling.register_peer(signaling, message_format: :json_data, pid: self())
+
+    assert :ok =
+             PipelineManager.add_webrtc_viewer(relay_session_id, viewer_session_id, signaling,
+               ice_servers: [],
+               notify: self()
+             )
+
+    assert_receive {:membrane_webrtc_signaling, ^signaling_pid, %{"type" => "sdp_offer"}, _metadata}, 5_000
+
+    signaling_state = :sys.get_state(signaling_pid)
+
+    %{pid: webrtc_element_pid} =
+      Enum.find([signaling_state.peer_a, signaling_state.peer_b], fn peer ->
+        is_map(peer) and Map.get(peer, :is_element) == true
+      end)
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        send(webrtc_element_pid, {:ex_webrtc, self(), {:connection_state_change, :failed}})
+
+        assert_receive {:camera_relay_member_crashed, :webrtc_viewer, ^relay_session_id, ^viewer_session_id, reason},
+                       5_000
+
+        assert reason == {:shutdown, :connection_failed}
+      end)
+
+    assert log == ""
+    refute PipelineManager.webrtc_viewer_alive?(relay_session_id, viewer_session_id)
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
   test "attaches a bounded analysis branch without creating another relay session" do
     relay_session_id = "relay-analysis-1"
     branch_id = "analysis-branch-1"

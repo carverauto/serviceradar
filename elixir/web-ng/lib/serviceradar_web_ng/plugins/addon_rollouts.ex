@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRollouts do
 
     AddonRollout
     |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(artifact_kind == :native_addon)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(100)
     |> Ash.Query.load([:previous_package, :candidate_package, :targets])

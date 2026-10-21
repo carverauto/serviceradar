@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
@@ -20,10 +21,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Repositories
 
+  require Ash.Query
   require Logger
 
   @default_release_limit 10
   @default_reschedule_seconds 3_600
+  @retry_backoff_seconds {120, 600, 1_800}
   @bootstrap_unique [period: :infinity, states: :incomplete]
   @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
   @bootstrap_states ["available", "scheduled", "executing", "retryable", "suspended"]
@@ -84,6 +87,30 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     summary["release_tag"] != current
   end
 
+  @doc """
+  True when an unattended sync can skip querying GitHub for `repository`
+  because `release_tag` has already been cleanly imported and all expected
+  packages for that release remain present.
+  """
+  @spec repository_already_synced?(map() | nil, String.t() | nil, non_neg_integer()) :: boolean()
+  def repository_already_synced?(repository, release_tag, package_count)
+      when is_map(repository) and is_binary(release_tag) and is_integer(package_count) do
+    summary = Map.get(repository, :last_sync_summary) || %{}
+    expected_count = summary_count(summary, "imported") + summary_count(summary, "skipped")
+
+    release_tag != "" and
+      package_count >= 0 and
+      Map.get(repository, :builtin) == true and
+      is_nil(Map.get(repository, :last_sync_error)) and
+      summary["status"] == "success" and
+      summary["release_tag"] == release_tag and
+      summary_count(summary, "failed_count") == 0 and
+      expected_count > 0 and
+      package_count >= expected_count
+  end
+
+  def repository_already_synced?(_repository, _release_tag, _package_count), do: false
+
   @spec enqueue_now(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(opts \\ []) do
     args =
@@ -98,7 +125,27 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def backoff(%Oban.Job{attempt: attempt}) when is_integer(attempt) and attempt >= 1 do
+    index = min(attempt - 1, tuple_size(@retry_backoff_seconds) - 1)
+    elem(@retry_backoff_seconds, index)
+  end
+
+  def backoff(_job), do: elem(@retry_backoff_seconds, 0)
+
+  @doc """
+  True when a failed periodic attempt is the job's final Oban attempt and Oban
+  will discard the job rather than retry it.
+  """
+  @spec terminal_attempt?(Oban.Job.t(), term()) :: boolean()
+  def terminal_attempt?(%Oban.Job{attempt: attempt, max_attempts: max_attempts}, {:error, _reason})
+      when is_integer(attempt) and attempt > 0 and is_integer(max_attempts) and max_attempts > 0 do
+    attempt >= max_attempts
+  end
+
+  def terminal_attempt?(_job, _result), do: false
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: args} = job) do
     force? = Map.get(args || %{}, "force") == true
 
     result =
@@ -109,7 +156,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
         :ok
       end
 
-    if !force? and result == :ok do
+    if !force? and (result == :ok or terminal_attempt?(job, result)) do
       schedule_next()
     end
 
@@ -159,6 +206,20 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   end
 
   defp sync_repository(repository, args, actor) do
+    force? = Map.get(args || %{}, "force") == true
+    target_release_tag = release_tag(args)
+
+    if not force? and
+         repository_already_synced_for_release?(repository, target_release_tag, actor) do
+      Logger.debug("Skipping Wasm plugin sync for #{repository.repo_url}: release #{target_release_tag} already synced")
+
+      :ok
+    else
+      do_sync_repository(repository, args, target_release_tag, actor)
+    end
+  end
+
+  defp do_sync_repository(repository, args, target_release_tag, actor) do
     case Repositories.import_attrs(repository, actor: actor) do
       {:ok, import_attrs} ->
         opts =
@@ -173,7 +234,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
               limit: release_limit(args)
             ],
             :release_tag,
-            release_tag(args)
+            target_release_tag
           )
 
         case Packages.sync_first_party_plugins(opts) do
@@ -185,7 +246,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
             log_import_failures(summary.failed)
 
-            run_summary = sync_summary(summary, release_tag(args), repository)
+            run_summary = sync_summary(summary, target_release_tag, repository)
 
             record_success(repository, run_summary, actor)
 
@@ -201,7 +262,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
           {:error, reason} ->
             Logger.warning("Wasm plugin sync failed for #{repository.repo_url}", reason: inspect(reason))
-            run_summary = error_summary(reason, release_tag(args), repository)
+            run_summary = error_summary(reason, target_release_tag, repository)
 
             record_failure(repository, reason, run_summary, actor)
             publish_sync_failed_event(repository, run_summary)
@@ -214,11 +275,48 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
           reason: inspect(reason)
         )
 
-        run_summary = error_summary(reason, release_tag(args), repository)
+        run_summary = error_summary(reason, target_release_tag, repository)
 
         record_failure(repository, reason, run_summary, actor)
         publish_sync_failed_event(repository, run_summary)
         {:error, reason}
+    end
+  end
+
+  defp repository_already_synced_for_release?(repository, release_tag, actor) do
+    summary = Map.get(repository || %{}, :last_sync_summary) || %{}
+    expected_count = summary_count(summary, "imported") + summary_count(summary, "skipped")
+
+    if repository_already_synced?(repository, release_tag, expected_count) do
+      count = imported_release_package_count(repository.repo_url, release_tag, actor)
+      repository_already_synced?(repository, release_tag, count)
+    else
+      false
+    end
+  end
+
+  defp imported_release_package_count(repo_url, release_tag, actor) when is_binary(repo_url) and is_binary(release_tag) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      source_type == :first_party and source_repo_url == ^repo_url and
+        source_release_tag == ^release_tag
+    )
+    |> Ash.count(actor: actor)
+    |> case do
+      {:ok, count} when is_integer(count) -> count
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp imported_release_package_count(_repo_url, _release_tag, _actor), do: 0
+
+  defp summary_count(summary, key) when is_map(summary) do
+    case Map.get(summary, key) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> 0
     end
   end
 

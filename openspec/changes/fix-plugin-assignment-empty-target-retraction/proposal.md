@@ -30,20 +30,42 @@ named the rule or the reason, and the plugin simply disappeared from the agent.
 - A resolver error already halts the reconcile before any write, and it still
   does.
 
-## Known gap (not changed here)
+## Follow-up: owner lifecycle retraction
 The periodic credential-rule worker only loads enabled rules in scope for an
 agent, and the periodic target-policy worker only loads enabled policies.
-Disabling a rule, deleting it (which requires disabling it first), or narrowing
-its scope therefore never reached the reconciler. Its assignments were not
-retracted before this change either. Grant issuance for a disabled rule is
-already refused, so such an assignment cannot obtain credential material. With
-this change, a target query that resolves empty no longer retracts either.
-Explicit retraction of a disabled, deleted or out-of-scope rule's assignments is
-left to a follow-up change.
+Disabling a rule or policy, deleting it, or narrowing its scope therefore never
+reached the reconciler, and its assignments kept running. Grant issuance for a
+disabled rule is refused, but the assignment itself stayed enabled.
+
+- The owner's own update and destroy actions now retract its enabled
+  assignments in the same transaction: all of them when it is disabled
+  (`owner_disabled`) or deleted (`owner_deleted`), and those of agents it no
+  longer covers when its scope narrows (`owner_scope_narrowed`). A target
+  policy's coverage comes from resolving its input definitions; zero rows
+  retracts nothing, as in the reconciler.
+- `plugin_assignments` gains catalog-only `disabled_reason`, `disabled_by` and
+  `disabled_at` columns, cleared when an assignment is enabled again.
+- Assignments orphaned before this change are not disabled by the migration or
+  any periodic job. Core reports them, and an operator with
+  `settings.plugins.manage` retracts a selected set or all of them from the
+  plugins page with the reason `orphaned_owner_cleanup`.
+- The reconcilers' assignment store checks, under a share lock on the owner
+  row and in the write's transaction, that the owner still admits an enabled
+  assignment before writing it. A reconcile that loaded the owner before it
+  changed can therefore not write a retracted assignment back. Orphan cleanup
+  decides eligibility under the same locks.
+- The periodic reconcilers still load only enabled owners and never retract a
+  disabled owner's assignments on their own.
 
 ## Impact
 - Affected specs: `wasm-plugin-system`
 - Affected code:
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/owned_assignment_retraction.ex`
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/changes/retract_owned_assignments.ex`
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/plugin_assignment.ex`
+  - `elixir/serviceradar_core/lib/serviceradar/credentials/network_credential_rule.ex`
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/plugin_target_policy.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/admin/plugin_package_live/index.ex`
   - `elixir/serviceradar_core/lib/serviceradar/plugins/policy_assignment_reconciler.ex`
   - `elixir/serviceradar_core/lib/serviceradar/credentials/plugin_assignment_materializer.ex`
   - `elixir/serviceradar_core/lib/serviceradar/automation/ansible/awx_inventory_sync_reconciler.ex`

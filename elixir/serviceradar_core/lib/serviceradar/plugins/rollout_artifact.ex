@@ -16,8 +16,10 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
     * a member (the per-agent desired-state row a target overrides) has `:id`
       and `:agent_uid`.
 
-  Every rollout is a native add-on rollout until rollouts record an artifact
-  kind, so `implementation/1` has one answer today.
+  Rollout and target rows record the `artifact_kind` of the implementation that
+  owns them. The coordinator reads only rows whose kind has an implementation in
+  `implementations/0`. Only `:native_addon` has one today, so `implementation/1`
+  has one answer and a `:wasm_plugin` row is invisible to the coordinator.
   """
 
   alias ServiceRadar.Plugins.AddonRollout
@@ -41,6 +43,9 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
           optional(atom()) => term()
         }
   @type evidence :: term()
+
+  @doc "The `artifact_kind` recorded on this implementation's rollouts and targets."
+  @callback artifact_kind() :: atom()
 
   # Sources and their stable package.
 
@@ -150,4 +155,8 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @doc "Every implementation, for work that spans all rollouts."
   @spec implementations() :: [module()]
   def implementations, do: [AddonRolloutArtifact]
+
+  @doc "The artifact kinds that have an implementation."
+  @spec kinds() :: [atom()]
+  def kinds, do: Enum.map(implementations(), & &1.artifact_kind())
 end

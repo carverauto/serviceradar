@@ -32,6 +32,24 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCTest do
 
       {:ok, %{closed_viewer_count: 2}}
     end
+
+    def get_session(session_id, viewer_session_id, opts) do
+      send(Application.fetch_env!(:serviceradar_web_ng, :remote_desktop_webrtc_unit_test_pid), {
+        :get_session,
+        session_id,
+        viewer_session_id,
+        opts
+      })
+
+      {:ok,
+       %{
+         viewer_session_id: viewer_session_id,
+         signaling_state: "answer_applied",
+         remote_ice_candidates: [
+           %{"candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", "sdpMid" => "0"}
+         ]
+       }}
+    end
   end
 
   setup do
@@ -192,6 +210,19 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCTest do
   test "owner cleanup fails closed without an actor binding" do
     assert {:error, :not_found} = RemoteDesktopWebRTC.close_all_for_session("session-1", [])
     refute_receive {:close_all_for_session, _session_id, _opts}
+  end
+
+  test "get_session delegates to the signaling manager with actor binding and no raw scope" do
+    scope = %{user: %{id: "actor-1", email: "actor@example.com"}}
+
+    assert {:ok, %{viewer_session_id: "viewer-1", remote_ice_candidates: [_candidate]}} =
+             RemoteDesktopWebRTC.get_session("session-1", "viewer-1", scope: scope)
+
+    assert_receive {:get_session, "session-1", "viewer-1", opts}
+    assert opts[:actor_id] == "actor-1"
+    refute Keyword.has_key?(opts, :scope)
+
+    assert {:error, :not_found} = RemoteDesktopWebRTC.get_session("session-1", "viewer-1", [])
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

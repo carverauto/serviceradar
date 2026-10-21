@@ -47,6 +47,21 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteDesktopWebRTCSignalingManagerStub 
     )
   end
 
+  def get_session(session_id, viewer_session_id, opts) do
+    notify({:desktop_webrtc_get_session, session_id, viewer_session_id, opts})
+
+    resolve_result(
+      Application.get_env(
+        :serviceradar_web_ng,
+        :remote_access_desktop_webrtc_get_result,
+        {:error, :not_configured}
+      ),
+      session_id,
+      viewer_session_id,
+      opts
+    )
+  end
+
   def close_session(session_id, viewer_session_id, opts) do
     notify({:desktop_webrtc_close_session, session_id, viewer_session_id, opts})
 

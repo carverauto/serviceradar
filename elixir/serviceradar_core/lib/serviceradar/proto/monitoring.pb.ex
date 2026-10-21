@@ -417,6 +417,25 @@ defmodule Monitoring.GatewayServiceStatus do
   field :partition, 8, type: :string
   field :source, 9, type: :string
   field :kv_store_id, 10, type: :string, json_name: "kvStoreId"
+
+  field :plugin_provenance, 13,
+    type: Monitoring.PluginResultProvenance,
+    json_name: "pluginProvenance"
+end
+
+defmodule Monitoring.PluginResultProvenance do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.PluginResultProvenance",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :assignment_id, 1, type: :string, json_name: "assignmentId"
+  field :plugin_id, 2, type: :string, json_name: "pluginId"
+  field :plugin_package_id, 3, type: :string, json_name: "pluginPackageId"
+  field :plugin_version, 4, type: :string, json_name: "pluginVersion"
+  field :content_hash, 5, type: :string, json_name: "contentHash"
 end
 
 defmodule Monitoring.AgentHelloRequest.LabelsEntry do

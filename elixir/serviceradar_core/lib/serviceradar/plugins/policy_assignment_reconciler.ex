@@ -488,6 +488,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     @moduledoc false
     @behaviour ServiceRadar.Plugins.PolicyAssignmentReconciler
 
+    alias ServiceRadar.Plugins.OwnedAssignmentRetraction
     alias ServiceRadar.Plugins.PluginAssignment
     alias ServiceRadar.Plugins.PluginPackage
     alias ServiceRadar.Repo
@@ -520,15 +521,21 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       }
 
       fn ->
-        case PluginAssignment
-             |> Ash.Changeset.for_create(:create, params, actor: actor)
-             |> Ash.create(actor: actor, authorize?: true) do
-          {:ok, %{partition_id: partition_id} = assignment}
-          when partition_id == spec.partition_id ->
-            assignment
+        case admit_owner(spec) do
+          :ok ->
+            case PluginAssignment
+                 |> Ash.Changeset.for_create(:create, params, actor: actor)
+                 |> Ash.create(actor: actor, authorize?: true) do
+              {:ok, %{partition_id: partition_id} = assignment}
+              when partition_id == spec.partition_id ->
+                assignment
 
-          {:ok, _assignment} ->
-            Repo.rollback(:authenticated_agent_partition_changed)
+              {:ok, _assignment} ->
+                Repo.rollback(:authenticated_agent_partition_changed)
+
+              {:error, reason} ->
+                Repo.rollback(reason)
+            end
 
           {:error, reason} ->
             Repo.rollback(reason)
@@ -554,11 +561,42 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         params: spec.params
       }
 
-      existing
-      |> Ash.Changeset.for_update(:update, params, actor: actor)
-      |> Ash.update(actor: actor, authorize?: true)
-      |> disable_manual_duplicate(spec, actor)
+      fn ->
+        with :ok <- admit_owner(spec),
+             {:ok, assignment, notifications} <-
+               existing
+               |> Ash.Changeset.for_update(:update, params, actor: actor)
+               |> Ash.update(actor: actor, authorize?: true, return_notifications?: true) do
+          {assignment, notifications}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end
+      |> Repo.transaction()
+      |> case do
+        {:ok, {assignment, notifications}} ->
+          _unsent = Ash.Notifier.notify(notifications)
+          disable_manual_duplicate({:ok, assignment}, spec, actor)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
+
+    # A reconcile works from owners it loaded earlier. If one of them has since
+    # been disabled, deleted or narrowed, its own action already retracted the
+    # assignment, and writing it back enabled would leave an orphan that no
+    # later reconcile visits. The check share-locks the owner row in this
+    # transaction; see OwnedAssignmentRetraction.admit_enabled_assignment/3.
+    defp admit_owner(%{enabled: true} = spec) do
+      OwnedAssignmentRetraction.admit_enabled_assignment(
+        spec.metadata["policy_id"],
+        spec.agent_uid,
+        spec.partition_id
+      )
+    end
+
+    defp admit_owner(_spec), do: :ok
 
     @impl true
     def disable_assignment(assignment, actor) do

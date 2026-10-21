@@ -13,12 +13,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   use Membrane.Pipeline
 
   alias Membrane.Pad
-  alias Membrane.WebRTC.Sink, as: WebRTCSink
   alias ServiceRadarCoreElx.CameraRelay.AnalysisSink
   alias ServiceRadarCoreElx.CameraRelay.AnnexBToNALU
   alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
   alias ServiceRadarCoreElx.CameraRelay.ChunkSource
   alias ServiceRadarCoreElx.CameraRelay.PubSubSink
+  alias ServiceRadarCoreElx.CameraRelay.WebRTCViewerBin
 
   require Logger
 
@@ -79,7 +79,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
         |> get_child()
         |> via_out(output_pad)
         |> via_in(input_pad, options: [kind: :video])
-        |> child(sink_name, %WebRTCSink{
+        |> child(sink_name, %WebRTCViewerBin{
           signaling: signaling,
           tracks: [:video],
           video_codec: :h264,
@@ -231,15 +231,26 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     {member, members} = Map.pop(Map.fetch!(state, key), member_id)
     reason = Map.get(ctx, :crash_reason)
 
-    Logger.warning(
-      "Camera relay #{kind} crashed and was removed: relay_session_id=#{state.relay_session_id} " <>
-        "member_id=#{member_id} reason=#{inspect(reason)}"
-    )
+    if kind == :webrtc_viewer and expected_viewer_disconnect?(reason) do
+      Logger.info(
+        "Camera relay #{kind} disconnected and was removed: relay_session_id=#{state.relay_session_id} " <>
+          "member_id=#{member_id} reason=#{inspect(reason)}"
+      )
+    else
+      Logger.warning(
+        "Camera relay #{kind} crashed and was removed: relay_session_id=#{state.relay_session_id} " <>
+          "member_id=#{member_id} reason=#{inspect(reason)}"
+      )
+    end
 
     notify_member_crash(member, kind, state.relay_session_id, member_id, reason)
 
     {[], Map.put(state, key, members)}
   end
+
+  defp expected_viewer_disconnect?({:shutdown, :connection_failed}), do: true
+  defp expected_viewer_disconnect?({:membrane_child_crash, :webrtc, {:shutdown, :connection_failed}}), do: true
+  defp expected_viewer_disconnect?(_reason), do: false
 
   defp notify_member_crash(%{notify: pid}, kind, relay_session_id, member_id, reason) when is_pid(pid) do
     send(pid, {:camera_relay_member_crashed, kind, relay_session_id, member_id, reason})

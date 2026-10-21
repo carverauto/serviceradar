@@ -6,7 +6,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TARGET = "//elixir/web-ng:networks_live_db_test"
+NETWORKS_SHARD_PREFIX = "//elixir/web-ng:networks_live_db_test_"
+ATLAS_SHARD_PREFIX = "//elixir/web-ng:topology_atlas_db_test_"
+PLUGIN_TARGET = "//elixir/web-ng:plugin_config_cli_db_test"
+PROVISION_TARGET = "//rust/integration-db:provision_generation_web_ng"
 SHARED_FIXTURE_SOURCES = {
     "test/app_domain/accounts_test.exs",
     "test/app_domain/admin_api/local_test.exs",
@@ -253,46 +256,67 @@ SHARED_FIXTURE_SOURCES = {
     "test/serviceradar_web_ng_web/live/flows/attributed_live_test.exs",
 }
 
-class WebNgDbRunnerContractTest(unittest.TestCase):
-    def test_evaluated_runner_attributes(self):
-        query = ET.parse(
-            os.environ.get(
-                "WEB_DB_TARGET_QUERY",
-                ROOT / "build/contracts/web_ng_db_target_query",
-            )
-        )
-        rules = query.findall("rule")
-        self.assertEqual(len(rules), 1)
-        rule = rules[0]
-        self.assertEqual(rule.attrib["name"], TARGET)
-        attributes = {child.attrib["name"]: child for child in rule if "name" in child.attrib}
-
-        def values(name):
-            return [item.attrib["value"] for item in attributes[name]]
-
-        self.assertEqual(
-            set(values("srcs")),
-            {"//elixir/web-ng:" + source for source in SHARED_FIXTURE_SOURCES},
-        )
-        env = {
-            pair[0].attrib["value"]: pair[1].attrib["value"]
-            for pair in attributes["env"]
+def evaluated_rules(query_path):
+    """Map each rule in the evaluated query to its attribute nodes."""
+    rules = {}
+    for rule in ET.parse(query_path).findall("rule"):
+        rules[rule.attrib["name"]] = {
+            child.attrib["name"]: child for child in rule if "name" in child.attrib
         }
-        self.assertEqual(env["SERVICERADAR_REQUIRE_DB_TESTS"], "1")
-        self.assertEqual(env["SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS"], "600000")
-        self.assertEqual(env["SERVICERADAR_TEST_DB_SHARD"], "serial_0")
-        self.assertEqual(env["TEST_CNPG_POOL_SIZE"], "8")
-        self.assertTrue({"integration_test", "manual"}.issubset(values("tags")))
-        self.assertIn("test/db/networks_live_db_test_helper.exs", values("elixir_opts"))
-        self.assertTrue({
-            "//build:run_id_file",
-            "//config/environments:ci_binpb",
-            "//elixir/serviceradar_core:test/db/integration_env.exs",
-            "//elixir/serviceradar_core:test/db/integration_env_config.exs",
-            "//elixir/serviceradar_core:test/db/fixture_config.exs",
-            "//elixir/serviceradar_core:config/test_database_guard.exs",
-        }.issubset(values("data")))
-        self.assertTrue(any(value.endswith("//:incompatible") for value in values("target_compatible_with")))
+    return rules
+
+
+def values(attributes, name):
+    return [item.attrib["value"] for item in attributes[name]]
+
+
+def env(attributes):
+    return {pair[0].attrib["value"]: pair[1].attrib["value"] for pair in attributes["env"]}
+
+
+class WebNgDbRunnerContractTest(unittest.TestCase):
+    def setUp(self):
+        self.rules = evaluated_rules(
+            os.environ.get("WEB_DB_TARGET_QUERY", ROOT / "build/contracts/web_ng_db_target_query")
+        )
+        self.networks = sorted(name for name in self.rules if name.startswith(NETWORKS_SHARD_PREFIX))
+        self.atlas = sorted(name for name in self.rules if name.startswith(ATLAS_SHARD_PREFIX))
+
+    def test_networks_shards_partition_the_shared_fixture_sources(self):
+        self.assertGreater(len(self.networks), 1)
+        seen = set()
+        for name in self.networks:
+            with self.subTest(shard=name):
+                attributes = self.rules[name]
+                srcs = {value.removeprefix("//elixir/web-ng:") for value in values(attributes, "srcs")}
+                self.assertTrue(srcs, "a shard selects no sources")
+                self.assertFalse(srcs & seen, "a source runs in two shards")
+                seen |= srcs
+                shard_env = env(attributes)
+                self.assertEqual(shard_env["SERVICERADAR_REQUIRE_DB_TESTS"], "1")
+                self.assertEqual(shard_env["SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS"], "600000")
+                self.assertEqual(shard_env["TEST_CNPG_POOL_SIZE"], "8")
+                self.assertTrue({"integration_test", "manual"}.issubset(values(attributes, "tags")))
+                self.assertIn("test/db/networks_live_db_test_helper.exs", values(attributes, "elixir_opts"))
+                self.assertTrue({
+                    "//build:run_id_file",
+                    "//config/environments:ci_binpb",
+                    "//elixir/serviceradar_core:test/db/integration_env.exs",
+                    "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+                    "//elixir/serviceradar_core:test/db/fixture_config.exs",
+                    "//elixir/serviceradar_core:config/test_database_guard.exs",
+                }.issubset(values(attributes, "data")))
+                self.assertTrue(any(value.endswith("//:incompatible") for value in values(attributes, "target_compatible_with")))
+        self.assertEqual(seen, SHARED_FIXTURE_SOURCES)
+
+    def test_every_web_ng_database_target_owns_a_distinct_provisioned_clone(self):
+        """BazelCI runs these targets in one invocation, so no two may share a database."""
+        self.assertGreater(len(self.atlas), 1)
+        owners = self.networks + self.atlas + [PLUGIN_TARGET]
+        shards = [env(self.rules[name])["SERVICERADAR_TEST_DB_SHARD"] for name in owners]
+        self.assertEqual(len(shards), len(set(shards)), dict(zip(owners, shards)))
+        provisioned = env(self.rules[PROVISION_TARGET])["SERVICERADAR_TEST_DB_SHARDS"].split(",")
+        self.assertEqual(sorted(shards), sorted(provisioned))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ load(
     "integration_lane_names",
 )
 load("//build:integration_tests.bzl", "requires_shared_fixture")
+load("//build:web_ng_db_lanes.bzl", "WEB_NG_DB_LANES")
 
 # Declared inputs every target that opens a connection needs.
 #
@@ -229,6 +230,8 @@ rust_test(
             ",".join(integration_lane_names()),
         ),
         ("provision_generation_large_ingestion", "clone", LARGE_INGESTION_DB_SHARD),
+        # The BazelCI web-ng DB action clones only the web-ng lanes, under its own run id.
+        ("provision_generation_web_ng", "clone", ",".join(WEB_NG_DB_LANES)),
         ("release_generation", "release", ""),
         ("cleanup_generations", "cleanup", ""),
     ]

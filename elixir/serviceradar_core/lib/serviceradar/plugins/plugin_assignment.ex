@@ -10,10 +10,13 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+  alias ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy
   alias ServiceRadar.Plugins.Changes.BindAssignmentPartition
+  alias ServiceRadar.Plugins.Changes.ClearRetractionOnEnable
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.Validations.AssignmentParams
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment
   alias ServiceRadar.Plugins.Validations.PackageApproved
@@ -28,15 +31,24 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     :timeout_seconds,
     :params,
     :permissions_override,
-    :resources_override
+    :resources_override,
+    :update_policy,
+    :update_policy_source
   ]
 
   @create_fields [:agent_uid, :plugin_package_id | @mutable_fields]
+
+  @rollout_override_fields [:rollout_plugin_package_id, :rollout_id, :rollout_started_at]
 
   postgres do
     table "plugin_assignments"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      check_constraint :rollout_id, "plugin_assignments_rollout_override_check",
+        message: "rollout package, rollout and start time are set or cleared together"
+    end
   end
 
   actions do
@@ -86,6 +98,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change BindAssignmentPartition
       change SetAssignmentPluginId
       change ApplyConfigDefaults
+      change ApplyPluginUpdatePolicy
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate ServiceRadar.Plugins.Validations.NoShadowedManualAssignment
@@ -101,15 +114,57 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change RejectLegacyUnboundAssignmentMutation
       change SetAssignmentPluginId
       change ApplyConfigDefaults
+      change ApplyPluginUpdatePolicy
+      change ClearRetractionOnEnable
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate AssignmentParams
+    end
+
+    # Disables an assignment because its owner no longer covers it, and records
+    # why and on whose action. It deliberately skips the package and parameter
+    # validations of `:update`: a retraction must succeed even when the package
+    # has since been revoked or the stored params no longer validate. See
+    # ServiceRadar.Plugins.OwnedAssignmentRetraction.
+    update :retract do
+      accept []
+
+      argument :disabled_reason, :atom do
+        allow_nil? false
+
+        constraints one_of: [
+                      :owner_disabled,
+                      :owner_deleted,
+                      :owner_scope_narrowed,
+                      :orphaned_owner_cleanup
+                    ]
+      end
+
+      argument :disabled_by, :string, allow_nil?: true
+
+      change set_attribute(:enabled, false)
+      change set_attribute(:disabled_reason, arg(:disabled_reason))
+      change set_attribute(:disabled_by, arg(:disabled_by))
+      change set_attribute(:disabled_at, &DateTime.utc_now/0)
     end
 
     destroy :destroy do
       require_atomic? false
       change RejectLegacyUnboundAssignmentMutation
       change RejectPolicyOwnedAssignmentDestroy
+    end
+
+    # A rollout's per-target override. It changes only the override columns, so
+    # the stable plugin_package_id that owners and reconcilers write is never
+    # touched while a candidate is being proven.
+    update :apply_rollout_override do
+      require_atomic? false
+      accept @rollout_override_fields
+    end
+
+    update :clear_rollout_override do
+      require_atomic? false
+      accept @rollout_override_fields
     end
   end
 
@@ -198,16 +253,84 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       default %{}
     end
 
+    attribute :update_policy, :atom do
+      allow_nil? false
+      public? true
+      default :pinned
+      constraints one_of: [:track_latest_approved, :pinned]
+
+      description """
+      Whether a manual assignment follows the latest approved package of its
+      plugin or keeps its selected package. Policy-materialized rows follow
+      their owner instead; see ServiceRadar.Plugins.PluginUpdatePolicy.
+      """
+    end
+
+    attribute :update_policy_source, :atom do
+      allow_nil? false
+      public? true
+      default :operator
+      constraints one_of: [:migration_default, :operator]
+      description "Who chose update_policy; only migration_default rows are backfilled."
+    end
+
+    attribute :disabled_reason, :atom do
+      allow_nil? true
+      public? true
+
+      constraints one_of: [
+                    :owner_disabled,
+                    :owner_deleted,
+                    :owner_scope_narrowed,
+                    :orphaned_owner_cleanup
+                  ]
+
+      description "Why the assignment was retracted; cleared when it is enabled again."
+    end
+
+    attribute :disabled_by, :string do
+      allow_nil? true
+      public? true
+      description "Actor whose action retracted the assignment."
+    end
+
+    attribute :disabled_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    # The candidate package a Wasm plugin rollout is proving on this row. The
+    # three are set or cleared together (plugin_assignments_rollout_override_check).
+    attribute :rollout_plugin_package_id, :uuid, public?: true
+    attribute :rollout_id, :uuid, public?: true
+    attribute :rollout_started_at, :utc_datetime_usec, public?: true
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   relationships do
-    belongs_to :plugin_package, ServiceRadar.Plugins.PluginPackage do
+    belongs_to :plugin_package, PluginPackage do
       allow_nil? false
       public? true
       destination_attribute :id
       source_attribute :plugin_package_id
+      define_attribute? false
+    end
+
+    belongs_to :rollout_plugin_package, PluginPackage do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :rollout_plugin_package_id
+      define_attribute? false
+    end
+
+    belongs_to :rollout, ServiceRadar.Plugins.AddonRollout do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :rollout_id
       define_attribute? false
     end
   end

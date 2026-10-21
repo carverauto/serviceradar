@@ -55,6 +55,21 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   def plan(_policy, _resolved_inputs, _opts),
     do: {:error, ["policy must be an object and resolved inputs must be a list"]}
 
+  @doc """
+  The agents that `plan/3` gives an assignment to for these resolved inputs,
+  by each row's own agent ownership.
+  """
+  @spec resolved_agent_uids([map()]) :: MapSet.t(String.t())
+  def resolved_agent_uids(resolved_inputs) when is_list(resolved_inputs) do
+    for input <- resolved_inputs,
+        row <- ValueUtils.list_value(input, [:rows, "rows"]) || [],
+        is_map(row),
+        agent_uid = agent_id_for_row(row, nil),
+        is_binary(agent_uid) and agent_uid != "",
+        into: MapSet.new(),
+        do: agent_uid
+  end
+
   defp build_assignments(policy, grouped, opts) do
     generated_at = Keyword.get(opts, :generated_at, DateTime.to_iso8601(DateTime.utc_now()))
     chunk_size = Keyword.get(opts, :chunk_size, 100)

@@ -17,6 +17,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.Validations.TargetQuery
   alias ServiceRadar.Credentials.Validations.TrustMaterial
+  alias ServiceRadar.Plugins.Changes.RetractOwnedAssignments
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
@@ -114,6 +115,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       accept @fields
       validate TargetQuery
       validate TrustMaterial
+      change {RetractOwnedAssignments, owner: :credential_rule}
     end
 
     update :enable do
@@ -122,10 +124,12 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
     update :disable do
       change set_attribute(:enabled, false)
+      change {RetractOwnedAssignments, owner: :credential_rule}
     end
 
     destroy :destroy do
       change {GuardCredentialRuleLifecycle, mode: :destroy}
+      change {RetractOwnedAssignments, owner: :credential_rule}
     end
 
     action :preview do

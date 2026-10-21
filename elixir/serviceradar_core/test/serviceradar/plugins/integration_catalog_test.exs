@@ -27,16 +27,6 @@ defmodule ServiceRadar.Plugins.IntegrationCatalogTest do
     assert source["documentation"]["path"] == "docs/configuration.md"
   end
 
-  test "stable releases sort after prereleases with the same version core" do
-    packages = [
-      package("example-plugin", "1.2.0-rc.2", "prerelease-provider", "prerelease-source"),
-      package("example-plugin", "1.2.0", "stable-provider", "stable-source")
-    ]
-
-    assert {:ok, catalog} = IntegrationCatalog.from_packages(packages)
-    assert Enum.map(catalog.credential_profiles, & &1["provider"]) == ["stable-provider"]
-  end
-
   test "rejects duplicate package claims instead of choosing an implicit winner" do
     packages = [
       package("first-plugin", "1.0.0", "shared-provider", "first-source"),

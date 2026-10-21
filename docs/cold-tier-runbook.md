@@ -95,7 +95,7 @@ data-loss decision.
 | `Cold tier pressure: database volume N% used` | Held chunks + normal growth approaching volume capacity (70/85/95%) | Fix the export path (head/object store); consider volume expansion; last resort: emergency drop |
 | `chunk quarantined after repeated export failures` | Poison chunk blocks the frontier | Break-glass export below |
 | `in-database retention policies exist on fenced tables` | A migration/manual DDL re-armed a Timescale policy | Remove it (`SELECT remove_retention_policy('platform.<t>')`); find the source |
-| `Continuous aggregates refresh past their raw source's retention` | Refresh window reaches dropped-raw regions — policy refreshes DELETE materialized history | Clamp the policy's `start_offset` below the source retention |
+| `Continuous aggregates refresh past their raw source's retention` | Refresh window reaches dropped-raw regions — policy refreshes DELETE materialized history | Shipped policies are clamped to the configured retention on each retention run; for a hand-created or unmanaged policy, clamp its `start_offset` below the source retention |
 | `pending CAGG invalidations older than the hot boundary` | "Loaded gun": a covering refresh would delete CAGG history | Verify refresh windows are clamped; do NOT run wide manual refreshes |
 | `verified manifest rows reference MISSING archive objects` | Archive objects deleted outside the pruner | Investigate bucket access/lifecycle; affected ranges are unreadable cold |
 | `Cold tier is DISABLED but un-drained state remains` | Two-phase disable pending | See "Disabling the cold tier" |

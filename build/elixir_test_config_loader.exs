@@ -77,7 +77,8 @@ if File.exists?(config_path) do
   # The reason anyone wants this -- multi-megabyte logs from Ecto's per-query :debug output,
   # which made Bazel drop the stream entirely:
   #   stdout ... exceeds maximum size of --experimental_ui_max_stdouterr_bytes=1048576; skipping
-  # -- is handled at the source instead, with `log: false` on the Repo in config/test.exs.
+  # -- is handled at the source instead: config/test.exs in both serviceradar_core and web-ng
+  # sets `log: false` on ServiceRadar.Repo (SERVICERADAR_TEST_LOG_SQL=1 turns it back on).
   # That silences the queries and leaves the primary level alone.
   #
   # Applying the level properly means first auditing those 61 call sites.

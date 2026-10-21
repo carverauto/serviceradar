@@ -75,6 +75,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
           {:ok, %Req.Response{status: 200, body: releases}}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
+          Process.put(
+            :first_party_release_tag_requests,
+            Process.get(:first_party_release_tag_requests, 0) + 1
+          )
+
           release =
             if Process.get(:first_party_release_without_index_asset) do
               Map.put(FirstPartyImporterTest.release(), "assets", [])
@@ -85,6 +90,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
           {:ok, %Req.Response{status: 200, body: release}}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
+          Process.put(
+            :first_party_index_requests,
+            Process.get(:first_party_index_requests, 0) + 1
+          )
+
           {:ok,
            %Req.Response{
              status: 200,
@@ -217,6 +227,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_releases_without_index, false)
     Process.put(:first_party_release_without_index_asset, false)
     Process.put(:first_party_recent_release_requests, 0)
+    Process.put(:first_party_release_tag_requests, 0)
+    Process.put(:first_party_index_requests, 0)
     Process.put(:first_party_registry_auth_challenge, false)
     Process.put(:registry_token_auth_header, nil)
 
@@ -375,6 +387,28 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert import.content_hash == Storage.sha256(@wasm)
     assert import.source_release_tag == "v1.2.3"
     assert import.verification_status == "verified"
+  end
+
+  test "reuses the discovered release and index entry during import without re-querying GitHub release APIs" do
+    assert {:ok, [plugin]} =
+             FirstPartyImporter.list_release_plugins(%{"repo_url" => @repo_url}, "v1.2.3")
+
+    assert Process.get(:first_party_release_tag_requests) == 1
+    assert Process.get(:first_party_index_requests) == 1
+
+    assert {:ok, import} =
+             FirstPartyImporter.import(%{
+               "repo_url" => plugin.repo_url,
+               "release_tag" => plugin.release_tag,
+               "plugin_id" => plugin.plugin_id,
+               "version" => plugin.version,
+               "release" => Map.get(plugin, :release),
+               "index_entry" => Map.get(plugin, :index_entry)
+             })
+
+    assert import.manifest_struct.id == "hello-wasm"
+    assert Process.get(:first_party_release_tag_requests) == 1
+    assert Process.get(:first_party_index_requests) == 1
   end
 
   describe "per-repository trusted signing keys" do

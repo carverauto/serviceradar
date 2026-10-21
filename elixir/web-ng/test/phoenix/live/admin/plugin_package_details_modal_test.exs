@@ -277,6 +277,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
       legacy_recovery_candidate_after_ids: %{1 => nil},
       legacy_recovery_candidates_more?: false,
       legacy_recovery_candidates: [],
+      orphaned_assignments: [],
       credential_fields: CredentialCoverage.materialized_fields(package.config_schema),
       credential_coverage: nil,
       assignment_coverage: %{},

@@ -613,6 +613,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       :add_candidate
     )
 
+    get(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id",
+      RemoteDesktopWebRTCController,
+      :show_session
+    )
+
     delete(
       "/remote-access/sessions/:id/webrtc/session/:viewer_session_id",
       RemoteDesktopWebRTCController,

@@ -35,6 +35,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
   @containerized_deployment_types ~w(kubernetes docker lxc container)
 
+  @impl true
+  def artifact_kind, do: :native_addon
+
   # Sources and their stable package.
 
   @impl true

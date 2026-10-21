@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -34,7 +35,7 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginAssignment, wasm []byte) error {
+func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginAssignment, module pluginModule) error {
 	runtime := wazero.NewRuntimeWithConfig(ctx, m.newRuntimeConfig(assignment.Resources.RequestedMemoryMB))
 	defer func() {
 		_ = runtime.Close(ctx)
@@ -42,6 +43,7 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 
 	exec := newPluginExecution(m, assignment)
 	defer exec.closeAll()
+	exec.moduleContentHash = module.contentHash
 	exec.applyRunOverrides(time.Now())
 
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
@@ -74,15 +76,15 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 		WithSysNanosleep().
 		WithStartFunctions()
 
-	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
+	instance, err := runtime.InstantiateWithConfig(ctx, module.wasm, modConfig)
 	if err != nil {
 		return fmt.Errorf("instantiate module: %w", err)
 	}
 	defer func() {
-		_ = module.Close(ctx)
+		_ = instance.Close(ctx)
 	}()
 
-	entrypoint := module.ExportedFunction(assignment.Entrypoint)
+	entrypoint := instance.ExportedFunction(assignment.Entrypoint)
 	if entrypoint == nil {
 		return fmt.Errorf("%w: %s", errEntrypointNotFound, assignment.Entrypoint)
 	}
@@ -102,7 +104,7 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 	}
 
 	if !exec.hasSubmitted() {
-		m.tryEnqueueResult(buildPluginErrorResult(assignment, "no result submitted"))
+		m.tryEnqueueResult(buildPluginErrorResult(assignment, module.contentHash, "no result submitted"))
 	}
 
 	return nil
@@ -289,13 +291,27 @@ func memoryPages(requestedMB int) uint32 {
 	return uint32(pages)
 }
 
-func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignment) ([]byte, error) {
+// pluginModule is a Wasm module the host loaded and verified for one run.
+// contentHash is the lowercase hex SHA-256 of wasm, computed by the host.
+type pluginModule struct {
+	wasm        []byte
+	contentHash string
+}
+
+// loadWasm returns the assignment's verified module and records the outcome as
+// the assignment's load status.
+func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignment) (pluginModule, error) {
+	module, err := m.fetchVerifiedWasm(ctx, assignment)
+	m.recordAssignmentLoad(assignment, module, err)
+	return module, err
+}
+
+func (m *PluginManager) fetchVerifiedWasm(ctx context.Context, assignment *pluginAssignment) (pluginModule, error) {
 	cachePath := m.cachePath(assignment)
 	if cachePath != "" {
 		if data, err := os.ReadFile(cachePath); err == nil {
-			if err := verifyContentHash(data, assignment.ContentHash); err == nil {
-				m.markAssignmentReady(assignment.AssignmentID)
-				return data, nil
+			if module, err := verifiedPluginModule(data, assignment.ContentHash); err == nil {
+				return module, nil
 			}
 			_ = os.Remove(cachePath)
 		}
@@ -304,30 +320,40 @@ func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignme
 	if downloadURL, _ := assignment.downloadCredentials(); downloadURL != "" {
 		data, err := m.downloadWasm(ctx, assignment)
 		if err != nil {
-			return nil, err
+			return pluginModule{}, err
 		}
-		if err := verifyContentHash(data, assignment.ContentHash); err != nil {
-			return nil, err
+		module, err := verifiedPluginModule(data, assignment.ContentHash)
+		if err != nil {
+			return pluginModule{}, err
 		}
 		m.persistCache(cachePath, data)
-		m.markAssignmentReady(assignment.AssignmentID)
-		return data, nil
+		return module, nil
 	}
 
 	if assignment.WasmObject != "" {
 		if localPath, err := safeJoin(m.localStoreDir, assignment.WasmObject); err == nil {
 			if data, err := os.ReadFile(localPath); err == nil {
-				if err := verifyContentHash(data, assignment.ContentHash); err != nil {
-					return nil, err
+				module, err := verifiedPluginModule(data, assignment.ContentHash)
+				if err != nil {
+					return pluginModule{}, err
 				}
 				m.persistCache(cachePath, data)
-				m.markAssignmentReady(assignment.AssignmentID)
-				return data, nil
+				return module, nil
 			}
 		}
 	}
 
-	return nil, errPluginWasmUnavailable
+	return pluginModule{}, errPluginWasmUnavailable
+}
+
+// verifiedPluginModule hashes the module once, both to check it against the
+// expected hash (when the assignment names one) and to stamp provenance.
+func verifiedPluginModule(data []byte, expected string) (pluginModule, error) {
+	sum := sha256.Sum256(data)
+	if expected != "" && !hashutil.EqualSHA256(expected, sum) {
+		return pluginModule{}, errContentHashMismatch
+	}
+	return pluginModule{wasm: data, contentHash: hex.EncodeToString(sum[:])}, nil
 }
 
 func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment) {
@@ -343,6 +369,7 @@ func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment)
 		if state == nil || state.contentHash != contentHash {
 			state = &assignmentState{firstSeen: now, contentHash: contentHash}
 		}
+		state.generation = assignment.generation
 		if !state.ready && m.cacheExists(assignment) {
 			state.ready = true
 		}
@@ -361,21 +388,63 @@ func (m *PluginManager) cacheExists(assignment *pluginAssignment) bool {
 	return err == nil
 }
 
-func (m *PluginManager) markAssignmentReady(assignmentID string) {
-	if assignmentID == "" {
+// recordAssignmentLoad records a module load outcome for the assignment
+// generation that attempted it. A load for a superseded generation (the config
+// moved on while it ran) says nothing about the current one and is dropped.
+func (m *PluginManager) recordAssignmentLoad(assignment *pluginAssignment, module pluginModule, err error) {
+	if assignment == nil || assignment.AssignmentID == "" {
 		return
 	}
+
+	now := m.stateNow()
+
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
-	state := m.states[assignmentID]
-	if state == nil {
-		state = &assignmentState{firstSeen: m.stateNow()}
-		m.states[assignmentID] = state
+
+	state := m.states[assignment.AssignmentID]
+	if state == nil || state.generation != assignment.generation {
+		return
 	}
+
+	if err != nil {
+		state.load = pluginAssignmentLoad{
+			generation: assignment.generation,
+			status:     pluginLoadStatusFailed,
+			reason:     pluginLoadFailureReason(err),
+			at:         now,
+		}
+		return
+	}
+
 	state.ready = true
+	state.load = pluginAssignmentLoad{
+		generation:  assignment.generation,
+		status:      pluginLoadStatusLoaded,
+		contentHash: module.contentHash,
+		at:          now,
+	}
 }
 
-func (m *PluginManager) assignmentState(assignmentID string) *assignmentState {
+func pluginLoadFailureReason(err error) string {
+	switch {
+	case errors.Is(err, errContentHashMismatch):
+		return "content_hash_mismatch"
+	case errors.Is(err, errDownloadTooLarge):
+		return "download_too_large"
+	case errors.Is(err, errDownloadFailed):
+		return "download_failed"
+	case errors.Is(err, errPluginWasmUnavailable):
+		return "wasm_unavailable"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return "load_timeout"
+	default:
+		return "load_failed"
+	}
+}
+
+// assignmentReadiness returns the assignment's ready flag and first-seen time,
+// read under stateMu, creating the state when it is missing.
+func (m *PluginManager) assignmentReadiness(assignmentID string) (ready bool, firstSeen time.Time) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 	state := m.states[assignmentID]
@@ -383,15 +452,15 @@ func (m *PluginManager) assignmentState(assignmentID string) *assignmentState {
 		state = &assignmentState{firstSeen: m.stateNow()}
 		m.states[assignmentID] = state
 	}
-	return state
+	return state.ready, state.firstSeen
 }
 
 func (m *PluginManager) shouldSkipWarmup(assignment *pluginAssignment) bool {
-	state := m.assignmentState(assignment.AssignmentID)
-	if state.ready {
+	ready, firstSeen := m.assignmentReadiness(assignment.AssignmentID)
+	if ready {
 		return false
 	}
-	return time.Since(state.firstSeen) < pluginWarmupGrace
+	return time.Since(firstSeen) < pluginWarmupGrace
 }
 
 func assignmentStateContentHash(assignment *pluginAssignment) string {
@@ -415,7 +484,7 @@ func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
 		return
 	}
 
-	if state := m.assignmentState(assignment.AssignmentID); state.ready {
+	if ready, _ := m.assignmentReadiness(assignment.AssignmentID); ready {
 		return
 	}
 
@@ -449,7 +518,7 @@ func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
 				Err(err).
 				Str("assignment_id", assignment.AssignmentID).
 				Msg("Plugin wasm prefetch failed")
-			m.tryEnqueueResult(buildPluginErrorResult(assignment, fmt.Sprintf("wasm_prefetch_failed: %s", err)))
+			m.tryEnqueueResult(buildPluginErrorResult(assignment, "", fmt.Sprintf("wasm_prefetch_failed: %s", err)))
 		}
 	}()
 }

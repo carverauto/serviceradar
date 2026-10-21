@@ -708,6 +708,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     rollouts =
       AddonRollout
       |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(artifact_kind == :native_addon)
       |> Ash.Query.sort(updated_at: :desc)
       |> maybe_limit(limit)
       |> Ash.Query.load([:previous_package, :candidate_package])
@@ -717,6 +718,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     targets =
       AddonRolloutTarget
       |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(artifact_kind == :native_addon)
       |> Ash.Query.sort(updated_at: :desc)
       |> maybe_limit(limit)
       |> read(scope)

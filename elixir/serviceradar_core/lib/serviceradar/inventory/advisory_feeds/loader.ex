@@ -581,15 +581,31 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   def unchanged_advisory?(_record, _existing_state, _opts), do: false
 
-  @doc "Number of live rows whose state can participate in the feed's skip guard."
-  @spec comparable_count(String.t(), map() | :ets.tid()) :: non_neg_integer()
-  def comparable_count(feed_key, existing_state) do
-    state_key =
-      if comparison_for_feed(feed_key) == :content_hash, do: :content_hash, else: :modified_at
+  @doc """
+  Number of live rows whose state can participate in the feed's skip guard.
+
+  For `:modified_at` feeds a row counts only when its stored
+  `normalization_version` equals the `:normalization_version` option, matching
+  `unchanged_advisory?/3`: rows from a prior version are rewritten once and must
+  not make that reprojection run look like an inert guard.
+  """
+  @spec comparable_count(String.t(), map() | :ets.tid(), keyword()) :: non_neg_integer()
+  def comparable_count(feed_key, existing_state, opts \\ []) when is_list(opts) do
+    normalization_version = Keyword.get(opts, :normalization_version)
+    comparison = comparison_for_feed(feed_key)
 
     fold_stored_states(existing_state, 0, fn state, count ->
-      if is_nil(Map.get(state, state_key)), do: count, else: count + 1
+      if comparable_state?(comparison, state, normalization_version), do: count + 1, else: count
     end)
+  end
+
+  defp comparable_state?(:content_hash, state, _normalization_version) do
+    not is_nil(Map.get(state, :content_hash))
+  end
+
+  defp comparable_state?(:modified_at, state, normalization_version) do
+    not is_nil(Map.get(state, :modified_at)) and
+      Map.get(state, :normalization_version) == normalization_version
   end
 
   # Comparison state is a map (caller-supplied or `existing_comparison_state/2`)

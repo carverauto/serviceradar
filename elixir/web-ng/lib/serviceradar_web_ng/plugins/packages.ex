@@ -299,13 +299,16 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       results =
         Enum.map(to_import, fn plugin ->
           import_attrs =
-            Map.merge(source_attrs, %{
+            source_attrs
+            |> Map.merge(%{
               source_type: :first_party,
               repo_url: plugin.repo_url,
               release_tag: plugin.release_tag,
               plugin_id: plugin.plugin_id,
               version: plugin.version
             })
+            |> maybe_put(:release, Map.get(plugin, :release))
+            |> maybe_put(:index_entry, Map.get(plugin, :index_entry))
 
           {plugin, create(import_attrs, opts)}
         end)
@@ -655,7 +658,11 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         :github_token,
         "github_token",
         :trusted_upload_signing_keys,
-        "trusted_upload_signing_keys"
+        "trusted_upload_signing_keys",
+        :release,
+        "release",
+        :index_entry,
+        "index_entry"
       ])
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
@@ -699,13 +706,27 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
       {:ok, package} ->
         if same_first_party_artifact?(package, import) do
-          {:ok, package, false}
+          reconcile_first_party_provenance(package, attrs, ash_opts)
         else
           replace_with_first_party_package(package, attrs, ash_opts)
         end
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  defp reconcile_first_party_provenance(%PluginPackage{} = package, attrs, ash_opts) do
+    if package.source_release_tag == Map.get(attrs, :source_release_tag) do
+      {:ok, package, false}
+    else
+      package
+      |> Ash.Changeset.for_update(:update, Map.take(attrs, [:source_release_tag]))
+      |> update_resource_with_opts(ash_opts)
+      |> case do
+        {:ok, updated} -> {:ok, updated, false}
+        {:error, error} -> {:error, error}
+      end
     end
   end
 

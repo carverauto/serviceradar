@@ -1031,6 +1031,61 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert legacy_unbound_row?(assignment.id)
   end
 
+  test "lists assignments whose owner is gone and retracts them for plugin managers", %{
+    conn: conn,
+    actor: actor
+  } do
+    package = create_approved_package_version!(actor, "live-orphaned-owner-plugin", "1.0.0")
+
+    orphan =
+      create_assignment!(actor, "agent-orphaned-owner-#{System.unique_integer([:positive])}", package.id,
+        source: :policy,
+        policy_id: Ecto.UUID.generate()
+      )
+
+    user = grant_permissions(admin_user_fixture(), ["plugins.view", "settings.plugins.manage"])
+
+    {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/admin/plugins")
+
+    assert has_element?(lv, "#orphaned-plugin-assignments")
+    assert has_element?(lv, "#orphaned-assignment-#{orphan.id}", "Deleted")
+
+    html =
+      lv
+      |> element("#retract-orphaned-assignment-#{orphan.id}")
+      |> render_click()
+
+    assert html =~ "Retracted 1 orphaned assignment(s)"
+    refute has_element?(lv, "#orphaned-assignment-#{orphan.id}")
+
+    assert {:ok, retracted} = Assignments.get(orphan.id, actor: system_actor())
+    assert retracted.enabled == false
+    assert retracted.disabled_reason == :orphaned_owner_cleanup
+    assert retracted.disabled_by == to_string(user.id)
+  end
+
+  test "hides the orphaned-assignment report and refuses retraction without plugin management", %{
+    conn: conn,
+    actor: actor
+  } do
+    package = create_approved_package_version!(actor, "live-orphaned-owner-viewer-plugin", "1.0.0")
+
+    orphan =
+      create_assignment!(actor, "agent-orphaned-viewer-#{System.unique_integer([:positive])}", package.id,
+        source: :policy,
+        policy_id: Ecto.UUID.generate()
+      )
+
+    viewer = grant_permissions(admin_user_fixture(), ["plugins.view"])
+
+    {:ok, lv, _html} = live(log_in_user(conn, viewer), ~p"/admin/plugins")
+
+    refute has_element?(lv, "#orphaned-plugin-assignments")
+    assert render_click(lv, "retract_all_orphaned_assignments", %{}) =~ "permission"
+
+    assert {:ok, %{enabled: true}} = Assignments.get(orphan.id, actor: system_actor())
+  end
+
   test "removes an assignment without crashing when delete returns success", %{
     conn: conn,
     actor: actor

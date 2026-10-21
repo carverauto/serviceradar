@@ -650,8 +650,8 @@ The no-mistakes `test-registration` gate runs this same command automatically.
 
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests need
 the shared CNPG/AGE fixture. The full guarded lifecycle is CI-only: it runs in the in-cluster
-BuildBuddy workflows (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*` in
-`//buildbuddy.yaml`) with typed `SERVICERADAR_ENV=ci` configuration. For a focused workstation
+BuildBuddy workflows (`BazelCI Core Integration`, `BazelCI Web-NG DB`, `LargeIngestionGate`,
+`WorldWorkerScale`, `IntegrationBenchmark*` in `//buildbuddy.yaml`) with typed `SERVICERADAR_ENV=ci` configuration. For a focused workstation
 run, use the skill's scratch-database recipe instead. There is deliberately no orchestration
 script: the caller invokes each step as its own Bazel command, in this order:
 
@@ -713,6 +713,25 @@ with a different id is a different run. Leave `SERVICERADAR_TEST_DATABASE_URL` u
 lane derives its disposable database. Bazel has no cross-invocation finalizer: the workflow's
 exit trap runs `teardown_db` and `release_generation`, and the stale sweep plus generation
 cleanup are the backstop for a killed host.
+
+**Where the database lanes run.** A pull request runs three BazelCI actions in parallel on
+the `workflows-pr` executor pool, each with its own GitHub status; a failure in any of them
+fails the pull request. `BazelCI` runs the unit `//...` sweep, builds the manual compile-only
+targets, and runs benchmarks and Go race tests, with no database. `BazelCI Core Integration`
+provisions every ordinary lane under its own run id and runs the core integration wave.
+`BazelCI Web-NG DB` provisions only the web-ng lanes (`//build:web_ng_db_lanes.bzl`) under its
+own run id and runs the sharded `//elixir/web-ng:networks_live_db_test` and
+`//elixir/web-ng:topology_atlas_db_test` suites, `//elixir/web-ng:plugin_config_cli_db_test`
+and `//rust/dgraph-topology:schema_lifecycle_test` in one concurrent invocation; every web-ng
+target owns a different clone. Each database action first runs
+`build/ci/select_integration_actions.py`, which skips its lifecycle when none of its targets
+depends on a changed file (a docs-, Go-, Rust- or Helm-only change usually skips both). Any
+change to `MODULE.bazel`, `buildbuddy.yaml`, `build/`, a `BUILD`/`.bzl` file, a dependency
+lockfile, migrations or `rust/integration-db/`, a deleted file, or a failed query runs both.
+The million-device `//rust/dgraph-topology:world_worker_test` runs in `WorldWorkerScale`:
+nightly on staging at 07:30 UTC, and on demand with `ExecuteWorkflow` and
+`action_names: ["WorldWorkerScale"]`. `LargeIngestionGate` runs on every staging push and
+nightly at 02:00 UTC.
 
 **BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
 `origin/staging` into the branch before building, but the workflow steps come from the

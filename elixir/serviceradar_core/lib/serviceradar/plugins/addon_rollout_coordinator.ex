@@ -71,7 +71,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     with {:ok, packages} <- artifact.list_packages(actor),
          {:ok, recovered_sources} <- artifact.restore_managed_sources(packages, actor),
          {:ok, sources} <- artifact.managed_sources(actor),
-         {:ok, rollouts} <- read_all(AddonRollout, actor) do
+         {:ok, rollouts} <- rollouts_of_kind(artifact.artifact_kind(), actor) do
       package_by_id = Map.new(packages, &{to_string(&1.id), &1})
 
       created =
@@ -149,7 +149,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @active_rollout_states,
-         {:ok, targets} <- rollout_targets(rollout.id, actor),
+         {:ok, targets} <- rollout_targets(rollout, actor),
          {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
          :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
          {:ok, targets} <- evaluate_targets(rollout, targets, packages, actor, now) do
@@ -311,7 +311,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       candidate = Map.get(package_by_id, to_string(rollout.candidate_package_id))
 
       with %{} <- candidate,
-           {:ok, targets} <- rollout_targets(rollout.id, actor),
+           {:ok, targets} <- rollout_targets(rollout, actor),
            true <- Enum.any?(targets, &(&1.state in @slot_holding_target_states)),
            :ok <- finish_superseded_source(rollout, candidate, targets, actor, now) do
         Logger.info("Finished superseded native add-on rollout that still held its source",
@@ -364,7 +364,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @active_rollout_states,
-         {:ok, targets} <- rollout_targets(rollout.id, actor),
+         {:ok, targets} <- rollout_targets(rollout, actor),
          :ok <- clear_all_overrides(rollout, targets, actor),
          :ok <- mark_targets_canceled(targets, actor, now),
          {:ok, _} <-
@@ -389,7 +389,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @active_rollout_states,
-         {:ok, targets} <- rollout_targets(rollout.id, actor),
+         {:ok, targets} <- rollout_targets(rollout, actor),
          {:ok, _} <- update_rollout(rollout, %{state: :rolling_back}, actor),
          :ok <- begin_whole_rollback(rollout, targets, actor, now) do
       audit(:rollback, rollout, %{target_count: length(targets)})
@@ -485,7 +485,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       Repo.transaction(fn ->
         with {:ok, rollout} <- get_rollout(paused.id, actor),
              true <- rollout.state == :paused,
-             {:ok, targets} <- rollout_targets(rollout.id, actor),
+             {:ok, targets} <- rollout_targets(rollout, actor),
              :ok <- clear_all_overrides(rollout, targets, actor),
              :ok <- mark_targets_canceled(targets, actor, now),
              {:ok, updated} <-
@@ -1229,39 +1229,42 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
+  # Every rollout read is limited to artifact kinds that have an implementation
+  # (RolloutArtifact.kinds/0), so a row of any other kind is never acted on.
   defp active_rollouts(actor) do
     AddonRollout
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(state in ^@active_rollout_states)
+    |> Ash.Query.filter(
+      state in ^@active_rollout_states and artifact_kind in ^RolloutArtifact.kinds()
+    )
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read(actor: actor)
   end
 
-  defp rollout_targets(rollout_id, actor) do
+  defp rollouts_of_kind(artifact_kind, actor) do
+    AddonRollout
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(artifact_kind == ^artifact_kind)
+    |> Ash.read(actor: actor)
+  end
+
+  defp rollout_targets(rollout, actor) do
     AddonRolloutTarget
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(rollout_id == ^rollout_id)
+    |> Ash.Query.filter(rollout_id == ^rollout.id and artifact_kind == ^rollout.artifact_kind)
     |> Ash.Query.sort(batch_index: :asc, agent_uid: :asc)
     |> Ash.read(actor: actor)
   end
 
-  defp get_rollout(id, actor), do: get_by_id(AddonRollout, id, actor)
-
-  defp get_by_id(resource, id, actor) do
-    resource
+  defp get_rollout(id, actor) do
+    AddonRollout
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.filter(id == ^id and artifact_kind in ^RolloutArtifact.kinds())
     |> Ash.read_one(actor: actor)
     |> case do
-      {:ok, nil} -> {:error, {:not_found, resource, id}}
+      {:ok, nil} -> {:error, {:not_found, AddonRollout, id}}
       result -> result
     end
-  end
-
-  defp read_all(resource, actor) do
-    resource
-    |> Ash.Query.for_read(:read)
-    |> Ash.read(actor: actor)
   end
 
   defp create_rollout(attrs, actor) do
@@ -1392,7 +1395,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp increment(map, key), do: Map.update!(map, key, &(&1 + 1))
 
   defp vacate_target_slots(rollout, actor) do
-    with {:ok, targets} <- rollout_targets(rollout.id, actor) do
+    with {:ok, targets} <- rollout_targets(rollout, actor) do
       Enum.reduce_while(targets, :ok, fn target, :ok ->
         case vacate_target_slot(target, actor) do
           :ok -> {:cont, :ok}

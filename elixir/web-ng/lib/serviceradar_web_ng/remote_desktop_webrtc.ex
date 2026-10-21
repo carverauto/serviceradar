@@ -103,6 +103,25 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     end
   end
 
+  @doc """
+  Returns the viewer's signaling state, including every ICE candidate core-elx
+  has gathered so far (`remote_ice_candidates`). The browser polls this until
+  it connects, because the provider keeps gathering after the offer is returned.
+  """
+  def get_session(session_id, viewer_session_id, opts) when is_binary(session_id) and is_binary(viewer_session_id) do
+    if enabled?() do
+      with {:ok, actor_id} <- required_actor_id(opts) do
+        manager().get_session(
+          session_id,
+          viewer_session_id,
+          signaling_opts(opts, actor_id)
+        )
+      end
+    else
+      {:error, "desktop webrtc remote access is unavailable"}
+    end
+  end
+
   def close_session(session_id, viewer_session_id, opts) when is_binary(session_id) and is_binary(viewer_session_id) do
     if enabled?() do
       with {:ok, actor_id} <- required_actor_id(opts) do

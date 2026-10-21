@@ -334,11 +334,13 @@ The targets are:
 The opt-in runs before the existing diagnostic database cases. Both peer
 servers in one variant use the same clone. Either variant provisions `serial_1`
 through the existing generation target and checks its generation digest and
-run identity; the network and plugin cases keep `serial_0`, which scale never
-touches. The same observer and cleanup trap
+run identity; the network and plugin cases keep their web-ng lane clones
+(`//build:web_ng_db_lanes.bzl`), which scale never touches. The same observer and cleanup trap
 own connection measurement, teardown and lease release. Each server uses
 eight database connections, and the driver uses eight. The observer admits
-24 slots for scale and retains its ordinary 15-slot setting otherwise.
+45 slots in every run: the three `networks_live_db_test` shards run
+concurrently at 15 each, while the plugin cases (15) and scale (24) each run
+alone.
 
 The observer limit increases from 1,800 to 3,300 seconds only for this opt-in.
 The existing 7,200-second generation lease already covers one run; there is
@@ -371,7 +373,7 @@ Scale runs first, right after the guarded clones are created, so the existing
 `networks_live_db_test` and `plugin_config_cli_db_test` cases cannot consume its
 window. One hosted compact dispatch was refused at admission after those cases
 ran first: the prelude had already used 435 seconds of observer time. Both
-variants seed only `serial_1`, so those cases run on an untouched `serial_0`.
+variants seed only `serial_1`, so those cases run on untouched web-ng lane clones.
 The existing cases
 still run and remain required. Before each one starts, the same two clocks are
 read again, and it runs under a forced-exit envelope of whatever both deadlines

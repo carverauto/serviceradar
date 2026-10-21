@@ -191,7 +191,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
     with {:ok, forwarding_session} <- forwarding_session(relay_session_id, media_ingest_id, agent_id),
          {:ok, upstream_ack} <-
-           forwarder().heartbeat(request, ingress_pid: Map.get(forwarding_session, :ingress_pid)),
+           heartbeat_upstream(request, Map.get(forwarding_session, :ingress_pid)),
          {:ok, _session} <-
            maybe_mark_closing(relay_session_id, media_ingest_id, agent_id, %{
              close_reason: gateway_drain_reason(upstream_ack.message)
@@ -309,6 +309,23 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     case forwarder().close_relay_session(request, ingress_pid: ingress_pid) do
       {:error, :relay_closed} ->
         {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session already closed"}}
+
+      other ->
+        other
+    end
+  end
+
+  defp heartbeat_upstream(request, ingress_pid) do
+    case forwarder().heartbeat(request, ingress_pid: ingress_pid) do
+      {:error, {:invalid_status, status}} when status in [:closing, "closing"] ->
+        {:ok,
+         %Camera.RelayHeartbeatAck{
+           accepted: true,
+           message: "core heartbeat accepted during relay drain"
+         }}
+
+      {:error, {:invalid_status, status}} when status in [:closed, "closed"] ->
+        {:error, :relay_closed}
 
       other ->
         other

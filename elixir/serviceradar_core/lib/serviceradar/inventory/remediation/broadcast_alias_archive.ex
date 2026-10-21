@@ -166,6 +166,10 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
     """
   end
 
+  # The `device_broadcast_ips` lookup is an uncorrelated `IN`, which Postgres
+  # builds once into a hash table. A correlated `EXISTS` here re-ran the
+  # subnet CTEs for every alias, metadata key or interface address, so the
+  # statements grew with rows x interface addresses.
   @doc false
   def alias_broadcast_predicate(device_id_expr, raw_value_expr) do
     """
@@ -184,11 +188,9 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
           )
           OR (
             nv.prefix_len IS NULL
-            AND EXISTS (
-              SELECT 1
+            AND (#{device_id_expr}, host(nv.addr)) IN (
+              SELECT dbi.device_id, dbi.bcast_ip
               FROM device_broadcast_ips dbi
-              WHERE dbi.device_id = #{device_id_expr}
-                AND dbi.bcast_ip = host(nv.addr)
             )
           )
         )
@@ -478,5 +480,18 @@ defmodule ServiceRadar.Inventory.Remediation.BroadcastAliasArchive do
     end
   end
 
-  defp query!(sql, params), do: Repo.query!(sql, params)
+  # Each statement runs with JIT off. The broadcast predicate expands into a
+  # large expression tree, and the planner's row estimates for the
+  # set-returning functions in `broadcast_ctes/1` put the statements over
+  # `jit_above_cost` even on near-empty tables. LLVM then spends seconds
+  # compiling a statement that executes in milliseconds.
+  defp query!(sql, params) do
+    {:ok, result} =
+      Repo.transaction(fn ->
+        Repo.query!("SET LOCAL jit = off")
+        Repo.query!(sql, params)
+      end)
+
+    result
+  end
 end

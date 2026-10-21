@@ -281,9 +281,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   def handle_info({:camera_relay_member_crashed, :webrtc_viewer, relay_session_id, viewer_session_id, reason}, state) do
     case Map.pop(state.sessions, viewer_session_id) do
       {%{relay_session_id: ^relay_session_id} = session, sessions} ->
-        Logger.warning(
-          "Camera relay WebRTC viewer failed: relay_session_id=#{relay_session_id} " <>
-            "viewer_session_id=#{viewer_session_id} reason=#{inspect(reason)}"
+        log_viewer_termination(
+          "Camera relay WebRTC viewer",
+          relay_session_id,
+          viewer_session_id,
+          reason
         )
 
         close_runtime_session(state, session, "webrtc viewer connection failed")
@@ -301,9 +303,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   def handle_info({:DOWN, monitor_ref, :process, signaling_pid, reason}, state) do
     case fetch_session_by_signaling(state, signaling_pid) do
       {:ok, %{signaling_monitor_ref: ^monitor_ref} = session} ->
-        Logger.warning(
-          "Camera relay WebRTC signaling stopped: relay_session_id=#{session.relay_session_id} " <>
-            "viewer_session_id=#{session.viewer_session_id} reason=#{inspect(reason)}"
+        log_viewer_termination(
+          "Camera relay WebRTC signaling",
+          session.relay_session_id,
+          session.viewer_session_id,
+          reason
         )
 
         close_runtime_session(state, session, "webrtc viewer connection failed")
@@ -532,4 +536,22 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
 
   defp cancel_timer(ref) when is_reference(ref), do: Process.cancel_timer(ref)
   defp cancel_timer(_other), do: false
+
+  defp log_viewer_termination(prefix, relay_session_id, viewer_session_id, reason) do
+    if expected_viewer_disconnect?(reason) do
+      Logger.info(
+        "#{prefix} disconnected: relay_session_id=#{relay_session_id} " <>
+          "viewer_session_id=#{viewer_session_id} reason=#{inspect(reason)}"
+      )
+    else
+      Logger.warning(
+        "#{prefix} failed: relay_session_id=#{relay_session_id} " <>
+          "viewer_session_id=#{viewer_session_id} reason=#{inspect(reason)}"
+      )
+    end
+  end
+
+  defp expected_viewer_disconnect?({:shutdown, :connection_failed}), do: true
+  defp expected_viewer_disconnect?({:membrane_child_crash, :webrtc, {:shutdown, :connection_failed}}), do: true
+  defp expected_viewer_disconnect?(_reason), do: false
 end

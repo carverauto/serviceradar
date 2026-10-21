@@ -651,7 +651,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   end
 
   defp do_load_and_finalize(records_factory, provider, feed_key, existing_state, opts) do
-    existing_count = Loader.comparable_count(feed_key, existing_state)
+    normalization_version = Keyword.get(opts, :normalization_version)
+
+    existing_count =
+      Loader.comparable_count(feed_key, existing_state,
+        normalization_version: normalization_version
+      )
+
     required_tree = Keyword.get(opts, :required_tree, feed_key)
     absolute_minimum = Keyword.get(opts, :expected_minimum, 1)
 
@@ -788,7 +794,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   def load_ubuntu_snapshot(_acquired, _opts), do: {:error, :invalid_ubuntu_acquired_pair}
 
   defp load_prepared_ubuntu(snapshot, acquired, provider, feed_key, generation, existing_state) do
-    existing_count = Loader.comparable_count(feed_key, existing_state)
+    normalization_version = Parsers.Ubuntu.normalization_version()
+
+    existing_count =
+      Loader.comparable_count(feed_key, existing_state,
+        normalization_version: normalization_version
+      )
 
     records =
       Stream.map(snapshot.records, fn
