@@ -13,7 +13,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   refused because its label is already used: while that label's transaction
   is still running (PREPARE or PREPARED), whether it is this caller's lost
   attempt or another loader of the same batch, the call waits for it to commit
-  or abort rather than failing a load that is about to succeed.
+  or abort rather than failing a load that is about to succeed. A label the FE
+  has no transaction for (`UNKNOWN`, typically a load that timed out before its
+  coordinator began one) persisted nothing, so the retry loads it again under
+  the same label; if the first attempt starts after all, the label refuses the
+  second and the reconcile above takes over.
 
   The whole call, that wait included, has a 90-second budget (or the caller's
   shorter `:http_timeout`), below the default JetStream ACK wait; exhaustion
@@ -78,37 +82,15 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
       rows: rows,
       opts: opts,
       attempt: 1,
-      deadline: deadline,
-      mode: :load
+      deadline: deadline
     })
   end
 
   defp retry_load(
-         %{
-           request: request,
-           http: _http,
-           count: count,
-           opts: opts,
-           attempt: attempt,
-           deadline: deadline,
-           mode: mode
-         } =
+         %{request: request, count: count, opts: opts, attempt: attempt, deadline: deadline} =
            context
        ) do
-    {result, dialed} =
-      if mode == :reconcile do
-        state = state_request(request.config, opts[:label], opts)
-
-        {reconcile_or_retry(
-           opts[:label],
-           opts[:table],
-           count,
-           budget_opts(opts, deadline),
-           :retry
-         ), state}
-      else
-        load_once(request, context, Keyword.get(opts, :redirects, 3))
-      end
+    {result, dialed} = load_once(request, context, Keyword.get(opts, :redirects, 3))
 
     case result do
       {:error, reason} ->
@@ -149,21 +131,18 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         if retry? and remaining(deadline) > delay do
           Process.sleep(delay)
 
-          {context, mode} =
+          # The aborted label persisted nothing; retry the same payload under a
+          # disambiguated label instead of re-colliding with it. Every other
+          # retry, an unresolved label included, loads again under the same
+          # label: StarRocks refuses a label whose transaction exists, and that
+          # refusal reconciles instead of loading twice.
+          context =
             case reason do
-              # The aborted label persisted nothing; retry the same payload
-              # under a disambiguated label instead of re-colliding with it.
-              {:label_aborted, _aborted} ->
-                {context_with_retry_label(context, attempt + 1), :load}
-
-              {:unresolved_label, _, _} ->
-                {context, :reconcile}
-
-              _ ->
-                {context, :load}
+              {:label_aborted, _aborted} -> context_with_retry_label(context, attempt + 1)
+              _ -> context
             end
 
-          retry_load(%{context | attempt: attempt + 1, mode: mode})
+          retry_load(%{context | attempt: attempt + 1})
         else
           result
         end
@@ -339,9 +318,9 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   # load budget, so the whole reconcile, including any wait below, ends inside
   # that budget and therefore inside the JetStream ACK wait.
   #
-  # `trigger` records why reconciliation started (the load's own status, an
-  # HTTP timeout, or a retry of an unresolved label) so an unresolved outcome
-  # can be logged with both that cause and the state API's actual answer.
+  # `trigger` records why reconciliation started (the load's own status or an
+  # HTTP timeout) so an unresolved outcome can be logged with both that cause
+  # and the state API's actual answer.
   defp reconcile_or_retry(label, table, expected_count, opts, trigger) do
     deadline = System.monotonic_time(:millisecond) + http_timeout(opts)
 
