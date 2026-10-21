@@ -227,6 +227,9 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     end
   end
 
+  # A stopping node surfaces as these reasons. Re-raising them as exits lets
+  # LoadAdmission.run/2 map them to :load_admission_unavailable, so the batch
+  # counts as not attempted instead of as a failed load.
   defp stopping_reason?(reason) when reason in [:terminating, :shutdown, :noproc], do: true
   defp stopping_reason?({reason, _}) when reason in [:terminating, :shutdown, :noproc], do: true
   defp stopping_reason?(_reason), do: false
