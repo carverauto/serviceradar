@@ -19,6 +19,10 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCSignalingManager do
     rpc(:add_ice_candidate, [session_id, viewer_session_id, candidate, opts], opts)
   end
 
+  def get_session(session_id, viewer_session_id, opts) when is_binary(session_id) and is_binary(viewer_session_id) do
+    rpc(:get_session, [session_id, viewer_session_id, opts], opts)
+  end
+
   def close_session(session_id, viewer_session_id, opts) when is_binary(session_id) and is_binary(viewer_session_id) do
     rpc(:close_session, [session_id, viewer_session_id, opts], opts)
   end

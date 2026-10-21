@@ -7,6 +7,9 @@ export const DESKTOP_MEDIA_QUALITY_LOW = "low"
 export const DESKTOP_MEDIA_QUALITY_AUTO = "auto"
 export const DESKTOP_MEDIA_MAX_CLOSE_REASON = 256
 const DEFAULT_DESKTOP_MEDIA_CLOSE_REASON = "viewer closed remote desktop WebRTC session"
+// core-elx trickles its ICE candidates after returning the offer. Poll for
+// them until the connection settles.
+const WEBRTC_REMOTE_CANDIDATE_POLL_MS = 250
 const ALLOWED_SDP_MEDIA_TYPES = new Set(["application", "video"])
 const ALLOWED_SDP_VIDEO_CODECS = new Set(["h264", "vp8", "vp9", "av1"])
 const ALLOWED_SDP_VIDEO_REPAIR_CODECS = new Set(["rtx", "red", "ulpfec", "flexfec-03"])
@@ -193,6 +196,8 @@ export class RemoteDesktopWebRTCClient {
     this.pendingMediaAckQueue = null
     this.lastMediaAckBinding = null
     this.mediaAckTimer = null
+    this.remoteCandidatePollTimer = null
+    this.remoteCandidates = new Set()
     this.mediaBackpressurePaused = false
     this.connectGeneration = 0
   }
@@ -203,6 +208,7 @@ export class RemoteDesktopWebRTCClient {
     }
 
     this.closed = false
+    this.clearRemoteCandidatePollTimer()
     const generation = ++this.connectGeneration
     this.onStatus("creating_viewer_session")
 
@@ -224,6 +230,7 @@ export class RemoteDesktopWebRTCClient {
     }
 
     this.viewerSessionId = viewerSessionId
+    this.remoteCandidates = new Set()
     try {
       this.peerConnection = this.peerConnectionFactory({
         iceServers: session.ice_servers || this.iceServers || [],
@@ -232,17 +239,20 @@ export class RemoteDesktopWebRTCClient {
 
       await this.peerConnection.setRemoteDescription({type: "offer", sdp: validateDesktopOfferSdp(offerSdp)})
       this.assertActiveConnection(generation)
+      this.addRemoteCandidates(this.peerConnection, session.remote_ice_candidates)
       const answer = await this.peerConnection.createAnswer()
       this.assertActiveConnection(generation)
       await this.peerConnection.setLocalDescription(answer)
       this.assertActiveConnection(generation)
 
-      await this.fetchJson(`${this.signalingPath}/${viewerSessionId}/answer`, {
+      const answerBody = await this.fetchJson(`${this.signalingPath}/${viewerSessionId}/answer`, {
         method: "POST",
         body: JSON.stringify({sdp: answer.sdp}),
       })
       this.assertActiveConnection(generation)
 
+      this.addRemoteCandidates(this.peerConnection, answerBody?.data?.remote_ice_candidates)
+      this.pollRemoteCandidates(this.peerConnection, generation)
       this.onStatus("answer_applied")
 
       return {
@@ -297,6 +307,7 @@ export class RemoteDesktopWebRTCClient {
       channel.close?.()
     }
 
+    this.clearRemoteCandidatePollTimer()
     this.clearMediaAckTimer()
     this.pendingMediaAck = null
     this.pendingMediaAckQueue = null
@@ -349,6 +360,10 @@ export class RemoteDesktopWebRTCClient {
       const state = this.peerConnection?.connectionState || "unknown"
       this.onStatus(`connection_${state}`)
 
+      if (state === "connected") {
+        this.clearRemoteCandidatePollTimer()
+      }
+
       if (state === "failed" || state === "closed") {
         if (this.closed) {
           return
@@ -358,6 +373,82 @@ export class RemoteDesktopWebRTCClient {
         this.onClose(state)
       }
     })
+  }
+
+  // Without core-elx's candidates the browser cannot reach a relay-only peer:
+  // TURN drops the peer's packets until the browser installs a permission for
+  // the peer's relay address, which it only does for a candidate it was given.
+  addRemoteCandidates(peerConnection, candidates) {
+    if (!Array.isArray(candidates)) {
+      return
+    }
+
+    for (const candidate of candidates) {
+      const key = candidate?.candidate
+      if (typeof key !== "string" || key === "" || this.remoteCandidates.has(key)) {
+        continue
+      }
+      this.remoteCandidates.add(key)
+      void Promise.resolve(peerConnection.addIceCandidate?.(candidate)).catch(() => {})
+    }
+  }
+
+  pollRemoteCandidates(peerConnection, generation) {
+    const viewerSessionId = this.viewerSessionId
+    const isCurrentConnection = () =>
+      !this.closed &&
+      this.connectGeneration === generation &&
+      this.peerConnection === peerConnection &&
+      this.viewerSessionId === viewerSessionId
+    const settled = () =>
+      ["connected", "failed", "closed"].includes(peerConnection.connectionState)
+
+    const poll = async () => {
+      this.remoteCandidatePollTimer = null
+      if (!isCurrentConnection() || settled()) {
+        return
+      }
+
+      try {
+        const response = await this.fetchImpl(`${this.signalingPath}/${viewerSessionId}`, {
+          method: "GET",
+          credentials: "same-origin",
+          headers: csrfHeaders(this.documentRef),
+        })
+        if (!isCurrentConnection()) {
+          return
+        }
+        // The viewer session is gone (closed or expired); nothing more will come.
+        if (!response.ok) {
+          return
+        }
+
+        const body = await response.json()
+        if (!isCurrentConnection()) {
+          return
+        }
+        this.addRemoteCandidates(peerConnection, body?.data?.remote_ice_candidates)
+      } catch (_error) {
+        if (!isCurrentConnection()) {
+          return
+        }
+      }
+
+      if (isCurrentConnection() && !settled()) {
+        this.remoteCandidatePollTimer = globalThis.setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_POLL_MS)
+      }
+    }
+
+    this.remoteCandidatePollTimer = globalThis.setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_POLL_MS)
+  }
+
+  clearRemoteCandidatePollTimer() {
+    if (!this.remoteCandidatePollTimer) {
+      return
+    }
+
+    globalThis.clearTimeout(this.remoteCandidatePollTimer)
+    this.remoteCandidatePollTimer = null
   }
 
   attachDataChannel(channel) {

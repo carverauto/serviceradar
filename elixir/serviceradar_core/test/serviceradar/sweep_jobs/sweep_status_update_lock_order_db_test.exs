@@ -67,7 +67,8 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
     {devices, _reversed_pairs} =
       insert_high_uid_before_low_uid!(
         "platform.ocsf_devices",
-        &create_lock_order_device!(unique, partition, actor, &1)
+        &create_lock_order_device!(unique, partition, actor, &1),
+        &TestSupport.delete_device_fixtures!/1
       )
 
     uids = Enum.map(devices, & &1.uid)
@@ -144,7 +145,7 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
   # disturb. Block 0 keeps room for one small row but not a large one, so the large fillers
   # extend into block 1 and leave room for exactly one small row there. The first target
   # insert takes that slot; the second asks the FSM, whose only candidate is block 0.
-  test "insert_high_uid_before_low_uid!/2 recovers when the FSM wraps from a later block to an earlier block" do
+  test "insert_high_uid_before_low_uid!/3 recovers when the FSM wraps from a later block to an earlier block" do
     Repo.checkout(fn ->
       Repo.query!("CREATE TEMP TABLE lock_order_fsm (uid text NOT NULL, pad text NOT NULL)")
 
@@ -162,11 +163,15 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
                "setup must leave one small slot in block 0 and one in block 1, got #{inspect(fsm_blocks())}"
 
         {[high, low], reversed_pairs} =
-          insert_high_uid_before_low_uid!("lock_order_fsm", fn seq ->
-            uid = "target-#{seq}"
-            insert_fsm_row!(uid, 900)
-            %{uid: uid}
-          end)
+          insert_high_uid_before_low_uid!(
+            "lock_order_fsm",
+            fn seq ->
+              uid = "target-#{seq}"
+              insert_fsm_row!(uid, 900)
+              %{uid: uid}
+            end,
+            &Repo.query!("DELETE FROM lock_order_fsm WHERE uid = ANY($1)", [&1])
+          )
 
         assert reversed_pairs == 1,
                "the first target pair must land in reversed physical order, got #{reversed_pairs}"
@@ -330,32 +335,34 @@ defmodule ServiceRadar.SweepJobs.SweepStatusUpdateLockOrderDbTest do
   # Free Space Map (FSM), which may return an earlier vacuumed block (`ctid(second) < ctid(first)`).
   # Keeping earlier attempts in the heap until a pair lands in increasing `ctid` order prevents
   # the FSM from reusing those slots and guarantees termination in well-founded `ctid` order.
-  defp insert_high_uid_before_low_uid!(table, insert!) do
+  # `delete!` removes those earlier attempts afterwards; device rows have FK children, so
+  # they must go through the fixture helper rather than a bare DELETE.
+  defp insert_high_uid_before_low_uid!(table, insert!, delete!) do
     {:ok, result} =
       Repo.transaction(fn ->
         Repo.query!("LOCK TABLE #{table} IN SHARE ROW EXCLUSIVE MODE")
-        advance_until_high_before_low!(table, insert!, insert!.(999), 998, [])
+        advance_until_high_before_low!(table, insert!, delete!, insert!.(999), 998, [])
       end)
 
     result
   end
 
-  defp advance_until_high_before_low!(_table, _insert!, _prev, seq, _discarded) when seq < 1 do
+  defp advance_until_high_before_low!(_table, _insert!, _delete!, _prev, seq, _discarded)
+       when seq < 1 do
     flunk("failed to place a higher uid before a lower uid in physical order after 999 attempts")
   end
 
-  defp advance_until_high_before_low!(table, insert!, prev, seq, discarded) do
+  defp advance_until_high_before_low!(table, insert!, delete!, prev, seq, discarded) do
     curr = insert!.(seq)
 
     if physical_uid_order(table, [prev.uid, curr.uid]) == [[prev.uid], [curr.uid]] do
       if discarded != [] do
-        discarded_uids = Enum.map(discarded, & &1.uid)
-        Repo.query!("DELETE FROM #{table} WHERE uid = ANY($1)", [discarded_uids])
+        delete!.(Enum.map(discarded, & &1.uid))
       end
 
       {[prev, curr], length(discarded)}
     else
-      advance_until_high_before_low!(table, insert!, curr, seq - 1, [prev | discarded])
+      advance_until_high_before_low!(table, insert!, delete!, curr, seq - 1, [prev | discarded])
     end
   end
 

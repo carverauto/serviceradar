@@ -31,6 +31,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     previous_close_result =
       Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_close_result)
 
+    previous_get_result =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_get_result)
+
     previous_fetcher = Application.get_env(:serviceradar_web_ng, :remote_access_session_fetcher)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_test_pid)
 
@@ -58,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
       restore_env(:remote_access_desktop_webrtc_answer_result, previous_answer_result)
       restore_env(:remote_access_desktop_webrtc_candidate_result, previous_candidate_result)
       restore_env(:remote_access_desktop_webrtc_close_result, previous_close_result)
+      restore_env(:remote_access_desktop_webrtc_get_result, previous_get_result)
       restore_env(:remote_access_session_fetcher, previous_fetcher)
       restore_env(:remote_access_desktop_webrtc_test_pid, previous_test_pid)
     end)
@@ -227,6 +231,48 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     assert body["message"] == "remote desktop session is still activating"
   end
 
+  test "returns the viewer session with every ICE candidate core-elx has gathered", %{
+    conn: conn,
+    session_id: session_id,
+    user: user
+  } do
+    viewer_session_id = Ecto.UUID.generate()
+    host = %{"candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", "sdpMid" => "0"}
+    relay = %{"candidate" => "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay", "sdpMid" => "0"}
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_desktop_webrtc_get_result,
+      {:ok,
+       %{viewer_session_id: viewer_session_id, signaling_state: "answer_applied", remote_ice_candidates: [host, relay]}}
+    )
+
+    conn = get(conn, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}")
+
+    body = json_response(conn, 200)
+
+    assert body["data"]["session_id"] == session_id
+    assert body["data"]["remote_ice_candidates"] == [host, relay]
+    assert_receive {:desktop_webrtc_get_session, ^session_id, ^viewer_session_id, opts}
+    assert opts[:actor_id] == user.id
+    refute Keyword.has_key?(opts, :scope)
+  end
+
+  test "returns 404 when polling a viewer session core-elx no longer holds", %{
+    conn: conn,
+    session_id: session_id
+  } do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_desktop_webrtc_get_result,
+      {:error, :viewer_session_not_found}
+    )
+
+    conn = get(conn, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{Ecto.UUID.generate()}")
+
+    assert json_response(conn, 404)["error"] == "viewer_session_not_found"
+  end
+
   test "closes a desktop webrtc signaling session", %{conn: conn, session_id: session_id, user: user} do
     viewer_session_id = Ecto.UUID.generate()
 
@@ -273,6 +319,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
        %{"sdp" => "v=0\r\nanswer"}},
       {:post, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}/candidates",
        %{"candidate" => "candidate:1 1 UDP 1234 203.0.113.10 4000 typ host"}},
+      {:get, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}", %{}},
       {:delete, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}", %{}}
     ]
 
@@ -289,6 +336,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     refute_receive {:desktop_webrtc_create_session, _session_id, _opts}
     refute_receive {:desktop_webrtc_submit_answer, _session_id, _viewer_id, _sdp, _opts}
     refute_receive {:desktop_webrtc_add_candidate, _session_id, _viewer_id, _candidate, _opts}
+    refute_receive {:desktop_webrtc_get_session, _session_id, _viewer_id, _opts}
     refute_receive {:desktop_webrtc_close_session, _session_id, _viewer_id, _opts}
   end
 
@@ -320,6 +368,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
+  defp dispatch_request(conn, :get, path, _params), do: get(conn, path)
   defp dispatch_request(conn, :post, path, params), do: post(conn, path, params)
   defp dispatch_request(conn, :delete, path, params), do: delete(conn, path, params)
 end
