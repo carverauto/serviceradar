@@ -135,4 +135,68 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorkerTest do
     assert log =~ "Anomaly alert liveness cleanup failed"
     assert_received {:health, "anomaly-alert-liveness", false, _metadata}
   end
+
+  test "retries once on a single transient failure without logging at error or recording unhealthy" do
+    pid = self()
+    counter = :counters.new(1, [:atomics])
+
+    check = fn opts ->
+      :counters.add(counter, 1, 1)
+
+      case :counters.get(counter, 1) do
+        1 -> {:error, :anomaly_alert_liveness_timeout}
+        2 -> {:ok, %{alert_id: "alert-1", series_key: opts[:series_key]}}
+      end
+    end
+
+    error_log =
+      capture_log([level: :error], fn ->
+        assert :ok =
+                 AnomalyAlertLivenessWorker.run(
+                   check: check,
+                   cleanup: cleanup(pid),
+                   health_recorder: health_recorder(pid)
+                 )
+      end)
+
+    assert error_log == ""
+    assert :counters.get(counter, 1) == 2
+    assert_received {:cleanup, "synthetic:anomaly-alert-liveness:tripwire"}
+    refute_received {:health, "anomaly-alert-liveness", false, _metadata}
+
+    assert_received {:health, "anomaly-alert-liveness", true,
+                     %{"series_key" => "synthetic:anomaly-alert-liveness:tripwire"}}
+  end
+
+  test "does not retry non-transient rule contract regressions" do
+    pid = self()
+    counter = :counters.new(1, [:atomics])
+
+    check = fn opts ->
+      :counters.add(counter, 1, 1)
+
+      case :counters.get(counter, 1) do
+        1 ->
+          {:error, {:stale_rule_contract, "causal_prediction_health_finding", :drift_open_state}}
+
+        2 ->
+          {:ok, %{alert_id: "alert-1", series_key: opts[:series_key]}}
+      end
+    end
+
+    error_log =
+      capture_log([level: :error], fn ->
+        assert :ok =
+                 AnomalyAlertLivenessWorker.run(
+                   check: check,
+                   cleanup: cleanup(pid),
+                   health_recorder: health_recorder(pid)
+                 )
+      end)
+
+    assert error_log =~ "Anomaly alert liveness check failed"
+    assert :counters.get(counter, 1) == 1
+    assert_received {:health, "anomaly-alert-liveness", false, metadata}
+    assert metadata["reason"] =~ "stale_rule_contract"
+  end
 end

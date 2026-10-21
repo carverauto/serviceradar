@@ -71,19 +71,62 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
 
     case run_check(check, series_key) do
       {:ok, result} ->
-        health.(@check_name, true, %{
-          "series_key" => result.series_key
-        })
-
-        :ok
+        record_healthy(health, result)
 
       {:error, reason} ->
-        Logger.error("Anomaly alert liveness check failed", reason: inspect(reason))
-        best_effort_cleanup(cleanup, series_key)
-        health.(@check_name, false, %{"reason" => inspect(reason)})
-        :ok
+        retry_or_record_unhealthy(check, cleanup, health, series_key, reason)
     end
   end
+
+  defp retry_or_record_unhealthy(check, cleanup, health, series_key, reason) do
+    if transient_failure?(reason) do
+      Logger.warning("Anomaly alert liveness check hit transient failure; retrying once",
+        reason: inspect(reason)
+      )
+
+      best_effort_cleanup(cleanup, series_key)
+
+      case run_check(check, series_key) do
+        {:ok, result} ->
+          record_healthy(health, result)
+
+        {:error, retry_reason} ->
+          record_unhealthy(cleanup, health, series_key, retry_reason)
+      end
+    else
+      record_unhealthy(cleanup, health, series_key, reason)
+    end
+  end
+
+  defp record_healthy(health, result) do
+    health.(@check_name, true, %{
+      "series_key" => result.series_key
+    })
+
+    :ok
+  end
+
+  defp record_unhealthy(cleanup, health, series_key, reason) do
+    Logger.error("Anomaly alert liveness check failed", reason: inspect(reason))
+    best_effort_cleanup(cleanup, series_key)
+    health.(@check_name, false, %{"reason" => inspect(reason)})
+    :ok
+  end
+
+  defp transient_failure?(:anomaly_alert_liveness_timeout), do: true
+  defp transient_failure?(:timeout), do: true
+  defp transient_failure?(:lock_busy), do: true
+  defp transient_failure?(:alert_evaluation_not_activated), do: true
+  defp transient_failure?(:alert_evaluation_draining), do: true
+  defp transient_failure?(:alert_evaluation_capability_unavailable), do: true
+  defp transient_failure?(:alert_evaluation_peer_not_ready), do: true
+  defp transient_failure?({:alert_evaluation_peer_not_ready, _}), do: true
+  defp transient_failure?({:overloaded, _}), do: true
+  defp transient_failure?({:store_unavailable, _}), do: true
+  defp transient_failure?({:rule_load_failed, _}), do: true
+  defp transient_failure?({:alert_lookup_failed, _}), do: true
+  defp transient_failure?({:synthetic_artifact_cleanup_failed, _, _}), do: true
+  defp transient_failure?(_reason), do: false
 
   defp run_check(check, series_key) do
     check.(series_key: series_key)
