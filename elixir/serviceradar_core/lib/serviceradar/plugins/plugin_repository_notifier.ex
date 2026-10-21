@@ -17,23 +17,42 @@ defmodule ServiceRadar.Plugins.PluginRepositoryNotifier do
 
   alias Ash.Notifier.Notification
   alias ServiceRadar.Events.AuditNotifier
+  alias ServiceRadar.Events.AuditWriter
 
   @impl Ash.Notifier
-  def notify(
-        %Notification{resource: ServiceRadar.Plugins.PluginRepository, data: record} =
-          notification
-      ) do
-    AuditNotifier.write_async(notification,
-      resource_type: "plugin_repository",
-      resource_id: record.id,
-      resource_name: record.name,
-      details: audit_details(record)
-    )
+  def notify(%Notification{resource: ServiceRadar.Plugins.PluginRepository} = notification) do
+    AuditNotifier.write_async(notification, audit_opts(notification))
 
     :ok
   end
 
   def notify(_notification), do: :ok
+
+  @doc """
+  Builds the `AuditNotifier` options for a plugin repository notification.
+  """
+  @spec audit_opts(Notification.t()) :: keyword()
+  def audit_opts(%Notification{data: record} = notification) do
+    [
+      resource_type: "plugin_repository",
+      resource_id: record.id,
+      resource_name: record.name,
+      severity: audit_severity(notification),
+      details: audit_details(record)
+    ]
+  end
+
+  @doc """
+  Maps plugin repository actions to their OCSF audit severity.
+
+  Recording a sync failure is an operational error on a trust source and is
+  logged at `:high` (`log_level: "error"`); routine configuration and
+  sync-success transitions remain `:informational`.
+  """
+  @spec audit_severity(Notification.t() | atom()) :: AuditWriter.severity()
+  def audit_severity(%Notification{action: %{name: action_name}}), do: audit_severity(action_name)
+  def audit_severity(:record_sync_error), do: :high
+  def audit_severity(_action), do: :informational
 
   @doc """
   The details recorded for a repository change.

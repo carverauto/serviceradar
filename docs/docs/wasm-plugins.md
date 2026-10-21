@@ -670,7 +670,14 @@ Two behaviours worth knowing:
 
 Each enabled repository syncs independently. One unreachable source -- an expired
 token, a repository that moved -- does not stop the others from importing; its
-error is recorded on the repository row.
+error is recorded on the repository row and written to the audit log at high
+severity.
+
+Background sync runs hourly. It skips GitHub for the built-in repository when the
+deployed release tag was already imported cleanly and every package from that
+release is still present. A failed background sync retries twice, after 2 and
+then 10 minutes. If the final attempt also fails, the next hourly sync is still
+scheduled.
 
 Background catalog sync prefers the deployed release tag. If GitHub returns 404
 for that tag, it falls back to recent releases and can import packages from those

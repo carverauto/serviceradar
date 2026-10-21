@@ -10,7 +10,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
 
   use ExUnit.Case, async: false
 
+  alias Oban.Job
   alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
+  alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
 
   @moduletag :db_free
 
@@ -147,6 +149,101 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
 
       assert FirstPartySyncWorker.repository_version_stale?(%{}, "v9.9.9")
       assert FirstPartySyncWorker.repository_version_stale?(nil, "v9.9.9")
+    end
+  end
+
+  describe "repository_already_synced?/3" do
+    test "returns true when the built-in repository cleanly synced the target release and all packages remain present" do
+      repository = %{
+        builtin: true,
+        last_sync_error: nil,
+        last_sync_summary: %{
+          "status" => "success",
+          "release_tag" => "v9.9.9",
+          "discovered" => 16,
+          "imported" => 16,
+          "skipped" => 0,
+          "failed_count" => 0
+        }
+      }
+
+      assert FirstPartySyncWorker.repository_already_synced?(repository, "v9.9.9", 16)
+    end
+
+    test "returns false when the previous run recorded an error, a different tag, missing packages, or a custom repository" do
+      clean_summary = %{
+        "status" => "success",
+        "release_tag" => "v9.9.9",
+        "discovered" => 16,
+        "imported" => 4,
+        "skipped" => 12,
+        "failed_count" => 0
+      }
+
+      refute FirstPartySyncWorker.repository_already_synced?(
+               %{builtin: true, last_sync_error: ":rate_limited", last_sync_summary: clean_summary},
+               "v9.9.9",
+               16
+             )
+
+      refute FirstPartySyncWorker.repository_already_synced?(
+               %{builtin: true, last_sync_error: nil, last_sync_summary: clean_summary},
+               "v9.9.10",
+               16
+             )
+
+      refute FirstPartySyncWorker.repository_already_synced?(
+               %{builtin: true, last_sync_error: nil, last_sync_summary: clean_summary},
+               "v9.9.9",
+               15
+             )
+
+      refute FirstPartySyncWorker.repository_already_synced?(
+               %{builtin: false, last_sync_error: nil, last_sync_summary: clean_summary},
+               "v9.9.9",
+               16
+             )
+    end
+  end
+
+  describe "backoff/1 and terminal_attempt?/2" do
+    test "spaces retry attempts across minutes so rate-limit windows can reset" do
+      assert FirstPartySyncWorker.backoff(%Job{attempt: 1}) == 120
+      assert FirstPartySyncWorker.backoff(%Job{attempt: 2}) == 600
+      assert FirstPartySyncWorker.backoff(%Job{attempt: 3}) == 1_800
+
+      assert NativeAddonSyncWorker.backoff(%Job{attempt: 1}) == 120
+      assert NativeAddonSyncWorker.backoff(%Job{attempt: 2}) == 600
+      assert NativeAddonSyncWorker.backoff(%Job{attempt: 3}) == 1_800
+    end
+
+    test "identifies only the final failed Oban attempt as terminal for successor scheduling" do
+      refute FirstPartySyncWorker.terminal_attempt?(
+               %Job{attempt: 1, max_attempts: 3},
+               {:error, :partial_plugin_sync_failure}
+             )
+
+      refute FirstPartySyncWorker.terminal_attempt?(
+               %Job{attempt: 2, max_attempts: 3},
+               {:error, :partial_plugin_sync_failure}
+             )
+
+      assert FirstPartySyncWorker.terminal_attempt?(
+               %Job{attempt: 3, max_attempts: 3},
+               {:error, :partial_plugin_sync_failure}
+             )
+
+      refute FirstPartySyncWorker.terminal_attempt?(%Job{attempt: 3, max_attempts: 3}, :ok)
+
+      refute NativeAddonSyncWorker.terminal_attempt?(
+               %Job{attempt: 1, max_attempts: 3},
+               {:error, :rate_limited}
+             )
+
+      assert NativeAddonSyncWorker.terminal_attempt?(
+               %Job{attempt: 3, max_attempts: 3},
+               {:error, :rate_limited}
+             )
     end
   end
 end
