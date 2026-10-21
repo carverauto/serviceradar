@@ -40,7 +40,7 @@ WORLD_WORKER_TEST_SOURCE = ROOT / "rust/dgraph-topology/tests/world_worker.rs"
 PLAYWRIGHT_BUILD = ROOT / "elixir/web-ng/test/playwright/BUILD.bazel"
 PLAYWRIGHT_EXECUTOR_IMAGE = (
     "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:"
-    "d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea"
+    "bdfda2a8fdf48707c5e50a49bd3e06d8d0c759153dc8ee057d8a81c3450bb3e9"
 )
 OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
