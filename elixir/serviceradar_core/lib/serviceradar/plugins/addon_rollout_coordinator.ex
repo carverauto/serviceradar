@@ -168,22 +168,49 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_advance))
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    with {:ok, rollout} <- get_rollout(rollout_id, actor),
-         true <- rollout.state in @active_rollout_states,
-         {:ok, targets} <- rollout_targets(rollout, actor),
-         {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
-         :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
-         {:ok, targets} <- finish_rolling_back(rollout, targets, actor, now),
-         {:ok, rollout, targets} <- evaluate_targets(rollout, targets, packages, actor, now),
-         :ok <- finish_or_advance(rollout, targets, actor, now) do
-      :ok
-    else
-      false -> :ok
-      :superseded -> :ok
-      {:error, :stale_target} -> :ok
-      {:error, :rollout_changed} -> :ok
-      {:error, reason} -> {:error, reason}
+    case in_locked_rollout(rollout_id, actor, &advance_locked(&1, &2, actor, now)) do
+      {:ok, _result, notifications} ->
+        send_notifications(notifications)
+
+      {:error, :stale_target} ->
+        :ok
+
+      {:error, {:pause_rollout, reason}} ->
+        _ = pause_after_failure(rollout_id, reason, actor)
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp advance_locked(rollout, targets, actor, now) do
+    if rollout.state in @active_rollout_states do
+      with {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
+           :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
+           {:ok, targets, finished} <- finish_rolling_back(rollout, targets, actor, now),
+           {:ok, rollout, targets, evaluated} <-
+             evaluate_targets(rollout, targets, packages, actor, now),
+           {:ok, advanced} <- finish_or_advance(rollout, targets, actor, now) do
+        {:ok, :advanced, finished ++ evaluated ++ advanced}
+      end
+    else
+      {:ok, :inactive, []}
+    end
+  end
+
+  # A failed launch or promotion rolled its whole pass back. The rollout then
+  # pauses with the error for an operator, unless it moved meanwhile.
+  defp pause_after_failure(rollout_id, reason, actor) do
+    in_locked_rollout(rollout_id, actor, fn rollout, _targets ->
+      if rollout.state == :running do
+        with {:ok, paused} <-
+               update_rollout(rollout, %{state: :paused, error: inspect(reason)}, actor),
+             do: {:ok, paused, []}
+      else
+        {:refuse, :rollout_changed}
+      end
+    end)
   end
 
   # Runs before anything else in advance/2, and deliberately before
@@ -252,7 +279,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp mark_superseded(rollout, candidate, targets, target_count, actor, now) do
     details = %{candidate_version: candidate.version, target_count: target_count}
 
-    with :ok <- finish_superseded_source(rollout, candidate, targets, actor, now),
+    with {:ok, notifications} <-
+           finish_superseded_source(rollout, candidate, targets, actor, now),
          {:ok, updated} <-
            update_rollout(
              rollout,
@@ -266,7 +294,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
            ) do
       audit(:supersede, updated, details)
       emit(:superseded, updated, details)
-      :superseded
+      {:ok, :superseded, notifications}
     end
   end
 
@@ -283,9 +311,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp finish_superseded_source(rollout, candidate, targets, actor, now) do
     with {:ok, pinned} <- pin_tolerated_failures(rollout, targets, actor),
          {:ok, promoted} <- promote_source_if_behind(rollout, candidate, actor),
-         {:ok, cleared} <- clear_all_overrides(rollout, targets, actor) do
-      send_notifications(pinned ++ promoted ++ cleared)
-      release_superseded_slots(targets, actor, now)
+         {:ok, cleared} <- clear_all_overrides(rollout, targets, actor),
+         :ok <- release_superseded_slots(targets, actor, now) do
+      {:ok, pinned ++ promoted ++ cleared}
     end
   end
 
@@ -345,9 +373,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       candidate = Map.get(package_by_id, to_string(candidate_package_id(rollout)))
 
       with %{} <- candidate,
-           {:ok, targets} <- rollout_targets(rollout, actor),
-           true <- Enum.any?(targets, &(&1.state in @slot_holding_target_states)),
-           :ok <- finish_superseded_source(rollout, candidate, targets, actor, now) do
+           {:ok, :repaired, notifications} <-
+             in_locked_rollout(
+               rollout.id,
+               actor,
+               &repair_superseded(&1, &2, candidate, actor, now)
+             ) do
+        send_notifications(notifications)
+
         Logger.info("Finished superseded native add-on rollout that still held its source",
           rollout_id: to_string(rollout.id),
           addon_id: rollout.addon_id,
@@ -370,9 +403,40 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end)
   end
 
+  defp repair_superseded(rollout, targets, candidate, actor, now) do
+    if rollout.state == :superseded and
+         Enum.any?(targets, &(&1.state in @slot_holding_target_states)) do
+      with {:ok, notifications} <-
+             finish_superseded_source(rollout, candidate, targets, actor, now),
+           do: {:ok, :repaired, notifications}
+    else
+      {:ok, :unchanged, []}
+    end
+  end
+
   @spec pause(Ecto.UUID.t(), keyword()) :: :ok | {:error, term()}
   def pause(rollout_id, opts \\ []) do
-    transition_rollout(rollout_id, :paused, :paused_at, opts)
+    actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_transition))
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    rollout_id
+    |> in_locked_rollout(actor, fn rollout, _targets ->
+      if rollout.state in @active_rollout_states do
+        with {:ok, paused} <- update_rollout(rollout, %{state: :paused, paused_at: now}, actor),
+             do: {:ok, paused, []}
+      else
+        {:refuse, :rollout_not_active}
+      end
+    end)
+    |> case do
+      {:ok, rollout, _notifications} ->
+        audit(:paused, rollout, %{})
+        emit(:paused, rollout, %{})
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @spec resume(Ecto.UUID.t(), keyword()) :: :ok | {:error, term()}
@@ -380,14 +444,23 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_resume))
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    with {:ok, rollout} <- get_rollout(rollout_id, actor),
-         true <- rollout.state == :paused,
-         {:ok, _} <- update_rollout(rollout, %{state: :running, paused_at: nil}, actor) do
-      audit(:resume, rollout, %{})
-      advance(rollout.id, actor: actor, now: now)
-    else
-      false -> {:error, :rollout_not_paused}
-      {:error, reason} -> {:error, reason}
+    rollout_id
+    |> in_locked_rollout(actor, fn rollout, _targets ->
+      if rollout.state == :paused do
+        with {:ok, resumed} <-
+               update_rollout(rollout, %{state: :running, paused_at: nil}, actor),
+             do: {:ok, resumed, []}
+      else
+        {:refuse, :rollout_not_paused}
+      end
+    end)
+    |> case do
+      {:ok, rollout, _notifications} ->
+        audit(:resume, rollout, %{})
+        advance(rollout.id, actor: actor, now: now)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -396,30 +469,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_cancel))
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    # The rollout is canceled first, under its row lock: a batch launch holding
-    # that lock has committed before the targets are read, and one that takes it
-    # later finds the rollout no longer running.
-    fn ->
-      with {:ok, %AddonRollout{state: state} = locked} when state in @active_rollout_states <-
-             lock_rollout(rollout_id, actor),
-           {:ok, rollout} <-
-             update_rollout(
-               locked,
-               %{state: :canceled, canceled_at: now, blocked_reason: "operator_canceled"},
-               actor
-             ),
-           {:ok, targets} <- rollout_targets(rollout, actor),
-           {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
-           :ok <- mark_targets_canceled(targets, actor, now) do
-        {rollout, length(targets), notifications}
+    rollout_id
+    |> in_locked_rollout(actor, fn rollout, targets ->
+      if rollout.state in @active_rollout_states do
+        with {:ok, canceled} <-
+               update_rollout(
+                 rollout,
+                 %{state: :canceled, canceled_at: now, blocked_reason: "operator_canceled"},
+                 actor
+               ),
+             {:ok, notifications} <- clear_all_overrides(canceled, targets, actor),
+             :ok <- mark_targets_canceled(targets, actor, now) do
+          {:ok, {canceled, length(targets)}, notifications}
+        end
       else
-        {:ok, %AddonRollout{}} -> Repo.rollback(:rollout_not_active)
-        {:error, reason} -> Repo.rollback(reason)
+        {:refuse, :rollout_not_active}
       end
-    end
-    |> Repo.transaction()
+    end)
     |> case do
-      {:ok, {rollout, target_count, notifications}} ->
+      {:ok, {rollout, target_count}, notifications} ->
         send_notifications(notifications)
         audit(:cancel, rollout, %{target_count: target_count})
         emit(:canceled, rollout, %{target_count: target_count})
@@ -453,27 +521,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         reason -> %{state: :rolling_back, blocked_reason: to_string(reason)}
       end
 
-    # The rollout is moved first, under its row lock: a batch launch or a
-    # promotion holding that lock has committed before the targets are read, and
-    # one that takes it later finds the rollout no longer running.
-    fn ->
-      with {:ok, %AddonRollout{state: state} = locked} when state in @active_rollout_states <-
-             lock_rollout(rollout_id, actor),
-           {:ok, rollout} <- update_rollout(locked, rollout_attrs, actor),
-           {:ok, targets} <- rollout_targets(rollout, actor),
-           {:ok, notifications} <- begin_whole_rollback(rollout, targets, actor, now) do
-        {rollout, length(targets), notifications}
+    rollout_id
+    |> in_locked_rollout(actor, fn rollout, targets ->
+      if rollout.state in @active_rollout_states do
+        with {:ok, rolling_back} <- update_rollout(rollout, rollout_attrs, actor),
+             {:ok, notifications} <- begin_whole_rollback(rolling_back, targets, actor, now) do
+          {:ok, {rolling_back, length(targets)}, notifications}
+        end
       else
-        {:ok, %AddonRollout{}} -> :rollout_not_active
-        {:error, reason} -> Repo.rollback(reason)
+        {:refuse, :rollout_not_active}
       end
-    end
-    |> Repo.transaction()
+    end)
     |> case do
-      {:ok, :rollout_not_active} ->
-        {:error, :rollout_not_active}
-
-      {:ok, {rollout, target_count, notifications}} ->
+      {:ok, {rollout, target_count}, notifications} ->
         audit(:rollback, rollout, %{target_count: target_count, reason: opts[:reason]})
         emit(:rolling_back, rollout, %{target_count: target_count})
 
@@ -569,12 +629,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp supersede_failed_candidate(paused, candidate, actor, now) do
     # Release overrides and unique target slots together with terminalizing the
     # old rollout. A failed write must leave the paused attempt recoverable.
-    result =
-      Repo.transaction(fn ->
-        with {:ok, rollout} <- get_rollout(paused.id, actor),
-             true <- rollout.state == :paused,
-             {:ok, targets} <- rollout_targets(rollout, actor),
-             {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
+    paused.id
+    |> in_locked_rollout(actor, fn rollout, targets ->
+      if rollout.state == :paused do
+        with {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
              :ok <- mark_targets_canceled(targets, actor, now),
              {:ok, updated} <-
                update_rollout(
@@ -588,15 +646,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                  },
                  actor
                ) do
-          {updated, notifications}
-        else
-          false -> Repo.rollback(:rollout_not_paused)
-          {:error, reason} -> Repo.rollback(reason)
+          {:ok, updated, notifications}
         end
-      end)
-
-    case result do
-      {:ok, {updated, notifications}} ->
+      else
+        {:refuse, :rollout_not_paused}
+      end
+    end)
+    |> case do
+      {:ok, updated, notifications} ->
         send_notifications(notifications)
 
         details = %{
@@ -860,7 +917,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     evidence = artifact.load_evidence(evaluating, rollout, actor)
 
     targets
-    |> Enum.reduce_while({:ok, rollout, []}, fn target, {:ok, rollout, acc} ->
+    |> Enum.reduce_while({:ok, rollout, [], []}, fn target, {:ok, rollout, acc, notifications} ->
       result =
         if deleted_slot_holder?(target) do
           cancel_deleted_target(target, actor, now)
@@ -892,14 +949,22 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         end
 
       case result do
-        {:ok, updated, rollout} -> {:cont, {:ok, rollout, [updated | acc]}}
-        {:ok, updated} -> {:cont, {:ok, rollout, [updated | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, updated, rollout, cleared} ->
+          {:cont, {:ok, rollout, [updated | acc], notifications ++ cleared}}
+
+        {:ok, updated} ->
+          {:cont, {:ok, rollout, [updated | acc], notifications}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, rollout, evaluated} -> {:ok, rollout, Enum.reverse(evaluated)}
-      error -> error
+      {:ok, rollout, evaluated, notifications} ->
+        {:ok, rollout, Enum.reverse(evaluated), notifications}
+
+      error ->
+        error
     end
   end
 
@@ -977,7 +1042,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         else: %{state: :paused, paused_at: now, blocked_reason: reason}
 
     with {:ok, notifications} <- artifact.clear_override(target, actor),
-         :ok <- send_notifications(notifications),
          {:ok, target} <-
            transition_target(
              target,
@@ -992,7 +1056,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
            ),
          {:ok, rollout} <- update_rollout(rollout, rollout_attrs, actor) do
       emit(:target_failed, rollout, %{target_id: target.id, reason_code: reason})
-      {:ok, target, rollout}
+      {:ok, target, rollout, notifications}
     end
   end
 
@@ -1030,7 +1094,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp finish_or_advance(rollout, targets, actor, now) do
     cond do
       Enum.any?(targets, &(&1.state == :rollback_pending)) ->
-        :ok
+        {:ok, []}
 
       # Nothing is waiting to recover, so the rollback is over. That holds even
       # when no target rolled back -- every one was still pending, or was
@@ -1041,10 +1105,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         finish_failed_rollout(rollout, :rolled_back, actor, now)
 
       rollout.state == :paused ->
-        :ok
+        {:ok, []}
 
       Enum.any?(targets, &(&1.state in [:waiting_health, :healthy_soak])) ->
-        :ok
+        {:ok, []}
 
       Enum.any?(targets, &(&1.state == :rolled_back)) and
           not tolerated_failures?(rollout, targets) ->
@@ -1056,10 +1120,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       Enum.all?(targets, fn target ->
         target.state in [:succeeded, :promoted, :rolled_back, :excluded, :canceled]
       end) ->
-        promote_source(rollout, actor, now)
+        promote_source(rollout, targets, actor, now)
 
       true ->
-        :ok
+        {:ok, []}
     end
   end
 
@@ -1075,149 +1139,91 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       |> Enum.take(policy["max_parallel"])
 
     selected
-    |> Enum.reduce_while(:ok, fn target, :ok ->
-      # The assignment was deleted after this target was created (its FK is
-      # ON DELETE SET NULL). There is nothing left to override, so the target
-      # stops holding its slot instead of pausing the whole rollout.
-      if is_nil(artifact.member_id(target)) do
-        case cancel_deleted_target(target, actor, now) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
+    |> Enum.reduce_while({:ok, []}, fn target, {:ok, notifications} ->
+      result =
+        if is_nil(artifact.member_id(target)) do
+          # The assignment was deleted after this target was created (its FK is
+          # ON DELETE SET NULL). There is nothing left to override, so the target
+          # stops holding its slot instead of pausing the whole rollout.
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:ok, []}
+            {:error, reason} -> {:error, reason}
+          end
+        else
+          launch_target(target, rollout, policy, actor, now)
         end
-      else
-        case launch_target(rollout, target, policy, actor, now) do
-          :ok -> {:cont, :ok}
-          :stale -> {:halt, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
+
+      case result do
+        {:ok, launched} -> {:cont, {:ok, notifications ++ launched}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
-      :ok ->
+      {:ok, notifications} ->
         emit(:batch_started, rollout, %{
           batch_index: next_batch.batch_index,
           target_count: length(selected)
         })
 
-        :ok
-
-      {:error, reason} ->
-        _ = update_rollout(rollout, %{state: :paused, error: inspect(reason)}, actor)
-        {:error, reason}
-    end
-  end
-
-  # One target's launch, in its own transaction. The rollout row is locked first,
-  # so a rollback or revocation that moves the rollout serializes with it, and
-  # the launch only proceeds while the rollout is still running. The member is
-  # locked next, by apply_override/4, before the target: a retraction locks the
-  # member and then cancels its targets, and taking them in the same order
-  # cannot deadlock. The target moves only from :pending; a target changed
-  # meanwhile undoes the override and launches nothing more this pass.
-  defp launch_target(rollout, target, policy, actor, now) do
-    artifact = RolloutArtifact.implementation(rollout)
-    deadline = DateTime.shift(now, second: policy["health_timeout_seconds"])
-
-    fn ->
-      with {:ok, %AddonRollout{state: :running} = locked} <- lock_rollout(rollout.id, actor),
-           {:ok, notifications} <- artifact.apply_override(target, locked, now, actor),
-           {:ok, _target} <-
-             transition_target(
-               target,
-               %{
-                 state: :waiting_health,
-                 override_applied_at: now,
-                 deadline_at: deadline,
-                 reason_code: "waiting_for_fresh_candidate_health"
-               },
-               actor
-             ) do
-        notifications
-      else
-        {:ok, %AddonRollout{}} -> Repo.rollback(:stale_target)
-        {:error, :assignment_disabled} -> cancel_retracted_target(target, actor, now)
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end
-    |> Repo.transaction()
-    |> case do
-      {:ok, notifications} ->
-        send_notifications(notifications)
+        {:ok, notifications}
 
       {:error, :stale_target} ->
-        :stale
+        {:error, :stale_target}
+
+      {:error, reason} ->
+        {:error, {:pause_rollout, reason}}
+    end
+  end
+
+  # apply_override/4 locks the member before the target moves: a retraction
+  # locks the member and then cancels its targets, and taking them in the same
+  # order cannot deadlock. A member disabled meanwhile cancels its target as
+  # assignment_retracted.
+  defp launch_target(target, rollout, policy, actor, now) do
+    case RolloutArtifact.implementation(rollout).apply_override(target, rollout, now, actor) do
+      {:ok, notifications} ->
+        with {:ok, _target} <-
+               transition_target(
+                 target,
+                 %{
+                   state: :waiting_health,
+                   override_applied_at: now,
+                   deadline_at: DateTime.shift(now, second: policy["health_timeout_seconds"]),
+                   reason_code: "waiting_for_fresh_candidate_health"
+                 },
+                 actor
+               ),
+             do: {:ok, notifications}
+
+      {:error, :assignment_disabled} ->
+        with {:ok, _target} <-
+               transition_target(
+                 target,
+                 %{state: :canceled, reason_code: "assignment_retracted", completed_at: now},
+                 actor
+               ),
+             do: {:ok, []}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp cancel_retracted_target(target, actor, now) do
-    case transition_target(
-           target,
-           %{state: :canceled, reason_code: "assignment_retracted", completed_at: now},
-           actor
-         ) do
-      {:ok, _target} -> []
-      {:error, reason} -> Repo.rollback(reason)
+  defp promote_source(rollout, targets, actor, now) do
+    with {:ok, pinned} <- pin_tolerated_failures(rollout, targets, actor),
+         {:ok, promoted} <-
+           RolloutArtifact.implementation(rollout).promote_source(rollout, actor),
+         {:ok, cleared} <- clear_all_overrides(rollout, targets, actor),
+         :ok <- mark_targets_promoted(targets, actor, now),
+         {:ok, completed} <-
+           update_rollout(rollout, %{state: :completed, completed_at: now}, actor) do
+      audit(:complete, completed, completed.target_snapshot)
+      emit(:completed, completed, completed.target_snapshot)
+      {:ok, pinned ++ promoted ++ cleared}
+    else
+      {:error, :stale_target} -> {:error, :stale_target}
+      {:error, reason} -> {:error, {:pause_rollout, reason}}
     end
-  end
-
-  defp lock_rollout(id, actor) do
-    AddonRollout
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^id)
-    |> Ash.Query.lock("FOR UPDATE")
-    |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, nil} -> {:error, {:not_found, AddonRollout, id}}
-      result -> result
-    end
-  end
-
-  # Promotion re-reads the rollout under its row lock and its targets inside the
-  # same transaction, so a rollback or cancellation committed since this pass
-  # read them stops it without a write.
-  defp promote_source(rollout, actor, now) do
-    fn ->
-      with {:ok, %AddonRollout{state: :running} = locked} <- lock_rollout(rollout.id, actor),
-           {:ok, targets} <- rollout_targets(locked, actor),
-           true <- promotable?(locked, targets),
-           {:ok, pinned} <- pin_tolerated_failures(locked, targets, actor),
-           {:ok, promoted} <-
-             RolloutArtifact.implementation(locked).promote_source(locked, actor),
-           {:ok, cleared} <- clear_all_overrides(locked, targets, actor),
-           :ok <- mark_targets_promoted(targets, actor, now),
-           {:ok, completed} <-
-             update_rollout(locked, %{state: :completed, completed_at: now}, actor) do
-        {:completed, completed, pinned ++ promoted ++ cleared}
-      else
-        {:ok, %AddonRollout{}} -> :changed
-        false -> :changed
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end
-    |> Repo.transaction()
-    |> case do
-      {:ok, {:completed, completed, notifications}} ->
-        send_notifications(notifications)
-        audit(:complete, completed, completed.target_snapshot)
-        emit(:completed, completed, completed.target_snapshot)
-        :ok
-
-      {:ok, :changed} ->
-        :ok
-
-      {:error, reason} ->
-        _ = update_rollout(rollout, %{state: :paused, error: inspect(reason)}, actor)
-        {:error, reason}
-    end
-  end
-
-  defp promotable?(rollout, targets) do
-    Enum.all?(targets, &(&1.state in [:succeeded, :promoted, :rolled_back, :excluded, :canceled])) and
-      (not Enum.any?(targets, &(&1.state == :rolled_back)) or
-         tolerated_failures?(rollout, targets))
   end
 
   defp finish_failed_rollout(rollout, terminal, actor, now) do
@@ -1232,7 +1238,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         # Vacate the unique (agent, add-on) slots so a later retry — or another
         # source — can insert fresh targets. A 1/2 canary otherwise keeps the
         # succeeded agent in the partial unique index forever.
-        vacate_target_slots(rollout, actor)
+        with :ok <- vacate_target_slots(rollout, actor), do: {:ok, []}
 
       {:error, reason} ->
         {:error, reason}
@@ -1279,16 +1285,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # pass. For a rollout rollback/2 started it finds nothing to do.
   defp finish_rolling_back(%AddonRollout{state: :rolling_back} = rollout, targets, actor, now) do
     if Enum.any?(targets, &(&1.state in [:pending, :waiting_health, :healthy_soak, :succeeded])) do
-      with {:ok, notifications} <- begin_whole_rollback(rollout, targets, actor, now) do
-        send_notifications(notifications)
-        rollout_targets(rollout, actor)
+      with {:ok, notifications} <- begin_whole_rollback(rollout, targets, actor, now),
+           {:ok, targets} <- rollout_targets(rollout, actor) do
+        {:ok, targets, notifications}
       end
     else
-      {:ok, targets}
+      {:ok, targets, []}
     end
   end
 
-  defp finish_rolling_back(_rollout, targets, _actor, _now), do: {:ok, targets}
+  defp finish_rolling_back(_rollout, targets, _actor, _now), do: {:ok, targets, []}
 
   defp begin_whole_rollback(rollout, targets, actor, now) do
     artifact = RolloutArtifact.implementation(rollout)
@@ -1317,14 +1323,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                  ) do
             {:cont, {:ok, notifications ++ cleared}}
           else
-            {:error, :stale_target} -> {:cont, acc}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
         target.state == :pending ->
           case transition_target(target, %{state: :canceled, completed_at: now}, actor) do
             {:ok, _} -> {:cont, acc}
-            {:error, :stale_target} -> {:cont, acc}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
@@ -1374,22 +1378,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
       error ->
         error
-    end
-  end
-
-  defp transition_rollout(rollout_id, state, timestamp_field, opts) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_transition))
-    now = Keyword.get(opts, :now, DateTime.utc_now())
-
-    with {:ok, rollout} <- get_rollout(rollout_id, actor),
-         true <- rollout.state in @active_rollout_states,
-         {:ok, _} <- update_rollout(rollout, %{timestamp_field => now, state: state}, actor) do
-      audit(state, rollout, %{})
-      emit(state, rollout, %{})
-      :ok
-    else
-      false -> {:error, :rollout_not_active}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1523,22 +1511,49 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> normalize_ash_result_with_notifications()
   end
 
-  # Every rollout write moves the rollout only from the state its caller read.
-  # A rollout another writer moved meanwhile returns {:error, :rollout_changed},
-  # which ends the caller's pass without the writes that depended on it.
   defp update_rollout(rollout, attrs, actor) do
-    read_state = rollout.state
-
     rollout
     |> Ash.Changeset.for_update(:update, attrs)
-    |> Ash.Changeset.filter(Ash.Expr.expr(state == ^read_state))
     |> Ash.update(actor: actor, authorize?: true)
-    |> case do
-      {:ok, updated} ->
-        {:ok, updated}
+  end
 
-      {:error, error} ->
-        if stale_write?(error), do: {:error, :rollout_changed}, else: {:error, error}
+  # Every change to an existing rollout runs here: one transaction that locks
+  # the rollout row and reads its targets under that lock. `fun` returns
+  # {:ok, result, notifications}; {:refuse, reason} when the rollout is not in a
+  # state it acts on, having written nothing; or {:error, reason}, which rolls
+  # the whole unit back, so no partial clear, transition or terminal state
+  # commits. The notifications of a committed unit are returned for the caller
+  # to send.
+  defp in_locked_rollout(rollout_id, actor, fun) do
+    fn ->
+      with {:ok, rollout} <- lock_rollout(rollout_id, actor),
+           {:ok, targets} <- rollout_targets(rollout, actor) do
+        case fun.(rollout, targets) do
+          {:ok, result, notifications} -> {:done, result, notifications}
+          {:refuse, reason} -> {:refused, reason}
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {:done, result, notifications}} -> {:ok, result, notifications}
+      {:ok, {:refused, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp lock_rollout(id, actor) do
+    AddonRollout
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id and artifact_kind in ^RolloutArtifact.kinds())
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, AddonRollout, id}}
+      result -> result
     end
   end
 
@@ -1548,9 +1563,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> Ash.update(actor: actor, authorize?: true)
   end
 
-  # Moves a target only from the state this pass read. A target another process
-  # moved meanwhile returns {:error, :stale_target} and is left for the next
-  # pass to read again.
+  # Moves a target only from the state this unit read. A retraction can move a
+  # target without the rollout lock; that returns {:error, :stale_target}, which
+  # aborts the unit for the next pass to read again.
   defp transition_target(target, attrs, actor) do
     read_state = target.state
 
@@ -1622,7 +1637,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] ->
           case transition_target(target, %{state: :canceled, completed_at: now}, actor) do
             {:ok, _} -> {:cont, :ok}
-            {:error, :stale_target} -> {:cont, :ok}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
@@ -1644,7 +1658,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         target.state == :succeeded ->
           case transition_target(target, %{state: :promoted, completed_at: now}, actor) do
             {:ok, _} -> {:cont, :ok}
-            {:error, :stale_target} -> {:cont, :ok}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 

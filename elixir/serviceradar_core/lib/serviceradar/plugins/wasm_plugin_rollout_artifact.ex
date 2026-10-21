@@ -79,6 +79,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.Repo
 
+  require Ash.Expr
   require Ash.Query
   require Logger
 
@@ -274,11 +275,20 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   @impl true
   def clear_override(%AddonRolloutTarget{plugin_assignment_id: nil}, _actor), do: {:ok, []}
 
+  # The UPDATE itself requires the override to still belong to this rollout, so
+  # an override another rollout has put on the assignment since is left alone.
   def clear_override(target, actor) do
+    owner = target.rollout_id
+
     with {:ok, assignment} <- get_by_id(PluginAssignment, target.plugin_assignment_id, actor) do
-      if assignment.rollout_id == target.rollout_id,
-        do: update(assignment, :clear_rollout_override, cleared_override(), actor),
-        else: {:ok, []}
+      assignment
+      |> Ash.Changeset.for_update(:clear_rollout_override, cleared_override(), actor: actor)
+      |> Ash.Changeset.filter(Ash.Expr.expr(rollout_id == ^owner))
+      |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+      |> case do
+        {:ok, _assignment, notifications} -> {:ok, notifications}
+        {:error, error} -> if stale_write?(error), do: {:ok, []}, else: {:error, error}
+      end
     end
   end
 
@@ -740,6 +750,11 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       result -> result
     end
   end
+
+  defp stale_write?(%Ash.Error.Invalid{errors: errors}),
+    do: Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+  defp stale_write?(_error), do: false
 
   defp update(record, action, attrs, actor) do
     record
