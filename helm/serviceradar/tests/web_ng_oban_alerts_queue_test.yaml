@@ -1,0 +1,33 @@
+suite: web-ng alerts Oban queue
+templates:
+  - templates/web.yaml
+tests:
+  # Alert evaluation runs on core. Its workers publish metrics.ingestion_lanes,
+  # which only core's NATS identity may publish, so web-ng must not take
+  # evaluation jobs unless an operator opts in.
+  - it: does not run the alerts queue on web-ng by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WEB_NG_OBAN_QUEUE_ALERTS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+  - it: honors an explicit alerts queue limit
+    set:
+      webNg:
+        obanQueues:
+          alerts: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WEB_NG_OBAN_QUEUE_ALERTS
+            value: "3"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

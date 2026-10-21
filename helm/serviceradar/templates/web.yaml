@@ -27,7 +27,7 @@
 {{- end -}}
 {{- $webNgObanQueueDefault := 2 -}}
 {{- if hasKey $webNgObanQueues "default" -}}{{- $webNgObanQueueDefault = get $webNgObanQueues "default" -}}{{- end -}}
-{{- $webNgObanQueueAlerts := 1 -}}
+{{- $webNgObanQueueAlerts := 0 -}}
 {{- if hasKey $webNgObanQueues "alerts" -}}{{- $webNgObanQueueAlerts = get $webNgObanQueues "alerts" -}}{{- end -}}
 {{- $webNgObanQueueServiceChecks := 1 -}}
 {{- if hasKey $webNgObanQueues "serviceChecks" -}}{{- $webNgObanQueueServiceChecks = get $webNgObanQueues "serviceChecks" -}}{{- end -}}
