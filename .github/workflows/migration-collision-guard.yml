@@ -33,7 +33,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v5.0.1
         with:
+          # Blobless: full commit history (the merge base and commit ranges this
+          # job needs) without downloading every file version up front, which
+          # made a full clone of this repository take five to six minutes.
+          # Blobs for the files the job actually reads are fetched on demand.
           fetch-depth: 0
+          filter: blob:none
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       # Run the checker as it exists on latest staging, not from the pull
