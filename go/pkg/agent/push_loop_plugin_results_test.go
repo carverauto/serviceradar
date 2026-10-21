@@ -17,16 +17,24 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -253,12 +261,13 @@ func TestPushPluginResultsPoisonDropsCompleteSetAndLaterWorkProgresses(t *testin
 			manager.results <- testPendingPluginResult("poison-1", "first")
 			manager.results <- testPendingPluginResult("poison-2", "second")
 			attempt := 0
+			logCapture := newCapturingTestLogger()
 			loop := &PushLoop{
 				server: &Server{
 					config:        &ServerConfig{AgentID: "agent-1", HostIP: "192.0.2.10"},
 					pluginManager: manager,
 				},
-				logger: logger.NewTestLogger(),
+				logger: logCapture,
 				pluginResultStreamStatus: func(
 					_ context.Context,
 					_ []*proto.GatewayStatusChunk,
@@ -276,6 +285,9 @@ func TestPushPluginResultsPoisonDropsCompleteSetAndLaterWorkProgresses(t *testin
 			}
 			if got := len(loop.pendingPluginResults); got != 0 {
 				t.Fatalf("pending poison results = %d, want 0", got)
+			}
+			if errMsgs := logCapture.messagesAtLevel(t, "error"); len(errMsgs) != 1 {
+				t.Fatalf("poison drop error logs = %v, want 1 error log", errMsgs)
 			}
 			items, bytes := loop.server.deliveryTelemetry.poisonDropTotals(retainedSourcePlugin, tt.wantReason)
 			if items != 2 || bytes == 0 {
@@ -428,4 +440,242 @@ func equalStrings(left, right []string) bool {
 	}
 
 	return true
+}
+
+type capturingTestLogger struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+	log zerolog.Logger
+}
+
+func newCapturingTestLogger() *capturingTestLogger {
+	c := &capturingTestLogger{}
+	c.log = zerolog.New(c).Level(zerolog.DebugLevel)
+	return c
+}
+
+func (c *capturingTestLogger) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
+
+func (c *capturingTestLogger) Trace() *zerolog.Event { return c.log.Trace() }
+func (c *capturingTestLogger) Debug() *zerolog.Event { return c.log.Debug() }
+func (c *capturingTestLogger) Info() *zerolog.Event  { return c.log.Info() }
+func (c *capturingTestLogger) Warn() *zerolog.Event  { return c.log.Warn() }
+func (c *capturingTestLogger) Error() *zerolog.Event { return c.log.Error() }
+func (c *capturingTestLogger) Fatal() *zerolog.Event { return c.log.Fatal() }
+func (c *capturingTestLogger) Panic() *zerolog.Event { return c.log.Panic() }
+func (c *capturingTestLogger) With() zerolog.Context { return c.log.With() }
+func (c *capturingTestLogger) WithComponent(component string) zerolog.Logger {
+	return c.log.With().Str("component", component).Logger()
+}
+func (c *capturingTestLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
+	return c.log.With().Fields(fields).Logger()
+}
+func (c *capturingTestLogger) SetLevel(level zerolog.Level) { c.log = c.log.Level(level) }
+func (*capturingTestLogger) SetDebug(_ bool)                {}
+
+func (c *capturingTestLogger) messagesAtLevel(t *testing.T, level string) []string {
+	t.Helper()
+	c.mu.Lock()
+	raw := c.buf.String()
+	c.mu.Unlock()
+
+	var messages []string
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decode log entry %q: %v", line, err)
+		}
+		if entry["level"] == level {
+			msg, _ := entry["message"].(string)
+			messages = append(messages, msg)
+		}
+	}
+
+	return messages
+}
+
+type transientPluginGateway struct {
+	proto.UnimplementedAgentGatewayServiceServer
+
+	mu                sync.Mutex
+	streamCalls       int
+	pushCalls         int
+	streamAssignments [][]string
+	pushedRequests    []*proto.GatewayStatusRequest
+}
+
+func (g *transientPluginGateway) StreamStatus(
+	stream grpc.ClientStreamingServer[proto.GatewayStatusChunk, proto.GatewayStatusResponse],
+) error {
+	var assignments []string
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if len(chunk.GetServices()) == 1 {
+			var payload struct {
+				Labels map[string]string `json:"labels"`
+			}
+			if err := json.Unmarshal(chunk.GetServices()[0].GetMessage(), &payload); err == nil {
+				assignments = append(assignments, payload.Labels["assignment_id"])
+			}
+		}
+	}
+
+	g.mu.Lock()
+	g.streamCalls++
+	call := g.streamCalls
+	if call > 1 {
+		g.streamAssignments = append(g.streamAssignments, assignments)
+	}
+	g.mu.Unlock()
+
+	if call == 1 {
+		return status.Error(codes.Unavailable, "gateway restarting")
+	}
+
+	return stream.SendAndClose(&proto.GatewayStatusResponse{Received: true})
+}
+
+func (g *transientPluginGateway) PushStatus(
+	_ context.Context,
+	req *proto.GatewayStatusRequest,
+) (*proto.GatewayStatusResponse, error) {
+	g.mu.Lock()
+	g.pushCalls++
+	call := g.pushCalls
+	if call > 1 {
+		g.pushedRequests = append(g.pushedRequests, req)
+	}
+	g.mu.Unlock()
+
+	if call == 1 {
+		return nil, status.Error(codes.Unavailable, "gateway restarting")
+	}
+
+	return &proto.GatewayStatusResponse{Received: true}, nil
+}
+
+func TestPushPluginResultsAndTelemetryTransientGatewayFailureLogsWarnAndDeliversOnNextCycle(t *testing.T) {
+	t.Setenv("SR_ALLOW_INSECURE", "true")
+	const retryAssignment = "assignment-retry-1"
+
+	gw := &transientPluginGateway{}
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	grpcServer := grpc.NewServer()
+	proto.RegisterAgentGatewayServiceServer(grpcServer, gw)
+	go func() { _ = grpcServer.Serve(lis) }()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		_ = lis.Close()
+	})
+
+	client := agentgateway.NewGatewayClient(lis.Addr().String(), nil, logger.NewTestLogger())
+	if err := client.Connect(t.Context()); err != nil {
+		t.Fatalf("connect gateway client: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Disconnect() })
+
+	manager := &PluginManager{
+		results: make(chan PluginResult, 4),
+		stats: pluginEngineStats{
+			assignmentsTotal:    1,
+			assignmentsAdmitted: 1,
+			execTotal:           3,
+		},
+	}
+	manager.results <- testPendingPluginResult(retryAssignment, "first")
+
+	logCapture := newCapturingTestLogger()
+	loop := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID:   "agent-1",
+				Partition: "default",
+				HostIP:    "192.0.2.10",
+			},
+			pluginManager: manager,
+		},
+		logger:  logCapture,
+		gateway: client,
+	}
+
+	// Cycle 1: gateway fails both StreamStatus and PushStatus once.
+	if loop.pushPluginResults(t.Context()) {
+		t.Fatal("transient StreamStatus failure must not report success")
+	}
+	if got := len(loop.pendingPluginResults); got != 1 {
+		t.Fatalf("pending plugin results after transient failure = %d, want 1", got)
+	}
+	if err := client.Connect(t.Context()); err != nil {
+		t.Fatalf("reconnect after StreamStatus failure: %v", err)
+	}
+	if loop.pushPluginTelemetry(t.Context()) {
+		t.Fatal("transient PushStatus failure must not report success")
+	}
+
+	if errMsgs := logCapture.messagesAtLevel(t, "error"); len(errMsgs) != 0 {
+		t.Fatalf("transient plugin delivery failure logged at error: %v, want warn only", errMsgs)
+	}
+	warnMsgs := logCapture.messagesAtLevel(t, "warn")
+	if len(warnMsgs) < 2 {
+		t.Fatalf("expected warning logs for both plugin results and telemetry retry, got %v", warnMsgs)
+	}
+
+	// Cycle 2: gateway recovers; both the retained result and telemetry arrive.
+	if err := client.Connect(t.Context()); err != nil {
+		t.Fatalf("reconnect for second push cycle: %v", err)
+	}
+	if !loop.pushPluginResults(t.Context()) {
+		t.Fatal("second push cycle must deliver retained plugin results")
+	}
+	if got := len(loop.pendingPluginResults); got != 0 {
+		t.Fatalf("pending plugin results after retry success = %d, want 0", got)
+	}
+	if !loop.pushPluginTelemetry(t.Context()) {
+		t.Fatal("second push cycle must deliver plugin telemetry")
+	}
+
+	gw.mu.Lock()
+	gotStreams := slices.Clone(gw.streamAssignments)
+	gotRequests := slices.Clone(gw.pushedRequests)
+	gw.mu.Unlock()
+
+	if !equalStringMatrix(gotStreams, [][]string{{retryAssignment}}) {
+		t.Fatalf("delivered plugin result streams = %#v, want [[%q]]", gotStreams, retryAssignment)
+	}
+	if len(gotRequests) != 1 || len(gotRequests[0].GetServices()) != 1 {
+		t.Fatalf("delivered plugin telemetry requests = %#v, want 1 service status", gotRequests)
+	}
+	var telemetryPayload struct {
+		Executions struct {
+			Total uint64 `json:"total"`
+		} `json:"executions"`
+		Assignments struct {
+			Admitted int `json:"admitted"`
+		} `json:"assignments"`
+	}
+	if err := json.Unmarshal(gotRequests[0].GetServices()[0].GetMessage(), &telemetryPayload); err != nil {
+		t.Fatalf("decode plugin telemetry payload: %v", err)
+	}
+	if telemetryPayload.Executions.Total != 3 || telemetryPayload.Assignments.Admitted != 1 {
+		t.Fatalf("delivered plugin telemetry payload = %+v, want total=3 admitted=1", telemetryPayload)
+	}
+	if errMsgs := logCapture.messagesAtLevel(t, "error"); len(errMsgs) != 0 {
+		t.Fatalf("unexpected error logs after retry cycle: %v", errMsgs)
+	}
 }

@@ -367,7 +367,10 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 			return false
 		}
 
-		p.logger.Error().Err(err).Int("plugin_results", len(chunks)).Msg("Failed to stream plugin results to gateway")
+		p.logger.Warn().Err(err).
+			Int("plugin_results", len(chunks)).
+			Int("retained", len(results)).
+			Msg("Failed to stream plugin results to gateway; retaining for retry")
 		return false
 	}
 
@@ -518,7 +521,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 
 	resp, err := p.gateway.PushStatus(pushCtx, req)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to push plugin telemetry")
+		p.logger.Warn().Err(err).Msg("Failed to push plugin telemetry; will retry on next push cycle")
 		return false
 	}
 
