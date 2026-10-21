@@ -1,7 +1,7 @@
 """web-ng browser assets, built by Bazel instead of inside the release action.
 
 Adding this file makes assets/ its own Bazel package, which is required for
-`npm.npm_translate_lock` in //MODULE.bazel to address package-lock.json by label.
+`npm.npm_translate_lock` in //MODULE.bazel to address pnpm-lock.yaml by label.
 
 IMPORTANT: a `glob` never crosses a package boundary. The moment this BUILD file exists,
 `glob(["**"])` in //elixir/web-ng stops matching anything under assets/ -- silently, with
@@ -30,7 +30,6 @@ load("//build:phoenix_digest.bzl", "phoenix_digest")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
-    "package-lock.json",
     "patches/deck.gl-core-9.4.0.patch",
     "patches/luma.gl-webgpu-9.4.2.patch",
     "css/app.css",
