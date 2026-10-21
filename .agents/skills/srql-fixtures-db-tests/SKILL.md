@@ -219,7 +219,7 @@ untested with that reason. The step has a short timeout by design and fails fast
 
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests
 need the shared CNPG/AGE fixture. The guarded lifecycle runs only in the in-cluster
-BuildBuddy workflows (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*`). There is
+BuildBuddy workflows (`BazelCI`, `LargeIngestionGate`, `WorldWorkerScale`, `IntegrationBenchmark*`). There is
 deliberately no orchestration script; the caller invokes each step in order:
 `sweep_stale_dbs -> cleanup_generations -> prepare_generation -> migrate_generation (only on
 needs_migration) -> prepare_generation (must be ready) -> provision_generation -> tests ->

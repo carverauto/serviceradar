@@ -1,4 +1,4 @@
-# The guarded lifecycle supplies the migrated serial_0 clone and verified TLS
+# The guarded lifecycle supplies the migrated serial_1 clone and verified TLS
 # configuration. Start only the Repo: the general helper performs schema DDL.
 Code.require_file("../../../serviceradar_core/config/test_database_guard.exs", __DIR__)
 

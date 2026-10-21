@@ -650,8 +650,8 @@ The no-mistakes `test-registration` gate runs this same command automatically.
 
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests need
 the shared CNPG/AGE fixture. The full guarded lifecycle is CI-only: it runs in the in-cluster
-BuildBuddy workflows (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*` in
-`//buildbuddy.yaml`) with typed `SERVICERADAR_ENV=ci` configuration. For a focused workstation
+BuildBuddy workflows (`BazelCI`, `LargeIngestionGate`, `WorldWorkerScale`,
+`IntegrationBenchmark*` in `//buildbuddy.yaml`) with typed `SERVICERADAR_ENV=ci` configuration. For a focused workstation
 run, use the skill's scratch-database recipe instead. There is deliberately no orchestration
 script: the caller invokes each step as its own Bazel command, in this order:
 
@@ -713,6 +713,18 @@ with a different id is a different run. Leave `SERVICERADAR_TEST_DATABASE_URL` u
 lane derives its disposable database. Bazel has no cross-invocation finalizer: the workflow's
 exit trap runs `teardown_db` and `release_generation`, and the stale sweep plus generation
 cleanup are the backstop for a killed host.
+
+**Where the database lanes run.** BazelCI (every pull request) provisions every ordinary
+lane, runs the core integration wave, then one `bazel test` invocation that runs
+`//elixir/web-ng:networks_live_db_test` (serial_0), `//elixir/web-ng:topology_atlas_db_test`
+(serial_1) and `//rust/dgraph-topology:schema_lifecycle_test` (own Dgraph namespace)
+concurrently, then `//elixir/web-ng:plugin_config_cli_db_test` (serial_0 again). Lanes named in
+one invocation must use different clones; the contract test checks that. The million-device
+`//rust/dgraph-topology:world_worker_test` no longer runs in BazelCI, which only compiles it.
+It runs in `WorldWorkerScale`: nightly on staging at 07:30 UTC, and on demand with
+`ExecuteWorkflow` and `action_names: ["WorldWorkerScale"]`. BuildBuddy triggers have no path
+filter, and a per-merge push trigger would occupy the `workflows` executors that pull
+requests use. `LargeIngestionGate` runs on every staging push and nightly at 02:00 UTC.
 
 **BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
 `origin/staging` into the branch before building, but the workflow steps come from the
