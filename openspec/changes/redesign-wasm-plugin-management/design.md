@@ -158,9 +158,16 @@ collaborators, so the generalization is an engine/adapter split (a
 **Adjustments:**
 - **Version-bound health evidence.** Plugin results carry no package, version
   or content hash. The agent host stamps `{assignment_id, package_id,
-  content_hash}` on each pushed result and reports the per-assignment loaded
-  hash. The gate prefers that evidence. For older agents it falls back to time
-  ordering: config ack after the override, then a fresh reported result.
+  content_hash}` on each pushed result, and that host-stamped provenance is
+  the only evidence that a result came from the candidate. The gate passes a
+  target as verified only on a fresh result whose provenance matches the
+  candidate. Time ordering is not version evidence: results from the old
+  package can still be flushed from `pendingPluginResults` after the agent
+  acknowledges the candidate config. Targets on agents that do not send
+  provenance can pass only through the snapshotted `on_no_evidence` policy
+  (default: pass after soak), recorded with reason code `no_version_evidence`
+  and never shown as verified healthy. An explicit failure still rolls the
+  target back.
 - **A stable package for credential-rule owners.** Today they resolve the
   latest approved package and render params from its manifest on every
   reconcile. A `plugin_owner_package_states` row holds each rule-plus-purpose
@@ -190,10 +197,12 @@ collaborators, so the generalization is an engine/adapter split (a
     update, records the reason, and cancels the target as
     `assignment_retracted`;
   - revoking a candidate rolls back an active rollout.
-- **Action-only plugins.** These are gated on the first successful invocation
-  after the override, or on a loaded-candidate-hash report. Without either,
-  a snapshotted `on_no_evidence` policy applies (default: pass after soak,
-  recorded as `no_run_evidence`, never shown as verified healthy).
+- **Action-only plugins.** These pass as verified only on a successful
+  invocation whose dispatch record shows the candidate package and that was
+  dispatched after the agent acknowledged the candidate config. An action
+  invoked earlier can still run the old assignment. Without such an
+  invocation, the same `on_no_evidence` policy applies, recorded as
+  `no_version_evidence`.
 
 **Implementation steps:**
 - **A.** Engine/adapter split, with no behaviour change. Guarded by the
@@ -201,9 +210,9 @@ collaborators, so the generalization is an engine/adapter split (a
 - **B.** Schema and Ash actions; kind filters on the add-on readers.
 - **C.** Wasm adapter for manual and target-policy owners (task 3.4):
   generator hook, retraction handling, effective-package readers, health gate
-  v1, revocation rollback.
-- **D.** Agent-side result provenance and loaded-hash reporting (in parallel
-  with C).
+  v1, revocation rollback. Until D ships, every target passes only through
+  `on_no_evidence` as `no_version_evidence`.
+- **D.** Agent-side result provenance (in parallel with C).
 - **E.** Trigger from tracking owners (task 3.5; needs tasks 2.1-2.3).
 - **F.** Credential-rule owners through owner state (task 3.6).
 - **G.** Bulk "Upgrade to latest" preview and execution (task 3.7), reusing the
