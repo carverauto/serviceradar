@@ -173,5 +173,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrameTest do
     assert byte_size(frame) < 65_536
     assert {:ok, <<"SRMO", 1, 1, _::binary>>} = BitmapFrame.encode(%{metadata() | kind: :reset})
     assert {:error, _} = BitmapFrame.encode(%{metadata() | kind: :reset}, [tile()])
+    v2 = Map.put(metadata(), :protocol, 2)
+    edges = :binary.copy(<<7::little-32>>, 512)
+    assert {:ok, expanded} = BitmapFrame.encode(v2, Enum.map(tiles, &Map.put(&1, :edge_counts, edges)))
+    assert <<"SRMO", 2, 0, _::binary>> = expanded
+    assert byte_size(expanded) == byte_size(frame) + 64 * (2 + 512 * 4)
+    assert byte_size(expanded) <= 262_144
+    assert binary_part(expanded, byte_size(expanded) - 2050, 2050) == <<512::little-16, edges::binary>>
+    assert {:ok, <<"SRMO", 2, 1, _::binary>>} = BitmapFrame.encode(Map.put(v2, :kind, :reset))
+
+    for bad <- [nil, <<1>>, :binary.copy(<<0::little-32>>, 513)] do
+      assert {:error, _} = BitmapFrame.encode(v2, [Map.put(tile(), :edge_counts, bad)])
+    end
   end
 end

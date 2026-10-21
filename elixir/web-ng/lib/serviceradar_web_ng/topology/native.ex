@@ -154,6 +154,9 @@ defmodule ServiceRadarWebNG.Topology.Native do
   def bitmap_query_row_overlay(_query, _authority, _dictionary_epoch, _index_epoch, _kind, _rows, _timeout_ms),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def bitmap_query_relation_counts(_query, _authority, _dictionary_epoch, _index_epoch, _pairs, _counts, _timeout_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def bitmap_index_close(_index), do: :erlang.nif_error(:nif_not_loaded)
 
   def bitmap_query_close(_query), do: :erlang.nif_error(:nif_not_loaded)

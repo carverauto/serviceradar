@@ -30,9 +30,13 @@ One copy creates the BEAM output binary from the serialized native buffer.
 
 Use that membership with the server bitmap index for exact query intersections
 or typed admitted-row overlays. It is not a browser membership representation.
-Filtered detail pagination and bundle membership need their own explicit native
-contracts; filtering the first unfiltered detail page cannot produce exact
-pages or counts.
+`relation_ordinals` reuses canonical clipped/bundled selection and returns at
+most 256 packed `(edge row, source ordinal, target ordinal)` triples from a
+4,096-candidate page. The bitmap query owner intersects both endpoints against
+its pinned result; callers share one work budget and deadline across all pages
+and publish counts only after completion. Unknown endpoints retain ordinal zero.
+Filtered detail pagination still needs an explicit native contract; filtering
+the first unfiltered detail page cannot produce exact pages or counts.
 
 `ordinals_test` compares the portable sets with the existing detail iterator,
 including high unsigned ordinals, unmapped geometry, promotion and generation
@@ -46,6 +50,11 @@ the output/scratch limits. This protects against roaring 0.11.4's bit-capacity
 statistic being mistaken for allocated bitset bytes, falsely refusing an export.
 The packaged BEAM API test separately checks mapping admission, sealed-resource
 retention and capacity recovery after an owning process exits.
+
+The same scale target includes `synthetic_relation_projection_scale`, which
+checks conservation across bounded pages for 131,072 invented relations with
+compact and sparse endpoint ordinals. It reports native projection time and
+maximum packed page bytes; it does not measure BEAM or concurrent request latency.
 
 [BuildBuddy cbffea9c](https://carverauto.buildbuddy.io/invocation/cbffea9c-d6e3-481f-9a27-a0d999c6c2f7)
 measured compact/sparse aggregate traversal p95 of 15.56/33.98 ms for 1,099,999

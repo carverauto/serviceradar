@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNG.Topology.BitmapFrame do
   @moduledoc """
-  Version 1 binary replacement of membership for an admitted tile view.
+  Versioned binary replacement of membership for an admitted tile view.
 
   Rows retain geometry order. The native query returns four bounded binary
   columns: matching flag, causal state, availability state, and little-endian
@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
   for that sequence. Those versions are freshness, not watch identity.
   A boundary row may carry one exact remote endpoint match, while its geometry
   count remains zero. Ambiguous or unmapped boundaries carry no membership.
+  Version 2 adds exact matching relation counts in the admitted edge order;
+  these do not assign device membership to ambiguous boundary glyphs.
   """
 
   @max_frame 262_144
@@ -19,21 +21,22 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
   @doc "Encodes a complete view or reset, preserving native column binaries."
   def encode(metadata, tiles \\ []) do
     kind = Map.get(metadata, :kind, :baseline)
+    protocol = Map.get(metadata, :protocol, 1)
     fields = Enum.map(@fields, &Map.get(metadata, &1))
     sequence = Map.get(metadata, :sequence)
     total = Map.get(metadata, :total, if(kind == :reset, do: 0))
 
-    with true <- kind in [:baseline, :reset],
+    with true <- kind in [:baseline, :reset] and protocol in [1, 2],
          true <- Enum.all?(fields, &valid_text?/1),
          true <- is_integer(total) and total in 0..4_294_967_295,
          true <- is_integer(sequence) and sequence in 0..@max_u64,
          {:ok, sources} <- prefix_sources(metadata),
-         {:ok, payload} <- payload(kind, tiles) do
+         {:ok, payload} <- payload(kind, tiles, protocol) do
       tail = [Enum.map(fields, &text/1), sources, payload]
       size = 24 + IO.iodata_length(tail)
 
       header =
-        <<"SRMO", 1, if(kind == :baseline, do: 0, else: 1), 0::little-16, size::little-32, sequence::little-64,
+        <<"SRMO", protocol, if(kind == :baseline, do: 0, else: 1), 0::little-16, size::little-32, sequence::little-64,
           total::little-32>>
 
       if size <= @max_frame, do: {:ok, IO.iodata_to_binary([header, tail])}, else: {:error, :frame_budget}
@@ -63,10 +66,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
     end
   end
 
-  defp payload(:reset, []), do: {:ok, <<>>}
+  defp payload(:reset, [], _protocol), do: {:ok, <<>>}
 
-  defp payload(:baseline, tiles) when is_list(tiles) and length(tiles) <= 64 do
-    if Enum.all?(tiles, &valid_tile?/1) and unique_tiles?(tiles) do
+  defp payload(:baseline, tiles, protocol) when is_list(tiles) and length(tiles) <= 64 do
+    if Enum.all?(tiles, &(valid_tile?(&1) and valid_edges?(&1, protocol))) and unique_tiles?(tiles) do
       encoded =
         Enum.map(tiles, fn tile ->
           [
@@ -76,7 +79,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
             tile.mask,
             tile.causal,
             tile.availability,
-            tile.counts
+            tile.counts,
+            edge_columns(tile, protocol)
           ]
         end)
 
@@ -86,7 +90,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapFrame do
     end
   end
 
-  defp payload(_, _), do: {:error, :invalid_tiles}
+  defp payload(_, _, _), do: {:error, :invalid_tiles}
+
+  defp valid_edges?(_tile, 1), do: true
+
+  defp valid_edges?(%{edge_counts: counts}, 2) when is_binary(counts),
+    do: rem(byte_size(counts), 4) == 0 and byte_size(counts) <= 512 * 4
+
+  defp valid_edges?(_tile, _protocol), do: false
+
+  defp edge_columns(_tile, 1), do: <<>>
+  defp edge_columns(tile, 2), do: [<<div(byte_size(tile.edge_counts), 4)::little-16>>, tile.edge_counts]
 
   defp valid_tile?(%{
          z: z,

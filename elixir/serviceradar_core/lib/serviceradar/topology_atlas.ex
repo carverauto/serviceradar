@@ -85,6 +85,7 @@ defmodule ServiceRadar.TopologyAtlas do
   defdelegate ordinal_info(world, mapping), to: Native
   defdelegate device_ordinals(world, mapping, ids), to: Native
   defdelegate tile_device_ordinals(world, mapping, selection), to: Native
+  defdelegate tile_relation_ordinals(world, mapping, selection, cursor), to: Native
 
   @doc """
   Export canonical aggregate membership within the caller's remaining view-byte budget.

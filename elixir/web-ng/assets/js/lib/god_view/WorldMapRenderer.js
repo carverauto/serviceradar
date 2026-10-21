@@ -430,8 +430,10 @@ export default class WorldMapRenderer {
       const accepted = this.cache.manifest
       const capability = value => [value?.bitmap?.ready, value?.bitmap?.reason, capabilityIdentity(value?.bitmap?.query)]
       const capabilityChanged = JSON.stringify(capability(previous)) !== JSON.stringify(capability(accepted))
-      const membershipChanged = this.membershipEnabled !== (accepted?.bitmap_membership_protocol === 1)
-      this.membershipEnabled = accepted?.bitmap_membership_protocol === 1
+      const protocol = Array.isArray(accepted?.bitmap_membership_protocols) && accepted.bitmap_membership_protocols.includes(2) ? 2 : accepted?.bitmap_membership_protocol === 1 ? 1 : 0
+      const membershipChanged = this.membershipProtocol !== protocol
+      this.membershipProtocol = protocol
+      this.membershipEnabled = protocol > 0
       this.overlays.setSupported(accepted?.world_overlay_protocol === 1)
       this.updateFilterPanel()
       if (!this.membershipEnabled && this.bitmapQuery !== null) this.status(this.mapSummary(this.visibleTileCount ?? 0))
@@ -550,7 +552,7 @@ export default class WorldMapRenderer {
     // displayed membership view. Canonical order also ignores cache LRU churn.
     const tiles = payload.tiles.filter(tile => this.cache.visible.has(`${tile.z}/${tile.x}/${tile.y}`) && typeof tile.revision === "string")
       .sort((left, right) => left.z - right.z || left.x - right.x || left.y - right.y)
-    return {protocol: 1, boundary_endpoints: true, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
+    return {protocol: this.membershipProtocol || 1, boundary_endpoints: true, layout_version: payload.layout_version, generation: this.cache.manifest?.generation, tiles, query: this.bitmapQuery}
   }
 
   syncMembership(payload) {
@@ -574,7 +576,7 @@ export default class WorldMapRenderer {
         return
       }
       this.membershipProjectionIncomplete = binding.projection?.mapped < binding.projection?.total
-      try {this.membership.bind(binding, geometries)} catch (error) {this.status(error.message)}
+      try {this.membership.bind({...binding, protocol: request.protocol}, geometries)} catch (error) {this.status(error.message)}
     }).receive("error", error => {
       if (this.destroyed || pushId !== this.membershipPush || signature !== this.membershipSignature) return
       this.membership.clear(true)

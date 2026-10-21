@@ -12,13 +12,14 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
 
   @max_selector_bytes 8_388_608
   @max_receipt_bytes 65_536
+  @max_relation_candidates 262_144
 
-  def validate(%{"protocol" => 1, "query" => query} = params) do
+  def validate(%{"protocol" => protocol, "query" => query} = params) when protocol in [1, 2] do
     with :ok <- BitmapExpression.request_budget(query),
          :ok <- receipt_budget(params),
          {:ok, watch} <- TileKey.watch(params),
          true <- length(watch.keys) == map_size(watch.tiles) do
-      {:ok, Map.put(watch, :boundary_endpoints, params["boundary_endpoints"] == true)}
+      {:ok, Map.merge(watch, %{protocol: protocol, boundary_endpoints: params["boundary_endpoints"] == true})}
     else
       false -> {:error, :invalid_tile_receipt}
       error -> error
@@ -161,7 +162,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
   defp project_tiles(current, mapping, context, watch) do
     watch.keys
     |> Enum.sort_by(&TileKey.id/1)
-    |> Enum.reduce_while({:ok, [], 0}, fn key, {:ok, tiles, selector_bytes} ->
+    |> Enum.reduce_while({:ok, [], 0, 0}, fn key, {:ok, tiles, selector_bytes, candidates} ->
       with {:ok, _budget} <- BitmapQueries.remaining(context),
            {:ok, tile} <- busy_as(WorldCache.fetch(key), :tile_cache_busy),
            true <- tile.generation == current.manifest.generation and tile.revision == watch.tiles[TileKey.id(key)],
@@ -184,7 +185,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
                :device,
                selectors,
                budget
-             ) do
+             ),
+           {:ok, edge_counts, candidates} <-
+             relation_counts(current.world, mapping, tile, context, watch.protocol, candidates) do
         row = %{
           z: key.z,
           x: key.x,
@@ -193,20 +196,74 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
           mask: mask,
           causal: causal,
           availability: availability,
-          counts: counts
+          counts: counts,
+          edge_counts: edge_counts
         }
 
-        {:cont, {:ok, [row | tiles], selector_bytes + bytes}}
+        {:cont, {:ok, [row | tiles], selector_bytes + bytes, candidates}}
       else
         false -> {:halt, {:error, :source_changed}}
         error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, tiles, _selector_bytes} -> {:ok, Enum.reverse(tiles)}
+      {:ok, tiles, _selector_bytes, _candidates} -> {:ok, Enum.reverse(tiles)}
       error -> error
     end
   end
+
+  defp relation_counts(_world, _mapping, _tile, _context, 1, candidates), do: {:ok, nil, candidates}
+
+  defp relation_counts(world, mapping, tile, context, 2, candidates) do
+    counts = :binary.copy(<<0::little-32>>, length(tile.flow_edges))
+
+    with {:ok, counts, candidates} <-
+           relation_pages(world, mapping, tile.selection, context, nil, counts, candidates),
+         true <- valid_relation_counts?(counts, tile.flow_edges) do
+      {:ok, counts, candidates}
+    else
+      false -> {:error, :source_changed}
+      error -> error
+    end
+  end
+
+  defp relation_pages(_world, _mapping, _selection, _context, _cursor, <<>>, candidates), do: {:ok, <<>>, candidates}
+
+  defp relation_pages(world, mapping, selection, context, cursor, counts, candidates)
+       when candidates <= @max_relation_candidates - 4096 do
+    with {:ok, _budget} <- BitmapQueries.remaining(context),
+         {:ok, page} <-
+           busy_as(TopologyAtlas.tile_relation_ordinals(world, mapping, selection, cursor), :relation_ordinals_busy),
+         {:ok, budget} <- BitmapQueries.remaining(context),
+         {:ok, counts} <-
+           Native.bitmap_query_relation_counts(
+             context.ref,
+             context.authority,
+             context.dictionary_epoch,
+             context.index_epoch,
+             page.pairs,
+             counts,
+             budget
+           ) do
+      candidates = candidates + page.candidates
+
+      case page.next_cursor do
+        nil -> {:ok, counts, candidates}
+        next when next != cursor -> relation_pages(world, mapping, selection, context, next, counts, candidates)
+        _ -> {:error, :source_changed}
+      end
+    end
+  end
+
+  defp relation_pages(_world, _mapping, _selection, _context, _cursor, _counts, _candidates),
+    do: {:error, :membership_budget}
+
+  defp valid_relation_counts?(<<>>, []), do: true
+
+  defp valid_relation_counts?(<<count::little-32, rest::binary>>, [edge | edges]),
+    do: count <= edge.count and valid_relation_counts?(rest, edges)
+
+  defp valid_relation_counts?(_counts, _edges), do: false
 
   defp selectors(world, mapping, tile, context, remaining_bytes, boundary_endpoints?) do
     with {:ok, ordinals} <- tile_ordinals(world, mapping, tile.selection) do
@@ -276,7 +333,10 @@ defmodule ServiceRadarWebNG.Topology.BitmapView do
       {watch.layout_version, current.manifest.generation, Enum.sort(watch.tiles), context.query_digest, context.authority,
        watch.boundary_endpoints}
 
+    view = if watch.protocol == 1, do: view, else: {view, watch.protocol}
+
     %{
+      protocol: watch.protocol,
       sequence: sequence,
       total: context.total,
       dictionary_epoch: Ecto.UUID.load!(context.dictionary_epoch),

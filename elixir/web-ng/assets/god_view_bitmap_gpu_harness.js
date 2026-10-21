@@ -10,6 +10,7 @@ import {atlasCaptureHealth, atlasCaptureInventory, atlasCaptureMatches, atlasCap
 // decoder and WebGPU execute unchanged. This is not a running Phoenix server.
 export function mountBitmapGpuHarness() {
   const capture = new URLSearchParams(location.search).has("capture")
+  const legacyMembership = new URLSearchParams(location.search).has("legacy_membership")
   let enabled = true, unavailable = false, authority = 0, sequence = 0n, watchId = 0, connection, watch, pan = 0
   const version = worldTileKey.layout_version
   const geometries = new Map()
@@ -87,8 +88,9 @@ export function mountBitmapGpuHarness() {
     const url = new URL(typeof input === "string" ? input : input.url, location.href)
     if (!url.pathname.startsWith("/topology/")) return originalFetch(input, options)
     if (url.pathname.endsWith("/manifest")) return Response.json({layout_version: version, generation: 1, zmax: 8,
-      extent: 2 ** 24, node_count: capture ? 1024 : 4096, relation_count: capture ? 64 : 4095, bounds: [[0, 0], [2 ** 24, 2 ** 24]],
+      extent: 2 ** 24, node_count: capture ? 1024 : 4096, relation_count: capture ? 128 : 4095, bounds: [[0, 0], [2 ** 24, 2 ** 24]],
       bitmap_membership_protocol: enabled ? 1 : 0, world_overlay_protocol: enabled ? 1 : 0,
+      ...(!legacyMembership && {bitmap_membership_protocols: enabled ? [1, 2] : []}),
       bitmap: {ready: enabled, query: capture ? atlasCaptureQueryDescriptor : {entity_kind: "device", facets: [
         {key: "vlan", label: "Inventory VLAN", operators: ["eq", "prefix"]},
         {key: "tag:owner", label: "Device tag: owner", operators: ["eq", "prefix"]},
@@ -122,10 +124,11 @@ export function mountBitmapGpuHarness() {
   function membershipTiles() {
     if (!watch) return null
     return watch.tiles.map(receipt => {
-      const {geometry, populations} = tile(receipt.z, receipt.x, receipt.y)
+      const {geometry, populations, relations} = tile(receipt.z, receipt.x, receipt.y)
       const selected = populations?.map(members => members.filter(device => watch.selected.has(device.id)))
       const counts = selected ? selected.map(members => members.length) : geometry.nodes.map(node => node.count)
       return {...receipt, mask: counts.map(count => Number(count > 0)), counts,
+        edgeCounts: relations ? relations.map(pairs => pairs.filter(([source, target]) => watch.selected.has(source) && watch.selected.has(target)).length) : geometry.edges.map(edge => edge.count),
         causal: counts.map(() => 3), availability: selected ? selected.map(members => !members.length ? 2 :
           members.every(device => device.availability === "healthy") ? 0 : members.every(device => device.availability === "unavailable") ? 1 : 2) : counts.map(() => unavailable ? 1 : 0)}
     })
@@ -133,7 +136,7 @@ export function mountBitmapGpuHarness() {
   function broadcastMembership(binding, total) {
     const tiles = membershipTiles()
     if (!tiles || connection?.readyState !== 1) return
-    const frame = bitmapFrame({sequence: ++sequence, total, binding, tiles})
+    const frame = bitmapFrame({protocol: watch.protocol, sequence: ++sequence, total, binding, tiles})
     samples.membershipFrames += 1; samples.membershipBytes += frame.byteLength
     const before = samples.arrayBufferSliceBytes
     broadcast(connection, "membership:frame", frame)

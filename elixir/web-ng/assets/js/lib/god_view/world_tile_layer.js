@@ -43,6 +43,11 @@ function completeMember(geometry, membership, row) {
   return membership.mask[row] === 1 && membership.counts[row] === population
 }
 
+function matchingRelations(geometry, membership, edge) {
+  if (membership.edgeCounts) return membership.edgeCounts[edge.index]
+  return completeMember(geometry, membership, edge.source) && completeMember(geometry, membership, edge.target) ? edge.count : 0
+}
+
 // Tile completion and viewport refinement also update text outside Deck's
 // draw callbacks. Submit references to the old character buffers before the
 // owning layer reallocates or finalizes them, including rowIndexes.
@@ -113,7 +118,7 @@ function flowFrame(geometry, overlay, membership) {
   const key = membership || overlay
   if (overlayFrames.has(key)) return overlayFrames.get(key)
   const edges = geometry.edges.flatMap(edge => {
-    if (edge.stale || (membership && (!completeMember(geometry, membership, edge.source) || !completeMember(geometry, membership, edge.target)))) return []
+    if (edge.stale || (membership && matchingRelations(geometry, membership, edge) !== edge.count)) return []
     const flow = overlay.flowAt(edge.index)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
@@ -211,7 +216,7 @@ export default class WorldTileLayer extends TileLayer {
   relationShown(geometry, edge) {
     if (!this.props.membershipEnabled) return true
     const membership = this.tileMembership(geometry)
-    return !this.props.membershipPending && membership && completeMember(geometry, membership, edge.source) && completeMember(geometry, membership, edge.target)
+    return !this.props.membershipPending && membership && matchingRelations(geometry, membership, edge) > 0
   }
 
   nodeShown(counts, membership, row) {
@@ -312,6 +317,10 @@ export default class WorldTileLayer extends TileLayer {
     if (membership && info.object?.kind === "aggregate") {
       const count = membership.counts[info.object.index]
       info.object = {...info.object, count, label: `${count.toLocaleString()} matching ${count === 1 ? "device" : "devices"}`}
+    }
+    if (membership?.edgeCounts && info.object?.kind === "bundle") {
+      const count = membership.edgeCounts[info.object.index]
+      info.object = {...info.object, count, label: `${count.toLocaleString()} matching ${count === 1 ? "connection" : "connections"}`}
     }
     return info
   }

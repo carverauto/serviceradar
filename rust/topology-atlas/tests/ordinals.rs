@@ -1,5 +1,5 @@
 //! Invented identities only. Existing detail paging is the independent membership oracle.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use roaring::RoaringBitmap;
@@ -79,8 +79,142 @@ fn clipped_links_keep_the_remote_device_identity_across_zoom_levels() {
                     }
                 }
                 assert_eq!(boundaries, usize::from(zoom > 0));
+                let page = mapping
+                    .relation_ordinals(&world, &tile.selection, None)
+                    .unwrap();
+                assert!(page.next.is_none());
+                assert_eq!(page.pairs.len(), targets.len() * 12);
+                let mut expected = targets
+                    .iter()
+                    .map(|target| {
+                        (
+                            101,
+                            if mapped || *target != 1 {
+                                (*target as u32 + 1) * 101
+                            } else {
+                                0
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let mut actual = Vec::new();
+                for triple in page.pairs.chunks_exact(12) {
+                    let row = u32::from_le_bytes(triple[0..4].try_into().unwrap()) as usize;
+                    assert!(row < tile.edges.len());
+                    actual.push((
+                        u32::from_le_bytes(triple[4..8].try_into().unwrap()),
+                        u32::from_le_bytes(triple[8..12].try_into().unwrap()),
+                    ));
+                }
+                actual.sort_unstable();
+                expected.sort_unstable();
+                assert_eq!(actual, expected, "exact pairs survive even shared portals");
             }
         }
+    }
+}
+
+#[test]
+fn relation_ordinal_pages_conserve_dense_and_sparse_endpoint_pairs() {
+    check_relation_pages(1025);
+}
+
+#[test]
+#[ignore = "native projection scale measurement"]
+fn synthetic_relation_projection_scale() {
+    check_relation_pages(131_072);
+}
+
+fn check_relation_pages(relation_count: usize) {
+    for sparse in [false, true] {
+        let mut points: Vec<_> = (0..1026).map(position).collect();
+        for (i, point) in points.iter_mut().enumerate() {
+            point.x = if i % 2 == 0 { 1_000_000 } else { 14_000_000 };
+            point.y = 1_000_000 + i as u32;
+            point.min_zoom = 24;
+        }
+        let relations = (0..relation_count)
+            .map(|i| Relation {
+                id: format!("synthetic-page-link-{i}"),
+                source: points[0].id.clone(),
+                target: points[1 + i % (points.len() - 1)].id.clone(),
+            })
+            .collect();
+        let world = World::new(
+            "synthetic-relation-pages".into(),
+            24,
+            points.clone(),
+            relations,
+        )
+        .unwrap();
+        let mut mapping = CanonicalOrdinals::new(&world, [7; 16]).unwrap();
+        let ordinal = |i: usize| {
+            if sparse {
+                u32::MAX - i as u32 * 4093
+            } else {
+                i as u32 + 1
+            }
+        };
+        let rows: Vec<_> = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.id.clone(), ordinal(i)))
+            .collect();
+        for page in rows.chunks(500) {
+            mapping.apply(&world, page).unwrap();
+        }
+        mapping.seal(&world).unwrap();
+        let tile = world
+            .tile(
+                Cell::new(0, 0, 0).unwrap(),
+                Budget {
+                    nodes: 9,
+                    edges: 72,
+                },
+            )
+            .unwrap();
+        let mut cursor = None;
+        let mut counts = vec![0u64; tile.edges.len()];
+        let started = Instant::now();
+        let mut pages = 0;
+        let mut candidates = 0;
+        let mut max_page_bytes = 0;
+        let known: BTreeSet<_> = rows.iter().map(|(_, id)| *id).collect();
+        loop {
+            let page = mapping
+                .relation_ordinals(&world, &tile.selection, cursor.as_ref())
+                .unwrap();
+            assert!(page.candidates <= 4096 && page.pairs.len() <= 256 * 12);
+            candidates += page.candidates;
+            max_page_bytes = max_page_bytes.max(page.pairs.len());
+            for triple in page.pairs.chunks_exact(12) {
+                let row = u32::from_le_bytes(triple[0..4].try_into().unwrap()) as usize;
+                assert_eq!(
+                    u32::from_le_bytes(triple[4..8].try_into().unwrap()),
+                    ordinal(0)
+                );
+                let target = u32::from_le_bytes(triple[8..12].try_into().unwrap());
+                assert!(known.contains(&target));
+                counts[row] += 1;
+            }
+            pages += 1;
+            if page.next.is_none() {
+                break;
+            }
+            assert_ne!(page.next, cursor);
+            cursor = page.next;
+        }
+        assert!(pages > 1);
+        assert!(candidates <= relation_count);
+        assert_eq!(
+            counts,
+            tile.edges.iter().map(|e| e.count).collect::<Vec<_>>()
+        );
+        println!(
+            "synthetic relation projection sparse={sparse} relations={relation_count} candidates={candidates} pages={pages} max_page_bytes={max_page_bytes} accumulator_bytes={} elapsed_us={}",
+            counts.len() * 4,
+            started.elapsed().as_micros()
+        );
     }
 }
 

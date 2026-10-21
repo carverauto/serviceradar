@@ -334,7 +334,17 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     start_supervised!(BitmapQueries)
     start_supervised!({WorldCache, task_supervisor: tasks, pubsub: ServiceRadar.PubSub})
     {:ok, snapshot} = await(fn -> BitmapIndex.snapshot() end, &match?({:ok, _}, &1))
-    world = install_world([included, excluded], snapshot.dictionary_epoch)
+
+    world =
+      install_world([included, excluded], snapshot.dictionary_epoch, [
+        %{
+          relation_id: "invented-filtered-connection",
+          source_id: included.uid,
+          target_id: excluded.uid,
+          evidence_class: "direct-physical"
+        }
+      ])
+
     {:ok, key} = TileKey.new(@version, 16, 0, 0)
     {:ok, tile} = WorldCache.fetch(key)
 
@@ -345,6 +355,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     assert response.status == 200
     manifest = Jason.decode!(response.resp_body)
     assert manifest["bitmap_membership_protocol"] == 1
+    assert manifest["bitmap_membership_protocols"] == [1, 2]
     assert manifest["world_overlay_protocol"] == 1
     assert manifest["bitmap"]["ready"]
     assert manifest["bitmap"]["query"]["tag_keys"] == ["rack"]
@@ -438,12 +449,29 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     # No second frame is queued while the client owes an acknowledgement.
     send(socket.channel_pid, :tile_tick)
     refute_push "membership:frame", _frame, 100
+
     ref = push(socket, "membership:ack", %{"sequence" => Integer.to_string(sequence), "view_digest" => digest})
     assert_reply ref, :ok
     ref = push(socket, "membership:unwatch", %{})
     assert_reply ref, :ok
     send(socket.channel_pid, :tile_tick)
     refute_push "membership:frame", _frame, 100
+
+    # Both native owners execute behind the real channel. The same edge is
+    # excluded when only one endpoint matches, included when both match.
+    assert length(tile.flow_edges) == 1
+
+    for {query, expected} <- [{params["query"], 0}, {within_cohort(cohort, %{"all" => []}), 1}] do
+      ref = push(socket, "membership:watch", %{params | "protocol" => 2, "query" => query})
+      assert_reply ref, :ok, %{view_digest: edge_digest}, 5_000
+      assert edge_digest != digest
+      assert_push "membership:frame", {:binary, edge_frame}, 5_000
+      assert <<"SRMO", 2, 0, _::binary>> = edge_frame
+      footer_offset = byte_size(edge_frame) - 6
+      assert <<_::binary-size(footer_offset), 1::little-16, ^expected::little-32>> = edge_frame
+      ref = push(socket, "membership:unwatch", %{})
+      assert_reply ref, :ok
+    end
 
     stale = put_in(params, ["tiles"], [%{"z" => 16, "x" => 0, "y" => 0, "revision" => String.duplicate("f", 64)}])
     ref = push(socket, "membership:watch", stale)
@@ -913,7 +941,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
     digest
   end
 
-  defp install_world(devices, epoch) do
+  defp install_world(devices, epoch, relations \\ []) do
     {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
 
     positions =
@@ -937,6 +965,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       end)
 
     :ok = TopologyAtlas.add_positions(builder, positions)
+    :ok = TopologyAtlas.add_relations(builder, relations)
     {:ok, world} = TopologyAtlas.finish_world(builder)
     publish_layout(positions)
     manifest = %{layout_version: @version, generation: 1, zmax: 16}

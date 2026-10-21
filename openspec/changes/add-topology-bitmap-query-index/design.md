@@ -392,9 +392,11 @@ Such a portal carries an ordinary zero-or-one membership count in SRMO.
 The browser accepts at most one remote member for a boundary row and requires
 that member, plus complete membership at the other endpoint, before showing
 the clipped link or its whole-bundle flow. Portals remain invisible and
-unpickable. Shared portals and partially selected aggregates remain hidden;
-exact filtered relation populations for those cases are still deferred.
-The binary frame shape is unchanged. Clients opt in with
+unpickable. This version-1 path hides shared portals and partially selected
+aggregate relations. The approved `add-atlas-filtered-relation-membership`
+extension adds negotiated version-2 edge counts using canonical endpoint pairs,
+so positive exact matches can draw independently of portal or aggregate counts.
+The version-1 binary frame shape is unchanged. Clients opt in with
 `boundary_endpoints: true` in their bounded membership-watch request, and the
 view digest binds that choice. Older browser bundles continue receiving zero
 boundary counts, preserving their existing decoder contract during rolling
@@ -499,10 +501,12 @@ Unadmitted telemetry stays explicitly unknown until the viewport admission
 changes, avoiding repeated fetch/eviction cycles on a stationary dense view.
 
 An aggregate's existing traffic rate describes its whole represented bundle.
-Hide the relation, traffic animation and rates if either endpoint has only
-partial query membership, until an exact filtered-relation calculation is
-implemented. Two partially matched endpoints do not prove that any underlying
-link joins their matching members. A
+Version 1 hides the relation, traffic animation and rates if either endpoint has
+partial query membership. Version 2 shows only edges with positive exact
+canonical relation counts. It permits whole-bundle traffic only when every
+represented relation matches and the existing telemetry checks pass. Two
+partially matched endpoints do not prove that any underlying link joins their
+matching members. A
 whole-bundle rate must never be presented as the filtered population's rate.
 
 Arrow attributes stay typed. Measure IPC decode, native projection, transport,

@@ -1080,6 +1080,57 @@ impl Query {
             Ok(pin.result.set.intersection_len(&bitmap))
         })
     }
+    /// Accumulate exact relation matches from bounded canonical ordinal triples.
+    /// The caller retains these tentative columns only within this pinned view.
+    pub fn relation_counts(
+        &self,
+        authority: &[u8],
+        dictionary: &[u8],
+        epoch: &[u8],
+        pairs: &[u8],
+        counts: &[u8],
+        timeout_ms: u64,
+    ) -> Result<Vec<u8>, Error> {
+        if dictionary != self.dictionary_epoch
+            || epoch != self.index_epoch
+            || self.kind != Kind::Device
+        {
+            return Err("identity_mismatch");
+        }
+        if pairs.len() > 256 * 12
+            || pairs.len() % 12 != 0
+            || counts.len() > 512 * 4
+            || counts.len() % 4 != 0
+        {
+            return Err("bitmap_budget");
+        }
+        self.with_pin(authority, timeout_ms, |pin, end| {
+            let _columns = self.budget.reserve(counts.len() + 4096)?;
+            let mut result = counts.to_vec();
+            for triple in pairs.chunks_exact(12) {
+                check_time(end)?;
+                let row = u32::from_le_bytes(triple[0..4].try_into().unwrap()) as usize;
+                if row >= result.len() / 4 {
+                    return Err("invalid_row");
+                }
+                let source = u32::from_le_bytes(triple[4..8].try_into().unwrap());
+                let target = u32::from_le_bytes(triple[8..12].try_into().unwrap());
+                let slot = result.get_mut(row * 4..row * 4 + 4).ok_or("invalid_row")?;
+                if source != 0
+                    && target != 0
+                    && pin.result.set.contains(source)
+                    && pin.result.set.contains(target)
+                {
+                    let count = u32::from_le_bytes((&*slot).try_into().unwrap())
+                        .checked_add(1)
+                        .ok_or("bitmap_budget")?;
+                    slot.copy_from_slice(&count.to_le_bytes());
+                }
+            }
+            Ok(result)
+        })
+    }
+
     /// Complete admitted-row columns: matching u8, causal u8, availability u8,
     /// matched-device count LE-u32. The caller binds this order to its tile receipt.
     pub fn row_overlay(
@@ -1418,6 +1469,67 @@ mod tests {
         assert_eq!(mask, [0, 1, 1, 1, 1, 1, 0]);
         assert_eq!(causal, [3; 7]);
         assert_eq!(availability, [2, 0, 1, 2, 2, 0, 2]);
+        // Both endpoints must match this pinned revision. Two nonempty node
+        // populations are insufficient, and ordinal zero never represents a device.
+        let pairs: Vec<u8> = [
+            [0u32, 1, 2],
+            [0, 1, 4],
+            [1, 1, u32::MAX],
+            [1, 0, 1],
+            [2, 4, 2],
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(u32::to_le_bytes)
+        .collect();
+        let edges = query
+            .relation_counts(b"allow", &[1; 16], &[2; 16], &pairs, &[0; 12], 1000)
+            .unwrap();
+        assert_eq!(
+            edges,
+            [1u32, 1, 0]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>()
+        );
+        let accumulated = query
+            .relation_counts(b"allow", &[1; 16], &[2; 16], &pairs, &edges, 1000)
+            .unwrap();
+        assert_eq!(
+            accumulated,
+            [2u32, 2, 0]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>()
+        );
+        for (authority, dictionary, expected) in [
+            (&b"revoked"[..], [1; 16], "authority_mismatch"),
+            (&b"allow"[..], [9; 16], "identity_mismatch"),
+        ] {
+            assert_eq!(
+                query.relation_counts(authority, &dictionary, &[2; 16], &pairs, &edges, 1000),
+                Err(expected)
+            );
+        }
+        assert_eq!(
+            query.relation_counts(b"allow", &[1; 16], &[2; 16], &pairs[..11], &edges, 1000),
+            Err("bitmap_budget")
+        );
+        assert_eq!(
+            query.relation_counts(b"allow", &[1; 16], &[2; 16], &pairs, &[0; 4], 1000),
+            Err("invalid_row")
+        );
+        assert_eq!(
+            query.relation_counts(
+                b"allow",
+                &[1; 16],
+                &[2; 16],
+                &pairs[..12],
+                &u32::MAX.to_le_bytes(),
+                1000
+            ),
+            Err("bitmap_budget")
+        );
         assert_eq!(
             counts
                 .as_chunks::<4>()

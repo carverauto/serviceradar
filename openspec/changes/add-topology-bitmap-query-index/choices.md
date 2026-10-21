@@ -50,6 +50,11 @@ acceptance has completed. Historical alternatives belong in the review response.
 
 ## Hide relations whose filtered endpoints cannot be established
 
+The approved `add-atlas-filtered-relation-membership` extension implements the
+exact projection deferred below. Version 2 shows positive canonical relation
+matches and reports their matching count, while keeping full-bundle telemetry
+hidden unless all represented relations match. Version 1 retains this decision.
+
 - Choice: a cluster can contain ten devices but only two matches. A line to
   another partially matched cluster does not prove that any matching devices
   connect. Hide that line and its whole-bundle traffic rather than attribute

@@ -19,6 +19,31 @@ function session() {
 }
 
 describe("binary admitted-row membership", () => {
+  it("atomically admits negotiated edge counts and rejects population, row and protocol mismatches", () => {
+    const state = session()
+    const receipt = {...geometry, edges: [{count: 3}]}
+    const binding = {...bitmapBinding, protocol: 2}
+    const counts = {...tile, counts: [1, 7], edgeCounts: [1]}
+    const receive = (tiles, protocol = 2, sequence = 1n) => state.receive(bitmapFrame({tiles, protocol, sequence}))
+    state.bind(binding, [receipt])
+    receive([counts])
+    expect(state.onReset).not.toHaveBeenCalled()
+    expect(state.entries.get("0/0/0").edgeCounts).toEqual(new Uint32Array([1]))
+    expect(state.retainedBufferBytes).toBe(bitmapFrame({tiles: [counts], protocol: 2}).length + 12)
+    state.beginView()
+    expect(state.entries.get("0/0/0").edgeCounts[0]).toBe(1)
+    for (const [edges, protocol] of [[[4], 2], [[], 2], [[1], 1]]) {
+      state.bind(binding, [receipt])
+      receive([{...counts, edgeCounts: edges}], protocol)
+      expect(state.entries.size).toBe(0)
+      expect(state.pending).toBe(true)
+    }
+    state.bind(binding, [receipt])
+    receive([counts])
+    state.receive(bitmapFrame({kind: "reset", protocol: 2}))
+    expect(state.entries.size).toBe(0)
+  })
+
   it("admits the remote endpoint of a clipped link without counting or drawing the portal as a device", () => {
     const clipped = decodeWorldTile(worldTileIpc({
       metadata: {device_count: 1},
@@ -350,16 +375,17 @@ describe("binary admitted-row membership", () => {
     } finally {renderer.destroyed = true; clearTimeout(renderer.watchTimer); renderer.cache.destroy(); renderer.overlays.destroy(); vi.unstubAllGlobals()}
   })
 
-  it("keeps accepted protocol capabilities when a replica returns an older manifest", async () => {
+  it.each([1, 2])("keeps accepted protocol %i capabilities when a replica returns an older manifest", async protocol => {
     const layout = "00000000-0000-4000-8000-000000000479"
     const current = {layout_version: layout, generation: 5, zmax: 1, extent: 2 ** 24, node_count: 1,
-      relation_count: 0, bitmap_membership_protocol: 1, world_overlay_protocol: 1,
+      relation_count: 0, bitmap_membership_protocol: 1, bitmap_membership_protocols: protocol === 2 ? [1, 2] : [1], world_overlay_protocol: 1,
       bitmap: {ready: true, query: {entity_kind: "device"}}}
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     renderer.channel = {state: "joined"}
     renderer.membershipEnabled = true
     renderer.bitmapQuery = {all: []}
     renderer.membershipSignature = "accepted-view"
+    renderer.membershipProtocol = protocol
     renderer.cache.observe(current)
     renderer.overlays.setSupported(true)
     const invalidated = vi.spyOn(renderer, "invalidateMembership")
@@ -370,6 +396,7 @@ describe("binary admitted-row membership", () => {
       expect(renderer.cache.manifest.generation).toBe(5)
       expect(renderer.cache.manifest.bitmap).toEqual(current.bitmap)
       expect(renderer.membershipEnabled).toBe(true)
+      expect(renderer.membershipProtocol).toBe(protocol)
       expect(renderer.overlays.supported).toBe(true)
       expect(renderer.membershipSignature).toBe("accepted-view")
       expect(invalidated).not.toHaveBeenCalled()
@@ -688,6 +715,7 @@ describe("binary admitted-row membership", () => {
     renderer.membership.receive(bitmapFrame({tiles: [tile]}))
     const accepted = renderer.membership.entries
     renderer.membershipSignature = "accepted-vlan"
+    renderer.membershipProtocol = 1
     const refreshed = {...manifest, bitmap: {ready: true, query: {...query, prefix_tags: {...query.prefix_tags, sources: [{source: "synthetic", version: 42, available: true}]}}}}
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(refreshed)))
     try {

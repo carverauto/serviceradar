@@ -155,7 +155,12 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
   defp overlay_protocols(manifest) do
     if BitmapQueries.enabled?(),
-      do: %{bitmap_membership_protocol: 1, world_overlay_protocol: 1, bitmap: bitmap_descriptor(manifest)},
+      do: %{
+        bitmap_membership_protocol: 1,
+        bitmap_membership_protocols: [1, 2],
+        world_overlay_protocol: 1,
+        bitmap: bitmap_descriptor(manifest)
+      },
       else: %{}
   end
 

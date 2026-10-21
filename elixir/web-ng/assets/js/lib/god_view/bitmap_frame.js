@@ -60,12 +60,13 @@ export function decodeBitmapFrame(input) {
   if (bytes.buffer.byteLength > BITMAP_FRAME_BYTES) bytes = bytes.slice()
   const reader = new Reader(bytes)
   valid(decoder.decode(reader.take(4)) === "SRMO", "magic")
-  valid(reader.number(1) === 1, "protocol")
+  const protocol = reader.number(1)
+  valid(protocol === 1 || protocol === 2, "protocol")
   const kind = ["baseline", "reset"][reader.number(1)]
   valid(kind, "payload kind")
   valid(reader.number(2) === 0, "reserved bytes")
   valid(reader.number(4) === bytes.length, "frame length")
-  const frame = {kind, sequence: reader.sequence(), total: reader.number(4), byteLength: bytes.length}
+  const frame = {protocol, kind, sequence: reader.sequence(), total: reader.number(4), byteLength: bytes.length}
   for (const field of FRAME_FIELDS) frame[field] = reader.text()
   const sourceCount = reader.number(1)
   valid(sourceCount <= 32, "prefix source count")
@@ -105,7 +106,14 @@ export function decodeBitmapFrame(input) {
         valid(mask[row] <= 1 && causal[row] <= 3 && availability[row] <= 2, "row state")
         valid(mask[row] === Number(counts[row] > 0), "row count")
       }
-      frame.tiles.set(key, {key, revision, mask, causal, availability, counts})
+      let edgeCounts
+      if (protocol === 2) {
+        const edges = reader.number(2)
+        valid(edges <= 512, "edge row budget")
+        edgeCounts = new Uint32Array(edges)
+        for (let row = 0; row < edges; row += 1) edgeCounts[row] = reader.number(4)
+      }
+      frame.tiles.set(key, {key, revision, mask, causal, availability, counts, edgeCounts})
     }
   }
   reader.done()

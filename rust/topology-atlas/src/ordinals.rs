@@ -8,10 +8,17 @@ use std::time::{Duration, Instant};
 use roaring::RoaringBitmap;
 use sha2::{Digest, Sha256};
 
-use crate::{AggregateSelection, Error, TileSelection, World};
+use crate::{AggregateSelection, Error, RelationCursor, TileSelection, World};
 
 pub const ORDINAL_MAPPING_BYTES: usize = 32 * 1024 * 1024;
 pub const ORDINAL_PORTABLE_BYTES: usize = 8 * 1024 * 1024;
+
+pub struct RelationOrdinals {
+    /// Little-endian u32 triples: rendered edge row, source ordinal, target ordinal.
+    pub pairs: Vec<u8>,
+    pub candidates: usize,
+    pub next: Option<RelationCursor>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct OrdinalInfo {
@@ -176,6 +183,41 @@ impl CanonicalOrdinals {
             }
         }
         Ok(rows)
+    }
+
+    /// Reuse canonical clipping/bundle selection; only a bounded packed page crosses the BEAM.
+    pub fn relation_ordinals(
+        &self,
+        world: &World,
+        selection: &TileSelection,
+        cursor: Option<&RelationCursor>,
+    ) -> Result<RelationOrdinals, Error> {
+        self.check_ready(world)?;
+        if selection.edges.len() > 512 {
+            return Err(Error::OrdinalBudgetExceeded);
+        }
+        let page = world.tile_relations(selection, cursor, 256)?;
+        let rows: BTreeMap<_, _> = selection
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(row, edge)| (edge.id.as_str(), row as u32))
+            .collect();
+        let mut pairs = Vec::with_capacity(page.relations.len() * 12);
+        for relation in page.relations {
+            let row = rows
+                .get(relation.rendered_edge_id.as_str())
+                .ok_or(Error::StaleDetailRevision)?;
+            let endpoints = world.endpoints[relation.relation_index as usize];
+            pairs.extend_from_slice(&row.to_le_bytes());
+            pairs.extend_from_slice(&self.ordinals[endpoints.source as usize].to_le_bytes());
+            pairs.extend_from_slice(&self.ordinals[endpoints.target as usize].to_le_bytes());
+        }
+        Ok(RelationOrdinals {
+            pairs,
+            candidates: page.candidates,
+            next: page.next,
+        })
     }
 
     /// O(member count) traversal stays native; no full aggregate list crosses the BEAM.
