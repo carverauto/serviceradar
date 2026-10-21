@@ -299,9 +299,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   def dedupe_records(records) do
-    Map.new(records, fn {key, values} ->
+    records
+    |> Map.new(fn {key, values} ->
       {key, dedupe_provider_refs(values)}
     end)
+    |> normalize_host_management_ips()
   end
 
   def persist_records(records, opts) do
@@ -1194,7 +1196,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         true -> 50
       end
 
-    if String.starts_with?(String.downcase(to_string(Map.get(iface, :name) || "")), ["vmbr", "br"]) do
+    name = iface |> Map.get(:name) |> to_string() |> String.downcase() |> String.trim()
+
+    if String.starts_with?(name, ["vmbr", "br"]) and not GuestAddress.host_internal_name?(name) do
       score + 5
     else
       score

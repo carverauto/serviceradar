@@ -134,11 +134,16 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
 
   defp usable_address(_value), do: nil
 
-  defp host_internal_name?(name) when is_binary(name) do
+  @doc """
+  Whether an interface `name` belongs to a container engine, CNI overlay, or
+  local-hypervisor bridge (`docker0`, `br-<hex>`, `cni*`, `veth*`, ...).
+  """
+  @spec host_internal_name?(term()) :: boolean()
+  def host_internal_name?(name) when is_binary(name) do
     String.starts_with?(String.downcase(String.trim(name)), @host_internal_name_prefixes)
   end
 
-  defp host_internal_name?(_name), do: false
+  def host_internal_name?(_name), do: false
 
   defp docker_default_bridge?(address) do
     case parse_ipv4(strip_prefix(address)) do

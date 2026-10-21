@@ -618,13 +618,12 @@ func (p *PushLoop) getSourceIP() string {
 	}
 	p.server.mu.RUnlock()
 
-	localIPs, err := localSourceIPs()
-	if err != nil {
-		p.logger.Debug().Err(err).Msg("Failed to enumerate network interfaces")
-		return strings.TrimSpace(configured)
+	inventory := p.hostInventory
+	if inventory == nil {
+		inventory = defaultHostInventory
 	}
 
-	selected := selectSourceIP(configured, localIPs)
+	selected := selectSourceIPFromInterfaces(configured, inventory())
 	if configured = strings.TrimSpace(configured); configured != "" && selected != "" && selected != configured {
 		p.logger.Info().
 			Str("configured_host_ip", configured).
@@ -646,38 +645,11 @@ func selectSourceIP(configured string, localIPs []net.IP) string {
 }
 
 func localSourceIPs() ([]net.IP, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
+	if _, err := net.Interfaces(); err != nil {
 		return nil, err
 	}
 
-	var ips []net.IP
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-				continue
-			}
-			ips = append(ips, ip)
-		}
-	}
-
-	return ips, nil
+	return candidateSourceIPsFromInterfaces(defaultHostInventory()), nil
 }
 
 func preferLocalSourceIP(localIPs []net.IP) string {
@@ -685,6 +657,9 @@ func preferLocalSourceIP(localIPs []net.IP) string {
 
 	for _, ip := range localIPs {
 		if ip4 := ip.To4(); ip4 != nil {
+			if isDockerDefaultBridgeIP(ip4) {
+				continue
+			}
 			if ip4.IsPrivate() {
 				return ip4.String()
 			}
