@@ -22,39 +22,26 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
   test "prometheus reporter can register the shared metric set" do
     name = :"prometheus_metrics_#{System.unique_integer([:positive])}"
 
-    assert {:ok, pid} =
-             TelemetryMetricsPrometheus.Core.start_link(
-               metrics: ServiceRadarCoreElx.Telemetry.metrics(),
-               name: name,
-               start_async: false
-             )
+    pid =
+      start_supervised!(
+        {TelemetryMetricsPrometheus.Core,
+         metrics: ServiceRadarCoreElx.Telemetry.metrics(), name: name, start_async: false},
+        id: name
+      )
 
-    # start_link links the reporter to this test process. ExUnit runs on_exit
-    # after the test process exits, so the link would kill the reporter before
-    # the callback can stop it.
-    Process.unlink(pid)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid, :normal)
-    end)
+    assert is_pid(pid)
   end
 
   test "prometheus reporter exports the identity reconciliation events it receives" do
     name = :"identity_metrics_#{System.unique_integer([:positive])}"
     instance = "telemetry-test-#{System.unique_integer([:positive])}"
 
-    assert {:ok, pid} =
-             TelemetryMetricsPrometheus.Core.start_link(
-               metrics: ServiceRadar.Telemetry.identity_reconciliation_metrics(),
-               name: name,
-               start_async: false
-             )
-
-    Process.unlink(pid)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid, :normal)
-    end)
+    _pid =
+      start_supervised!(
+        {TelemetryMetricsPrometheus.Core,
+         metrics: ServiceRadar.Telemetry.identity_reconciliation_metrics(), name: name, start_async: false},
+        id: name
+      )
 
     # The events as DuplicateSweep, MergeEngine, SourceRetirement and PopulationGauges emit them.
     :telemetry.execute(

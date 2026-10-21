@@ -51,13 +51,11 @@ defmodule ServiceRadar.Cluster.CoordinatorManagerLockDbTest do
 
   defp connect! do
     config = Keyword.drop(Repo.config(), [:pool, :pool_size, :name])
-    {:ok, conn} = Postgrex.start_link(Keyword.put(config, :pool_size, 1))
-    Process.unlink(conn)
 
-    on_exit(fn ->
-      if Process.alive?(conn), do: GenServer.stop(conn)
-    end)
-
-    conn
+    start_supervised!(
+      {Postgrex, Keyword.put(config, :pool_size, 1)},
+      id: System.unique_integer([:positive]),
+      restart: :temporary
+    )
   end
 end

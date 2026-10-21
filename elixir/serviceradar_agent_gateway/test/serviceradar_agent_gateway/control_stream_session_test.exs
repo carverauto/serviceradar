@@ -1268,9 +1268,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     pid =
       case Keyword.get(opts, :start, :supervised) do
         :linked ->
-          {:ok, pid} = ControlStreamSession.start_link(stream: nil)
-          on_exit(fn -> stop_linked_session(pid) end)
-          pid
+          start_supervised!(
+            {ControlStreamSession, stream: nil},
+            id: System.unique_integer([:positive]),
+            restart: :temporary
+          )
 
         :supervised ->
           start_supervised!({ControlStreamSession, stream: nil})
@@ -1299,10 +1301,6 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       checks: [],
       plugins: []
     }
-  end
-
-  defp stop_linked_session(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
   end
 
   defp receive_config_chunks(acc) do
