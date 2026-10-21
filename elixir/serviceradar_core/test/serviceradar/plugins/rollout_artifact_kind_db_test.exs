@@ -198,7 +198,12 @@ defmodule ServiceRadar.Plugins.RolloutArtifactKindDbTest do
           "entrypoint" => "run_check",
           "runtime" => "wasi-preview1",
           "capabilities" => ["submit_result"],
-          "outputs" => "serviceradar.plugin_result.v1"
+          "outputs" => "serviceradar.plugin_result.v1",
+          "resources" => %{
+            "requested_memory_mb" => 32,
+            "requested_cpu_ms" => 100,
+            "max_open_connections" => 1
+          }
         },
         config_schema: %{},
         display_contract: %{},
