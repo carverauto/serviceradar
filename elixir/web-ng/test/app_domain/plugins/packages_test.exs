@@ -155,10 +155,12 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.1")}}
 
         String.contains?(url, "/download/v1.0.2/serviceradar-wasm-plugin-index.json") ->
+          index_tag = if Process.get(:first_party_v1_0_2_reuses_bundle), do: "v1.0.1", else: "v1.0.2"
+
           {:ok,
            %Req.Response{
              status: 200,
-             body: Jason.encode!(PackagesTest.first_party_index("v1.0.2"))
+             body: Jason.encode!(PackagesTest.first_party_index(index_tag))
            }}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
@@ -241,6 +243,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     Process.put(:first_party_package_signature, nil)
     Process.put(:first_party_duplicate_releases, false)
     Process.put(:first_party_recent_releases_missing, false)
+    Process.put(:first_party_v1_0_2_reuses_bundle, false)
     Process.put(:first_party_recent_release_requests, 0)
 
     on_exit(fn ->
@@ -403,6 +406,32 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.source_release_tag == "v1.0.1"
     assert package.source_bundle_digest == Storage.sha256(first_party_bundle())
     assert Storage.blob_exists?(package.wasm_object_key)
+  end
+
+  test "sync_first_party_plugins records the newer release when it reuses an identical artifact" do
+    opts = [actor: system_actor(), repo_url: @repo_url, limit: 10]
+
+    assert {:ok, %{imported: 1, failed: []}} =
+             Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.1"])
+
+    assert [%PluginPackage{} = original] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
+    Process.put(:first_party_v1_0_2_reuses_bundle, true)
+
+    assert {:ok, %{imported: 1, skipped: 0, failed: []}} =
+             Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.2"])
+
+    assert [%PluginPackage{} = package] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
+    assert package.id == original.id
+    assert package.source_release_tag == "v1.0.2"
+    assert package.source_bundle_digest == original.source_bundle_digest
+    assert package.wasm_object_key == original.wasm_object_key
+
+    assert {:ok, %{imported: 0, skipped: 1, failed: []}} =
+             Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.2"])
   end
 
   test "sync_first_party_plugins replaces an existing package for the same plugin version" do
