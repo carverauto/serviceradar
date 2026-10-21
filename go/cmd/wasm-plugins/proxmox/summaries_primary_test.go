@@ -25,14 +25,17 @@ func TestPrimaryIPPrefersConfiguredNIC(t *testing.T) {
 }
 
 // TestPrimaryIPFallsBackWhenNoConfiguredNIC ensures non-Kubernetes guests (no
-// ConfigKey on any interface) still resolve an IP via the fallback path.
+// ConfigKey on any interface) still resolve an IP via the fallback path while
+// skipping container bridges and overlay interfaces reported ahead of the NIC.
 func TestPrimaryIPFallsBackWhenNoConfiguredNIC(t *testing.T) {
 	interfaces := []proxmoxGuestNetworkInterface{
 		{Name: "lo", IPAddresses: []string{"127.0.0.1"}},
-		{Name: "eth0", MACAddress: "aa:bb:cc:dd:ee:ff", IPAddresses: []string{"192.168.5.10"}},
+		{Name: "docker0", MACAddress: "02:42:00:00:00:01", IPAddresses: []string{"172.17.0.1/16"}},
+		{Name: "br-0a1b2c3d4e5f", MACAddress: "02:42:00:00:00:02", IPAddresses: []string{"198.51.100.1/24"}},
+		{Name: "eth0", MACAddress: "02:00:00:00:01:20", IPAddresses: []string{"192.0.2.20/24"}},
 	}
 
-	if got := primaryIP(interfaces); got != "192.168.5.10" {
-		t.Fatalf("primaryIP = %q, want 192.168.5.10 (fallback)", got)
+	if got := primaryIP(interfaces); got != "192.0.2.20" {
+		t.Fatalf("primaryIP = %q, want 192.0.2.20 (fallback skipping container bridges)", got)
 	}
 }

@@ -133,6 +133,9 @@ func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly boo
 		}
 
 		for _, ip := range iface.IPAddresses {
+			if !configuredOnly && isHostInternalAddress(iface.Name, ip) {
+				continue
+			}
 			if plain := stripIPPrefix(ip); plain != "" && !isLoopbackOrLinkLocal(plain) {
 				return plain
 			}
@@ -140,6 +143,87 @@ func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly boo
 	}
 
 	return ""
+}
+
+var hostInternalInterfacePrefixes = []string{
+	"docker",
+	"br-",
+	"cni",
+	"flannel",
+	"veth",
+	"virbr",
+	"cali",
+	"vxlan",
+	"tunl",
+	"cilium",
+	"kube-",
+	"weave",
+	"podman",
+	"lxcbr",
+	"lxdbr",
+}
+
+const maxGatewayPrefixLen = 30
+
+func isHostInternalAddress(ifaceName, rawAddress string) bool {
+	return isHostInternalInterfaceName(ifaceName) ||
+		isDockerDefaultBridgeAddress(rawAddress) ||
+		isOwnPrefixGatewayAddress(rawAddress)
+}
+
+func isHostInternalInterfaceName(name string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return false
+	}
+	for _, prefix := range hostInternalInterfacePrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDockerDefaultBridgeAddress(rawAddress string) bool {
+	octets, ok := parseIPv4Octets(stripIPPrefix(rawAddress))
+	return ok && octets[0] == 172 && octets[1] == 17
+}
+
+func isOwnPrefixGatewayAddress(rawAddress string) bool {
+	ipText, prefixText, ok := strings.Cut(strings.TrimSpace(rawAddress), "/")
+	if !ok {
+		return false
+	}
+	octets, ok := parseIPv4Octets(ipText)
+	if !ok {
+		return false
+	}
+	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixText))
+	if err != nil || prefixLen < 1 || prefixLen > maxGatewayPrefixLen {
+		return false
+	}
+	hostBits := (uint32(1) << (32 - prefixLen)) - 1
+	addr := uint32(octets[0])<<24 | uint32(octets[1])<<16 | uint32(octets[2])<<8 | uint32(octets[3])
+	return (addr & hostBits) == 1
+}
+
+func parseIPv4Octets(raw string) ([4]byte, bool) {
+	var octets [4]byte
+	parts := strings.Split(strings.TrimSpace(raw), ".")
+	if len(parts) != 4 {
+		return octets, false
+	}
+	for i, part := range parts {
+		if part == "" || (len(part) > 1 && part[0] == '0') {
+			return octets, false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 255 {
+			return octets, false
+		}
+		octets[i] = byte(n)
+	}
+	return octets, true
 }
 
 func primaryMAC(interfaces []proxmoxGuestNetworkInterface) string {

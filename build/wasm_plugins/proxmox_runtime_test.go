@@ -102,3 +102,45 @@ func TestProxmoxInventoryRunsUnderAgentLifecycle(t *testing.T) {
 		t.Fatalf("no metric telemetry emitted; payload kinds %v", kinds)
 	}
 }
+
+func TestProxmoxInventorySkipsHostInternalGuestInterfacesWhenFallingBack(t *testing.T) {
+	responses := make(map[string]string, len(proxmoxRuntimeResponses))
+	for k, v := range proxmoxRuntimeResponses {
+		responses[k] = v
+	}
+	// When no config NIC has an IP and the guest agent reports a container bridge
+	// ahead of the guest's real interface, primaryIP must skip the container bridge.
+	responses["/api2/json/nodes/pve-a/qemu/100/config"] = `{"data":{"name":"vm-100","cores":4,"memory":2048,"agent":"1"}}`
+	responses["/api2/json/nodes/pve-a/qemu/100/agent/network-get-interfaces"] = `{"data":{"result":[` +
+		`{"name":"docker0","hardware-address":"02:42:00:00:00:01","ip-addresses":[{"ip-address":"172.17.0.1","ip-address-type":"ipv4","prefix":16}]},` +
+		`{"name":"br-0a1b2c3d4e5f","hardware-address":"02:42:00:00:00:02","ip-addresses":[{"ip-address":"198.51.100.1","ip-address-type":"ipv4","prefix":24}]},` +
+		`{"name":"eth0","hardware-address":"02:00:00:00:01:00","ip-addresses":[{"ip-address":"192.0.2.20","ip-address-type":"ipv4","prefix":24}]}` +
+		`]}}`
+
+	host := &wasmHost{config: []byte(proxmoxRuntimeConfig), http: func(t *testing.T, request wasmHTTPRequest) (int, []byte) {
+		path := strings.TrimPrefix(request.URL, "https://192.0.2.11:8006")
+		body, ok := responses[path]
+		if !ok || request.Method != http.MethodGet {
+			t.Fatalf("unexpected HTTP request: %+v", request)
+		}
+		return http.StatusOK, []byte(body)
+	}}
+	host.run(t, loadBuiltWasm(t, "proxmox_inventory.wasm"), "run_check")
+
+	var vm100IP string
+	for _, result := range host.results {
+		discoveries, _ := result["device_discovery"].([]any)
+		for _, discovery := range discoveries {
+			devices, _ := discovery.(map[string]any)["devices"].([]any)
+			for _, raw := range devices {
+				device, _ := raw.(map[string]any)
+				if device["hostname"] == "vm-100" {
+					vm100IP, _ = device["ip"].(string)
+				}
+			}
+		}
+	}
+	if vm100IP != "192.0.2.20" {
+		t.Fatalf("vm-100 discovered IP = %q, want 192.0.2.20 (not container bridge)", vm100IP)
+	}
+}

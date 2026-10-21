@@ -106,6 +106,84 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
     assert [%{name: "new"}] = records.hosts
   end
 
+  test "host management IP score keeps br0 and vmbr0 bonus while skipping docker br-<hex> bridges" do
+    parent = self()
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(@observed_at),
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => "vsphere",
+        "hosts" => [
+          %{
+            "provider_ref" => "vsphere:vcenter-a:host:host-br0",
+            "name" => "hv-br0.example",
+            "status" => "connected"
+          },
+          %{
+            "provider_ref" => "vsphere:vcenter-a:host:host-vmbr0",
+            "name" => "hv-vmbr0.example",
+            "status" => "connected"
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "vsphere:vcenter-a:nic:host-br0:br-0a1b2c3d4e5f",
+            "host_provider_ref" => "vsphere:vcenter-a:host:host-br0",
+            "name" => "br-0a1b2c3d4e5f",
+            "address" => "198.51.100.1",
+            "cidr" => "198.51.100.1/24",
+            "source" => "host_config"
+          },
+          %{
+            "provider_ref" => "vsphere:vcenter-a:nic:host-br0:br0",
+            "host_provider_ref" => "vsphere:vcenter-a:host:host-br0",
+            "name" => "br0",
+            "address" => "192.0.2.10",
+            "cidr" => "192.0.2.10/24",
+            "source" => "host_config"
+          },
+          %{
+            "provider_ref" => "vsphere:vcenter-a:nic:host-vmbr0:br-feedfacecafe",
+            "host_provider_ref" => "vsphere:vcenter-a:host:host-vmbr0",
+            "name" => "br-feedfacecafe",
+            "address" => "198.51.100.2",
+            "cidr" => "198.51.100.2/24",
+            "source" => "host_config"
+          },
+          %{
+            "provider_ref" => "vsphere:vcenter-a:nic:host-vmbr0:vmbr0",
+            "host_provider_ref" => "vsphere:vcenter-a:host:host-vmbr0",
+            "name" => "vmbr0",
+            "address" => "192.0.2.11",
+            "cidr" => "192.0.2.11/24",
+            "source" => "host_config"
+          }
+        ]
+      }
+    }
+
+    assert :ok =
+             HypervisorEnrichmentIngestor.ingest(payload, %{},
+               persist: fn records ->
+                 send(parent, {:records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:records, records}
+
+    ips_by_ref =
+      Map.new(records.hosts, fn host ->
+        {host.provider_ref, get_in(host, [:metadata, "ip"])}
+      end)
+
+    assert ips_by_ref == %{
+             "vsphere:vcenter-a:host:host-br0" => "192.0.2.10",
+             "vsphere:vcenter-a:host:host-vmbr0" => "192.0.2.11"
+           }
+  end
+
   test "rejects partial or mismatched Proxmox v3 records before persistence" do
     provider_ref =
       "proxmox:v3:11111111-1111-4111-8111-111111111111:" <>
