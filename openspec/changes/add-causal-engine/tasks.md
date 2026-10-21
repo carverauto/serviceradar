@@ -82,7 +82,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 1.10.1 Extracted `core/causality.rs` (`betweenness_scores` + `evaluate_causal_states_with_reasons_impl`, incl. the 3-hop BFS cap) into `rust/causal-engine/src/god_view.rs`, dropping the dead DeepCausality `CausaloidGraph` (built-frozen-but-never-queried). State codes (0=root/1=affected/2=healthy/3=unknown) + reason strings preserved verbatim for an exact shadow diff. 5 unit tests.
 - [ ] 1.10.2 (deploy-gated) Demote the NIF to a renderer stub; keep the UI accelerators that STAY: `layout.rs`, `arrow_serde.rs`, `telemetry.rs`, `utils.rs`, `lib.rs` bindings.
 - [ ] 1.10.3 (deploy-gated) Drop `deep_causality` and `ultragraph` from the NIF crate (currently `ultragraph = "0.8"`).
-- [ ] 1.10.4 (deploy-gated) Rejoin the NIF crate to the workspace by populating the empty `[workspace]` block (sibling `srql_nif` too); re-run `bazel build` for the NIF targets.
+- [ ] 1.10.4 (deploy-gated) Rejoin the NIF crate to the workspace by populating the empty `[workspace]` block; re-run `bazel build` for the NIF targets. (The orphaned web-ng copy of `srql_nif` was removed; the real NIF is `elixir/serviceradar_srql/native/srql_nif`.)
 - [ ] 1.10.5 (deploy-gated, do FIRST) SHADOW mode: engine verdicts vs NIF verdicts computed in parallel and diffed, no UI cutover, until parity.
 - [ ] 1.10.6 (deploy-gated) CUTOVER: God-View render consumes engine `signals.causal.predictions` -> `ocsf_events` -> `GodViewSnapshot` 4 buckets (`@schema_version` unchanged); retire the NIF reasoning path.
 
@@ -125,7 +125,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ## 6. Validation
 
 - [x] 6.1 `openspec validate add-causal-engine --strict` → "Change 'add-causal-engine' is valid" (every requirement has ≥1 `#### Scenario:`; exact `## ADDED|MODIFIED Requirements` headers).
-- [x] 6.2 `rust/causal-engine` BUILD.bazel mirrors rust/srql (`all_crate_deps`); the new `ultragraph` dep was picked up by `crate_universe` (`Cargo.lock` + `MODULE.bazel.lock` committed). The `god_view_nif`/`srql_nif` workspace rejoin is part of the deploy-gated 1.10.4 (cutover runbook), not this PR.
+- [x] 6.2 `rust/causal-engine` BUILD.bazel mirrors rust/srql (`all_crate_deps`); the new `ultragraph` dep was picked up by `crate_universe` (`Cargo.lock` + `MODULE.bazel.lock` committed). The `god_view_nif` workspace rejoin is part of the deploy-gated 1.10.4 (cutover runbook), not this PR.
 - [x] 6.3 No new Go/Elixir imports introduced this phase needed BUILD edits (the Phase-0 publisher + Gap D edit are same-module additions; SBOM wiring landed with its own feature). Re-checked.
 - [x] 6.4 `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin,causal_engine_test} --config=ci` (RBE/BuildBuddy) green; 54 `cargo test` + clippy `-D warnings` + `cargo fmt --check` green.
 - [x] 6.5 Cross-references declared in `proposal.md` (verified present): `add-cti-signal-coverage`, `add-service-oriented-plugin-monitoring`, `add-device-environmental-snmp-metrics`, `add-structured-hypervisor-storage-enrichment`, `add-endpoint-sbom-inventory`, `add-bmp-dual-path-observability`, `refactor-topology-read-model-for-carrier-scale`, `improve-mapper-topology-fidelity`, `add-multipath-topology-discovery`.

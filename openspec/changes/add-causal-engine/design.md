@@ -29,7 +29,7 @@ _tensor 0.4 / _topology 0.5 / ultragraph 0.8, Cargo.toml:14-21) into a UI
 accelerator. The remaining ~2,894 lines (layout.rs 543, arrow_serde.rs 494,
 telemetry.rs 352, utils.rs 457, rustler bindings in lib.rs 815) are legitimate
 rendering infrastructure and stay where they are. The NIF deliberately carries
-an empty `[workspace]` block (Cargo.toml:23, sibling `srql_nif` too) that
+an empty `[workspace]` block (Cargo.toml:23) that
 isolates it from the top-level Rust workspace.
 
 **Automation-first reframe.** The point of the engine is the automation loop:
@@ -287,8 +287,8 @@ is unchanged by this change.
    renderer stub that reads verdicts from `ocsf_events` (via the CNPG pool
    `srql_nif` already opens) or subscribes read-only to
    `signals.causal.predictions`; drop `deep_causality*` and `ultragraph` from
-   the NIF Cargo.toml; remove the empty `[workspace]` blocks in `god_view_nif`
-   and `srql_nif` so the NIF rejoins the top-level workspace and shared deps
+   the NIF Cargo.toml; remove the empty `[workspace]` block in `god_view_nif`
+   so the NIF rejoins the top-level workspace and shared deps
    (rustler, serde, arrow) resolve uniformly.
 
 After the refactor there is a single canonical home for causal abstractions
