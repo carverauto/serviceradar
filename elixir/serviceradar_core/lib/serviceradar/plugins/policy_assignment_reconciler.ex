@@ -5,6 +5,20 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   This module resolves inputs server-side, plans deterministic chunked
   assignments, upserts desired rows by `source_key`, and disables stale policy
   assignments for the same `policy_id`.
+
+  A target query that resolves zero rows for an enabled policy means the
+  targets are unknown, not that there are none: a device whose address changed
+  or an inventory that has not been ingested yet yields the same empty result
+  as a deliberate retraction. In that case the stale retraction is skipped, the
+  enabled assignments are kept as they are, and the result carries
+  `hold_reason: :targets_unresolved` with the number of rows `held`. A warning
+  naming the policy and agents is logged and `targets_unresolved_event/0` is
+  emitted. Retraction still happens when the policy is disabled, and when the
+  query resolves rows that no longer include an assignment.
+
+  A caller whose input rows are the authoritative list itself, rather than the
+  result of a target query, passes `hold_unresolved_targets: false` so that an
+  empty list retracts.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -12,15 +26,23 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.PolicyAssignmentPlanner
   alias ServiceRadar.Plugins.SRQLInputResolver
+  alias ServiceRadar.Plugins.ValueUtils
 
   require Ash.Query
+  require Logger
+
+  @targets_unresolved_event [:serviceradar, :plugins, :policy_assignments, :targets_unresolved]
+
+  @type hold_reason :: :targets_unresolved | nil
 
   @type reconcile_result :: %{
           resolved_inputs: non_neg_integer(),
           desired_assignments: non_neg_integer(),
           upserted: non_neg_integer(),
           unchanged: non_neg_integer(),
-          disabled: non_neg_integer()
+          disabled: non_neg_integer(),
+          held: non_neg_integer(),
+          hold_reason: hold_reason()
         }
 
   @type assignment_store :: module()
@@ -32,6 +54,10 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   @callback disable_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback find_enabled_assignment(String.t(), String.t(), String.t(), map()) ::
               {:ok, map() | nil} | {:error, term()}
+
+  @doc "Telemetry event emitted when enabled assignments are held because targets resolved empty."
+  @spec targets_unresolved_event() :: [atom()]
+  def targets_unresolved_event, do: @targets_unresolved_event
 
   @spec reconcile(map(), [map()], keyword()) :: {:ok, reconcile_result()} | {:error, [String.t()]}
   def reconcile(policy, input_defs, opts \\ []) do
@@ -51,15 +77,28 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
          {:ok, policy_id} <- policy_id(policy),
          {:ok, existing} <-
            store.list_policy_assignments(policy_id, actor, partition_id: expected_partition_id),
+         retraction = retraction_mode(policy, resolved_inputs, opts),
          {:ok, stats} <-
-           apply_plan(desired, existing, actor, store, agent_scope, expected_partition_id) do
+           apply_plan(
+             desired,
+             existing,
+             actor,
+             store,
+             agent_scope,
+             expected_partition_id,
+             retraction
+           ) do
+      report_hold(policy_id, stats)
+
       {:ok,
        %{
          resolved_inputs: length(resolved_inputs),
          desired_assignments: length(desired),
          upserted: stats.upserted,
          unchanged: stats.unchanged,
-         disabled: stats.disabled
+         disabled: stats.disabled,
+         held: length(stats.held),
+         hold_reason: if(stats.held == [], do: nil, else: :targets_unresolved)
        }}
     else
       {:error, errors} when is_list(errors) -> {:error, errors}
@@ -150,7 +189,56 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
-  defp apply_plan(desired_specs, existing_rows, actor, store, agent_scope, partition_scope) do
+  # A resolver error halts `reconcile/3` before this point, so only an
+  # *empty* resolution reaches here. Zero rows for an enabled policy cannot be
+  # told apart from a target that is temporarily unknown, so stale rows are
+  # held rather than retracted. A disabled policy, or a caller whose rows are
+  # authoritative, still retracts.
+  defp retraction_mode(policy, resolved_inputs, opts) do
+    hold? =
+      Keyword.get(opts, :hold_unresolved_targets, true) and
+        ValueUtils.bool_value(policy, [:enabled, "enabled"], true) and
+        resolved_row_count(resolved_inputs) == 0
+
+    if hold?, do: :hold, else: :retract
+  end
+
+  defp resolved_row_count(resolved_inputs) do
+    Enum.reduce(resolved_inputs, 0, fn input, count ->
+      count + length(ValueUtils.list_value(input, [:rows, "rows"]) || [])
+    end)
+  end
+
+  defp report_hold(_policy_id, %{held: []}), do: :ok
+
+  defp report_hold(policy_id, %{held: held}) do
+    agent_uids = held |> Enum.map(&to_string(&1.agent_uid)) |> Enum.uniq() |> Enum.sort()
+
+    Logger.warning(
+      "Plugin policy #{policy_id} target query resolved no rows; keeping " <>
+        "#{length(held)} enabled assignment(s) for agent(s) #{Enum.join(agent_uids, ",")} " <>
+        "instead of retracting them (reason: targets_unresolved)",
+      policy_id: policy_id,
+      agent_uids: agent_uids,
+      reason: :targets_unresolved
+    )
+
+    :telemetry.execute(
+      @targets_unresolved_event,
+      %{held: length(held)},
+      %{policy_id: policy_id, agent_uids: agent_uids, reason: :targets_unresolved}
+    )
+  end
+
+  defp apply_plan(
+         desired_specs,
+         existing_rows,
+         actor,
+         store,
+         agent_scope,
+         partition_scope,
+         retraction
+       ) do
     desired_by_key = Map.new(desired_specs, &{{&1.partition_id, &1.assignment_key}, &1})
 
     existing_by_key =
@@ -171,14 +259,38 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     stale_candidates = scope_existing(existing_by_key, agent_scope)
 
     with {:ok, upsert_stats} <- upsert_desired(desired_by_key, existing_by_key, actor, store),
-         {:ok, disabled_count} <- disable_stale(desired_by_key, stale_candidates, actor, store) do
+         {:ok, disabled_count, held} <-
+           retract_stale(retraction, desired_by_key, stale_candidates, actor, store) do
       {:ok,
        %{
          upserted: upsert_stats.upserted,
          unchanged: upsert_stats.unchanged,
-         disabled: disabled_count
+         disabled: disabled_count,
+         held: held
        }}
     end
+  end
+
+  defp retract_stale(:hold, desired_by_key, existing_by_key, _actor, _store) do
+    held =
+      existing_by_key
+      |> stale_rows(desired_by_key)
+      |> Enum.filter(& &1.enabled)
+
+    {:ok, 0, held}
+  end
+
+  defp retract_stale(:retract, desired_by_key, existing_by_key, actor, store) do
+    case disable_stale(desired_by_key, existing_by_key, actor, store) do
+      {:ok, disabled_count} -> {:ok, disabled_count, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp stale_rows(existing_by_key, desired_by_key) do
+    for {key, assignment} <- existing_by_key,
+        not Map.has_key?(desired_by_key, key),
+        do: assignment
   end
 
   defp upsert_desired(desired_by_key, existing_by_key, actor, store) do
@@ -191,8 +303,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
   defp disable_stale(desired_by_key, existing_by_key, actor, store) do
     existing_by_key
-    |> Enum.reject(fn {key, _} -> Map.has_key?(desired_by_key, key) end)
-    |> Enum.reduce_while({:ok, 0}, fn {_key, assignment}, {:ok, count} ->
+    |> stale_rows(desired_by_key)
+    |> Enum.reduce_while({:ok, 0}, fn assignment, {:ok, count} ->
       disable_one(assignment, count, actor, store)
     end)
   end
