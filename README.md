@@ -73,7 +73,7 @@ The published npm packages make it straightforward to create and validate a
 dashboard from a normal JavaScript workspace:
 
 ```bash
-npm create @carverauto/create-dashboard@latest my-dashboard -- --template react-map
+npm create @carverauto/dashboard@latest my-dashboard -- --template react-map
 cd my-dashboard
 npm ci
 npm run dev
