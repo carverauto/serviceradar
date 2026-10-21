@@ -581,7 +581,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   def unchanged_advisory?(_record, _existing_state, _opts), do: false
 
-  @doc "Number of live rows whose state can participate in the feed's skip guard."
+  @doc """
+  Number of live rows whose state can participate in the feed's skip guard.
+
+  For `:modified_at` feeds a row counts only when its stored
+  `normalization_version` equals the `:normalization_version` option, matching
+  `unchanged_advisory?/3`: rows from a prior version are rewritten once and must
+  not make that reprojection run look like an inert guard.
+  """
   @spec comparable_count(String.t(), map() | :ets.tid(), keyword()) :: non_neg_integer()
   def comparable_count(feed_key, existing_state, opts \\ []) when is_list(opts) do
     normalization_version = Keyword.get(opts, :normalization_version)
