@@ -11,6 +11,8 @@
 
 <img width="1470" height="834" alt="Screenshot 2026-09-22 at 3 48 47 AM" src="https://github.com/user-attachments/assets/46259e7a-afe2-4091-b817-2d2e3efc71bb" />
 <img width="1470" height="836" alt="Screenshot 2026-09-26 at 9 28 26 PM" src="https://github.com/user-attachments/assets/bd7f0605-3b2a-474d-b0e2-4214d55bab91" />
+<img width="1468" height="834" alt="Screenshot 2026-10-20 at 9 58 21 PM" src="https://github.com/user-attachments/assets/89766a6c-bf57-4f53-9eca-1fc1a35aaeff" />
+
 
 
 [![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
