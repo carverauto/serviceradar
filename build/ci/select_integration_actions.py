@@ -9,7 +9,8 @@ marker and the action's database lifecycle exits early.
 
 It is conservative by construction. The action runs in full when:
 
-  * the event is not a pull request, or the merge base or diff cannot be resolved;
+  * the event is set and is not a pull request, or the merge base or diff cannot be
+    resolved;
   * any changed path can change the build graph or the test fixture for every target
     (see RUN_ALL_*), or was deleted;
   * a Bazel query fails.
@@ -211,7 +212,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     prefix = f"[select_integration_actions:{args.action}]"
 
     event = os.environ.get("BUILDBUDDY_EVENT") or os.environ.get("CI_EVENT") or os.environ.get("GITHUB_EVENT_NAME")
-    if not event or event.lower() not in ("pull_request", "pr"):
+    if event and event.lower() not in ("pull_request", "pr"):
         print(f"{prefix} event {event!r} is not a pull request; the action runs in full.")
         return 0
     base = resolve_merge_base(args.base_branch) if args.base_branch else None

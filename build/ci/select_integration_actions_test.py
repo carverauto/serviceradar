@@ -3,12 +3,17 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
+from build.ci import select_integration_actions
 from build.ci.select_integration_actions import ACTIONS, CORE_TARGETS, WEB_NG_TARGETS, decide, source_label
 
 
@@ -150,6 +155,38 @@ class SelectIntegrationActionsTest(unittest.TestCase):
                     {"core": True, "web_ng": True},
                     self.runs(["go/scanner.go"], GraphQuery(fail=failure)),
                 )
+
+
+class MainEventTest(unittest.TestCase):
+    """main() skips only on a pull request or when no event is set, as detect_docs_only does."""
+
+    def run_main(self, event_env):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        marker = Path(tmp.name) / "skip-core"
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("BUILDBUDDY_EVENT", "CI_EVENT", "GITHUB_EVENT_NAME")
+        }
+        env.update(event_env, SERVICERADAR_SKIP_MARKER=str(marker), GIT_BASE_BRANCH="staging")
+        query = GraphQuery()
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(
+            select_integration_actions, "resolve_merge_base", return_value="0123456789abcdef"
+        ), mock.patch.object(
+            select_integration_actions, "get_changed_paths", return_value=["docs/agent-runbooks.md"]
+        ), mock.patch.object(select_integration_actions, "bazel_query", query), contextlib.redirect_stdout(
+            io.StringIO()
+        ):
+            self.assertEqual(0, select_integration_actions.main(["--action", "core"]))
+        return marker
+
+    def test_no_event_set_diffs_against_the_merge_base_and_skips_a_docs_only_change(self):
+        # BuildBuddy workflows set none of the event variables.
+        self.assertTrue(self.run_main({}).is_file())
+
+    def test_a_set_non_pull_request_event_runs_in_full(self):
+        self.assertFalse(self.run_main({"BUILDBUDDY_EVENT": "push"}).exists())
 
 
 if __name__ == "__main__":
