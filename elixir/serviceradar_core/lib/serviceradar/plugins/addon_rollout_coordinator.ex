@@ -345,7 +345,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       if Eligibility.version_at_least?(current.version, candidate.version) do
         {:ok, []}
       else
-        artifact.promote_source(rollout, actor)
+        case artifact.promote_source(rollout, actor) do
+          {:error, :owner_package_changed} -> {:ok, []}
+          result -> result
+        end
       end
     end
   end
@@ -1259,8 +1262,29 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       emit(:completed, completed, completed.target_snapshot)
       {:ok, pinned ++ promoted ++ cleared}
     else
+      {:error, :owner_package_changed} -> supersede_moved_owner(rollout, targets, actor, now)
       {:error, :stale_target} -> {:error, :stale_target}
       {:error, reason} -> {:error, {:pause_rollout, reason}}
+    end
+  end
+
+  # The source was moved to another package while the rollout ran. The
+  # candidate does not overwrite that choice: the rollout releases its
+  # overrides and target slots and ends superseded.
+  defp supersede_moved_owner(rollout, targets, actor, now) do
+    details = %{reason: "owner_package_changed"}
+
+    with {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
+         :ok <- mark_targets_canceled(targets, actor, now),
+         {:ok, updated} <-
+           update_rollout(
+             rollout,
+             %{state: :superseded, completed_at: now, blocked_reason: "owner_package_changed"},
+             actor
+           ) do
+      audit(:supersede, updated, details)
+      emit(:superseded, updated, details)
+      {:ok, notifications}
     end
   end
 

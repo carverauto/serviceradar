@@ -488,9 +488,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     @moduledoc false
     @behaviour ServiceRadar.Plugins.PolicyAssignmentReconciler
 
+    alias ServiceRadar.Actors.SystemActor
     alias ServiceRadar.Plugins.OwnedAssignmentRetraction
     alias ServiceRadar.Plugins.PluginAssignment
     alias ServiceRadar.Plugins.PluginPackage
+    alias ServiceRadar.Plugins.PluginTargetPolicy
+    alias ServiceRadar.Plugins.PolicyOwnedAssignmentRecovery.OwnerReference
     alias ServiceRadar.Repo
 
     require Ash.Query
@@ -589,11 +592,42 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     # later reconcile visits. The check share-locks the owner row in this
     # transaction; see OwnedAssignmentRetraction.admit_enabled_assignment/3.
     defp admit_owner(%{enabled: true} = spec) do
-      OwnedAssignmentRetraction.admit_enabled_assignment(
-        spec.metadata["policy_id"],
-        spec.agent_uid,
-        spec.partition_id
-      )
+      with :ok <-
+             OwnedAssignmentRetraction.admit_enabled_assignment(
+               spec.metadata["policy_id"],
+               spec.agent_uid,
+               spec.partition_id
+             ) do
+        admit_owner_package(spec.metadata["policy_id"], spec.plugin_package_id)
+      end
+    end
+
+    # Under that same share lock: a target policy whose stable package moved
+    # since the spec was planned (a rollout promotion, an operator's choice)
+    # would be reverted by writing the spec's package.
+    defp admit_owner_package(policy_id, plugin_package_id) do
+      case OwnerReference.parse(policy_id) do
+        {:ok, %{kind: :plugin_target_policy, id: id}} ->
+          PluginTargetPolicy
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.filter(id == ^id)
+          |> Ash.read_one(actor: SystemActor.system(:policy_assignment_reconciler))
+          |> case do
+            {:ok, %PluginTargetPolicy{plugin_package_id: current}} ->
+              if to_string(current) == to_string(plugin_package_id),
+                do: :ok,
+                else: {:error, :assignment_owner_package_changed}
+
+            {:ok, nil} ->
+              :ok
+
+            {:error, reason} ->
+              {:error, reason}
+          end
+
+        _credential_rule_or_unparsed ->
+          :ok
+      end
     end
 
     defp admit_owner(_spec), do: :ok

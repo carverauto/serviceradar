@@ -309,6 +309,36 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     assert %{rollout_plugin_package_id: nil, rollout_id: nil} = assignment(member)
   end
 
+  test "promotion keeps a package the owner was moved to during the rollout", ctx do
+    member = manual_member!(ctx)
+    chosen = package!(ctx.previous.plugin_id, "1.2.0")
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(assignment(member), ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 0)
+      )
+
+    # An operator selects another version for the assignment while the
+    # candidate is still proving itself on it.
+    Repo.query!(
+      "UPDATE platform.plugin_assignments SET plugin_package_id = $2::text::uuid WHERE id = $1::text::uuid",
+      [member.id, chosen.id]
+    )
+
+    result!(member, ctx.candidate, "OK", at(ctx, 1))
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+
+    assert %{plugin_package_id: stable_id, rollout_plugin_package_id: nil, rollout_id: nil} =
+             assignment(member)
+
+    assert stable_id == chosen.id
+
+    assert %{state: :superseded, blocked_reason: "owner_package_changed"} = reload(rollout)
+    assert %{state: :canceled} = target(rollout, member)
+  end
+
   test "revoking the candidate rolls its active rollout back", ctx do
     member = manual_member!(ctx)
 

@@ -337,8 +337,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def pin_failed_member(_target, _actor), do: {:error, :wasm_rollouts_tolerate_no_failures}
 
   @impl true
+  # Promotion moves an owner only while it still holds the package the rollout
+  # started from; the caller holds its row lock. An owner an operator has moved
+  # to another package keeps it, and {:error, :owner_package_changed} lets the
+  # coordinator end the rollout without promoting.
   def promote_source(%AddonRollout{source_type: :assignment} = rollout, actor) do
-    with {:ok, assignment} <- get_by_id(PluginAssignment, rollout.source_id, actor) do
+    with {:ok, assignment} <- get_by_id(PluginAssignment, rollout.source_id, actor),
+         :ok <- require_previous(assignment.plugin_package_id, rollout.previous_plugin_package_id) do
       update(
         assignment,
         :promote_rollout,
@@ -349,24 +354,40 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   end
 
   def promote_source(%AddonRollout{source_type: :target_policy} = rollout, actor) do
-    fn ->
-      with {:ok, policy} <- get_by_id(PluginTargetPolicy, rollout.source_id, actor),
-           {:ok, _policy} <-
-             policy
-             |> Ash.Changeset.for_update(
-               :promote_rollout,
-               %{plugin_package_id: rollout.candidate_plugin_package_id},
-               actor: actor
-             )
-             |> Ash.update(actor: actor, authorize?: true),
-           {:ok, members} <- policy_members(policy, actor),
-           {:ok, notifications} <- promote_members(members, rollout, actor) do
-        notifications
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
+    with {:ok, policy} <- get_by_id(PluginTargetPolicy, rollout.source_id, actor),
+         :ok <- require_previous(policy.plugin_package_id, rollout.previous_plugin_package_id),
+         {:ok, _policy} <-
+           policy
+           |> Ash.Changeset.for_update(
+             :promote_rollout,
+             %{plugin_package_id: rollout.candidate_plugin_package_id},
+             actor: actor
+           )
+           |> Ash.update(actor: actor, authorize?: true),
+         {:ok, members} <- policy_members(policy, actor),
+         {:ok, previous_by_member} <- member_previous_packages(rollout, actor) do
+      promote_members(members, rollout, previous_by_member, actor)
     end
-    |> Repo.transaction()
+  end
+
+  defp require_previous(stable_id, previous_id) do
+    if same_id?(to_string(stable_id), to_string(previous_id)),
+      do: :ok,
+      else: {:error, :owner_package_changed}
+  end
+
+  defp member_previous_packages(rollout, actor) do
+    AddonRolloutTarget
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(rollout_id == ^rollout.id and not is_nil(plugin_assignment_id))
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, targets} ->
+        {:ok, Map.new(targets, &{&1.plugin_assignment_id, &1.previous_plugin_package_id})}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # Health evidence.
@@ -722,26 +743,38 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     |> Ash.read(actor: actor)
   end
 
-  defp promote_members(members, rollout, actor) do
+  # A member moves only from the package its target started from (the
+  # policy's, for a member without a target). A member that moved meanwhile
+  # keeps its package and only loses this rollout's override.
+  defp promote_members(members, rollout, previous_by_member, actor) do
     candidate_id = rollout.candidate_plugin_package_id
 
     Enum.reduce_while(members, {:ok, []}, fn member, {:ok, notifications} ->
-      attrs =
-        if member.rollout_id == rollout.id,
-          do: Map.put(cleared_override(), :plugin_package_id, candidate_id),
-          else: %{plugin_package_id: candidate_id}
+      ours? = member.rollout_id == rollout.id
+      previous_id = Map.get(previous_by_member, member.id, rollout.previous_plugin_package_id)
 
       # The actor goes on the changeset too: AssignmentParams checks it when it
       # validates, and only a system actor may change a policy-owned row.
-      member
-      |> Ash.Changeset.for_update(:promote_rollout, attrs, actor: actor)
-      |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
-      |> case do
-        {:ok, _member, member_notifications} ->
-          {:cont, {:ok, member_notifications ++ notifications}}
+      result =
+        cond do
+          require_previous(member.plugin_package_id, previous_id) == :ok ->
+            attrs =
+              if ours?,
+                do: Map.put(cleared_override(), :plugin_package_id, candidate_id),
+                else: %{plugin_package_id: candidate_id}
 
-        {:error, reason} ->
-          {:halt, {:error, reason}}
+            update(member, :promote_rollout, attrs, actor)
+
+          ours? ->
+            update(member, :clear_rollout_override, cleared_override(), actor)
+
+          true ->
+            {:ok, []}
+        end
+
+      case result do
+        {:ok, member_notifications} -> {:cont, {:ok, member_notifications ++ notifications}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
