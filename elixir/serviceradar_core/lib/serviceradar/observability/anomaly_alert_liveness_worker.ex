@@ -14,9 +14,13 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   The scheduled run uses a deterministic series key (distinct from the mix
   task's per-run unique keys), so an interrupted run leaves at most one open
   synthetic alert and the next run — or the best-effort clear in the failure
-  path, or the resolve-stale sweep — converges it. A failed check records the
-  unhealthy event and returns `:ok`: the health event is the signal and the
-  next cron run is the retry.
+  path, or the resolve-stale sweep — converges it. A known transient failure
+  (liveness timeout, rollout/peer readiness, capacity, lock or driver
+  contention, rule-load/lookup/cleanup failures) logs a warning, runs the
+  best-effort cleanup and retries the check once within the same run. Any
+  other failure, or a transient one that persists across the retry, logs at
+  error, records the unhealthy event and returns `:ok`: the health event is the
+  signal and the next cron run is the retry.
 
   The scheduled run only probes while alert evaluation is `:active`. In
   `:prepared` or `:draining` mode admission refuses the synthetic events, so the
