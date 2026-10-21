@@ -44,9 +44,14 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorkerTest do
     refute_received {:cleanup, _series_key}
   end
 
-  test "logs, cleans up, and records unhealthy when the check fails" do
+  test "logs, cleans up, and records unhealthy when a transient failure persists across the retry" do
     pid = self()
-    check = fn _opts -> {:error, :anomaly_alert_liveness_timeout} end
+    counter = :counters.new(1, [:atomics])
+
+    check = fn _opts ->
+      :counters.add(counter, 1, 1)
+      {:error, :anomaly_alert_liveness_timeout}
+    end
 
     log =
       capture_log(fn ->
@@ -58,11 +63,14 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorkerTest do
                  )
       end)
 
+    assert log =~ "retrying once"
     assert log =~ "Anomaly alert liveness check failed"
+    assert :counters.get(counter, 1) == 2
 
     assert_received {:cleanup, "synthetic:anomaly-alert-liveness:tripwire"}
     assert_received {:health, "anomaly-alert-liveness", false, metadata}
     assert metadata["reason"] =~ "anomaly_alert_liveness_timeout"
+    refute_received {:health, _check, _healthy?, _metadata}
   end
 
   test "a raising check fails open: unhealthy recorded, no crash" do

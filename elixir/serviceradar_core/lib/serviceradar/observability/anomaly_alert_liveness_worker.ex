@@ -128,8 +128,10 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   defp transient_failure?(:alert_evaluation_capability_unavailable), do: true
   defp transient_failure?(:alert_evaluation_peer_not_ready), do: true
   defp transient_failure?({:overloaded, _}), do: true
+
   defp transient_failure?(%Postgrex.Error{postgres: %{code: code}}),
     do: code in @transient_pg_codes
+
   defp transient_failure?(%DBConnection.ConnectionError{}), do: true
   defp transient_failure?({:store_unavailable, reason}), do: transient_failure?(reason)
   defp transient_failure?({:rule_load_failed, _}), do: true
