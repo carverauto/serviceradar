@@ -14,65 +14,144 @@ async function completedBitmapFrame(page) {
   await page.evaluate(() => {window.__SR_BITMAP_GPU__.measurements.recordFrames = false})
 }
 
-test("filtered geometry remains pickable while pan and zoom membership is delayed", async ({page}) => {
+const filterQuery = {facet: "availability", value: "unavailable"}
+
+async function openFilteredCapture(page) {
   await page.route("http://localhost:4774/**", route => route.fulfill({path: html, contentType: "text/html"}))
   await page.goto("http://localhost:4774/?bitmap=1&capture=1")
   await page.waitForFunction(() => {
     const renderer = window.__SR_BITMAP_GPU__?.renderer
     return renderer?.cache.watch && renderer.deck.props.layers[0]?.isLoaded
   })
-  await page.evaluate(() => {
+  await page.evaluate(query => {
     const {renderer} = window.__SR_BITMAP_GPU__
     renderer.setView({target: [192, 192, 0], zoom: 2})
-    window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query: {facet: "availability", value: "unavailable"}})
-  })
-  const settled = () => page.waitForFunction(() => {
-    const {renderer} = window.__SR_BITMAP_GPU__
-    return !renderer.membership.pending && renderer.membership.sequence !== null && renderer.deck.props.layers[0].isLoaded
-  })
-  const pick = world => page.evaluate(async world => {
-    const {deck} = window.__SR_BITMAP_GPU__.renderer
-    const [x, y] = deck.getViewports()[0].project(world)
-    const result = await deck.pickObjectAsync({x, y, radius: 4})
-    const source = result?.sourceLayer || result?.layer
-    const object = result?.object || (result?.picked && source?.props.data.resolve?.(result.index))
-    return object ? {id: object.id, zoom: source.props.tile.index.z} : null
-  }, world)
-  await settled()
+    window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query})
+  }, filterQuery)
+  await membershipSettled(page)
   await completedBitmapFrame(page)
-  await expect.poll(() => pick([192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
+}
+
+const membershipSettled = page => page.waitForFunction(() => {
+  const {renderer} = window.__SR_BITMAP_GPU__
+  return !renderer.membership.pending && renderer.membership.sequence !== null && renderer.deck.props.layers[0].isLoaded
+})
+
+const pickWorld = (page, world) => page.evaluate(async world => {
+  const {deck} = window.__SR_BITMAP_GPU__.renderer
+  const [x, y] = deck.getViewports()[0].project(world)
+  const result = await deck.pickObjectAsync({x, y, radius: 4})
+  const source = result?.sourceLayer || result?.layer
+  const object = result?.object || (result?.picked && source?.props.data.resolve?.(result.index))
+  return object ? {id: object.id, zoom: source.props.tile.index.z} : null
+}, world)
+
+// Withholds binary membership frames so a replacement view stays pending.
+// `rebind` rewrites binding fields in the server's membership:watch reply.
+const holdMembershipFrames = (page, rebind = null) => page.evaluate(rebind => {
+  const harness = window.__SR_BITMAP_GPU__, socket = harness.renderer.channel.socket.conn
+  const deliver = socket.onmessage
+  harness.heldFrames = []
+  socket.onmessage = event => {
+    if (event.data instanceof ArrayBuffer) {harness.heldFrames.push(event); return}
+    const message = JSON.parse(event.data)
+    if (rebind && message[3] === "phx_reply" && message[4].response?.view_digest) {
+      Object.assign(message[4].response, rebind)
+      deliver({data: JSON.stringify(message)})
+    } else deliver(event)
+  }
+  harness.releaseFrames = () => {
+    socket.onmessage = deliver
+    for (const event of harness.heldFrames.splice(0)) deliver(event)
+  }
+}, rebind)
+
+const setView = (page, view) => page.evaluate(view => window.__SR_BITMAP_GPU__.renderer.setView(view), view)
+
+test("filtered geometry remains pickable while pan and zoom membership is delayed", async ({page}) => {
+  await openFilteredCapture(page)
   let previousZoom = 2
   for (const view of [
     {target: [288, 192, 0], zoom: 2},
     {target: [192, 192, 0], zoom: 3},
     {target: [192, 192, 0], zoom: 1},
   ]) {
-    expect(await pick([192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: previousZoom})
-    expect(await pick([205, 205, 0])).toMatchObject({id: "synthetic-relation-synthetic-5-3"})
-    await page.evaluate(view => {
-      const harness = window.__SR_BITMAP_GPU__, socket = harness.renderer.channel.socket.conn
-      const deliver = socket.onmessage
-      harness.heldFrames = []
-      socket.onmessage = event => {
-        if (event.data instanceof ArrayBuffer) harness.heldFrames.push(event)
-        else deliver(event)
-      }
-      harness.releaseFrames = () => {
-        socket.onmessage = deliver
-        for (const event of harness.heldFrames.splice(0)) deliver(event)
-      }
-      harness.renderer.setView(view)
-    }, view)
+    expect(await pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: previousZoom})
+    expect(await pickWorld(page, [205, 205, 0])).toMatchObject({id: "synthetic-relation-synthetic-5-3"})
+    await holdMembershipFrames(page)
+    await setView(page, view)
     await page.waitForFunction(() => window.__SR_BITMAP_GPU__.heldFrames.length > 0 && window.__SR_BITMAP_GPU__.renderer.membership.pending)
     await completedBitmapFrame(page)
-    expect(await pick([192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: previousZoom})
-    expect(await pick([205, 205, 0])).toMatchObject({id: "synthetic-relation-synthetic-5-3"})
+    expect(await pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: previousZoom})
+    expect(await pickWorld(page, [205, 205, 0])).toMatchObject({id: "synthetic-relation-synthetic-5-3"})
     await page.evaluate(() => window.__SR_BITMAP_GPU__.releaseFrames())
-    await settled()
+    await membershipSettled(page)
     await completedBitmapFrame(page)
-    await expect.poll(() => pick([192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: view.zoom})
+    await expect.poll(() => pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: view.zoom})
     previousZoom = view.zoom
   }
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+})
+
+test("retained filtered geometry fails closed on query change", async ({page}) => {
+  await openFilteredCapture(page)
+  await holdMembershipFrames(page)
+  // Same admitted devices under a different expression: only fail-closed
+  // clearing, not the new result, can hide the node while frames are held.
+  await page.evaluate(query => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_bitmap_query")({query}), {all: [filterQuery]})
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.heldFrames.length > 0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.entries.size)).toBe(0)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toBeNull()
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.releaseFrames())
+  await membershipSettled(page)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+})
+
+for (const field of ["dictionary_epoch", "authority_fingerprint"]) {
+  test(`retained filtered geometry fails closed when a pan rebinds ${field}`, async ({page}) => {
+    await openFilteredCapture(page)
+    await holdMembershipFrames(page, {[field]: "synthetic-changed-identity"})
+    await setView(page, {target: [288, 192, 0], zoom: 2})
+    await page.waitForFunction(field => window.__SR_BITMAP_GPU__.renderer.membership.binding?.[field] === "synthetic-changed-identity", field)
+    expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.entries.size)).toBe(0)
+    await completedBitmapFrame(page)
+    await expect.poll(() => pickWorld(page, [192, 192, 0])).toBeNull()
+    await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
+  })
+}
+
+test("retained filtered geometry expires 10s after a stalled pan despite further camera moves", async ({page}) => {
+  test.setTimeout(90000)
+  await openFilteredCapture(page)
+  await holdMembershipFrames(page)
+  const started = Date.now()
+  await setView(page, {target: [288, 192, 0], zoom: 2})
+  await page.waitForFunction(() => window.__SR_BITMAP_GPU__.heldFrames.length > 0 && window.__SR_BITMAP_GPU__.renderer.membership.pending)
+  const pendingAt = Date.now()
+  // A second camera move must not restart the replacement deadline.
+  await page.waitForTimeout(5000)
+  const watches = await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membershipPush)
+  await setView(page, {target: [192, 192, 0], zoom: 2})
+  await page.waitForFunction(watches => window.__SR_BITMAP_GPU__.renderer.membershipPush > watches, watches)
+  await page.waitForTimeout(Math.max(0, pendingAt + 8500 - Date.now()))
+  await completedBitmapFrame(page)
+  expect(await pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
+  await expect.poll(() => page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.entries.size),
+    {timeout: Math.max(0, started + 12500 - Date.now()), intervals: [100]}).toBe(0)
+  expect(Date.now() - started).toBeLessThan(12500)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.retainedBufferBytes)).toBe(0)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toBeNull()
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.releaseFrames())
+  await membershipSettled(page)
+  await completedBitmapFrame(page)
+  await expect.poll(() => pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
   expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.metrics().errors)).toEqual([])
   await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.destroy())
 })
