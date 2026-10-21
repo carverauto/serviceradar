@@ -253,23 +253,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   end
 
   @impl true
-  def clear_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
+  def clear_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: {:ok, []}
 
   def clear_override(target, actor) do
     with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
       if assignment.rollout_id == target.rollout_id do
-        assignment
-        |> update_assignment(
+        update_assignment(
+          assignment,
           :clear_rollout_override,
           %{rollout_package_id: nil, rollout_id: nil, rollout_started_at: nil},
           actor
         )
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
       else
-        :ok
+        {:ok, []}
       end
     end
   end
@@ -285,53 +281,62 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
   @impl true
   def pin_failed_member(target, actor) do
-    with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :update,
-             %{
-               source: :manual,
-               source_key: nil,
-               addon_profile_id: nil,
-               update_policy: :manual_pin,
-               explicit_version_pin: true
-             },
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
+      update_assignment(
+        assignment,
+        :update,
+        %{
+          source: :manual,
+          source_key: nil,
+          addon_profile_id: nil,
+          update_policy: :manual_pin,
+          explicit_version_pin: true
+        },
+        actor
+      )
     end
   end
 
   @impl true
   def promote_source(%AddonRollout{source_type: :assignment} = rollout, actor) do
-    with {:ok, assignment} <- get_assignment(rollout.source_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :promote_rollout,
-             %{
-               addon_package_id: rollout.candidate_package_id,
-               rollout_package_id: nil,
-               rollout_id: nil,
-               rollout_started_at: nil
-             },
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- get_assignment(rollout.source_id, actor) do
+      update_assignment(
+        assignment,
+        :promote_rollout,
+        %{
+          addon_package_id: rollout.candidate_package_id,
+          rollout_package_id: nil,
+          rollout_id: nil,
+          rollout_started_at: nil
+        },
+        actor
+      )
     end
   end
 
+  # The profile reconcile writes assignments through actions of its own, so
+  # their notifications are collected by Ash.transact/3 and returned with the
+  # profile's, to be sent once the caller's transaction commits.
   def promote_source(%AddonRollout{source_type: :profile} = rollout, actor) do
-    with {:ok, profile} <- get_profile(rollout.source_id, actor),
-         {:ok, _} <-
-           profile
-           |> Ash.Changeset.for_update(:promote_rollout, %{
-             addon_package_id: rollout.candidate_package_id
-           })
-           |> Ash.update(actor: actor, authorize?: true),
-         {:ok, _summary} <- AddonProfileOps.reconcile_by_id(profile.id, actor: actor) do
-      :ok
+    [AddonProfile, AddonAssignment]
+    |> Ash.transact(
+      fn ->
+        with {:ok, profile} <- get_profile(rollout.source_id, actor),
+             {:ok, _} <-
+               profile
+               |> Ash.Changeset.for_update(:promote_rollout, %{
+                 addon_package_id: rollout.candidate_package_id
+               })
+               |> Ash.update(actor: actor, authorize?: true) do
+          AddonProfileOps.reconcile_by_id(profile.id, actor: actor)
+        end
+      end,
+      return_notifications?: true
+    )
+    |> case do
+      {:ok, {:error, reason}, _notifications} -> {:error, reason}
+      {:ok, _summary, notifications} -> {:ok, notifications}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -731,7 +736,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   defp update_assignment(assignment, action, attrs, actor) do
     assignment
     |> Ash.Changeset.for_update(action, attrs)
-    |> Ash.update(actor: actor, authorize?: true)
+    |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+    |> case do
+      {:ok, _assignment, notifications} -> {:ok, notifications}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp normalize_strings(values),

@@ -8,7 +8,8 @@ defmodule ServiceRadar.Plugins.Changes.RollBackRevokedCandidate do
   revoke's own transaction: it clears every override the rollout holds and moves
   the rollout to `:rolling_back` with the reason `candidate_revoked`, so the
   package is never revoked while an assignment still points at it. If the
-  rollback fails, the revoke fails with it.
+  rollback fails, the revoke fails with it. The rollback's config notifications
+  are handed back to the revoke, which sends them once it commits.
   """
 
   use Ash.Resource.Change
@@ -26,7 +27,7 @@ defmodule ServiceRadar.Plugins.Changes.RollBackRevokedCandidate do
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_action(changeset, fn _changeset, package ->
       case roll_back_rollouts_of(package) do
-        :ok -> {:ok, package}
+        {:ok, notifications} -> {:ok, package, notifications}
         {:error, reason} -> {:error, reason}
       end
     end)
@@ -47,13 +48,17 @@ defmodule ServiceRadar.Plugins.Changes.RollBackRevokedCandidate do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, rollouts} ->
-        Enum.reduce_while(rollouts, :ok, fn rollout, :ok ->
+        Enum.reduce_while(rollouts, {:ok, []}, fn rollout, {:ok, notifications} = acc ->
           case AddonRolloutCoordinator.rollback(rollout.id,
                  actor: actor,
-                 reason: :candidate_revoked
+                 reason: :candidate_revoked,
+                 return_notifications?: true
                ) do
-            :ok ->
-              {:cont, :ok}
+            {:ok, rolled_back} ->
+              {:cont, {:ok, notifications ++ rolled_back}}
+
+            {:error, :rollout_not_active} ->
+              {:cont, acc}
 
             {:error, reason} ->
               {:halt, {:error, {:candidate_rollback_failed, rollout.id, reason}}}

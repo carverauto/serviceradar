@@ -272,18 +272,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   end
 
   @impl true
-  def clear_override(%AddonRolloutTarget{plugin_assignment_id: nil}, _actor), do: :ok
+  def clear_override(%AddonRolloutTarget{plugin_assignment_id: nil}, _actor), do: {:ok, []}
 
   def clear_override(target, actor) do
     with {:ok, assignment} <- get_by_id(PluginAssignment, target.plugin_assignment_id, actor) do
-      if assignment.rollout_id == target.rollout_id do
-        case update(assignment, :clear_rollout_override, cleared_override(), actor) do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-      else
-        :ok
-      end
+      if assignment.rollout_id == target.rollout_id,
+        do: update(assignment, :clear_rollout_override, cleared_override(), actor),
+        else: {:ok, []}
     end
   end
 
@@ -298,15 +293,13 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @impl true
   def promote_source(%AddonRollout{source_type: :assignment} = rollout, actor) do
-    with {:ok, assignment} <- get_by_id(PluginAssignment, rollout.source_id, actor),
-         {:ok, _} <-
-           update(
-             assignment,
-             :promote_rollout,
-             Map.put(cleared_override(), :plugin_package_id, rollout.candidate_plugin_package_id),
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- get_by_id(PluginAssignment, rollout.source_id, actor) do
+      update(
+        assignment,
+        :promote_rollout,
+        Map.put(cleared_override(), :plugin_package_id, rollout.candidate_plugin_package_id),
+        actor
+      )
     end
   end
 
@@ -329,14 +322,6 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       end
     end
     |> Repo.transaction()
-    |> case do
-      {:ok, notifications} ->
-        _unsent = Ash.Notifier.notify(notifications)
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-    end
   end
 
   # Health evidence.
@@ -759,6 +744,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   defp update(record, action, attrs, actor) do
     record
     |> Ash.Changeset.for_update(action, attrs, actor: actor)
-    |> Ash.update(actor: actor, authorize?: true)
+    |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+    |> case do
+      {:ok, _record, notifications} -> {:ok, notifications}
+      {:error, reason} -> {:error, reason}
+    end
   end
 end
