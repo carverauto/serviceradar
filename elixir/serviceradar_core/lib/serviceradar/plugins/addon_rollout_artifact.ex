@@ -24,6 +24,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   alias ServiceRadar.Plugins.AddonRolloutPolicy
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadar.Plugins.RolloutArtifact
 
   require Ash.Expr
   require Ash.Query
@@ -291,26 +292,37 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
   @impl true
   def clear_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: {:ok, []}
 
+  # An assignment that no longer carries this rollout's override needs no write.
   # The UPDATE itself requires the override to still belong to this rollout, so
   # an override another rollout has put on the assignment since is left alone.
   def clear_override(target, actor) do
     owner = target.rollout_id
 
-    with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
-      assignment
-      |> Ash.Changeset.for_update(:clear_rollout_override, %{
-        rollout_package_id: nil,
-        rollout_id: nil,
-        rollout_started_at: nil
-      })
-      |> Ash.Changeset.filter(Ash.Expr.expr(rollout_id == ^owner))
-      |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
-      |> case do
-        {:ok, _assignment, notifications} -> {:ok, notifications}
-        {:error, error} -> if stale_write?(error), do: {:ok, []}, else: {:error, error}
-      end
+    case get_assignment(target.assignment_id, actor) do
+      {:ok, %AddonAssignment{rollout_id: ^owner} = assignment} ->
+        assignment
+        |> Ash.Changeset.for_update(:clear_rollout_override, %{
+          rollout_package_id: nil,
+          rollout_id: nil,
+          rollout_started_at: nil
+        })
+        |> Ash.Changeset.filter(Ash.Expr.expr(rollout_id == ^owner))
+        |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+        |> case do
+          {:ok, _assignment, notifications} -> {:ok, notifications}
+          {:error, error} -> stale_as_cleared(error)
+        end
+
+      {:ok, %AddonAssignment{}} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp stale_as_cleared(error),
+    do: if(RolloutArtifact.stale_write?(error), do: {:ok, []}, else: {:error, error})
 
   @impl true
   def tolerates_failures?(%AddonRollout{source_type: :profile}), do: true
@@ -774,11 +786,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
       result -> result
     end
   end
-
-  defp stale_write?(%Ash.Error.Invalid{errors: errors}),
-    do: Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
-
-  defp stale_write?(_error), do: false
 
   defp update_assignment(assignment, action, attrs, actor) do
     assignment

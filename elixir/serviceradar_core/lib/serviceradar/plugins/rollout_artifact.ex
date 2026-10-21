@@ -250,4 +250,16 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
   @doc "The artifact kinds that have an implementation."
   @spec kinds() :: [atom()]
   def kinds, do: Enum.map(implementations(), & &1.artifact_kind())
+
+  @doc """
+  Whether a guarded write matched no row because the row moved since it was read.
+
+  Ash reports that as `Ash.Error.Changes.StaleRecord`, either bare or inside an
+  `Ash.Error.Invalid` or an `Ash.Changeset`'s errors, possibly nested.
+  """
+  @spec stale_write?(term()) :: boolean()
+  def stale_write?(%Ash.Error.Changes.StaleRecord{}), do: true
+  def stale_write?(%{errors: errors}) when is_list(errors), do: stale_write?(errors)
+  def stale_write?(errors) when is_list(errors), do: Enum.any?(errors, &stale_write?/1)
+  def stale_write?(_error), do: false
 end

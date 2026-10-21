@@ -1639,14 +1639,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         {:ok, updated}
 
       {:error, error} ->
-        if stale_write?(error), do: {:error, :stale_target}, else: {:error, error}
+        if RolloutArtifact.stale_write?(error), do: {:error, :stale_target}, else: {:error, error}
     end
   end
-
-  defp stale_write?(%Ash.Error.Invalid{errors: errors}),
-    do: Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
-
-  defp stale_write?(_error), do: false
 
   # Rollout transactions collect member-write notifications and send them here,
   # after the outermost transaction commits.
