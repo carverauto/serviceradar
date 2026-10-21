@@ -4,7 +4,6 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadar.Plugins.PluginRepository
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.Plugins.PluginUpdatePolicyBackfillWorker
   alias ServiceRadar.ProcessRegistry
@@ -27,7 +26,7 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
     agent_uid = "update-policy-agent-#{unique}"
     register_control_session!(agent_uid)
 
-    {:ok, unique: unique, agent_uid: agent_uid, builtin_repo_url: builtin_repo_url()}
+    {:ok, unique: unique, agent_uid: agent_uid, builtin_repo_url: builtin_repo_url!(unique)}
   end
 
   test "a new owner defaults by package provenance", ctx do
@@ -290,13 +289,24 @@ defmodule ServiceRadar.Plugins.PluginUpdatePolicyDbTest do
     )
   end
 
-  defp builtin_repo_url do
-    PluginRepository
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(builtin == true and artifact_kind == :wasm_plugin)
-    |> Ash.read!(actor: admin())
-    |> hd()
-    |> Map.fetch!(:repo_url)
+  # The test's own built-in Wasm repository, so trust does not depend on the
+  # seeded catalog rows surviving other tests.
+  defp builtin_repo_url!(unique) do
+    repo_url = "https://github.com/example-first-party/plugins-#{unique}"
+
+    Repo.query!(
+      """
+      INSERT INTO platform.plugin_repositories
+        (id, name, repo_url, artifact_kind, index_asset_name, signing_key_id,
+         signing_public_key, enabled, builtin, is_default, inserted_at, updated_at)
+      VALUES
+        (gen_random_uuid(), 'Example first party', $1, 'wasm_plugin', 'index.json',
+         'example-key', 'example-public-key', true, true, false, now(), now())
+      """,
+      [repo_url]
+    )
+
+    repo_url
   end
 
   defp register_control_session!(agent_uid) do
