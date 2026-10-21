@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   @default_release_limit 10
   @default_reschedule_seconds 3_600
+  @retry_backoff_seconds {120, 600, 1_800}
   @failure_reason_limit 512
   @metadata_limit 128
   @bootstrap_unique [period: :infinity, states: :incomplete]
@@ -58,7 +59,27 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   def timeout(_job), do: to_timeout(minute: 10)
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def backoff(%Oban.Job{attempt: attempt}) when is_integer(attempt) and attempt >= 1 do
+    index = min(attempt - 1, tuple_size(@retry_backoff_seconds) - 1)
+    elem(@retry_backoff_seconds, index)
+  end
+
+  def backoff(_job), do: elem(@retry_backoff_seconds, 0)
+
+  @doc """
+  True when a failed periodic attempt is the job's final Oban attempt and Oban
+  will discard the job rather than retry it.
+  """
+  @spec terminal_attempt?(Oban.Job.t(), term()) :: boolean()
+  def terminal_attempt?(%Oban.Job{attempt: attempt, max_attempts: max_attempts}, {:error, _reason})
+      when is_integer(attempt) and attempt > 0 and is_integer(max_attempts) and max_attempts > 0 do
+    attempt >= max_attempts
+  end
+
+  def terminal_attempt?(_job, _result), do: false
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: args} = job) do
     args = args || %{}
     force? = Map.get(args, "force") == true
 
@@ -70,7 +91,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
         :ok
       end
 
-    if !force? and result == :ok do
+    if !force? and (result == :ok or terminal_attempt?(job, result)) do
       schedule_next()
     end
 

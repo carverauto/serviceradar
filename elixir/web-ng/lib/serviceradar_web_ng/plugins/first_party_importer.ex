@@ -151,9 +151,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          {:ok, release_tag} <- require_value(fetch_value(attrs, [:release_tag, "release_tag"]), "Release tag is required"),
          {:ok, requested_plugin_id} <- optional_string(fetch_value(attrs, [:plugin_id, "plugin_id"])),
          {:ok, requested_version} <- optional_string(fetch_value(attrs, [:version, "version"])),
-         {:ok, release} <- fetch_release(repo, release_tag),
-         {:ok, index} <- fetch_release_index(repo, release, attrs),
-         {:ok, entry} <- find_entry(index, requested_plugin_id, requested_version),
+         {:ok, release, entry} <-
+           resolve_release_and_entry(repo, release_tag, requested_plugin_id, requested_version, attrs),
          {:ok, fetched} <- fetch_artifact(repo, entry),
          {:ok, bundle} <- validate_bundle(fetched.bundle, entry),
          {:ok, signature} <- decode_upload_signature(fetched.upload_signature),
@@ -236,9 +235,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
         oci_ref: entry_value(entry, "oci_ref"),
         oci_digest: entry_value(entry, "oci_digest"),
         bundle_digest: entry_value(entry, "bundle_digest"),
-        import_ready?: import_ready_entry?(entry)
+        import_ready?: import_ready_entry?(entry),
+        release: release_metadata(release),
+        index_entry: entry
       }
     end
+  end
+
+  defp release_metadata(release) when is_map(release) do
+    %{
+      "tag_name" => normalize_string(Map.get(release, "tag_name")),
+      "name" => normalize_string(Map.get(release, "name")),
+      "html_url" => normalize_string(Map.get(release, "html_url"))
+    }
   end
 
   # Mirrors fetch_artifact/2, which tries bundle_url BEFORE oci_ref. Requiring
@@ -269,6 +278,29 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     end
   end
 
+  defp resolve_release_and_entry(repo, release_tag, requested_plugin_id, requested_version, attrs) do
+    case {fetch_value(attrs, [:release, "release"]), fetch_value(attrs, [:index_entry, "index_entry"])} do
+      {%{} = release, %{} = entry} ->
+        if normalize_string(Map.get(release, "tag_name")) == release_tag and
+             matching_entry?(entry, requested_plugin_id, requested_version) do
+          {:ok, release, entry}
+        else
+          fetch_release_and_entry(repo, release_tag, requested_plugin_id, requested_version, attrs)
+        end
+
+      _ ->
+        fetch_release_and_entry(repo, release_tag, requested_plugin_id, requested_version, attrs)
+    end
+  end
+
+  defp fetch_release_and_entry(repo, release_tag, requested_plugin_id, requested_version, attrs) do
+    with {:ok, release} <- fetch_release(repo, release_tag),
+         {:ok, index} <- fetch_release_index(repo, release, attrs),
+         {:ok, entry} <- find_entry(index, requested_plugin_id, requested_version) do
+      {:ok, release, entry}
+    end
+  end
+
   defp find_entry(index, nil, nil) do
     case index_entries(index) do
       [entry] -> {:ok, entry}
@@ -280,15 +312,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   defp find_entry(index, plugin_id, version) do
     entry =
       Enum.find(index_entries(index), fn entry ->
-        plugin_match? = is_nil(plugin_id) or entry_value(entry, "plugin_id") == plugin_id
-        version_match? = is_nil(version) or entry_value(entry, "version") == version
-        plugin_match? and version_match?
+        matching_entry?(entry, plugin_id, version)
       end)
 
     case entry do
       nil -> {:error, :plugin_not_found}
       entry -> {:ok, entry}
     end
+  end
+
+  defp matching_entry?(entry, plugin_id, version) do
+    plugin_match? = is_nil(plugin_id) or entry_value(entry, "plugin_id") == plugin_id
+    version_match? = is_nil(version) or entry_value(entry, "version") == version
+    plugin_match? and version_match?
   end
 
   defp fetch_artifact(repo, entry) do
