@@ -4,6 +4,13 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   This is an in-memory, bounded queue intended to reduce data loss
   during short core outages. It is not durable across restarts.
+
+  Statuses are delivered one at a time by a monitored process, never inside
+  this server. A core call can take up to the reservation deadline (or the
+  whole core call timeout), while `enqueue/1` callers on the PushStatus path
+  wait at most one second; delivering inline made every enqueue that arrived
+  during one slow core call time out and count as a drop. The buffer holds at
+  most `max_entries` queued statuses plus the one being delivered.
   """
 
   use GenServer
@@ -14,7 +21,6 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   @default_max_entries 100
   @default_flush_interval_ms 5_000
-  @default_flush_batch_size 100
 
   def start_link(opts) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -79,7 +85,8 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
        queue: :queue.new(),
        retained_bytes: 0,
        max_entries: max_entries,
-       flush_interval_ms: flush_interval_ms
+       flush_interval_ms: flush_interval_ms,
+       delivery: nil
      }}
   end
 
@@ -105,39 +112,51 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
         emit_buffer_drop(dropped, :overflow)
       end
 
-      emit_buffer_depth(:queue.len(queue), retained_bytes)
-      {:reply, :ok, %{state | queue: queue, retained_bytes: retained_bytes}}
+      state = %{state | queue: queue, retained_bytes: retained_bytes}
+      emit_buffer_depth(depth(state), retained_bytes)
+      {:reply, :ok, state}
     end
   end
 
   @impl true
   def handle_call(:size, _from, state) do
-    {:reply, :queue.len(state.queue), state}
+    {:reply, depth(state), state}
   end
 
   @impl true
   def handle_info(:flush, state) do
-    {state, more?} = flush_queue(state, @default_flush_batch_size)
-
-    if more? do
-      Process.send_after(self(), :flush, 0)
-    else
-      schedule_flush(state.flush_interval_ms)
-    end
-
-    {:noreply, state}
+    schedule_flush(state.flush_interval_ms)
+    {:noreply, start_delivery(state)}
   end
 
   @impl true
   def handle_info(:request_flush, state) do
-    {state, more?} = flush_queue(state, @default_flush_batch_size)
-
-    if more? do
-      Process.send_after(self(), :request_flush, 0)
-    end
-
-    {:noreply, state}
+    {:noreply, start_delivery(state)}
   end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{delivery: %{ref: ref} = delivery} = state) do
+    state = %{state | delivery: nil}
+
+    case delivery_result(reason) do
+      :ok ->
+        retained_bytes = state.retained_bytes - encoded_status_bytes(delivery.status)
+        state = %{state | retained_bytes: retained_bytes}
+        emit_buffer_depth(depth(state), retained_bytes)
+        {:noreply, start_delivery(state)}
+
+      {:error, error} ->
+        # Pause until the next flush tick or request: retrying at once would
+        # repeat the call into a core that just failed to answer it. A request
+        # that arrived during the failed delivery is honored now.
+        Logger.debug("Results buffer flush paused: #{inspect(error)}")
+        state = requeue_oldest(state, delivery.status)
+        {:noreply, if(delivery.requested_again?, do: start_delivery(state), else: state)}
+    end
+  end
+
+  @impl true
+  def handle_info(_message, state), do: {:noreply, state}
 
   defp enqueue_status(queue, status, max_entries) do
     if :queue.len(queue) >= max_entries do
@@ -148,33 +167,46 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
     end
   end
 
-  defp flush_queue(state, remaining) when remaining <= 0 do
-    {state, not :queue.is_empty(state.queue)}
-  end
+  defp start_delivery(%{delivery: %{} = delivery} = state), do: %{state | delivery: %{delivery | requested_again?: true}}
 
-  defp flush_queue(state, remaining) do
+  defp start_delivery(state) do
     case :queue.out(state.queue) do
-      {:empty, _} ->
-        {state, false}
+      {:empty, _queue} ->
+        state
 
       {{:value, status}, rest} ->
-        case StatusProcessor.process(status, buffer_on_failure: false, from_buffer: true) do
-          :ok ->
-            retained_bytes = state.retained_bytes - encoded_status_bytes(status)
-            emit_buffer_depth(:queue.len(rest), retained_bytes)
-            flush_queue(%{state | queue: rest, retained_bytes: retained_bytes}, remaining - 1)
+        # The result travels in the exit reason, so the one :DOWN message also
+        # covers a delivery that crashed without returning.
+        {_pid, ref} =
+          spawn_monitor(fn ->
+            exit({:delivery_result, StatusProcessor.process(status, buffer_on_failure: false, from_buffer: true)})
+          end)
 
-          {:ok, _result} ->
-            retained_bytes = state.retained_bytes - encoded_status_bytes(status)
-            emit_buffer_depth(:queue.len(rest), retained_bytes)
-            flush_queue(%{state | queue: rest, retained_bytes: retained_bytes}, remaining - 1)
-
-          {:error, reason} ->
-            Logger.debug("Results buffer flush paused: #{inspect(reason)}")
-            {%{state | queue: :queue.in_r(status, rest)}, false}
-        end
+        %{state | queue: rest, delivery: %{ref: ref, status: status, requested_again?: false}}
     end
   end
+
+  defp delivery_result({:delivery_result, :ok}), do: :ok
+  defp delivery_result({:delivery_result, {:ok, _result}}), do: :ok
+  defp delivery_result({:delivery_result, {:error, reason}}), do: {:error, reason}
+  defp delivery_result(reason), do: {:error, {:delivery_exited, reason}}
+
+  # The failed status is the oldest one owned. If statuses enqueued during its
+  # delivery filled the queue, it is the one overflow evicts.
+  defp requeue_oldest(state, status) do
+    if :queue.len(state.queue) >= state.max_entries do
+      Logger.warning("Status buffer full; dropping oldest status")
+      emit_buffer_drop(status, :overflow)
+      retained_bytes = state.retained_bytes - encoded_status_bytes(status)
+      emit_buffer_depth(depth(state), retained_bytes)
+      %{state | retained_bytes: retained_bytes}
+    else
+      %{state | queue: :queue.in_r(status, state.queue)}
+    end
+  end
+
+  defp depth(%{queue: queue, delivery: nil}), do: :queue.len(queue)
+  defp depth(%{queue: queue}), do: :queue.len(queue) + 1
 
   defp schedule_flush(flush_interval_ms) do
     Process.send_after(self(), :flush, max(flush_interval_ms, 1_000))
