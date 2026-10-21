@@ -1,6 +1,6 @@
 # `@carverauto/serviceradar-cli` Changelog
 
-## Unreleased
+## 0.2.2
 
 - Require `vite` `^7.3.7`, the first 7.x release with the fixes for the dev
   server's `server.fs` checks, cross-origin requests through custom middleware,

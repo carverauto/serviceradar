@@ -120,13 +120,21 @@ jobs:
           npm run build
 
           tarball="$(npm pack --silent)"
-          trap 'rm -f "${tarball}"' EXIT
+          listing="$(mktemp)"
+          trap 'rm -f "${tarball}" "${listing}"' EXIT
+
+          # List the archive once and search the file. Piping `tar -tzf` into
+          # `grep -q` under pipefail fails whenever grep exits on its first
+          # match: tar takes SIGPIPE ("tar: stdout: write error"), the pipeline
+          # reports failure, and every file present in the tarball was flagged
+          # as missing. That is why every run of this workflow failed.
+          tar -tzf "${tarball}" > "${listing}"
 
           missing=0
           while IFS= read -r src; do
             rel="${src#src/}"
             expected="package/dist/${rel%.ts}.js"
-            if ! tar -tzf "${tarball}" | grep -qxF "${expected}"; then
+            if ! grep -qxF "${expected}" "${listing}"; then
               echo "::error::${src} has no compiled counterpart ${expected#package/} in the tarball" >&2
               missing=1
             fi
