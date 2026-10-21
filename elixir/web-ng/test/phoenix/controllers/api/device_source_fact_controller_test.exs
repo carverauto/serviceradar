@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceSourceFactControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadarWebNGWeb.Api.DeviceSourceFactController
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -112,21 +110,20 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceSourceFactControllerTest do
 
     test "returns 403 with devices.view but not devices.source_facts.write", %{
       conn: conn,
-      user: user,
       device: device
     } do
+      viewer = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :viewer})
+      viewer_conn = log_in_api_user(build_conn(), viewer)
+
       response =
-        conn
-        |> assign(:current_scope, Scope.for_user(user, permissions: MapSet.new(["devices.view", "devices.facts.write"])))
-        |> DeviceSourceFactController.update(%{
-          "uid" => device.uid,
-          "fact_key" => "vlan_uid",
-          "source" => "example-nms",
-          "value" => 120
-        })
+        viewer_conn
+        |> put_fact(device, "vlan_uid", %{"source" => "example-nms", "value" => 120})
         |> json_response(403)
 
       assert response["error"] =~ "not authorized"
+
+      shown = conn |> get(~p"/api/devices/#{device.uid}") |> json_response(200)
+      assert shown["data"]["switch_port_attachment"] == nil
     end
   end
 
