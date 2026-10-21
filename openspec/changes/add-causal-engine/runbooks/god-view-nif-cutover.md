@@ -61,7 +61,7 @@ now that reasoning lives in the engine on `ultragraph` 0.9.
 ## 1.10.4 — Rejoin the NIF crates to the workspace
 
 Populate the empty `[workspace]` block at `elixir/web-ng/native/.../Cargo.toml`
-so `god_view_nif` (and sibling `srql_nif`) build under the root workspace and
+so `god_view_nif` builds under the root workspace and
 share the pinned dep graph. Re-run `bazel build` for the affected NIF targets and
 confirm green (BUILD updates required when the NIF's dep set changes).
 

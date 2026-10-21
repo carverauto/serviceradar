@@ -73,12 +73,6 @@ ignores_for() {
       #   breaking upgrade of srql's database layer tracked separately.
       echo RUSTSEC-2026-0138
       ;;
-    elixir/web-ng/native/srql_nif/Cargo.lock)
-      # Same rustls-pemfile and diesel-async reasoning as the root lockfile; this crate
-      # builds rust/srql from source.
-      echo RUSTSEC-2025-0134
-      echo RUSTSEC-2026-0138
-      ;;
     rust/netprobe/ebpf/Cargo.lock)
       # anyhow 1.0.102 (unsound downcast_mut after context): only aya-build, the host
       #   build script of aya-ebpf, uses it; it is not in the shipped eBPF object. The
