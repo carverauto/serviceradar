@@ -69,8 +69,6 @@ defmodule ServiceRadar.Plugins.Changes.ReleaseRolloutOverride do
 
   defp disabling?(_changeset), do: false
 
-  defp clear_override(%{data: %{rollout_id: nil}} = changeset), do: changeset
-
   defp clear_override(changeset) do
     Enum.reduce(@override_fields, changeset, &Ash.Changeset.force_change_attribute(&2, &1, nil))
   end

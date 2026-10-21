@@ -23,6 +23,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   alias ServiceRadar.Plugins.RolloutArtifact
   alias ServiceRadar.Repo
 
+  require Ash.Expr
   require Ash.Query
   require Logger
 
@@ -178,6 +179,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     else
       false -> :ok
       :superseded -> :ok
+      {:error, :stale_target} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
@@ -428,10 +430,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         reason -> %{state: :rolling_back, blocked_reason: to_string(reason)}
       end
 
+    # The rollout is moved first: that write waits for, and then excludes, a
+    # batch launch holding the rollout row, so the targets read next are final.
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @active_rollout_states,
+         {:ok, rollout} <- update_rollout(rollout, rollout_attrs, actor),
          {:ok, targets} <- rollout_targets(rollout, actor),
-         {:ok, _} <- update_rollout(rollout, rollout_attrs, actor),
          :ok <- begin_whole_rollback(rollout, targets, actor, now) do
       audit(:rollback, rollout, %{target_count: length(targets), reason: opts[:reason]})
       emit(:rolling_back, rollout, %{target_count: length(targets)})
@@ -880,24 +884,28 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     cond do
       is_nil(target.healthy_since) and soak_seconds == 0 ->
-        update_target(
+        transition_target(
           target,
           Map.merge(observed, %{state: :succeeded, healthy_since: now, completed_at: now}),
           actor
         )
 
       is_nil(target.healthy_since) ->
-        update_target(
+        transition_target(
           target,
           Map.merge(observed, %{state: :healthy_soak, healthy_since: now}),
           actor
         )
 
       DateTime.diff(now, target.healthy_since, :second) >= soak_seconds ->
-        update_target(target, Map.merge(observed, %{state: :succeeded, completed_at: now}), actor)
+        transition_target(
+          target,
+          Map.merge(observed, %{state: :succeeded, completed_at: now}),
+          actor
+        )
 
       true ->
-        update_target(target, observed, actor)
+        transition_target(target, observed, actor)
     end
   end
 
@@ -917,7 +925,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     with :ok <- artifact.clear_override(target, actor),
          {:ok, target} <-
-           update_target(
+           transition_target(
              target,
              %{
                state: :rollback_pending,
@@ -939,7 +947,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     cond do
       artifact.recovered?(evidence, previous, target.rollback_started_at) ->
-        update_target(
+        transition_target(
           target,
           %{
             state: :rolled_back,
@@ -950,7 +958,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         )
 
       deadline_elapsed?(target.deadline_at, now) ->
-        update_target(
+        transition_target(
           target,
           %{
             state: :rolled_back,
@@ -1023,22 +1031,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
           {:error, reason} -> {:halt, {:error, reason}}
         end
       else
-        deadline = DateTime.shift(now, second: policy["health_timeout_seconds"])
-
-        with :ok <- artifact.apply_override(target, rollout, now, actor),
-             {:ok, _} <-
-               update_target(
-                 target,
-                 %{
-                   state: :waiting_health,
-                   override_applied_at: now,
-                   deadline_at: deadline,
-                   reason_code: "waiting_for_fresh_candidate_health"
-                 },
-                 actor
-               ) do
-          {:cont, :ok}
-        else
+        case launch_target(rollout, target, policy, actor, now) do
+          :ok -> {:cont, :ok}
+          :stale -> {:halt, :ok}
           {:error, reason} -> {:halt, {:error, reason}}
         end
       end
@@ -1055,6 +1050,75 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       {:error, reason} ->
         _ = update_rollout(rollout, %{state: :paused, error: inspect(reason)}, actor)
         {:error, reason}
+    end
+  end
+
+  # One target's launch, in its own transaction. The rollout row is locked first,
+  # so a rollback or revocation that moves the rollout serializes with it, and
+  # the launch only proceeds while the rollout is still running. The member is
+  # locked next, by apply_override/4, before the target: a retraction locks the
+  # member and then cancels its targets, and taking them in the same order
+  # cannot deadlock. The target moves only from :pending; a target changed
+  # meanwhile undoes the override and launches nothing more this pass.
+  defp launch_target(rollout, target, policy, actor, now) do
+    artifact = RolloutArtifact.implementation(rollout)
+    deadline = DateTime.shift(now, second: policy["health_timeout_seconds"])
+
+    fn ->
+      with {:ok, %AddonRollout{state: :running} = locked} <- lock_rollout(rollout.id, actor),
+           {:ok, notifications} <- artifact.apply_override(target, locked, now, actor),
+           {:ok, _target, target_notifications} <-
+             transition_target_with_notifications(
+               target,
+               %{
+                 state: :waiting_health,
+                 override_applied_at: now,
+                 deadline_at: deadline,
+                 reason_code: "waiting_for_fresh_candidate_health"
+               },
+               actor
+             ) do
+        notifications ++ target_notifications
+      else
+        {:ok, %AddonRollout{}} -> Repo.rollback(:stale_target)
+        {:error, :assignment_disabled} -> cancel_retracted_target(target, actor, now)
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, notifications} ->
+        _unsent = Ash.Notifier.notify(notifications)
+        :ok
+
+      {:error, :stale_target} ->
+        :stale
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp cancel_retracted_target(target, actor, now) do
+    case transition_target_with_notifications(
+           target,
+           %{state: :canceled, reason_code: "assignment_retracted", completed_at: now},
+           actor
+         ) do
+      {:ok, _target, notifications} -> notifications
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_rollout(id, actor) do
+    AddonRollout
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, AddonRollout, id}}
+      result -> result
     end
   end
 
@@ -1159,7 +1223,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         target.state in [:waiting_health, :healthy_soak, :succeeded] ->
           with :ok <- artifact.clear_override(target, actor),
                {:ok, _} <-
-                 update_target(
+                 transition_target(
                    target,
                    %{
                      state: :rollback_pending,
@@ -1171,12 +1235,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                  ) do
             {:cont, :ok}
           else
+            {:error, :stale_target} -> {:cont, :ok}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
         target.state == :pending ->
-          case update_target(target, %{state: :canceled, completed_at: now}, actor) do
+          case transition_target(target, %{state: :canceled, completed_at: now}, actor) do
             {:ok, _} -> {:cont, :ok}
+            {:error, :stale_target} -> {:cont, :ok}
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
@@ -1385,6 +1451,41 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     target
     |> Ash.Changeset.for_update(:update, attrs)
     |> Ash.update(actor: actor, authorize?: true)
+  end
+
+  # Moves a target only from the state this pass read. A target another process
+  # moved meanwhile returns {:error, :stale_target} and is left for the next
+  # pass to read again.
+  defp transition_target(target, attrs, actor) do
+    case transition_target_with_notifications(target, attrs, actor) do
+      {:ok, updated, notifications} ->
+        _unsent = Ash.Notifier.notify(notifications)
+        {:ok, updated}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp transition_target_with_notifications(target, attrs, actor) do
+    read_state = target.state
+
+    target
+    |> Ash.Changeset.for_update(:update, attrs)
+    |> Ash.Changeset.filter(Ash.Expr.expr(state == ^read_state))
+    |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+    |> case do
+      {:ok, updated, notifications} ->
+        {:ok, updated, notifications}
+
+      {:error, %Ash.Error.Invalid{errors: errors} = error} ->
+        if Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)),
+          do: {:error, :stale_target},
+          else: {:error, error}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp clear_all_overrides(rollout, targets, actor) do

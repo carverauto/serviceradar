@@ -241,6 +241,34 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
              target(rollout, member)
   end
 
+  test "a batch launch cancels a target whose assignment was disabled after it was planned",
+       ctx do
+    {policy, members} = policy_with_members!(ctx, 2)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(policy, ctx.candidate,
+        actor: @system,
+        now: ctx.now,
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 0)
+      )
+
+    {[canary], [later]} = Enum.split_with(members, &(assignment(&1).rollout_id == rollout.id))
+
+    # Disabled underneath the rollout, the way a write that skips the owner's
+    # retraction path would leave it: the target still waits to launch.
+    Repo.query!(
+      "UPDATE platform.plugin_assignments SET enabled = false WHERE id = $1::text::uuid",
+      [later.id]
+    )
+
+    result!(canary, ctx.candidate, "OK", at(ctx, 1))
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 2))
+
+    assert %{state: :canceled, reason_code: "assignment_retracted"} = target(rollout, later)
+    assert %{rollout_plugin_package_id: nil, rollout_id: nil} = assignment(later)
+    refute reload(rollout).state == :paused
+  end
+
   test "revoking the candidate rolls its active rollout back", ctx do
     member = manual_member!(ctx)
 

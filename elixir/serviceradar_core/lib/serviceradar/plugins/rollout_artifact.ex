@@ -143,8 +143,15 @@ defmodule ServiceRadar.Plugins.RolloutArtifact do
 
   # Overrides and promotion.
 
+  @doc """
+  Puts the target's candidate on its member. The coordinator calls it inside the
+  transaction that launches the target, so it returns the write's notifications
+  for the coordinator to send once that transaction commits.
+  `{:error, :assignment_disabled}` means the member was disabled and the target
+  is canceled as `assignment_retracted`.
+  """
   @callback apply_override(AddonRolloutTarget.t(), AddonRollout.t(), DateTime.t(), actor()) ::
-              :ok | {:error, term()}
+              {:ok, [Ash.Notifier.Notification.t()]} | {:error, term()}
 
   @doc "Removes the target's override, if this rollout still owns it."
   @callback clear_override(AddonRolloutTarget.t(), actor()) :: :ok | {:error, term()}

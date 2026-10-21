@@ -232,20 +232,23 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @impl true
   def apply_override(target, rollout, now, actor) do
-    with {:ok, assignment} <- get_by_id(PluginAssignment, target.plugin_assignment_id, actor),
-         :ok <- require_enabled(assignment),
-         {:ok, _} <-
-           update(
-             assignment,
-             :apply_rollout_override,
-             %{
-               rollout_plugin_package_id: target.candidate_plugin_package_id,
-               rollout_id: rollout.id,
-               rollout_started_at: now
-             },
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- lock_assignment(target.plugin_assignment_id, actor),
+         :ok <- require_enabled(assignment) do
+      assignment
+      |> Ash.Changeset.for_update(
+        :apply_rollout_override,
+        %{
+          rollout_plugin_package_id: target.candidate_plugin_package_id,
+          rollout_id: rollout.id,
+          rollout_started_at: now
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+      |> case do
+        {:ok, _assignment, notifications} -> {:ok, notifications}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -709,6 +712,18 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   defp unzip4(quads) do
     {Enum.map(quads, &elem(&1, 0)), Enum.map(quads, &elem(&1, 1)), Enum.map(quads, &elem(&1, 2)),
      Enum.map(quads, &elem(&1, 3))}
+  end
+
+  defp lock_assignment(id, actor) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, nil} -> {:error, {:not_found, PluginAssignment, id}}
+      result -> result
+    end
   end
 
   defp get_by_id(resource, id, actor) do

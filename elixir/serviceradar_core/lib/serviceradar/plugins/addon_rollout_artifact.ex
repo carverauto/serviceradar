@@ -218,19 +218,18 @@ defmodule ServiceRadar.Plugins.AddonRolloutArtifact do
 
   @impl true
   def apply_override(target, rollout, now, actor) do
-    with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-         {:ok, _} <-
-           update_assignment(
-             assignment,
-             :apply_rollout_override,
-             %{
-               rollout_package_id: target.candidate_package_id,
-               rollout_id: rollout.id,
-               rollout_started_at: now
-             },
-             actor
-           ) do
-      :ok
+    with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
+      assignment
+      |> Ash.Changeset.for_update(:apply_rollout_override, %{
+        rollout_package_id: target.candidate_package_id,
+        rollout_id: rollout.id,
+        rollout_started_at: now
+      })
+      |> Ash.update(actor: actor, authorize?: true, return_notifications?: true)
+      |> case do
+        {:ok, _assignment, notifications} -> {:ok, notifications}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
