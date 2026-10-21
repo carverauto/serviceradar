@@ -130,6 +130,7 @@ summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
+index_attempts=4
 failed=()
 for lockfile in "${lockfiles[@]}"; do
   args=()
@@ -140,22 +141,28 @@ for lockfile in "${lockfiles[@]}"; do
     ignored+=("${id}")
   done < <(ignores_for "${lockfile}")
 
-  echo
-  echo "=== ${lockfile}"
-  status=0
-  cargo audit --db "${advisory_db}" --file "${lockfile}" --deny warnings \
-    ${args[@]+"${args[@]}"} > "${log}" 2>&1 || status=$?
-  cat "${log}"
+  # A cold crates.io index makes some yanked-check lookups time out. Entries that did
+  # arrive stay cached in CARGO_HOME, so a retry only refetches the ones that failed.
+  for attempt in $(seq 1 "${index_attempts}"); do
+    echo
+    echo "=== ${lockfile} (attempt ${attempt}/${index_attempts})"
+    status=0
+    cargo audit --db "${advisory_db}" --file "${lockfile}" --deny warnings \
+      ${args[@]+"${args[@]}"} > "${log}" 2>&1 || status=$?
+    cat "${log}"
 
-  result="pass"
-  if [[ ${status} -ne 0 ]]; then
-    result="FAIL (cargo audit exit ${status})"
-  fi
-  # cargo-audit reports an index it could not read as a message, not as a failure, and
-  # carries on: the yanked check then silently covers nothing.
-  if grep -Eq "couldn't (check if the package is yanked|update crates.io index)" "${log}"; then
-    result="FAIL (yanked check could not run)"
-  fi
+    result="pass"
+    if [[ ${status} -ne 0 ]]; then
+      result="FAIL (cargo audit exit ${status})"
+    fi
+    # cargo-audit reports an index it could not read as a message, not as a failure, and
+    # carries on: the yanked check then silently covers nothing.
+    if grep -Eq "couldn't (check if the package is yanked|update crates.io index)" "${log}"; then
+      result="FAIL (yanked check could not run)"
+      continue
+    fi
+    break
+  done
   if [[ "${result}" != "pass" ]]; then
     failed+=("${lockfile}: ${result}")
   fi
