@@ -207,6 +207,37 @@ defmodule ServiceRadar.Cluster.CoordinatorManagerLockDbTest do
     assert log =~ "Coordinator lock heartbeat failed"
   end
 
+  test "a heartbeat whose session is terminated demotes without retrying, and the lock is free" do
+    holder = connect!()
+    leader = leader_state(holder)
+    other = connect!()
+
+    assert [[true]] =
+             Postgrex.query!(holder, "SELECT pg_try_advisory_lock($1)", [@lock_key]).rows
+
+    [[holder_pid]] = Postgrex.query!(holder, "SELECT pg_backend_pid()", []).rows
+
+    assert [[true]] =
+             Postgrex.query!(other, "SELECT pg_terminate_backend($1, 5000)", [holder_pid]).rows
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert {:noreply, demoted} =
+                 CoordinatorManager.handle_info(:ensure_coordinator, leader)
+
+        refute demoted.leader?
+        assert demoted.conn == nil
+      end)
+
+    refute log =~ "retrying before demoting"
+
+    assert [[true]] =
+             Postgrex.query!(other, "SELECT pg_try_advisory_lock($1)", [@lock_key]).rows
+
+    assert [[true]] =
+             Postgrex.query!(other, "SELECT pg_advisory_unlock($1)", [@lock_key]).rows
+  end
+
   defp leader_state(conn) do
     %{
       conn: conn,

@@ -6,8 +6,10 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   dedicated connection. While the lock is held, coordinator-only children run
   under `ServiceRadar.Cluster.CoordinatorRuntimeSupervisor`. Leader heartbeats
   verify that the current backend session still owns the advisory lock using a
-  15-second query timeout and a single retry before demoting on transient query
-  failures.
+  15-second query timeout. A statement-level query error leaves the session and
+  its lock intact, so it is retried once before demoting; any error that ends
+  the session (a disconnect or a fatal server error) demotes immediately,
+  because the lock was released with the session.
   """
 
   use GenServer
@@ -132,12 +134,19 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
       {:ok, _result} ->
         demote_after_lock_lost(state)
 
-      {:error, reason} ->
+      {:error, %Postgrex.Error{postgres: %{severity: "ERROR"}} = reason} ->
         Logger.warning("Coordinator lock heartbeat failed; retrying before demoting",
           reason: inspect(reason)
         )
 
         retry_lock_heartbeat(state)
+
+      {:error, reason} ->
+        Logger.warning("Coordinator lock heartbeat lost its database session; demoting",
+          reason: inspect(reason)
+        )
+
+        demote_after_connection_error(state)
     end
   end
 
