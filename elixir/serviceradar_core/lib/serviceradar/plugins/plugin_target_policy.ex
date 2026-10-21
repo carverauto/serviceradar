@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.ApplyPluginUpdatePolicy
+  alias ServiceRadar.Plugins.Changes.RetractOwnedAssignments
   alias ServiceRadar.Plugins.PluginTargetPolicyOps
 
   @mutable_fields [
@@ -48,7 +49,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :by_id do
       get? true
@@ -68,6 +69,12 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     update :update do
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
       change ApplyPluginUpdatePolicy
+      change {RetractOwnedAssignments, owner: :plugin_target_policy}
+    end
+
+    destroy :destroy do
+      primary? true
+      change {RetractOwnedAssignments, owner: :plugin_target_policy}
     end
 
     action :preview do

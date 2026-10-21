@@ -134,9 +134,10 @@ What one rule then provisions:
   Every other schedule runs at its own `default_cadence_seconds`; the override is
   never copied onto a schedule with a different cadence contract.
 - **Shared on/off.** The rule's recurring-refresh switch arms and disarms all of
-  its schedules together, and disabling the rule, revoking the package, or
-  removing an id from `schedule_ids` in a new package version disables the
-  affected schedules on the next credential reconciliation.
+  its schedules together. Disabling or deleting the rule disables its
+  assignments immediately; revoking the package or removing an id from
+  `schedule_ids` in a new package version disables the affected schedules on
+  the next credential reconciliation.
 - **Run Now** on the credential rules page dispatches the primary schedule.
 
 ServiceRadar validates this data while importing the signed package and builds
@@ -582,6 +583,22 @@ tokens, or private material. Do not re-enable unbound rows with direct database
 updates.
 Do not alter or delete them through raw database access; use the audited recovery
 actions so the historical row remains available for investigation.
+
+### Assignments whose owner went away
+
+Disabling or deleting a credential rule or plugin target policy, or narrowing
+its scope, disables the assignments it materialized for the agents it no longer
+covers, in the same save. Each disabled assignment records the reason
+(`owner_disabled`, `owner_deleted` or `owner_scope_narrowed`), the operator and
+the time; enabling the assignment again clears them. A target policy whose
+inputs resolve no rows retracts nothing.
+
+Assignments orphaned before this behavior existed are not disabled
+automatically. Operators with `settings.plugins.manage` see them in a **Needs
+attention** panel on the Plugins index, with the owner and its state, and can
+**Retract** one or **Retract all**. Each is disabled with the reason
+`orphaned_owner_cleanup`; a row whose owner covers it again by then is left
+unchanged.
 
 ### First-party plugin import
 

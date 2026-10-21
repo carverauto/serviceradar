@@ -26,6 +26,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
@@ -204,12 +205,18 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       :ok = provision!(package, [disabled_rule, first_rule, second_rule])
       bound = assignment_for!(second_rule)
 
-      # Disabled after provisioning and before the next reconcile, so its
-      # assignment is still enabled and only the rule state rejects it.
+      # Disabled after provisioning. Disabling retracts the rule's assignment,
+      # so it is put back the way an assignment orphaned by an earlier disable
+      # looks: still enabled, so only the rule state rejects it.
       {:ok, disabled_rule} =
         disabled_rule
         |> Ash.Changeset.for_update(:disable, %{}, actor: @system_actor)
         |> Ash.update(actor: @system_actor)
+
+      Repo.query!(
+        "UPDATE platform.plugin_assignments SET enabled = true WHERE id = $1::text::uuid",
+        [to_string(assignment_for!(disabled_rule).id)]
+      )
 
       assert assignment_for!(disabled_rule).enabled
 

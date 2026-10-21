@@ -440,7 +440,7 @@ Each rule row on the table offers:
 | **Run Now** | Dispatches an immediate refresh. Shown for `producer_schedule` providers only, and disabled until the schedule is provisioned. For a provider whose profile binds several schedules (`provisioning.schedule_ids`), this dispatches the primary (first listed) schedule. |
 | **Consumers** | Expands an inline panel listing the assignments this rule currently materialises: agent, plugin, purpose, enabled, last materialised. |
 | **Edit** | Opens the rule form. |
-| **Enable** / **Disable** | Flips `enabled`. A disabled rule matches nothing and mints no grants; existing grants expire on their own TTL. |
+| **Enable** / **Disable** | Flips `enabled`. A disabled rule matches nothing and mints no grants; existing grants expire on their own TTL. Disabling or deleting a rule, or narrowing its scope, disables the plugin assignments it materialised (for the agents it no longer covers) in the same save; each records why and who. |
 
 **Preview** is the one to use before enabling anything. It shows:
 
