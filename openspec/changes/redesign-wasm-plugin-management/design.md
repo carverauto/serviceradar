@@ -257,6 +257,11 @@ collaborators, so the generalization is an engine/adapter split (a
 - Revocation rolls back inside the revoke transaction. Disabling an assignment
   by any path (owner retraction, reconcile, operator) clears its override and
   cancels every target holding it.
+- A rollout whose every target was canceled (member disabled, retracted or
+  deleted) or excluded before any target ran the candidate ends `canceled`
+  with `every_target_canceled`. It never promotes: nothing proved the
+  candidate, and promoting would move a disabled owner's stable package to it.
+  A source with no targets at all still promotes, as before.
 
 A related, pre-existing inconsistency is tracked separately in #5835. Per-owner
 coexistence in `AssignmentOwner` conflicts with the

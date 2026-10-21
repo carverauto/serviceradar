@@ -1123,6 +1123,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         with {:ok, notifications} <- finish_failed_rollout(rollout, terminal, actor, now),
              do: {:ok, :advanced, notifications}
 
+      :cancel_unproven ->
+        with {:ok, notifications} <- cancel_unproven_rollout(rollout, targets, actor, now),
+             do: {:ok, :advanced, notifications}
+
       :launch ->
         with {:ok, notifications} <- launch_next_batch(rollout, targets, actor, now),
              do: {:ok, :advanced, notifications}
@@ -1158,6 +1162,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       Enum.any?(targets, &(&1.state == :pending)) ->
         :launch
 
+      # Every target was canceled (its member disabled, retracted or deleted)
+      # or excluded before any of them ran the candidate. Nothing proved it, so
+      # promoting would move the source to a candidate no agent has run.
+      every_target_canceled?(targets) ->
+        :cancel_unproven
+
       Enum.all?(targets, fn target ->
         target.state in [:succeeded, :promoted, :rolled_back, :excluded, :canceled]
       end) ->
@@ -1165,6 +1175,30 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
       true ->
         :wait
+    end
+  end
+
+  # A source with no targets at all still promotes: it has nothing to verify,
+  # and create_rollout_with_targets/10 explains why that is intended.
+  defp every_target_canceled?(targets) do
+    Enum.any?(targets, &(&1.state == :canceled)) and
+      Enum.all?(targets, &(&1.state in [:canceled, :excluded]))
+  end
+
+  defp cancel_unproven_rollout(rollout, targets, actor, now) do
+    details = %{reason: "every_target_canceled", target_count: length(targets)}
+
+    with {:ok, notifications} <- clear_all_overrides(rollout, targets, actor),
+         :ok <- mark_targets_canceled(targets, actor, now),
+         {:ok, updated} <-
+           update_rollout(
+             rollout,
+             %{state: :canceled, canceled_at: now, blocked_reason: "every_target_canceled"},
+             actor
+           ) do
+      audit(:cancel, updated, details)
+      emit(:canceled, updated, details)
+      {:ok, notifications}
     end
   end
 
