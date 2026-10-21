@@ -98,7 +98,7 @@ fn clipped_links_keep_the_remote_device_identity_across_zoom_levels() {
                     })
                     .collect::<Vec<_>>();
                 let mut actual = Vec::new();
-                for triple in page.pairs.chunks_exact(12) {
+                for triple in page.pairs.as_chunks::<12>().0 {
                     let row = u32::from_le_bytes(triple[0..4].try_into().unwrap()) as usize;
                     assert!(row < tile.edges.len());
                     actual.push((
@@ -187,7 +187,7 @@ fn check_relation_pages(relation_count: usize) {
             assert!(page.candidates <= 4096 && page.pairs.len() <= 256 * 12);
             candidates += page.candidates;
             max_page_bytes = max_page_bytes.max(page.pairs.len());
-            for triple in page.pairs.chunks_exact(12) {
+            for triple in page.pairs.as_chunks::<12>().0 {
                 let row = u32::from_le_bytes(triple[0..4].try_into().unwrap()) as usize;
                 assert_eq!(
                     u32::from_le_bytes(triple[4..8].try_into().unwrap()),
