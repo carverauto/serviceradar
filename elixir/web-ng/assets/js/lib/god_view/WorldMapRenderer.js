@@ -96,8 +96,15 @@ export default class WorldMapRenderer {
     })
     this.getTileData = ({index, signal}) => this.cache.get(index, {signal})
     this.onViewportLoad = tiles => this.viewportLoaded(tiles)
-    this.onTileSelection = tiles => this.membership.holdView(tiles.length === this.cache.visible.size &&
-      tiles.every(tile => this.cache.visible.has(tileId(tile.index))))
+    this.onTileSelection = tiles => {
+      const current = tiles.length === this.cache.visible.size && tiles.every(tile => this.cache.visible.has(tileId(tile.index)))
+      if (current === !this.selectionPending) return
+      const watched = this.membershipSignature
+      this.selectionPending = !current
+      this.membershipSignature = null
+      if (current) this.scheduleWatch()
+      else if (watched) this.membership.beginView()
+    }
     this.onTileError = error => {
       if (error.name !== "AbortError") {this.retryTiles = true; this.status(error.message)}
     }
@@ -547,7 +554,7 @@ export default class WorldMapRenderer {
   }
 
   syncMembership(payload) {
-    if (!this.membershipEnabled || this.bitmapQuery === null) return
+    if (!this.membershipEnabled || this.bitmapQuery === null || this.selectionPending) return
     const request = this.membershipRequest(payload)
     const {tiles} = request
     const signature = JSON.stringify(request)
@@ -583,6 +590,7 @@ export default class WorldMapRenderer {
 
   viewportLoaded(tiles) {
     if (this.destroyed) return
+    this.selectionPending = false
     this.cache.setVisible(tiles.map(tile => tile.index))
     const geometries = tiles.map(tile => tile.content).filter(Boolean)
     const count = Math.max(1, tiles.length)

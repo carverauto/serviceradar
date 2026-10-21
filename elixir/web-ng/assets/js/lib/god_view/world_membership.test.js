@@ -277,27 +277,18 @@ describe("binary admitted-row membership", () => {
     } finally {state.clear(); vi.useRealTimers()}
   })
 
-  it("expires retained rows while replacement geometry loads unless the displayed view is selected again", () => {
+  it("does not let a refresh of the previous view cancel the retained-row deadline", () => {
     vi.useFakeTimers()
     const state = session()
     try {
-      state.receive(bitmapFrame({tiles: [tile]}))
-      state.holdView(false)
-      vi.advanceTimersByTime(9000)
+      state.receive(bitmapFrame({sequence: 1n, tiles: [tile]}))
       state.beginView()
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(5000)
+      state.receive(bitmapFrame({sequence: 2n, tiles: [{...tile, counts: [1, 9000]}]}))
+      expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
+      vi.advanceTimersByTime(5000)
       expect(state.entries.size).toBe(0)
       expect(state.onReset).toHaveBeenCalledWith("Membership view timed out", undefined)
-      state.bind(bitmapBinding, [geometry])
-      state.receive(bitmapFrame({tiles: [tile]}))
-      state.holdView(false)
-      state.holdView(true)
-      vi.advanceTimersByTime(10000)
-      expect([...state.entries.get("0/0/0").counts]).toEqual([1, 9001])
-      state.beginView()
-      state.holdView(true)
-      vi.advanceTimersByTime(10000)
-      expect(state.entries.size).toBe(0)
     } finally {state.clear(); vi.useRealTimers()}
   })
 

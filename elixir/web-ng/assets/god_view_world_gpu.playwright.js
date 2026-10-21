@@ -159,7 +159,6 @@ test("retained filtered geometry expires 10s after a stalled pan despite further
 test("retained filtered geometry expires 10s after an uncached zoom whose geometry is still loading", async ({page}) => {
   test.setTimeout(90000)
   await openFilteredCapture(page)
-  await holdMembershipFrames(page)
   // Holds every finer tile response; the cache's own 15s abort is later.
   await page.evaluate(() => {
     const harness = window.__SR_BITMAP_GPU__, fetch = window.fetch
@@ -176,14 +175,26 @@ test("retained filtered geometry expires 10s after an uncached zoom whose geomet
   await page.waitForFunction(() => window.__SR_BITMAP_GPU__.heldTiles.length > 0)
   await completedBitmapFrame(page)
   expect(await pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 2})
+  // A valid higher-sequence refresh of the previous view is not a replacement.
+  await page.waitForTimeout(Math.max(0, started + 5000 - Date.now()))
+  expect(await page.evaluate(() => {
+    const {samples, refreshMembership} = window.__SR_BITMAP_GPU__, before = samples.membershipFrames
+    refreshMembership()
+    return samples.membershipFrames - before
+  })).toBe(1)
   await setView(page, {target: [200, 200, 0], zoom: 3})
   await expect.poll(() => page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.entries.size),
     {timeout: Math.max(0, started + 12500 - Date.now()), intervals: [100]}).toBe(0)
   expect(Date.now() - started).toBeLessThan(12500)
+  const watches = await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membershipPush)
+  // The reset retry must not rebind the previous view while geometry is missing.
+  await page.waitForTimeout(3000)
   expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.heldTiles.length)).toBeGreaterThan(0)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membershipPush)).toBe(watches)
+  expect(await page.evaluate(() => window.__SR_BITMAP_GPU__.renderer.membership.entries.size)).toBe(0)
   await completedBitmapFrame(page)
   await expect.poll(() => pickWorld(page, [192, 192, 0])).toBeNull()
-  await page.evaluate(() => {window.__SR_BITMAP_GPU__.releaseTiles(); window.__SR_BITMAP_GPU__.releaseFrames()})
+  await page.evaluate(() => window.__SR_BITMAP_GPU__.releaseTiles())
   await membershipSettled(page)
   await completedBitmapFrame(page)
   await expect.poll(() => pickWorld(page, [192, 192, 0])).toEqual({id: "synthetic-aggregate-5", zoom: 3})

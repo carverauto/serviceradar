@@ -34,18 +34,11 @@ export class WorldMembership {
     this.sequence = null
     this.receipts.clear()
     this.pending = true
-    this.holdView(false)
-    this.onChange()
-  }
-
-  holdView(current) {
     // Repeated camera moves cannot extend an unconfirmed view indefinitely.
-    if (current && !this.pending) {
-      clearTimeout(this.viewTimer)
-      this.viewTimer = null
-    } else if (this.entries.size > 0 && !this.viewTimer) {
+    if (this.entries.size > 0 && !this.viewTimer) {
       this.viewTimer = setTimeout(() => this.reset("Membership view timed out"), 10000)
     }
+    this.onChange()
   }
 
   receive(input) {
