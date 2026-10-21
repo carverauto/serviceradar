@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceSourceFactControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-
   @moduletag :web_ng_shared_fixture_db
 
   @attachment %{"switch_hostname" => "access01.example.com", "port" => "Gi1/0/7", "vlan_id" => 120}
@@ -123,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceSourceFactControllerTest do
       assert response["error"] =~ "not authorized"
 
       shown = conn |> get(~p"/api/devices/#{device.uid}") |> json_response(200)
-      assert shown["data"]["switch_port_attachment"] == nil
+      assert shown["data"]["vlan_uid"] == nil
     end
   end
 
