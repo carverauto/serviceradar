@@ -518,7 +518,11 @@ webNg:
   obanEnabled: true
   obanQueues:
     default: 1
-    alerts: 1
+    # Alert evaluation runs on core. Its workers publish ingestion lane
+    # metrics (metrics.ingestion_lanes) that only core's NATS identity may
+    # publish, so with alert evaluation active a web-ng alerts queue would
+    # take evaluation jobs and have every metric publish denied. Keep this 0.
+    alerts: 0
     serviceChecks: 1
     # Notification dispatch publishes the notifications.* firehose, which only
     # core may publish (web-ng subscribes). Keep this 0 so DispatchWorker jobs

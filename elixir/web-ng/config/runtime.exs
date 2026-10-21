@@ -1458,7 +1458,9 @@ if config_env() != :test do
       :default,
       parse_queue_limit.(["WEB_NG_OBAN_QUEUE_DEFAULT", "OBAN_DEFAULT_QUEUE_LIMIT"], 10)
     )
-    |> maybe_queue.(:alerts, parse_queue_limit.("WEB_NG_OBAN_QUEUE_ALERTS", 5))
+    # 0 so web-ng takes no alert evaluation work; evaluators publish
+    # metrics.ingestion_lanes, which only core may publish.
+    |> maybe_queue.(:alerts, parse_queue_limit.("WEB_NG_OBAN_QUEUE_ALERTS", 0))
     |> maybe_queue.(
       :service_checks,
       parse_queue_limit.("WEB_NG_OBAN_QUEUE_SERVICE_CHECKS", 10)
