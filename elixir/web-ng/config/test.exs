@@ -199,8 +199,7 @@ config :serviceradar_core,
            # shared-fixture lane wrote tens of megabytes of QUERY lines per run. Same setting
            # as serviceradar_core's config/test.exs; SERVICERADAR_TEST_LOG_SQL=1 restores the
            # SQL for debugging. Query telemetry is emitted either way.
-           log:
-             if(System.get_env("SERVICERADAR_TEST_LOG_SQL") == "1", do: :debug, else: false)
+           log: if(System.get_env("SERVICERADAR_TEST_LOG_SQL") == "1", do: :debug, else: false)
          ]
 
 # Keep config pushes inside the test process. Production coalesces them.
