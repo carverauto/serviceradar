@@ -30,10 +30,15 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
           {:ok, RelaySession.t() | map()} | {:error, term()}
   def heartbeat_session(relay_session_id, media_ingest_id, attrs \\ %{}, opts \\ []) do
     with {:ok, session} <- fetch_session(relay_session_id, opts),
-         :ok <- ensure_status(session, [:opening, :active]),
-         :ok <- ensure_media_ingest_id(session, media_ingest_id),
-         {:ok, normalized_attrs} <- lease_attrs(attrs) do
-      renew_lease_session(session, normalized_attrs, opts)
+         :ok <- ensure_status(session, [:opening, :active, :closing, "closing"]),
+         :ok <- ensure_media_ingest_id(session, media_ingest_id) do
+      if closing_session?(session) do
+        {:ok, session}
+      else
+        with {:ok, normalized_attrs} <- lease_attrs(attrs) do
+          renew_lease_session(session, normalized_attrs, opts)
+        end
+      end
     end
   end
 

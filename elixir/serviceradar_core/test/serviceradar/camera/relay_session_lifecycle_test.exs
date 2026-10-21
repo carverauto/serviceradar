@@ -59,6 +59,38 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycleTest do
                     %{lease_expires_at: %DateTime{}, viewer_count: 3}}
   end
 
+  test "accepts late heartbeats for a closing relay session without renewing the lease" do
+    relay_session_id = Ecto.UUID.generate()
+    parent = self()
+
+    session_fetcher = fn ^relay_session_id, _actor ->
+      {:ok,
+       %{
+         id: relay_session_id,
+         status: :closing,
+         media_ingest_id: "core-media-1",
+         close_reason: "viewer closed device details"
+       }}
+    end
+
+    renewer = fn session, attrs, _actor ->
+      send(parent, {:renew_lease, session.id, attrs})
+      {:ok, Map.merge(session, attrs)}
+    end
+
+    assert {:ok, session} =
+             RelaySessionLifecycle.heartbeat_session(
+               relay_session_id,
+               "core-media-1",
+               %{lease_expires_at_unix: 1_900_000_010, viewer_count: 0},
+               session_fetcher: session_fetcher,
+               renewer: renewer
+             )
+
+    assert session.status == :closing
+    refute_receive {:renew_lease, ^relay_session_id, _attrs}
+  end
+
   test "reuses the existing media ingest id when activating an already-active relay session" do
     relay_session_id = Ecto.UUID.generate()
     parent = self()
