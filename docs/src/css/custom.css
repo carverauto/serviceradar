@@ -687,8 +687,39 @@ samp {
 }
 
 .sr-docs-panel__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
   padding: 1.5rem;
   border-bottom: 1px solid var(--sr-color-line);
+  color: var(--sr-color-ink);
+  text-decoration: none;
+}
+
+.sr-docs-panel__cell:hover,
+.sr-docs-panel__cell:focus-visible {
+  background: color-mix(in oklab, var(--sr-color-brand) 8%, var(--sr-color-surface));
+  color: var(--sr-color-ink);
+  text-decoration: none;
+}
+
+.sr-docs-panel__cell:focus-visible {
+  outline: 2px solid var(--sr-color-brand);
+  outline-offset: -2px;
+}
+
+.sr-docs-panel__cell-link {
+  margin-top: auto;
+  padding-top: 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sr-color-brand);
+}
+
+.sr-docs-panel__cell:hover .sr-docs-panel__cell-link,
+.sr-docs-panel__cell:focus-visible .sr-docs-panel__cell-link {
+  text-decoration: underline;
 }
 
 @media (min-width: 640px) {
