@@ -262,9 +262,9 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   # A CAGG that refreshes past its raw source's retention DELETES its own
   # materialized history when the policy refresh covers a dropped-chunk
   # region (drop_chunks plants invalidations; verified on TimescaleDB
-  # 2.24.0). Migration 20260716210000 clamps the shipped policies; this
-  # guard catches per-deployment drift (env-tuned retention windows or
-  # hand-created policies).
+  # 2.24.0). `reconcile_cagg_refresh_windows/1` clamps the shipped policies
+  # to the configured retention; this guard catches what it does not manage
+  # (hand-created policies or aggregates outside @cagg_refresh_policies).
   defp alert_on_cagg_refresh_hazards do
     case RetentionFence.cagg_refresh_hazards() do
       [] ->
