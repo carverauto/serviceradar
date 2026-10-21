@@ -66,4 +66,3 @@ The control plane SHALL report every enabled policy-derived plugin assignment wh
 - **WHEN** an operator retracts `a1` and an assignment that is not an orphan
 - **THEN** `a1` is disabled with the reason `orphaned_owner_cleanup` and that operator recorded
 - **AND** `a2` and the non-orphan assignment remain enabled
-

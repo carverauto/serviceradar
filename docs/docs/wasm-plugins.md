@@ -134,9 +134,10 @@ What one rule then provisions:
   Every other schedule runs at its own `default_cadence_seconds`; the override is
   never copied onto a schedule with a different cadence contract.
 - **Shared on/off.** The rule's recurring-refresh switch arms and disarms all of
-  its schedules together, and disabling the rule, revoking the package, or
-  removing an id from `schedule_ids` in a new package version disables the
-  affected schedules on the next credential reconciliation.
+  its schedules together. Disabling or deleting the rule disables its
+  assignments immediately; revoking the package or removing an id from
+  `schedule_ids` in a new package version disables the affected schedules on
+  the next credential reconciliation.
 - **Run Now** on the credential rules page dispatches the primary schedule.
 
 ServiceRadar validates this data while importing the signed package and builds
