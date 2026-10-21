@@ -1627,9 +1627,21 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                     parsed["steps"][0]["run"],
                 )
                 shell = database_lifecycle_shell(named_action(name))
-                skip = shell.index(f'[ -e "${{SERVICERADAR_SKIP_MARKER:-{marker}}}" ]')
-                self.assertLess(skip, shell.index("\nRUN_ID="))
-                self.assertNotIn("DOCS_ONLY_MARKER", shell)
+                # Run the whole step: its own marker skips every Bazel call; with no
+                # marker the lifecycle runs and tears down.
+                with tempfile.TemporaryDirectory() as tmp:
+                    skip = Path(tmp, "skip")
+                    skip.write_text("no affected target\n", encoding="utf-8")
+                    result = run_lifecycle(shell, tmp, SERVICERADAR_SKIP_MARKER=str(skip))
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertIn("database lifecycle skipped", result.stdout)
+                    self.assertFalse(Path(tmp, "lifecycle.log").exists())
+                with tempfile.TemporaryDirectory() as tmp:
+                    result = run_lifecycle(shell, tmp, SERVICERADAR_SKIP_MARKER=str(Path(tmp, "absent")))
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    calls = Path(tmp, "lifecycle.log").read_text(encoding="utf-8").splitlines()
+                    self.assertEqual("run //rust/integration-db:release_generation", calls[-1])
+                self.assertIn(marker, shell)
 
     def assert_database_action_harness(self, action: str, compile_line: str, provision: str, suite: str) -> None:
         """Run the lifecycle with stubbed Bazel: compile, then observer, clone and suite."""

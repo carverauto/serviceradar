@@ -14,8 +14,10 @@ It is conservative by construction. The action runs in full when:
     (see RUN_ALL_*), or was deleted;
   * a Bazel query fails.
 
-A docs-only change (build/ci/detect_docs_only.py) skips every action. A changed file
-that no Bazel target references is not an input of any test, so it affects none.
+A docs-only change (build/ci/detect_docs_only.py) skips every action, and docs paths
+are excluded before the rules above, as they are for the whole BazelCI docs-only skip.
+A changed file that no Bazel target references is not an input of any test, so it
+affects none.
 """
 
 from __future__ import annotations
@@ -84,14 +86,18 @@ RUN_ALL_BASENAMES = frozenset(
         "BUILD",
         "BUILD.bazel",
         "Cargo.lock",
+        "bun.lock",
+        "bun.lockb",
         "Cargo.toml",
         "go.mod",
         "go.sum",
         "mix.exs",
         "mix.lock",
+        "package-lock.json",
         "package.json",
         "pnpm-lock.yaml",
         "pnpm-workspace.yaml",
+        "yarn.lock",
     }
 )
 
