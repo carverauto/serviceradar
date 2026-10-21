@@ -151,31 +151,33 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     assert %{state: :waiting_health} = target(rollout, stale)
   end
 
-  test "an action verifies the candidate only when dispatched after the candidate config was acknowledged",
+  test "a downstream ingest failure fails its observation even when its row sorts earlier",
        ctx do
-    {policy, [early, acknowledged]} = policy_with_members!(ctx, 2)
+    {policy, [member]} = policy_with_members!(ctx, 1)
 
     {:ok, rollout} =
       AddonRolloutCoordinator.start(policy, ctx.candidate,
         actor: @system,
         now: ctx.now,
-        policy: batches(canary_size: 2, max_parallel: 2, soak_seconds: 0)
+        policy: batches(canary_size: 1, max_parallel: 1, soak_seconds: 0)
       )
 
-    # Both agents acknowledge the config that carries the override. One ran the
-    # action before that, when it could still hold the previous package.
-    for member <- [early, acknowledged], do: config_ack!(member, at(ctx, 2))
-    completed_action!(early, ctx.candidate, at(ctx, 1))
-    completed_action!(acknowledged, ctx.candidate, at(ctx, 3))
+    # The agent observed at +1s and the server received the result at +3s; the
+    # ingestor writes the failed downstream ingest with the observation's
+    # timestamp, so its row is older than the healthy reported row.
+    observation = %{observed_at: at(ctx, 1), digest: "example-digest-#{ctx.unique}"}
+    result!(member, ctx.candidate, "OK", at(ctx, 3), observation)
+    downstream_failure!(member, ctx.candidate, observation)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: @system, now: at(ctx, 4))
 
-    # Both pass, so the rollout promotes; only the acknowledged one is verified.
-    assert %AddonRollout{state: :completed} = reload(rollout)
-    assert %{state: :promoted, reason_code: "no_version_evidence"} = target(rollout, early)
+    assert %{state: :rolling_back, blocked_reason: "candidate_reported_unhealthy"} =
+             reload(rollout)
 
-    assert %{state: :promoted, reason_code: "candidate_health_verified"} =
-             target(rollout, acknowledged)
+    assert assignment(member).rollout_plugin_package_id == nil
+
+    assert %{state: :rollback_pending, reason_code: "candidate_reported_unhealthy"} =
+             target(rollout, member)
   end
 
   test "retracting an assignment during a rollout clears its override and cancels its target",
@@ -336,67 +338,75 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
 
   # A plugin result as PluginResultIngestor stores it, stamped by the agent host
   # with the assignment, package and module hash that produced it.
-  defp result!(member, package, status, received_at) do
+  defp result!(member, package, status, received_at, observation \\ nil) do
+    marker =
+      %{"kind" => "reported", "provenance" => provenance(member, package)}
+      |> Map.merge(observation_marker(observation))
+
     details =
       Jason.encode!(%{
         "status" => status,
         "summary" => "example result",
-        "_serviceradar_plugin_result" => %{
-          "kind" => "reported",
-          "provenance" => %{
-            "assignment_id" => member.id,
-            "plugin_id" => package.plugin_id,
-            "plugin_package_id" => package.id,
-            "plugin_version" => package.version,
-            "content_hash" => package.content_hash
-          }
-        }
+        "_serviceradar_plugin_result" => marker
       })
 
+    observed_at = if observation, do: observation.observed_at, else: received_at
+    status_row!(member, package, observed_at, received_at, status == "OK", details)
+  end
+
+  # The marker row PluginResultIngestor writes when a downstream handler failed
+  # for an observation: timestamped and created at the observation's time.
+  defp downstream_failure!(member, package, observation) do
+    marked_at = DateTime.add(observation.observed_at, 1, :microsecond)
+
+    details =
+      Jason.encode!(%{
+        "status" => "CRITICAL",
+        "summary" => "example downstream failure",
+        "downstream_ingest" =>
+          %{"status" => "failed", "provenance" => provenance(member, package)}
+          |> Map.merge(observation_marker(observation))
+      })
+
+    status_row!(member, package, marked_at, marked_at, false, details)
+  end
+
+  defp provenance(member, package) do
+    %{
+      "assignment_id" => member.id,
+      "plugin_id" => package.plugin_id,
+      "plugin_package_id" => package.id,
+      "plugin_version" => package.version,
+      "content_hash" => package.content_hash
+    }
+  end
+
+  defp observation_marker(nil), do: %{}
+
+  defp observation_marker(observation) do
+    %{
+      "observation_timestamp" => DateTime.to_iso8601(observation.observed_at),
+      "payload_digest" => observation.digest
+    }
+  end
+
+  defp status_row!(member, package, observed_at, received_at, available, details) do
     Repo.query!(
       """
       INSERT INTO platform.service_status
         ("timestamp", gateway_id, agent_id, service_name, service_type, available,
          message, details, partition, created_at)
-      VALUES ($1, $2, $3, $4, 'plugin', $5, 'example result', $6, $7, $1)
+      VALUES ($1, $2, $3, $4, 'plugin', $5, 'example result', $6, $7, $8)
       """,
       [
-        received_at,
+        observed_at,
         "example-gateway-#{member.agent_uid}",
         member.agent_uid,
         package.name,
-        status == "OK",
+        available,
         details,
-        @partition
-      ]
-    )
-  end
-
-  defp config_ack!(member, acked_at) do
-    Repo.query!(
-      "UPDATE platform.ocsf_agents SET acked_config_version = 'example-version', config_acked_at = $2 WHERE uid = $1",
-      [member.agent_uid, acked_at |> DateTime.truncate(:second) |> DateTime.to_naive()]
-    )
-  end
-
-  # A plugin action as the northbound dispatcher records it on the agent
-  # command bus, once the agent reported it complete.
-  defp completed_action!(member, package, dispatched_at) do
-    Repo.query!(
-      """
-      INSERT INTO platform.agent_commands
-        (command_type, agent_id, partition_id, status, payload, context, inserted_at, updated_at)
-      VALUES ('plugin.run_action', $1, $2, 'completed', '{}'::jsonb, $3, $4, $4)
-      """,
-      [
-        member.agent_uid,
         @partition,
-        %{
-          "plugin_assignment_id" => member.id,
-          "plugin_package_id" => package.id,
-          "action_id" => "example-action"
-        },
-        DateTime.to_naive(dispatched_at)
+        received_at
       ]
     )
   end

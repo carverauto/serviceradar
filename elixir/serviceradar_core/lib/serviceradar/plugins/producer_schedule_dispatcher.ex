@@ -342,7 +342,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
     actor = Keyword.get(opts, :actor, SystemActor.system(:producer_schedule_dispatcher))
 
     PluginAssignment
-    |> Ash.Query.filter(plugin_package_id == ^package_id and enabled == true)
+    |> Ash.Query.for_read(:by_package, %{plugin_package_id: package_id}, actor: actor)
     |> Ash.Query.sort(agent_uid: :asc)
     |> Ash.read(actor: actor)
   end
@@ -425,9 +425,8 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
     actor = Keyword.get(opts, :actor, SystemActor.system(:producer_schedule_dispatcher))
 
     PluginAssignment
-    |> Ash.Query.filter(
-      plugin_package_id == ^package_id and enabled == true and agent_uid in ^agent_uids
-    )
+    |> Ash.Query.for_read(:by_package, %{plugin_package_id: package_id}, actor: actor)
+    |> Ash.Query.filter(agent_uid in ^agent_uids)
     |> Ash.Query.sort(agent_uid: :asc)
     |> Ash.read(actor: actor)
   end

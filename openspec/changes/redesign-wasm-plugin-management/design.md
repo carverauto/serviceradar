@@ -228,6 +228,18 @@ collaborators, so the generalization is an engine/adapter split (a
 - Health classification of a provenance-stamped result: `OK`, `WARNING` and
   `CRITICAL` mean the plugin ran (a critical target is not a failed plugin);
   `UNKNOWN`, failed downstream ingest or another module's hash is a failure.
+  Results are classified per observation: a downstream-ingest row carries its
+  observation's timestamp and payload digest, and a failed one fails that
+  observation regardless of row order. Freshness and order use the reported
+  row's server receipt time.
+- Action-only plugins that ingest their action results are verified through
+  those stamped results. Action-only plugins without result ingest pass only
+  through `on_no_evidence` as `no_version_evidence`. A completed
+  `plugin.run_action` command is not evidence: a config acknowledgement time
+  cannot prove which package ran the action, so binding an invocation to the
+  candidate needs host provenance on command results (a follow-up).
+- A failed evidence read is not an empty one. Targets it covers neither pass,
+  fail, recover nor converge; they wait and eventually time out.
 - An agent that stamps its results, but only for the previous package, gets no
   `on_no_evidence` pass: it has not loaded the candidate, and times out.
 - A rollout that is rolling back ends as `rolled_back` even when no target was

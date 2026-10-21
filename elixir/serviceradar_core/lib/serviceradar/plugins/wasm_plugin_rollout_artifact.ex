@@ -35,21 +35,28 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     * **Failed.** The latest result stamped with the candidate package is
       `UNKNOWN` (the plugin, or the host running it, could not complete the
       run), failed downstream ingest, or carries another module's hash.
-    * **Verified by an invocation.** Without a stamped result that decides,
-      an action the agent completed for the assignment also verifies the
-      candidate, when its dispatch record names the candidate package and it
-      was dispatched after the agent acknowledged a config newer than the
-      override. An action invoked before that acknowledgement can still have
-      run the previous package. This is how action-only plugins, which push no
-      scheduled results, are verified.
     * **No version evidence.** The agent pushed no stamped result for the
       assignment since the override: it predates provenance, or the plugin only
-      runs actions and none was invoked. The rollout's snapshotted `on_no_evidence` policy decides:
+      runs actions and ingests no result for them. The rollout's snapshotted
+      `on_no_evidence` policy decides:
       `pass_after_soak` (the default) passes the target after the soak with the
       reason code `no_version_evidence`, which never counts as verified;
       `fail` lets the target time out. An agent that does stamp its results but
       only ever for the previous package has not loaded the candidate, so it
       gets no such pass.
+
+  Evidence is classified per observation, not per row. The ingestor stores a
+  downstream-ingest outcome as a separate row keyed by the reported row's
+  observation timestamp and payload digest, so a failed downstream ingest fails
+  that observation wherever its row sorts. Freshness and order are the reported
+  row's server receipt time.
+
+  An action-only plugin that ingests its action results is verified through
+  those stamped results. A completed action command is no evidence: nothing
+  records which package the agent ran it with.
+
+  A failed evidence read is not an empty one: the targets it covers neither
+  pass, fail, recover nor converge, so they wait and eventually time out.
 
   A failed target rolls the whole rollout back (`rolls_back_on_failure?/1`), and
   `tolerated_failures` is fixed at 0: turning a tolerated failure into a manual
@@ -62,7 +69,6 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @behaviour ServiceRadar.Plugins.RolloutArtifact
 
-  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.PluginResultProvenance
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
@@ -74,6 +80,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   alias ServiceRadar.Repo
 
   require Ash.Query
+  require Logger
 
   @verified_reason "candidate_health_verified"
   @no_evidence_reason "no_version_evidence"
@@ -85,10 +92,6 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   # an agent clock may run behind the server before its results are missed.
   @evidence_rows_per_target 20
   @agent_clock_skew_seconds 3_600
-
-  # The command type the northbound dispatcher and producer schedules use to
-  # invoke a plugin action.
-  @plugin_action_command "plugin.run_action"
 
   @impl true
   def artifact_kind, do: :wasm_plugin
@@ -316,21 +319,28 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   def load_evidence(targets, rollout, actor) do
     targets = Enum.reject(targets, &is_nil(&1.plugin_assignment_id))
     on_no_evidence = normalize_policy(rollout.policy)["on_no_evidence"]
-    stable_versions = stable_versions(targets, actor)
-    results = stamped_results(targets)
-    invocations = completed_invocations(targets, actor)
 
-    Map.new(targets, fn target ->
-      id = target.plugin_assignment_id
+    with {:ok, stable_versions} <- stable_versions(targets, actor),
+         {:ok, results} <- stamped_results(targets) do
+      Map.new(targets, fn target ->
+        id = target.plugin_assignment_id
 
-      {id,
-       %{
-         stable_version: Map.get(stable_versions, id),
-         on_no_evidence: on_no_evidence,
-         results: Map.get(results, id, []),
-         invocations: Map.get(invocations, id, [])
-       }}
-    end)
+        {id,
+         %{
+           stable_version: Map.get(stable_versions, id),
+           on_no_evidence: on_no_evidence,
+           results: Map.get(results, id, [])
+         }}
+      end)
+    else
+      {:error, reason} ->
+        Logger.warning("Wasm plugin rollout evidence read failed",
+          rollout_id: rollout.id,
+          reason: inspect(reason)
+        )
+
+        Map.new(targets, &{&1.plugin_assignment_id, %{unavailable: true}})
+    end
   end
 
   @impl true
@@ -342,6 +352,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @impl true
   def candidate_ready?(nil, _candidate, _applied_at), do: false
+  def candidate_ready?(%{unavailable: true}, _candidate, _applied_at), do: false
 
   def candidate_ready?(evidence, candidate, applied_at) do
     case verdict(evidence, candidate, applied_at) do
@@ -360,6 +371,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   @impl true
   def candidate_failed?(nil, _candidate, _applied_at), do: false
+  def candidate_failed?(%{unavailable: true}, _candidate, _applied_at), do: false
 
   def candidate_failed?(evidence, candidate, applied_at),
     do: verdict(evidence, candidate, applied_at) == :failed
@@ -368,6 +380,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   # until its deadline and is recorded as rollback_recovery_unverified.
   @impl true
   def recovered?(nil, _previous, _since), do: false
+  def recovered?(%{unavailable: true}, _previous, _since), do: false
 
   def recovered?(evidence, previous, since), do: verdict(evidence, previous, since) == :healthy
 
@@ -385,25 +398,12 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   @impl true
   def telemetry_event, do: [:serviceradar, :plugins, :wasm_plugin_rollout, :transition]
 
-  # The newest result stamped with `package` and received since `since` that
-  # says something about it decides: :healthy or :failed. Without one, a
-  # completed invocation of `package` is :healthy. Otherwise nil.
+  # The newest observation stamped with `package` and received since `since`
+  # that says something about it decides: :healthy or :failed. Otherwise nil.
   defp verdict(nil, _package, _since), do: nil
 
-  defp verdict(evidence, package, since) do
-    case evidence |> results_since(since) |> Enum.find_value(&classify(&1, package)) do
-      nil -> invoked_verdict(evidence, package)
-      stamped -> stamped
-    end
-  end
-
-  # load_evidence/3 keeps only invocations dispatched after a config
-  # acknowledgement that followed the target's override (or rollback).
-  defp invoked_verdict(%{invocations: invocations}, package) do
-    if Enum.any?(invocations, &same_id?(&1.package_id, package.id)), do: :healthy
-  end
-
-  defp invoked_verdict(_evidence, _package), do: nil
+  defp verdict(evidence, package, since),
+    do: evidence |> results_since(since) |> Enum.find_value(&classify(&1, package))
 
   defp passes_without_evidence?(evidence, applied_at) do
     evidence.on_no_evidence == @default_on_no_evidence and
@@ -429,7 +429,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     end
   end
 
-  defp stable_versions([], _actor), do: %{}
+  defp stable_versions([], _actor), do: {:ok, %{}}
 
   defp stable_versions(targets, actor) do
     ids = Enum.map(targets, & &1.plugin_assignment_id)
@@ -441,21 +441,22 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, assignments} ->
-        Map.new(assignments, fn assignment ->
-          {assignment.id, package_version(assignment.plugin_package)}
-        end)
+        {:ok,
+         Map.new(assignments, fn assignment ->
+           {assignment.id, package_version(assignment.plugin_package)}
+         end)}
 
-      {:error, _} ->
-        %{}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp package_version(%PluginPackage{version: version}), do: version
   defp package_version(_package), do: nil
 
-  # Stamped results per assignment, newest first. A target is read from its
-  # override (or, rolling back, from its rollback) onward; one with neither has
-  # no evidence to read.
+  # Stamped observations per assignment, newest first. A target is read from
+  # its override (or, rolling back, from its rollback) onward; one with neither
+  # has no evidence to read.
   defp stamped_results(targets) do
     scopes =
       Enum.flat_map(targets, fn target ->
@@ -466,9 +467,10 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       end)
 
     if scopes == [] do
-      %{}
+      {:ok, %{}}
     else
       {ids, agents, sinces} = unzip3(scopes)
+      since_by_id = Map.new(scopes, fn {id, _agent, since} -> {id, since} end)
 
       case Repo.query(stamped_results_sql(), [
              ids,
@@ -478,98 +480,18 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
              @evidence_rows_per_target
            ]) do
         {:ok, %{rows: rows}} ->
-          rows
-          |> Enum.flat_map(&stamped_result/1)
-          |> Enum.group_by(fn {id, _result} -> id end, fn {_id, result} -> result end)
+          {:ok,
+           rows
+           |> Enum.flat_map(&stamped_row/1)
+           |> Enum.group_by(fn {id, _row} -> id end, fn {_id, row} -> row end)
+           |> Map.new(fn {id, id_rows} ->
+             {id, observations(id_rows, Map.fetch!(since_by_id, id))}
+           end)}
 
-        {:error, _reason} ->
-          %{}
+        {:error, reason} ->
+          {:error, reason}
       end
     end
-  end
-
-  # Completed plugin actions per assignment, newest first, that were dispatched
-  # after the agent acknowledged a config newer than the target's override or
-  # rollback. The acknowledgement is the only sign the agent holds the config
-  # that names the package; an action dispatched before it can have run the
-  # previous one.
-  defp completed_invocations(targets, actor) do
-    acks = config_acks(targets, actor)
-
-    scopes =
-      Enum.flat_map(targets, fn target ->
-        since = evidence_since(target)
-        acked_at = Map.get(acks, target.agent_uid)
-
-        if acknowledged_after?(acked_at, since),
-          do: [{target.plugin_assignment_id, target.agent_uid, DateTime.to_naive(acked_at)}],
-          else: []
-      end)
-
-    if scopes == [] do
-      %{}
-    else
-      {ids, agents, acked} = unzip3(scopes)
-
-      case Repo.query(completed_invocations_sql(), [
-             ids,
-             agents,
-             acked,
-             @plugin_action_command,
-             @evidence_rows_per_target
-           ]) do
-        {:ok, %{rows: rows}} ->
-          Enum.group_by(
-            rows,
-            fn [id, _dispatched_at, _package_id] -> id end,
-            fn [_id, dispatched_at, package_id] ->
-              %{dispatched_at: dispatched_at, package_id: package_id}
-            end
-          )
-
-        {:error, _reason} ->
-          %{}
-      end
-    end
-  end
-
-  # config_acked_at has second precision, so an acknowledgement in the same
-  # second as the override may be of the config before it; only a later second
-  # counts.
-  defp acknowledged_after?(%DateTime{} = acked_at, %DateTime{} = since),
-    do: DateTime.after?(acked_at, DateTime.truncate(since, :second))
-
-  defp acknowledged_after?(_acked_at, _since), do: false
-
-  defp config_acks(targets, actor) do
-    uids = targets |> Enum.map(& &1.agent_uid) |> Enum.uniq()
-
-    Agent
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(uid in ^uids)
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, agents} -> Map.new(agents, &{&1.uid, &1.config_acked_at})
-      {:error, _} -> %{}
-    end
-  end
-
-  defp completed_invocations_sql do
-    """
-    SELECT scope.assignment_id, command.inserted_at, command.context ->> 'plugin_package_id'
-    FROM unnest($1::text[], $2::text[], $3::timestamp[]) AS scope(assignment_id, agent_id, acked_at)
-    CROSS JOIN LATERAL (
-      SELECT invocation.inserted_at, invocation.context
-      FROM platform.agent_commands AS invocation
-      WHERE invocation.status = 'completed'
-        AND invocation.command_type = $4
-        AND invocation.agent_id = scope.agent_id
-        AND invocation.inserted_at > scope.acked_at
-        AND invocation.context ->> 'plugin_assignment_id' = scope.assignment_id
-      ORDER BY invocation.inserted_at DESC
-      LIMIT $5
-    ) AS command
-    """
   end
 
   defp evidence_since(%AddonRolloutTarget{state: :rollback_pending} = target),
@@ -577,10 +499,12 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   defp evidence_since(target), do: target.override_applied_at
 
-  # Freshness is the server's receive time (created_at), comparable with the
-  # override time; the agent-reported timestamp only narrows the index scan.
-  # The assignment id must appear in a row's details for its provenance to name
-  # it, which keeps the candidate rows to the target's own results.
+  # A downstream-ingest row is written with its observation's timestamp, not its
+  # receive time, so rows are scanned by the agent-reported timestamp, which
+  # keeps an observation's rows together, and freshness is decided per
+  # observation from its reported row. The assignment id must appear in a row's
+  # details for its provenance to name it, which keeps the rows to the target's
+  # own results.
   defp stamped_results_sql do
     """
     SELECT scope.assignment_id, status.created_at, status."timestamp", status.details
@@ -591,40 +515,65 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
       WHERE result.service_type = 'plugin'
         AND result.agent_id = scope.agent_id
         AND result."timestamp" >= scope.since - make_interval(secs => $4)
-        AND result.created_at >= scope.since
         AND strpos(result.details, scope.assignment_id) > 0
-      ORDER BY result.created_at DESC
+      ORDER BY result."timestamp" DESC, result.created_at DESC
       LIMIT $5
     ) AS status
     """
   end
 
-  defp stamped_result([assignment_id, received_at, observed_at, details]) do
+  defp stamped_row([assignment_id, received_at, observed_at, details]) do
     decoded = decode(details)
 
     case PluginResultProvenance.from_details(decoded) do
       %{"assignment_id" => ^assignment_id} = provenance ->
-        [
-          {assignment_id,
-           %{
-             received_at: received_at,
-             observed_at: observed_at,
-             package_id: provenance["plugin_package_id"],
-             content_hash: provenance["content_hash"],
-             outcome: outcome(decoded)
-           }}
-        ]
+        [{assignment_id, stamped_kind(decoded, provenance, received_at, observed_at)}]
 
       _unstamped_or_another_assignment ->
         []
     end
   end
 
+  defp stamped_kind(%{"downstream_ingest" => ingest}, _provenance, _received_at, _observed_at)
+       when is_map(ingest) do
+    {:downstream, observation_key(ingest), Map.get(ingest, "status")}
+  end
+
+  defp stamped_kind(decoded, provenance, received_at, observed_at) do
+    {:reported, observation_key(Map.get(decoded, "_serviceradar_plugin_result")),
+     %{
+       received_at: received_at,
+       observed_at: observed_at,
+       package_id: provenance["plugin_package_id"],
+       content_hash: provenance["content_hash"],
+       outcome: outcome(decoded)
+     }}
+  end
+
+  # Each reported row received since `since` is one observation; a downstream
+  # ingest that failed for it fails it.
+  defp observations(rows, since) do
+    failed_keys =
+      for {:downstream, key, "failed"} <- rows, not is_nil(key), into: MapSet.new(), do: key
+
+    observations =
+      for {:reported, key, result} <- rows,
+          DateTime.compare(result.received_at, since) != :lt do
+        if MapSet.member?(failed_keys, key), do: %{result | outcome: :failed}, else: result
+      end
+
+    Enum.sort_by(observations, & &1.received_at, {:desc, DateTime})
+  end
+
+  defp observation_key(%{"observation_timestamp" => observed, "payload_digest" => digest})
+       when is_binary(observed) and is_binary(digest),
+       do: {observed, digest}
+
+  defp observation_key(_marker), do: nil
+
   # A determinate status means the plugin ran and judged its target, whatever it
   # judged: a CRITICAL target is not a failed plugin. UNKNOWN is the plugin, or
   # the host running it, failing to complete the run.
-  defp outcome(%{"downstream_ingest" => %{"status" => "failed"}}), do: :failed
-
   defp outcome(%{"status" => status}) when is_binary(status) do
     case String.upcase(String.trim(status)) do
       "UNKNOWN" -> :failed
