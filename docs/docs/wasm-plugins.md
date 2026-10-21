@@ -584,6 +584,22 @@ updates.
 Do not alter or delete them through raw database access; use the audited recovery
 actions so the historical row remains available for investigation.
 
+### Assignments whose owner went away
+
+Disabling or deleting a credential rule or plugin target policy, or narrowing
+its scope, disables the assignments it materialized for the agents it no longer
+covers, in the same save. Each disabled assignment records the reason
+(`owner_disabled`, `owner_deleted` or `owner_scope_narrowed`), the operator and
+the time; enabling the assignment again clears them. A target policy whose
+inputs resolve no rows retracts nothing.
+
+Assignments orphaned before this behavior existed are not disabled
+automatically. Operators with `settings.plugins.manage` see them in a **Needs
+attention** panel on the Plugins index, with the owner and its state, and can
+**Retract** one or **Retract all**. Each is disabled with the reason
+`orphaned_owner_cleanup`; a row whose owner covers it again by then is left
+unchanged.
+
 ### First-party plugin import
 
 ServiceRadar ships first-party Wasm plugins as signed artifacts published by release automation. The Plugins UI can sync a first-party plugin index, verify the referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed plugin storage, and stage the package for normal capability review. Imported first-party packages are not assignable until they are approved.
