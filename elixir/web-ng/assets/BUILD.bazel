@@ -664,7 +664,7 @@ js_test(
     entry_point = "god_view_million_browser.cjs",
     env = {"PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright"},
     exec_properties = {
-        "container-image": "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea",
+        "container-image": "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:bdfda2a8fdf48707c5e50a49bd3e06d8d0c759153dc8ee057d8a81c3450bb3e9",
     },
     tags = [
         "acceptance_test",
