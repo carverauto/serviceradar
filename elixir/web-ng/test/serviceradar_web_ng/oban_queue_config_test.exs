@@ -5,16 +5,15 @@ defmodule ServiceRadarWebNG.ObanQueueConfigTest do
 
   @config_path Path.expand("../../config/config.exs", __DIR__)
 
-  test "runtime queue omission can disable the integrations queue" do
+  # Config deep-merges queue keywords, so a queue declared at compile time would
+  # survive a runtime limit of 0 (which runtime.exs expresses by omission).
+  test "the runtime queue list is the only source of web-ng Oban queues" do
     compile_config = Config.Reader.read!(@config_path, env: :prod, target: :host)
-    compile_queues = oban_queues(compile_config)
-
-    refute Keyword.has_key?(compile_queues, :integrations)
-
-    runtime_config = [serviceradar_core: [{Oban, [queues: [default: 1]]}]]
+    runtime_queues = [default: 1, service_checks: 2]
+    runtime_config = [serviceradar_core: [{Oban, [queues: runtime_queues]}]]
     merged_config = Config.Reader.merge(compile_config, runtime_config)
 
-    refute Keyword.has_key?(oban_queues(merged_config), :integrations)
+    assert Enum.sort(oban_queues(merged_config)) == Enum.sort(runtime_queues)
   end
 
   test "web release honors durable alert activation and drain settings" do
@@ -51,6 +50,6 @@ defmodule ServiceRadarWebNG.ObanQueueConfigTest do
     config
     |> Keyword.fetch!(:serviceradar_core)
     |> Keyword.fetch!(Oban)
-    |> Keyword.fetch!(:queues)
+    |> Keyword.get(:queues, [])
   end
 end
