@@ -562,6 +562,9 @@ func (m *PluginManager) assignmentLoadStatuses() []PluginAssignmentLoadStatus {
 	for _, item := range assignments {
 		assignment := item.assignment
 		load := m.readAssignmentState(assignment.AssignmentID).load
+		if load.generation != assignment.generation {
+			load = pluginAssignmentLoad{}
+		}
 
 		status := load.status
 		if status == "" {

@@ -90,7 +90,7 @@ defmodule ServiceRadar.Observability.PluginResultProvenance do
     trimmed = String.trim(value)
 
     if trimmed != "" and byte_size(trimmed) <= @max_text_bytes and String.printable?(trimmed) and
-         not String.contains?(trimmed, ["\n", "\r", "\t"]) do
+         not Regex.match?(~r/[[:cntrl:]]/u, trimmed) do
       trimmed
     end
   end

@@ -369,6 +369,7 @@ func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment)
 		if state == nil || state.contentHash != contentHash {
 			state = &assignmentState{firstSeen: now, contentHash: contentHash}
 		}
+		state.generation = assignment.generation
 		if !state.ready && m.cacheExists(assignment) {
 			state.ready = true
 		}
@@ -395,34 +396,29 @@ func (m *PluginManager) recordAssignmentLoad(assignment *pluginAssignment, modul
 		return
 	}
 
-	generation := assignmentStateContentHash(assignment)
 	now := m.stateNow()
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 
 	state := m.states[assignment.AssignmentID]
-	switch {
-	case state == nil:
-		state = &assignmentState{firstSeen: now, contentHash: generation}
-		m.states[assignment.AssignmentID] = state
-	case state.contentHash == "":
-		state.contentHash = generation
-	case state.contentHash != generation:
+	if state == nil || state.generation != assignment.generation {
 		return
 	}
 
 	if err != nil {
 		state.load = pluginAssignmentLoad{
-			status: pluginLoadStatusFailed,
-			reason: pluginLoadFailureReason(err),
-			at:     now,
+			generation: assignment.generation,
+			status:     pluginLoadStatusFailed,
+			reason:     pluginLoadFailureReason(err),
+			at:         now,
 		}
 		return
 	}
 
 	state.ready = true
 	state.load = pluginAssignmentLoad{
+		generation:  assignment.generation,
 		status:      pluginLoadStatusLoaded,
 		contentHash: module.contentHash,
 		at:          now,

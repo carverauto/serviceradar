@@ -183,6 +183,7 @@ type assignmentState struct {
 	ready       bool
 	prefetching bool
 	contentHash string
+	generation  string
 	// load records the outcome of the most recent module load for this
 	// assignment generation.
 	load pluginAssignmentLoad
@@ -200,6 +201,7 @@ const (
 // reason is a fixed classification, never a raw error string, so download URLs
 // and transport details stay out of telemetry.
 type pluginAssignmentLoad struct {
+	generation  string
 	status      string
 	contentHash string
 	reason      string
