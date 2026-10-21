@@ -194,6 +194,18 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "devices.source_facts.write",
+          section: "devices",
+          resource: "devices.source_facts",
+          action: "write",
+          label: "Report device source facts",
+          description:
+            "Report a device's switch port or VLAN via the API under the caller's own " <>
+              "source. The value is compared with other sources and can become the " <>
+              "device's canonical value. Does not grant any other device edit.",
+          default_roles: @operator_roles
+        },
+        %{
           key: "identity.resolve",
           section: "devices",
           resource: "devices.identity",

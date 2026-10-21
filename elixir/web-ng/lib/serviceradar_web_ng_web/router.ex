@@ -580,6 +580,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     patch("/devices/metadata/batch", DeviceController, :batch_update_metadata)
     patch("/devices/:uid/metadata", DeviceController, :update_metadata)
     delete("/devices/:uid/metadata/facts/:key", DeviceController, :delete_metadata)
+    put("/devices/:uid/source-facts/:fact_key", DeviceSourceFactController, :update)
+    delete("/devices/:uid/source-facts/:fact_key", DeviceSourceFactController, :delete)
     post("/camera-relay-sessions", CameraRelaySessionController, :create)
     get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
     post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)

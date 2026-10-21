@@ -36,6 +36,7 @@ defmodule ServiceRadar.Inventory.Device do
 
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SourceFacts.Reports, as: SourceFactReports
   alias ServiceRadar.Inventory.Validations.AgentManaged
   alias ServiceRadar.Inventory.Validations.RetainedTombstone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -57,6 +58,7 @@ defmodule ServiceRadar.Inventory.Device do
   @devices_delete_check {ActorHasPermission, permission: "devices.delete"}
   @devices_bulk_delete_check {ActorHasPermission, permission: "devices.bulk_delete"}
   @devices_facts_write_check {ActorHasPermission, permission: "devices.facts.write"}
+  @devices_source_facts_write_check {ActorHasPermission, permission: "devices.source_facts.write"}
   @device_create_fields [
     :uid,
     :type_id,
@@ -477,6 +479,40 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    action :report_source_fact, :map do
+      description """
+      Record a platform inventory fact (`switch_port_attachment` or `vlan_uid`)
+      that an external system reported for this device, under the caller's own
+      source label and instance, and reconcile the device's canonical value.
+      See `ServiceRadar.Inventory.SourceFacts.Reports`.
+      """
+
+      argument :device_uid, :string, allow_nil?: false
+      argument :fact_key, :string, allow_nil?: false
+      argument :source, :string, allow_nil?: false
+      argument :value, :term, allow_nil?: false
+
+      run fn input, context ->
+        SourceFactReports.report(input.arguments, Map.get(context, :actor))
+      end
+    end
+
+    action :retract_source_fact, :map do
+      description """
+      Withdraw a platform inventory fact the caller reported for this device under
+      its own source label and instance, and reconcile the device's canonical
+      value.
+      """
+
+      argument :device_uid, :string, allow_nil?: false
+      argument :fact_key, :string, allow_nil?: false
+      argument :source, :string, allow_nil?: false
+
+      run fn input, context ->
+        SourceFactReports.retract(input.arguments, Map.get(context, :actor))
+      end
+    end
+
     update :soft_delete do
       accept @soft_delete_fields
 
@@ -652,6 +688,13 @@ defmodule ServiceRadar.Inventory.Device do
     # a boolean without also being able to rename, retag, or reassign the device.
     action_with_permission(:write_facts, @devices_facts_write_check)
     action_with_permission(:remove_facts, @devices_facts_write_check)
+
+    # Source facts get their own permission too: a reported switch port can become
+    # the device's canonical attachment, which a scalar validation fact cannot.
+    action_with_permission(
+      [:report_source_fact, :retract_source_fact],
+      @devices_source_facts_write_check
+    )
   end
 
   attributes do

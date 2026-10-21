@@ -134,6 +134,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'api-reference', label: 'API Reference'},
         {type: 'doc', id: 'identity-resolve', label: 'Resolve a Device Identity'},
         {type: 'doc', id: 'device-facts', label: 'Device Facts API'},
+        {type: 'doc', id: 'device-source-facts', label: 'Device Source Facts API'},
         {type: 'doc', id: 'validation-runs', label: 'Validation Runs'},
         {type: 'doc', id: 'rule-builder', label: 'Rule Builder'},
         {type: 'doc', id: 'network-topology', label: 'Network Topology'},

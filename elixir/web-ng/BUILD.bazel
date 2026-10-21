@@ -511,6 +511,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/controllers/api/collector_controller_test.exs",
         "test/phoenix/controllers/api/device_controller_test.exs",
         "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
+        "test/phoenix/controllers/api/device_source_fact_controller_test.exs",
         "test/phoenix/controllers/api/edge_controller_test.exs",
         "test/phoenix/controllers/api/identity_controller_test.exs",
         "test/phoenix/controllers/api/oauth_scope_authorization_db_test.exs",

@@ -11,6 +11,15 @@ defmodule ServiceRadar.Inventory.SourceFacts do
     canonical_priority authoritative
   )
 
+  # Facts reported through the source-facts API are stored under this prefix.
+  # Sync sources are integration types and plugin ids, which never carry it, so
+  # a caller cannot report as one of them or match one of their authority rows.
+  @api_source_prefix "api:"
+  @api_label_pattern ~r/^[a-z][a-z0-9_-]{0,62}$/
+  @max_reported_field_bytes 255
+  @max_reported_raw_bytes 512
+  @max_vlan_id 4094
+
   @type fact :: %{
           optional(:raw) => String.t() | nil,
           fact_key: String.t(),
@@ -27,6 +36,88 @@ defmodule ServiceRadar.Inventory.SourceFacts do
 
   @spec forbidden_manifest_keys() :: [String.t()]
   def forbidden_manifest_keys, do: @forbidden_manifest_keys
+
+  @doc """
+  The source a fact is stored under when an external caller reports it with
+  `label` through the source-facts API.
+  """
+  @spec api_source(term()) :: {:ok, String.t()} | {:error, String.t()}
+  def api_source(label) when is_binary(label) do
+    if Regex.match?(@api_label_pattern, label) do
+      {:ok, @api_source_prefix <> label}
+    else
+      {:error,
+       "source must be 1 to 63 characters: a lowercase letter, then lowercase letters, " <>
+         "digits, - or _"}
+    end
+  end
+
+  def api_source(_label), do: {:error, "source is required"}
+
+  @spec reported_key(term()) :: :ok | {:error, String.t()}
+  def reported_key(fact_key) when fact_key in @keys, do: :ok
+
+  def reported_key(_fact_key), do: {:error, "fact key must be one of: " <> Enum.join(@keys, ", ")}
+
+  @doc """
+  Parses one fact an external caller reported.
+
+  The sync path drops a value it cannot read. A caller is told why instead,
+  including for a VLAN id it supplied that would otherwise be dropped silently.
+  """
+  @spec parse_reported(term(), term()) :: {:ok, fact()} | {:error, String.t()}
+  def parse_reported(fact_key, value) do
+    with :ok <- reported_key(fact_key),
+         :ok <- check_reported_vlan(fact_key, value) do
+      case parse_explicit_value(fact_key, value) do
+        nil -> {:error, invalid_reported_message(fact_key)}
+        fact -> check_reported_sizes(fact)
+      end
+    end
+  end
+
+  defp check_reported_vlan("vlan_uid", value), do: check_vlan_id("vlan_uid", value)
+
+  defp check_reported_vlan("switch_port_attachment", %{} = value) do
+    case Map.get(value, "vlan_id", Map.get(value, :vlan_id)) do
+      absent when absent in [nil, ""] -> :ok
+      vlan_id -> check_vlan_id("vlan_id", vlan_id)
+    end
+  end
+
+  defp check_reported_vlan(_fact_key, _value), do: :ok
+
+  defp check_vlan_id(field, value) do
+    with vlan_id when is_binary(vlan_id) <- vlan_id_string(value),
+         {number, ""} when number in 1..@max_vlan_id <- Integer.parse(vlan_id) do
+      :ok
+    else
+      _invalid -> {:error, "#{field} must be a VLAN id from 1 to #{@max_vlan_id}"}
+    end
+  end
+
+  defp invalid_reported_message("switch_port_attachment"),
+    do:
+      "switch_port_attachment needs switch_hostname and port, as an object or as " <>
+        "\"<switch-hostname>:<port>\""
+
+  defp invalid_reported_message("vlan_uid"),
+    do: "vlan_uid must be a VLAN id from 1 to #{@max_vlan_id}"
+
+  defp check_reported_sizes(%{value: value} = fact) do
+    case Enum.find(value, &oversized_field?/1) do
+      nil -> {:ok, fact}
+      {field, _value} -> {:error, "#{field} is longer than #{max_field_bytes(field)} bytes"}
+    end
+  end
+
+  defp oversized_field?({field, value}) when is_binary(value),
+    do: byte_size(value) > max_field_bytes(field)
+
+  defp oversized_field?(_field), do: false
+
+  defp max_field_bytes("raw"), do: @max_reported_raw_bytes
+  defp max_field_bytes(_field), do: @max_reported_field_bytes
 
   @spec extract(map()) :: [fact()]
   def extract(update) when is_map(update) do
@@ -235,19 +326,19 @@ defmodule ServiceRadar.Inventory.SourceFacts do
 
   defp parse_explicit_value("switch_port_attachment", value) when is_map(value) do
     hostname =
-      first_present([string_field(value, :switch_hostname), string_field(value, :hostname)])
+      first_present([value_field(value, :switch_hostname), value_field(value, :hostname)])
 
-    port = first_present([string_field(value, :port), string_field(value, :if_name)])
+    port = first_present([value_field(value, :port), value_field(value, :if_name)])
 
     if hostname && port do
       build_attachment_fact(%{
         "switch_hostname" => hostname,
         "port" => port,
-        "switch_device_uid" => string_field(value, :switch_device_uid),
-        "if_alias" => string_field(value, :if_alias),
+        "switch_device_uid" => value_field(value, :switch_device_uid),
+        "if_alias" => value_field(value, :if_alias),
         "vlan_id" => vlan_id_string(Map.get(value, "vlan_id") || Map.get(value, :vlan_id)),
-        "vlan_name" => string_field(value, :vlan_name),
-        "raw" => string_field(value, :raw) || hostname <> ":" <> port
+        "vlan_name" => value_field(value, :vlan_name),
+        "raw" => value_field(value, :raw) || hostname <> ":" <> port
       })
     end
   end
@@ -422,6 +513,20 @@ defmodule ServiceRadar.Inventory.SourceFacts do
   end
 
   defp string_field(_map, _key), do: nil
+
+  # string_field/2 reads an absent key as "nil", because nil is an atom. A fact
+  # value must read it as absent, or a missing port would be recorded as the
+  # port "nil".
+  defp value_field(map, key) do
+    case Map.get(map, key) || Map.get(map, to_string(key)) do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
+
+      _other ->
+        nil
+    end
+  end
 
   defp first_present(values), do: Enum.find(values, &(is_binary(&1) and &1 != ""))
 end

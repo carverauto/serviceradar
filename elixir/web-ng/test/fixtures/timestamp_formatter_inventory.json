@@ -712,6 +712,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/device_source_fact_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "6ccf8700352d2c371210045c1eaf33cf64af6cb2b3cf89e593837bb8b905bcf2",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/controllers/api/edge_controller.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
