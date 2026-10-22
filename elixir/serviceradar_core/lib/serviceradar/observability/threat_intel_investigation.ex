@@ -171,29 +171,35 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
   end
 
   # Provider context for each indicator whose (source, indicator) maps to exactly
-  # one imported source object. One query for the whole detail list; an
+  # one imported source object, taken from that object's newest version. One query for the whole detail list; an
   # indicator with zero or several candidate objects gets no context rather
   # than a guess.
   defp source_contexts([]), do: {:ok, %{}}
 
   defp source_contexts(indicator_ids) do
     sql = """
-    SELECT i.id::text, MIN(o.object_id), MIN(o.object_type), MIN(o.metadata->>'label'), COUNT(*)
-    FROM platform.threat_intel_indicators i
-    JOIN platform.threat_intel_source_objects o
-      ON o.source = i.source
-     AND (o.metadata->>'indicator' = i.indicator::text
-          OR (masklen(i.indicator) = CASE family(i.indicator) WHEN 4 THEN 32 ELSE 128 END
-              AND o.metadata->>'indicator' = host(i.indicator)))
-    WHERE i.id = ANY($1::text[]::uuid[])
-    GROUP BY i.id
+    WITH latest AS (
+      SELECT DISTINCT ON (i.id, o.object_id)
+             i.id, o.object_id, o.object_type, o.metadata->>'label' AS label
+      FROM platform.threat_intel_indicators i
+      JOIN platform.threat_intel_source_objects o
+        ON o.source = i.source
+       AND (o.metadata->>'indicator' = i.indicator::text
+            OR (masklen(i.indicator) = CASE family(i.indicator) WHEN 4 THEN 32 ELSE 128 END
+                AND o.metadata->>'indicator' = host(i.indicator)))
+      WHERE i.id = ANY($1::text[]::uuid[])
+      ORDER BY i.id, o.object_id, o.modified_at DESC NULLS LAST, o.updated_at DESC
+    )
+    SELECT id::text, MIN(object_id), MIN(object_type), MIN(label)
+    FROM latest
+    GROUP BY id
     HAVING COUNT(*) = 1
     """
 
     case SQL.query(Repo, sql, [indicator_ids]) do
       {:ok, %Postgrex.Result{rows: rows}} ->
         {:ok,
-         Map.new(rows, fn [id, object_id, object_type, label, _count] ->
+         Map.new(rows, fn [id, object_id, object_type, label] ->
            {id,
             %{source_object_id: object_id, source_object_type: object_type, source_label: label}}
          end)}

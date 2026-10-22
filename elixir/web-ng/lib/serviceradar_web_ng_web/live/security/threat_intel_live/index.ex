@@ -975,13 +975,14 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
 
   defp indicator_match_query(filters) do
     with {:ok, ip} <- match_ip_filter(filters["ip"]),
+         {:ok, indicator} <- match_indicator_filter(filters["indicator"]),
          {:ok, severity} <- min_severity_filter(filters["min_severity"]) do
       query =
         [
           "in:threat_intel_matches",
           srql_token("source", filters["source"]),
           srql_token("observed_ip", ip),
-          srql_token("indicator", filters["indicator"]),
+          srql_token("indicator", indicator),
           severity && "severity:>=#{severity}"
         ]
         |> Enum.reject(&is_nil/1)
@@ -997,6 +998,28 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
     case :inet.parse_address(String.to_charlist(ip)) do
       {:ok, _address} -> {:ok, ip}
       {:error, _reason} -> {:error, :invalid_ip}
+    end
+  end
+
+  defp match_indicator_filter(nil), do: {:ok, nil}
+
+  defp match_indicator_filter(indicator) do
+    [address | prefix] = String.split(indicator, "/", parts: 2)
+
+    with {:ok, parsed} <- :inet.parse_address(String.to_charlist(address)),
+         true <- valid_prefix?(prefix, if(tuple_size(parsed) == 4, do: 32, else: 128)) do
+      {:ok, indicator}
+    else
+      _ -> {:error, :invalid_cidr}
+    end
+  end
+
+  defp valid_prefix?([], _max), do: true
+
+  defp valid_prefix?([prefix], max) do
+    case Integer.parse(prefix) do
+      {bits, ""} -> bits >= 0 and bits <= max
+      _ -> false
     end
   end
 

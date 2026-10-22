@@ -151,6 +151,17 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     refute has_element?(view, ~s([data-testid="threat-intel-empty"]))
   end
 
+  test "an invalid indicator-match indicator is reported as an input error", %{conn: conn} do
+    {:ok, view, _html} =
+      live(conn, ~p"/security/threat-intel?#{[view: "indicator_matches", indicator: "not-an-ip"]}")
+
+    assert has_element?(
+             view,
+             ~s([data-testid="threat-intel-error"]),
+             "The indicator filter is not a valid IP or CIDR."
+           )
+  end
+
   defp match_row_count(view) do
     view
     |> render()
