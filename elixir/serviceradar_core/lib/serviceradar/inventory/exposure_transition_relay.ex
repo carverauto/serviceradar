@@ -18,7 +18,8 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelay do
   stream: limits retention, file storage, one replica, `max_age` 7 days and a
   `max_bytes` from the JetStream sizing profile
   (`SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES`). The relay creates the
-  stream when a publish finds nothing capturing the subject.
+  stream, or reconciles an existing stream's `max_bytes` to the configured
+  size, when it starts and whenever a publish fails.
 
   Health: every report interval the relay publishes
   `exposure_transition_outbox_oldest_age_seconds`,
@@ -50,6 +51,7 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelay do
 
   @stream_name "EXPOSURE_TRANSITIONS"
   @subject_prefix "vulnerability.assessment.transitions"
+  @subject_wildcard "#{@subject_prefix}.>"
   @buckets 16
   @metrics_subject "metrics.exposure_transitions"
   @health_entity "exposure_transition_outbox"
@@ -88,11 +90,13 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelay do
     opts = Keyword.merge(Application.get_env(:serviceradar_core, __MODULE__, []), opts)
     send(self(), :relay)
     Process.send_after(self(), :report, report_interval(opts))
-    {:ok, %{opts: opts, relayed: 0, degraded?: false}}
+    {:ok, %{opts: opts, relayed: 0, degraded?: false, stream_ready?: false}}
   end
 
   @impl GenServer
   def handle_info(:relay, state) do
+    state = %{state | stream_ready?: state.stream_ready? or stream_ready?(state.opts)}
+
     {result, state} =
       case relay_once(state.opts) do
         {:ok, result} -> {result, %{state | relayed: state.relayed + result.relayed}}
@@ -193,6 +197,17 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelay do
     :ok
   end
 
+  defp stream_ready?(opts) do
+    case ensure_stream(opts) do
+      :ok ->
+        true
+
+      {:error, reason} ->
+        Logger.warning("Exposure transition stream could not be ensured", reason: inspect(reason))
+        false
+    end
+  end
+
   defp maybe_ensure_stream([], _opts), do: :ok
 
   defp maybe_ensure_stream([reason | _rest], opts) do
@@ -211,44 +226,81 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelay do
   end
 
   @doc """
-  Creates the `EXPOSURE_TRANSITIONS` stream, or confirms one with the same
-  configuration exists. Idempotent and safe to race across nodes.
+  Creates the `EXPOSURE_TRANSITIONS` stream when it is absent, or reconciles
+  the existing stream's `max_bytes` to the configured size (`:max_bytes`,
+  default 1 GiB). A stream of this name that does not capture
+  `vulnerability.assessment.transitions.>` is reported as
+  `{:stream_config_conflict, _}`.
   """
   @spec ensure_stream(keyword()) :: :ok | {:error, term()}
   def ensure_stream(opts \\ []) do
+    domain = Keyword.get(opts, :domain)
+
+    case JetstreamConsumer.stream_info(&request/2, @stream_name, domain) do
+      {:ok, config, stored} -> reconcile_stream(config, stored, opts)
+      :absent -> create_stream(opts)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp reconcile_stream(config, stored, opts) do
+    if @subject_wildcard in List.wrap(Map.get(config, "subjects")) do
+      configured = Map.put(config, "max_bytes", max_bytes(opts))
+
+      payload =
+        JetstreamConsumer.hold_discard_new_max_bytes(@stream_name, config, configured, stored)
+
+      JetstreamConsumer.update_stream_if_changed(
+        &request/2,
+        @stream_name,
+        config,
+        payload,
+        stored,
+        Keyword.get(opts, :domain)
+      )
+    else
+      {:error,
+       {:stream_config_conflict,
+        "stream #{@stream_name} does not capture #{@subject_wildcard}: " <>
+          inspect(Map.get(config, "subjects"))}}
+    end
+  end
+
+  defp create_stream(opts) do
     payload =
       Jason.encode!(%{
         name: @stream_name,
-        subjects: ["#{@subject_prefix}.>"],
+        subjects: [@subject_wildcard],
         retention: "limits",
         storage: "file",
         discard: "old",
         num_replicas: 1,
         max_age: @max_age_ns,
-        max_bytes: Keyword.get(opts, :max_bytes, @default_max_bytes),
+        max_bytes: max_bytes(opts),
         duplicate_window: @duplicate_window_ns
       })
 
     subject =
       JetstreamConsumer.js_api(Keyword.get(opts, :domain)) <> ".STREAM.CREATE." <> @stream_name
 
+    case request(subject, payload) do
+      {:ok, _created} -> :ok
+      {:error, reason} -> {:error, {:jetstream, reason}}
+    end
+  end
+
+  defp request(subject, payload) do
     with {:ok, conn} <- Connection.get(),
          {:ok, %{body: body}} <- Gnat.request(conn, subject, payload, receive_timeout: 5_000),
          {:ok, decoded} <- Jason.decode(body) do
       case decoded do
-        %{"error" => %{"description" => description}} ->
-          if String.contains?(String.downcase(description), "already in use"),
-            do: :ok,
-            else: {:error, {:jetstream, description}}
-
-        %{"error" => error} ->
-          {:error, {:jetstream, error}}
-
-        _created ->
-          :ok
+        %{"error" => error} -> {:error, error}
+        decoded -> {:ok, decoded}
       end
     end
   end
+
+  defp max_bytes(opts), do: Keyword.get(opts, :max_bytes, @default_max_bytes)
 
   @doc "Seconds since the oldest unrelayed outbox row was written, or 0 when the outbox is empty."
   @spec oldest_age_seconds(DateTime.t()) :: non_neg_integer()

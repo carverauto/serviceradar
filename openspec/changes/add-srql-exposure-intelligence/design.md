@@ -860,8 +860,9 @@ first to `vulnerability.assessment.transitions.<bucket>`, where the bucket (0-15
 device uid, with `Nats-Msg-Id = exposure-transition-<transition_seq>`, and deletes a row
 only after its PubAck. The relay creates the `EXPOSURE_TRANSITIONS` stream (limits, file,
 R1, `max_age` 7 days, 2-minute duplicate window, `max_bytes` from the JetStream sizing
-profile: 1 GiB small, 2 GiB medium, 8 GiB large, 32 MiB tenant-2g) when nothing captures
-the subject. It publishes `exposure_transition_outbox_oldest_age_seconds`,
+profile: 1 GiB small, 2 GiB medium, 8 GiB large, 32 MiB tenant-2g) when it starts and
+whenever a publish fails, and reconciles an existing stream's `max_bytes` to the profile
+size. It publishes `exposure_transition_outbox_oldest_age_seconds`,
 `exposure_transition_outbox_pending` and `exposure_transitions_relayed` on
 `metrics.exposure_transitions`, and records a health state change for
 `exposure_transition_outbox` when the oldest row crosses 10 minutes. The EventWriter

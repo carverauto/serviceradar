@@ -7,6 +7,7 @@ alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
+alias ServiceRadar.Inventory.ExposureTransitionRelay
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
@@ -602,6 +603,15 @@ config :serviceradar_core, StreamPublisher,
     StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
       StreamPublisher.default_max_bytes()
+    )
+
+# Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
+# relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, ExposureTransitionRelay,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
+      ExposureTransitionRelay.default_max_bytes()
     )
 
 config :serviceradar_core, ThreatIntelRawPayloadStore,

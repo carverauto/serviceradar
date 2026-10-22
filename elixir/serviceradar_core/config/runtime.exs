@@ -1161,9 +1161,9 @@ if config_env() == :prod do
       _ -> :file
     end
 
-  # Exposure transition stream size (EXPOSURE_TRANSITIONS, created by the relay
-  # on its first publish). Unset or blank means 1 GiB; an invalid value fails
-  # boot naming the variable.
+  # Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
+  # relay starts). Unset or blank means 1 GiB; an invalid value fails boot
+  # naming the variable.
   config :serviceradar_core, ExposureTransitionRelay,
     max_bytes:
       StateBucketSizing.bytes_from_env!(

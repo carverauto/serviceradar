@@ -456,6 +456,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     TopologyGraph,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
     ServiceRadar.WorkloadIdentity,
+    ServiceRadar.Inventory.ExposureTransitionRelay,
     StarRocks
   ]
 
