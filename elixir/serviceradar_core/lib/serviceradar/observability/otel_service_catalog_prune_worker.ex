@@ -8,12 +8,18 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogPruneWorker do
   that stopped sending traces a month ago but still sends logs therefore stops
   appearing in the traces picker while staying in the logs picker.
 
+  It also deletes services whose name is a bare timestamp, whatever their age.
+  A syslog record without a HOSTNAME used to take the timestamp at the start of
+  its message as the host, and each such name became a catalog entry. No
+  service is named after an instant, so these rows go on the next run instead
+  of lingering for the whole retention window.
+
   The window is `:otel_service_catalog_retention_days` in the `:serviceradar_core`
   application env (default 30; `SERVICERADAR_OTEL_SERVICE_CATALOG_RETENTION_DAYS`
   through `ServiceRadar.Observability.ProductionSchedule.app_env/1`).
 
   Scheduled by `ServiceRadar.Observability.ProductionSchedule.cron_entries/1`.
-  Both statements are idempotent, so a retry or an overlapping run is harmless.
+  Every statement is idempotent, so a retry or an overlapping run is harmless.
   """
 
   use Oban.Worker,
@@ -31,6 +37,12 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogPruneWorker do
   @delete_sql """
   DELETE FROM platform.otel_service_catalog
   WHERE last_seen_at < $1
+  """
+
+  # Anchored at both ends, so a name that merely contains a timestamp is kept.
+  @delete_timestamp_names_sql """
+  DELETE FROM platform.otel_service_catalog
+  WHERE service_name ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([Zz]|[+-][0-9]{2}:?[0-9]{2})?$'
   """
 
   # Every surviving row has last_seen_at >= $1, and last_seen_at is the greatest
@@ -78,11 +90,14 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogPruneWorker do
 
     with {:ok, %{num_rows: deleted}} <-
            Repo.query(@delete_sql, [cutoff], timeout: @query_timeout_ms),
+         {:ok, %{num_rows: timestamp_names}} <-
+           Repo.query(@delete_timestamp_names_sql, [], timeout: @query_timeout_ms),
          {:ok, %{num_rows: cleared}} <-
            Repo.query(@clear_stale_signals_sql, [cutoff], timeout: @query_timeout_ms) do
-      if deleted > 0 or cleared > 0 do
+      if deleted > 0 or timestamp_names > 0 or cleared > 0 do
         Logger.info("Pruned OTel service catalog",
           deleted: deleted,
+          timestamp_names_deleted: timestamp_names,
           signals_cleared: cleared,
           retention_days: retention_days()
         )

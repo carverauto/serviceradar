@@ -57,4 +57,20 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogPruneWorkerTest do
     assert %{logs: nil, traces: traces, metrics: nil} = row(fresh)
     assert DateTime.compare(traces, recent) == :eq
   end
+
+  test "deletes recently seen services named by a bare timestamp" do
+    suffix = System.unique_integer([:positive])
+    timestamp_name = "2030-03-07T09:15:42.#{suffix}Z"
+    contains_timestamp = "batch-2030-03-07T09:15:42.#{suffix}Z"
+
+    recent = days_ago(1)
+    insert!(timestamp_name, recent, nil, nil)
+    insert!(contains_timestamp, recent, nil, nil)
+
+    assert :ok = OtelServiceCatalogPruneWorker.perform(%Oban.Job{args: %{}})
+
+    assert row(timestamp_name) == nil
+    assert %{logs: logs} = row(contains_timestamp)
+    assert DateTime.compare(logs, recent) == :eq
+  end
 end

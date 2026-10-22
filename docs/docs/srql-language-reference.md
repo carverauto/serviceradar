@@ -949,7 +949,8 @@ matches.
 
 `in:otel_services` reads the service catalog that EventWriter maintains from persisted
 logs, traces and metrics. It is best-effort and throttled, and entries expire after 30
-days without activity. The catalog is CNPG state in every storage mode.
+days without activity. The daily prune also removes any entry whose name is a bare
+timestamp. The catalog is CNPG state in every storage mode.
 
 | Field | Description |
 |-------|-------------|
