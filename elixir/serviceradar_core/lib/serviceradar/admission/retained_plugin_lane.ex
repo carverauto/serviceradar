@@ -75,9 +75,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
   def admit(status, reply_to), do: Lane.admit(server(), status, reply_to)
   def admit_cast(status), do: Lane.admit_cast(server(), status, :retained_plugin_result)
 
-  def reserve(descriptor, owner, timeout), do: Lane.reserve(server(), descriptor, owner, timeout)
-
-  defp server do
+  def server do
     :serviceradar_core
     |> Application.get_env(ServiceRadar.StatusHandler, [])
     |> Keyword.get(:retained_plugin_lane, __MODULE__)

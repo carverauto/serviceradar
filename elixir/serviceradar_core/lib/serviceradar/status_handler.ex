@@ -1,5 +1,5 @@
 defmodule ServiceRadar.StatusHandler do
-  @moduledoc "Classifies and reserves statuses; ingestion runs in bounded workers."
+  @moduledoc "Routes status reservations to their lanes; ingestion runs in bounded workers."
   use GenServer
 
   alias ServiceRadar.Ingestion.Admission
@@ -17,9 +17,15 @@ defmodule ServiceRadar.StatusHandler do
   @impl true
   def init(state), do: {:ok, state}
 
+  # Every gateway reservation passes through this one process, so it only
+  # routes: the lane answers the gateway directly. Waiting here for a lane's
+  # reply would make each reservation queue behind the slowest lane's answer.
   @impl true
   def handle_call({:reserve_status, descriptor}, from, state) do
-    {:reply, Admission.reserve(descriptor, elem(from, 0), 1_000), state}
+    case Admission.forward_reserve(descriptor, from, 1_000) do
+      :ok -> {:noreply, state}
+      {:error, _reason} = error -> {:reply, error, state}
+    end
   end
 
   def handle_call({:status_update, status}, from, state) do
