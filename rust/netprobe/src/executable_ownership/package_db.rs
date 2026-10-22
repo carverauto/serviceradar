@@ -7,7 +7,6 @@
 //! match a reference to the inventory package.
 
 use std::collections::HashMap;
-use std::fs;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
@@ -65,8 +64,6 @@ pub enum DatabaseOutcome {
     Read,
     /// The database is present but could not be parsed.
     Unreadable,
-    /// The rpm sqlite backend has a pending write-ahead log.
-    WalPending,
     /// Only the rpm BerkeleyDB backend is present.
     RpmBerkeleyDb,
     /// Only the rpm NDB backend is present.
@@ -289,9 +286,6 @@ pub fn read_rpm(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
     let mut outcome = DatabaseOutcome::Absent;
     for directory in RPM_DIRECTORIES {
         if let Ok(sqlite) = root.resolve(&format!("{directory}/rpmdb.sqlite")) {
-            if wal_pending(&sqlite) {
-                return DatabaseOutcome::WalPending;
-            }
             return match read_rpm_sqlite(&sqlite, os, sink) {
                 Ok(()) => DatabaseOutcome::Read,
                 Err(_) => DatabaseOutcome::Unreadable,
@@ -304,14 +298,6 @@ pub fn read_rpm(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
         }
     }
     outcome
-}
-
-/// SQLite deletes the write-ahead log when the last connection closes, so a non-empty
-/// log means a transaction is open or was interrupted and the main file may be stale.
-fn wal_pending(database: &Path) -> bool {
-    let mut wal = database.as_os_str().to_owned();
-    wal.push("-wal");
-    fs::metadata(Path::new(&wal)).is_ok_and(|metadata| metadata.len() > 0)
 }
 
 fn read_rpm_sqlite(

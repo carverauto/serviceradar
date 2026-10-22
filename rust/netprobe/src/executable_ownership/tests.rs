@@ -10,6 +10,12 @@ use std::time::{Duration, Instant};
 use super::*;
 
 const RPMDB_FIXTURE: &[u8] = include_bytes!("../../testdata/executable_ownership/rpmdb.sqlite");
+// A WAL-mode copy taken while its last transaction (example-late) was still only in the
+// write-ahead log, as SQLite itself left the two files.
+const RPMDB_WAL_MAIN_FIXTURE: &[u8] =
+    include_bytes!("../../testdata/executable_ownership/rpmdb_wal.sqlite");
+const RPMDB_WAL_LOG_FIXTURE: &[u8] =
+    include_bytes!("../../testdata/executable_ownership/rpmdb_wal.sqlite-wal");
 
 /// One precedence case: name, root setup, expected state and detail.
 type PrecedenceCase = (&'static str, fn(&Path), OwnershipState, &'static str);
@@ -330,7 +336,7 @@ fn unowned_executable_is_not_found_and_names_no_package() {
 
 #[test]
 fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
-    let cases: [PrecedenceCase; 7] = [
+    let cases: [PrecedenceCase; 6] = [
         (
             "berkeleydb",
             |root| write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0"),
@@ -400,16 +406,6 @@ fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
             DETAIL_PACKAGE_DATABASE_UNREADABLE,
         ),
         (
-            "wal pending",
-            |root| {
-                // The executable is listed in the main file, but a transaction is open.
-                write(&root.join("var/lib/rpm/rpmdb.sqlite"), RPMDB_FIXTURE);
-                write(&root.join("var/lib/rpm/rpmdb.sqlite-wal"), b"pending");
-            },
-            OwnershipState::Unknown,
-            DETAIL_RPMDB_WAL_PENDING,
-        ),
-        (
             "no database",
             |_| {},
             OwnershipState::Unknown,
@@ -428,6 +424,40 @@ fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
         assert_eq!((record.state, record.detail), (state, detail), "{name}");
         assert_eq!(record.package, None, "{name}");
     }
+}
+
+#[test]
+fn rpm_packages_committed_only_to_the_write_ahead_log_resolve() {
+    let fixture = Fixture::new();
+    let host = fixture.root("host");
+    os_release(&host, "ID=rhel\nVERSION_ID=9.4\n");
+    write(
+        &host.join("var/lib/rpm/rpmdb.sqlite"),
+        RPMDB_WAL_MAIN_FIXTURE,
+    );
+    write_executable(&host.join("usr/bin/examplelate"));
+    write_executable(&host.join("usr/sbin/exampled"));
+    fixture.process(10, &host, &host.join("usr/bin/examplelate"));
+    fixture.process(11, &host, &host.join("usr/sbin/exampled"));
+
+    // The main file alone predates the transaction that installed example-late.
+    let before = fixture.resolver().resolve(10);
+    assert_eq!(before.state, OwnershipState::NotFound);
+
+    // rpm keeps its write-ahead log after a checkpoint, so a non-empty log is normal.
+    write(
+        &host.join("var/lib/rpm/rpmdb.sqlite-wal"),
+        RPMDB_WAL_LOG_FIXTURE,
+    );
+    let mut resolver = fixture.resolver();
+    let late = resolver.resolve(10);
+    let checkpointed = resolver.resolve(11);
+
+    assert_eq!(late.state, OwnershipState::Resolved);
+    assert_eq!(package(&late).binary_package, "example-late");
+    assert_eq!(package(&late).installed_version, "3.0.0-1.el9");
+    assert_eq!(checkpointed.state, OwnershipState::Resolved);
+    assert_eq!(package(&checkpointed).binary_package, "exampled");
 }
 
 #[test]

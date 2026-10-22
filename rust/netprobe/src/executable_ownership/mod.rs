@@ -61,7 +61,6 @@ pub const DETAIL_NO_PACKAGE_DATABASE: &str = "no_package_database";
 pub const DETAIL_PACKAGE_DATABASE_UNREADABLE: &str = "package_database_unreadable";
 pub const DETAIL_PACKAGE_DATABASE_CHANGING: &str = "package_database_changing";
 pub const DETAIL_PACKAGE_INDEX_TRUNCATED: &str = "package_index_truncated";
-pub const DETAIL_RPMDB_WAL_PENDING: &str = "rpmdb_wal_pending";
 pub const DETAIL_RPM_BERKELEYDB: &str = "rpm_berkeleydb";
 pub const DETAIL_RPM_NDB: &str = "rpm_ndb";
 
@@ -254,7 +253,6 @@ struct RootIndex {
     read_any: bool,
     unreadable: bool,
     truncated: bool,
-    wal_pending: bool,
     unsupported: Option<&'static str>,
 }
 
@@ -288,7 +286,6 @@ impl RootIndex {
             packages: builder.packages,
             read_any: outcomes.contains(&DatabaseOutcome::Read),
             unreadable: outcomes.contains(&DatabaseOutcome::Unreadable),
-            wal_pending: outcomes.contains(&DatabaseOutcome::WalPending),
             unsupported,
         }
     }
@@ -316,9 +313,7 @@ impl RootIndex {
     }
 
     fn incomplete(&self) -> Option<&'static str> {
-        if self.wal_pending {
-            Some(DETAIL_RPMDB_WAL_PENDING)
-        } else if self.unreadable {
+        if self.unreadable {
             Some(DETAIL_PACKAGE_DATABASE_UNREADABLE)
         } else if self.truncated {
             Some(DETAIL_PACKAGE_INDEX_TRUNCATED)

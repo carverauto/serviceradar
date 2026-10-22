@@ -4,13 +4,18 @@
 //!
 //! Scope, by design:
 //! - rowid tables only (the rpm `Packages` table is one);
-//! - the main database file only. A pending write-ahead log is detected by the caller and
-//!   reported, never merged;
+//! - the main database file plus its write-ahead log: committed WAL frames are read in
+//!   place of the main file's pages, as a SQLite reader does, so a database whose last
+//!   transactions are not yet checkpointed (or whose WAL persists after a checkpoint, as
+//!   rpm configures it) reads as its last committed state. Frames after the last valid
+//!   commit, or after the first frame whose salt or checksum does not match, are ignored;
 //! - every offset is bounds-checked and every traversal is bounded by the page count, so a
 //!   file that changes while it is read yields an error, not a panic or a loop.
 //!
 //! Format reference: <https://www.sqlite.org/fileformat2.html>.
 
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io;
 #[cfg(unix)]
@@ -23,6 +28,13 @@ const PAGE_TABLE_INTERIOR: u8 = 0x05;
 const PAGE_TABLE_LEAF: u8 = 0x0d;
 /// Largest single row payload accepted. An rpm header is far below this.
 const MAX_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
+const WAL_HEADER_LEN: usize = 32;
+const WAL_FRAME_HEADER_LEN: usize = 24;
+const WAL_MAGIC_LITTLE_ENDIAN: u32 = 0x377f_0682;
+const WAL_MAGIC_BIG_ENDIAN: u32 = 0x377f_0683;
+/// Largest write-ahead log read. A larger one makes the database unreadable rather than
+/// silently stale.
+const MAX_WAL_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SqliteError {
@@ -49,8 +61,17 @@ pub enum Value {
 
 pub struct SqliteDatabase {
     file: File,
+    wal: Option<Wal>,
     page_size: usize,
     usable_size: usize,
+    page_count: u32,
+}
+
+/// The committed frames of a write-ahead log: the newest frame offset for each page.
+struct Wal {
+    file: File,
+    pages: HashMap<u32, u64>,
+    /// The database size in pages after the last committed transaction.
     page_count: u32,
 }
 
@@ -75,13 +96,18 @@ impl SqliteDatabase {
             .ok_or(SqliteError::Malformed("reserved space"))?;
         // The page count is derived from the file length rather than the in-header size,
         // which is only valid when the version-valid-for counter matches.
-        let page_count = u32::try_from(file_len / page_size as u64)
-            .map_err(|_| SqliteError::Malformed("page count"))?;
+        let wal = Wal::open(&wal_path(path), page_size)?;
+        let page_count = match &wal {
+            Some(wal) => wal.page_count,
+            None => u32::try_from(file_len / page_size as u64)
+                .map_err(|_| SqliteError::Malformed("page count"))?,
+        };
         if page_count == 0 {
             return Err(SqliteError::Malformed("empty database"));
         }
         Ok(Self {
             file,
+            wal,
             page_size,
             usable_size,
             page_count,
@@ -209,13 +235,121 @@ impl SqliteDatabase {
             return Err(SqliteError::Malformed("page number"));
         }
         let mut page = vec![0u8; self.page_size];
-        read_exact_at(
-            &self.file,
-            &mut page,
-            u64::from(page_number - 1) * self.page_size as u64,
-        )?;
+        match self
+            .wal
+            .as_ref()
+            .and_then(|wal| Some((wal, *wal.pages.get(&page_number)?)))
+        {
+            Some((wal, offset)) => read_exact_at(&wal.file, &mut page, offset)?,
+            None => read_exact_at(
+                &self.file,
+                &mut page,
+                u64::from(page_number - 1) * self.page_size as u64,
+            )?,
+        }
         Ok(page)
     }
+}
+
+fn wal_path(database: &Path) -> std::path::PathBuf {
+    let mut wal = OsString::from(database.as_os_str());
+    wal.push("-wal");
+    wal.into()
+}
+
+impl Wal {
+    /// Reads the committed frames of `path`. A missing log, or one whose header is not a
+    /// valid WAL header for this page size, contributes nothing, as for SQLite itself.
+    fn open(path: &Path, page_size: usize) -> Result<Option<Self>> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
+        let len = file.metadata()?.len();
+        if len > MAX_WAL_BYTES {
+            return Err(SqliteError::Malformed("write-ahead log too large"));
+        }
+        if len < WAL_HEADER_LEN as u64 {
+            return Ok(None);
+        }
+        let mut header = [0u8; WAL_HEADER_LEN];
+        read_exact_at(&file, &mut header, 0)?;
+        let big_endian = match be_u32(&header, 0) {
+            WAL_MAGIC_BIG_ENDIAN => true,
+            WAL_MAGIC_LITTLE_ENDIAN => false,
+            _ => return Ok(None),
+        };
+        let wal_page_size = be_u32(&header, 8) as usize;
+        let checksum = wal_checksum(big_endian, (0, 0), &header[..24]);
+        if checksum != (be_u32(&header, 24), be_u32(&header, 28)) {
+            return Ok(None);
+        }
+        if wal_page_size != page_size {
+            return Err(SqliteError::Malformed("write-ahead log page size"));
+        }
+        let salts = (be_u32(&header, 16), be_u32(&header, 20));
+
+        let frame_len = (WAL_FRAME_HEADER_LEN + page_size) as u64;
+        let mut running = checksum;
+        let mut pending: Vec<(u32, u64)> = Vec::new();
+        let mut pages = HashMap::new();
+        let mut page_count = None;
+        let mut frame = vec![0u8; WAL_FRAME_HEADER_LEN + page_size];
+        let mut offset = WAL_HEADER_LEN as u64;
+        while offset + frame_len <= len {
+            read_exact_at(&file, &mut frame, offset)?;
+            if (be_u32(&frame, 8), be_u32(&frame, 12)) != salts {
+                break;
+            }
+            let next = wal_checksum(big_endian, running, &frame[..8]);
+            let next = wal_checksum(big_endian, next, &frame[WAL_FRAME_HEADER_LEN..]);
+            if next != (be_u32(&frame, 16), be_u32(&frame, 20)) {
+                break;
+            }
+            running = next;
+            pending.push((be_u32(&frame, 0), offset + WAL_FRAME_HEADER_LEN as u64));
+            let commit_size = be_u32(&frame, 4);
+            if commit_size > 0 {
+                pages.extend(pending.drain(..));
+                page_count = Some(commit_size);
+            }
+            offset += frame_len;
+        }
+
+        Ok(page_count.map(|page_count| Self {
+            file,
+            pages,
+            page_count,
+        }))
+    }
+}
+
+/// SQLite's WAL checksum: two running sums over 32-bit words, read in the byte order the
+/// log's magic number names.
+fn wal_checksum(big_endian: bool, (mut first, mut second): (u32, u32), bytes: &[u8]) -> (u32, u32) {
+    for pair in bytes.as_chunks::<8>().0 {
+        let word = |at: usize| {
+            let raw = [pair[at], pair[at + 1], pair[at + 2], pair[at + 3]];
+            if big_endian {
+                u32::from_be_bytes(raw)
+            } else {
+                u32::from_le_bytes(raw)
+            }
+        };
+        first = first.wrapping_add(word(0)).wrapping_add(second);
+        second = second.wrapping_add(word(4)).wrapping_add(first);
+    }
+    (first, second)
+}
+
+fn be_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_be_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
 }
 
 #[cfg(unix)]
