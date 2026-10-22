@@ -61,17 +61,18 @@ defmodule ServiceRadarWebNG.Application do
     # If we add simpler React components that benefit from SSR, enable Phoenix.React here.
     # react_children = [Phoenix.React]
 
+    # The per-pod MMDB fetch is not started here: ServiceRadar.Application in
+    # serviceradar_core starts it in this VM. A second copy downloaded the same
+    # files into the same directory at the same time.
     children =
-      maybe_add_geoip_bootstrap(
-        pubsub_children ++
-          base_children ++
-          [
-            ServiceRadarWebNG.FieldSurveyStreamLimiter,
-            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor},
-            # After the task supervisor: its shutdown flush writes through it.
-            ServiceRadarWebNG.ApiTokenUsage
-          ]
-      )
+      pubsub_children ++
+        base_children ++
+        [
+          ServiceRadarWebNG.FieldSurveyStreamLimiter,
+          {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor},
+          # After the task supervisor: its shutdown flush writes through it.
+          ServiceRadarWebNG.ApiTokenUsage
+        ]
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -212,30 +213,6 @@ defmodule ServiceRadarWebNG.Application do
   defp maybe_add_first_party_dashboard_seeder(children) do
     if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       children ++ [ServiceRadarWebNG.Dashboards.FirstPartyPackages]
-    else
-      children
-    end
-  end
-
-  defp maybe_add_geoip_bootstrap(children) do
-    enabled? =
-      "GEOLITE_MMDB_DOWNLOAD_ENABLED"
-      |> System.get_env("false")
-      |> String.downcase()
-      |> Kernel.in(["1", "true", "yes", "on"])
-
-    if enabled? do
-      children ++
-        [
-          Supervisor.child_spec(
-            {Task,
-             fn ->
-               _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
-               _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
-             end},
-            id: :geoip_bootstrap
-          )
-        ]
     else
       children
     end
