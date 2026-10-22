@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -84,7 +84,7 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 		return
 	}
 
-	rng := rand.New(rand.NewSource(cfg.Seed)) //nolint:gosec // deterministic simulator seed by design
+	rng := newDeterministicRNG(cfg.Seed)
 	runner, err := newGoBGPRunner(cfg)
 	if err != nil {
 		log.Printf("BGP simulation disabled: %v", err)
@@ -346,7 +346,7 @@ func publishCycle(rng *rand.Rand, runner *gobgpRunner, cfg BGPSimulationConfig, 
 	}
 
 	perm := rng.Perm(len(cfg.AdvertisedPrefixes))
-	ops := 1 + rng.Intn(maxOps)
+	ops := 1 + rng.IntN(maxOps)
 
 	for i := 0; i < ops; i++ {
 		prefix := cfg.AdvertisedPrefixes[perm[i]]
@@ -369,7 +369,7 @@ func randomDuration(rng *rand.Rand, minD, maxD time.Duration) time.Duration {
 		return minD
 	}
 	delta := maxD - minD
-	return minD + time.Duration(rng.Int63n(int64(delta)+1))
+	return minD + time.Duration(rng.Int64N(int64(delta)+1))
 }
 
 func splitHostPort(addr string) (string, int, error) {

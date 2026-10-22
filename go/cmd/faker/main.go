@@ -28,7 +28,7 @@ import (
 	"log"
 	"math"
 	"math/big"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -767,7 +767,7 @@ func newSimulationChurnRNG() *rand.Rand {
 		seed = config.Simulation.IPShuffle.Seed
 	}
 
-	return rand.New(rand.NewSource(seed + simulationChurnSequence))
+	return newDeterministicRNG(seed + simulationChurnSequence)
 }
 
 // reassignIPsFromPool assigns new IPs from a bounded pool and recycles old ones,
@@ -1510,7 +1510,7 @@ func generateMACCount(deviceIndex int) int {
 
 	// Deterministic per-device RNG: the MAC count must be stable across process
 	// restarts, otherwise each restart re-rolls every device's MAC history.
-	rng := rand.New(rand.NewSource(macCountSeedSalt + int64(deviceIndex))) //nolint:gosec // deterministic fake data by design
+	rng := newDeterministicRNG(macCountSeedSalt + int64(deviceIndex))
 
 	switch {
 	case mod < lowPercentThreshold:
@@ -1539,7 +1539,7 @@ func generateMACAddresses(seed, count int) []string {
 	macs := make([]string, count)
 	macSet := make(map[string]bool) // Ensure uniqueness
 
-	rng := rand.New(rand.NewSource(macHistorySeedSalt + int64(seed))) //nolint:gosec // deterministic fake data by design
+	rng := newDeterministicRNG(macHistorySeedSalt + int64(seed))
 
 	// Common OUI prefixes for realistic MAC addresses
 	ouiPrefixes := []string{
@@ -1915,6 +1915,21 @@ func randInt(minVal, maxVal int) int {
 	return int(n.Int64()) + minVal
 }
 
+// deterministicSeedMix is XORed into the second PCG word so the two seed
+// words are never identical for a given seed.
+const deterministicSeedMix = uint64(0x9e3779b97f4a7c15)
+
+// newDeterministicRNG returns a PCG-backed RNG whose output is fully
+// determined by seed: the same seed always produces the same sequence.
+// Fake data is reproducible by design (a device's generated history must
+// not re-roll on restart), so the explicit seeded PCG source is the intent,
+// not an accident. The signed seed is reinterpreted as its two's-complement
+// bit pattern, which keeps negative seeds deterministic too.
+func newDeterministicRNG(seed int64) *rand.Rand {
+	bits := uint64(seed)
+	return rand.New(rand.NewPCG(bits, bits^deterministicSeedMix))
+}
+
 // seededRandInt generates an integer between minVal and maxVal (inclusive) from
 // a deterministic per-device RNG. Use it for device generation (anything that
 // must be identical across restarts); use randInt only for runtime churn.
@@ -1923,7 +1938,7 @@ func seededRandInt(rng *rand.Rand, minVal, maxVal int) int {
 		return minVal
 	}
 
-	return rng.Intn(maxVal-minVal+1) + minVal
+	return rng.IntN(maxVal-minVal+1) + minVal
 }
 
 // rehydrateMacAddresses restores the internal MacAddresses slice from the
