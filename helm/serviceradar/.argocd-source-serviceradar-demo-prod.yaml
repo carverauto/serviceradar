@@ -9,20 +9,23 @@ helm:
   - name: webNg.obanQueues.alerts
     value: "0"
   - name: image.digests.core
-    value: sha256:267b36dec2dbc465d7cb65b8b2e6e1d5c907e62d4c98229f4af73988d39a07b3
+    value: sha256:5280424407325221c251a319a5d3cac3bd557cdb22d56b0b969de0f1e32be315
     forcestring: true
   - name: image.digests.webNg
-    value: sha256:e62f8a57fcdeb4a10e6269dd196c333a903824f649bd3d9a7cfb5df7f81463cd
+    value: sha256:f32f203c1bafeb16bcf779d0a15107922f4860c30ab1212982664ae1d7aa8672
     forcestring: true
   - name: image.digests.agentGateway
-    value: sha256:9c91bc56071bb20bce67638255e07490839e3b06100f3d9d42af4bfd9696bb8e
+    value: sha256:91c17cf3d5a53bd6ebb9dfe2ad896945602bf1d028a53a7b39f31da33beb6ab3
     forcestring: true
   - name: image.digests.agent
-    value: sha256:d00cbeb8eba8bec9f2a08ae84ba88ede9b6e4ddaf406b5f1222835edb5c08ca4
+    value: sha256:c1c529ac093e5a068f3b71a1ac8515b07de36df6522148c13f9f36c30332a1f1
     forcestring: true
   - name: image.digests.flowCollector
     value: sha256:c58fc71b2509376dff38e04cc7e8897539a305f483e5f3a15138627d9a5a2552
     forcestring: true
   - name: core.migrations.expectedVersion
     value: "20261021150000"
+    forcestring: true
+  - name: image.digests.logCollector
+    value: sha256:78b3954433b625df30091e55fe5814c512962a8792bf8a12711a661202ac68a1
     forcestring: true
