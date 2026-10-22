@@ -1,0 +1,147 @@
+# Publishes @carverauto/create-dashboard to npm.
+#
+# Release flow:
+#   1. Land the version bump in js/create-dashboard/package.json on the default branch.
+#   2. Tag it `create-dashboard-v<version>` (e.g. create-dashboard-v0.1.2) and push the tag.
+#
+# `palisade-v*` and `cli-v*` set the house convention for component tags; the
+# main product owns bare `v*` in release.yml, so create-dashboard uses
+# `create-dashboard-v*`.
+#
+# Prerequisites: npm trusted publishing (OIDC) requires a trusted publisher
+# configured for @carverauto/create-dashboard on npmjs.com that points at
+# carverauto/serviceradar and this workflow file
+# (.github/workflows/create-dashboard-npm-publish.yml). Until that is set up
+# the publish step fails on OIDC; the dry_run flag on workflow_dispatch lets
+# every pre-publish check and tarball verification run in that window.
+name: Publish create-dashboard npm Package
+
+on:
+  push:
+    tags:
+      - "create-dashboard-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, for example create-dashboard-v0.1.2."
+        required: true
+        type: string
+      dry_run:
+        description: "Run every check and pack the tarball without publishing."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: create-dashboard-npm-publish-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Required for npm trusted publishing (OIDC) and provenance.
+      id-token: write
+    defaults:
+      run:
+        working-directory: js/create-dashboard
+    env:
+      INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+      INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.INPUT_TAG }}
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: js/create-dashboard/package-lock.json
+
+      # Catches a tag that does not name the version it claims to publish,
+      # before anything reaches the registry.
+      - name: Verify release tag matches package version
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          expected="create-dashboard-v${version}"
+          if [ "${INPUT_TAG}" != "${expected}" ]; then
+            echo "Release tag ${INPUT_TAG} does not match package version ${version}; expected ${expected}." >&2
+            exit 1
+          fi
+          echo "Publishing @carverauto/create-dashboard ${version} from ${INPUT_TAG}."
+
+      # Refuse to reuse a version already on the registry. npm would reject the
+      # publish anyway, but failing here says why instead of surfacing a 403.
+      - name: Verify version is not already published
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@carverauto/create-dashboard@${version}" version >/dev/null 2>&1; then
+            echo "@carverauto/create-dashboard@${version} is already published; npm versions are immutable." >&2
+            echo "Bump the version in js/create-dashboard/package.json and tag again." >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Runs the test suite and a pack dry-run.
+      - name: Run checks
+        run: npm run ci
+
+      - name: Verify the tarball contains required package files
+        run: |
+          set -euo pipefail
+
+          tarball="$(npm pack --silent)"
+          listing="$(mktemp)"
+          trap 'rm -f "${tarball}" "${listing}"' EXIT
+
+          # List the archive once and search the file to avoid SIGPIPE when
+          # grep exits on its first match under pipefail.
+          tar -tzf "${tarball}" > "${listing}"
+
+          missing=0
+          for required in "package/bin/create.js" "package/README.md" "package/package.json"; do
+            if ! grep -qxF "${required}" "${listing}"; then
+              echo "::error::Required file ${required#package/} is missing from the tarball" >&2
+              missing=1
+            fi
+          done
+
+          if [ "${missing}" -ne 0 ]; then
+            echo "The tarball is missing required package files. Refusing to publish." >&2
+            exit 1
+          fi
+
+          echo "Verified bin/create.js, README.md, and package.json in the tarball."
+
+      - name: Publish package with trusted publishing
+        if: ${{ env.INPUT_DRY_RUN != 'true' }}
+        run: |
+          set -euo pipefail
+          npm --version
+          # setup-node node-version 24 installs v24.21.0, which bundles npm 11.19.0.
+          # OIDC floor is npm 11.5.1. Pin to npm@11 so a runner image whose bundled
+          # npm predates that floor is covered, without letting a future npm major
+          # change --provenance or OIDC semantics underneath this release.
+          npm install -g npm@11
+          npm --version
+          npm publish --access public --provenance
+
+      - name: Dry run summary
+        if: ${{ env.INPUT_DRY_RUN == 'true' }}
+        run: |
+          echo "Dry run: every check passed and the tarball was verified, nothing was published."
