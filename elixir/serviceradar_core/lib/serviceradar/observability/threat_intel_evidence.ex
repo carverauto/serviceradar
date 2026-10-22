@@ -21,7 +21,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   @doc """
   Imported indicators, newest `last_seen_at` first. Options: `:source`,
   `:indicator` (an IP returns the indicators containing it; a CIDR matches
-  exactly), `:expired` (include expired indicators), `:limit`, `:cursor`.
+  exactly), `:limit`, `:cursor`. Expired indicators are excluded.
   """
   @spec page_indicators(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
@@ -33,7 +33,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
          {:ok, after_key} <- Keyset.decode(opts[:cursor], [:datetime, :uuid]) do
       ThreatIntelIndicator
       |> Ash.Query.for_read(:read)
-      |> maybe_active(opts[:expired] == true, now)
+      |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
       |> filter_text(:source, opts[:source])
       |> filter_indicator(indicator)
       |> after_key(:last_seen_at, after_key)
@@ -45,8 +45,8 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
 
   @doc """
   Imported provider objects (for OTX, pulses), most recently updated first.
-  Options: `:source`, `:object_type`, `:indicator` (exact indicator recorded
-  on the object), `:limit`, `:cursor`.
+  Options: `:source`, `:indicator` (exact indicator recorded on the object),
+  `:limit`, `:cursor`.
   """
   @spec page_source_objects(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
@@ -57,7 +57,6 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
       ThreatIntelSourceObject
       |> Ash.Query.for_read(:read)
       |> filter_text(:source, opts[:source])
-      |> filter_text(:object_type, opts[:object_type])
       |> filter_object_indicator(blank_to_nil(opts[:indicator]))
       |> after_key(:updated_at, after_key)
       |> Ash.Query.sort(updated_at: :desc, id: :desc)
@@ -127,16 +126,10 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
     Ash.Query.filter(query, updated_at < ^at or (updated_at == ^at and id < ^id))
   end
 
-  defp maybe_active(query, true, _now), do: query
-
-  defp maybe_active(query, false, now),
-    do: Ash.Query.filter(query, is_nil(expires_at) or expires_at > ^now)
-
-  defp filter_text(query, field, value) do
-    case {field, blank_to_nil(value)} do
-      {_field, nil} -> query
-      {:source, text} -> Ash.Query.filter(query, source == ^text)
-      {:object_type, text} -> Ash.Query.filter(query, object_type == ^text)
+  defp filter_text(query, :source, value) do
+    case blank_to_nil(value) do
+      nil -> query
+      text -> Ash.Query.filter(query, source == ^text)
     end
   end
 
@@ -173,10 +166,8 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
         {:ok, nil}
 
       text ->
-        if String.contains?(text, "/") do
-          with {:ok, cidr} <- optional_address(text, :cidr), do: {:ok, {:cidr, cidr}}
-        else
-          with {:ok, ip} <- optional_address(text, :ip), do: {:ok, {:ip, ip}}
+        with {:ok, value} <- parse_address(text, :cidr) do
+          {:ok, if(String.contains?(value, "/"), do: {:cidr, value}, else: {:ip, value})}
         end
     end
   end
