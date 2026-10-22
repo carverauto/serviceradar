@@ -565,28 +565,33 @@ distribution on the lab before this is sized.
   - *Drop rows over budget.* Silent loss defeats evasion detection. Rejected in favour of
     explicit, counted aggregation.
 
-### 10. Proposed: coordinate the central cutover before enabling lease producers
+### 10. Approved: coordinate the central cutover before enabling lease producers
 
-Status: proposed for coordinator review. This specifies how to deploy the already-approved
-straight switch; it does not authorize a rollout or waive Phase 0. New lease producers cannot
-run against old core, and the old correlator must not write concurrently with the new
-attribution path. Neither compatibility combination is made safe by adding protobuf fields.
+Status: approved by the coordinator on 2026-10-22. This approves the plan for deploying the
+already-approved straight switch. It does not authorize a rollout or waive Phase 0, and flows
+remain StarRocks-only. New lease producers cannot run against old core, and the old correlator
+must not write concurrently with the new attribution path. Neither combination is made safe by
+adding protobuf fields, a decode or drop fallback, another producer mode, mixed central writers,
+or dual-write.
 
 Prepare the compatible gateway and agent transport first, while netprobe still sends the
 old event shape. At the central cutover, drain old attribution admission and stop the old
 correlator and flow consumers, with the upstream flow stream retaining incoming work. Bring
 up the candidate core and EventWriter against the candidate streams and warehouse schema,
 then resume consumption. Enable the candidate netprobe only after every relay and central
-consumer on its route is compatible. Old netprobe events arriving at the new core use
-Decision 1's `OPEN` / 10-minute TTL default, with no observation dual-write.
+consumer on its route is compatible. Until then, and again whenever that route or core is the
+previous release, the candidate netprobe stays stopped. Old netprobe events arriving at the
+new core use Decision 1's `OPEN` / 10-minute TTL default, with no observation dual-write.
 
 The release rehearsal must prove that the existing stream and retained-delivery capacities
 cover this bounded interruption. If the drain cannot finish, the buffers cannot cover it,
 or an old central writer remains active, stop the cutover. A rolling mixture of old and new
-central writers is not the fallback. Roll back the complete release and netprobe artifact
-as described in the Migration Plan, including the observation schema and subject. The
-previous correlator needs a fresh 30-minute observation window; this is a recovery delay,
-not an immediate restoration of attribution coverage.
+central writers is not the fallback. Roll back as described in the Migration Plan: stop
+candidate lease emission before old consumers return, restore the previous release and the
+previous netprobe artifact, and verify relay compatibility so that artifact's sighting
+heartbeats reach the previous central release. The previous correlator needs a fresh
+30-minute observation window; this is a recovery delay, not an immediate restoration of
+attribution coverage.
 
 ## Implementation plan
 
@@ -606,7 +611,7 @@ is introduced to make an intermediate PR deployable.
 
 | Order | Scope and tasks | Evidence required before advancing |
 | --- | --- | --- |
-| P0 | This plan and proposed Decision 10 | Strict OpenSpec validation; coordinator review of deployment order and ownership boundaries |
+| P0 | This plan and approved Decision 10 | Strict OpenSpec validation; coordinator approval of Decision 10 recorded on 2026-10-22. That approval covers the plan only and is not a deployment authorization |
 | P1 | Phase 0 measurements and synthetic store/replay spike (0.1-0.5) | Median projected ownership rate <= 5 events/s/host; 2.5M-key shard including 15-minute history <= 200 bytes/key; two-hour replay ready <= 2 minutes; full summary-key distribution and cap frequency recorded, with only rounded anonymous lab measurements |
 | P2 | Additive lease, address, snapshot and summary wire messages; regenerated bindings; agent relay support (1.1, transport portion of 2.1, wire portion of 5.3) | Old-producer/new-consumer decoding; complete synthetic batches survive netprobe -> agent -> gateway -> core, including `ExecutableOwnership`; protobuf breaking and generated-artifact checks |
 | P3 | Ownership/summary publishers, streams, NATS permissions, history and summary warehouse processors (2.3-2.5, 5.1-5.2, 5.4-5.5) | Disjoint subjects, retention-bound refusal, whole-unit publish acknowledgement, append-only history/summary rows, retry behavior and StarRocks-required behavior |
@@ -664,10 +669,10 @@ from the exposure spike does not satisfy any of these gates.
 | Old netprobe, old or transport-compatible relay | Old release | Existing sightings/correlator until cutover |
 | Old netprobe, transport-compatible relay | New release | Legacy decode to 10-minute leases; ownership stream only; no fabricated connection summaries |
 | New netprobe, compatible agent and gateway | New release | Native leases, complete snapshots, address presence and connection summaries |
-| New netprobe with an old relay or old core | Either | Unsupported rollout order; do not enable the producer |
+| New netprobe with an old relay or old core | Either | Unsupported. The candidate netprobe stays stopped while its route or core is old; no decode, drop, or new-producer fallback |
 | Any producer with old and new central attribution writers active together | Mixed | Unsupported central cutover; drain the old writers first |
 
-Under proposed Decision 10, the release runbook will use this order:
+Under approved Decision 10, the release runbook will use this order:
 
 1. Prove P1-P7 on synthetic fixtures and the complete candidate stack. Compare the same
    synthetic protocol/topology cases against the existing precedence contract, including
@@ -690,11 +695,15 @@ Under proposed Decision 10, the release runbook will use this order:
    alone do not pass the gate. The coordinator performs rollout/stimulus actions; the
    exposure measurement session remains read-only on the lab.
 
-On failure, stop new lease emission before restoring old consumers; restore the previous
-core/EventWriter, gateway/agent where required, netprobe artifact, observation DDL and
-subject/permissions as one coordinated rollback. Verify restored writes before counting
-the new 30-minute observation window. No CNPG fallback, backfill, warehouse rescan or
-reintroduction of both writers is part of recovery.
+On failure, stop candidate lease emission before old consumers return. Restore the previous
+core and EventWriter and, where the route requires it, the previous gateway and agent.
+Restore the previous netprobe artifact and its sighting heartbeats for the previous central
+release, and verify relay compatibility before those heartbeats resume. Recreate the
+observation subject, permissions, and DDL in that same coordinated rollback. A candidate
+netprobe stays stopped while its route or core is old. Verify restored sighting writes
+before counting the fresh 30-minute observation window. No decode or drop fallback, new
+producer mode, mixed central writers, dual-write, CNPG fallback, backfill, or warehouse
+rescan is part of recovery.
 
 ### Dependency back to exposure intelligence
 
@@ -798,7 +807,9 @@ Load is generated from invented data in 192.0.2.0/24, 198.51.100.0/24, 203.0.113
 ## Migration Plan
 
 Straight switch in one release, following `move-flow-attribution-to-starrocks`: attribution
-state is ephemeral, and only the team's own deployments run flow attribution.
+state is ephemeral, and only the team's own deployments run flow attribution. Approved
+Decision 10 (2026-10-22) is the no-overlap cutover and rollback order for that switch. The
+approval is of the plan only and does not authorize deployment.
 
 1. Ship netprobe and agent lease emission, the ownership publisher and stream, the index, and
    on-ingest attribution together, with the correlator deleted in the same release.
@@ -809,10 +820,14 @@ state is ephemeral, and only the team's own deployments run flow attribution.
    `flow_ownership_leases` and the `flow_ownership` stream.
 4. Run the post-rollout verification against the lab.
 
-Rollback: redeploy the previous release together with the previous netprobe add-on version,
-because the correlator needs sighting heartbeats. It works again once 30 minutes of new
-observations have arrived. Flows written while this change was live remain attributed. The dropped
-observation table is recreated by its DDL.
+Rollback: stop candidate lease emission before old consumers return, then redeploy the
+previous release together with the previous netprobe add-on. Verify relay compatibility
+before that artifact resumes sighting heartbeats; the previous central release needs those
+heartbeats. A candidate netprobe stays stopped while its route or core is the previous
+release. The correlator works again once 30 minutes of new observations have arrived. Flows
+written while this change was live remain attributed. The dropped observation table is
+recreated by its DDL. No decode or drop fallback, new producer mode, mixed central writers,
+or dual-write is part of recovery.
 
 ## Open Questions
 
