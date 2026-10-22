@@ -925,8 +925,8 @@ health from `awx.ping` and from an actual dispatch, not from this result.
 An action-only package that does not also declare `action-result-ingest:v1`
 reports no plugin results, so the Services page does not track it as a plugin
 service. The fix retires a card still showing the bridge's last failed result
-from before re-materialisation the next time the Services page loads and
-reconciles plugin service state. A package that also declares
+from before re-materialisation the next time core reconciles plugin service
+state, which it does every five minutes. A package that also declares
 `action-result-ingest:v1` reports the results of its actions and keeps its card.
 A streaming package keeps its card as well.
 
