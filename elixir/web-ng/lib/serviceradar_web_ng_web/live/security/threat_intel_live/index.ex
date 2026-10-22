@@ -394,10 +394,9 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
                     />
                   </td>
                   <td class="px-4 py-3 text-sr-muted">
-                    <span :if={row.expired} class="text-amber-800 dark:text-amber-200">Expired</span>
-                    <span :if={!row.expired and is_nil(row.indicator_expires_at)}>Never</span>
+                    <span :if={is_nil(row.indicator_expires_at)}>Never</span>
                     <.user_time
-                      :if={!row.expired and row.indicator_expires_at}
+                      :if={row.indicator_expires_at}
                       id={"threat-intel-inventory-#{row.indicator_id}-expires"}
                       value={row.indicator_expires_at}
                       timezone={timezone(@current_scope)}

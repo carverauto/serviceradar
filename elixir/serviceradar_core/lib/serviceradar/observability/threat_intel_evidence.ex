@@ -39,7 +39,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
       |> after_key(:last_seen_at, after_key)
       |> Ash.Query.sort(last_seen_at: :desc, id: :desc)
       |> Ash.Query.limit(limit + 1)
-      |> read_page(scope, limit, &[&1.last_seen_at, &1.id], &indicator_row(&1, now))
+      |> read_page(scope, limit, &[&1.last_seen_at, &1.id], &indicator_row/1)
     end
   end
 
@@ -222,7 +222,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
 
   defp blank_to_nil(_value), do: nil
 
-  defp indicator_row(row, now) do
+  defp indicator_row(row) do
     %{
       indicator_id: row.id,
       indicator: to_string(row.indicator),
@@ -233,13 +233,9 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
       confidence: row.confidence,
       indicator_first_seen_at: row.first_seen_at,
       indicator_last_seen_at: row.last_seen_at,
-      indicator_expires_at: row.expires_at,
-      expired: expired?(row.expires_at, now)
+      indicator_expires_at: row.expires_at
     }
   end
-
-  defp expired?(%DateTime{} = expires_at, now), do: DateTime.compare(expires_at, now) != :gt
-  defp expired?(_expires_at, _now), do: false
 
   defp source_object_row(row) do
     metadata = row.metadata || %{}
@@ -291,7 +287,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
       label: row.label,
       severity: row.severity,
       confidence: row.confidence,
-      observed_ip: to_string(row.observed_ip),
+      observed_ip: row.observed_ip |> to_string() |> String.split("/") |> hd(),
       direction: row.direction,
       first_seen_at: row.first_seen_at,
       last_seen_at: row.last_seen_at,

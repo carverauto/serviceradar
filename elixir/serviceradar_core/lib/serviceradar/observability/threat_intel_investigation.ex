@@ -182,7 +182,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
     FROM platform.threat_intel_indicators i
     JOIN platform.threat_intel_source_objects o
       ON o.source = i.source
-     AND o.metadata->>'indicator' IN (host(i.indicator), i.indicator::text)
+     AND (o.metadata->>'indicator' = i.indicator::text
+          OR (masklen(i.indicator) = CASE family(i.indicator) WHEN 4 THEN 32 ELSE 128 END
+              AND o.metadata->>'indicator' = host(i.indicator)))
     WHERE i.id = ANY($1::text[]::uuid[])
     GROUP BY i.id
     HAVING COUNT(*) = 1

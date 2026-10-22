@@ -216,6 +216,44 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert is_nil(ambiguous.source_context)
   end
 
+  test "a network indicator keeps its own provider object beside a pulse for its base address",
+       %{actor: actor} do
+    source = unique_source("network-context")
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    scope = %{actor: actor}
+
+    for indicator <- ["198.51.100.0/24", "198.51.100.0/32"] do
+      insert_indicator!(actor, %{
+        indicator: indicator,
+        source: source,
+        label: "Synthetic #{indicator}",
+        severity: 50,
+        expires_at: DateTime.shift(now, hour: 1),
+        first_seen_at: now,
+        last_seen_at: now
+      })
+    end
+
+    insert_source_object!(actor, source, "pulse-network", "198.51.100.0/24")
+    insert_source_object!(actor, source, "pulse-base-host", "198.51.100.0")
+
+    assert {:ok, rows} = ThreatIntelInvestigation.indicators_for_ip(scope, "198.51.100.50")
+    assert [network] = Enum.filter(rows, &(&1.source == source))
+    assert %{source_object_id: "pulse-network"} = network.source_context
+
+    assert {:ok, base_rows} = ThreatIntelInvestigation.indicators_for_ip(scope, "198.51.100.0")
+
+    contexts =
+      base_rows
+      |> Enum.filter(&(&1.source == source))
+      |> Map.new(&{&1.indicator, &1.source_context.source_object_id})
+
+    assert contexts == %{
+             "198.51.100.0/24" => "pulse-network",
+             "198.51.100.0/32" => "pulse-base-host"
+           }
+  end
+
   test "evidence pages separate inventory and retrohunt findings", %{actor: actor} do
     source = unique_source("evidence")
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
