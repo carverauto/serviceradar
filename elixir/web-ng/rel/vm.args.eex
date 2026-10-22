@@ -42,3 +42,8 @@
 ## Garbage collection settings
 +hms 8192
 +hmbs 512
+
+## Cluster connectivity
+## net_ticktime must be equal on every node in the cluster; this matches
+## serviceradar_core_elx and serviceradar_agent_gateway.
+-kernel net_ticktime 120
