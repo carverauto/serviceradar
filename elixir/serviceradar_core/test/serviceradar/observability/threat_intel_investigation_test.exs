@@ -11,6 +11,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
     assert {:error, :invalid_ip} = ThreatIntelInvestigation.indicators_for_ip(:unused, "")
 
     assert {:error, :invalid_ip} =
+             ThreatIntelInvestigation.indicators_for_ip(:unused, "010.0.0.1")
+
+    assert {:error, :invalid_ip} =
              ThreatIntelInvestigation.indicators_for_ip(:unused, "10.0.0.0/8")
 
     assert {:error, :invalid_ip} =
@@ -96,6 +99,13 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
     end
   end
 
+  test "address filters keep IPv6 zero padding but reject a zero-padded IPv4 octet" do
+    assert {:ok, "2001:0db8::1"} = ThreatIntelEvidence.parse_address("2001:0db8::1", :ip)
+    assert {:ok, "10.0.0.1"} = ThreatIntelEvidence.parse_address("10.0.0.1", :ip)
+    assert {:error, :invalid_ip} = ThreatIntelEvidence.parse_address("010.0.0.1", :ip)
+    assert {:error, :invalid_ip} = ThreatIntelEvidence.parse_address("10.0.00.1", :ip)
+  end
+
   test "indicator filters accept only addresses PostgreSQL takes as cidr" do
     for accepted <- [
           "198.51.100.0/24",
@@ -113,6 +123,8 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
           "2001:db8::1/64",
           "198.51.100.0/33",
           "198.51.100.0/-10000000000",
+          "192.168.001.000/24",
+          "010.0.0.1",
           "not-an-ip"
         ] do
       assert {:error, :invalid_cidr} = ThreatIntelEvidence.parse_address(rejected, :cidr)
