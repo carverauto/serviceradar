@@ -11,6 +11,9 @@ use super::*;
 
 const RPMDB_FIXTURE: &[u8] = include_bytes!("../../testdata/executable_ownership/rpmdb.sqlite");
 
+/// One precedence case: name, root setup, expected state and detail.
+type PrecedenceCase = (&'static str, fn(&Path), OwnershipState, &'static str);
+
 struct Fixture {
     dir: tempfile::TempDir,
 }
@@ -327,7 +330,7 @@ fn unowned_executable_is_not_found_and_names_no_package() {
 
 #[test]
 fn unsupported_and_incomplete_databases_are_never_reported_as_unowned() {
-    let cases: [(&str, fn(&Path), OwnershipState, &str); 4] = [
+    let cases: [PrecedenceCase; 4] = [
         (
             "berkeleydb",
             |root| write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0"),
