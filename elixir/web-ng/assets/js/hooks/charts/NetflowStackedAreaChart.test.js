@@ -296,6 +296,12 @@ function directFrameArgs(el, svg, overrides = {}) {
   }
 }
 
+// The plot's left edge as drawn: the frame sizes the y-axis gutter to its labels.
+function renderRootLeft(svg) {
+  const transform = svg.querySelector("[data-netflow-stacked-render-root]").getAttribute("transform")
+  return Number(/translate\(([-\d.]+),/.exec(transform)[1])
+}
+
 function dispatchChartClick(el, seriesClick, keyValue, target = new FakeNode()) {
   const event = {
     immediateStopped: false,
@@ -508,8 +514,9 @@ describe("NetflowStackedAreaChart lifecycle", () => {
           expect.objectContaining({timeZone: "America/Chicago"}),
         )
 
-        seams.svg.dispatch(pointer("pointerdown", 44, 10))
-        seams.svg.dispatch(pointer("pointerup", 50, 10))
+        const plotLeft = renderRootLeft(seams.svg)
+        seams.svg.dispatch(pointer("pointerdown", plotLeft, 10))
+        seams.svg.dispatch(pointer("pointerup", plotLeft + 6, 10))
         expect(pushEvent).not.toHaveBeenCalledWith("netflow_range_selected", expect.anything())
 
         dispatchChartClick(el, seriesClick, seriesKey)
@@ -518,7 +525,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
         ])
 
         pushEvent.mockClear()
-        seams.svg.dispatch(pointer("pointerdown", 44, 11))
+        seams.svg.dispatch(pointer("pointerdown", plotLeft, 11))
         seams.svg.dispatch(pointer("pointerup", 490, 11))
         expect(pushEvent.mock.calls).toEqual([
           [
@@ -534,7 +541,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
 
         pushEvent.mockClear()
         seams.svg.dispatch(pointer("pointerdown", 490, 12))
-        seams.svg.dispatch(pointer("pointerup", 44, 12))
+        seams.svg.dispatch(pointer("pointerup", plotLeft, 12))
         expect(pushEvent.mock.calls).toEqual([
           [
             "netflow_range_selected",
@@ -916,5 +923,115 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     nodes.svg.dispatch(pointer("pointerdown", 44, 4, 210))
     nodes.svg.dispatch(pointer("pointerup", 490, 4, 210))
     expect(pushEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe("NetflowStackedAreaChart y-axis scale", () => {
+  const BURST_INDEX = 30
+  const BURST_BYTES = 1_000_000_000
+
+  // Forty one-minute buckets of steady traffic (about 3.5 MB per bucket at most)
+  // and one bucket where a single series carries a 1 GB burst.
+  function burstPoints() {
+    const start = Date.parse("2026-08-27T10:00:00Z")
+    return Array.from({length: 40}, (_value, index) => ({
+      t: new Date(start + index * 60_000).toISOString(),
+      web: index === BURST_INDEX ? BURST_BYTES : 2_000_000 + (index % 5) * 100_000,
+      db: 1_000_000 + (index % 3) * 50_000,
+    }))
+  }
+
+  function burstRoot() {
+    const el = root()
+    el.dataset.points = JSON.stringify(burstPoints())
+    el.dataset.rangeIntervals = "[]"
+    el.dataset.units = ""
+    return el
+  }
+
+  function yAxisScale(records, x) {
+    const call = records.calls.find(
+      ({callback}) => typeof callback?.scale === "function" && callback.scale() !== x,
+    )
+    return call.callback.scale()
+  }
+
+  function selectionWithAttribute(records, name) {
+    return records.selections.find((selection) => selection.node().getAttribute(name) !== null)
+  }
+
+  it("keeps one burst from setting the y-axis and labels the clipped bucket with its total", () => {
+    const el = burstRoot()
+    const seams = renderSeams(el)
+    const args = directFrameArgs(el, seams.svg, {onScaleToggle: vi.fn()})
+
+    const frame = renderStackedFrame(args, seams.dependencies)
+
+    const top = yAxisScale(seams.records, frame.x).domain()[1]
+    expect(top).toBeGreaterThanOrEqual(3_500_000)
+    expect(top).toBeLessThan(10_000_000)
+    expect(seams.records.selections.some((selection) => selection.node().textContent === "1.00 GB")).toBe(true)
+
+    const toggle = selectionWithAttribute(seams.records, "data-netflow-scale-toggle")
+    expect(toggle.node().getAttribute("data-netflow-scale-toggle")).toBe("fit")
+    toggle.handlers.get("click")({preventDefault: vi.fn(), stopPropagation: vi.fn()})
+    expect(args.onScaleToggle).toHaveBeenCalledOnce()
+  })
+
+  it("widens the left gutter so full-scale byte labels are not cut off", () => {
+    const el = burstRoot()
+    const seams = renderSeams(el)
+
+    const frame = renderStackedFrame(directFrameArgs(el, seams.svg, {fullScale: true}), seams.dependencies)
+
+    expect(yAxisScale(seams.records, frame.x).domain()[1]).toBeGreaterThanOrEqual(BURST_BYTES)
+    // "800.00 MB" is at least 48px wide at 10px in a narrow sans (Arial metrics),
+    // and d3.axisLeft puts it 9px left of the plot.
+    expect(renderRootLeft(seams.svg)).toBeGreaterThanOrEqual(58)
+    expect(frame.margin.left).toBe(renderRootLeft(seams.svg))
+    expect(frame.iw + frame.margin.left).toBe(446 + 44)
+  })
+
+  it("toggles the full scale through the hook and keeps hover and range geometry on the drawn plot", () => {
+    const oldResizeObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      disconnect = vi.fn()
+      observe = vi.fn()
+    }
+
+    try {
+      const el = burstRoot()
+      const seams = renderSeams(el)
+      const ctx = {
+        el,
+        pushEvent: vi.fn(),
+        ...NetflowStackedAreaChart,
+        _attachTimeTooltip: seams.attachTimeTooltip,
+        _stackedRenderDependencies: seams.dependencies,
+      }
+      ctx.mounted()
+
+      const firstTooltip = seams.attachTimeTooltip.mock.calls[0][1]
+      const burstRow = firstTooltip.data[BURST_INDEX]
+      expect(firstTooltip.valueAt(burstRow, "web")).toBe(BURST_BYTES)
+
+      const toggle = selectionWithAttribute(seams.records, "data-netflow-scale-toggle")
+      toggle.handlers.get("keydown")({key: "Enter", preventDefault: vi.fn(), stopPropagation: vi.fn()})
+
+      expect(seams.dependencies.selectRoot).toHaveBeenCalledTimes(2)
+      const tooltip = seams.attachTimeTooltip.mock.calls[1][1]
+      expect(tooltip.plotLeft).toBe(renderRootLeft(seams.svg))
+      expect(tooltip.plotLeft).toBeGreaterThanOrEqual(58)
+      expect(tooltip.plotLeft + tooltip.plotWidth).toBe(600 - 110)
+      expect(
+        seams.records.selections.filter(
+          (selection) => selection.node().getAttribute("data-netflow-scale-toggle") === "full",
+        ),
+      ).toHaveLength(1)
+
+      ctx.destroyed()
+    } finally {
+      globalThis.ResizeObserver = oldResizeObserver
+    }
   })
 })

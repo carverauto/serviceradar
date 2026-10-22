@@ -220,6 +220,55 @@ export function yTickValues(scale, count = 4) {
   return scale.ticks(tickCount).filter((value) => Number.isFinite(Number(value)))
 }
 
+// A bucket above OUTLIER_FACTOR times the 95th-percentile bucket is an outlier:
+// one burst (a long flow exported as a single record) would otherwise set the
+// y-axis alone and press every other bucket onto the baseline. Up to 5% of the
+// buckets can be clipped; more spikes than that raise the percentile with them,
+// so recurring peaks keep defining the axis.
+const OUTLIER_QUANTILE = 0.95
+const OUTLIER_FACTOR = 4
+const OUTLIER_HEADROOM = 1.1
+
+// The y-axis top for `values` (one per bucket). `max` is where the axis should
+// end; `clipped` says whether some bucket rises above it, `fullMax` is the
+// largest bucket either way.
+export function outlierRobustMax(values) {
+  const sorted = (Array.isArray(values) ? values : [])
+    .map(Number)
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort(d3.ascending)
+  const fullMax = sorted.at(-1) || 0
+  const limit = (d3.quantileSorted(sorted, OUTLIER_QUANTILE) || 0) * OUTLIER_FACTOR
+
+  if (limit <= 0 || fullMax <= limit) return {clipped: false, fullMax, max: fullMax}
+
+  const inlierMax = d3.max(sorted.filter((value) => value <= limit))
+  return {clipped: true, fullMax, max: inlierMax * OUTLIER_HEADROOM}
+}
+
+// Advance widths, in em, generous enough for the UI sans fonts at axis size, so
+// an estimate never comes out narrower than the rendered label.
+function glyphEm(char) {
+  if (/[0-9]/.test(char)) return 0.62
+  if (/[.,:;'|!il\s/]/.test(char)) return 0.3
+  if (/[A-Z%]/.test(char)) return 0.8
+  return 0.62
+}
+
+export function estimateLabelWidth(label, fontSize = 10) {
+  let em = 0
+  for (const char of String(label ?? "")) em += glyphEm(char)
+  return em * fontSize
+}
+
+// The left margin a d3.axisLeft needs so its widest tick label is not cut off by
+// the SVG edge: the label sits tickSize + tickPadding left of the plot.
+export function yAxisGutter(labels, {fontSize = 10, tickSize = 6, tickPadding = 3, min = 44} = {}) {
+  const widest =
+    d3.max(Array.isArray(labels) ? labels : [], (label) => estimateLabelWidth(label, fontSize)) || 0
+  return Math.max(min, Math.ceil(widest + tickSize + tickPadding + 2))
+}
+
 export function styleChartAxis(axis) {
   axis.selectAll("text").attr("font-size", 10).attr("opacity", 0.7).attr("fill", "currentColor")
   axis.selectAll("line").attr("stroke", "currentColor").attr("opacity", 0.28)

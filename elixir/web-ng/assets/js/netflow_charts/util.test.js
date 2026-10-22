@@ -8,6 +8,7 @@ import {
   netflowRangeSelectionStatus,
   netflowTooltipTimeHtml,
   netflowTooltipTimeLabel,
+  outlierRobustMax,
   yTickValues,
 } from "./util"
 
@@ -36,6 +37,30 @@ describe("chart axis helpers", () => {
   it("rejects missing or non-finite tick values", () => {
     expect(yTickValues(null, 4)).toEqual([])
     expect(yTickValues({ticks: () => [0, Number.NaN, Number.POSITIVE_INFINITY, 3]}, 4)).toEqual([0, 3])
+  })
+})
+
+describe("outlierRobustMax", () => {
+  const steady = (count) => Array.from({length: count}, (_value, index) => 3_000_000 + (index % 4) * 200_000)
+
+  it("clips a single burst to the steady buckets", () => {
+    const scale = outlierRobustMax([...steady(59), 1_000_000_000])
+
+    expect(scale.clipped).toBe(true)
+    expect(scale.fullMax).toBe(1_000_000_000)
+    expect(scale.max).toBeGreaterThanOrEqual(3_600_000)
+    expect(scale.max).toBeLessThan(10_000_000)
+  })
+
+  it("lets peaks that recur in more than 5% of buckets keep defining the axis", () => {
+    const scale = outlierRobustMax([...steady(56), 900_000_000, 950_000_000, 1_000_000_000, 980_000_000])
+
+    expect(scale).toEqual({clipped: false, fullMax: 1_000_000_000, max: 1_000_000_000})
+  })
+
+  it("does not clip sparse traffic or an empty window", () => {
+    expect(outlierRobustMax([0, 0, 0, 5_000, 0, 0]).clipped).toBe(false)
+    expect(outlierRobustMax([]).clipped).toBe(false)
   })
 })
 
