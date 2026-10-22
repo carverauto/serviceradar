@@ -8,10 +8,12 @@ const {createServer} = require("node:http")
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || "@playwright/test")
 
 async function main() {
+  const {telemetryFrame} = await import("./js/lib/god_view/fixtures/world_overlay_frame.js")
   const [fixturePath, pagePath] = process.argv.slice(2)
   const fixture = JSON.parse(await readFile(fixturePath, "utf8"))
   const html = await readFile(pagePath)
   const {manifest, samples, tiles} = fixture
+  manifest.world_overlay_protocol = 1
   assert.equal(manifest.node_count, 1_000_000)
   assert.equal(manifest.relation_count, 2_000_000)
   const requests = []
@@ -48,8 +50,14 @@ async function main() {
       const tile = tiles[id]
       if (!tile) {missing.push(id); return send(404, {})}
       if (kind === "overlays") {
-        const health = unhealthy ? {glyphs: tile.health.glyphs.map(glyph => ({...glyph, counts: {...glyph.counts, healthy: 0, unknown: 0, unavailable: glyph.counts.total}}))} : tile.health
-        return send(200, {layout_version: manifest.layout_version, generation: manifest.generation, revision: tile.revision, tile_id: id, health, flow: tile.flow})
+        const [z, x, y] = id.split("/").map(Number)
+        const geometry = {key: {layout_version: manifest.layout_version, z, x, y}, generation: manifest.generation, revision: tile.revision,
+          nodes: tile.health.glyphs.map(glyph => ({count: glyph.counts.total})),
+          edges: tile.flow.edges.map(edge => ({count: edge.total_relations}))}
+        const health = tile.health.glyphs.map(({counts}) => unhealthy ? [0, counts.total, 0, counts.total, counts.total] :
+          [counts.healthy, counts.unavailable, counts.unknown, counts.observed, counts.total])
+        const bytes = telemetryFrame(geometry, {complete: true, health, flows: tile.flow.edges})
+        return send(200, Buffer.from(bytes), "application/vnd.serviceradar.world-overlay")
       }
       requests.push(id)
       const bytes = Buffer.from(tile.bytes, "base64")
@@ -66,6 +74,8 @@ async function main() {
   const energySaverOff = physical && process.env.GOD_VIEW_ENERGY_SAVER_OFF === "1"
   let browser
   let browserProfile
+  let page
+  const errors = []
   try {
     // Uncapped throughput is an explicit diagnostic; normal physical validation
     // retains Chrome scheduling and fails if the pan/zoom SLO is not met.
@@ -88,8 +98,7 @@ async function main() {
         "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-webgpu-adapter=swiftshader", "--use-angle=swiftshader",
       ]})
     }
-    const page = energySaverOff ? await browser.newPage() : await browser.newPage({viewport, deviceScaleFactor: 1})
-    const errors = []
+    page = energySaverOff ? await browser.newPage() : await browser.newPage({viewport, deviceScaleFactor: 1})
     page.on("pageerror", error => errors.push(error.message))
     await page.routeWebSocket("**/socket/websocket**", connection => {
       let watch = 0
@@ -100,7 +109,11 @@ async function main() {
       })
     })
     await page.goto(`http://127.0.0.1:${server.address().port}/?transport=1`)
-    await page.waitForFunction(() => window.__SR_WORLD_TRANSPORT__?.measurements.firstFrame != null)
+    await page.waitForFunction(() => {
+      const harness = window.__SR_WORLD_TRANSPORT__
+      if (harness?.renderer.rendererFailed) throw new Error(harness.renderer.rendererError)
+      return harness?.measurements.firstFrame != null
+    })
     await page.waitForFunction(() => {
       const cache = window.__SR_WORLD_TRANSPORT__.renderer.cache
       return cache.visible.size > 0 && cache.pending.size === 0 && [...cache.visible.keys()].every(id => cache.entries.has(id))
@@ -179,10 +192,8 @@ async function main() {
         measurements.settledCamera = camera
         measurements.cameraChangedAt = performance.now()
       }
-      // layers[0] is absent until deck.gl builds its first layer; reading it bare threw out of
-      // the predicate and failed the wait instead of retrying.
       return viewport.zoom < 8.1 && performance.now() - measurements.cameraChangedAt > 250 &&
-        renderer.cache.pending.size === 0 && renderer.deck.props.layers[0]?.isLoaded === true
+        renderer.cache.pending.size === 0 && renderer.deck.layerManager.getLayers()[0]?.isLoaded === true
     })
     // The tile layer can still request neighbors after the scene reads as settled. Take the
     // baseline only once geometry requests stop arriving, so the assertion below measures what
@@ -195,8 +206,21 @@ async function main() {
     }
     unhealthy = true
     const beforeTelemetry = requests.length
-    await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.overlays.poll())
+    await page.evaluate(async () => {
+      const {overlays} = window.__SR_WORLD_TRANSPORT__.renderer
+      while (overlays.polling) await overlays.polling
+      await overlays.poll()
+    })
     assert.equal(requests.length, beforeTelemetry, "telemetry must not refetch geometry")
+    const unavailable = await page.evaluate(() => {
+      const {overlays} = window.__SR_WORLD_TRANSPORT__.renderer
+      return [...overlays.entries].flatMap(([id, overlay]) => overlays.visible.get(id).nodes
+        .filter(node => node.count > 0).map(node => ({total: node.count, counts: overlay.healthAt(node.index)})))
+    })
+    assert(unavailable.length > 0, "binary telemetry must reach visible nodes")
+    for (const {total, counts} of unavailable) assert.deepEqual(counts, {
+      healthy: 0, unavailable: total, unknown: 0, observed: total, total,
+    })
     const metrics = await page.evaluate(async () => {
       const {renderer, measurements} = window.__SR_WORLD_TRANSPORT__
       await renderer.deck.device.handle.queue.onSubmittedWorkDone()
@@ -352,6 +376,24 @@ async function main() {
       assert(metrics.pickP95 < 100, "picking exceeds 100ms")
       assert(metrics.tileP95 <= 200, "tile fetch/decode p95 exceeds 200ms")
     }
+  } catch (error) {
+    const state = await page?.evaluate(() => {
+      const harness = window.__SR_WORLD_TRANSPORT__
+      const renderer = harness?.renderer
+      return {
+        status: document.querySelector('[role="status"]')?.textContent,
+        firstFrame: harness?.measurements.firstFrame,
+        unloadedLayers: renderer?.deck?.layerManager?.getLayers().filter(layer => !layer.isLoaded).map(layer => layer.id),
+        propLayerLoaded: renderer?.deck?.props.layers[0]?.isLoaded,
+        rendererError: renderer?.rendererError,
+        initialized: renderer?.deck?.isInitialized,
+        cachedTiles: renderer?.cache.entries.size,
+        pendingTiles: renderer?.cache.pending.size,
+        visibleTiles: [...(renderer?.cache.visible.keys() || [])],
+      }
+    }).catch(diagnosticError => ({diagnosticError: diagnosticError.message}))
+    console.error("Million-device browser failure", JSON.stringify({errors, missing, geometryRequests: requests.length, state}, null, 2))
+    throw error
   } finally {
     try {await browser?.close()} finally {
       if (browserProfile) await rm(browserProfile, {recursive: true, force: true})

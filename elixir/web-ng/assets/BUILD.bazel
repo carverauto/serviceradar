@@ -647,6 +647,14 @@ phoenix_digest(
     prefix = "static",
 )
 
+js_library(
+    name = "million_world_browser_test_lib",
+    srcs = [
+        "js/lib/god_view/fixtures/world_overlay_frame.js",
+        "package.json",
+    ],
+)
+
 # Production NIF-encoded million-device hierarchy served over real loopback HTTP.
 # Physical-GPU timing uses this same executable with GOD_VIEW_PHYSICAL_GPU=1.
 js_test(
@@ -657,6 +665,7 @@ js_test(
         "$(rootpath :world_gpu_page)",
     ],
     data = [
+        ":million_world_browser_test_lib",
         ":node_modules/@playwright/test",
         ":world_gpu_page",
         "//elixir/web-ng:million_world_browser_fixture",
