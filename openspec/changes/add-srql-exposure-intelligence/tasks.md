@@ -19,7 +19,7 @@ deployment.
   - use case 1 rows <= 500 ms and counts <= 1 s.
 - [ ] 0.7 Widen `EndpointInventoryFleetOrdinal` allocation to every non-service device the address publisher emits. Confirm u32 headroom.
 - [ ] 0.8 CNPG migration: the `exposure_device_catalog` and `exposure_device_tags_catalog` views, column-scoped grants to `serviceradar_starrocks_reader` (guarded on the role existing; never `LOGIN`), `CatalogAllowlist` entries, and allowlist tests that reject the large tables.
-- [ ] 0.9 Obtain approval to extend the StarRocks-required exception to exposure intelligence (design Decision 15). Update `AGENTS.md` only after approval.
+- [x] 0.9 Obtain approval to extend the StarRocks-required exception to exposure intelligence (design Decision 15). Update `AGENTS.md` only after approval. Approved by the product owner on [2026-10-18](https://github.com/carverauto/serviceradar/issues/5745#issuecomment-6255360407); the exception is recorded in `AGENTS.md`.
 
 ## 1. Dictionaries, fact table and transitions
 - [ ] 1.1 CNPG migrations: `exposure_fact_watermarks` (key, terminal state, new sequence), `device_fleet_ordinals.retired_seq`, `exposure_advisory_ordinals` (starting at 10^12), `exposure_package_ordinals`, `exposure_package_version_ordinals`, the `transition_seq` sequence (drawn under the assessment row lock and stored on the assessment row), and `transition_xid` on outbox rows. Add a CVE ordinal function with unit tests at the 10^7 boundary.

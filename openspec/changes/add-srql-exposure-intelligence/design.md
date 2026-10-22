@@ -707,8 +707,8 @@ reads (`AGENTS.md`). The reasons:
 - Nothing is lost on a CNPG-only installation: assessments stay in CNPG, and use case 1 is
   still answered there by `in:devices cve:` and `in:endpoint_vulnerability_assessments`.
 
-This needs explicit approval, and the `AGENTS.md` text changes only after it (open
-question 1).
+The product owner [approved this requirement on 2026-10-18](https://github.com/carverauto/serviceradar/issues/5745#issuecomment-6255360407).
+The StarRocks-required exception is recorded in `AGENTS.md` (task 0.9).
 
 ### Decision 16: How the showcase queries compile
 
@@ -915,8 +915,8 @@ the integration suite asserts which devices each run evaluates.
 
 ## Open Questions
 
-1. Approval to extend the StarRocks-required exception in `AGENTS.md` to exposure
-   intelligence and its host evidence (Decision 15).
+1. Resolved: the product owner approved the StarRocks-required exception for exposure
+   intelligence and its host evidence (Decision 15; task 0.9).
 2. EPSS availability. If neither feed payload carries EPSS (`add-cve-priority-context`,
    open question), `epss_score` is null and the `epss_score` filter returns an explicit
    `epss_unavailable` state. A dedicated EPSS feed would be a follow-on.

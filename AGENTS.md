@@ -125,7 +125,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   Never both at once, and never neither: CNPG stays a complete telemetry backend
   for installations without StarRocks, so do not remove a CNPG telemetry writer,
   reader or table when adding its warehouse counterpart.
-  The approved exception is flows: NetFlow, sFlow, IPFIX and process
+  The approved exceptions are flows and exposure intelligence. NetFlow, sFlow, IPFIX and process
   attribution are stored only in StarRocks, with no CNPG writer or reader.
   `in:flows` and `in:attributed_flows` require StarRocks and return
   `{:error, :starrocks_required}` without it. Their UI must report that state
@@ -134,6 +134,13 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   without storing them. Do not add a CNPG flow write path back. See
   `openspec/changes/move-flow-attribution-to-starrocks`, commit `a1c9468b95`,
   and `openspec/changes/add-starrocks-telemetry-analytics`.
+  Exposure intelligence and its host evidence also require StarRocks, per the
+  [product-owner approval of 2026-10-18](https://github.com/carverauto/serviceradar/issues/5745#issuecomment-6255360407)
+  and `openspec/changes/add-srql-exposure-intelligence`, design Decision 15.
+  Exposure entities return `{:error, :starrocks_required}` without it, and their
+  UI must report that state. Do not add a CNPG exposure projection or evidence
+  fallback. Vulnerability assessments remain in CNPG and remain queryable via
+  `in:devices cve:` and `in:endpoint_vulnerability_assessments`.
   Collectors and agents MUST NOT write metrics straight to CNPG or StarRocks, and
   core MUST NOT ingest a metric path that bypassed JetStream. The legacy
   agent→gateway→core gRPC `StreamStatus` path that writes sysmon metrics directly
