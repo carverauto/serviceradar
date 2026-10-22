@@ -763,7 +763,9 @@ resolves against its image's package database. `source_scope` is `host` for a pr
 the host root and `container` otherwise. Inventory rows are host-scoped, so a containerized process's reference deliberately never
 joins host exposure facts and stays `package_unknown` until container packages are
 inventoried; this is intended, not a miss. Supported databases are dpkg (`status` plus
-`info/*.list`), apk (`installed`) and the rpm sqlite backend (`rpmdb.sqlite`). The older rpm
+`info/*.list`), apk (`installed`) and the rpm sqlite backend (`rpmdb.sqlite`). rpm keeps its
+write-ahead log after checkpoints, so the reader applies the log's committed frames over the
+main file, as a SQLite reader does; a non-empty log is not a pending state. The older rpm
 BerkeleyDB and NDB backends are reported as `UNSUPPORTED_DB` only when no supported database
 is present; a root with `rpmdb.sqlite` next to a leftover BerkeleyDB `Packages` file reads
 the sqlite database. A package owns the executable when one of its listed paths, resolved
@@ -789,7 +791,7 @@ this order:
    denial; or the kernel reports the executable deleted (its file was
    unlinked or replaced, for example by a package upgrade or removal, while the process kept
    running, whether or not a package ever owned it); or the root has no package database; or
-   a database was unreadable, changing, truncated, or has a pending rpm write-ahead log.
+   a database was unreadable, changing or truncated.
 3. `UNSUPPORTED_DB`: no supported database is present, and an unsupported one is.
 4. `RESOLVED`: a supported database lists a path with the executable's `(dev, inode)`.
 5. `NOT_FOUND`: the executable is still linked on disk, every supported database present
