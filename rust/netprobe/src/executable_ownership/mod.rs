@@ -479,6 +479,7 @@ impl ExecutableOwnershipResolver {
         let modified = modified_nanos(&executable);
 
         if !stale
+            && !deleted
             && let Some(cached) = self.cache.get_mut(&key)
             && cached.generation == generation
             && cached.size == size
@@ -512,16 +513,18 @@ impl ExecutableOwnershipResolver {
         }
 
         self.counters.resolutions += 1;
-        self.insert_cached(
-            key,
-            CachedResolution {
-                generation,
-                size,
-                modified,
-                record: record.clone(),
-                last_used: now,
-            },
-        );
+        if !deleted {
+            self.insert_cached(
+                key,
+                CachedResolution {
+                    generation,
+                    size,
+                    modified,
+                    record: record.clone(),
+                    last_used: now,
+                },
+            );
+        }
         record
     }
 

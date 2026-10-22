@@ -133,7 +133,7 @@ fn dpkg_executable_resolves_to_its_package_on_the_host() {
             package_manager: "dpkg".to_string(),
             namespace: "debian".to_string(),
             release: "bookworm".to_string(),
-            ecosystem: "deb".to_string(),
+            ecosystem: String::new(),
             binary_package: "example-daemon".to_string(),
             source_package: "example-src".to_string(),
             architecture: "amd64".to_string(),
@@ -267,6 +267,39 @@ fn replaced_binary_is_not_attributed_to_the_upgraded_package() {
     assert_eq!(record.detail, DETAIL_EXECUTABLE_DELETED);
     assert_eq!(record.package, None);
     assert_eq!(record.executable_path, "/usr/sbin/exampled");
+}
+
+#[test]
+fn executable_deleted_after_resolution_is_not_served_from_the_cache() {
+    let fixture = Fixture::new();
+    let host = fixture.root("host");
+    dpkg(
+        &host,
+        &[(
+            "example-daemon",
+            "2.0-1",
+            "example-daemon",
+            &["/usr/sbin/exampled"],
+        )],
+    );
+    let installed = host.join("usr/sbin/exampled");
+    write_executable(&installed);
+    fixture.process(4242, &host, &installed);
+    let mut resolver = fixture.resolver();
+    assert_eq!(resolver.resolve(4242).state, OwnershipState::Resolved);
+
+    // Unlinking keeps the running inode, size and mtime; the kernel only marks the link.
+    let unlinked = host.join("usr/sbin/exampled (deleted)");
+    fs::rename(&installed, &unlinked).unwrap();
+    let exe = fixture.proc().join("4242/exe");
+    fs::remove_file(&exe).unwrap();
+    symlink(&unlinked, &exe).unwrap();
+
+    let record = resolver.resolve(4242);
+
+    assert_eq!(record.state, OwnershipState::Unknown);
+    assert_eq!(record.detail, DETAIL_EXECUTABLE_DELETED);
+    assert_eq!(record.package, None);
 }
 
 #[test]

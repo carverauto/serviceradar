@@ -143,7 +143,9 @@ fn add_dpkg_package(
         OwningPackage {
             package_type: "deb".to_string(),
             package_manager: "dpkg".to_string(),
-            ecosystem: "deb".to_string(),
+            // The endpoint inventory stores no ecosystem for OS packages, so an empty
+            // value is what the assessment identity hashes.
+            ecosystem: String::new(),
             namespace: namespace.to_string(),
             release: release.to_string(),
             binary_package: name.to_string(),
@@ -248,7 +250,9 @@ impl ApkRecord {
         OwningPackage {
             package_type: "apk".to_string(),
             package_manager: "apk".to_string(),
-            ecosystem: "apk".to_string(),
+            // The endpoint inventory stores no ecosystem for OS packages, so an empty
+            // value is what the assessment identity hashes.
+            ecosystem: String::new(),
             namespace: namespace.to_string(),
             release: release.to_string(),
             binary_package: name.clone(),
@@ -320,7 +324,9 @@ fn read_rpm_sqlite(
             OwningPackage {
                 package_type: "rpm".to_string(),
                 package_manager: "rpm".to_string(),
-                ecosystem: "rpm".to_string(),
+                // The endpoint inventory stores no ecosystem for OS packages, so an empty
+                // value is what the assessment identity hashes.
+                ecosystem: String::new(),
                 namespace: namespace.clone(),
                 release: release.clone(),
                 binary_package: package.name.clone(),
