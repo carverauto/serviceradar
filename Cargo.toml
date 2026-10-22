@@ -70,7 +70,7 @@ anyhow = "1.0"
 arancini-lib = "=0.7.6"
 arrow-array = "59"
 arrow-ipc = "59"
-arrow-schema = "59"
+arrow-schema = "60"
 async-nats = "0.50.0"
 async-trait = "0.1"
 # Defaults (query, form, tokio, http1, matched-path, ...) are needed by every consumer;
