@@ -148,9 +148,7 @@ impl SqliteDatabase {
         let mut stack = vec![root_page];
         let mut visited = HashSet::new();
         while let Some(page_number) = stack.pop() {
-            if !visited.insert(page_number) || visited.len() as u64 > u64::from(self.page_count) {
-                return Err(SqliteError::Malformed("b-tree cycle"));
-            }
+            self.mark_visited(&mut visited, page_number, "b-tree cycle")?;
             let page = self.read_page(page_number)?;
             let header_offset = if page_number == 1 { HEADER_LEN } else { 0 };
             let page_type = *page
@@ -161,7 +159,7 @@ impl SqliteDatabase {
                 PAGE_TABLE_LEAF => {
                     for index in 0..cell_count {
                         let cell = usize::from(read_u16(&page, header_offset + 8 + index * 2)?);
-                        let (rowid, payload) = self.leaf_cell(&page, cell)?;
+                        let (rowid, payload) = self.leaf_cell(&page, cell, &mut visited)?;
                         if !visit(rowid, decode_record(&payload)?) {
                             return Ok(());
                         }
@@ -182,7 +180,26 @@ impl SqliteDatabase {
         Ok(())
     }
 
-    fn leaf_cell(&self, page: &[u8], offset: usize) -> Result<(i64, Vec<u8>)> {
+    /// Records that `page_number` was read during one scan. Every page of a well-formed
+    /// table belongs to exactly one b-tree node or overflow chain, so a repeat is a cycle.
+    fn mark_visited(
+        &self,
+        visited: &mut HashSet<u32>,
+        page_number: u32,
+        error: &'static str,
+    ) -> Result<()> {
+        if !visited.insert(page_number) || visited.len() as u64 > u64::from(self.page_count) {
+            return Err(SqliteError::Malformed(error));
+        }
+        Ok(())
+    }
+
+    fn leaf_cell(
+        &self,
+        page: &[u8],
+        offset: usize,
+        visited: &mut HashSet<u32>,
+    ) -> Result<(i64, Vec<u8>)> {
         let (payload_len, used) = read_varint(page, offset)?;
         let (rowid, used_rowid) = read_varint(page, offset + used)?;
         if payload_len > MAX_PAYLOAD_BYTES {
@@ -200,12 +217,11 @@ impl SqliteDatabase {
         if local < payload_len {
             let mut next = read_u32(page, start + local)?;
             let chunk = self.usable_size - 4;
-            let mut hops: u32 = 0;
             while payload.len() < payload_len {
-                hops += 1;
-                if next == 0 || hops > self.page_count {
+                if next == 0 {
                     return Err(SqliteError::Malformed("overflow chain"));
                 }
+                self.mark_visited(visited, next, "overflow chain")?;
                 let overflow = self.read_page(next)?;
                 let take = chunk.min(payload_len - payload.len());
                 payload.extend_from_slice(
@@ -564,5 +580,40 @@ mod tests {
             database.table_root_page("Packages"),
             Err(SqliteError::Malformed("b-tree cycle"))
         ));
+    }
+
+    /// In the committed fixture, the third cell of leaf page 6 (a row of the `Packages`
+    /// table) spills into overflow page 4, which links to page 5. An overflow page that
+    /// links to itself, or a second cell that reuses the same chain, reads a page twice
+    /// in one scan and must be rejected instead of being re-read until the payload fills.
+    #[test]
+    fn rejects_an_overflow_page_read_twice_in_one_scan() {
+        const PAGE: usize = 4096;
+        const LEAF_CELL_POINTERS: usize = 5 * PAGE + 8;
+        fn self_linked(database: &mut [u8]) {
+            database[3 * PAGE..3 * PAGE + 4].copy_from_slice(&4u32.to_be_bytes());
+        }
+        fn shared_chain(database: &mut [u8]) {
+            database.copy_within(
+                LEAF_CELL_POINTERS + 4..LEAF_CELL_POINTERS + 6,
+                LEAF_CELL_POINTERS + 6,
+            );
+        }
+        let fixture = include_bytes!("../../testdata/executable_ownership/rpmdb.sqlite");
+        let cases: [fn(&mut [u8]); 2] = [self_linked, shared_chain];
+        for corrupt in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("rpmdb.sqlite");
+            let mut database = fixture.to_vec();
+            corrupt(&mut database);
+            std::fs::write(&path, &database).unwrap();
+
+            let database = SqliteDatabase::open(&path).unwrap();
+            let root = database.table_root_page("Packages").unwrap().unwrap();
+            assert!(matches!(
+                database.scan_table(root, |_, _| true),
+                Err(SqliteError::Malformed("overflow chain"))
+            ));
+        }
     }
 }
