@@ -274,17 +274,18 @@ func (t *Tracer) runTCPHandshake(ctx context.Context) {
 			}
 
 			seq := t.allocateSeq()
+			probeSeq := int(seq)
 
-			hs.reserve(seq, attempt, time.Now())
+			hs.reserve(probeSeq, attempt, time.Now())
 
 			if err := t.tcpFlow.SendSYN(ttl, seq); err != nil {
 				t.lastSendErr = err
-				hs.release(seq)
+				hs.release(probeSeq)
 				t.logger.Debug().Err(err).Int("ttl", ttl).Msg("send handshake SYN failed")
 				continue
 			}
 
-			hs.confirm(seq)
+			hs.confirm(probeSeq)
 
 			if !waitForProbeInterval(ctx, t.opts.ProbeInterval) {
 				return

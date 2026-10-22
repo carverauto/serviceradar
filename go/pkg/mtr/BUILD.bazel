@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "dns.go",
         "hop.go",
+        "integer_width.go",
         "mpls.go",
         "options.go",
         "socket.go",
@@ -48,6 +49,8 @@ go_test(
     name = "mtr_test",
     srcs = [
         "hop_test.go",
+        "integer_width_linux_test.go",
+        "integer_width_test.go",
         "match_probe_test.go",
         "mpls_test.go",
         "options_test.go",
@@ -62,5 +65,10 @@ go_test(
         "tracer_test.go",
     ],
     embed = [":mtr"],
-    deps = ["//go/pkg/logger"],
+    deps = ["//go/pkg/logger"] + select({
+        "@io_bazel_rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix",
+        ],
+        "//conditions:default": [],
+    }),
 )

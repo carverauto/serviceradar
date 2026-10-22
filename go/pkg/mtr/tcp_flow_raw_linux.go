@@ -47,8 +47,8 @@ type rawTCPFlow struct {
 	resvFD  int
 	src     net.IP
 	dst     net.IP
-	srcPort int
-	dstPort int
+	srcPort uint16
+	dstPort uint16
 	isnBase uint32
 	sendBuf []byte
 	recvBuf []byte
@@ -65,7 +65,12 @@ func openRawTCPFlow(dst net.IP, dstPort int, ipv6 bool) (*rawTCPFlow, error) {
 		return nil, err
 	}
 
-	src, err := routeSourceAddr(dst, dstPort, ipv6)
+	port, err := uint16FromInt(dstPort)
+	if err != nil {
+		return nil, fmt.Errorf("TCP destination port: %w", err)
+	}
+
+	src, err := routeSourceAddr(dst, int(port), ipv6)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +109,7 @@ func openRawTCPFlow(dst net.IP, dstPort int, ipv6 bool) (*rawTCPFlow, error) {
 		src:     src,
 		dst:     append(net.IP(nil), dst...),
 		srcPort: srcPort,
-		dstPort: dstPort,
+		dstPort: port,
 		isnBase: randomISNBase(),
 		recvBuf: make([]byte, recvBufSize),
 	}, nil
@@ -145,7 +150,7 @@ func routeSourceAddr(dst net.IP, dstPort int, ipv6 bool) (net.IP, error) {
 }
 
 // reserveTCPPort binds an ephemeral TCP port on src and holds it for the flow.
-func reserveTCPPort(family int, src net.IP) (int, int, error) {
+func reserveTCPPort(family int, src net.IP) (int, uint16, error) {
 	fd, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
 		return -1, 0, fmt.Errorf("create TCP port reservation: %w", err)
@@ -176,14 +181,24 @@ func reserveTCPPort(family int, src net.IP) (int, int, error) {
 
 	switch sa := bound.(type) {
 	case *syscall.SockaddrInet4:
-		return fd, sa.Port, nil
+		return reservedPort(fd, sa.Port)
 	case *syscall.SockaddrInet6:
-		return fd, sa.Port, nil
+		return reservedPort(fd, sa.Port)
 	}
 
 	_ = syscall.Close(fd)
 
 	return -1, 0, fmt.Errorf("read TCP port reservation: %w", errUnexpectedSockAddr)
+}
+
+func reservedPort(fd, port int) (int, uint16, error) {
+	wire, err := uint16FromInt(port)
+	if err != nil {
+		_ = syscall.Close(fd)
+		return -1, 0, fmt.Errorf("read TCP port reservation: %w", err)
+	}
+
+	return fd, wire, nil
 }
 
 // tcpDstPortFilter is a classic BPF program that passes only TCP segments whose
@@ -192,7 +207,7 @@ func reserveTCPPort(family int, src net.IP) (int, int, error) {
 //
 // IPv4 raw sockets deliver the IP header, so the TCP header offset comes from
 // the IHL nibble; IPv6 raw sockets deliver the transport header directly.
-func tcpDstPortFilter(port int, ipv6 bool) []unix.SockFilter {
+func tcpDstPortFilter(port uint16, ipv6 bool) []unix.SockFilter {
 	const (
 		ldxMSHByte = unix.BPF_LDX | unix.BPF_B | unix.BPF_MSH // X = 4*([k]&0xf)
 		ldIndHalf  = unix.BPF_LD | unix.BPF_H | unix.BPF_IND  // A = [X+k]
@@ -202,7 +217,7 @@ func tcpDstPortFilter(port int, ipv6 bool) []unix.SockFilter {
 		acceptAll  = 0xFFFF
 	)
 
-	matchPort := uint32(port) //nolint:gosec // port comes from getsockname
+	matchPort := uint32(port)
 
 	if ipv6 {
 		return []unix.SockFilter{
@@ -224,8 +239,13 @@ func tcpDstPortFilter(port int, ipv6 bool) []unix.SockFilter {
 
 // attachFilter installs a classic BPF program on fd (SO_ATTACH_FILTER).
 func attachFilter(fd int, prog []unix.SockFilter) error {
+	n, err := uint16FromInt(len(prog))
+	if err != nil {
+		return fmt.Errorf("attach TCP flow filter: %w", err)
+	}
+
 	fprog := unix.SockFprog{
-		Len:    uint16(len(prog)), //nolint:gosec // a handful of instructions
+		Len:    n,
 		Filter: unsafe.SliceData(prog),
 	}
 
@@ -234,7 +254,7 @@ func attachFilter(fd int, prog []unix.SockFilter) error {
 
 func (f *rawTCPFlow) Crafted() bool { return true }
 
-func (f *rawTCPFlow) SendSYN(ttl, seq int) error {
+func (f *rawTCPFlow) SendSYN(ttl int, seq uint32) error {
 	if f.ipv6 {
 		if err := syscall.SetsockoptInt(f.fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
 			return fmt.Errorf("set TCP hop limit: %w", err)
@@ -261,8 +281,8 @@ func (f *rawTCPFlow) SendSYN(ttl, seq int) error {
 // synSegment builds the SYN for probe seq into the flow's send buffer. It takes
 // no TTL: the ports and the pseudo-header addresses are the flow's own, so only
 // the sequence number differs between probes, whatever hop they target.
-func (f *rawTCPFlow) synSegment(seq int) []byte {
-	f.sendBuf = buildTCPSyn(f.sendBuf, f.src, f.dst, f.srcPort, f.dstPort, f.isnBase+uint32(seq)) //nolint:gosec
+func (f *rawTCPFlow) synSegment(seq uint32) []byte {
+	f.sendBuf = buildTCPSyn(f.sendBuf, f.src, f.dst, f.srcPort, f.dstPort, f.isnBase+seq)
 
 	return f.sendBuf
 }
@@ -354,7 +374,7 @@ func (f *rawTCPFlow) seqFromAck(ack uint32) int {
 }
 
 func (f *rawTCPFlow) MatchQuoted(resp *ICMPResponse) (int, bool) {
-	if resp.InnerProto != ipProtoTCP || resp.InnerSrcPort != f.srcPort || resp.InnerDstPort != f.dstPort {
+	if resp.InnerProto != ipProtoTCP || resp.InnerSrcPort != int(f.srcPort) || resp.InnerDstPort != int(f.dstPort) {
 		return 0, false
 	}
 
