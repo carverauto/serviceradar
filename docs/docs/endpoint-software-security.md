@@ -262,6 +262,21 @@ writes one stable device/package/CVE assessment with:
   report an active assessment as last seen at the device's latest matcher
   evaluation; see the SRQL `last_seen_at` field for the full rule)
 
+Matching is incremental. A run every five minutes evaluates only the devices
+whose current packages changed and the devices that changed advisories can
+reach (by package URL, name, CPE vendor and product, or distro source package,
+or because the device already has a finding for the CVE). A full pass over
+every device runs daily and whenever the feed configuration or a feed's
+freshness changes. A device's latest matcher evaluation, and so the `last_seen_at`
+of its active assessments, therefore advances when its inputs change and at
+least once a day.
+
+Each assessment that becomes actionable, stops being actionable, or changes an
+actionable attribute (installed version, severity, CVSS, KEV, exploit or fixed
+version) is published as an exposure transition on the JetStream subject
+`vulnerability.assessment.transitions.<bucket>` (stream `EXPOSURE_TRANSITIONS`),
+from an outbox written in the same database transaction.
+
 Only an active, confirmed, affected assessment is actionable. The Software tab
 shows those decisions beside the inventory that produced them while retaining
 candidates and resolved history for investigation. Raw match and event rows

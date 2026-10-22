@@ -7,6 +7,7 @@ alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
+alias ServiceRadar.Inventory.ExposureTransitionRelay
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
@@ -521,6 +522,15 @@ mtr_stage_enabled = fn env_name ->
     value -> value in ~w(true 1 yes)
   end
 end
+
+# Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
+# relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, ExposureTransitionRelay,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
+      ExposureTransitionRelay.default_max_bytes()
+    )
 
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.

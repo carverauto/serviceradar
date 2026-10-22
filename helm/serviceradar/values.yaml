@@ -257,7 +257,7 @@ nats:
     # exceeds 85% of max_file_store (the rest is headroom for streams a later
     # release adds). The failure lists every stream with its size, replicas and
     # whether it lands on every server (replicas >= nats.replicas) or is spread.
-    # The small profile needs 22.42 GiB of its 28.50 GiB limit on three servers,
+    # The small profile needs 22.75 GiB of its 28.50 GiB limit on three servers,
     # with flow-collector, bmp-collector and the trivy sidecar all counted.
     # allowOvercommit: true skips that check (not the persistence.size ceiling).
     allowOvercommit: false
@@ -577,6 +577,10 @@ core:
     #
     # notifications is the NOTIFICATIONS stream core's notification publisher
     # creates (one replica), rendered as SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES.
+    #
+    # exposure_transitions is the EXPOSURE_TRANSITIONS stream core's exposure
+    # transition relay creates (one replica, 7 days), rendered as
+    # SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES.
     streams:
       metrics: {}
       k8s_inventory: {}
@@ -585,6 +589,7 @@ core:
       scan_results: {}
       trivy_reports: {}
       notifications: {}
+      exposure_transitions: {}
       flows: {}
       ARANCINI_CAUSAL: {}
   # Core's threat-intel raw payload object store (OBJ_serviceradar_threat_intel,
@@ -808,7 +813,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261021150000"
+    expectedVersion: "20261021200100"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job

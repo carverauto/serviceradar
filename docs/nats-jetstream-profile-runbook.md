@@ -211,7 +211,7 @@ serviceradar-control repository):
 `tenant-2g` is sized for three NATS servers and the replica counts
 `values-tenant.yaml` sets (KV, objects, `events`, plugins and `ARANCINI_CAUSAL`
 at R3, `flows` and the EventWriter streams at R1): the most loaded server needs
-1.40 GiB against a 1.58 GiB limit.
+1.41 GiB against a 1.58 GiB limit.
 
 The chart checks the per-server limit only. If the control plane also enforces
 `js_disk_storage` as a JetStream account limit, NATS counts a stream with more
