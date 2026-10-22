@@ -12,35 +12,31 @@ import (
 )
 
 func TestArmisSearchHandlerRequiresAQL(t *testing.T) {
+	faker := newFakeArmis(&Config{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/search/?length=1", nil)
 	rr := httptest.NewRecorder()
 
-	searchHandler(rr, req)
+	faker.searchHandler(rr, req)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Contains(t, rr.Body.String(), "missing required aql")
 }
 
 func TestArmisSearchHandlerRejectsExplicitZeroFrom(t *testing.T) {
+	faker := newFakeArmis(&Config{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/search/?aql=in%3Adevices&from=0&length=1", nil)
 	rr := httptest.NewRecorder()
 
-	searchHandler(rr, req)
+	faker.searchHandler(rr, req)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Contains(t, rr.Body.String(), "from must be positive")
 }
 
 func TestArmisSearchHandlerSupportsFirstAndNextPageContract(t *testing.T) {
-	originalTotal := totalDevices
-	originalGenerator := deviceGen
-	t.Cleanup(func() {
-		totalDevices = originalTotal
-		deviceGen = originalGenerator
-	})
-
-	totalDevices = 2
-	deviceGen = &DeviceGenerator{
+	faker := newFakeArmis(&Config{})
+	faker.totalDevices = 2
+	faker.deviceGen = &DeviceGenerator{
 		allDevices: []ArmisDevice{
 			{ID: 1, IPAddress: "10.0.0.1", Name: "device-1", LastSeen: time.Now().UTC()},
 			{ID: 2, IPAddress: "10.0.0.2", Name: "device-2", LastSeen: time.Now().UTC()},
@@ -49,7 +45,7 @@ func TestArmisSearchHandlerSupportsFirstAndNextPageContract(t *testing.T) {
 
 	first := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/search/?aql=in%3Adevices&length=1", nil)
 	firstRecorder := httptest.NewRecorder()
-	searchHandler(firstRecorder, first)
+	faker.searchHandler(firstRecorder, first)
 	require.Equal(t, http.StatusOK, firstRecorder.Code)
 
 	var firstPage SearchResponse
@@ -62,7 +58,7 @@ func TestArmisSearchHandlerSupportsFirstAndNextPageContract(t *testing.T) {
 
 	next := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/search/?aql=in%3Adevices&from=1&length=1", nil)
 	nextRecorder := httptest.NewRecorder()
-	searchHandler(nextRecorder, next)
+	faker.searchHandler(nextRecorder, next)
 	require.Equal(t, http.StatusOK, nextRecorder.Code)
 
 	var nextPage SearchResponse

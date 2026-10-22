@@ -12,17 +12,12 @@ func TestGenerateAllDevicesHasUniqueIPsAndHostnames(t *testing.T) {
 		t.Skip("skipping full device generation in short mode")
 	}
 
-	originalTotal := totalDevices
-	t.Cleanup(func() {
-		totalDevices = originalTotal
-	})
-	totalDevices = 5000
+	const total = 5000
 
 	gen := NewDeviceGenerator()
-	deviceGen = gen
-	devices := gen.generateAllDevices()
+	devices := gen.generateAllDevices(total, defaultShufflePoolHeadroom)
 
-	require.Len(t, devices, totalDevices)
+	require.Len(t, devices, total)
 
 	ipSet := make(map[string]struct{}, len(devices))
 	nameSet := make(map[string]struct{}, len(devices))
@@ -153,30 +148,23 @@ func TestGenerateMACAddressesDiffersAcrossSeeds(t *testing.T) {
 }
 
 func TestSaveLoadRoundTripPreservesMacAddresses(t *testing.T) {
-	originalTotal := totalDevices
-	originalConfig := config
-	originalGen := deviceGen
-	t.Cleanup(func() {
-		totalDevices = originalTotal
-		config = originalConfig
-		deviceGen = originalGen
-	})
+	cfg := &Config{}
+	cfg.Storage.DataDir = t.TempDir()
+	cfg.Storage.DevicesFile = "fake_armis_devices.json"
+	cfg.Storage.PersistChanges = true
 
-	totalDevices = 25
-	config = &Config{}
-	config.Storage.DataDir = t.TempDir()
-	config.Storage.DevicesFile = "fake_armis_devices.json"
-	config.Storage.PersistChanges = true
+	faker := newFakeArmis(cfg)
+	faker.totalDevices = 25
 
 	gen := NewDeviceGenerator()
-	deviceGen = gen
-	gen.allDevices = gen.generateAllDevices()
-	require.Len(t, gen.allDevices, totalDevices)
-	gen.saveToStorage()
+	faker.deviceGen = gen
+	gen.allDevices = gen.generateAllDevices(faker.totalDevices, faker.resolveIPPoolHeadroom())
+	require.Len(t, gen.allDevices, faker.totalDevices)
+	faker.saveToStorage(gen)
 
 	reloaded := NewDeviceGenerator()
-	require.True(t, reloaded.loadFromStorage(), "expected persisted devices to load")
-	require.Len(t, reloaded.allDevices, totalDevices)
+	require.True(t, faker.loadFromStorage(reloaded), "expected persisted devices to load")
+	require.Len(t, reloaded.allDevices, faker.totalDevices)
 
 	for i, original := range gen.allDevices {
 		got := reloaded.allDevices[i]

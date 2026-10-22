@@ -430,7 +430,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Simulation.TotalDevices <= 0 {
-		c.Simulation.TotalDevices = totalDevices
+		c.Simulation.TotalDevices = defaultTotalDevices
 	}
 	if c.Simulation.IPShuffle.Interval == "" {
 		return errIPShuffleIntervalRequired
@@ -507,7 +507,7 @@ func (c *Config) applyDefaults() {
 	c.Server.ReadTimeout = "10s"
 	c.Server.WriteTimeout = "30s"
 	c.Server.IdleTimeout = "30s"
-	c.Simulation.TotalDevices = totalDevices
+	c.Simulation.TotalDevices = defaultTotalDevices
 	c.Simulation.IPShuffle.Enabled = true
 	c.Simulation.IPShuffle.Interval = "60s"
 	c.Simulation.IPShuffle.Percentage = 5
@@ -558,9 +558,6 @@ const (
 	appleManufacturer = "Apple"
 )
 
-// totalDevices is mutable in tests/config to keep generation controllable.
-var totalDevices = defaultTotalDevices //nolint:gochecknoglobals
-
 // DeviceGenerator holds all the data and methods for generating fake devices
 type DeviceGenerator struct {
 	allDevices    []ArmisDevice
@@ -609,10 +606,15 @@ func NewDeviceGenerator() *DeviceGenerator {
 	}
 }
 
-//nolint:gochecknoglobals // Required for HTTP handlers
-var (
+// fakeArmis owns the faker's runtime state: the loaded config, the device
+// generator, the captured northbound updates, and the simulation churn
+// sequence. Handlers and background simulations are methods on it so no
+// package-level mutable state remains; tests construct their own instance.
+type fakeArmis struct {
 	deviceGen *DeviceGenerator
 	config    *Config
+	// totalDevices is mutable in tests/config to keep generation controllable.
+	totalDevices int
 
 	northboundUpdatesMu      sync.Mutex
 	northboundUpdates        []northboundUpdateRecord
@@ -620,33 +622,44 @@ var (
 
 	simulationChurnMu       sync.Mutex
 	simulationChurnSequence int64
-)
+}
 
-// Initialize sets up the device generator and loads or generates device data
-func Initialize() {
-	deviceGen = NewDeviceGenerator()
+func newFakeArmis(cfg *Config) *fakeArmis {
+	f := &fakeArmis{
+		config:       cfg,
+		totalDevices: defaultTotalDevices,
+	}
+	if cfg != nil && cfg.Simulation.TotalDevices > 0 {
+		f.totalDevices = cfg.Simulation.TotalDevices
+	}
+	return f
+}
+
+// initialize sets up the device generator and loads or generates device data
+func (f *fakeArmis) initialize() {
+	f.deviceGen = NewDeviceGenerator()
 
 	// First, try to load existing device data from storage
-	if deviceGen.loadFromStorage() {
+	if f.loadFromStorage(f.deviceGen) {
 		return
 	}
 
 	// No existing data found, generate new random device data
-	log.Printf("Generating %d fake Armis devices with random data...", totalDevices)
+	log.Printf("Generating %d fake Armis devices with random data...", f.totalDevices)
 
-	deviceGen.allDevices = deviceGen.generateAllDevices()
-	log.Printf("Generated %d devices successfully", len(deviceGen.allDevices))
+	f.deviceGen.allDevices = f.deviceGen.generateAllDevices(f.totalDevices, f.resolveIPPoolHeadroom())
+	log.Printf("Generated %d devices successfully", len(f.deviceGen.allDevices))
 
 	// Save the generated data to persistent storage for future use
-	deviceGen.saveToStorage()
+	f.saveToStorage(f.deviceGen)
 }
 
 // shuffleIPs runs as a background goroutine to simulate devices changing their IP addresses.
-func shuffleIPs() {
+func (f *fakeArmis) shuffleIPs() {
 	log.Println("Starting IP address shuffle simulation...")
 
 	// Parse interval from config
-	interval, err := time.ParseDuration(config.Simulation.IPShuffle.Interval)
+	interval, err := time.ParseDuration(f.config.Simulation.IPShuffle.Interval)
 	if err != nil {
 		interval = 60 * time.Second
 		log.Printf("Invalid shuffle interval in config, using default: %v", interval)
@@ -656,7 +669,7 @@ func shuffleIPs() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	warmupCycles := config.Simulation.IPShuffle.WarmupCycles
+	warmupCycles := f.config.Simulation.IPShuffle.WarmupCycles
 	if warmupCycles < 0 {
 		warmupCycles = 0
 	}
@@ -665,46 +678,46 @@ func shuffleIPs() {
 	for range ticker.C {
 		cycleCount++
 		if cycleCount <= warmupCycles {
-			if config.Simulation.IPShuffle.LogChanges {
+			if f.config.Simulation.IPShuffle.LogChanges {
 				log.Printf("--> SIMULATING IP CHANGE: warmup cycle %d/%d, skipping shuffle", cycleCount, warmupCycles)
 			}
 			continue
 		}
 
 		// Acquire a full write lock to modify the device list
-		deviceGen.mu.Lock()
+		f.deviceGen.mu.Lock()
 
 		// Select a random percentage of devices to update based on config
-		percentage := float64(config.Simulation.IPShuffle.Percentage) / 100.0
-		numToShuffle := int(float64(len(deviceGen.allDevices)) * percentage)
+		percentage := float64(f.config.Simulation.IPShuffle.Percentage) / 100.0
+		numToShuffle := int(float64(len(f.deviceGen.allDevices)) * percentage)
 
-		if config.Simulation.IPShuffle.LogChanges {
+		if f.config.Simulation.IPShuffle.LogChanges {
 			log.Printf("--> SIMULATING IP CHANGE: Shuffling IPs for %d devices (%.1f%%)...",
 				numToShuffle, percentage*100)
 		}
 
 		var changed int
-		if config.Simulation.IPShuffle.AllowExpansion {
+		if f.config.Simulation.IPShuffle.AllowExpansion {
 			log.Printf("IP expansion requested but disabled to preserve fixed device cardinality")
-			config.Simulation.IPShuffle.AllowExpansion = false
-			config.Simulation.IPShuffle.PoolHeadroomPercent = 0
+			f.config.Simulation.IPShuffle.AllowExpansion = false
+			f.config.Simulation.IPShuffle.PoolHeadroomPercent = 0
 		}
 		changed = swapDevicePrimaryIPsWithRNG(
-			deviceGen,
+			f.deviceGen,
 			numToShuffle,
-			config.Simulation.IPShuffle.LogChanges,
-			newSimulationChurnRNG(),
+			f.config.Simulation.IPShuffle.LogChanges,
+			f.newSimulationChurnRNG(),
 		)
-		if config.Simulation.IPShuffle.LogChanges {
+		if f.config.Simulation.IPShuffle.LogChanges {
 			log.Printf("    Completed IP changes for %d devices", changed)
 		}
 
 		// Release the lock
-		deviceGen.mu.Unlock()
+		f.deviceGen.mu.Unlock()
 
 		// Persist the changes if configured
-		if config.Storage.PersistChanges {
-			deviceGen.saveToStorage()
+		if f.config.Storage.PersistChanges {
+			f.saveToStorage(f.deviceGen)
 		}
 	}
 }
@@ -757,17 +770,17 @@ func swapDevicePrimaryIPsWithRNG(gen *DeviceGenerator, swaps int, logChanges boo
 	return swapped
 }
 
-func newSimulationChurnRNG() *rand.Rand {
-	simulationChurnMu.Lock()
-	defer simulationChurnMu.Unlock()
+func (f *fakeArmis) newSimulationChurnRNG() *rand.Rand {
+	f.simulationChurnMu.Lock()
+	defer f.simulationChurnMu.Unlock()
 
-	simulationChurnSequence++
+	f.simulationChurnSequence++
 	seed := int64(4707)
-	if config != nil && config.Simulation.IPShuffle.Seed != 0 {
-		seed = config.Simulation.IPShuffle.Seed
+	if f.config != nil && f.config.Simulation.IPShuffle.Seed != 0 {
+		seed = f.config.Simulation.IPShuffle.Seed
 	}
 
-	return newDeterministicRNG(seed + simulationChurnSequence)
+	return newDeterministicRNG(seed + f.simulationChurnSequence)
 }
 
 // reassignIPsFromPool assigns new IPs from a bounded pool and recycles old ones,
@@ -861,12 +874,12 @@ func buildFreeIPPool(currentCount, headroomPercent int, used map[string]struct{}
 	return free
 }
 
-func resolveIPPoolHeadroom() int {
-	if config != nil && !config.Simulation.IPShuffle.AllowExpansion {
+func (f *fakeArmis) resolveIPPoolHeadroom() int {
+	if f.config != nil && !f.config.Simulation.IPShuffle.AllowExpansion {
 		return 0
 	}
-	if config != nil && config.Simulation.IPShuffle.AllowExpansion && config.Simulation.IPShuffle.PoolHeadroomPercent > 0 {
-		return config.Simulation.IPShuffle.PoolHeadroomPercent
+	if f.config != nil && f.config.Simulation.IPShuffle.AllowExpansion && f.config.Simulation.IPShuffle.PoolHeadroomPercent > 0 {
+		return f.config.Simulation.IPShuffle.PoolHeadroomPercent
 	}
 	return defaultShufflePoolHeadroom
 }
@@ -907,56 +920,58 @@ func main() {
 func run(configPath string) error {
 	ctx := context.Background()
 
-	config = &Config{}
-	bootstrapResult := loadFakerConfig(ctx, configPath, config)
+	cfg := &Config{}
+	bootstrapResult := loadFakerConfig(ctx, configPath, cfg)
 	if bootstrapResult != nil {
 		defer func() { _ = bootstrapResult.Close() }()
 	}
 
-	log.Printf("ServiceRadar Faker %s starting...", config.Service.Version)
+	faker := newFakeArmis(cfg)
+
+	log.Printf("ServiceRadar Faker %s starting...", cfg.Service.Version)
 
 	// Initialize the device generator
-	Initialize()
+	faker.initialize()
 
 	// Start the background process to simulate IP changes if enabled
-	if config.Simulation.IPShuffle.Enabled {
-		go shuffleIPs()
+	if cfg.Simulation.IPShuffle.Enabled {
+		go faker.shuffleIPs()
 	}
-	if config.Simulation.BGP.Enabled {
-		go runBGPSimulator(config.Simulation.BGP)
+	if cfg.Simulation.BGP.Enabled {
+		go runBGPSimulator(cfg.Simulation.BGP, cfg.Storage.DataDir)
 	}
 
 	mux := http.NewServeMux()
 	// Armis API endpoints
-	mux.HandleFunc("/api/v1/access_token/", tokenHandler)
-	mux.HandleFunc("/api/v1/search/", searchHandler)
-	mux.HandleFunc("/api/v1/devices/custom-properties/_bulk/", bulkCustomPropertiesHandler)
-	mux.HandleFunc("/debug/armis/ready", armisReadyHandler)
-	mux.HandleFunc("/debug/armis/simulation/churn", armisChurnHandler)
-	mux.HandleFunc("/debug/armis/northbound/updates", northboundUpdatesHandler)
+	mux.HandleFunc("/api/v1/access_token/", faker.tokenHandler)
+	mux.HandleFunc("/api/v1/search/", faker.searchHandler)
+	mux.HandleFunc("/api/v1/devices/custom-properties/_bulk/", faker.bulkCustomPropertiesHandler)
+	mux.HandleFunc("/debug/armis/ready", faker.armisReadyHandler)
+	mux.HandleFunc("/debug/armis/simulation/churn", faker.armisChurnHandler)
+	mux.HandleFunc("/debug/armis/northbound/updates", faker.northboundUpdatesHandler)
 	// Legacy endpoint if needed
-	mux.HandleFunc("/v1/devices", devicesHandler)
+	mux.HandleFunc("/v1/devices", faker.devicesHandler)
 
 	// Parse durations
-	readTimeout, _ := time.ParseDuration(config.Server.ReadTimeout)
-	writeTimeout, _ := time.ParseDuration(config.Server.WriteTimeout)
-	idleTimeout, _ := time.ParseDuration(config.Server.IdleTimeout)
+	readTimeout, _ := time.ParseDuration(cfg.Server.ReadTimeout)
+	writeTimeout, _ := time.ParseDuration(cfg.Server.WriteTimeout)
+	idleTimeout, _ := time.ParseDuration(cfg.Server.IdleTimeout)
 
 	server := &http.Server{
-		Addr:         config.Server.ListenAddress,
+		Addr:         cfg.Server.ListenAddress,
 		Handler:      mux,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  idleTimeout,
 	}
 
-	log.Printf("Fake Armis API starting on %s", config.Server.ListenAddress)
-	log.Printf("Total devices available: %d", config.Simulation.TotalDevices)
+	log.Printf("Fake Armis API starting on %s", cfg.Server.ListenAddress)
+	log.Printf("Total devices available: %d", cfg.Simulation.TotalDevices)
 
-	if config.Simulation.IPShuffle.Enabled {
+	if cfg.Simulation.IPShuffle.Enabled {
 		log.Printf("IP shuffle enabled: %d%% of devices every %s",
-			config.Simulation.IPShuffle.Percentage,
-			config.Simulation.IPShuffle.Interval)
+			cfg.Simulation.IPShuffle.Percentage,
+			cfg.Simulation.IPShuffle.Interval)
 	}
 
 	if err := server.ListenAndServe(); err != nil {
@@ -970,17 +985,17 @@ func run(configPath string) error {
 	return nil
 }
 
-func armisReadyHandler(w http.ResponseWriter, r *http.Request) {
+func (f *fakeArmis) armisReadyHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	deviceCount := 0
-	if deviceGen != nil {
-		deviceGen.mu.RLock()
-		deviceCount = len(deviceGen.allDevices)
-		deviceGen.mu.RUnlock()
+	if f.deviceGen != nil {
+		f.deviceGen.mu.RLock()
+		deviceCount = len(f.deviceGen.allDevices)
+		f.deviceGen.mu.RUnlock()
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -991,7 +1006,7 @@ func armisReadyHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func armisChurnHandler(w http.ResponseWriter, r *http.Request) {
+func (f *fakeArmis) armisChurnHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1009,22 +1024,22 @@ func armisChurnHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if deviceGen == nil {
+	if f.deviceGen == nil {
 		http.Error(w, "device generator is not ready", http.StatusServiceUnavailable)
 		return
 	}
 
-	deviceGen.mu.Lock()
-	changed := swapDevicePrimaryIPsWithRNG(deviceGen, request.Swaps, false, newSimulationChurnRNG())
-	deviceGen.mu.Unlock()
+	f.deviceGen.mu.Lock()
+	changed := swapDevicePrimaryIPsWithRNG(f.deviceGen, request.Swaps, false, f.newSimulationChurnRNG())
+	f.deviceGen.mu.Unlock()
 
-	if config != nil && config.Storage.PersistChanges {
-		deviceGen.saveToStorage()
+	if f.config != nil && f.config.Storage.PersistChanges {
+		f.saveToStorage(f.deviceGen)
 	}
 
-	deviceGen.mu.RLock()
-	deviceCount := len(deviceGen.allDevices)
-	deviceGen.mu.RUnlock()
+	f.deviceGen.mu.RLock()
+	deviceCount := len(f.deviceGen.allDevices)
+	f.deviceGen.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -1091,9 +1106,6 @@ func loadFakerConfig(ctx context.Context, path string, cfg *Config) *cfgbootstra
 	if err != nil {
 		log.Fatalf("Failed to load faker config: %v", err)
 	}
-	if cfg.Simulation.TotalDevices > 0 {
-		totalDevices = cfg.Simulation.TotalDevices
-	}
 	return result
 }
 
@@ -1112,7 +1124,7 @@ func materializeEmbeddedConfig(targetPath string) (string, error) {
 }
 
 // tokenHandler handles POST requests for /api/v1/access_token/
-func tokenHandler(w http.ResponseWriter, r *http.Request) {
+func (f *fakeArmis) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1139,7 +1151,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // bulkCustomPropertiesHandler handles POST requests for /api/v1/devices/custom-properties/_bulk/
-func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
+func (f *fakeArmis) bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1161,14 +1173,14 @@ func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 	response := bulkCustomPropertyResponse{Success: true}
 	response.Data.Results = make([]bulkCustomPropertyResult, 0, len(operations))
 
-	deviceGen.mu.Lock()
+	f.deviceGen.mu.Lock()
 	for _, op := range operations {
 		deviceID, props, payloadShape, ok := normalizeBulkCustomPropertyOperation(op)
 		if !ok {
 			continue
 		}
 
-		updated := applyCustomPropertiesToDevice(deviceID, props)
+		updated := f.applyCustomPropertiesToDevice(deviceID, props)
 		if updated {
 			response.Data.Updated++
 		}
@@ -1177,12 +1189,12 @@ func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 			DeviceID: deviceID,
 			Updated:  updated,
 		})
-		recordNorthboundUpdate(deviceID, props, updated, payloadShape, time.Now().UTC())
+		f.recordNorthboundUpdate(deviceID, props, updated, payloadShape, time.Now().UTC())
 	}
-	deviceGen.mu.Unlock()
+	f.deviceGen.mu.Unlock()
 
-	if config != nil && config.Storage.PersistChanges && response.Data.Updated > 0 {
-		deviceGen.saveToStorage()
+	if f.config != nil && f.config.Storage.PersistChanges && response.Data.Updated > 0 {
+		f.saveToStorage(f.deviceGen)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1209,9 +1221,9 @@ func normalizeBulkCustomPropertyOperation(op bulkCustomPropertyOperation) (strin
 	return strings.TrimSpace(op.ID), op.CustomProperties, "customProperties", true
 }
 
-func applyCustomPropertiesToDevice(deviceID string, props map[string]interface{}) bool {
-	for i := range deviceGen.allDevices {
-		device := &deviceGen.allDevices[i]
+func (f *fakeArmis) applyCustomPropertiesToDevice(deviceID string, props map[string]interface{}) bool {
+	for i := range f.deviceGen.allDevices {
+		device := &f.deviceGen.allDevices[i]
 		if strconv.Itoa(device.ID) != deviceID {
 			continue
 		}
@@ -1240,18 +1252,18 @@ func applyCustomPropertiesToDevice(deviceID string, props map[string]interface{}
 	return false
 }
 
-func recordNorthboundUpdate(deviceID string, props map[string]interface{}, updated bool, payloadShape string, timestamp time.Time) {
+func (f *fakeArmis) recordNorthboundUpdate(deviceID string, props map[string]interface{}, updated bool, payloadShape string, timestamp time.Time) {
 	propsCopy := make(map[string]interface{}, len(props))
 	for key, value := range props {
 		propsCopy[key] = value
 	}
 
-	northboundUpdatesMu.Lock()
-	defer northboundUpdatesMu.Unlock()
+	f.northboundUpdatesMu.Lock()
+	defer f.northboundUpdatesMu.Unlock()
 
-	northboundUpdateSequence++
-	northboundUpdates = append(northboundUpdates, northboundUpdateRecord{
-		Sequence:     northboundUpdateSequence,
+	f.northboundUpdateSequence++
+	f.northboundUpdates = append(f.northboundUpdates, northboundUpdateRecord{
+		Sequence:     f.northboundUpdateSequence,
 		TimestampUTC: timestamp,
 		DeviceID:     deviceID,
 		Properties:   propsCopy,
@@ -1260,24 +1272,24 @@ func recordNorthboundUpdate(deviceID string, props map[string]interface{}, updat
 	})
 }
 
-func resetNorthboundUpdates() {
-	northboundUpdatesMu.Lock()
-	defer northboundUpdatesMu.Unlock()
+func (f *fakeArmis) resetNorthboundUpdates() {
+	f.northboundUpdatesMu.Lock()
+	defer f.northboundUpdatesMu.Unlock()
 
-	northboundUpdates = nil
-	northboundUpdateSequence = 0
+	f.northboundUpdates = nil
+	f.northboundUpdateSequence = 0
 }
 
-func northboundUpdatesSnapshot() northboundUpdatesResponse {
-	northboundUpdatesMu.Lock()
-	defer northboundUpdatesMu.Unlock()
+func (f *fakeArmis) northboundUpdatesSnapshot() northboundUpdatesResponse {
+	f.northboundUpdatesMu.Lock()
+	defer f.northboundUpdatesMu.Unlock()
 
 	response := northboundUpdatesResponse{Success: true}
 	response.Data.Fields = make(map[string]int)
-	response.Data.Results = make([]northboundUpdateRecord, len(northboundUpdates))
-	copy(response.Data.Results, northboundUpdates)
+	response.Data.Results = make([]northboundUpdateRecord, len(f.northboundUpdates))
+	copy(response.Data.Results, f.northboundUpdates)
 
-	response.Data.Total = len(northboundUpdates)
+	response.Data.Total = len(f.northboundUpdates)
 	for i := range response.Data.Results {
 		record := &response.Data.Results[i]
 		propsCopy := make(map[string]interface{}, len(record.Properties))
@@ -1298,17 +1310,17 @@ func northboundUpdatesSnapshot() northboundUpdatesResponse {
 	return response
 }
 
-func northboundUpdatesHandler(w http.ResponseWriter, r *http.Request) {
+func (f *fakeArmis) northboundUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(northboundUpdatesSnapshot()); err != nil {
+		if err := json.NewEncoder(w).Encode(f.northboundUpdatesSnapshot()); err != nil {
 			log.Printf("Error encoding northbound updates response: %v", err)
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 
 	case http.MethodDelete:
-		resetNorthboundUpdates()
+		f.resetNorthboundUpdates()
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
@@ -1326,7 +1338,7 @@ func northboundUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // searchHandler handles GET requests for /api/v1/search/
-func searchHandler(w http.ResponseWriter, r *http.Request) {
+func (f *fakeArmis) searchHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1358,28 +1370,28 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Search request - AQL: %s, from: %d, length: %d", aql, from, length)
 
 	// Acquire a read lock before accessing the shared device list
-	deviceGen.mu.RLock()
-	defer deviceGen.mu.RUnlock() // Defer the unlock to ensure it's always released
+	f.deviceGen.mu.RLock()
+	defer f.deviceGen.mu.RUnlock() // Defer the unlock to ensure it's always released
 
 	// Calculate pagination
 	end := from + length
-	if end > totalDevices {
-		end = totalDevices
+	if end > f.totalDevices {
+		end = f.totalDevices
 	}
 
 	// Get the slice of devices
 	var results []ArmisDevice
 
-	if from < totalDevices {
+	if from < f.totalDevices {
 		// Create a copy of the data slice to release the lock faster
-		paginatedDevices := deviceGen.allDevices[from:end]
+		paginatedDevices := f.deviceGen.allDevices[from:end]
 		results = make([]ArmisDevice, len(paginatedDevices))
 		copy(results, paginatedDevices)
 	}
 
 	// Determine next page
 	var next int
-	if end < totalDevices {
+	if end < f.totalDevices {
 		next = end
 	}
 
@@ -1396,7 +1408,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 			Next:    next,
 			Prev:    nil,
 			Results: results,
-			Total:   totalDevices,
+			Total:   f.totalDevices,
 		},
 		Success: true,
 	}
@@ -1410,12 +1422,12 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Legacy handler for backward compatibility
-func devicesHandler(w http.ResponseWriter, r *http.Request) {
-	searchHandler(w, r)
+func (f *fakeArmis) devicesHandler(w http.ResponseWriter, r *http.Request) {
+	f.searchHandler(w, r)
 }
 
 // generateAllDevices generates all fake devices at startup
-func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
+func (dg *DeviceGenerator) generateAllDevices(totalDevices, poolHeadroomPercent int) []ArmisDevice {
 	devices := make([]ArmisDevice, totalDevices)
 	dg.primaryIPs = make([]string, totalDevices)
 	dg.usedIPs = make(map[string]struct{}, totalDevices)
@@ -1444,7 +1456,7 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 			Category:        generateCategory(deviceType),
 			Manufacturer:    manufacturer,
 			Model:           generateModel(manufacturer, deviceType, i),
-			OperatingSystem: generateOS(deviceType, manufacturer, i),
+			OperatingSystem: dg.generateOS(deviceType, manufacturer, i),
 			FirstSeen:       now.Add(-time.Duration(randInt(daysInMonth, daysInThreeYears)) * 24 * time.Hour),
 			LastSeen:        now.Add(-time.Duration(randInt(0, daysInMonth)) * 24 * time.Hour),
 			RiskLevel:       generateRiskLevel(deviceType),
@@ -1458,7 +1470,7 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 		}
 	}
 
-	dg.freeIPs = buildFreeIPPool(len(devices), resolveIPPoolHeadroom(), dg.usedIPs)
+	dg.freeIPs = buildFreeIPPool(len(devices), poolHeadroomPercent, dg.usedIPs)
 
 	return devices
 }
@@ -1643,7 +1655,7 @@ func generateUniqueHostname(index int, deviceType, manufacturer string) string {
 	return fmt.Sprintf("FAKER-%s-%s-%05d", manPrefix, typePrefix, index+1)
 }
 
-func (dg *DeviceGenerator) rebuildIPState() {
+func (dg *DeviceGenerator) rebuildIPState(poolHeadroomPercent int) {
 	dg.usedIPs = make(map[string]struct{}, len(dg.allDevices))
 	for i := range dg.allDevices {
 		ip := primaryIP(dg.allDevices[i].IPAddress)
@@ -1652,7 +1664,7 @@ func (dg *DeviceGenerator) rebuildIPState() {
 		}
 		dg.usedIPs[ip] = struct{}{}
 	}
-	dg.freeIPs = buildFreeIPPool(len(dg.allDevices), resolveIPPoolHeadroom(), dg.usedIPs)
+	dg.freeIPs = buildFreeIPPool(len(dg.allDevices), poolHeadroomPercent, dg.usedIPs)
 }
 
 // generateCategory determines device category based on type
@@ -1766,7 +1778,7 @@ func generateModel(manufacturer, deviceType string, index int) string {
 }
 
 // generateOS matches OS to device type and manufacturer
-func generateOS(deviceType, manufacturer string, index int) string {
+func (dg *DeviceGenerator) generateOS(deviceType, manufacturer string, index int) string {
 	if isServerDevice(deviceType) {
 		return getServerOS(index)
 	}
@@ -1787,7 +1799,7 @@ func generateOS(deviceType, manufacturer string, index int) string {
 		return "Embedded Linux"
 	}
 
-	return deviceGen.osTypes[index%len(deviceGen.osTypes)]
+	return dg.osTypes[index%len(dg.osTypes)]
 }
 
 // Helper functions for OS generation
@@ -1953,8 +1965,8 @@ func rehydrateMacAddresses(devices []ArmisDevice) {
 }
 
 // loadFromStorage attempts to load device data from persistent storage
-func (dg *DeviceGenerator) loadFromStorage() bool {
-	storageFile := getStorageFilePath()
+func (f *fakeArmis) loadFromStorage(dg *DeviceGenerator) bool {
+	storageFile := f.getStorageFilePath()
 
 	data, err := os.ReadFile(storageFile)
 	if err != nil {
@@ -1973,8 +1985,8 @@ func (dg *DeviceGenerator) loadFromStorage() bool {
 		return false
 	}
 
-	if len(storedDevices) != totalDevices {
-		log.Printf("Stored device count (%d) doesn't match expected (%d), will generate new data", len(storedDevices), totalDevices)
+	if len(storedDevices) != f.totalDevices {
+		log.Printf("Stored device count (%d) doesn't match expected (%d), will generate new data", len(storedDevices), f.totalDevices)
 		return false
 	}
 
@@ -1984,15 +1996,15 @@ func (dg *DeviceGenerator) loadFromStorage() bool {
 	rehydrateMacAddresses(storedDevices)
 
 	dg.allDevices = storedDevices
-	dg.rebuildIPState()
+	dg.rebuildIPState(f.resolveIPPoolHeadroom())
 	log.Printf("Successfully loaded %d devices from persistent storage", len(dg.allDevices))
 
 	return true
 }
 
 // saveToStorage saves device data to persistent storage
-func (dg *DeviceGenerator) saveToStorage() {
-	storageFile := getStorageFilePath()
+func (f *fakeArmis) saveToStorage(dg *DeviceGenerator) {
+	storageFile := f.getStorageFilePath()
 
 	// Create a copy of the devices while holding the read lock
 	dg.mu.RLock()
@@ -2024,14 +2036,14 @@ func (dg *DeviceGenerator) saveToStorage() {
 }
 
 // getStorageFilePath returns the path where device data should be stored
-func getStorageFilePath() string {
-	if config != nil && config.Storage.DataDir != "" {
+func (f *fakeArmis) getStorageFilePath() string {
+	if f.config != nil && f.config.Storage.DataDir != "" {
 		// Ensure directory exists
-		if err := os.MkdirAll(config.Storage.DataDir, dataDirPerms); err != nil {
-			log.Printf("Warning: Failed to create data directory %s: %v", config.Storage.DataDir, err)
+		if err := os.MkdirAll(f.config.Storage.DataDir, dataDirPerms); err != nil {
+			log.Printf("Warning: Failed to create data directory %s: %v", f.config.Storage.DataDir, err)
 		}
 
-		return fmt.Sprintf("%s/%s", config.Storage.DataDir, config.Storage.DevicesFile)
+		return fmt.Sprintf("%s/%s", f.config.Storage.DataDir, f.config.Storage.DevicesFile)
 	}
 
 	// Check if we're running in Docker with a volume mount
