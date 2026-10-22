@@ -78,7 +78,16 @@ defmodule ServiceRadar.Observability.PluginResultIngestorReplayTest do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [InterruptingHandler])
     {payload, status, observed_at} = plugin_result_fixture()
 
-    for _delivery <- 1..3, do: interrupted_delivery!(payload, status)
+    for _delivery <- 1..2, do: interrupted_delivery!(payload, status)
+
+    # A deploy that changes the handler set between deliveries continues the
+    # count rather than restarting it.
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [
+      InterruptingHandler,
+      SuccessfulHandler
+    ])
+
+    interrupted_delivery!(payload, status)
 
     assert {:error, {:plugin_result_handlers_failed, [{PluginResultIngestor, quarantine_error}]}} =
              PluginResultIngestor.ingest(payload, status)
@@ -239,16 +248,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestorReplayTest do
 
   # One delivery whose process dies mid-handler, as a worker the admission lane
   # kills at its budget does: the reported row commits, no outcome is recorded.
+  # The serial sandbox owner is shared, so the delivering process needs no
+  # allowance; handlers run outside any transaction, so the kill leaves none open.
   defp interrupted_delivery!(payload, status) do
-    {pid, ref} =
-      spawn_monitor(fn ->
-        receive do
-          :deliver -> PluginResultIngestor.ingest(payload, status)
-        end
-      end)
-
-    ServiceRadar.DataCase.allow_sandbox(pid)
-    send(pid, :deliver)
+    {pid, ref} = spawn_monitor(fn -> PluginResultIngestor.ingest(payload, status) end)
     assert_receive {:interrupting_handler_ingest, ^pid}, 5_000
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 5_000
   end

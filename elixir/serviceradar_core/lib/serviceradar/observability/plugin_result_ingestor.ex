@@ -184,13 +184,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   # A delivery whose reported row is already committed is a redelivery. The
   # agent retries every result the gateway did not confirm: one whose first run
   # committed after the admission lane's budget expired, and one whose worker the
-  # lane killed mid-handler. The downstream markers of the current handler set
-  # decide what the redelivery does:
+  # lane killed mid-handler. The latest downstream marker of the observation
+  # decides what the redelivery does:
   #
-  #   * a recorded success means the result is committed, so it is acknowledged
-  #     without running the handlers again;
-  #   * a recorded handler failure is a completed outcome, so the handlers rerun,
-  #     which is the designed recovery path;
+  #   * a success recorded by the current handler set means the result is
+  #     committed, so it is acknowledged without running the handlers again;
+  #   * a handler failure, or another handler set's success, is a completed
+  #     outcome, so the handlers rerun, which is the designed recovery path;
   #   * no outcome means the previous delivery was interrupted. That is recorded
   #     as a visible failure marker and the handlers rerun, until
   #     `@max_interrupted_deliveries` deliveries were interrupted. Then the result
@@ -240,7 +240,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
     with {:ok, rows} <- handler_marker_rows(status_row, actor),
          {:ok, state} <- handler_marker_state(status_row, actor) do
-      observation_markers =
+      # Markers of every handler set count: an interruption describes the
+      # delivery, not the handlers, so a handler-set change between deliveries
+      # continues the count instead of restarting it.
+      markers =
         (rows ++ List.wrap(state))
         |> Enum.map(&parse_handler_marker/1)
         |> Enum.reject(&is_nil/1)
@@ -250,40 +253,36 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             valid_marker_timestamp?(marker, status_row.timestamp)
         end)
 
-      case Enum.filter(observation_markers, &(&1.handler_set == provenance)) do
-        # Another handler set recorded the outcome; the current set reruns, as a
-        # handler-set change always has.
-        [] when observation_markers != [] ->
-          {:ok, :rerun}
+      latest = Enum.max_by(markers, &DateTime.to_unix(&1.timestamp, :microsecond), fn -> nil end)
 
-        markers ->
-          latest =
-            Enum.max_by(markers, &DateTime.to_unix(&1.timestamp, :microsecond), fn -> nil end)
+      # The state row mirrors one history marker, so only history is counted.
+      # This redelivery proves that the delivery before it was interrupted too.
+      interrupted =
+        Enum.count(markers, &(&1.source == :history and interrupted_marker?(&1))) + 1
 
-          # The state row mirrors one history marker, so only history is counted.
-          # This redelivery proves that the delivery before it was interrupted too.
-          interrupted =
-            Enum.count(markers, &(&1.source == :history and interrupted_marker?(&1))) + 1
-
-          {:ok, classify_redelivery(latest, interrupted)}
-      end
+      {:ok, classify_redelivery(latest, provenance, interrupted)}
     end
   end
 
-  defp classify_redelivery(%{status: "succeeded"}, _interrupted), do: :committed
+  defp classify_redelivery(%{status: "succeeded", handler_set: provenance}, provenance, _),
+    do: :committed
 
   defp classify_redelivery(
          %{delivery: %{"disposition" => "quarantined", "interrupted_deliveries" => deliveries}},
+         _provenance,
          _interrupted
        ),
        do: {:quarantined, deliveries}
 
-  defp classify_redelivery(%{status: "failed", delivery: nil}, _interrupted), do: :rerun
+  # A completed outcome: a handler failure, or another handler set's success,
+  # which the current set reruns as a handler-set change always has.
+  defp classify_redelivery(%{delivery: nil}, _provenance, _interrupted), do: :rerun
 
-  defp classify_redelivery(_latest, interrupted) when interrupted >= @max_interrupted_deliveries,
-    do: {:quarantine, interrupted}
+  defp classify_redelivery(_latest, _provenance, interrupted)
+       when interrupted >= @max_interrupted_deliveries,
+       do: {:quarantine, interrupted}
 
-  defp classify_redelivery(_latest, interrupted), do: {:interrupted, interrupted}
+  defp classify_redelivery(_latest, _provenance, interrupted), do: {:interrupted, interrupted}
 
   defp interrupted_marker?(%{delivery: %{"disposition" => "interrupted"}}), do: true
   defp interrupted_marker?(_marker), do: false
