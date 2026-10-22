@@ -216,6 +216,41 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert is_nil(ambiguous.source_context)
   end
 
+  test "versions of one provider object count as one object for indicator context",
+       %{actor: actor} do
+    source = unique_source("object-versions")
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    {ip, cidr} = unique_host()
+
+    insert_indicator!(actor, %{
+      indicator: cidr,
+      source: source,
+      label: "Synthetic #{cidr}",
+      severity: 50,
+      expires_at: DateTime.shift(now, hour: 1),
+      first_seen_at: now,
+      last_seen_at: now
+    })
+
+    insert_source_object!(actor, source, "pulse-versioned", ip, %{
+      object_version: "v1",
+      modified_at: DateTime.shift(now, day: -1),
+      label: "Older pulse title"
+    })
+
+    insert_source_object!(actor, source, "pulse-versioned", ip, %{
+      object_version: "v2",
+      modified_at: now,
+      label: "Current pulse title"
+    })
+
+    assert {:ok, rows} = ThreatIntelInvestigation.indicators_for_ip(%{actor: actor}, ip)
+    assert [row] = Enum.filter(rows, &(&1.source == source))
+
+    assert %{source_object_id: "pulse-versioned", source_label: "Current pulse title"} =
+             row.source_context
+  end
+
   test "a network indicator keeps its own provider object beside a pulse for its base address",
        %{actor: actor} do
     source = unique_source("network-context")
@@ -324,16 +359,24 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert object_ids.("198.51.100.0/32") == ["pulse-base-host"]
   end
 
-  defp insert_source_object!(actor, source, object_id, indicator) do
+  defp insert_source_object!(actor, source, object_id, indicator, attrs \\ %{}) do
+    {label, attrs} = Map.pop(attrs, :label, "Synthetic pulse #{object_id}")
+
     ThreatIntelSourceObject
-    |> Ash.Changeset.for_create(:upsert, %{
-      provider: "alienvault_otx",
-      source: source,
-      collection_id: "synthetic",
-      object_id: object_id,
-      object_type: "otx-pulse",
-      metadata: %{"label" => "Synthetic pulse #{object_id}", "indicator" => indicator}
-    })
+    |> Ash.Changeset.for_create(
+      :upsert,
+      Map.merge(
+        %{
+          provider: "alienvault_otx",
+          source: source,
+          collection_id: "synthetic",
+          object_id: object_id,
+          object_type: "otx-pulse",
+          metadata: %{"label" => label, "indicator" => indicator}
+        },
+        attrs
+      )
+    )
     |> Ash.create!(actor: actor)
   end
 
