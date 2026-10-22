@@ -444,8 +444,8 @@ endpoints. SRQL resolves the matched set exactly as the flow threat filters do: 
 ### Decision 9: Listening processes resolve to packages
 
 "Vulnerable listening process" requires a `(device, process) -> package identity` link.
-#5752 resolves an executable to its owning package once per executable inode in its process
-root, and attaches the inventory package reference to the current owner fields
+#5752 resolves an executable to its owning package once per cache entry (Decision 18), and
+attaches the inventory package reference to the current owner fields
 (`FlowAttributionEvent` and `ProcessSnapshotEntry`). #5738 carries the same message onto:
 
 - ownership lease owner records, so flows attributed through the index carry it;
@@ -759,8 +759,8 @@ holds it. Netprobe uses it only for ptrace-read access to procfs.
 **Resolution.** For a process, netprobe stats `/proc/<pid>/exe` for the executable's
 `(dev, inode)`, which works for a deleted or replaced binary. It reads the package
 databases inside the process's own root (`/proc/<pid>/root`), so a containerized process
-resolves against its image's package database and reports `source_scope = container`.
-Inventory rows are host-scoped, so a containerized process's reference deliberately never
+resolves against its image's package database. `source_scope` is `host` for a process in
+the host root and `container` otherwise. Inventory rows are host-scoped, so a containerized process's reference deliberately never
 joins host exposure facts and stays `package_unknown` until container packages are
 inventoried; this is intended, not a miss. Supported databases are dpkg (`status` plus
 `info/*.list`), apk (`installed`) and the rpm sqlite backend (`rpmdb.sqlite`). The older rpm
@@ -773,12 +773,12 @@ layouts and other directory symlinks. It also means that a binary whose package 
 upgraded or removed while the process kept running is never attributed to the package that
 now owns its path.
 
-**Cost.** Results are cached per (process root, executable `dev`, `inode`). The cache holds
-the file's mtime and size and that root's package-database state, so an entry is re-resolved
-after a reused inode or a package change in that root. The cache and the number of cached
-package-database indexes are bounded. Resolution runs on netprobe's existing budgeted
-process-metadata path, so it happens at most once per executable inode in its process root
-and never once per connection or per event.
+**Cost.** Results are cached per (process root, executable `dev`, `inode`). An entry is valid
+while the file's mtime and size and that root's package-database state are unchanged; a
+reused inode or a package change in that root re-resolves it. The cache and the number of
+cached package-database indexes are bounded. Resolution runs on netprobe's existing budgeted
+process-metadata path, so it happens once per cache entry and never once per connection or
+per event.
 
 **States.** `ExecutableOwnership.resolution_state` is the first of these that applies, in
 this order:
@@ -812,11 +812,14 @@ namespace (the os-release `ID`; rpm maps `sles` to `suse` and `mariner`/`azureli
 `azurelinux`) and a `distro` qualifier, so core's canonicalization keeps them; its
 debian/alpine/rpm namespace default applies only to a package URL without a namespace.
 
-| Database | `package_type`, `package_manager`, `ecosystem` | `namespace` | `release` | `binary_package` / `source_package` | Installed version |
-|---|---|---|---|---|---|
-| dpkg | `deb`, `dpkg`, `deb` | os-release `ID` (default `linux`) | `VERSION_CODENAME`, else `VERSION_ID` | package name / the `Source` field's package name when present, else the binary name | the status `Version` |
-| apk | `apk`, `apk`, `apk` | `ID` (default `alpine`) | `VERSION_ID` | the lower-cased package name for both (apk URLs carry `origin`, not `source`) | the installed version |
-| rpm | `rpm`, `rpm`, `rpm` | as above, with the rpm mapping | `<ID>-<VERSION_ID>`, `VERSION_ID` falling back to `BUILD_ID` | package name / the binary name (rpm URLs carry `sourcerpm`, not `source`) | `<version>-<release>` |
+| Database | `package_type`, `package_manager`, `ecosystem` | `namespace` | `release` | `binary_package` / `source_package` | `architecture` | Installed version |
+|---|---|---|---|---|---|---|
+| dpkg | `deb`, `dpkg`, `deb` | os-release `ID`, else `linux` | `VERSION_CODENAME`, else `VERSION_ID` | package name / the `Source` field's package name when present, else the binary name | `Architecture` | the status `Version` |
+| apk | `apk`, `apk`, `apk` | `ID`, else `alpine` | `VERSION_ID` | the lower-cased package name for both (apk URLs carry `origin`, not `source`) | `A` | the installed version |
+| rpm | `rpm`, `rpm`, `rpm` | `ID` mapped `sles` to `suse` and `mariner`/`azurelinux` to `azurelinux`; empty when `ID` is unset (no default) | `<raw ID>-<VERSION_ID, else BUILD_ID>` when `ID` is set; the version alone when `ID` is empty; empty when both version fields are empty | package name / the binary name (rpm URLs carry `sourcerpm`, not `source`) | the rpm arch | `<version>-<release>` |
+
+`architecture` is empty only when the database records none, and `source_scope` follows the
+resolution rule above.
 
 Netprobe does not compute the `pkgid:v1:` key. Core does not match the reference against inventory rows. It derives
 `package_identity_key` by applying `EndpointPackageAssessmentIdentity` to the reference's
