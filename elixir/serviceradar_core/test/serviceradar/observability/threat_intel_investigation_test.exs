@@ -64,4 +64,34 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
                "Unknown"
              ])
   end
+
+  describe "keyset cursors" do
+    alias ServiceRadar.Observability.ThreatIntelInvestigation.Keyset
+
+    test "a page cursor decodes back to the last row's key" do
+      at = ~U[2026-01-02 03:04:05.123456Z]
+
+      rows = [
+        %{at: ~U[2026-01-02 04:00:00Z], ip: "192.0.2.1"},
+        %{at: at, ip: "192.0.2.2"},
+        %{at: at, ip: "192.0.2.3"}
+      ]
+
+      assert %{rows: [_, _], next_cursor: cursor} = Keyset.page(rows, 2, &[&1.at, &1.ip])
+      assert {:ok, [^at, "192.0.2.2"]} = Keyset.decode(cursor, [:datetime, :string])
+      assert %{next_cursor: nil} = Keyset.page(rows, 3, &[&1.at, &1.ip])
+    end
+
+    test "a malformed or mismatched cursor is an explicit error" do
+      cursor = Keyset.encode([5, "192.0.2.1"])
+
+      assert {:ok, nil} = Keyset.decode("", [:integer, :string])
+      assert {:error, :invalid_cursor} = Keyset.decode("%%%", [:integer, :string])
+      assert {:error, :invalid_cursor} = Keyset.decode(cursor, [:datetime, :string])
+      assert {:error, :invalid_cursor} = Keyset.decode(cursor, [:integer])
+
+      assert {:error, :invalid_cursor} =
+               Keyset.decode(Keyset.encode(["x", "not-a-uuid"]), [:string, :uuid])
+    end
+  end
 end

@@ -106,6 +106,59 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     refute has_element?(stale_view, ~s([data-testid="threat-intel-indicator-error"]))
   end
 
+  test "dashboard drill-down views list their own evidence kinds", %{conn: conn} do
+    source = unique_source("views")
+    {ip, cidr} = unique_host()
+    seed_match!(ip, cidr, source, "Synthetic pulse #{source}", expires_in: 3600)
+
+    {:ok, inventory, _html} = live(conn, ~p"/security/threat-intel?#{[view: "inventory", source: source]}")
+    assert has_element?(inventory, ~s([data-testid="threat-intel-inventory-row"]), ip)
+    assert has_element?(inventory, "#threat-intel-view-inventory[aria-current='page']")
+
+    {:ok, memberships, _html} =
+      live(conn, ~p"/security/threat-intel?#{[view: "indicator_matches", source: source]}")
+
+    assert has_element?(memberships, ~s([data-testid="threat-intel-membership"]), ip)
+
+    {:ok, objects, _html} = live(conn, ~p"/security/threat-intel?#{[view: "objects", source: source]}")
+    assert has_element?(objects, ~s([data-testid="threat-intel-empty"]))
+
+    {:ok, retrohunt, _html} = live(conn, ~p"/security/threat-intel?#{[view: "retrohunt", source: source]}")
+    assert has_element?(retrohunt, ~s([data-testid="threat-intel-empty"]))
+  end
+
+  test "current matches page forward and back", %{conn: conn} do
+    source = unique_source("pages")
+
+    for n <- 1..51, do: seed_cache!("203.0.113.#{n}", source, expires_in: 3600)
+
+    {:ok, view, _html} = live(conn, ~p"/security/threat-intel?#{[source: source]}")
+    assert match_row_count(view) == 50
+    assert has_element?(view, "#threat-intel-prev-page[disabled]")
+
+    view |> element("#threat-intel-next-page") |> render_click()
+    assert match_row_count(view) == 1
+    assert has_element?(view, "#threat-intel-next-page[disabled]")
+
+    view |> element("#threat-intel-prev-page") |> render_click()
+    assert match_row_count(view) == 50
+  end
+
+  test "an invalid filter is reported, not shown as an empty list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/security/threat-intel?#{[view: "inventory", indicator: "300.1.1.1"]}")
+
+    assert has_element?(view, ~s([data-testid="threat-intel-error"]), "not a valid")
+    refute has_element?(view, ~s([data-testid="threat-intel-empty"]))
+  end
+
+  defp match_row_count(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(~s(tr[data-testid^="threat-intel-row-"]))
+    |> Enum.count()
+  end
+
   defp seed_match!(ip, cidr, source, label, expires_in: seconds) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     actor = system_actor()
