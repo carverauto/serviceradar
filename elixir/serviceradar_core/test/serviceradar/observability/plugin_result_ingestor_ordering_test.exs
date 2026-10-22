@@ -1,40 +1,29 @@
 defmodule ServiceRadar.Observability.PluginResultIngestorOrderingTest do
   use ServiceRadar.Observability.PluginResultIngestorTestSupport
 
-  test "a failing duplicate cannot downgrade an already successful observation" do
+  # The agent redelivers a result whose first run committed after the admission
+  # lane's budget expired. Its recorded success makes it committed, so the
+  # redelivery is acknowledged without running the handlers again: a later
+  # handler outcome can neither replace that success nor add history.
+  test "a redelivery after a committed success is acknowledged without rerunning handlers" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
-
-    ReplayHandler.put_outcomes([
-      :ok,
-      {:error, :late_duplicate_failure},
-      {:error, :repeated_duplicate_failure}
-    ])
+    ReplayHandler.put_outcomes([:ok, {:error, :late_duplicate_failure}])
 
     {payload, status, observed_at} = plugin_result_fixture()
 
     assert :ok = PluginResultIngestor.ingest(payload, status)
     reported_at = reported_event_block_base(status, observed_at)
+    succeeded_at = marker_timestamp(reported_at, 1, "succeeded")
+    history = history_rows(status)
+    :ok = ServiceStatusPubSub.subscribe()
 
-    assert {:error,
-            {:plugin_result_handlers_failed, [{ReplayHandler, ":late_duplicate_failure"}]}} =
-             PluginResultIngestor.ingest(payload, status)
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+    assert :ok = PluginResultIngestor.ingest(payload, status)
 
-    recovered_at = marker_timestamp(reported_at, 1, "succeeded")
-    assert [[true, "edge plugin completed", ^recovered_at]] = current_state_rows(status)
-
-    assert {:error,
-            {:plugin_result_handlers_failed, [{ReplayHandler, ":repeated_duplicate_failure"}]}} =
-             PluginResultIngestor.ingest(payload, status)
-
-    assert [[true, "edge plugin completed", ^recovered_at]] = current_state_rows(status)
-
-    assert [
-             [^reported_at, true, "edge plugin completed", _],
-             [failed_at, false, _, _],
-             [^recovered_at, true, "edge plugin completed", _]
-           ] = history_rows(status)
-
-    assert failed_at == marker_timestamp(reported_at, 1, "failed")
+    refute_received {:service_status_updated, _status}
+    assert [[true, "edge plugin completed", ^succeeded_at]] = current_state_rows(status)
+    assert [[^reported_at, true, "edge plugin completed", _]] = history
+    assert history_rows(status) == history
   end
 
   test "older observations cannot replace newer current state" do

@@ -48,6 +48,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   @handler_marker_max_generations 128
   @handler_marker_window_microseconds @handler_marker_max_generations * 2
   @handler_marker_insert_attempts 4
+  # Deliveries interrupted before downstream ingest recorded an outcome (a
+  # worker the admission lane killed at its budget, a node that stopped) before
+  # a redelivered result is quarantined instead of run again.
+  @max_interrupted_deliveries 3
   @status_slot_bucket_width_microseconds @handler_marker_window_microseconds + 1
   @reported_status_marker_key "_serviceradar_plugin_result"
   @reported_status_marker_version 1
@@ -86,52 +90,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       )
 
     case insert_status(status_row, actor) do
-      {:ok, reported_status} ->
-        handlers = plugin_result_handlers()
+      {:ok, reported_status, :inserted} ->
+        run_handlers(reported_status, payload, status, observed_at, actor)
 
-        case ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
-          :ok ->
-            case persist_handler_success(
-                   service_status_attributes(reported_status),
-                   payload,
-                   handlers,
-                   actor
-                 ) do
-              {:ok, status_event} ->
-                publish_committed_status(status_event || reported_status)
-                :ok
-
-              {:error, persistence_error} ->
-                publish_committed_status(reported_status)
-                error_text = handler_error_text(persistence_error)
-                Logger.error("Plugin result handler success persistence failed: #{error_text}")
-                {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
-            end
-
-          {:error, {failure_kind, errors}} = handler_error
-          when failure_kind in [
-                 :plugin_result_handlers_failed,
-                 :plugin_result_artifact_cleanup_failed
-               ] ->
-            case persist_handler_failure(
-                   service_status_attributes(reported_status),
-                   payload,
-                   errors,
-                   handlers,
-                   actor
-                 ) do
-              {:ok, status_event} ->
-                publish_committed_status(status_event || reported_status)
-                handler_error
-
-              {:error, persistence_error_text} ->
-                publish_committed_status(reported_status)
-
-                {:error,
-                 {:plugin_result_handler_failure_persistence_failed, errors,
-                  persistence_error_text}}
-            end
-        end
+      {:ok, reported_status, :existing} ->
+        redeliver(reported_status, payload, status, observed_at, actor)
 
       {:error, persistence_error} ->
         PluginIngestor.discard_artifacts(payload, status)
@@ -171,6 +134,223 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   def ingest(_payload, _status), do: {:error, :invalid_payload}
 
+  defp run_handlers(reported_status, payload, status, observed_at, actor) do
+    handlers = plugin_result_handlers()
+
+    case ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
+      :ok ->
+        case persist_handler_success(
+               service_status_attributes(reported_status),
+               payload,
+               handlers,
+               actor
+             ) do
+          {:ok, status_event} ->
+            publish_committed_status(status_event || reported_status)
+            :ok
+
+          {:error, persistence_error} ->
+            publish_committed_status(reported_status)
+            error_text = handler_error_text(persistence_error)
+            Logger.error("Plugin result handler success persistence failed: #{error_text}")
+            {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
+        end
+
+      {:error, {failure_kind, errors}} = handler_error
+      when failure_kind in [
+             :plugin_result_handlers_failed,
+             :plugin_result_artifact_cleanup_failed
+           ] ->
+        case persist_handler_failure(
+               service_status_attributes(reported_status),
+               payload,
+               errors,
+               handlers,
+               actor
+             ) do
+          {:ok, status_event} ->
+            publish_committed_status(status_event || reported_status)
+            handler_error
+
+          {:error, persistence_error_text} ->
+            publish_committed_status(reported_status)
+
+            {:error,
+             {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
+        end
+    end
+  end
+
+  # A delivery whose reported row is already committed is a redelivery. The
+  # agent retries every result the gateway did not confirm: one whose first run
+  # committed after the admission lane's budget expired, and one whose worker the
+  # lane killed mid-handler. The downstream markers of the current handler set
+  # decide what the redelivery does:
+  #
+  #   * a recorded success means the result is committed, so it is acknowledged
+  #     without running the handlers again;
+  #   * a recorded handler failure is a completed outcome, so the handlers rerun,
+  #     which is the designed recovery path;
+  #   * no outcome means the previous delivery was interrupted. That is recorded
+  #     as a visible failure marker and the handlers rerun, until
+  #     `@max_interrupted_deliveries` deliveries were interrupted. Then the result
+  #     is quarantined: the reason is recorded beside the reported payload and the
+  #     answer is a handler failure, which retained delivery commits, so the
+  #     result stops blocking the agent's later results.
+  #
+  # Rows written before reported markers existed keep the legacy path.
+  defp redeliver(reported_status, payload, status, observed_at, actor) do
+    if server_reported_status?(reported_status) do
+      handlers = plugin_result_handlers()
+      status_row = service_status_attributes(reported_status)
+
+      case redelivery_disposition(status_row, handlers, actor) do
+        {:ok, :committed} ->
+          :ok
+
+        {:ok, :rerun} ->
+          run_handlers(reported_status, payload, status, observed_at, actor)
+
+        {:ok, {:interrupted, deliveries}} ->
+          with :ok <-
+                 record_interrupted_delivery(status_row, payload, handlers, actor, deliveries) do
+            run_handlers(reported_status, payload, status, observed_at, actor)
+          end
+
+        {:ok, {:quarantine, deliveries}} ->
+          quarantine_redelivery(status_row, payload, status, handlers, actor, deliveries)
+
+        {:ok, {:quarantined, deliveries}} ->
+          {:error, {:plugin_result_handlers_failed, [quarantine_error(deliveries)]}}
+
+        {:error, reason} ->
+          error_text = handler_error_text(reason)
+          Logger.error("Plugin result redelivery lookup failed: #{error_text}")
+          {:error, {:plugin_result_status_persistence_failed, error_text}}
+      end
+    else
+      run_handlers(reported_status, payload, status, observed_at, actor)
+    end
+  end
+
+  defp redelivery_disposition(status_row, handlers, actor) do
+    provenance = handler_set_provenance(handlers)
+    observation_timestamp = PluginResultSlot.logical_observation_timestamp(status_row)
+    payload_digest = reported_status_payload_digest(status_row.details)
+
+    with {:ok, rows} <- handler_marker_rows(status_row, actor),
+         {:ok, state} <- handler_marker_state(status_row, actor) do
+      observation_markers =
+        (rows ++ List.wrap(state))
+        |> Enum.map(&parse_handler_marker/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.filter(fn marker ->
+          marker.observation_timestamp == observation_timestamp and
+            marker.payload_digest == payload_digest and
+            valid_marker_timestamp?(marker, status_row.timestamp)
+        end)
+
+      case Enum.filter(observation_markers, &(&1.handler_set == provenance)) do
+        # Another handler set recorded the outcome; the current set reruns, as a
+        # handler-set change always has.
+        [] when observation_markers != [] ->
+          {:ok, :rerun}
+
+        markers ->
+          latest =
+            Enum.max_by(markers, &DateTime.to_unix(&1.timestamp, :microsecond), fn -> nil end)
+
+          # The state row mirrors one history marker, so only history is counted.
+          # This redelivery proves that the delivery before it was interrupted too.
+          interrupted =
+            Enum.count(markers, &(&1.source == :history and interrupted_marker?(&1))) + 1
+
+          {:ok, classify_redelivery(latest, interrupted)}
+      end
+    end
+  end
+
+  defp classify_redelivery(%{status: "succeeded"}, _interrupted), do: :committed
+
+  defp classify_redelivery(
+         %{delivery: %{"disposition" => "quarantined", "interrupted_deliveries" => deliveries}},
+         _interrupted
+       ),
+       do: {:quarantined, deliveries}
+
+  defp classify_redelivery(%{status: "failed", delivery: nil}, _interrupted), do: :rerun
+
+  defp classify_redelivery(_latest, interrupted) when interrupted >= @max_interrupted_deliveries,
+    do: {:quarantine, interrupted}
+
+  defp classify_redelivery(_latest, interrupted), do: {:interrupted, interrupted}
+
+  defp interrupted_marker?(%{delivery: %{"disposition" => "interrupted"}}), do: true
+  defp interrupted_marker?(_marker), do: false
+
+  defp record_interrupted_delivery(status_row, payload, handlers, actor, deliveries) do
+    errors = [
+      {__MODULE__, "delivery #{deliveries} ended before downstream ingest recorded an outcome"}
+    ]
+
+    case persist_handler_failure(
+           status_row,
+           payload,
+           errors,
+           handlers,
+           actor,
+           delivery_marker("interrupted", deliveries)
+         ) do
+      {:ok, status_event} ->
+        publish_committed_status(status_event)
+        :ok
+
+      {:error, persistence_error_text} ->
+        {:error,
+         {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
+    end
+  end
+
+  defp quarantine_redelivery(status_row, payload, status, handlers, actor, deliveries) do
+    errors = [quarantine_error(deliveries)]
+
+    Logger.warning(
+      "Quarantined plugin result after #{deliveries} interrupted deliveries: " <>
+        "agent_id=#{status_row.agent_id} service_name=#{status_row.service_name}"
+    )
+
+    # The handlers never finished with this result, so nothing else releases its
+    # staged artifacts. The owner logs a cleanup failure; it does not reopen the
+    # quarantine.
+    _ = PluginIngestor.discard_artifacts(payload, status)
+
+    case persist_handler_failure(
+           status_row,
+           payload,
+           errors,
+           handlers,
+           actor,
+           delivery_marker("quarantined", deliveries)
+         ) do
+      {:ok, status_event} ->
+        publish_committed_status(status_event)
+        {:error, {:plugin_result_handlers_failed, errors}}
+
+      {:error, persistence_error_text} ->
+        {:error,
+         {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
+    end
+  end
+
+  defp quarantine_error(deliveries) do
+    {__MODULE__,
+     "downstream ingest did not complete in #{deliveries} deliveries; result quarantined"}
+  end
+
+  defp delivery_marker(disposition, deliveries) do
+    %{"disposition" => disposition, "interrupted_deliveries" => deliveries}
+  end
+
   defp insert_status(row, actor) do
     do_insert_status(row, actor, 0)
   end
@@ -191,7 +371,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                   {:ok, existing} <- existing_reported_status(row, actor) do
                case existing do
                  %ServiceStatus{} = status ->
-                   {:ok, status, []}
+                   {:ok, status, [], :existing}
 
                  nil ->
                    with :ok <-
@@ -199,9 +379,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                             physical_row,
                             if(first_probe?, do: :try, else: :exclusive)
                           ),
-                        {:ok, status, notifications} <-
+                        {:ok, status, notifications, origin} <-
                           do_insert_reported_status(row, physical_row, actor) do
-                     {:ok, status, notifications}
+                     {:ok, status, notifications, origin}
                    else
                      {:error, reason} -> Repo.rollback(reason)
                    end
@@ -210,9 +390,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                {:error, reason} -> Repo.rollback(reason)
              end
            end) do
-        {:ok, {:ok, status, notifications}} ->
+        {:ok, {:ok, status, notifications, origin}} ->
           _ = Ash.Notifier.notify(notifications)
-          {:ok, status}
+          {:ok, status, origin}
 
         {:error, reason}
         when reason in [:reported_status_slot_collision, :status_slot_lock_busy] ->
@@ -337,7 +517,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     with {:ok, slot_rows} <- reported_status_overlap_rows(physical_row, actor) do
       case Enum.find(slot_rows, &reported_status_matches?(&1, logical_row)) do
         %ServiceStatus{} = existing ->
-          {:ok, existing, []}
+          {:ok, existing, [], :existing}
 
         nil ->
           if Enum.any?(slot_rows, &blocking_status_overlap?(&1, physical_row)) do
@@ -354,7 +534,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
            insert_status_with_notifications(physical_row, actor),
          {:ok, persisted} <- service_status_at_slot(physical_row, actor) do
       if reported_status_matches?(persisted, logical_row) do
-        {:ok, persisted, notifications}
+        {:ok, persisted, notifications, :inserted}
       else
         {:error, :reported_status_slot_collision}
       end
@@ -606,7 +786,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     )
   end
 
-  defp persist_handler_failure(status_row, payload, errors, handlers, actor) do
+  defp persist_handler_failure(status_row, payload, errors, handlers, actor, delivery \\ nil) do
     provenance = handler_set_provenance(handlers)
 
     result =
@@ -615,7 +795,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           status_row,
           payload,
           errors,
-          provenance,
+          {provenance, delivery},
           actor,
           @handler_marker_insert_attempts
         )
@@ -633,8 +813,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp do_persist_handler_failure(status_row, payload, errors, provenance, actor, attempts) do
-    with {:ok, marker} <- handler_marker_context(status_row, provenance, actor) do
+  defp do_persist_handler_failure(
+         status_row,
+         payload,
+         errors,
+         {provenance, delivery} = identity,
+         actor,
+         attempts
+       ) do
+    with {:ok, marker} <- handler_marker_context(status_row, provenance, actor, delivery) do
       failure_row = handler_failure_status_row(status_row, payload, errors, marker)
 
       case insert_handler_marker(failure_row, marker, "failed", actor) do
@@ -649,7 +836,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             status_row,
             payload,
             errors,
-            provenance,
+            identity,
             actor,
             attempts - 1
           )
@@ -734,8 +921,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp handler_failure_status_row(status_row, payload, errors, marker) do
-    handlers = Enum.map(errors, fn {handler, _error_text} -> handler_label(handler) end)
-    message = "Plugin result downstream ingest failed: #{Enum.join(handlers, ", ")}"
+    message = handler_failure_message(errors, marker.delivery)
     reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
 
     details =
@@ -746,23 +932,22 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         "summary" => message,
         "reported_result" => reported_payload,
         "downstream_ingest" =>
-          PluginResultProvenance.put(
-            %{
-              "status" => "failed",
-              "generation" => marker.generation,
-              "handler_set" => marker.handler_set,
-              "observation_timestamp" => marker.observation_timestamp,
-              "payload_digest" => marker.payload_digest,
-              "handlers" =>
-                Enum.map(errors, fn {handler, error_text} ->
-                  %{
-                    "handler" => handler_label(handler),
-                    "error" => error_text
-                  }
-                end)
-            },
-            PluginResultProvenance.from_details(status_row.details)
-          )
+          %{
+            "status" => "failed",
+            "generation" => marker.generation,
+            "handler_set" => marker.handler_set,
+            "observation_timestamp" => marker.observation_timestamp,
+            "payload_digest" => marker.payload_digest,
+            "handlers" =>
+              Enum.map(errors, fn {handler, error_text} ->
+                %{
+                  "handler" => handler_label(handler),
+                  "error" => error_text
+                }
+              end)
+          }
+          |> maybe_put_delivery(marker.delivery)
+          |> PluginResultProvenance.put(PluginResultProvenance.from_details(status_row.details))
       })
       |> FieldParser.encode_json()
 
@@ -775,6 +960,30 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         details: details
     }
   end
+
+  defp handler_failure_message(_errors, %{
+         "disposition" => "interrupted",
+         "interrupted_deliveries" => deliveries
+       }) do
+    "Plugin result downstream ingest interrupted (delivery #{deliveries}); retrying"
+  end
+
+  defp handler_failure_message(_errors, %{
+         "disposition" => "quarantined",
+         "interrupted_deliveries" => deliveries
+       }) do
+    "Plugin result quarantined: downstream ingest did not complete in #{deliveries} deliveries"
+  end
+
+  defp handler_failure_message(errors, nil) do
+    handlers = Enum.map(errors, fn {handler, _error_text} -> handler_label(handler) end)
+    "Plugin result downstream ingest failed: #{Enum.join(handlers, ", ")}"
+  end
+
+  defp maybe_put_delivery(downstream_ingest, nil), do: downstream_ingest
+
+  defp maybe_put_delivery(downstream_ingest, delivery),
+    do: Map.put(downstream_ingest, "delivery", delivery)
 
   defp handler_success_status_row(status_row, payload, marker) do
     reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
@@ -855,6 +1064,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp marker_matches?(persisted, marker, marker_status) when is_map(persisted) do
     persisted.status == marker_status and persisted.generation == marker.generation and
+      persisted.delivery == marker.delivery and
       persisted.observation_timestamp == marker.observation_timestamp and
       persisted.payload_digest == marker.payload_digest and
       persisted.handler_set == marker.handler_set
@@ -994,7 +1204,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end)
   end
 
-  defp handler_marker_context(status_row, provenance, actor) do
+  defp handler_marker_context(status_row, provenance, actor, delivery \\ nil) do
     with {:ok, rows} <- handler_marker_rows(status_row, actor),
          {:ok, slot_rows} <- handler_marker_slot_rows(status_row, actor),
          {:ok, state} <- handler_marker_state(status_row, actor) do
@@ -1029,7 +1239,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                ) and
                  generation_reusable?(
                    status_row,
-                   provenance,
+                   {provenance, delivery},
                    observation_timestamp,
                    payload_digest,
                    generation,
@@ -1040,7 +1250,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
               build_marker_context(
                 status_row,
-                provenance,
+                {provenance, delivery},
                 observation_timestamp,
                 payload_digest,
                 generation,
@@ -1050,7 +1260,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             else
               allocate_marker_context(
                 status_row,
-                provenance,
+                {provenance, delivery},
                 observation_timestamp,
                 payload_digest,
                 markers,
@@ -1062,7 +1272,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           {:ok, _older_generation} ->
             allocate_marker_context(
               status_row,
-              provenance,
+              {provenance, delivery},
               observation_timestamp,
               payload_digest,
               markers,
@@ -1076,7 +1286,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           :none ->
             allocate_marker_context(
               status_row,
-              provenance,
+              {provenance, delivery},
               observation_timestamp,
               payload_digest,
               markers,
@@ -1182,7 +1392,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp generation_reusable?(
          status_row,
-         provenance,
+         {provenance, delivery},
          observation_timestamp,
          payload_digest,
          generation,
@@ -1200,6 +1410,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             marker_matches?(
               parse_handler_marker(row),
               %{
+                delivery: delivery,
                 generation: generation,
                 handler_set: provenance,
                 observation_timestamp: observation_timestamp,
@@ -1219,7 +1430,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp allocate_marker_context(
          status_row,
-         provenance,
+         {provenance, _delivery} = identity,
          observation_timestamp,
          payload_digest,
          markers,
@@ -1244,7 +1455,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
         build_marker_context(
           status_row,
-          provenance,
+          identity,
           observation_timestamp,
           payload_digest,
           generation,
@@ -1269,7 +1480,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp build_marker_context(
          status_row,
-         provenance,
+         {provenance, delivery},
          observation_timestamp,
          payload_digest,
          generation,
@@ -1284,6 +1495,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     else
       {:ok,
        %{
+         delivery: delivery,
          generation: generation,
          handler_set: provenance,
          observation_timestamp: observation_timestamp,
@@ -1373,6 +1585,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              is_binary(id) and is_integer(version) and is_binary(observation_timestamp) ->
         %{
           status: status,
+          delivery: parse_delivery(downstream_ingest),
           generation: generation,
           handler_set: handler_set,
           observation_timestamp: observation_timestamp,
@@ -1387,6 +1600,16 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp parse_handler_marker_details(_details, _timestamp, _source), do: nil
+
+  defp parse_delivery(%{
+         "delivery" =>
+           %{"disposition" => disposition, "interrupted_deliveries" => deliveries} = delivery
+       })
+       when disposition in ["interrupted", "quarantined"] and is_integer(deliveries) and
+              deliveries > 0,
+       do: Map.take(delivery, ["disposition", "interrupted_deliveries"])
+
+  defp parse_delivery(_downstream_ingest), do: nil
 
   defp valid_marker_timestamp?(marker, observed_at) do
     expected_at = marker_timestamp(observed_at, marker.generation, marker.status)

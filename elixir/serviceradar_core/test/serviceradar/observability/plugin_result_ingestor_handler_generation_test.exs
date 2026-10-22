@@ -33,13 +33,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
       [ReplayHandler, SecondaryReplayHandler]
     )
 
-    ReplayHandler.put_outcomes([:ok, :ok, :ok])
-
-    SecondaryReplayHandler.put_outcomes([
-      {:error, :new_handler_failure},
-      :ok,
-      {:error, :replayed_failure}
-    ])
+    ReplayHandler.put_outcomes([:ok, :ok])
+    SecondaryReplayHandler.put_outcomes([{:error, :new_handler_failure}, :ok])
 
     assert {:error,
             {:plugin_result_handlers_failed, [{SecondaryReplayHandler, ":new_handler_failure"}]}} =
@@ -53,9 +48,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
     second_success_at = marker_timestamp(reported_at, 2, "succeeded")
     assert [[true, "edge plugin completed", ^second_success_at]] = current_state_rows(status)
 
-    assert {:error,
-            {:plugin_result_handlers_failed, [{SecondaryReplayHandler, ":replayed_failure"}]}} =
-             PluginResultIngestor.ingest(payload, status)
+    # The second set's success commits the result; a redelivery leaves it alone.
+    assert :ok = PluginResultIngestor.ingest(payload, status)
 
     assert [[true, "edge plugin completed", ^second_success_at]] = current_state_rows(status)
 
@@ -126,14 +120,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
     {payload, status, observed_at} = plugin_result_fixture()
 
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
-    ReplayHandler.put_outcomes([{:error, :set_a_failure}, :ok, {:error, :set_a_returned}])
+    ReplayHandler.put_outcomes([{:error, :set_a_failure}, {:error, :set_a_returned}])
 
     assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":set_a_failure"}]}} =
              PluginResultIngestor.ingest(payload, status)
 
     reported_at = reported_event_block_base(status, observed_at)
-
-    assert :ok = PluginResultIngestor.ingest(payload, status)
 
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [SecondaryReplayHandler])
     SecondaryReplayHandler.put_outcomes([:ok])
@@ -145,13 +137,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
              PluginResultIngestor.ingest(payload, status)
 
     first_failure_at = marker_timestamp(reported_at, 1, "failed")
-    first_recovery_at = marker_timestamp(reported_at, 1, "succeeded")
+    second_set_recovery_at = marker_timestamp(reported_at, 2, "succeeded")
     returned_failure_at = marker_timestamp(reported_at, 3, "failed")
 
     assert [
              [^reported_at, true, _, _],
              [^first_failure_at, false, _, _],
-             [^first_recovery_at, true, _, _],
+             [^second_set_recovery_at, true, _, _],
              [^returned_failure_at, false, _, returned_failure_details]
            ] = history_rows(status)
 

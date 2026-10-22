@@ -28,7 +28,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   require Logger
 
   @inventory_rollup_refresh_lock_key 20_240_306
-  @default_inventory_rollup_bulk_refresh_threshold 100
+  # Above this many device records a write bypasses the statement-level rollup
+  # triggers and rebuilds the rollups afterwards. The rebuild truncates the three
+  # rollup tables and rescans every device, so its cost follows the inventory,
+  # not the batch: about 0.25 s on an idle 88k-device table, and seconds behind
+  # the refresh lock under load. The statement triggers read only the changed
+  # rows (about 25-45 ms for a 131-device upsert on the same table) and match one
+  # rebuild at roughly 10k changed rows. A batch of a few hundred devices, such as
+  # one plugin result's discovery or Wi-Fi inventory, must not pay for a rebuild
+  # inside its commit.
+  @default_inventory_rollup_bulk_refresh_threshold 10_000
   # Concurrent cross-handoffs can deadlock on per-row release UPDATEs; retry a
   # few times after locking UIDs in a deterministic order.
   @deadlock_retries 3

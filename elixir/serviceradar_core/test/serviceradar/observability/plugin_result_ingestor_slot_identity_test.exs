@@ -89,12 +89,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
     create_agent(status.agent_id, registry_gateway)
 
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
-    ReplayHandler.put_outcomes([:ok, {:error, :replayed_failure}])
+    ReplayHandler.put_outcomes([{:error, :first_failure}, :ok])
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":first_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
 
     assert :ok = PluginResultIngestor.ingest(payload, status)
-
-    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":replayed_failure"}]}} =
-             PluginResultIngestor.ingest(payload, status)
 
     assert [
              [reported_at, true, _, _] = reported_row,
@@ -114,7 +114,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
     {payload, status, observed_at} = plugin_result_fixture()
 
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
-    ReplayHandler.put_outcomes([:ok, {:error, :late_failure}])
+    ReplayHandler.put_outcomes([{:error, :early_failure}, :ok])
 
     collision_status = %{
       status
@@ -136,13 +136,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
       "occupied"
     )
 
-    assert :ok = PluginResultIngestor.ingest(payload, status)
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":early_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
 
     shifted_base = reported_event_block_base(status, observed_at)
     refute shifted_base == preferred_base
 
-    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":late_failure"}]}} =
-             PluginResultIngestor.ingest(payload, status)
+    assert :ok = PluginResultIngestor.ingest(payload, status)
 
     assert [
              [^shifted_base, true, _, _],

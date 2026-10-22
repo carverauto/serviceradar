@@ -2,6 +2,8 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
   use ServiceRadar.DataCase, async: false
 
   alias Ecto.Migration.Runner
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.BatchDeviceInventoryRollups, as: Migration
 
@@ -180,6 +182,52 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
              end)
 
     assert counts() == refreshed
+    assert_counts()
+  end
+
+  # A rebuild truncates every rollup table and rescans the whole inventory, so a
+  # batch the size of one plugin result's device inventory must ride the
+  # statement triggers instead of paying for a rebuild inside its commit.
+  test "a sync of a few hundred devices keeps the rollups without rebuilding them", %{
+    prefix: prefix
+  } do
+    ServiceRadar.TestSupport.start_core!()
+
+    for table <- [
+          "device_inventory_counts",
+          "device_inventory_type_counts",
+          "device_inventory_vendor_counts"
+        ] do
+      Repo.query!("""
+      CREATE TRIGGER record_rollup_truncate AFTER TRUNCATE ON platform.#{table}
+      FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.record_rollup_write()
+      """)
+    end
+
+    updates =
+      for n <- 1..250 do
+        %{
+          "ip" => nil,
+          "hostname" => "ap#{n}.example.com",
+          "source" => "integration-test",
+          "is_available" => rem(n, 4) != 0,
+          "metadata" => %{
+            "integration_type" => "test-integration",
+            "integration_id" => "#{prefix}#{n}",
+            "type" => "access_point",
+            "vendor_name" => "Example Networks"
+          }
+        }
+      end
+
+    clear_writes()
+
+    assert :ok =
+             SyncIngestor.ingest_updates(updates,
+               actor: SystemActor.system(:device_inventory_rollup_db_test)
+             )
+
+    refute Enum.any?(writes(), &match?([_table, "TRUNCATE", _key], &1))
     assert_counts()
   end
 
