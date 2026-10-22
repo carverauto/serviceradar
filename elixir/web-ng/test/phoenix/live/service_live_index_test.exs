@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
+  require Ash.Query
+
   @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_user
@@ -31,6 +33,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
           :ok
       end
     end
+  end
+
+  defmodule FailingSRQL do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @impl true
+    def query(_query, _opts), do: {:error, "service status store unavailable"}
+
+    @impl true
+    def query_request(%{"query" => query}), do: query(query, %{})
   end
 
   test "renders plugin cards from durable service state", %{conn: conn} do
@@ -64,9 +77,72 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
            |> LazyHTML.query("#services-tab-loading[role='status']")
            |> Enum.any?()
 
+    render_async(view)
+
     assert has_element?(view, "#service-cards", "UniFi Protect Camera")
     assert has_element?(view, "#service-cards", "camera check healthy")
     assert has_element?(view, "#services-tab-content:not([hidden])")
+    refute has_element?(view, "#services-tab-loading")
+  end
+
+  test "viewing the page writes no plugin service state", %{conn: conn} do
+    gateway = gateway_fixture()
+    assigned_agent = agent_fixture(gateway)
+    orphan_agent = agent_fixture(gateway)
+    package = approved_plugin_package_fixture("Assigned Check", "serviceradar.plugin_result.v1")
+
+    # An enabled assignment with no service state row, and an active plugin row
+    # with no assignment: the reconciliation adds the first and deactivates the
+    # second, so neither may change while the page is only being viewed.
+    _assignment = plugin_assignment_fixture(assigned_agent.uid, package.id)
+
+    orphan =
+      insert_service_state!(%{
+        agent_id: orphan_agent.uid,
+        gateway_id: orphan_agent.gateway_id,
+        partition: "default",
+        service_type: "plugin",
+        service_name: "Unassigned Check",
+        available: true,
+        message: "unassigned check ok",
+        last_observed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+        state: "active"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/services")
+    render_async(view)
+
+    assert has_element?(view, "#service-cards", "Unassigned Check")
+    assert plugin_states_for(assigned_agent.uid) == []
+    assert [%{state: "active", updated_at: updated_at}] = plugin_states_for(orphan_agent.uid)
+    assert updated_at == orphan.updated_at
+  end
+
+  test "a failed status list query leaves the plugin cards in place", %{conn: conn} do
+    previous_srql = Application.get_env(:serviceradar_web_ng, :srql_module)
+    Application.put_env(:serviceradar_web_ng, :srql_module, FailingSRQL)
+    on_exit(fn -> restore_web_env(:srql_module, previous_srql) end)
+
+    agent = agent_fixture(gateway_fixture())
+
+    insert_service_state!(%{
+      agent_id: agent.uid,
+      gateway_id: agent.gateway_id,
+      partition: "default",
+      service_type: "plugin",
+      service_name: "Independent Check",
+      available: true,
+      message: "independent check ok",
+      last_observed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+      state: "active"
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/services")
+    render_async(view)
+
+    assert has_element?(view, "#service-cards", "Independent Check")
+    assert has_element?(view, "div", "service status store unavailable")
+    refute has_element?(view, "#services-plugin-state-error")
     refute has_element?(view, "#services-tab-loading")
   end
 
@@ -253,6 +329,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
     )
     |> Ash.create!()
   end
+
+  defp plugin_states_for(agent_uid) do
+    ServiceState
+    |> Ash.Query.filter(agent_id == ^agent_uid and service_type == "plugin")
+    |> Ash.read!(actor: system_actor(), domain: ServiceRadar.Observability)
+  end
+
+  defp restore_web_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_web_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)

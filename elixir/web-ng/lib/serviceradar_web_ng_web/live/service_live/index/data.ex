@@ -3,13 +3,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
 
   alias ServiceRadar.Observability.ServiceHealth
   alias ServiceRadar.Observability.ServiceState
-  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadarWebNGWeb.ServiceLive.Display
   alias ServiceRadarWebNGWeb.ServiceLive.Service
-
-  def reconcile_plugin_assignments do
-    ServiceStateRegistry.reconcile_plugin_assignments()
-  end
 
   def ensure_default_query(params, default_query) when is_map(params) do
     case Map.get(params, "q") do
@@ -22,13 +17,33 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
 
   def ensure_default_query(_params, default_query), do: %{"q" => default_query}
 
-  def load_plugin_states(scope) do
+  @doc """
+  The summary and cards for the active plugin service states, `:empty` when
+  there are none, or the read error. Runs outside the LiveView process.
+  """
+  def load_plugin_view(scope) do
+    case load_plugin_states(scope) do
+      {:ok, []} -> {:ok, :empty}
+      {:ok, states} -> {:ok, %{summary: summary(states), cards: cards(states, [], scope)}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  The summary and cards built from recent service status rows, shown when
+  there is no active plugin service state to build them from.
+  """
+  def fallback_view(services, scope) when is_list(services) do
+    %{summary: summary([], services), cards: cards([], services, scope)}
+  end
+
+  defp load_plugin_states(scope) do
     ServiceState
     |> Ash.Query.for_read(:active_plugin_cards, %{})
     |> Ash.read(scope: scope)
     |> case do
-      {:ok, states} when is_list(states) -> ServiceHealth.dedupe_states(states)
-      _ -> []
+      {:ok, states} when is_list(states) -> {:ok, ServiceHealth.dedupe_states(states)}
+      {:error, reason} -> {:error, reason}
     end
   end
 

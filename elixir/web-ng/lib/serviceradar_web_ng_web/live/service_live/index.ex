@@ -1,5 +1,18 @@
 defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
-  @moduledoc false
+  @moduledoc """
+  The `/services` catalog.
+
+  The page renders its shell at once and reads nothing in `mount/3` or
+  `handle_params/3`. Each load round starts two reads concurrently, outside the
+  LiveView process: the active plugin service state (the cards' primary source)
+  and the SRQL service status list (their fallback when there is no plugin
+  state). Cards appear as soon as the source they come from arrives, and each
+  source reports its own failure.
+
+  Viewing the page writes nothing. Plugin assignment service state is
+  reconciled where assignments change and by
+  `ServiceRadar.Observability.PluginServiceStateReconcileWorker`.
+  """
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Observability.ServiceState
@@ -9,8 +22,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   alias ServiceRadarWebNGWeb.ServiceLive.Index.View
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
+  require Logger
+
   @default_limit 50
   @max_limit 200
+  @list_opts [default_limit: @default_limit, max_limit: @max_limit]
   @refresh_debounce_ms 5_000
   @default_query "in:services time:last_1h sort:timestamp:desc limit:500"
 
@@ -29,7 +45,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
      |> assign(:refresh_pending, false)
-     |> assign(:service_state_reconciled, false)
+     |> assign(:refresh_queued, false)
+     |> assign(:list_request, nil)
+     |> assign(:plugin_source, :loading)
+     |> assign(:list_source, :loading)
      |> assign(:tab_loading, true)
      |> SRQLPage.init("services", default_limit: @default_limit)
      |> stream(:service_cards, [])}
@@ -37,23 +56,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    # Defer reads and reconciliation until after the connected shell renders.
     params = Data.ensure_default_query(params, @default_query)
 
     socket =
       socket
       |> assign(:params, params)
       |> assign(:current_uri, uri)
-      |> SRQLPage.sync_from_params(params, uri,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+      |> SRQLPage.sync_from_params(params, uri, @list_opts)
 
     if connected?(socket) do
-      {:noreply,
-       socket
-       |> assign(:tab_loading, true)
-       |> tap(fn _ -> send(self(), {:load_services_data, params}) end)}
+      {:noreply, start_load(socket)}
     else
       {:noreply, socket}
     end
@@ -97,20 +109,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   @impl true
-  def handle_info({:load_services_data, params}, socket) do
-    if Map.get(socket.assigns, :params, %{}) == params do
-      socket =
-        socket
-        |> maybe_reconcile_plugin_assignments()
-        |> load_services(params, Map.get(socket.assigns, :current_uri))
-        |> update_service_cards()
-
-      {:noreply, assign(socket, :tab_loading, false)}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_info({:service_status_updated, _status}, socket) do
     {:noreply, schedule_refresh(socket)}
   end
@@ -130,45 +128,127 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def handle_info({:service_state_updated, _state}, socket), do: {:noreply, socket}
 
   def handle_info(:refresh_services, socket) do
-    params = Data.ensure_default_query(socket.assigns.params || %{}, @default_query)
-    uri = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:page_path) || "/services"
+    socket = assign(socket, :refresh_pending, false)
+
+    # A refresh never overlaps a running round: it waits for that round to
+    # finish, because the running round may have read before this change.
+    if loading?(socket) do
+      {:noreply, assign(socket, :refresh_queued, true)}
+    else
+      {:noreply, start_load(socket)}
+    end
+  end
+
+  @impl true
+  def handle_async(:plugin_view, {:ok, {:ok, :empty}}, socket) do
+    {:noreply, socket |> assign(:plugin_source, :empty) |> present() |> finish_round()}
+  end
+
+  def handle_async(:plugin_view, {:ok, {:ok, view}}, socket) do
+    {:noreply, socket |> assign(:plugin_source, {:ok, view}) |> present() |> finish_round()}
+  end
+
+  def handle_async(:plugin_view, {:ok, {:error, reason}}, socket) do
+    {:noreply, plugin_view_failed(socket, reason)}
+  end
+
+  def handle_async(:plugin_view, {:exit, reason}, socket) do
+    {:noreply, plugin_view_failed(socket, reason)}
+  end
+
+  def handle_async(:services_list, {:ok, {result, view}}, socket) do
+    source =
+      case result do
+        {_results, nil, _viz, _pagination} -> {:ok, view}
+        {_results, error, _viz, _pagination} -> {:error, error}
+      end
 
     {:noreply,
      socket
-     |> load_services(params, uri)
-     |> update_service_cards()
-     |> assign(:refresh_pending, false)}
+     |> SRQLPage.apply_list_result(socket.assigns.list_request, result)
+     |> assign(:list_source, source)
+     |> present_list()
+     |> finish_round()}
+  end
+
+  def handle_async(:services_list, {:exit, reason}, socket) do
+    Logger.warning("Service status list load failed: #{inspect(reason)}")
+    error = "Recent service status could not be loaded."
+
+    {:noreply,
+     socket
+     |> SRQLPage.apply_list_result(socket.assigns.list_request, {[], error, nil, %{}})
+     |> assign(:list_source, {:error, error})
+     |> present_list()
+     |> finish_round()}
   end
 
   @impl true
   def render(assigns), do: View.render(assigns)
 
-  defp load_services(socket, params, uri) do
+  # Starts one load round. A round already running is cancelled: its results
+  # describe a query or a moment the page no longer shows.
+  defp start_load(socket) do
+    request = SRQLPage.list_request(socket, socket.assigns.params, :services, @list_opts)
+    scope = socket.assigns.current_scope
+
     socket
-    |> SRQLPage.load_list(params, uri, :services,
-      default_limit: @default_limit,
-      max_limit: @max_limit
-    )
-    |> assign(:params, params)
+    |> cancel_async(:plugin_view)
+    |> cancel_async(:services_list)
+    |> assign(:list_request, request)
+    |> assign(:plugin_source, :loading)
+    |> assign(:list_source, :loading)
+    |> assign(:refresh_queued, false)
+    |> start_async(:plugin_view, fn -> Data.load_plugin_view(scope) end)
+    |> start_async(:services_list, fn ->
+      {services, _error, _viz, _pagination} = result = SRQLPage.fetch_list(request)
+      {result, Data.fallback_view(services, scope)}
+    end)
   end
 
-  defp update_service_cards(socket) do
-    states = Data.load_plugin_states(socket.assigns.current_scope)
-    summary = Data.summary(states, socket.assigns.services)
-    cards = Data.cards(states, socket.assigns.services, socket.assigns.current_scope)
+  defp plugin_view_failed(socket, reason) do
+    Logger.warning("Active plugin service state load failed: #{inspect(reason)}")
 
     socket
+    |> assign(:plugin_source, {:error, "Plugin service state could not be loaded."})
+    |> present()
+    |> finish_round()
+  end
+
+  # Plugin state is the primary source, so a list result only changes what is
+  # shown when there is no plugin state to show.
+  defp present_list(%{assigns: %{plugin_source: {:ok, _view}}} = socket), do: socket
+  defp present_list(socket), do: present(socket)
+
+  defp present(%{assigns: %{plugin_source: {:ok, view}}} = socket), do: show_view(socket, view)
+
+  defp present(%{assigns: %{plugin_source: :loading}} = socket), do: socket
+
+  defp present(%{assigns: %{list_source: {:ok, view}}} = socket), do: show_view(socket, view)
+
+  defp present(%{assigns: %{list_source: {:error, _error}}} = socket) do
+    show_view(socket, %{summary: empty_summary(), cards: []})
+  end
+
+  defp present(socket), do: socket
+
+  defp show_view(socket, %{summary: summary, cards: cards}) do
+    socket
     |> assign(:summary, summary)
+    |> assign(:tab_loading, false)
     |> stream(:service_cards, cards, reset: true)
   end
 
-  defp maybe_reconcile_plugin_assignments(socket) do
-    if socket.assigns.service_state_reconciled do
-      socket
+  defp finish_round(socket) do
+    if socket.assigns.refresh_queued and not loading?(socket) do
+      start_load(socket)
     else
-      _ = Data.reconcile_plugin_assignments()
-      assign(socket, :service_state_reconciled, true)
+      socket
     end
+  end
+
+  defp loading?(socket) do
+    socket.assigns.plugin_source == :loading or socket.assigns.list_source == :loading
   end
 
   defp schedule_refresh(socket) do

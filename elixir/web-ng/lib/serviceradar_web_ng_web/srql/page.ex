@@ -37,78 +37,80 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   end
 
   def load_list(socket, params, uri, list_assign_key, opts \\ []) when is_atom(list_assign_key) do
-    srql = Map.get(socket.assigns, :srql, %{})
-    entity = srql_entity(srql, opts)
-    builder_available = builder_available?(srql)
+    socket = sync_from_params(socket, params, uri, opts)
+    request = list_request(socket, params, list_assign_key, opts)
 
-    default_limit = Keyword.get(opts, :default_limit, 20)
-    max_limit = Keyword.get(opts, :max_limit, 100)
+    # The disconnected (static) render only paints the page shell: it is
+    # thrown away as soon as the socket connects, which runs handle_params
+    # again. Querying here ran every list page's SRQL query twice per load.
+    if Phoenix.LiveView.connected?(socket) do
+      apply_list_result(socket, request, fetch_list(request))
+    else
+      apply_list_result(socket, request, {[], nil, nil, %{}}, loading: true)
+    end
+  end
+
+  @doc """
+  The list query that `sync_from_params/4` prepared, as plain data.
+
+  `load_list/5` runs it in the LiveView process. A page that must not block on
+  it runs `fetch_list/1` in a `start_async/3` task instead and hands the result
+  to `apply_list_result/4` from `handle_async/3`. Call `sync_from_params/4`
+  first: the query and limit are read from the assigns it sets.
+  """
+  def list_request(socket, params, list_assign_key, opts \\ []) when is_atom(list_assign_key) do
+    srql = Map.get(socket.assigns, :srql, %{})
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
     # Cursor may arrive from legacy URLs or from session-position paginate/3.
     # New navigation never writes cursor into the shareable address bar.
     cursor = normalize_optional_string(Map.get(params, "cursor"))
-    pagination_page = resolve_pagination_page(params, socket, cursor)
 
-    # Limit resolution: SRQL limit:N (preferred) → URL limit= (legacy) → default.
-    # Avoid double-encoding the same value in both places when writing URLs.
-    provisional_limit = resolve_limit(nil, Map.get(params, "limit"), default_limit, max_limit)
-    builder = build_builder_state(params, srql, entity, provisional_limit, builder_available)
-    default_query = default_query_for(builder_available, builder, entity, provisional_limit)
+    %{
+      query: Map.get(srql, :query),
+      cursor: cursor,
+      limit: Map.get(socket.assigns, limit_assign_key),
+      scope: get_scope(socket),
+      pagination_page: resolve_pagination_page(params, socket, cursor),
+      list_assign_key: list_assign_key,
+      load_opts: %{
+        default_limit: Keyword.get(opts, :default_limit, 20),
+        max_limit: Keyword.get(opts, :max_limit, 100),
+        limit_assign_key: limit_assign_key
+      }
+    }
+  end
 
-    query =
-      params
-      |> Map.get("q")
-      |> normalize_query_param(default_query)
-      |> ensure_default_time_window(entity)
+  @doc """
+  Runs a `list_request/4` query. Touches no socket, so it can run in a task.
+  Returns `{results, error, viz, pagination}`.
+  """
+  def fetch_list(%{query: query, cursor: cursor, limit: limit, scope: scope}) do
+    srql_results(srql_module(), query, cursor, limit, scope)
+  end
 
-    limit = resolve_limit(query, Map.get(params, "limit"), default_limit, max_limit)
-
-    {builder_supported, builder_sync, builder_state} =
-      parse_builder_state(builder_available, query, builder)
-
-    # The disconnected (static) render only paints the page shell: it is
-    # thrown away as soon as the socket connects, which runs handle_params
-    # again. Querying here ran every list page's SRQL query twice per load.
-    connected? = Phoenix.LiveView.connected?(socket)
-
-    {results, error, viz_meta, pagination} =
-      if connected? do
-        srql_results(srql_module(), query, cursor, limit, get_scope(socket))
-      else
-        {[], nil, nil, %{}}
-      end
-
-    page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
-
-    display_limit = limit
-
+  @doc """
+  Assigns a `fetch_list/1` result. Only the result fields change, so a draft
+  the user typed while the query ran is kept.
+  """
+  def apply_list_result(socket, request, {results, error, viz_meta, pagination}, opts \\ []) do
     srql =
-      Map.merge(srql, %{
-        enabled: true,
-        entity: entity,
-        page_path: page_path,
-        query: query,
-        draft: query,
+      socket.assigns
+      |> Map.get(:srql, %{})
+      |> Map.merge(%{
         error: error,
         viz: viz_meta,
-        loading: not connected?,
-        builder_available: builder_available,
-        builder_supported: builder_supported,
-        builder_sync: builder_sync,
-        builder: builder_state,
-        builder_mode_notice: nil,
+        loading: Keyword.get(opts, :loading, false),
         pagination: pagination,
         # Session-position pagination context for srql_paginate events.
-        list_assign_key: list_assign_key,
-        load_opts: %{default_limit: default_limit, max_limit: max_limit, limit_assign_key: limit_assign_key}
+        list_assign_key: request.list_assign_key,
+        load_opts: request.load_opts
       })
 
     socket
     |> Phoenix.Component.assign(:srql, srql)
-    |> Phoenix.Component.assign(limit_assign_key, display_limit)
-    |> Phoenix.Component.assign(list_assign_key, results)
-    |> Phoenix.Component.assign(:pagination_page, pagination_page)
+    |> Phoenix.Component.assign(request.list_assign_key, results)
+    |> Phoenix.Component.assign(:pagination_page, request.pagination_page)
   end
 
   @doc """
