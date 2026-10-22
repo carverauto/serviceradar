@@ -52,6 +52,8 @@ converge that role, so there is nothing to grant by hand:
 | `platform.discovered_interfaces` | `SELECT (device_id, device_ip)` |
 | `platform.device_interface_addresses_catalog` | `SELECT (device_id, ip)` |
 | `platform.device_inventory_aliases_catalog` | `SELECT (uid, uid_alt, alias)` |
+| `platform.exposure_device_catalog` | `SELECT (device_ord, device_uid, hostname, device_type, vendor_name, partition, vlan_uid, owner_name, tag_site, is_available, agent_managed)` |
+| `platform.exposure_device_tags_catalog` | `SELECT (device_ord, tag_key, tag_value)` |
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
 | `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address, exporter_name)` |
 | `platform.netflow_interface_cache` | `SELECT (sampler_address, if_index, if_name, if_speed_bps)` |
@@ -59,7 +61,7 @@ converge that role, so there is nothing to grant by hand:
 | `platform.ip_threat_intel_cache` | `SELECT (ip, matched, expires_at, sources, max_severity)` |
 | `platform.threat_intel_indicators` | `SELECT (indicator, expires_at)` |
 
-Two of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
+Four of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
 reach StarRocks 3.5.21 as `UNKNOWN_TYPE`, and a query that names such a column
 is refused at analysis, so CNPG flattens what the device lookups need:
 `device_interface_addresses_catalog` is one row per interface address, and
@@ -69,7 +71,13 @@ migration `20260921130000_grant_starrocks_reader_device_identity` creates both
 views and issues the grants the device lookups added -- the two views,
 `device_identifiers`, `discovered_interfaces`, and `uid_alt`/`name` on
 `ocsf_devices` -- guarded on the role existing, the way the create-role
-migration below guards its own.
+migration below guards its own. Core migration
+`20261022022000_create_exposure_catalog_views` does the same for the two
+exposure views: `exposure_device_catalog` is one row per non-deleted device with
+a non-tombstoned fleet ordinal (owner name, `site` tag and an agent-managed
+flag already extracted), and `exposure_device_tags_catalog` is one row per tag
+key/value of those devices. Neither exposes the assessment, package, advisory,
+fleet-dictionary, agent or alert tables.
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
 the SQL leaves core, and the grants above are column-scoped to exactly what the
