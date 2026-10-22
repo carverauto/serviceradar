@@ -105,7 +105,9 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 	}
 }
 
-// createSweepService constructs a new SweepService instance.
+// createSweepService constructs the agent's sweep service. A nil sweepConfig
+// means there is no local sweep file: the service starts with no groups and
+// runs the groups the gateway delivers.
 func createSweepService(
 	ctx context.Context,
 	sweepConfig *SweepConfig,
@@ -113,12 +115,12 @@ func createSweepService(
 	log logger.Logger,
 	opts ...sweeper.Option,
 ) (Service, error) {
-	if sweepConfig == nil {
-		return nil, errSweepConfigNil
+	var groups []SweepGroupConfig
+	if sweepConfig != nil {
+		groups = []SweepGroupConfig{sweepGroupConfigFromSweepConfig(sweepConfig)}
 	}
 
-	groupConfig := sweepGroupConfigFromSweepConfig(sweepConfig)
-	service, err := NewMultiSweepServiceWithContext(ctx, cfg, []SweepGroupConfig{groupConfig}, log, opts...)
+	service, err := NewMultiSweepServiceWithContext(ctx, cfg, groups, log, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -188,20 +190,24 @@ func buildSweepModelConfigFromGroup(cfg *ServerConfig, group SweepGroupConfig, l
 func (s *Server) loadSweepService(
 	ctx context.Context, cfgLoader *config.Config, filePath string,
 ) (Service, error) {
-	var sweepConfig SweepConfig
+	sweepConfig := &SweepConfig{}
 
-	if err := cfgLoader.LoadAndValidate(ctx, filePath, &sweepConfig); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			s.logger.Info().Str("path", filePath).Msg("Sweep config file not found, using defaults")
-			sweepConfig = SweepConfig{}
-		} else {
+	if err := cfgLoader.LoadAndValidate(ctx, filePath, sweepConfig); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("failed to load sweep config from file %s: %w", filePath, err)
 		}
+
+		// The agent never writes this file; sweep groups normally arrive from
+		// the gateway after the control stream connects.
+		s.logger.Info().Str("path", filePath).
+			Msg("No local sweep config file; sweep groups will come from the gateway")
+
+		sweepConfig = nil
 	} else {
 		s.logger.Info().Str("path", filePath).Msg("Loaded sweep config from file")
 	}
 
-	service, err := s.createSweepService(ctx, &sweepConfig)
+	service, err := s.createSweepService(ctx, sweepConfig)
 	if err != nil {
 		return nil, err
 	}

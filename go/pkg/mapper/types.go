@@ -41,6 +41,7 @@ type DiscoveryEngine struct {
 	schedulers    map[string]*time.Ticker
 	logger        logger.Logger
 	hostProber    HostProber
+	sysInfoHealth snmpSysInfoHealth
 }
 
 // HostProber provides advisory host reachability checks for worker scheduling.
@@ -156,6 +157,7 @@ type DiscoveryJob struct {
 	observedJoinContexts     map[string]*observedJoinContext // Key: targetIP; inputs for the end-of-stage join reconcile
 	identityReconciled       bool
 	interfacesPublished      bool
+	sysInfoSkipped           map[string]struct{} // targets whose repeated sysinfo failure ends polling for this run
 }
 
 // DiscoveryResults contains the results of a discovery operation.

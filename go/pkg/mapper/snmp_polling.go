@@ -194,6 +194,19 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	hostname := e.lookupKnownDeviceName(job, snmpTargetIP)
 	target := describeSNMPTarget(snmpTargetIP, hostname)
 
+	// A target known from other evidence keeps its topology pass (see the
+	// sysinfo-failure fallback below); every other pass skips it.
+	if job.sysInfoSkippedThisRun(snmpTargetIP) &&
+		(mode != snmpPollingModeTopology || e.lookupLocalDeviceID(job, snmpTargetIP) == "") {
+		e.logger.Debug().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Str("polling_mode", string(mode)).
+			Msgf("Skipping SNMP poll of %s: system info did not answer earlier in this run", target)
+
+		return
+	}
+
 	e.logger.Debug().
 		Str("job_id", job.ID).
 		Str("target_ip", snmpTargetIP).
@@ -230,12 +243,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	// Query system information
 	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, 15*time.Second)
 	if err != nil {
-		e.logger.Warn().
-			Str("job_id", job.ID).
-			Str("target_ip", snmpTargetIP).
-			Str("hostname", hostname).
-			Err(err).
-			Msgf("Failed to query system info via SNMP for %s, skipping", target)
+		e.reportSysInfoFailure(job, snmpTargetIP, hostname, err)
 
 		// For topology mode, continue with LLDP/CDP/L2 polling when the target
 		// is already known from other evidence (e.g., UniFi inventory).
@@ -252,6 +260,8 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 
 		return
 	}
+
+	e.reportSysInfoAnswered(job, snmpTargetIP, hostname)
 
 	// Lock the job while modifying results and device map
 	job.mu.Lock()

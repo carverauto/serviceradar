@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -148,6 +149,57 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	assert.Equal(t, config.Security, s.SecurityConfig())
 	assert.Len(t, s.services, 1)
 	assert.Equal(t, "mock_sweep", s.services[0].Name())
+}
+
+// The agent never writes sweep.json; on first boot, and whenever no local file
+// is pinned, sweep groups arrive from the gateway after the control stream
+// connects. Startup must treat the missing file as that normal state, and the
+// sweep service must run the groups delivered afterwards.
+func TestStartupWithoutSweepFileRunsGatewayDeliveredGroups(t *testing.T) {
+	t.Parallel()
+
+	capture := newCapturingTestLogger()
+	s := initializeServer(t.TempDir(), setupServerConfig(), capture)
+	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig) (Service, error) {
+		return createSweepService(ctx, sweepConfig, s.config, capture)
+	}
+
+	require.NoError(t, s.loadConfigurations(context.Background(), cconfig.NewConfig(capture)))
+	require.Empty(t, capture.messagesAtLevel(t, "error"), "a missing sweep.json is not an error")
+	require.Empty(t, capture.messagesAtLevel(t, "warn"), "a missing sweep.json is not a warning")
+
+	require.Len(t, s.services, 1)
+	sweep, ok := s.services[0].(*MultiSweepService)
+	require.True(t, ok, "startup must still create the sweep service")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	go func() { _ = sweep.Start(ctx) }()
+
+	// Agent startup starts services before the control stream delivers config.
+	require.Eventually(t, func() bool {
+		sweep.mu.RLock()
+		defer sweep.mu.RUnlock()
+
+		return sweep.started
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, sweep.UpdateSweepGroupsContext(ctx, &SweepGroupsConfig{
+		ConfigHash: "gateway-delivered",
+		Groups: []SweepGroupConfig{{
+			SweepGroupID: "group-a",
+			Networks:     []string{"192.0.2.1/32"},
+			Ports:        []int{9},
+			SweepModes:   []models.SweepMode{models.ModeTCP},
+			Interval:     Duration(time.Hour),
+			Timeout:      Duration(100 * time.Millisecond),
+		}},
+	}))
+
+	require.Eventually(t, func() bool {
+		return slices.Contains(capture.messagesAtLevel(t, "info"), "Starting sweep service with interval 1h0m0s")
+	}, 5*time.Second, 20*time.Millisecond, "the gateway-delivered group must start sweeping")
 }
 
 func TestServerLifecycle(t *testing.T) {
