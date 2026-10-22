@@ -565,6 +565,153 @@ distribution on the lab before this is sized.
   - *Drop rows over budget.* Silent loss defeats evasion detection. Rejected in favour of
     explicit, counted aggregation.
 
+### 10. Proposed: coordinate the central cutover before enabling lease producers
+
+Status: proposed for coordinator review. This specifies how to deploy the already-approved
+straight switch; it does not authorize a rollout or waive Phase 0. New lease producers cannot
+run against old core, and the old correlator must not write concurrently with the new
+attribution path. Neither compatibility combination is made safe by adding protobuf fields.
+
+Prepare the compatible gateway and agent transport first, while netprobe still sends the
+old event shape. At the central cutover, drain old attribution admission and stop the old
+correlator and flow consumers, with the upstream flow stream retaining incoming work. Bring
+up the candidate core and EventWriter against the candidate streams and warehouse schema,
+then resume consumption. Enable the candidate netprobe only after every relay and central
+consumer on its route is compatible. Old netprobe events arriving at the new core use
+Decision 1's `OPEN` / 10-minute TTL default, with no observation dual-write.
+
+The release rehearsal must prove that the existing stream and retained-delivery capacities
+cover this bounded interruption. If the drain cannot finish, the buffers cannot cover it,
+or an old central writer remains active, stop the cutover. A rolling mixture of old and new
+central writers is not the fallback. Roll back the complete release and netprobe artifact
+as described in the Migration Plan, including the observation schema and subject. The
+previous correlator needs a fresh 30-minute observation window; this is a recovery delay,
+not an immediate restoration of attribution coverage.
+
+## Implementation plan
+
+This is the first, documentation-only PR of the #5738 implementation. The shared
+`ExecutableOwnership` message and its initial producer/ingest path landed through
+[#5919](https://github.com/carverauto/serviceradar/pull/5919). This satisfies the handoff's
+proto dependency for planning; it does not certify the separate ownership workstream's
+live validation or complete exposure task 0.3.
+
+### PR sequence and review boundaries
+
+Each row is a separately reviewable PR. Runtime PRs form one ordered integration stack;
+they are not individually deployable releases. The coordinator releases the complete
+stack only after its capacity and compatibility checks pass. New components can be tested
+in isolation before final wiring; no temporary production dual-write or second correlator
+is introduced to make an intermediate PR deployable.
+
+| Order | Scope and tasks | Evidence required before advancing |
+| --- | --- | --- |
+| P0 | This plan and proposed Decision 10 | Strict OpenSpec validation; coordinator review of deployment order and ownership boundaries |
+| P1 | Phase 0 measurements and synthetic store/replay spike (0.1-0.5) | Median projected ownership rate <= 5 events/s/host; 2.5M-key shard including 15-minute history <= 200 bytes/key; two-hour replay ready <= 2 minutes; full summary-key distribution and cap frequency recorded, with only rounded anonymous lab measurements |
+| P2 | Additive lease, address, snapshot and summary wire messages; regenerated bindings; agent relay support (1.1, transport portion of 2.1, wire portion of 5.3) | Old-producer/new-consumer decoding; complete synthetic batches survive netprobe -> agent -> gateway -> core, including `ExecutableOwnership`; protobuf breaking and generated-artifact checks |
+| P3 | Ownership/summary publishers, streams, NATS permissions, history and summary warehouse processors (2.3-2.5, 5.1-5.2, 5.4-5.5) | Disjoint subjects, retention-bound refusal, whole-unit publish acknowledgement, append-only history/summary rows, retry behavior and StarRocks-required behavior |
+| P4 | Bounded index, time history, owner interning, expiry, placement, replay and batched lookup (3.1-3.8) | Port reuse, duplicate/reordered events, snapshots, history eviction, budget refusal, shard movement and warming tests; measured P1 store representation carried forward |
+| P5 | Netprobe lease lifecycle and bounded connection summaries, reconnect snapshots and version bumps (1.2-1.9, remainder of 2.1 and 5.3, 5.6) | Loaded-kernel TCP open/close gate; listener promotion; wildcard/address changes; renewal shedding; strict summary cap with every connection accounted for; package ownership preserved in both leases and summaries |
+| P6 | Flow-tier supervision, ingest attribution, hold and late decisions, versioned warehouse updates and diagnostics (4.1-4.7, 6.1-6.2) | Protocol/topology precedence parity; cross-shard subscribe-with-snapshot; delivery permutations converge; shrink/enrichment and evidence-only updates; cutoff, budget and failover accounting; other EventWriter pipelines remain coordinator-only |
+| P7 | Full capacity harness, integrated release wiring and removal of the old path (7.1-7.6, 8.1-8.4, 9.1-9.2) | All capacity targets; no acknowledged loss; exact-version artifact chain; workspace search for removed active references; release rehearsal of Decision 10 and rollback |
+| P8 | Coordinator-controlled lab rollout and post-rollout verification (8.5) | Post-rollout lease, summary and attributed-flow artifacts; positive delivery control and eligible exporter overlap; every failed or inconclusive case remains explicit |
+
+Task 2.2 belongs to the core-admission owner: this workstream supplies publisher completion
+and retry contracts plus integration tests, and consumes that owner's reviewed change for
+configurable concurrency and whole-unit JetStream acknowledgement. Do not edit `admission/`,
+`StatusHandler` or gateway StatusBuffer as an incidental part of P3/P5/P6. P7 cannot release
+until that dependency is satisfied. Matcher, threat-intel, identity/topology, Stream Load
+internals and CI routing remain outside these PRs.
+
+P1 is a build gate, not merely a benchmark to run after implementation. A failing gate is
+recorded with the measured margin and a proposed design adjustment before runtime work
+continues. Existing observations may lack the lifecycle/owner information needed for an
+exact projection; document that limitation rather than counting repeated sightings as
+connections or claiming a missing measurement passed. A successful pre-aggregation proxy
+from the exposure spike does not satisfy any of these gates.
+
+### Wire compatibility and retained delivery
+
+- Reuse `ExecutableOwnership` on lease owner records and summaries. Keep the canonical
+  assessment identity and installed version; preserve non-resolved states and provenance.
+  Do not infer a package from process names or replace the shared message with a second
+  schema. Overflow summaries retain Decision 9's explicitly reduced owner information.
+- Allocate unused protobuf tags, preserve existing tags/reservations, and regenerate Go,
+  Rust and Elixir bindings through the repository's generation targets. Keep absence of
+  `lease_op` distinguishable as the legacy default. An old sighting becomes an `OPEN` with
+  a 10-minute TTL only at the new decoder; an old consumer is not a supported lease decoder.
+- Verify fields through the actual relay conversions, including retained retries and
+  reconnects. Protobuf unknown-field behavior alone is not evidence that a JSON conversion
+  or a manually reconstructed batch preserves addresses, summaries or snapshot completion.
+  Do not enable a new producer through a relay that has not passed this test.
+- Preserve one producer batch as one acknowledgement unit under the existing row, byte and
+  deadline bounds. Splitting it by ownership bucket and summary subject cannot acknowledge
+  a successful prefix. Test failure after some publishes and retry of the complete batch.
+  Snapshot omission may only take effect when the complete snapshot has arrived; its
+  completion marker must survive chunking, reconnect and retry without closing live leases.
+- Duplicate lease delivery must leave the index unchanged. Separately verify the effect of
+  retained redelivery on append-only history/summary counts; an index idempotence test does
+  not prove summary-count idempotence. Any required change to the approved append-only
+  storage or delivery contract is a proposed Decision before implementation.
+- Bump the native add-on manifest, Bazel `NETPROBE_VERSION` and in-source producer-version
+  constants together for every relevant netprobe change. A manifest-only bump cannot prove
+  that the running producer contains the lease or summary implementation.
+
+### Compatibility matrix and deployment order
+
+| Producer and route | Central consumer | Supported behavior |
+| --- | --- | --- |
+| Old netprobe, old or transport-compatible relay | Old release | Existing sightings/correlator until cutover |
+| Old netprobe, transport-compatible relay | New release | Legacy decode to 10-minute leases; ownership stream only; no fabricated connection summaries |
+| New netprobe, compatible agent and gateway | New release | Native leases, complete snapshots, address presence and connection summaries |
+| New netprobe with an old relay or old core | Either | Unsupported rollout order; do not enable the producer |
+| Any producer with old and new central attribution writers active together | Mixed | Unsupported central cutover; drain the old writers first |
+
+Under proposed Decision 10, the release runbook will use this order:
+
+1. Prove P1-P7 on synthetic fixtures and the complete candidate stack. Compare the same
+   synthetic protocol/topology cases against the existing precedence contract, including
+   expected differences for late shrinkage and ambiguity; never run two production writers
+   to obtain parity evidence. Verify stream capacity for the cutover and the rollback
+   artifacts before changing the deployment.
+2. Prepare compatible gateway and agent transports with the old netprobe still emitting
+   sightings. Confirm the retained-delivery route preserves all new fields in tests.
+3. Drain and stop old central attribution writers; retain incoming flow work in JetStream.
+   Apply the candidate schema/stream changes and start the candidate core and EventWriter.
+   Do not drop the observation table while an old correlator or observation consumer can
+   still access it. Verify subject ownership, NATS permissions and replay readiness before
+   resuming the candidate flow consumers.
+4. Enable the matching netprobe artifact on routes whose agent, gateway and core are ready.
+   Confirm reconnect snapshots and new summaries. The mixed-producer period has reduced
+   host evidence for old netprobes and does not satisfy exposure's live-summary gate.
+5. After rollout completion, verify exact running artifacts and use the spec's controlled
+   TCP stimulus and positive delivery control. Require the resulting lease, matching flow
+   and committed attributed row, plus summary evidence. Health messages or acknowledgements
+   alone do not pass the gate. The coordinator performs rollout/stimulus actions; the
+   exposure measurement session remains read-only on the lab.
+
+On failure, stop new lease emission before restoring old consumers; restore the previous
+core/EventWriter, gateway/agent where required, netprobe artifact, observation DDL and
+subject/permissions as one coordinated rollback. Verify restored writes before counting
+the new 30-minute observation window. No CNPG fallback, backfill, warehouse rescan or
+reintroduction of both writers is part of recovery.
+
+### Dependency back to exposure intelligence
+
+This change supplies exposure task 0.4: the ownership index, late decisions, address
+presence and `host_connection_summaries` carrying executable ownership. It does not supply
+exposure's `exposure_device_addresses` intervals or per-side device ordinal/outcome columns;
+those belong to exposure tasks 2.1-2.4. Exposure task 0.5 remains open until its real evidence
+keys and per-batch ratios can be measured, including host summaries and mapped network
+sides. Neither a raw-tuple ratio nor the existence of a summary table passes it.
+
+The exposure task list currently places all Section 0 gates before 1.x, while the network
+measurement needs the later address/stamping work. Resolve that sequencing with the
+coordinator in the exposure change before starting those tasks. This implementation plan
+does not silently move or waive that gate. If the measured network ratio exceeds 25%, its
+approved async-view fallback must be selected before exposure 3.x; a failed host ratio
+requires its own design review.
+
 ## Known edge cases and deferred decisions
 
 Listed so that review converges: each case has its intended handling or is explicitly
