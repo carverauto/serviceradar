@@ -358,6 +358,12 @@ impl SocketInventory {
             workload_identity: None,
             executable_ownership: executable_ownership(process),
         };
+        let owner = ProcessDetailsCacheKey {
+            tgid: flow.pid.tgid,
+            uid: flow.pid.uid,
+            gid: flow.pid.gid,
+            process_generation_ns: flow.pid.process_generation_ns,
+        };
         let now = Instant::now();
 
         match self.entries.get_mut(&key) {
@@ -367,6 +373,7 @@ impl SocketInventory {
             Some(cached) => {
                 if prefer_snapshot_entry(&entry, &cached.entry) {
                     cached.entry = entry;
+                    cached.owner = owner;
                     self.dirty = true;
                 }
                 cached.last_seen = now;
@@ -376,9 +383,33 @@ impl SocketInventory {
                     key,
                     CachedProcessSocket {
                         entry,
+                        owner,
                         last_seen: now,
                     },
                 );
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Applies process details read after a listener was inventoried to the rows that
+    /// process owns, so the next snapshot carries them.
+    fn refresh_process(&mut self, owner: &ProcessDetailsCacheKey, details: &ProcessDetails) {
+        for cached in self.entries.values_mut() {
+            if cached.owner != *owner {
+                continue;
+            }
+            let mut entry = cached.entry.clone();
+            entry.uid = details.uid;
+            entry.gid = details.gid;
+            entry.comm = details.comm.clone();
+            entry.redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
+            entry.container_id = details.container_id.clone().unwrap_or_default();
+            if let Some(ownership) = executable_ownership(Some(details)) {
+                entry.executable_ownership = Some(ownership);
+            }
+            if prefer_snapshot_entry(&entry, &cached.entry) {
+                cached.entry = entry;
                 self.dirty = true;
             }
         }
@@ -506,6 +537,7 @@ fn prefer_snapshot_entry(candidate: &ProcessSnapshotEntry, current: &ProcessSnap
 #[cfg(target_os = "linux")]
 struct CachedProcessSocket {
     entry: ProcessSnapshotEntry,
+    owner: ProcessDetailsCacheKey,
     last_seen: Instant,
 }
 
@@ -1319,7 +1351,11 @@ impl AyaAttributionReader {
     }
 
     fn process_pending_metadata(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
-        self.metadata.process_pending()
+        let updated = self.metadata.process_pending();
+        for (owner, details) in &updated {
+            self.socket_inventory.refresh_process(owner, details);
+        }
+        updated
     }
 
     fn metadata_cache_len(&self) -> usize {
@@ -1358,6 +1394,8 @@ impl AyaAttributionReader {
         }
         metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
         record_ownership_metrics(metrics, &self.metadata.procfs);
+        self.socket_inventory
+            .refresh_process(&ProcessDetailsCacheKey::from(record), &details);
 
         apply_process_details_to_event(Arc::make_mut(&mut cached.event), &details)
     }
@@ -3449,9 +3487,25 @@ mod tests {
         };
 
         let event = flow_attribution_event(&flow, 1).unwrap();
+        // The listener is inventoried before procfs is read, as on a cold-read miss; the
+        // details read later reach the listener row.
         let mut inventory = SocketInventory::default();
-        inventory.update(&flow);
-        let snapshot = inventory.snapshot_if_dirty(1).unwrap();
+        inventory.update(&AttributedFlow {
+            process: None,
+            ..flow.clone()
+        });
+        let cold = inventory.snapshot_if_dirty(1).unwrap();
+        assert_eq!(cold.entries[0].executable_ownership, None);
+        inventory.refresh_process(
+            &ProcessDetailsCacheKey {
+                tgid: 123,
+                uid: 0,
+                gid: 0,
+                process_generation_ns: 1,
+            },
+            flow.process.as_ref().unwrap(),
+        );
+        let snapshot = inventory.snapshot_if_dirty(2).unwrap();
 
         for ownership in [
             event.executable_ownership.as_ref(),
