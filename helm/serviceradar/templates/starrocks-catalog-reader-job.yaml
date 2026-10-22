@@ -156,6 +156,11 @@ data:
       ON platform.device_interface_addresses_catalog TO {{ $reader }};
     GRANT SELECT (uid, uid_alt, alias)
       ON platform.device_inventory_aliases_catalog TO {{ $reader }};
+    GRANT SELECT (device_ord, device_uid, hostname, device_type, vendor_name, partition,
+      vlan_uid, owner_name, tag_site, is_available, agent_managed)
+      ON platform.exposure_device_catalog TO {{ $reader }};
+    GRANT SELECT (device_ord, tag_key, tag_value)
+      ON platform.exposure_device_tags_catalog TO {{ $reader }};
     GRANT SELECT (device_id, alias_type, state, alias_value)
       ON platform.device_alias_states TO {{ $reader }};
     GRANT SELECT (device_uid, sampler_address, exporter_name)

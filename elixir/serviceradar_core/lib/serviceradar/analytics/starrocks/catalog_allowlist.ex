@@ -32,6 +32,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     discovered_interfaces
     device_interface_addresses_catalog
     device_inventory_aliases_catalog
+    exposure_device_catalog
+    exposure_device_tags_catalog
     netflow_exporter_cache
     netflow_interface_cache
     netflow_local_cidrs_catalog
