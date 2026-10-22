@@ -996,8 +996,19 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
     end
   end
 
-  defp match_row(%{"payload" => %{} = payload}), do: payload
-  defp match_row(row), do: row
+  defp match_row(%{"payload" => %{} = payload}), do: match_row(payload)
+  defp match_row(row), do: Map.replace_lazy(row, "evaluated_at", &utc_timestamp/1)
+
+  defp utc_timestamp(value) when is_binary(value) do
+    with {:error, :missing_offset} <- DateTime.from_iso8601(value),
+         {:ok, naive} <- NaiveDateTime.from_iso8601(value) do
+      DateTime.from_naive!(naive, "Etc/UTC")
+    else
+      _ -> value
+    end
+  end
+
+  defp utc_timestamp(value), do: value
 
   defp match_ip_filter(nil), do: {:ok, nil}
   defp match_ip_filter(ip), do: ThreatIntelEvidence.parse_address(ip, :ip)
