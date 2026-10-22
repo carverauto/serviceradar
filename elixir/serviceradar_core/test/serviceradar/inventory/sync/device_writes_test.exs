@@ -28,8 +28,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
     refute DeviceWrites.inventory_rollup_bulk_refresh_required?(nil)
     refute DeviceWrites.inventory_rollup_bulk_refresh_required?(0)
     refute DeviceWrites.inventory_rollup_bulk_refresh_required?(-1)
-    refute DeviceWrites.inventory_rollup_bulk_refresh_required?(100)
-    assert DeviceWrites.inventory_rollup_bulk_refresh_required?(101)
+    refute DeviceWrites.inventory_rollup_bulk_refresh_required?(10_000)
+    assert DeviceWrites.inventory_rollup_bulk_refresh_required?(10_001)
   end
 
   test "integer threshold is configurable" do
@@ -49,8 +49,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
   test "invalid threshold falls back to default" do
     Application.put_env(:serviceradar_core, :inventory_rollup_bulk_refresh_threshold, "bad")
 
-    refute DeviceWrites.inventory_rollup_bulk_refresh_required?(100)
-    assert DeviceWrites.inventory_rollup_bulk_refresh_required?(101)
+    refute DeviceWrites.inventory_rollup_bulk_refresh_required?(10_000)
+    assert DeviceWrites.inventory_rollup_bulk_refresh_required?(10_001)
   end
 
   test "under-threshold successful rollup refresh is a no-op" do

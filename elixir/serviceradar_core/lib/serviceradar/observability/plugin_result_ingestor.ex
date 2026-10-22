@@ -86,52 +86,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       )
 
     case insert_status(status_row, actor) do
-      {:ok, reported_status} ->
-        handlers = plugin_result_handlers()
+      {:ok, reported_status, :inserted} ->
+        run_handlers(reported_status, payload, status, observed_at, actor)
 
-        case ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
-          :ok ->
-            case persist_handler_success(
-                   service_status_attributes(reported_status),
-                   payload,
-                   handlers,
-                   actor
-                 ) do
-              {:ok, status_event} ->
-                publish_committed_status(status_event || reported_status)
-                :ok
-
-              {:error, persistence_error} ->
-                publish_committed_status(reported_status)
-                error_text = handler_error_text(persistence_error)
-                Logger.error("Plugin result handler success persistence failed: #{error_text}")
-                {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
-            end
-
-          {:error, {failure_kind, errors}} = handler_error
-          when failure_kind in [
-                 :plugin_result_handlers_failed,
-                 :plugin_result_artifact_cleanup_failed
-               ] ->
-            case persist_handler_failure(
-                   service_status_attributes(reported_status),
-                   payload,
-                   errors,
-                   handlers,
-                   actor
-                 ) do
-              {:ok, status_event} ->
-                publish_committed_status(status_event || reported_status)
-                handler_error
-
-              {:error, persistence_error_text} ->
-                publish_committed_status(reported_status)
-
-                {:error,
-                 {:plugin_result_handler_failure_persistence_failed, errors,
-                  persistence_error_text}}
-            end
-        end
+      {:ok, reported_status, :existing} ->
+        redeliver(reported_status, payload, status, observed_at, actor)
 
       {:error, persistence_error} ->
         PluginIngestor.discard_artifacts(payload, status)
@@ -171,6 +130,98 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   def ingest(_payload, _status), do: {:error, :invalid_payload}
 
+  defp run_handlers(reported_status, payload, status, observed_at, actor) do
+    handlers = plugin_result_handlers()
+
+    case ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
+      :ok ->
+        case persist_handler_success(
+               service_status_attributes(reported_status),
+               payload,
+               handlers,
+               actor
+             ) do
+          {:ok, status_event} ->
+            publish_committed_status(status_event || reported_status)
+            :ok
+
+          {:error, persistence_error} ->
+            publish_committed_status(reported_status)
+            error_text = handler_error_text(persistence_error)
+            Logger.error("Plugin result handler success persistence failed: #{error_text}")
+            {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
+        end
+
+      {:error, {failure_kind, errors}} = handler_error
+      when failure_kind in [
+             :plugin_result_handlers_failed,
+             :plugin_result_artifact_cleanup_failed
+           ] ->
+        case persist_handler_failure(
+               service_status_attributes(reported_status),
+               payload,
+               errors,
+               handlers,
+               actor
+             ) do
+          {:ok, status_event} ->
+            publish_committed_status(status_event || reported_status)
+            handler_error
+
+          {:error, persistence_error_text} ->
+            publish_committed_status(reported_status)
+
+            {:error,
+             {:plugin_result_handler_failure_persistence_failed, errors, persistence_error_text}}
+        end
+    end
+  end
+
+  # A delivery whose reported row is already committed is a redelivery: the
+  # agent retries every result the gateway did not confirm, including one whose
+  # run committed just after the retained lane's budget expired. When the current
+  # handler set's success for this observation is visible, the result is
+  # committed, so the redelivery is acknowledged without running the handlers
+  # again. Anything else (a handler failure, another handler set's outcome, or no
+  # visible outcome) reruns the handlers, as every redelivery did before.
+  defp redeliver(reported_status, payload, status, observed_at, actor) do
+    handlers = plugin_result_handlers()
+
+    if server_reported_status?(reported_status) and
+         committed_by?(service_status_attributes(reported_status), handlers, actor) do
+      :ok
+    else
+      run_handlers(reported_status, payload, status, observed_at, actor)
+    end
+  end
+
+  defp committed_by?(status_row, handlers, actor) do
+    provenance = handler_set_provenance(handlers)
+    observation_timestamp = PluginResultSlot.logical_observation_timestamp(status_row)
+    payload_digest = reported_status_payload_digest(status_row.details)
+
+    with {:ok, rows} <- handler_marker_rows(status_row, actor),
+         {:ok, state} <- handler_marker_state(status_row, actor) do
+      (rows ++ List.wrap(state))
+      |> Enum.map(&parse_handler_marker/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(fn marker ->
+        marker.observation_timestamp == observation_timestamp and
+          marker.payload_digest == payload_digest and
+          valid_marker_timestamp?(marker, status_row.timestamp)
+      end)
+      |> Enum.max_by(&DateTime.to_unix(&1.timestamp, :microsecond), fn -> nil end)
+      |> case do
+        %{status: "succeeded", handler_set: ^provenance} -> true
+        _latest -> false
+      end
+    else
+      # The lookup failing leaves the outcome unknown; rerunning is the
+      # behaviour every redelivery had before.
+      {:error, _reason} -> false
+    end
+  end
+
   defp insert_status(row, actor) do
     do_insert_status(row, actor, 0)
   end
@@ -191,7 +242,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                   {:ok, existing} <- existing_reported_status(row, actor) do
                case existing do
                  %ServiceStatus{} = status ->
-                   {:ok, status, []}
+                   {:ok, status, [], :existing}
 
                  nil ->
                    with :ok <-
@@ -199,9 +250,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                             physical_row,
                             if(first_probe?, do: :try, else: :exclusive)
                           ),
-                        {:ok, status, notifications} <-
+                        {:ok, status, notifications, origin} <-
                           do_insert_reported_status(row, physical_row, actor) do
-                     {:ok, status, notifications}
+                     {:ok, status, notifications, origin}
                    else
                      {:error, reason} -> Repo.rollback(reason)
                    end
@@ -210,9 +261,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                {:error, reason} -> Repo.rollback(reason)
              end
            end) do
-        {:ok, {:ok, status, notifications}} ->
+        {:ok, {:ok, status, notifications, origin}} ->
           _ = Ash.Notifier.notify(notifications)
-          {:ok, status}
+          {:ok, status, origin}
 
         {:error, reason}
         when reason in [:reported_status_slot_collision, :status_slot_lock_busy] ->
@@ -337,7 +388,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     with {:ok, slot_rows} <- reported_status_overlap_rows(physical_row, actor) do
       case Enum.find(slot_rows, &reported_status_matches?(&1, logical_row)) do
         %ServiceStatus{} = existing ->
-          {:ok, existing, []}
+          {:ok, existing, [], :existing}
 
         nil ->
           if Enum.any?(slot_rows, &blocking_status_overlap?(&1, physical_row)) do
@@ -354,7 +405,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
            insert_status_with_notifications(physical_row, actor),
          {:ok, persisted} <- service_status_at_slot(physical_row, actor) do
       if reported_status_matches?(persisted, logical_row) do
-        {:ok, persisted, notifications}
+        {:ok, persisted, notifications, :inserted}
       else
         {:error, :reported_status_slot_collision}
       end
