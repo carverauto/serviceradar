@@ -92,10 +92,11 @@ jspm_packages/
 # `npm i @anthropic-ai/claude-agent-sdk`) run from the repo root leaves a
 # package.json/package-lock.json here that belongs to nothing in the build.
 #
-# ROOT-ANCHORED ON PURPOSE. There are a dozen tracked package.json /
-# package-lock.json files under demo/, docs/, elixir/web-ng/assets/, js/cli/
-# and js/create-dashboard/. An unanchored `package.json` would match every one
-# of those. The leading slash keeps this to the repo root only.
+# ROOT-ANCHORED ON PURPOSE. Tracked package-lock.json files live under
+# demo/, docs/, js/cli/ and js/create-dashboard/ (elixir/web-ng/assets/ holds
+# tracked package.json files but no lockfile). An unanchored `package.json`
+# would match every one of those. The leading slash keeps this to the repo
+# root only.
 /package.json
 /package-lock.json
 
