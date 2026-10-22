@@ -194,22 +194,39 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
     end
   end
 
-  defp parse_address(text, :ip) do
+  @doc """
+  Validates a filter address as PostgreSQL would accept it. `:ip` takes a bare
+  address (`{:error, :invalid_ip}` otherwise); `:cidr` also takes a prefix whose
+  host bits are zero (`{:error, :invalid_cidr}` otherwise).
+  """
+  @spec parse_address(String.t(), :ip | :cidr) :: {:ok, String.t()} | {:error, atom()}
+  def parse_address(text, :ip) do
     case :inet.parse_address(String.to_charlist(text)) do
       {:ok, _} -> {:ok, text}
       {:error, _} -> {:error, :invalid_ip}
     end
   end
 
-  defp parse_address(text, :cidr) do
+  def parse_address(text, :cidr) do
     with [address, prefix] <- String.split(text, "/", parts: 2),
          {:ok, parsed} <- :inet.parse_address(String.to_charlist(address)),
          {bits, ""} <- Integer.parse(prefix),
-         true <- bits >= 0 and bits <= if(tuple_size(parsed) == 4, do: 32, else: 128) do
+         true <- network_address?(parsed, bits) do
       {:ok, text}
     else
       _ -> text |> parse_address(:ip) |> host_as_cidr()
     end
+  end
+
+  defp network_address?(parsed, bits) do
+    {width, total} = if tuple_size(parsed) == 4, do: {8, 32}, else: {16, 128}
+
+    value =
+      parsed
+      |> Tuple.to_list()
+      |> Enum.reduce(0, fn part, acc -> Bitwise.bor(Bitwise.bsl(acc, width), part) end)
+
+    bits >= 0 and bits <= total and Bitwise.band(value, Bitwise.bsl(1, total - bits) - 1) == 0
   end
 
   defp host_as_cidr({:ok, ip}), do: {:ok, ip}

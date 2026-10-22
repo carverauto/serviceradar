@@ -993,35 +993,10 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   end
 
   defp match_ip_filter(nil), do: {:ok, nil}
-
-  defp match_ip_filter(ip) do
-    case :inet.parse_address(String.to_charlist(ip)) do
-      {:ok, _address} -> {:ok, ip}
-      {:error, _reason} -> {:error, :invalid_ip}
-    end
-  end
+  defp match_ip_filter(ip), do: ThreatIntelEvidence.parse_address(ip, :ip)
 
   defp match_indicator_filter(nil), do: {:ok, nil}
-
-  defp match_indicator_filter(indicator) do
-    [address | prefix] = String.split(indicator, "/", parts: 2)
-
-    with {:ok, parsed} <- :inet.parse_address(String.to_charlist(address)),
-         true <- valid_prefix?(prefix, if(tuple_size(parsed) == 4, do: 32, else: 128)) do
-      {:ok, indicator}
-    else
-      _ -> {:error, :invalid_cidr}
-    end
-  end
-
-  defp valid_prefix?([], _max), do: true
-
-  defp valid_prefix?([prefix], max) do
-    case Integer.parse(prefix) do
-      {bits, ""} -> bits >= 0 and bits <= max
-      _ -> false
-    end
-  end
+  defp match_indicator_filter(indicator), do: ThreatIntelEvidence.parse_address(indicator, :cidr)
 
   defp min_severity_filter(nil), do: {:ok, nil}
 
