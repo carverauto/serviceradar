@@ -329,8 +329,8 @@ fn unowned_executable_is_not_found_and_names_no_package() {
 }
 
 #[test]
-fn unsupported_and_incomplete_databases_are_never_reported_as_unowned() {
-    let cases: [PrecedenceCase; 4] = [
+fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
+    let cases: [PrecedenceCase; 5] = [
         (
             "berkeleydb",
             |root| write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0"),
@@ -342,6 +342,23 @@ fn unsupported_and_incomplete_databases_are_never_reported_as_unowned() {
             |root| write(&root.join("var/lib/rpm/Packages.db"), b"\0\0\0\0"),
             OwnershipState::UnsupportedDb,
             DETAIL_RPM_NDB,
+        ),
+        (
+            "dpkg read with a leftover berkeleydb",
+            |root| {
+                dpkg(
+                    root,
+                    &[(
+                        "example-docs",
+                        "1.0-1",
+                        "example-docs",
+                        &["/usr/share/doc/example/README"],
+                    )],
+                );
+                write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0");
+            },
+            OwnershipState::NotFound,
+            DETAIL_NOT_OWNED,
         ),
         (
             "wal pending",

@@ -37,8 +37,9 @@ use root_path::RootFs;
 const MAX_CACHED_EXECUTABLES: usize = 4096;
 /// Process roots (the host plus distinct containers) whose package index is kept.
 const MAX_ROOT_INDEXES: usize = 32;
-/// Package-database paths read per index build; a larger database is indexed partially
-/// and misses are then reported as unknown rather than unowned.
+/// Package-database paths read per index build; a larger database truncates the index,
+/// and every executable in that root is then `Unknown` (`package_index_truncated`) until
+/// the next re-index, per Decision 18's state order.
 const MAX_INDEXED_PATHS: usize = 2_000_000;
 /// Executables indexed per root.
 const MAX_INDEXED_EXECUTABLES: usize = 262_144;
@@ -292,8 +293,8 @@ impl RootIndex {
 
     /// Classifies an executable against this index, in the precedence of design
     /// Decision 18: anything that leaves the answer undetermined is `Unknown`; an
-    /// unsupported database is `UnsupportedDb` unless a supported one owns the inode;
-    /// `NotFound` needs every present database supported and read completely.
+    /// unsupported database is `UnsupportedDb` only when no supported one was read;
+    /// otherwise an inode no read database lists is `NotFound`.
     fn classify(
         &self,
         executable: FileId,
@@ -307,8 +308,8 @@ impl RootIndex {
         }
         match (self.owners.get(&executable), self.unsupported) {
             (Some(package), _) => (OwnershipState::Resolved, "", Some(*package)),
-            (None, Some(detail)) => (OwnershipState::UnsupportedDb, detail, None),
-            (None, None) => (OwnershipState::NotFound, DETAIL_NOT_OWNED, None),
+            (None, Some(detail)) if !self.read_any => (OwnershipState::UnsupportedDb, detail, None),
+            (None, _) => (OwnershipState::NotFound, DETAIL_NOT_OWNED, None),
         }
     }
 

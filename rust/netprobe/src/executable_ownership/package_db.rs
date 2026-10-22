@@ -143,8 +143,9 @@ fn add_dpkg_package(
         OwningPackage {
             package_type: "deb".to_string(),
             package_manager: "dpkg".to_string(),
-            // The endpoint inventory stores no ecosystem for OS packages, so an empty
-            // value is what the assessment identity hashes.
+            // The endpoint inventory stores no ecosystem for OS packages; core maps this blank
+            // value to an absent (nil) component before deriving the package identity key, as
+            // it does for every blank identity field.
             ecosystem: String::new(),
             namespace: namespace.to_string(),
             release: release.to_string(),
@@ -250,8 +251,9 @@ impl ApkRecord {
         OwningPackage {
             package_type: "apk".to_string(),
             package_manager: "apk".to_string(),
-            // The endpoint inventory stores no ecosystem for OS packages, so an empty
-            // value is what the assessment identity hashes.
+            // The endpoint inventory stores no ecosystem for OS packages; core maps this blank
+            // value to an absent (nil) component before deriving the package identity key, as
+            // it does for every blank identity field.
             ecosystem: String::new(),
             namespace: namespace.to_string(),
             release: release.to_string(),
@@ -324,8 +326,9 @@ fn read_rpm_sqlite(
             OwningPackage {
                 package_type: "rpm".to_string(),
                 package_manager: "rpm".to_string(),
-                // The endpoint inventory stores no ecosystem for OS packages, so an empty
-                // value is what the assessment identity hashes.
+                // The endpoint inventory stores no ecosystem for OS packages; core maps this blank
+                // value to an absent (nil) component before deriving the package identity key, as
+                // it does for every blank identity field.
                 ecosystem: String::new(),
                 namespace: namespace.clone(),
                 release: release.clone(),
