@@ -47,6 +47,27 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     end
   end
 
+  test "exposure joins use narrow views and reject source dictionaries and assessments" do
+    for table <- ~w(exposure_device_catalog exposure_device_tags_catalog) do
+      assert {:ok, "cnpg_platform.platform.#{table}"} == CatalogAllowlist.qualify(table)
+
+      assert :ok ==
+               CatalogAllowlist.assert_sql_allowlisted(
+                 "SELECT * FROM cnpg_platform.platform.#{table}"
+               )
+    end
+
+    for table <-
+          ~w(endpoint_vulnerability_assessments endpoint_vulnerability_matches endpoint_inventory_packages endpoint_packages vulnerability_advisories advisory_coordinates device_fleet_ordinals ocsf_agents alerts) do
+      assert {:error, :not_allowlisted} == CatalogAllowlist.qualify(table)
+
+      assert {:error, {:not_allowlisted, ^table}} =
+               CatalogAllowlist.assert_sql_allowlisted(
+                 "SELECT * FROM cnpg_platform.platform.#{table}"
+               )
+    end
+  end
+
   test "secrets, jobs, and telemetry hypertables are not join targets" do
     for table <-
           ~w(network_credential_secrets network_credential_rules users oban_jobs logs ocsf_events ocsf_network_activity timeseries_metrics alerts) do

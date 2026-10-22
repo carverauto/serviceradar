@@ -16,8 +16,11 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   `device_identifiers` and `discovered_interfaces` are here because a log row
   carries no device uid: `device_id:` on logs resolves the uid to the addresses
   and names the inventory knows, and CNPG reads those two relations to do it.
-  The two `_catalog` views carry what JDBC cannot: an interface's address array
-  and the metadata-derived device aliases, flattened to text rows.
+  The `_catalog` views carry what JDBC cannot: an interface's address array,
+  the metadata-derived device aliases, and the exposure device attributes and
+  tags, flattened to text rows. The exposure views are the only CNPG relations
+  exposure queries join; the assessment, package, advisory, dictionary, agent
+  and alert tables stay off this list.
   """
 
   @catalog "cnpg_platform"
@@ -32,6 +35,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     discovered_interfaces
     device_interface_addresses_catalog
     device_inventory_aliases_catalog
+    exposure_device_catalog
+    exposure_device_tags_catalog
     netflow_exporter_cache
     netflow_interface_cache
     netflow_local_cidrs_catalog
