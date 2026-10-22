@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   use ServiceRadarWebNG.AshTestHelpers
 
   alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.PluginServiceStateReconcileWorker
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
@@ -112,7 +113,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert state.message == "streaming plugin ready"
   end
 
-  test "reconcile_plugin_assignments deactivates plugin service rows without enabled assignments" do
+  test "the scheduled reconcile job deactivates plugin service rows without enabled assignments" do
     gateway = gateway_fixture()
     current_agent = agent_fixture(gateway, %{uid: unique_id("agent")})
     stale_agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -132,8 +133,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
         state: "active"
       })
 
-    assert {:ok, count} = ServiceStateRegistry.reconcile_plugin_assignments()
-    assert count >= 2
+    assert :ok = PluginServiceStateReconcileWorker.perform(%Oban.Job{args: %{}})
 
     assert service_state_for(current_agent, package.name).state == "active"
     assert reloaded_state(stale_state).state == "inactive"

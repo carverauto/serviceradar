@@ -1207,6 +1207,9 @@ if config_env() == :prod do
       # agent gone) otherwise stay running forever. Kept in step with
       # serviceradar_core's runtime.exs.
       {"*/5 * * * *", ServiceRadar.SweepJobs.ExecutionReaperWorker, queue: :maintenance},
+      # Converges plugin service state with plugin assignments changed outside the
+      # web-ng assignment actions. Kept in step with serviceradar_core's runtime.exs.
+      {"*/5 * * * *", ServiceRadar.Observability.PluginServiceStateReconcileWorker, queue: :maintenance},
       # Merged device availability (stage b): drains the invalidation log and re-resolves
       # devices whose evidence aged out. Neither resolves outside `shadow` mode. Kept
       # in step with serviceradar_core's runtime.exs and config.exs.

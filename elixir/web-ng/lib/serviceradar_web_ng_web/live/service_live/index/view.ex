@@ -15,12 +15,22 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.View do
     assigns =
       assigns
       |> assign(:has_filter, has_filter)
+      |> assign(:plugin_error, source_error(assigns[:plugin_source]))
       |> assign(:timezone, user_timezone(assigns[:current_scope]))
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
+          <div
+            :if={@plugin_error}
+            id="services-plugin-state-error"
+            role="alert"
+            class={ui_alert_class("error")}
+          >
+            {@plugin_error}
+          </div>
+
           <div
             :if={@tab_loading}
             id="services-tab-loading"
@@ -59,6 +69,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.View do
     </Layouts.app>
     """
   end
+
+  defp source_error({:error, message}) when is_binary(message), do: message
+  defp source_error(_source), do: nil
 
   defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
 
