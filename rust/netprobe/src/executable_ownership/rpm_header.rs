@@ -151,8 +151,10 @@ impl<'a> Header<'a> {
             .get(entry.offset..entry.offset.checked_add(entry.count.checked_mul(2)?)?)?;
         Some(
             bytes
-                .chunks_exact(2)
-                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_be_bytes(*pair))
                 .collect(),
         )
     }
@@ -167,8 +169,10 @@ impl<'a> Header<'a> {
             .get(entry.offset..entry.offset.checked_add(entry.count.checked_mul(4)?)?)?;
         Some(
             bytes
-                .chunks_exact(4)
-                .map(|quad| u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|quad| u32::from_be_bytes(*quad))
                 .collect(),
         )
     }
