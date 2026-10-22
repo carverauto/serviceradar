@@ -201,21 +201,34 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   """
   @spec parse_address(String.t(), :ip | :cidr) :: {:ok, String.t()} | {:error, atom()}
   def parse_address(text, :ip) do
-    case :inet.parse_address(String.to_charlist(text)) do
+    case strict_address(text) do
       {:ok, _} -> {:ok, text}
-      {:error, _} -> {:error, :invalid_ip}
+      :error -> {:error, :invalid_ip}
     end
   end
 
   def parse_address(text, :cidr) do
     with [address, prefix] <- String.split(text, "/", parts: 2),
-         {:ok, parsed} <- :inet.parse_address(String.to_charlist(address)),
+         {:ok, parsed} <- strict_address(address),
          {bits, ""} <- Integer.parse(prefix),
          true <- bits in 0..max_prefix(parsed),
          true <- network_address?(parsed, bits) do
       {:ok, text}
     else
       _ -> text |> parse_address(:ip) |> host_as_cidr()
+    end
+  end
+
+  defp strict_address(text) do
+    case :inet.parse_strict_address(String.to_charlist(text)) do
+      {:ok, parsed} when tuple_size(parsed) == 4 ->
+        if parsed |> :inet.ntoa() |> to_string() == text, do: {:ok, parsed}, else: :error
+
+      {:ok, parsed} ->
+        {:ok, parsed}
+
+      {:error, _} ->
+        :error
     end
   end
 

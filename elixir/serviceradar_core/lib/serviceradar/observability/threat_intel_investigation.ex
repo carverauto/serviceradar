@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelInvestigation.Keyset
   alias ServiceRadar.Repo
@@ -263,14 +264,8 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
 
   defp optional_integer(_value, error), do: {:error, error}
 
-  defp parse_ip(ip) when is_binary(ip) do
-    trimmed = String.trim(ip)
-
-    case :inet.parse_address(String.to_charlist(trimmed)) do
-      {:ok, _addr} -> {:ok, trimmed}
-      {:error, _reason} -> {:error, :invalid_ip}
-    end
-  end
+  defp parse_ip(ip) when is_binary(ip),
+    do: ip |> String.trim() |> ThreatIntelEvidence.parse_address(:ip)
 
   defp parse_ip(_ip), do: {:error, :invalid_ip}
 
