@@ -108,6 +108,26 @@ This keeps BPF/network privileges and CPU accounting isolated from the base agen
 - Explicit capture interface allowlist. Avoid `any` and wildcard interface names.
 - Open firewall path from the agent host to the configured ServiceRadar gateway.
 
+### Privileges after startup
+
+netprobe starts as root only long enough to load its eBPF programs, then drops to the
+`serviceradar` account. After the drop it keeps exactly one capability,
+`CAP_SYS_PTRACE`, in its permitted and effective sets. The inheritable and ambient sets
+stay empty, so nothing netprobe starts inherits it. The service unit lists
+`CAP_SYS_PTRACE` in `CapabilityBoundingSet` and not in `AmbientCapabilities`.
+
+netprobe uses it only for read access to `/proc/<pid>/exe` and `/proc/<pid>/root` of
+processes owned by other users. It never attaches to or traces a process. That access
+lets netprobe resolve a listening or attributed process's executable to the installed
+package that owns it. It reads dpkg, apk or the rpm sqlite database inside the process's
+own root, so a container resolves against its image's packages. Each executable is
+resolved once per inode and cached, and the result travels on flow attribution events
+and listener snapshot entries as `executable_ownership`.
+
+If the capability is unavailable, for example because the unit's bounding set was
+changed, netprobe logs a warning and keeps running. Ownership of other users' processes
+is then reported as `NOT_PERMITTED`.
+
 List host interfaces before enabling capture:
 
 ```bash

@@ -94,7 +94,7 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 	if got := directives["AmbientCapabilities"]; len(got) != 1 || got[0] != "CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON" {
 		t.Fatalf("AmbientCapabilities = %v", got)
 	}
-	if got := directives["CapabilityBoundingSet"]; len(got) != 1 || got[0] != "CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID" {
+	if got := directives["CapabilityBoundingSet"]; len(got) != 1 || got[0] != "CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID CAP_SYS_PTRACE" {
 		t.Fatalf("CapabilityBoundingSet = %v", got)
 	}
 	if got := directives["ReadWritePaths"]; len(got) != 1 {

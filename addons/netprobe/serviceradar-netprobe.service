@@ -52,8 +52,16 @@ RestartSec=5
 # needs CAP_NET_ADMIN on common kernels even in attribution-only mode. CAP_SETUID and
 # CAP_SETGID stay in the bounding set so the root-started process can drop to the
 # unprivileged serviceradar account after loading eBPF programs.
+#
+# CAP_SYS_PTRACE is the one capability netprobe keeps after that drop (PR_SET_KEEPCAPS,
+# then permitted and effective reduced to it; inheritable and ambient stay empty). It is
+# what lets the unprivileged process read /proc/<pid>/exe and /proc/<pid>/root of
+# processes owned by other users, so a listener's executable can be resolved to its
+# owning package (add-srql-exposure-intelligence, design Decision 18). Netprobe never
+# attaches to or traces another process. It is in the bounding set only, deliberately not
+# in AmbientCapabilities.
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID CAP_SYS_PTRACE
 # File capabilities on the staged binary are only honored on exec when no_new_privs is
 # off; leaving it off also lets the updater's setcap grant take effect.
 NoNewPrivileges=false

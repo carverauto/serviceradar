@@ -3,6 +3,7 @@ use std::{
     fs,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -14,20 +15,23 @@ use std::{
     io, mem,
     os::fd::AsRawFd,
     ptr,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 use crate::af_xdp_classifier::FlowKey;
+use crate::capabilities;
 #[cfg(target_os = "linux")]
 use crate::event_queue::EventSender;
+use crate::executable_ownership::{
+    ExecutableOwnershipRecord, ExecutableOwnershipResolver, ResolverCounters,
+};
 #[cfg(target_os = "linux")]
 use crate::external_flow::SharedExternalFlowMatcher;
-use crate::proto::netprobe::{FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry};
+use crate::proto::netprobe::{
+    ExecutableOwnership, FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry,
+};
 
 #[cfg(target_os = "linux")]
 use crate::metrics::Metrics;
@@ -286,6 +290,9 @@ pub struct ProcessDetails {
     pub container_id: Option<String>,
     pub last_seen_ns: u64,
     pub process_generation_ns: u64,
+    /// The installed package that owns the process's executable, resolved once per
+    /// executable inode. `None` when procfs was not consulted for this process.
+    pub executable: Option<ExecutableOwnershipRecord>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -349,6 +356,7 @@ impl SocketInventory {
                 .and_then(|details| details.container_id.clone())
                 .unwrap_or_default(),
             workload_identity: None,
+            executable_ownership: executable_ownership(process),
         };
         let now = Instant::now();
 
@@ -753,17 +761,38 @@ impl AttributionBackend for EbpfAttributionBackend {
 #[derive(Clone, Debug)]
 pub struct ProcfsEnricher {
     root: PathBuf,
+    /// Shared with the privileged executor thread, which runs every resolution; see
+    /// `capabilities::run_privileged`.
+    ownership: Arc<Mutex<ExecutableOwnershipResolver>>,
 }
 
 impl ProcfsEnricher {
     pub fn host() -> Self {
-        Self {
-            root: PathBuf::from("/proc"),
-        }
+        Self::with_root("/proc")
     }
 
     pub fn with_root(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        let root = root.into();
+        Self {
+            ownership: Arc::new(Mutex::new(ExecutableOwnershipResolver::new(&root))),
+            root,
+        }
+    }
+
+    pub fn take_ownership_counters(&self) -> ResolverCounters {
+        lock_resolver(&self.ownership).take_counters()
+    }
+
+    pub fn ownership_cache_len(&self) -> usize {
+        lock_resolver(&self.ownership).cache_len()
+    }
+
+    /// Resolves `pid`'s executable to its owning package on the thread that holds the
+    /// capability to read other users' procfs entries.
+    fn executable_ownership(&self, pid: u32) -> ExecutableOwnershipRecord {
+        let resolver = Arc::clone(&self.ownership);
+        capabilities::run_privileged(move || lock_resolver(&resolver).resolve(pid))
+            .unwrap_or_else(ExecutableOwnershipRecord::resolver_unavailable)
     }
 
     pub fn process_details(&self, record: &ProcessInfoRecord) -> ProcessDetails {
@@ -783,6 +812,7 @@ impl ProcfsEnricher {
                 container_id: None,
                 last_seen_ns: record.last_seen_ns,
                 process_generation_ns: 0,
+                executable: None,
             };
         }
 
@@ -805,6 +835,7 @@ impl ProcfsEnricher {
             container_id,
             last_seen_ns: record.last_seen_ns,
             process_generation_ns: record.process_generation_ns,
+            executable: Some(self.executable_ownership(resolve_pid)),
         }
     }
 
@@ -838,6 +869,7 @@ impl ProcfsEnricher {
             container_id,
             last_seen_ns: 0,
             process_generation_ns: 0,
+            executable: Some(self.executable_ownership(pid)),
         })
     }
 
@@ -878,6 +910,10 @@ impl ProcfsEnricher {
                 redacted_cmdline: process.cmdline,
                 container_id: process.container_id.unwrap_or_default(),
                 workload_identity: None,
+                executable_ownership: process
+                    .executable
+                    .as_ref()
+                    .map(ExecutableOwnershipRecord::to_proto),
             });
         }
 
@@ -1224,6 +1260,7 @@ impl AyaAttributionReader {
             metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
         }
         metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
+        record_ownership_metrics(metrics, &self.metadata.procfs);
         let process = Some(details);
         Some(AttributedFlow { flow, pid, process })
     }
@@ -1320,9 +1357,34 @@ impl AyaAttributionReader {
             metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
         }
         metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
+        record_ownership_metrics(metrics, &self.metadata.procfs);
 
         apply_process_details_to_event(Arc::make_mut(&mut cached.event), &details)
     }
+}
+
+fn lock_resolver(
+    resolver: &Mutex<ExecutableOwnershipResolver>,
+) -> std::sync::MutexGuard<'_, ExecutableOwnershipResolver> {
+    // A panic inside one resolution leaves no partial state worth refusing.
+    resolver
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(target_os = "linux")]
+fn record_ownership_metrics(metrics: &Metrics, procfs: &ProcfsEnricher) {
+    let counters = procfs.take_ownership_counters();
+    for (outcome, count) in [
+        ("ownership_resolved", counters.resolutions),
+        ("ownership_cache_hit", counters.cache_hits),
+        ("ownership_index_build", counters.index_builds),
+    ] {
+        if count > 0 {
+            metrics.inc_attribution_backend_events("executable_ownership", outcome, count);
+        }
+    }
+    metrics.set_attribution_cache_entries("executable_ownership", procfs.ownership_cache_len());
 }
 
 #[cfg(target_os = "linux")]
@@ -2204,11 +2266,16 @@ fn apply_process_details_to_event(
 ) -> bool {
     let redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
     let container_id = details.container_id.clone().unwrap_or_default();
+    // Record-only details (procfs not consulted yet) carry no ownership; keep what the
+    // event already has rather than clearing it.
+    let ownership =
+        executable_ownership(Some(details)).or_else(|| event.executable_ownership.clone());
     let changed = event.uid != details.uid
         || event.gid != details.gid
         || event.comm != details.comm
         || event.redacted_cmdline != redacted_cmdline
-        || event.container_id != container_id;
+        || event.container_id != container_id
+        || event.executable_ownership != ownership;
 
     if changed {
         event.uid = details.uid;
@@ -2216,9 +2283,16 @@ fn apply_process_details_to_event(
         event.comm = details.comm.clone();
         event.redacted_cmdline = redacted_cmdline;
         event.container_id = container_id;
+        event.executable_ownership = ownership;
     }
 
     changed
+}
+
+fn executable_ownership(process: Option<&ProcessDetails>) -> Option<ExecutableOwnership> {
+    process
+        .and_then(|details| details.executable.as_ref())
+        .map(ExecutableOwnershipRecord::to_proto)
 }
 
 // Directional FlowKey from a ring record's tuple: endpoint A is the local socket
@@ -2527,6 +2601,12 @@ fn attribution_event_fingerprint(event: &FlowAttributionEvent) -> u64 {
     event.comm.hash(&mut hasher);
     event.redacted_cmdline.hash(&mut hasher);
     event.container_id.hash(&mut hasher);
+    if let Some(ownership) = &event.executable_ownership {
+        ownership.resolution_state.hash(&mut hasher);
+        ownership.binary_package.hash(&mut hasher);
+        ownership.installed_version.hash(&mut hasher);
+        ownership.executable_inode.hash(&mut hasher);
+    }
     event.socket_address.hash(&mut hasher);
     event.event_kind.hash(&mut hasher);
     event.old_state.hash(&mut hasher);
@@ -2578,6 +2658,7 @@ fn flow_attribution_event(
             .and_then(|details| details.container_id.clone())
             .unwrap_or_default(),
         workload_identity: None,
+        executable_ownership: executable_ownership(process),
         observed_at_unix_nano,
         socket_address: flow.pid.socket_address,
         event_kind: u32::from(flow.pid.event_kind),
@@ -2642,6 +2723,7 @@ fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
             container_id: None,
             last_seen_ns: record.last_seen_ns,
             process_generation_ns: 0,
+            executable: None,
         };
     }
     ProcessDetails {
@@ -2654,6 +2736,7 @@ fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
         container_id: None,
         last_seen_ns: record.last_seen_ns,
         process_generation_ns: record.process_generation_ns,
+        executable: None,
     }
 }
 
@@ -3288,6 +3371,96 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
+    fn procfs_executable_ownership_rides_on_events_and_listener_entries() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        use crate::proto::netprobe::ExecutableOwnershipState;
+
+        // An invented host root with one dpkg package owning the listener's executable.
+        let rootfs = tempfile::tempdir().unwrap();
+        let executable = rootfs.path().join("usr/sbin/exampled");
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, b"\x7fELF").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::create_dir_all(rootfs.path().join("var/lib/dpkg/info")).unwrap();
+        fs::write(
+            rootfs.path().join("var/lib/dpkg/status"),
+            "Package: example-daemon\nStatus: install ok installed\nArchitecture: amd64\n\
+             Version: 2.4.1-3\n\n",
+        )
+        .unwrap();
+        fs::write(
+            rootfs.path().join("var/lib/dpkg/info/example-daemon.list"),
+            "/usr/sbin/exampled\n",
+        )
+        .unwrap();
+        let proc = temp_proc("123", b"/usr/sbin/exampled\0", "");
+        fs::create_dir_all(proc.path().join("1")).unwrap();
+        symlink(rootfs.path(), proc.path().join("1/root")).unwrap();
+        symlink(&executable, proc.path().join("123/exe")).unwrap();
+        symlink(rootfs.path(), proc.path().join("123/root")).unwrap();
+        let mut comm = [0u8; 16];
+        comm[..8].copy_from_slice(b"exampled");
+        let record = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 123,
+            tgid: 123,
+            uid: 0,
+            gid: 0,
+            last_seen_ns: 1,
+            process_generation_ns: 1,
+            comm,
+        };
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 22,
+                endpoint_b_port: 51_000,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 0,
+                gid: 0,
+                socket_address: 0xfeed,
+                last_seen_ns: 1,
+                process_generation_ns: 1,
+                old_state: 2,
+                new_state: 1,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(ProcfsEnricher::with_root(proc.path()).process_details(&record)),
+        };
+
+        let event = flow_attribution_event(&flow, 1).unwrap();
+        let mut inventory = SocketInventory::default();
+        inventory.update(&flow);
+        let snapshot = inventory.snapshot_if_dirty(1).unwrap();
+
+        for ownership in [
+            event.executable_ownership.as_ref(),
+            snapshot.entries[0].executable_ownership.as_ref(),
+        ] {
+            let ownership = ownership.expect("ownership is carried");
+            assert_eq!(
+                ownership.resolution_state,
+                ExecutableOwnershipState::Resolved as i32
+            );
+            assert_eq!(ownership.binary_package, "example-daemon");
+            assert_eq!(ownership.installed_version, "2.4.1-3");
+            assert_eq!(ownership.executable_path, "/usr/sbin/exampled");
+        }
+    }
+
+    #[test]
     fn builds_flow_attribution_event_with_local_endpoint() {
         let flow = AttributedFlow {
             flow: FlowKey {
@@ -3326,6 +3499,7 @@ mod tests {
                 container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
                 last_seen_ns: 99,
                 process_generation_ns: 123_456,
+                executable: None,
             }),
         };
 
@@ -3389,6 +3563,7 @@ mod tests {
                 container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
                 last_seen_ns: 99,
                 process_generation_ns: 123_456,
+                executable: None,
             }),
         };
 
@@ -3524,6 +3699,7 @@ mod tests {
                 container_id: None,
                 last_seen_ns: 99,
                 process_generation_ns: 123_456,
+                executable: None,
             }),
         };
 
@@ -3594,6 +3770,7 @@ mod tests {
                     container_id: Some("container".to_string()),
                     last_seen_ns: 0,
                     process_generation_ns: 42,
+                    executable: None,
                 },
             )],
         );
@@ -3648,6 +3825,7 @@ mod tests {
                     container_id: Some("container".to_string()),
                     last_seen_ns: 0,
                     process_generation_ns: 42,
+                    executable: None,
                 },
             )],
         );
@@ -3926,6 +4104,7 @@ mod tests {
                 container_id: None,
                 last_seen_ns: 0,
                 process_generation_ns: 0,
+                executable: None,
             }),
         };
         let event = flow_attribution_event(&flow, 1).unwrap();
@@ -3949,6 +4128,7 @@ mod tests {
             container_id: None,
             last_seen_ns: 0,
             process_generation_ns: 0,
+            executable: None,
         };
         let container = ProcessDetails {
             pid: 99,
@@ -3960,6 +4140,7 @@ mod tests {
             container_id: Some("a".repeat(64)),
             last_seen_ns: 0,
             process_generation_ns: 0,
+            executable: None,
         };
 
         let winner = preferred_process_owner(vec![host.clone(), container.clone()]).unwrap();
@@ -4131,6 +4312,7 @@ mod tests {
                 container_id: None,
                 last_seen_ns: 0,
                 process_generation_ns: 0,
+                executable: None,
             }),
         };
 
@@ -4200,6 +4382,7 @@ mod tests {
                 source: String::new(),
                 external_flow_id: 0,
                 workload_identity: None,
+                executable_ownership: None,
             }),
             process_key,
             last_seen: std::time::Instant::now(),

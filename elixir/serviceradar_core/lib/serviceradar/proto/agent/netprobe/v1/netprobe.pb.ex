@@ -1,3 +1,35 @@
+defmodule Serviceradar.Agent.Netprobe.V1.ExecutableOwnershipState do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.agent.netprobe.v1.ExecutableOwnershipState",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :EXECUTABLE_OWNERSHIP_STATE_UNSPECIFIED, 0
+  field :EXECUTABLE_OWNERSHIP_STATE_RESOLVED, 1
+  field :EXECUTABLE_OWNERSHIP_STATE_UNKNOWN, 2
+  field :EXECUTABLE_OWNERSHIP_STATE_NOT_PERMITTED, 3
+  field :EXECUTABLE_OWNERSHIP_STATE_NOT_FOUND, 4
+  field :EXECUTABLE_OWNERSHIP_STATE_UNSUPPORTED_DB, 5
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.ExecutableOwnershipResolver do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.agent.netprobe.v1.ExecutableOwnershipResolver",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :EXECUTABLE_OWNERSHIP_RESOLVER_UNSPECIFIED, 0
+  field :EXECUTABLE_OWNERSHIP_RESOLVER_DPKG, 1
+  field :EXECUTABLE_OWNERSHIP_RESOLVER_RPM, 2
+  field :EXECUTABLE_OWNERSHIP_RESOLVER_APK, 3
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.CaptureDirection do
   @moduledoc false
 
@@ -638,6 +670,40 @@ defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity do
     map: true
 end
 
+defmodule Serviceradar.Agent.Netprobe.V1.ExecutableOwnership do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.ExecutableOwnership",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :resolution_state, 1,
+    type: Serviceradar.Agent.Netprobe.V1.ExecutableOwnershipState,
+    json_name: "resolutionState",
+    enum: true
+
+  field :detail, 2, type: :string
+  field :source_scope, 3, type: :string, json_name: "sourceScope"
+  field :package_type, 4, type: :string, json_name: "packageType"
+  field :package_manager, 5, type: :string, json_name: "packageManager"
+  field :namespace, 6, type: :string
+  field :release, 7, type: :string
+  field :ecosystem, 8, type: :string
+  field :binary_package, 9, type: :string, json_name: "binaryPackage"
+  field :source_package, 10, type: :string, json_name: "sourcePackage"
+  field :architecture, 11, type: :string
+  field :installed_version, 12, type: :string, json_name: "installedVersion"
+
+  field :resolver, 13,
+    type: Serviceradar.Agent.Netprobe.V1.ExecutableOwnershipResolver,
+    enum: true
+
+  field :executable_path, 14, type: :string, json_name: "executablePath"
+  field :executable_dev, 15, type: :uint64, json_name: "executableDev"
+  field :executable_inode, 16, type: :uint64, json_name: "executableInode"
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent do
   @moduledoc false
 
@@ -669,6 +735,10 @@ defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent do
   field :workload_identity, 20,
     type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity,
     json_name: "workloadIdentity"
+
+  field :executable_ownership, 21,
+    type: Serviceradar.Agent.Netprobe.V1.ExecutableOwnership,
+    json_name: "executableOwnership"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch do
@@ -720,6 +790,10 @@ defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotEntry do
   field :workload_identity, 11,
     type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity,
     json_name: "workloadIdentity"
+
+  field :executable_ownership, 12,
+    type: Serviceradar.Agent.Netprobe.V1.ExecutableOwnership,
+    json_name: "executableOwnership"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ExternalFlowRecord do
