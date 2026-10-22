@@ -45,8 +45,8 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
 
   @doc """
   Imported provider objects (for OTX, pulses), most recently updated first.
-  Options: `:source`, `:indicator` (exact indicator recorded on the object),
-  `:limit`, `:cursor`.
+  Options: `:source`, `:indicator` (exact indicator recorded on the object; a
+  host CIDR such as `/32` also matches the bare address), `:limit`, `:cursor`.
   """
   @spec page_source_objects(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}

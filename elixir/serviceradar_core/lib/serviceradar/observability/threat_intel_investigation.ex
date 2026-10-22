@@ -171,9 +171,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
   end
 
   # Provider context for each indicator whose (source, indicator) maps to exactly
-  # one imported source object, taken from that object's newest version. One query for the whole detail list; an
-  # indicator with zero or several candidate objects gets no context rather
-  # than a guess.
+  # one imported source object, taken from that object's newest version. One
+  # query for the whole detail list; an indicator with zero or several candidate
+  # objects gets no context rather than a guess.
   defp source_contexts([]), do: {:ok, %{}}
 
   defp source_contexts(indicator_ids) do
