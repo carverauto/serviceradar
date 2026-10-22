@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   alias ServiceRadar.Observability.OTXRetrohuntRun
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelInvestigation.Keyset
+  alias ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry
   alias ServiceRadar.Observability.ThreatIntelSourceObject
 
   require Ash.Query
@@ -26,6 +27,10 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   @spec page_indicators(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
   def page_indicators(scope, opts \\ []) do
+    Telemetry.span(:imported_indicators, opts, fn -> read_indicators(scope, opts) end)
+  end
+
+  defp read_indicators(scope, opts) do
     limit = Keyset.limit(opts[:limit])
     now = DateTime.utc_now()
 
@@ -51,6 +56,10 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   @spec page_source_objects(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
   def page_source_objects(scope, opts \\ []) do
+    Telemetry.span(:source_objects, opts, fn -> read_source_objects(scope, opts) end)
+  end
+
+  defp read_source_objects(scope, opts) do
     limit = Keyset.limit(opts[:limit])
 
     with {:ok, after_key} <- Keyset.decode(opts[:cursor], [:datetime, :uuid]) do
@@ -68,6 +77,10 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   @doc "The most recent retrohunt runs, newest first."
   @spec recent_retrohunt_runs(term()) :: {:ok, [map()]} | {:error, term()}
   def recent_retrohunt_runs(scope) do
+    Telemetry.span(:retrohunt_runs, [], fn -> read_recent_retrohunt_runs(scope) end)
+  end
+
+  defp read_recent_retrohunt_runs(scope) do
     OTXRetrohuntRun
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort(started_at: :desc, id: :desc)
@@ -86,6 +99,10 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   @spec page_retrohunt_findings(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
   def page_retrohunt_findings(scope, opts \\ []) do
+    Telemetry.span(:retrohunt_findings, opts, fn -> read_retrohunt_findings(scope, opts) end)
+  end
+
+  defp read_retrohunt_findings(scope, opts) do
     limit = Keyset.limit(opts[:limit])
 
     with {:ok, run_id} <- optional_uuid(opts[:run_id]),
