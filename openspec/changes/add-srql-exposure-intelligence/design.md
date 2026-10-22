@@ -131,7 +131,7 @@ Alternatives considered:
 
 ```sql
 CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
-  device_ord          INT       NOT NULL,
+  device_ord          BIGINT    NOT NULL,
   cve_ord             BIGINT    NOT NULL,
   pkg_ord             BIGINT    NOT NULL,   -- version-independent package identity
   pkgver_ord          BIGINT    NOT NULL,   -- identity + installed version
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
   updated_at          DATETIME  NOT NULL,
   transition_seq      BIGINT    NOT NULL,
   transition_xid      BIGINT    NOT NULL,   -- CNPG xact id of the producing transaction
-  snapshot_generation BIGINT    NOT NULL
+  snapshot_generation BIGINT    NOT NULL DEFAULT "0"
 )
 PRIMARY KEY (device_ord, cve_ord, pkg_ord)
 DISTRIBUTED BY HASH(device_ord) BUCKETS 16
@@ -171,14 +171,19 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   an explicit terminal state (`resolved` or `retired`). A terminal transition never reuses
   the key's last sequence.
   - Every transition carries the complete after-image of every fact column except
-    `snapshot_generation`, never only the changed fields. It is applied only when its
-    `transition_seq` is greater than the stored one, so out-of-order delivery converges to
-    the latest complete state and an older or duplicate transition never overwrites it.
+    `snapshot_generation`, never only the changed fields. A greater `transition_seq`
+    applies the after-image; an equal sequence may replay the identical after-image.
+    Changed content requires a new sequence at the producer, under the assessment lock.
+    An older sequence is rejected. Live Stream Load uses row-mode partial updates with
+    every event-owned column explicitly listed, excluding `snapshot_generation`, so
+    replay preserves the snapshot marker. A newly inserted fact defaults that marker to 0.
   - A resolution is written as `state = 0` and the row stays as a tombstone carrying its
     `transition_seq`.
   - **The row is the fact's sequence watermark, and it is kept permanently.** A daily
     compaction clears only the payload columns of tombstones resolved more than 7 days ago,
-    leaving the key, `state = 0`, `transition_seq` and `transition_xid`. Correctness
+    leaving the key, `state = 0`, `transition_seq`, `transition_xid` and
+    `snapshot_generation`. An identical terminal replay may restore cleared payload,
+    which the next compaction can clear again; it cannot reactivate the fact. Correctness
     therefore does not depend on any delivery horizon: an older active transition delivered
     at any later time still loses to the watermark. Watermark rows cost about 24 bytes each
     before compression, and their number is bounded by the fact keys ever seen, because the
@@ -353,14 +358,14 @@ Alternatives considered:
 
 ```sql
 CREATE TABLE IF NOT EXISTS serviceradar.observed_connections_hourly (
-  device_ord INT NOT NULL, hour DATETIME NOT NULL, `partition` VARCHAR(128) NOT NULL,
+  device_ord BIGINT NOT NULL, hour DATETIME NOT NULL, `partition` VARCHAR(128) NOT NULL,
   direction TINYINT NOT NULL,      -- 1 inbound (accepted), 2 outbound (connected)
   proto TINYINT NOT NULL, service_port INT NOT NULL,
   peer_ip VARCHAR(64) NOT NULL, peer_scope TINYINT NOT NULL,  -- internal, internet, unknown
   pkg_ord BIGINT NOT NULL,         -- 0 when unknown
   process_name VARCHAR(64) NOT NULL,  -- '' when unknown
   workload_key VARCHAR(256) NOT NULL, -- '' when none
-  exporter_ord INT NOT NULL,       -- exporter device ordinal; 0 for host evidence
+  exporter_ord BIGINT NOT NULL,       -- exporter device ordinal; 0 for host evidence
   host_connections BIGINT SUM, host_bytes BIGINT SUM, host_packets BIGINT SUM,
   network_flows BIGINT SUM, network_bytes BIGINT SUM, network_unsampled_flows BIGINT SUM,
   first_seen DATETIME MIN, last_seen DATETIME MAX
@@ -658,11 +663,12 @@ snapshots.
     `resolved` state and the **new** sequence that the deleting transaction drew and
     published. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
     ordinal. It then emits `SNAPSHOT_END(G, V)`.
-  - A snapshot row is compared with the stored row on `(transition_seq, state)`. A greater
-    sequence is applied. An equal sequence with an equal state changes only
-    `snapshot_generation`. An equal sequence with a different state cannot be produced by
-    one transition, so it is counted as a reconciliation mismatch and the snapshot's state
-    is applied.
+  - A snapshot row is compared with the stored row on sequence, state and content.
+    A greater sequence applies the source after-image. An equal sequence with matching
+    content changes only `snapshot_generation`. An equal-sequence state or content
+    mismatch is counted and repaired through a new source transition, drawn under the assessment lock after
+    re-reading the current source state. Repair never changes content under an existing
+    sequence. The source watermark path owns repairs for deleted assessment keys.
   - Example (deletion): an active fact at sequence 10 has its assessment row deleted; the
     deleting transaction draws sequence 11 and records `resolved` at 11. A warehouse still
     holding the fact active at 10 receives the watermark at 11, which is greater, so the
@@ -673,8 +679,10 @@ snapshots.
     snapshot read, because it was drawn under the row lock after the visible change
     committed, so the merge condition lets it win in either arrival order.
   - On `SNAPSHOT_END`, rows with `snapshot_generation < G` whose `transition_xid` is
-    visible in `V` (`xid < xmin`, or `xid < xmax` and not in `xip`) are resolved, keeping
-    their `transition_seq`. Rows last written by a transition not visible in `V` are left
+    visible in `V` (`xid < xmin`, or `xid < xmax` and not in `xip`) are reconciled
+    through the same source-locked repair path with a new sequence when resolution is
+    still required. A source recheck protects a change committed after `V`. Rows last
+    written by a transition not visible in `V` are left
     as they are. Live transitions write their complete after-image except
     `snapshot_generation`, which only the snapshot manages, so a delayed redelivery of a
     transition the snapshot already read does not make a snapshot-touched row look
@@ -846,6 +854,148 @@ and connection summary rows. Neither step adds a CNPG table.
 Language package managers (pip, npm and similar) are not consulted. They own scripts, not
 the executable the kernel runs, which is the interpreter from an OS package.
 
+### Decision 19: Sequence replay and warehouse ordinal storage
+
+The product owner approved both adjustments after reviewing the Section 0 spike:
+
+1. Permit identical equal-sequence replay. Each fact/sequence identifies an immutable
+   producer after-image; any changed content requires a new sequence. StarRocks
+   `merge_condition = transition_seq` accepts greater or equal values, so it rejects
+   stale delivery but does not itself detect conflicting equal-sequence content. The
+   producer owns that invariant. Live loads preserve snapshot markers using row-mode
+   partial updates that name every event-owned column and omit `snapshot_generation`.
+   Snapshot repair and finalization cannot reuse a sequence for changed content; they
+   re-read the source under its lock and publish a new transition, as the epic's repair
+   note requires. Compaction changes only terminal storage payload; identical terminal
+   replay may restore that payload without changing exposure membership.
+2. Use `BIGINT` for every warehouse device/exporter ordinal: facts, addresses, evidence,
+   retired ordinals and flow stamps. Source values remain in `1..4294967295`, with `0`
+   allowed only where the schema explicitly defines a sentinel. Producers and ingestion
+   boundaries enforce those bounds; the wider storage type does not expand the identity
+   space. Bitmap values remain collision-free integers.
+
+A follow-up scratch test exercised actual conditional row-mode Stream Load with
+`2147483648` and `4294967295`. Both were stored exactly and remained distinct bitmap
+members. New rows received snapshot generation 0. Newer, stale and identical replay
+loads all preserved an existing generation 7. An identical terminal replay after
+payload compaction stayed resolved; a changed after-image with a new sequence applied.
+All assertions passed, and the disposable database was dropped and its absence checked.
+The scale test was then repeated with `BIGINT` keys at 50 million rows, including
+the synthetic JDBC join, bitmap counts and full refreshes described below.
+
+## Section 0 evidence (2026-10-21)
+
+### Task 0.6: synthetic warehouse spike
+
+The product owner authorized an isolated, disposable database on the existing lab
+warehouse for this run. No deployed telemetry or inventory rows were used as fixtures.
+The separate CNPG fixture database supplied a synthetic 20,000-row catalog view over
+JDBC with TLS certificate and hostname verification. The warehouse profile was
+StarRocks 4.1.3, shared data, three compute nodes, each requesting 2 CPUs and 8 GiB of
+memory with a 10 GiB memory limit. This was a shared warehouse, not a quiet benchmark
+cluster or a final capacity certification.
+
+The fact table used the Decision 2 columns, primary key, sort key and 16 buckets.
+Server-generated integers produced exactly 50 million facts, 20,000 hosts, 50,000 CVEs
+and 500 package identities. Each host had 2,500 facts and each CVE had 1,000 exposed
+hosts. Names and versions were invented. Bulk seeding used one-million-row SQL batches;
+conditional updates were tested separately through actual Stream Load on the 50-million
+row table, with strict mode and zero filtered-row tolerance.
+
+| Check | Rounded result | Gate |
+|---|---|---|
+| Newer complete after-image followed by an older transition | Newer resolved state, KEV and CVSS retained | Pass |
+| Identical duplicate under a new Stream Load label | Same fact state and sequence retained | Pass |
+| Resolution reflected in CVE bitmap | Synthetic CVE fell from 1,000 to 999 members after refresh | Pass |
+| CVE bitmap full refresh with BIGINT | About 6 s | <= 60 s: pass in completed run |
+| Severity/KEV bitmap full refresh with BIGINT | About 4 s | <= 60 s: pass in completed run |
+| Device summary full refresh with BIGINT | About 2 s | <= 60 s: pass in completed run |
+| Use case 1 rows with BIGINT, including synthetic JDBC device view and package/CVE joins | Warm p95 about 150 ms; maximum about 350 ms | <= 500 ms: pass |
+| Use case 1 bitmap counts by site with BIGINT | Warm p95 about 130 ms; maximum about 160 ms | <= 1 s: pass |
+| Equal sequence with conflicting after-image | Overwrote the resolved state with active | Expected negative control; Decision 19 approved |
+| Upper-half u32 device ordinal in proposed `INT` column | Stream Load rejected the row | Expected negative control; BIGINT retest passed |
+
+Each latency series discarded two warmups and measured 20 requests across 20 CVEs.
+The row query returned 200 rows each time, ordered by hostname, device id and package;
+counts returned the five populated synthetic sites for each CVE. Timings came from
+the MySQL client running beside the frontend, at 10 ms resolution, and include the
+warehouse/JDBC execution and result transfer but exclude SRQL, web and workstation
+transport overhead. Automatic materialized-view rewrite was disabled to keep the
+measured row and bitmap-count paths explicit. The views were refreshed manually with
+the async-MV engine, including forced full refreshes; scheduling jitter was not measured.
+The rounded BIGINT refresh durations include command transport overhead. The original
+signed-INT run also passed these latency gates; the table reports the widened-key
+measurement. Sequence correctness was exercised on the original 50-million-row table
+and on a separate BIGINT boundary fixture; the widened scale table independently
+matched all 50,000 CVE counts against facts.
+
+One separate repeat failed during a risk-view refresh with a storage-shard RPC
+deadline exceeded. That repeat is excluded from the successful durations, as are two
+attempts stopped by measurement-query errors that were corrected before the final run.
+These results establish Section 0 query-shape feasibility on the shared warehouse;
+they do not certify production refresh reliability or replace the sustained-load and
+freshness validation in Section 8.
+
+An independent fact-to-view comparison found zero CVE-membership/count mismatches and
+zero device-summary mismatches with rewrite disabled. The first comparison using
+`COUNT(DISTINCT device_ord)` exceeded a compute node's process memory limit. Repeating
+the comparison with `bitmap_union_count(to_bitmap(device_ord))`, two-way pipeline
+parallelism and a 2 GiB query limit succeeded. The failed comparison is not counted as
+a passing check or a query-latency measurement. It supports keeping bitmap counting in
+the verification path as well as the product query path.
+
+The scale database, synthetic CNPG database and temporary JDBC catalog were dropped;
+subsequent catalog/database checks confirmed removal.
+
+### Task 0.2: read-only cleanup follow-up
+
+Current active orphan-match and actionable-assessment counts both rounded to zero
+(nearest hundred). No completed matcher run was observed in the preceding two hours;
+a scheduled matcher job was present. These measurements do not establish exact zero
+or the required re-check after the next matcher run. Task 0.2 remains open.
+
+### Task 0.5: read-only measurement availability
+
+The warehouse does not yet have `host_connection_summaries`, the address-validity
+dimension, or the per-side device ordinal/outcome columns required by this change.
+It still has the legacy process-attribution observations. Therefore the host evidence
+key and host pre-aggregation measurements cannot be made against the specified input,
+and the actual mapped-side network write ratio cannot yet be established.
+
+A diagnostic over one fully closed, older UTC hour observed approximately 17,000 flow
+rows from an anonymous exporter and approximately 2,000 distinct endpoint-perspective
+keys across both sides (about 13% of flow rows). Its key included local and peer IP,
+direction, protocol, service port, process, workload, partition and exporter. These
+are hourly raw-endpoint keys, without the not-yet-available device/package mapping.
+This is **not** the per-batch pre-aggregation ratio and does not satisfy the 25% gate.
+No hostname, address, exporter identity or deployment name is retained here. Task 0.5
+remains open; the async-network-view fallback is not selected from this proxy.
+
+### Task 0.7: existing implementation and headroom
+
+Commit `00b50937570cd66ae021c2a9ad7065590facaab5` already changed
+`EndpointInventoryFleetOrdinal` to delegate to the shared `FleetIdentity` dictionary.
+The canonical device insert/lifecycle triggers cover raw SQL writers as well as Ash,
+exclude service-component ids, and provide bounded backfill for existing devices.
+The migrations `20261016035900_widen_fleet_ordinals` and
+`20261016040000_generalize_fleet_identity_dictionaries` already enforce a non-cycling
+u32 sequence and a bigint column with a u32 check constraint.
+
+A read-only lab transaction found no live, non-service device missing a non-tombstoned
+ordinal. The maximum allocated ordinal, rounded up, was below 0.4 million; more than
+99.99% of the u32 range remained. This confirms present headroom, not the future address
+publisher's coverage. The existing integration tests exercise canonical and raw inserts,
+service exclusion, stable allocation, lifecycle changes and ordinals above the signed
+32-bit boundary. A fresh synthetic CNPG scratch database also executed the SQL from both production
+migrations. Before applying them, a canonical insert allocated no ordinal (the negative
+control). Afterwards, assertions passed for raw non-service insert allocation, service
+exclusion, stable lookup without sequence consumption, delete/restore tombstoning with
+identity retention, an ordinal above the signed 32-bit boundary, rejection above the
+u32 maximum, and a non-cycling sequence. The transaction-owned test rows rolled back;
+the scratch database was removed after the warehouse benchmark. This verifies the
+allocation needed by the future address publisher without changing the shared identity
+implementation. The existing Elixir integration module was not re-run locally.
+
 ## Capacity model
 
 | Quantity | Target | Basis |
@@ -930,7 +1080,7 @@ Refresh budgets:
 | A `network_only` candidate's tolerance range crosses an hour boundary | It is evaluated with the later hour, the hour containing `flow_end + tolerance`. |
 | A flow arrives later than the maximum accepted flow delay | Its sides are `outside_history` and counted; the exporter's hour counts as unhealthy, so it cannot produce a `host_only` gap. |
 | An address update arrives after a flow's late-window cutoff | The flow keeps its stamp and `address_update_after_cutoff` is counted. |
-| A snapshot row and the stored row share a sequence but differ in state | Counted as a reconciliation mismatch; the snapshot's state is applied. |
+| A snapshot row and the stored row share a sequence but differ in state | Counted as a reconciliation mismatch; source-locked repair publishes a new sequence with the current source after-image. |
 | A lost transition changes only an attribute (KEV false to true) and keeps membership | The reconciliation digest covers each fact's sequence and attribute content hash, so the device mismatches and a per-device snapshot repairs it. |
 | A rule's expected exporter misses a contact that another exporter reports | Network evidence is keyed by `exporter_ord`; the coverage-gap check counts only the rule's exporters, so the gap is still raised for the expected exporter. |
 | Watermark growth | Kept permanently (about 24 bytes per key ever seen). Deferred: revisit a retirement-scoped expiry if the key count exceeds the capacity model by an order of magnitude. |

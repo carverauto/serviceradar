@@ -13,11 +13,11 @@ deployment.
   - network evidence pre-aggregation ratio against flow rows, per exporter (gate: <= 25%);
   - host evidence pre-aggregation ratio against summary rows, per host (gate: <= 25%).
   If the network evidence gate fails, switch network evidence to an async view over flows before 3.x.
-- [ ] 0.6 Spike on a scratch StarRocks with 50M synthetic facts. Gates:
+- [x] 0.6 Spike on a scratch StarRocks with 50M synthetic facts. Gates:
   - Primary Key Stream Load with `merge_condition` (reordered and duplicate transitions);
   - view refresh <= 60 s;
   - use case 1 rows <= 500 ms and counts <= 1 s.
-- [ ] 0.7 Widen `EndpointInventoryFleetOrdinal` allocation to every non-service device the address publisher emits. Confirm u32 headroom.
+- [x] 0.7 Widen `EndpointInventoryFleetOrdinal` allocation to every non-service device the address publisher emits. Confirm u32 headroom.
 - [x] 0.8 CNPG migration: the `exposure_device_catalog` and `exposure_device_tags_catalog` views, column-scoped grants to `serviceradar_starrocks_reader` (guarded on the role existing; never `LOGIN`), `CatalogAllowlist` entries, and allowlist tests that reject the large tables.
 - [x] 0.9 Obtain approval to extend the StarRocks-required exception to exposure intelligence (design Decision 15). Update `AGENTS.md` only after approval. Approved by the product owner on [2026-10-18](https://github.com/carverauto/serviceradar/issues/5745#issuecomment-6255360407); the exception is recorded in `AGENTS.md`.
 
@@ -27,8 +27,8 @@ deployment.
 - [ ] 1.3 NATS: the transitions and `exposure.dimensions.*` subjects, stream limits, and Helm permissions (core publishes, EventWriter consumes).
 - [ ] 1.4 EventWriter `ExposureTransitions` and `ExposureDimensions` processors: Stream Load of complete after-images with `merge_condition = transition_seq`, resolution as a state change, and transition log appends.
 - [ ] 1.5 Merge and deletion handling: `device_retired` with a new sequence from `endpoint_inventory_moves.ex` and device deletion; assessment-row deletion as a `resolved` transition with a new sequence; StarRocks `exposure_retired_ordinals` and the ingestion-boundary drop for retired ordinals. Grep for every writer of `device_fleet_ordinals.tombstoned` and of device deletion, not only the obvious one.
-- [ ] 1.6 Snapshot generation fenced by the recorded `pg_current_snapshot()` (start and end markers, terminal watermarks for every non-actionable fact key from assessment rows and `exposure_fact_watermarks`, retirement markers, `(transition_seq, state)` comparison, finalize rule over `transition_xid` visibility, live transitions not visible in the snapshot applied in any order) and the daily per-device reconciliation with exported mismatch counts.
-- [ ] 1.7 Resolved facts kept as permanent sequence watermarks; transitions applied only when their sequence is greater than the stored one; daily compaction of tombstone payloads resolved more than 7 days ago; health alerts on outbox relay age (10 minutes) and transitions stream `max_age` (7 days).
+- [ ] 1.6 Snapshot generation fenced by the recorded `pg_current_snapshot()` (start and end markers, terminal watermarks for every non-actionable fact key from assessment rows and `exposure_fact_watermarks`, retirement markers, sequence/state/content comparison and source-locked repair under a new sequence, finalize rule over `transition_xid` visibility, live transitions not visible in the snapshot applied in any order) and the daily per-device reconciliation with exported mismatch counts.
+- [ ] 1.7 Resolved facts kept as permanent sequence watermarks; older transitions rejected, identical equal-sequence replay allowed, changed content assigned a new sequence, and snapshot markers preserved; daily compaction of tombstone payloads resolved more than 7 days ago; health alerts on outbox relay age (10 minutes) and transitions stream `max_age` (7 days).
 - [ ] 1.8 Tests per scenario of *Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions*, *Exposure Identifiers Use Collision-Free Dictionaries* and *Exposure Is Rebuildable And Reconciled Against The Assessment Store*. Verify fact-table ownership through the transition interface: a published synthetic transition yields its fact row, and a rolled-back assessment change yields none. Include a snapshot test with a resolving transaction in flight while the snapshot is read, a warehouse-restore test with a pending older redelivery, a test delivering an older transition after compaction, the deleted-versus-active-row test, a retirement-before-first-delivery test, a reordered after-image test, and a reconciliation test that fails when a fact is removed out of band.
 
 ## 2. Address dimension and flow stamping
