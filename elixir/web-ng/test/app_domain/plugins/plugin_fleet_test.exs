@@ -180,6 +180,22 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
              PluginFleet.build_rows([%{assignment(package) | enabled: false}], [package], [state()], @now)
   end
 
+  test "an action-only package that ingests no results expects no runtime evidence" do
+    # Evidence left from before the package became action-only: inactive and stale.
+    leftover = state(state: "inactive", available: false, last_observed_at: DateTime.shift(@now, day: -30))
+
+    for {capabilities, expected} <- [
+          {["submit_result", "action-only:v1"], {"expected_inactive", "runtime_results_not_expected"}},
+          {["submit_result", "action-only:v1", "action-result-ingest:v1"], {"unavailable", "runtime_observation_stale"}},
+          {["submit_result"], {"unavailable", "runtime_observation_stale"}}
+        ] do
+      package = %{package() | approved_capabilities: capabilities}
+
+      assert [row] = PluginFleet.build_rows([assignment(package)], [package], [leftover], @now)
+      assert {capabilities, {row["category"], row["reason_code"]}} == {capabilities, expected}
+    end
+  end
+
   test "compiled filters and ordering apply before paging and do not treat absent evidence as fresh" do
     {:ok, json} =
       Native.translate(

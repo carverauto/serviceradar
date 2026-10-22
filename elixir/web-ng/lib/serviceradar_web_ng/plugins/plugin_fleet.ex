@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
 
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
+  alias ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer
   alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.LatestApprovedPluginPackage
   alias ServiceRadar.Plugins.Plugin
@@ -32,6 +33,8 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     :content_hash,
     :runtime,
     :outputs,
+    :manifest,
+    :approved_capabilities,
     :approved_at,
     :imported_at,
     :inserted_at
@@ -74,7 +77,17 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     packages =
       PluginPackage
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.select([:plugin_id, :name, :version, :status, :content_hash, :runtime, :outputs])
+      |> Ash.Query.select([
+        :plugin_id,
+        :name,
+        :version,
+        :status,
+        :content_hash,
+        :runtime,
+        :outputs,
+        :manifest,
+        :approved_capabilities
+      ])
       |> Ash.read!(scope: scope)
 
     states =
@@ -515,14 +528,21 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   defp classify(_assignment, %{status: status}, _state, _reported_at, _stale) when status != :approved,
     do: {"action_required", "desired_package_not_approved"}
 
-  defp classify(_assignment, _package, _state, nil, _stale), do: {"unavailable", "runtime_not_reported"}
-  defp classify(_assignment, _package, _state, _reported_at, true), do: {"unavailable", "runtime_observation_stale"}
-  defp classify(_assignment, _package, %{state: "inactive"}, _reported_at, false), do: {"unavailable", "runtime_inactive"}
+  # Runtime evidence is expected only for an assignment the service-state
+  # registry tracks. An action-only package that does not ingest action results
+  # has no scheduled runner on the agent, so any state it still has predates
+  # that package and must not read as a failing runtime.
+  defp classify(assignment, package, state, reported_at, stale) do
+    if StatusNormalizer.should_track_assignment_service?(assignment, package),
+      do: classify_runtime(state, reported_at, stale),
+      else: {"expected_inactive", "runtime_results_not_expected"}
+  end
 
-  defp classify(_assignment, _package, %{available: false}, _reported_at, false),
-    do: {"action_required", "runtime_reported_unhealthy"}
-
-  defp classify(_assignment, _package, _state, _reported_at, false), do: {"healthy", "latest_result_available"}
+  defp classify_runtime(_state, nil, _stale), do: {"unavailable", "runtime_not_reported"}
+  defp classify_runtime(_state, _reported_at, true), do: {"unavailable", "runtime_observation_stale"}
+  defp classify_runtime(%{state: "inactive"}, _reported_at, false), do: {"unavailable", "runtime_inactive"}
+  defp classify_runtime(%{available: false}, _reported_at, false), do: {"action_required", "runtime_reported_unhealthy"}
+  defp classify_runtime(_state, _reported_at, false), do: {"healthy", "latest_result_available"}
 
   defp runtime_state(nil, _placeholder), do: "not_reported"
   defp runtime_state(%{message: "streaming plugin ready"}, true), do: "ready"
