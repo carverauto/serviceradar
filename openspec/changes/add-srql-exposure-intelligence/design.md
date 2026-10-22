@@ -980,15 +980,25 @@ subsequent catalog/database checks confirmed removal.
 
 ### Task 0.2: read-only cleanup follow-up
 
-Current active orphan-match and actionable-assessment counts both rounded to zero
-(nearest hundred). No completed matcher run was observed in the preceding two hours;
-a scheduled matcher job was present. These measurements do not establish exact zero
-or the required re-check after the next matcher run. Task 0.2 remains open.
+The initial read-only check found active orphan-match and actionable-assessment
+counts that both rounded to zero (nearest hundred), but did not establish a
+subsequent matcher completion. That initial observation alone did not pass the gate.
+
+A follow-up on 2026-10-22 found a successful matcher completion in a bounded scan
+of current core logs, after the earlier check. A subsequent CNPG read-only
+transaction verified that no active match referenced a package that was no longer
+current on its device. The actionable-assessment count still rounded to zero
+(nearest hundred). Retained Oban history did not contain a completed matcher job;
+the positive completion log and the database recheck after it supply the evidence.
+No cleanup or scheduling writes were made during verification. Task 0.2 is complete.
 
 ### Task 0.5: read-only measurement availability
 
-The warehouse does not yet have `host_connection_summaries`, the address-validity
-dimension, or the per-side device ordinal/outcome columns required by this change.
+Warehouse metadata was rechecked on 2026-10-22. It does not yet have
+`host_connection_summaries`, the address-validity dimension, or any of the six
+per-side device ordinal, resolution and attribution-outcome columns required by
+this change. The existing `ocsf_network_activity` table was the positive control
+for the metadata query.
 It still has the legacy process-attribution observations. Therefore the host evidence
 key and host pre-aggregation measurements cannot be made against the specified input,
 and the actual mapped-side network write ratio cannot yet be established.
