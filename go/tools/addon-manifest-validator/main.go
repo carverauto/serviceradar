@@ -47,6 +47,19 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// readManifest reads an operator-supplied manifest through an os.Root
+// anchored at the manifest's own directory, so the read can only ever
+// name the manifest file inside that directory.
+func readManifest(path string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return root.ReadFile(filepath.Base(path))
+}
+
 func run(args []string, stdout, stderr *os.File) int {
 	fs := flag.NewFlagSet("addon-manifest-validator", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -78,7 +91,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	failed := false
 
 	for _, path := range manifests {
-		data, err := os.ReadFile(path) //nolint:gosec // path is an operator-supplied manifest location.
+		data, err := readManifest(path)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "error: reading %s: %v\n", path, err)
 			return 2

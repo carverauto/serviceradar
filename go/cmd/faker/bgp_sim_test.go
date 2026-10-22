@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -42,7 +41,7 @@ func TestSplitHostPort(t *testing.T) {
 }
 
 func TestRandomDurationBounds(t *testing.T) {
-	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic test seed
+	rng := newDeterministicRNG(42)
 	minD := 2 * time.Second
 	maxD := 5 * time.Second
 

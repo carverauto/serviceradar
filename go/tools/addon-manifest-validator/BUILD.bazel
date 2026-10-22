@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "addon-manifest-validator_lib",
@@ -12,4 +12,10 @@ go_binary(
     name = "addon-manifest-validator",
     embed = [":addon-manifest-validator_lib"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "addon-manifest-validator_test",
+    srcs = ["main_test.go"],
+    embed = [":addon-manifest-validator_lib"],
 )
