@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   @permission "observability.netflow.view"
   @page_size 50
   @views ~w(matches indicator_matches inventory objects retrohunt)
-  @filter_keys ~w(source ip min_severity sort stale indicator object_type run_id)
+  @filter_keys ~w(source ip min_severity sort stale indicator run_id)
   @input_errors %{
     invalid_ip: "The IP filter is not a valid address.",
     invalid_cidr: "The indicator filter is not a valid IP or CIDR.",
@@ -44,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
      |> assign(:filters, %{})
      |> assign(:rows, [])
      |> assign(:runs, [])
+     |> assign(:runs_error, nil)
      |> assign(:next_cursor, nil)
      |> assign(:cursor, nil)
      |> assign(:cursor_stack, [])
@@ -71,15 +72,25 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
         {:noreply, assign(socket, :loading, true)}
 
       true ->
+        view = normalize_view(params["view"])
+        filters = params |> Map.take(@filter_keys) |> reject_blank()
+
         {:noreply,
          socket
-         |> assign(:view, normalize_view(params["view"]))
-         |> assign(:filters, params |> Map.take(@filter_keys) |> reject_blank())
+         |> keep_page_if(view == socket.assigns.view and filters == socket.assigns.filters)
+         |> assign(:view, view)
+         |> assign(:filters, filters)
          |> assign(:selected_ip, blank_to_nil(params["selected"]) || blank_to_nil(params["ip"]))
-         |> assign(:cursor, nil)
-         |> assign(:cursor_stack, [])
          |> load_page()}
     end
+  end
+
+  defp keep_page_if(socket, true), do: socket
+
+  defp keep_page_if(socket, false) do
+    socket
+    |> assign(:cursor, nil)
+    |> assign(:cursor_stack, [])
   end
 
   @impl true
@@ -473,7 +484,14 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
               </div>
             </:header>
             <p
-              :if={@runs == [] and not @loading}
+              :if={@runs_error}
+              class="p-4 text-sm text-red-700 dark:text-red-300"
+              data-testid="threat-intel-runs-error"
+            >
+              {@runs_error}
+            </p>
+            <p
+              :if={@runs == [] and not @loading and is_nil(@runs_error)}
               class="p-4 text-sm text-sr-muted"
               data-testid="threat-intel-runs-empty"
             >
@@ -869,19 +887,20 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   end
 
   defp load_view(socket, "indicator_matches") do
-    query = indicator_match_query(socket.assigns.filters)
     opts = %{scope: socket.assigns.current_scope, limit: @page_size, cursor: socket.assigns.cursor}
 
     result =
-      case srql_module().query(query, opts) do
-        {:ok, %{"results" => rows} = response} when is_list(rows) ->
-          {:ok, %{rows: rows, next_cursor: get_in(response, ["pagination", "next_cursor"])}}
+      with {:ok, query} <- indicator_match_query(socket.assigns.filters) do
+        case srql_module().query(query, opts) do
+          {:ok, %{"results" => rows} = response} when is_list(rows) ->
+            {:ok, %{rows: rows, next_cursor: get_in(response, ["pagination", "next_cursor"])}}
 
-        {:ok, _other} ->
-          {:ok, %{rows: [], next_cursor: nil}}
+          {:ok, _other} ->
+            {:ok, %{rows: [], next_cursor: nil}}
 
-        {:error, reason} ->
-          {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
 
     put_page(socket, :indicator_matches, result)
@@ -907,7 +926,6 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
     result =
       ThreatIntelEvidence.page_source_objects(socket.assigns.current_scope,
         source: filters["source"],
-        object_type: filters["object_type"],
         indicator: filters["indicator"],
         limit: @page_size,
         cursor: socket.assigns.cursor
@@ -920,14 +938,10 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
     scope = socket.assigns.current_scope
     filters = socket.assigns.filters
 
-    runs =
+    {runs, runs_error} =
       case ThreatIntelEvidence.recent_retrohunt_runs(scope) do
-        {:ok, runs} ->
-          runs
-
-        {:error, reason} ->
-          Logger.warning("threat intel retrohunt runs failed: #{inspect(reason)}")
-          []
+        {:ok, runs} -> {runs, nil}
+        {:error, reason} -> {[], load_error_message(:retrohunt_runs, reason)}
       end
 
     result =
@@ -942,6 +956,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
 
     socket
     |> assign(:runs, runs)
+    |> assign(:runs_error, runs_error)
     |> put_page(:retrohunt, result)
   end
 
@@ -960,22 +975,39 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   end
 
   defp indicator_match_query(filters) do
-    severity =
-      case Integer.parse(to_string(filters["min_severity"] || "")) do
-        {value, ""} -> "severity:>=#{value}"
-        _ -> nil
-      end
+    with {:ok, ip} <- match_ip_filter(filters["ip"]),
+         {:ok, severity} <- min_severity_filter(filters["min_severity"]) do
+      query =
+        [
+          "in:threat_intel_matches",
+          srql_token("source", filters["source"]),
+          srql_token("observed_ip", ip),
+          srql_token("indicator", filters["indicator"]),
+          severity && "severity:>=#{severity}"
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" ")
 
-    [
-      "in:threat_intel_matches",
-      srql_token("source", filters["source"]),
-      srql_token("observed_ip", filters["ip"]),
-      srql_token("indicator", filters["indicator"]),
-      severity,
-      "sort:evaluated_at:desc"
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
+      {:ok, query}
+    end
+  end
+
+  defp match_ip_filter(nil), do: {:ok, nil}
+
+  defp match_ip_filter(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, _address} -> {:ok, ip}
+      {:error, _reason} -> {:error, :invalid_ip}
+    end
+  end
+
+  defp min_severity_filter(nil), do: {:ok, nil}
+
+  defp min_severity_filter(value) do
+    case Integer.parse(value) do
+      {severity, ""} -> {:ok, severity}
+      _ -> {:error, :invalid_severity}
+    end
   end
 
   defp srql_token(_field, nil), do: nil
@@ -1033,6 +1065,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   defp kind_label(:inventory), do: "imported-indicator"
   defp kind_label(:objects), do: "provider-object"
   defp kind_label(:retrohunt), do: "retrohunt-finding"
+  defp kind_label(:retrohunt_runs), do: "retrohunt-run"
   defp kind_label(:indicators), do: "indicator"
 
   defp timeout?(%{postgres: %{code: :query_canceled}}), do: true
