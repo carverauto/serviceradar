@@ -1389,7 +1389,15 @@ fn record_ownership_metrics(metrics: &Metrics, procfs: &ProcfsEnricher) {
 
 #[cfg(target_os = "linux")]
 fn process_metadata_complete(event: &FlowAttributionEvent) -> bool {
-    !event.redacted_cmdline.is_empty() && !event.container_id.is_empty()
+    !event.redacted_cmdline.is_empty()
+        && !event.container_id.is_empty()
+        && event
+            .executable_ownership
+            .as_ref()
+            .is_some_and(|ownership| {
+                ownership.resolution_state
+                    != crate::proto::netprobe::ExecutableOwnershipState::Unknown as i32
+            })
 }
 
 #[cfg(target_os = "linux")]
@@ -3901,7 +3909,9 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn process_metadata_complete_requires_cmdline_and_container() {
+    fn process_metadata_complete_requires_cmdline_container_and_final_ownership() {
+        use crate::proto::netprobe::{ExecutableOwnership, ExecutableOwnershipState};
+
         let process = ProcessDetailsCacheKey {
             tgid: 123,
             uid: 1000,
@@ -3916,7 +3926,25 @@ mod tests {
         assert!(!process_metadata_complete(&entry.event));
 
         Arc::make_mut(&mut entry.event).container_id = "container".to_string();
-        assert!(process_metadata_complete(&entry.event));
+        assert!(!process_metadata_complete(&entry.event));
+
+        let ownership = |state: ExecutableOwnershipState| ExecutableOwnership {
+            resolution_state: state as i32,
+            ..ExecutableOwnership::default()
+        };
+        Arc::make_mut(&mut entry.event).executable_ownership =
+            Some(ownership(ExecutableOwnershipState::Unknown));
+        assert!(!process_metadata_complete(&entry.event));
+
+        for state in [
+            ExecutableOwnershipState::Resolved,
+            ExecutableOwnershipState::NotPermitted,
+            ExecutableOwnershipState::NotFound,
+            ExecutableOwnershipState::UnsupportedDb,
+        ] {
+            Arc::make_mut(&mut entry.event).executable_ownership = Some(ownership(state));
+            assert!(process_metadata_complete(&entry.event), "{state:?}");
+        }
     }
 
     #[test]

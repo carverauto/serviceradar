@@ -75,8 +75,8 @@ pub enum DatabaseOutcome {
 
 /// Receives each installed package and the paths it installs.
 pub trait PackageSink {
-    /// Registers a package and returns its index for `add_path`.
-    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> u32;
+    /// Registers a package and returns its index for `add_path`, or `None` to stop reading.
+    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> Option<u32>;
     /// Records that `package` installs `path`. Returns `false` to stop reading.
     fn add_path(&mut self, package: u32, path: &str) -> bool;
 }
@@ -96,8 +96,10 @@ pub fn read_dpkg(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> D
             return DatabaseOutcome::Unreadable;
         };
         if line.trim().is_empty() {
-            if !stanza.is_empty() && !add_dpkg_package(root, &stanza, &namespace, &release, sink) {
-                return DatabaseOutcome::Read;
+            if !stanza.is_empty()
+                && let Some(outcome) = add_dpkg_package(root, &stanza, &namespace, &release, sink)
+            {
+                return outcome;
             }
             stanza.clear();
             continue;
@@ -110,27 +112,30 @@ pub fn read_dpkg(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> D
             stanza.insert(key.trim().to_string(), value.trim().to_string());
         }
     }
-    if !stanza.is_empty() {
-        add_dpkg_package(root, &stanza, &namespace, &release, sink);
+    if !stanza.is_empty()
+        && let Some(outcome) = add_dpkg_package(root, &stanza, &namespace, &release, sink)
+    {
+        return outcome;
     }
     DatabaseOutcome::Read
 }
 
-/// Returns `false` when the sink asked to stop.
+/// Returns the database outcome when reading must stop: the sink asked to stop, or a file
+/// list could not be read to the end.
 fn add_dpkg_package(
     root: &RootFs,
     stanza: &HashMap<String, String>,
     namespace: &str,
     release: &str,
     sink: &mut dyn PackageSink,
-) -> bool {
+) -> Option<DatabaseOutcome> {
     let field = |key: &str| stanza.get(key).map(String::as_str).unwrap_or_default();
     let name = field("Package");
     let version = field("Version");
     // "want flag status": only "installed" packages own files on disk.
     let installed = field("Status").split_whitespace().nth(2) == Some("installed");
     if name.is_empty() || version.is_empty() || !installed {
-        return true;
+        return None;
     }
     let architecture = field("Architecture");
     let source = field("Source")
@@ -139,7 +144,7 @@ fn add_dpkg_package(
         .filter(|source| !source.is_empty())
         .unwrap_or(name);
 
-    let index = sink.add_package(
+    let Some(index) = sink.add_package(
         OwningPackage {
             package_type: "deb".to_string(),
             package_manager: "dpkg".to_string(),
@@ -155,7 +160,9 @@ fn add_dpkg_package(
             installed_version: version.to_string(),
         },
         PackageResolver::Dpkg,
-    );
+    ) else {
+        return Some(DatabaseOutcome::Read);
+    };
 
     // Multi-Arch: same packages keep their list under "<name>:<arch>.list".
     let qualified = format!("/var/lib/dpkg/info/{name}:{architecture}.list");
@@ -164,17 +171,17 @@ fn add_dpkg_package(
         .iter()
         .find_map(|path| root.open(path).ok())
     else {
-        return true;
+        return None;
     };
     for line in BufReader::new(list).lines() {
         let Ok(path) = line else {
-            break;
+            return Some(DatabaseOutcome::Unreadable);
         };
         if path.starts_with('/') && path != "/." && !sink.add_path(index, &path) {
-            return false;
+            return Some(DatabaseOutcome::Read);
         }
     }
-    true
+    None
 }
 
 pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> DatabaseOutcome {
@@ -213,10 +220,12 @@ pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
                         if pending.name.is_empty() || pending.version.is_empty() {
                             continue;
                         }
-                        let index = sink.add_package(
+                        let Some(index) = sink.add_package(
                             pending.to_package(&namespace, &os.version_id),
                             PackageResolver::Apk,
-                        );
+                        ) else {
+                            return DatabaseOutcome::Read;
+                        };
                         current = Some(index);
                         index
                     }
@@ -310,19 +319,21 @@ fn read_rpm_sqlite(
     };
     let namespace = rpm_namespace(&os.id);
     let release = rpm_distro(os);
+    let mut malformed = false;
     database.scan_table(root_page, |_, columns| {
         let Some(Value::Blob(blob)) = columns.into_iter().find(|v| matches!(v, Value::Blob(_)))
         else {
             return true;
         };
         let Some(package) = rpm_header::parse(&blob) else {
-            return true;
+            malformed = true;
+            return false;
         };
         // gpg-pubkey pseudo-packages install no files.
         if package.executable_paths.is_empty() {
             return true;
         }
-        let index = sink.add_package(
+        let Some(index) = sink.add_package(
             OwningPackage {
                 package_type: "rpm".to_string(),
                 package_manager: "rpm".to_string(),
@@ -340,12 +351,18 @@ fn read_rpm_sqlite(
                 installed_version: package.version,
             },
             PackageResolver::Rpm,
-        );
+        ) else {
+            return false;
+        };
         package
             .executable_paths
             .iter()
             .all(|path| sink.add_path(index, path))
-    })
+    })?;
+    if malformed {
+        return Err(super::sqlite::SqliteError::Malformed("rpm header"));
+    }
+    Ok(())
 }
 
 fn rpm_namespace(id: &str) -> String {

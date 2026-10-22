@@ -330,7 +330,7 @@ fn unowned_executable_is_not_found_and_names_no_package() {
 
 #[test]
 fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
-    let cases: [PrecedenceCase; 5] = [
+    let cases: [PrecedenceCase; 6] = [
         (
             "berkeleydb",
             |root| write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0"),
@@ -359,6 +359,26 @@ fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
             },
             OwnershipState::NotFound,
             DETAIL_NOT_OWNED,
+        ),
+        (
+            "dpkg file list unreadable before the executable",
+            |root| {
+                dpkg(
+                    root,
+                    &[(
+                        "example-daemon",
+                        "2.0-1",
+                        "example-daemon",
+                        &["/usr/sbin/exampled"],
+                    )],
+                );
+                write(
+                    &root.join("var/lib/dpkg/info/example-daemon.list"),
+                    b"/.\n/usr/lib/example\xff\n/usr/sbin/exampled\n",
+                );
+            },
+            OwnershipState::Unknown,
+            DETAIL_PACKAGE_DATABASE_UNREADABLE,
         ),
         (
             "wal pending",

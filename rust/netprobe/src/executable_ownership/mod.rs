@@ -43,6 +43,8 @@ const MAX_ROOT_INDEXES: usize = 32;
 const MAX_INDEXED_PATHS: usize = 2_000_000;
 /// Executables indexed per root.
 const MAX_INDEXED_EXECUTABLES: usize = 262_144;
+/// Package records indexed per root.
+const MAX_INDEXED_PACKAGES: usize = 65_536;
 /// A root whose package database keeps changing is re-indexed at most this often.
 const MIN_REINDEX_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -371,9 +373,13 @@ impl<'a> IndexBuilder<'a> {
 }
 
 impl PackageSink for IndexBuilder<'_> {
-    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> u32 {
+    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> Option<u32> {
+        if self.packages.len() >= MAX_INDEXED_PACKAGES {
+            self.truncated = true;
+            return None;
+        }
         self.packages.push((Arc::new(package), resolver));
-        u32::try_from(self.packages.len() - 1).unwrap_or(u32::MAX)
+        u32::try_from(self.packages.len() - 1).ok()
     }
 
     fn add_path(&mut self, package: u32, path: &str) -> bool {
