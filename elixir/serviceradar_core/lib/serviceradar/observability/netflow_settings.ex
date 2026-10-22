@@ -70,6 +70,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         :otx_modified_since,
         :otx_raw_payload_archive_enabled,
         :otx_retrohunt_window_seconds,
+        :otx_retrohunt_interval_seconds,
         :threat_intel_enabled,
         :threat_intel_feed_urls,
         :threat_intel_match_window_seconds,
@@ -118,6 +119,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         :otx_modified_since,
         :otx_raw_payload_archive_enabled,
         :otx_retrohunt_window_seconds,
+        :otx_retrohunt_interval_seconds,
         :threat_intel_enabled,
         :threat_intel_feed_urls,
         :threat_intel_match_window_seconds,
@@ -281,6 +283,14 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       allow_nil? false
       default 7_776_000
       public? true
+    end
+
+    attribute :otx_retrohunt_interval_seconds, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 3_600, max: 2_592_000
+
+      description "Scheduled retrohunt cadence; nil keeps retrohunt manual-only"
     end
 
     attribute :threat_intel_feed_urls, {:array, :string} do

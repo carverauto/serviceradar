@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.ThreatIntelRetrohuntWorker
@@ -359,6 +360,75 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
                """,
                ["alienvault_otx"]
              ).rows
+  end
+
+  # Retrohunt used to have no scheduler at all: runs happened only when an
+  # operator pressed "Retrohunt now", so a deployment that never pressed it again
+  # never hunted again. A configured interval now keeps exactly one run queued.
+  test "a configured retrohunt interval queues one scheduled run per interval" do
+    delete_retrohunt_jobs()
+
+    set_retrohunt_interval!(nil)
+    assert {:ok, :disabled} = ThreatIntelRetrohuntWorker.ensure_scheduled()
+    assert retrohunt_jobs() == []
+
+    set_retrohunt_interval!(86_400)
+
+    assert {:ok, %Oban.Job{args: %{"triggered_by" => "scheduled"}} = first} =
+             ThreatIntelRetrohuntWorker.ensure_scheduled()
+
+    assert DateTime.diff(first.scheduled_at, DateTime.utc_now(), :second) <= 5
+    assert {:ok, :already_scheduled} = ThreatIntelRetrohuntWorker.ensure_scheduled()
+    assert length(retrohunt_jobs()) == 1
+
+    # The next run is due one interval after the latest run started.
+    delete_retrohunt_jobs()
+
+    query!(
+      """
+      INSERT INTO platform.otx_retrohunt_runs
+        (source, triggered_by, status, window_start, window_end, started_at, inserted_at, updated_at)
+      VALUES ('alienvault_otx', 'manual', 'ok', now(), now(), now() - interval '1 hour', now(), now())
+      """,
+      []
+    )
+
+    assert {:ok, %Oban.Job{} = next} = ThreatIntelRetrohuntWorker.ensure_scheduled()
+    assert_in_delta DateTime.diff(next.scheduled_at, DateTime.utc_now(), :second), 23 * 3_600, 60
+  end
+
+  defp set_retrohunt_interval!(seconds) do
+    actor = SystemActor.system(:retrohunt_schedule_test)
+
+    case NetflowSettings.get_settings(actor: actor) do
+      {:ok, %NetflowSettings{} = settings} ->
+        settings
+        |> Ash.Changeset.for_update(:update, %{otx_retrohunt_interval_seconds: seconds})
+        |> Ash.update!(actor: actor)
+
+      {:ok, nil} ->
+        NetflowSettings
+        |> Ash.Changeset.for_create(:create, %{otx_retrohunt_interval_seconds: seconds})
+        |> Ash.create!(actor: actor)
+    end
+  end
+
+  defp retrohunt_jobs do
+    worker = Oban.Worker.to_string(ThreatIntelRetrohuntWorker)
+
+    query!(
+      """
+      SELECT id FROM platform.oban_jobs
+      WHERE worker = $1 AND state IN ('available', 'scheduled', 'executing', 'retryable')
+      """,
+      [worker]
+    ).rows
+  end
+
+  defp delete_retrohunt_jobs do
+    query!("DELETE FROM platform.oban_jobs WHERE worker = $1", [
+      Oban.Worker.to_string(ThreatIntelRetrohuntWorker)
+    ])
   end
 
   defp retrohunt_args do
