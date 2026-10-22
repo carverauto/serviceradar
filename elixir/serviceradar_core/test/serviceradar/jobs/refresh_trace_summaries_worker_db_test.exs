@@ -4,6 +4,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
   import Ecto.Query, only: [from: 2]
 
   alias Ecto.Adapters.SQL
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Repo
@@ -245,42 +246,61 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     |> Repo.insert!()
   end
 
-  # Holds the refresh lock the way a live run's transaction does, on a connection outside
-  # this test's sandbox so it is a different backend from the one the probe uses. Returns the
-  # function that releases it.
+  # Holds the refresh lock the way a live run's transaction does, on a second sandbox owner
+  # checked out from Repo's warm pool so it is a different backend from the test's shared owner
+  # without opening a cold TCP/TLS connection mid-test. Returns the function that releases it.
   defp hold_refresh_lock_elsewhere! do
-    config = Keyword.drop(Repo.config(), [:pool, :pool_size, :name])
-    {:ok, conn} = Postgrex.start_link(Keyword.put(config, :pool_size, 1))
+    %{rows: [[test_backend]]} = SQL.query!(Repo, "SELECT pg_backend_pid()", [])
     parent = self()
 
-    holder =
-      spawn(fn ->
-        Postgrex.transaction(conn, fn tx ->
-          Postgrex.query!(tx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    {holder, holder_ref} =
+      spawn_monitor(fn ->
+        :ok = Sandbox.checkout(Repo)
+
+        try do
+          %{rows: [[holder_backend]]} = SQL.query!(Repo, "SELECT pg_backend_pid()", [])
+
+          SQL.query!(Repo, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
             RefreshTraceSummariesWorker.watermark_key()
           ])
 
-          send(parent, {:refresh_lock_held, self()})
+          send(parent, {:refresh_lock_held, self(), holder_backend})
 
           receive do
             :release -> :ok
           after
             30_000 -> :ok
           end
-        end)
+        after
+          :ok = Sandbox.checkin(Repo)
+        end
 
         send(parent, :refresh_lock_released)
       end)
 
-    assert_receive {:refresh_lock_held, ^holder}, 10_000
+    receive do
+      {:refresh_lock_held, ^holder, holder_backend} ->
+        assert holder_backend != test_backend
+
+      {:DOWN, ^holder_ref, :process, ^holder, reason} ->
+        flunk("refresh lock holder exited before acquiring lock: #{inspect(reason)}")
+    after
+      10_000 ->
+        flunk("timed out waiting for refresh lock holder")
+    end
 
     release = fn ->
       send(holder, :release)
       assert_receive :refresh_lock_released, 10_000
-      GenServer.stop(conn)
+      assert_receive {:DOWN, ^holder_ref, :process, ^holder, :normal}, 10_000
     end
 
-    on_exit(fn -> if Process.alive?(holder), do: send(holder, :release) end)
+    on_exit(fn ->
+      if Process.alive?(holder) do
+        send(holder, :release)
+      end
+    end)
+
     release
   end
 

@@ -29,8 +29,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
        } do
     seed = System.unique_integer([:positive])
     host = "sr-agent-#{seed}.example.com"
-    agent_ip = invented_ip(seed)
-    recorded_ip = invented_ip(seed + 10_000)
+    agent_ip = TestSupport.unique_device_ip()
+    recorded_ip = TestSupport.unique_device_ip()
     holder = create_device("sr:agent-links-holder-#{seed}", host <> ".holder", agent_ip, actor)
     tombstone = create_device("sr:agent-links-tomb-#{seed}", host, recorded_ip, actor)
 
@@ -60,11 +60,11 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     tmp_dir: tmp_dir
   } do
     # Active addresses are unique per partition: only a same-partition holder keeps it.
-    for {holder_partition, offset, takes_ip?} <- [
-          {"default", 20_000, false},
-          {"isolation", 40_000, true}
+    for {holder_partition, takes_ip?} <- [
+          {"default", false},
+          {"isolation", true}
         ] do
-      purge_between_plan_and_restore(actor, tmp_dir, holder_partition, offset, takes_ip?)
+      purge_between_plan_and_restore(actor, tmp_dir, holder_partition, takes_ip?)
     end
   end
 
@@ -72,13 +72,13 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     actor: actor,
     tmp_dir: tmp_dir
   } do
-    for {holder_partition, offset, takes_ip?} <- [
-          {"default", 50_000, false},
-          {"isolation", 60_000, true}
+    for {holder_partition, takes_ip?} <- [
+          {"default", false},
+          {"isolation", true}
         ] do
       seed = System.unique_integer([:positive])
       host = "sr-agent-created-#{seed}.example.com"
-      agent_ip = invented_ip(seed + offset)
+      agent_ip = TestSupport.unique_device_ip()
 
       holder =
         create_device(
@@ -104,11 +104,11 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
     end
   end
 
-  defp purge_between_plan_and_restore(actor, tmp_dir, holder_partition, offset, takes_ip?) do
+  defp purge_between_plan_and_restore(actor, tmp_dir, holder_partition, takes_ip?) do
     seed = System.unique_integer([:positive])
     host = "sr-agent-purged-#{seed}.example.com"
-    agent_ip = invented_ip(seed + offset)
-    recorded_ip = invented_ip(seed + offset + 10_000)
+    agent_ip = TestSupport.unique_device_ip()
+    recorded_ip = TestSupport.unique_device_ip()
     successor_uid = "sr:agent-links-successor-#{seed}"
 
     holder =
@@ -227,9 +227,5 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
       actor: actor
     )
     |> Ash.create!()
-  end
-
-  defp invented_ip(seed) do
-    "198.51.100.#{rem(seed, 254) + 1}"
   end
 end
