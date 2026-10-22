@@ -1068,12 +1068,21 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   end
 
   defp load_error_message(kind, reason) do
-    Logger.warning("threat intel investigation #{kind} failed: #{inspect(reason)}")
+    # Log the failure class only: backend errors can echo provider responses.
+    Logger.warning("threat intel investigation #{kind} failed: #{failure_class(reason)}")
 
     if timeout?(reason) do
       "The #{kind_label(kind)} query timed out."
     else
       "Failed to load #{kind_label(kind)}."
+    end
+  end
+
+  defp failure_class(reason) do
+    cond do
+      timeout?(reason) -> "timeout"
+      is_exception(reason) -> inspect(reason.__struct__)
+      true -> "query_failed"
     end
   end
 

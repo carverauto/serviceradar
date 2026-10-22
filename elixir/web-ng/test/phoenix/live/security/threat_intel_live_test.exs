@@ -195,6 +195,25 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
            )
   end
 
+  test "a failed query renders a fixed message, never the provider or database error", %{conn: conn} do
+    previous = Application.get_env(:serviceradar_web_ng, :srql_module)
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.FailingSRQL)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:serviceradar_web_ng, :srql_module, previous),
+        else: Application.delete_env(:serviceradar_web_ng, :srql_module)
+    end)
+
+    {{:ok, view, html}, log} =
+      ExUnit.CaptureLog.with_log(fn -> live(conn, ~p"/security/threat-intel?#{[view: "indicator_matches"]}") end)
+
+    assert has_element?(view, ~s([data-testid="threat-intel-error"]), "Failed to load indicator-match.")
+    refute has_element?(view, ~s([data-testid="threat-intel-empty"]))
+    refute html =~ __MODULE__.FailingSRQL.secret()
+    refute log =~ __MODULE__.FailingSRQL.secret()
+  end
+
   defp match_row_count(view) do
     view
     |> render()
@@ -254,5 +273,14 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     user = AccountsFixtures.user_fixture(%{role: :admin})
 
     %{conn: log_in_user(conn, user), user: user}
+  end
+
+  defmodule FailingSRQL do
+    @moduledoc false
+    # Stands in for a backend error that carries a credential-shaped value.
+
+    def secret, do: "synthetic-api-key-0000"
+
+    def query(_query, _opts), do: {:error, %{message: "upstream rejected key #{secret()}"}}
   end
 end

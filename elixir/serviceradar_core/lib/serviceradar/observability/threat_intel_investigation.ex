@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
   alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelInvestigation.Keyset
+  alias ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -31,6 +32,10 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
   @spec list_current_matches(term(), keyword()) ::
           {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
   def list_current_matches(scope, opts \\ []) do
+    Telemetry.span(:current_matches, opts, fn -> read_current_matches(scope, opts) end)
+  end
+
+  defp read_current_matches(scope, opts) do
     now = DateTime.utc_now()
     limit = Keyset.limit(opts[:limit])
     sort = match_sort(opts[:sort])
@@ -63,6 +68,10 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
 
   @spec indicators_for_ip(term(), term()) :: {:ok, [map()]} | {:error, term()}
   def indicators_for_ip(scope, ip) do
+    Telemetry.span(:indicators_for_ip, [ip: ip], fn -> read_indicators_for_ip(scope, ip) end)
+  end
+
+  defp read_indicators_for_ip(scope, ip) do
     with {:ok, ip} <- parse_ip(ip) do
       now = DateTime.utc_now()
 
