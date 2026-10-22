@@ -161,7 +161,7 @@ Recommended handling:
 
 Relevant agent settings:
 
-- Package-managed agents verify release manifests with the build-time embedded `ReleaseSigningPublicKey`.
+- Package-managed agents verify release manifests with the public key embedded at build time from the committed `go/pkg/agent/release_signing_key.txt`.
 - Package-managed agents use fixed package-owned paths for the updater, seed binary, and mutable runtime root.
 - The control plane still reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` at runtime for release import and validation.
 - RDP-capable agent/helper artifacts must declare `remote_access.rdp` in their manifest `capabilities`.

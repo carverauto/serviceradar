@@ -92,7 +92,7 @@ func TestStageAddonArtifactSuccess(t *testing.T) {
 		ArtifactSha256:    sha256Hex(payload),
 	}
 
-	got, err := stageAddonArtifact(context.Background(), store, root, a)
+	got, err := stageAddonArtifact(context.Background(), store, root, a, "")
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
 		ArtifactSha256:    sha256Hex(payload),
 	}
 
-	got1, err := stageAddonArtifact(context.Background(), store, root, a)
+	got1, err := stageAddonArtifact(context.Background(), store, root, a, "")
 	if err != nil {
 		t.Fatalf("initial stage: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
 	}
 
 	store.err = errUnexpectedAddonRedownload
-	got2, err := stageAddonArtifact(context.Background(), store, root, a)
+	got2, err := stageAddonArtifact(context.Background(), store, root, a, "")
 	if err != nil {
 		t.Fatalf("restage unchanged assignment: %v", err)
 	}
@@ -186,14 +186,14 @@ func TestStageAddonArtifactRefetchesWhenArchiveMissing(t *testing.T) {
 		ArtifactObjectKey: key,
 		ArtifactSha256:    sha256Hex(payload),
 	}
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 		t.Fatal(err)
 	}
 	archive := filepath.Join(root, "sample", addonVersionsDir, "1.0.0", "artifact.bin")
 	if err := os.Remove(archive); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 		t.Fatal(err)
 	}
 	if store.downloads != 2 {
@@ -215,7 +215,7 @@ func TestStageAddonArtifactHashMismatch(t *testing.T) {
 		ArtifactSha256:    sha256Hex([]byte("different-bytes")),
 	}
 
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); !errors.Is(err, ErrAddonArtifactHashMismatch) {
 		t.Fatalf("want ErrAddonArtifactHashMismatch, got %v", err)
 	}
 }
@@ -223,7 +223,7 @@ func TestStageAddonArtifactHashMismatch(t *testing.T) {
 func TestStageAddonArtifactNilStore(t *testing.T) {
 	a := &proto.AddonAssignmentConfig{AddonId: "x", ArtifactObjectKey: "k", ArtifactSha256: "abc"}
 
-	if _, err := stageAddonArtifact(context.Background(), nil, t.TempDir(), a); !errors.Is(err, ErrAddonObjectStoreUnavailable) {
+	if _, err := stageAddonArtifact(context.Background(), nil, t.TempDir(), a, ""); !errors.Is(err, ErrAddonObjectStoreUnavailable) {
 		t.Fatalf("want ErrAddonObjectStoreUnavailable, got %v", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestStageAddonArtifactIncomplete(t *testing.T) {
 	store := &fakeObjectStore{data: map[string][]byte{}}
 	a := &proto.AddonAssignmentConfig{AddonId: "x"} // no object_key / sha256
 
-	if _, err := stageAddonArtifact(context.Background(), store, t.TempDir(), a); !errors.Is(err, ErrAddonArtifactIncomplete) {
+	if _, err := stageAddonArtifact(context.Background(), store, t.TempDir(), a, ""); !errors.Is(err, ErrAddonArtifactIncomplete) {
 		t.Fatalf("want ErrAddonArtifactIncomplete, got %v", err)
 	}
 }
@@ -253,7 +253,7 @@ func TestStageAddonArtifactBinaryPathTraversalFallsBack(t *testing.T) {
 		ArtifactSha256:    sha256Hex(payload),
 	}
 
-	got, err := stageAddonArtifact(context.Background(), store, root, a)
+	got, err := stageAddonArtifact(context.Background(), store, root, a, "")
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestStageAddonArtifactRejectsUnsafePath(t *testing.T) {
 				ArtifactObjectKey: key,
 				ArtifactSha256:    sha256Hex(payload),
 			}
-			if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonUnsafePath) {
+			if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); !errors.Is(err, ErrAddonUnsafePath) {
 				t.Fatalf("want ErrAddonUnsafePath, got %v", err)
 			}
 		})
@@ -405,7 +405,7 @@ func TestStageAddonArtifactRejectsUnsafePath(t *testing.T) {
 
 func TestStageAddonArtifactFailsClosedWhenSignedButKeyUnset(t *testing.T) {
 	// No release verification key configured...
-	setReleaseVerificationKey(t, "")
+	t.Setenv(releasePublicKeyEnv, "")
 
 	root := t.TempDir()
 	payload := []byte("signed-but-unverifiable")
@@ -421,7 +421,7 @@ func TestStageAddonArtifactFailsClosedWhenSignedButKeyUnset(t *testing.T) {
 	}
 
 	// ...so a supplied signature must fail closed (not silently activate).
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err == nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err == nil {
 		t.Fatal("expected staging to fail closed when a signature is supplied but no verification key is configured")
 	}
 }
@@ -499,7 +499,7 @@ func TestStageAddonArtifactVerifiesSignature(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 	// stageAddonArtifact reuses the agent release ed25519 trust root.
-	setReleaseVerificationKey(t, hex.EncodeToString(pub))
+	signingKey := hex.EncodeToString(pub)
 
 	root := t.TempDir()
 	payload := []byte("signed-addon-binary")
@@ -514,13 +514,13 @@ func TestStageAddonArtifactVerifiesSignature(t *testing.T) {
 		ArtifactSignature: hex.EncodeToString(ed25519.Sign(priv, payload)),
 	}
 
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, signingKey); err != nil {
 		t.Fatalf("valid signature should stage: %v", err)
 	}
 
 	// A signature over different bytes must be rejected before staging.
 	a.ArtifactSignature = hex.EncodeToString(ed25519.Sign(priv, []byte("other-bytes")))
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonSignatureInvalid) {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, signingKey); !errors.Is(err, ErrAddonSignatureInvalid) {
 		t.Fatalf("want ErrAddonSignatureInvalid, got %v", err)
 	}
 }
@@ -538,7 +538,7 @@ func stageTestAddon(t *testing.T, root, version string, payload []byte) {
 		ArtifactObjectKey: key,
 		ArtifactSha256:    sha256Hex(payload),
 	}
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 		t.Fatalf("stage %s %s: %v", addonID, version, err)
 	}
 }
@@ -673,7 +673,7 @@ func TestStageAddonArtifactExtractsTarball(t *testing.T) {
 		ArtifactSha256:    sha256Hex(tgz),
 	}
 
-	got, err := stageAddonArtifact(context.Background(), store, root, a)
+	got, err := stageAddonArtifact(context.Background(), store, root, a, "")
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestApplyStagedAddonRuntimeConfigMergesAssignmentConfig(t *testing.T) {
 		ConfigJson:        []byte(`{"context_name":"default-cp3"}`),
 	}
 
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
@@ -779,7 +779,7 @@ func TestApplyStagedAddonRuntimeConfigSeedsBundledConfigWithoutOverlay(t *testin
 		ArtifactSha256:    sha256Hex(tgz),
 	}
 
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
@@ -823,7 +823,7 @@ func TestApplyStagedAddonRuntimeConfigRefreshesStateWhenBundleChanges(t *testing
 			ArtifactObjectKey: key,
 			ArtifactSha256:    sha256Hex(tgz),
 		}
-		if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+		if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 			t.Fatalf("stage %s: %v", version, err)
 		}
 	}
@@ -992,7 +992,7 @@ func TestStageAddonArtifactTarballMissingBinary(t *testing.T) {
 		ArtifactObjectKey: key, ArtifactSha256: sha256Hex(tgz),
 	}
 
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballBinaryMissing) {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); !errors.Is(err, ErrAddonTarballBinaryMissing) {
 		t.Fatalf("want ErrAddonTarballBinaryMissing, got %v", err)
 	}
 }
@@ -1028,7 +1028,7 @@ func TestStageAddonArtifactTarballRejectsUnsafeEntries(t *testing.T) {
 				AddonId: "x", Version: "1.0.0", BinaryPath: "serviceradar-x-addon",
 				ArtifactObjectKey: key, ArtifactSha256: sha256Hex(tgz),
 			}
-			if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballUnsafe) {
+			if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); !errors.Is(err, ErrAddonTarballUnsafe) {
 				t.Fatalf("want ErrAddonTarballUnsafe, got %v", err)
 			}
 		})
@@ -1073,7 +1073,7 @@ func TestStageAddonArtifactTarballRejectsTooManyEntries(t *testing.T) {
 		ArtifactObjectKey: testAddonKeyX, ArtifactSha256: sha256Hex(tgz),
 	}
 
-	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballTooLarge) {
+	if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); !errors.Is(err, ErrAddonTarballTooLarge) {
 		t.Fatalf("want ErrAddonTarballTooLarge, got %v", err)
 	}
 }
@@ -1087,7 +1087,7 @@ func TestStageAddonArtifactViaGatewayHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	setReleaseVerificationKey(t, hex.EncodeToString(pub))
+	signingKey := hex.EncodeToString(pub)
 
 	payload := []byte("gateway-delivered-addon-binary")
 	const wantToken = "signed-download-token"
@@ -1112,7 +1112,7 @@ func TestStageAddonArtifactViaGatewayHTTP(t *testing.T) {
 	}
 
 	// No object store: external agents have none; the gateway URL must drive the fetch.
-	got, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), root, a)
+	got, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), root, a, signingKey)
 	if err != nil {
 		t.Fatalf("stage via gateway: %v", err)
 	}
@@ -1150,7 +1150,7 @@ func TestStageAddonArtifactGatewayHashMismatch(t *testing.T) {
 		DownloadToken:     "tok",
 	}
 
-	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a, ""); !errors.Is(err, ErrAddonArtifactHashMismatch) {
 		t.Fatalf("want ErrAddonArtifactHashMismatch, got %v", err)
 	}
 }
@@ -1168,7 +1168,7 @@ func TestStageAddonArtifactGatewayMissingClient(t *testing.T) {
 		DownloadToken:     "tok",
 	}
 
-	if _, err := stageAddonArtifactWithClient(context.Background(), nil, nil, t.TempDir(), a); !errors.Is(err, ErrAddonObjectStoreUnavailable) {
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, nil, t.TempDir(), a, ""); !errors.Is(err, ErrAddonObjectStoreUnavailable) {
 		t.Fatalf("want ErrAddonObjectStoreUnavailable, got %v", err)
 	}
 }
@@ -1239,7 +1239,7 @@ func TestStageAddonArtifactGatewayNon200(t *testing.T) {
 		DownloadToken:     "tok",
 	}
 
-	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a); !errors.Is(err, ErrAddonArtifactDownloadFailed) {
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a, ""); !errors.Is(err, ErrAddonArtifactDownloadFailed) {
 		t.Fatalf("want ErrAddonArtifactDownloadFailed, got %v", err)
 	}
 }
@@ -1268,24 +1268,6 @@ func TestAddonResourcesFromProto(t *testing.T) {
 	if got != want {
 		t.Fatalf("addonResourcesFromProto = %+v, want %+v", got, want)
 	}
-}
-
-// setReleaseVerificationKey points the agent's release trust root at key for the duration of t.
-//
-// It sets BOTH channels that releaseVerificationKey() consults, and the package variable is the
-// one that matters: ReleaseSigningPublicKey is embedded from a committed source file and takes
-// precedence, so the env var alone is only honoured when that embedded value is empty. It used
-// to be empty in every non-release build -- the key was injected by --stamp, which only the
-// release job passed -- so setting the env var alone happened to work here while testing a
-// configuration that never shipped.
-func setReleaseVerificationKey(t *testing.T, key string) {
-	t.Helper()
-
-	t.Setenv(releasePublicKeyEnv, key)
-
-	previous := ReleaseSigningPublicKey
-	ReleaseSigningPublicKey = key
-	t.Cleanup(func() { ReleaseSigningPublicKey = previous })
 }
 
 func TestAddonStateDirLivesBesideTheVersionsTree(t *testing.T) {

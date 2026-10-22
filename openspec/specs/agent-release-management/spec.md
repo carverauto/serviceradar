@@ -29,7 +29,7 @@ Before a package-managed agent spawns the updater for managed release activation
 - **THEN** the agent SHALL invoke the updater with those canonicalized values
 
 ### Requirement: Package-managed agent trust anchors are package-owned
-Package-managed agents SHALL use only package-owned trust anchors and package-owned execution paths for managed release verification and activation. The release verification key SHALL come only from the build-time embedded `ReleaseSigningPublicKey`. The updater binary path, seed binary path, and managed runtime root SHALL use package-owned defaults rather than host-local environment overrides.
+Package-managed agents SHALL use only package-owned trust anchors and package-owned execution paths for managed release verification and activation. The release verification key SHALL come only from the committed `go/pkg/agent/release_signing_key.txt` embedded at build time. The updater binary path, seed binary path, and managed runtime root SHALL use package-owned defaults rather than host-local environment overrides.
 
 #### Scenario: Stale local release key override is ignored
 - **GIVEN** a package-managed agent binary embeds the active release verification public key

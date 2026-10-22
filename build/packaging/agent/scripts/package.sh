@@ -40,10 +40,10 @@ mkdir -p lib/systemd/system
 
 echo "Building Go binary..."
 
+# The release verification key is NOT stamped here: it is embedded from the
+# committed go/pkg/agent/release_signing_key.txt, and the release workflow
+# asserts that file equals the key derived from the signing secret.
 AGENT_LDFLAGS="-X github.com/carverauto/serviceradar/go/cmd/agent.Version=${VERSION}"
-if [ -n "${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}" ]; then
-    AGENT_LDFLAGS="${AGENT_LDFLAGS} -X github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey=${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY}"
-fi
 
 # Build Go binaries
 cd "${BASE_DIR}/go/cmd/agent"

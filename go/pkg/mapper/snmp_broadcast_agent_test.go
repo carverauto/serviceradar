@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -87,8 +88,15 @@ func startFakeSNMPAgent(t *testing.T, pdus []gosnmp.SnmpPDU) *fakeSNMPAgent {
 	return agent
 }
 
-func (a *fakeSNMPAgent) port() uint16 {
-	return uint16(a.conn.LocalAddr().(*net.UDPAddr).Port) //nolint:gosec // loopback port
+func (a *fakeSNMPAgent) port(t *testing.T) uint16 {
+	t.Helper()
+
+	port := a.conn.LocalAddr().(*net.UDPAddr).Port
+	if port < 0 || port > math.MaxUint16 {
+		t.Fatalf("loopback UDP port %d does not fit in uint16", port)
+	}
+
+	return uint16(port)
 }
 
 func (a *fakeSNMPAgent) next(oid string) gosnmp.SnmpPDU {
@@ -240,7 +248,7 @@ func TestQueryInterfacesOverSNMPDropsBroadcastAddresses(t *testing.T) {
 
 	client := &gosnmp.GoSNMP{
 		Target:         "127.0.0.1",
-		Port:           agent.port(),
+		Port:           agent.port(t),
 		Community:      "public",
 		Version:        gosnmp.Version2c,
 		Timeout:        2 * time.Second,

@@ -33,7 +33,7 @@ func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -41,8 +41,9 @@ func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
 	})
 
 	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("stageAgentRelease() error = %v", err)
@@ -64,7 +65,7 @@ func TestStageAgentReleaseRejectsInvalidSignature(t *testing.T) {
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -73,8 +74,9 @@ func TestStageAgentReleaseRejectsInvalidSignature(t *testing.T) {
 	payload.Signature = base64.StdEncoding.EncodeToString([]byte("invalid-signature"))
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errReleaseSignatureInvalid) {
 		t.Fatalf("expected errReleaseSignatureInvalid, got %v", err)
@@ -91,12 +93,9 @@ func TestStageAgentReleaseUsesEnvironmentVerificationKeyFallback(t *testing.T) {
 		t.Fatalf("ed25519.GenerateKey() error = %v", err)
 	}
 
-	originalKey := ReleaseSigningPublicKey
-	ReleaseSigningPublicKey = ""
+	// No SigningPublicKey in the stage config below: resolution must fall
+	// back to the environment variable.
 	t.Setenv("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(publicKey))
-	t.Cleanup(func() {
-		ReleaseSigningPublicKey = originalKey
-	})
 
 	payload := signedReleasePayloadWithSigner(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
@@ -130,11 +129,7 @@ func TestStageAgentReleaseEmbeddedVerificationKeyWinsOverEnvironment(t *testing.
 	}
 
 	t.Setenv("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(otherPublicKey))
-	originalKey := ReleaseSigningPublicKey
-	ReleaseSigningPublicKey = base64.StdEncoding.EncodeToString(publicKey)
-	t.Cleanup(func() {
-		ReleaseSigningPublicKey = originalKey
-	})
+	signingKey := base64.StdEncoding.EncodeToString(publicKey)
 
 	payload := signedReleasePayloadWithSigner(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
@@ -144,8 +139,9 @@ func TestStageAgentReleaseEmbeddedVerificationKeyWinsOverEnvironment(t *testing.
 	}, privateKey)
 
 	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("expected embedded verification key to win over env override, got %v", err)
@@ -157,15 +153,16 @@ func TestStageAgentReleaseRejectsDigestMismatch(t *testing.T) {
 	server := newArtifactServer(t, []byte("unexpected"))
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
 		Arch:   runtime.GOARCH,
 	})
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errContentHashMismatch) {
 		t.Fatalf("expected errContentHashMismatch, got %v", err)
@@ -177,7 +174,7 @@ func TestStageAgentReleaseExtractsTarballEntrypoint(t *testing.T) {
 	server := newArtifactServer(t, archiveData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, archiveData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, archiveData, releaseArtifactPayload{
 		URL:        server.URL + "/serviceradar-agent.tar.gz",
 		SHA256:     digestHex(archiveData),
 		OS:         runtime.GOOS,
@@ -187,8 +184,9 @@ func TestStageAgentReleaseExtractsTarballEntrypoint(t *testing.T) {
 	})
 
 	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("stageAgentRelease() error = %v", err)
@@ -204,7 +202,7 @@ func TestStageAgentReleaseRejectsUnsignedArtifactMutation(t *testing.T) {
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -213,8 +211,9 @@ func TestStageAgentReleaseRejectsUnsignedArtifactMutation(t *testing.T) {
 	payload.Artifact.Entrypoint = "evil-agent"
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errReleaseArtifactNotSigned) {
 		t.Fatalf("expected errReleaseArtifactNotSigned, got %v", err)
@@ -226,7 +225,7 @@ func TestStageAgentReleaseRejectsArtifactPlatformMismatch(t *testing.T) {
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     "other-os",
@@ -234,8 +233,9 @@ func TestStageAgentReleaseRejectsArtifactPlatformMismatch(t *testing.T) {
 	})
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errReleaseArtifactPlatformInvalid) {
 		t.Fatalf("expected errReleaseArtifactPlatformInvalid, got %v", err)
@@ -247,7 +247,7 @@ func TestStageAgentReleaseRejectsHelperInstallWithoutRDPCapability(t *testing.T)
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -259,8 +259,9 @@ func TestStageAgentReleaseRejectsHelperInstallWithoutRDPCapability(t *testing.T)
 	}
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errReleaseHelperCapabilityMissing) {
 		t.Fatalf("expected errReleaseHelperCapabilityMissing, got %v", err)
@@ -272,7 +273,7 @@ func TestStageAgentReleaseRejectsHelperInstallForUnsupportedCapability(t *testin
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:          server.URL + "/serviceradar-agent",
 		SHA256:       digestHex(binaryData),
 		OS:           runtime.GOOS,
@@ -285,8 +286,9 @@ func TestStageAgentReleaseRejectsHelperInstallForUnsupportedCapability(t *testin
 	}
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errReleaseHelperCapabilityMissing) {
 		t.Fatalf("expected errReleaseHelperCapabilityMissing, got %v", err)
@@ -299,7 +301,7 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	defer server.Close()
 
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
-	payload := signedReleasePayload(t, binaryData, artifact)
+	payload, signingKey := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
 		Enabled:                 true,
 		Capability:              releaseCapabilityRemoteAccessRDP,
@@ -309,8 +311,9 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	}
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("expected helper-capable artifact to stage, got %v", err)
@@ -361,7 +364,7 @@ func TestStageAgentReleaseRejectsRDPHelperInstallMetadataMismatch(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
-			payload := signedReleasePayload(t, binaryData, artifact)
+			payload, signingKey := signedReleasePayload(t, binaryData, artifact)
 			payload.HelperInstall = &releaseHelperInstall{
 				Enabled:                 true,
 				Capability:              releaseCapabilityRemoteAccessRDP,
@@ -372,8 +375,9 @@ func TestStageAgentReleaseRejectsRDPHelperInstallMetadataMismatch(t *testing.T) 
 			tt.mutate(payload.HelperInstall)
 
 			_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-				RuntimeRoot: t.TempDir(),
-				HTTPClient:  server.Client(),
+				SigningPublicKey: signingKey,
+				RuntimeRoot:      t.TempDir(),
+				HTTPClient:       server.Client(),
 			})
 			if !errors.Is(err, errReleaseHelperReadinessMissing) {
 				t.Fatalf("expected errReleaseHelperReadinessMissing, got %v", err)
@@ -459,15 +463,16 @@ func TestStageAgentReleaseRejectsRDPCapabilityWithoutReadinessMetadata(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
 			tt.mutate(&artifact)
-			payload := signedReleasePayload(t, binaryData, artifact)
+			payload, signingKey := signedReleasePayload(t, binaryData, artifact)
 			payload.HelperInstall = &releaseHelperInstall{
 				Enabled:    true,
 				Capability: releaseCapabilityRemoteAccessRDP,
 			}
 
 			_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-				RuntimeRoot: t.TempDir(),
-				HTTPClient:  server.Client(),
+				SigningPublicKey: signingKey,
+				RuntimeRoot:      t.TempDir(),
+				HTTPClient:       server.Client(),
 			})
 			if !errors.Is(err, errReleaseHelperReadinessMissing) {
 				t.Fatalf("expected errReleaseHelperReadinessMissing, got %v", err)
@@ -485,15 +490,16 @@ func TestStageAgentReleaseRejectsHelperInstallWhenRDPConnectorNotReady(t *testin
 	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
 	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = testReleaseHelperReadyReasonNotValidated
-	payload := signedReleasePayload(t, binaryData, artifact)
+	payload, signingKey := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
 		Enabled:    true,
 		Capability: releaseCapabilityRemoteAccessRDP,
 	}
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if !errors.Is(err, errReleaseHelperConnectorNotReady) {
 		t.Fatalf("expected errReleaseHelperConnectorNotReady, got %v", err)
@@ -509,11 +515,12 @@ func TestStageAgentReleaseAcceptsRDPArtifactMarkedConnectorNotReadyWithoutHelper
 	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
 	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = testReleaseHelperReadyReasonNotValidated
-	payload := signedReleasePayload(t, binaryData, artifact)
+	payload, signingKey := signedReleasePayload(t, binaryData, artifact)
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("expected connector-not-ready metadata to be accepted without helper install, got %v", err)
@@ -580,7 +587,7 @@ func TestStageAgentReleaseAllowsSameOriginHTTPSRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL + "/redirect",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -588,8 +595,9 @@ func TestStageAgentReleaseAllowsSameOriginHTTPSRedirects(t *testing.T) {
 	})
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("expected redirecting download to succeed, got %v", err)
@@ -611,7 +619,7 @@ func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
 	}))
 	defer redirectServer.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    redirectServer.URL,
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -625,8 +633,9 @@ func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
 	}
 
 	_, err := stageAgentRelease(context.Background(), payload, fastReleaseDownloadBackoff(releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  httpClient,
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       httpClient,
 	}))
 	if !errors.Is(err, errReleaseRedirectOriginChanged) {
 		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
@@ -645,7 +654,7 @@ func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 	}))
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    server.URL,
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -653,8 +662,9 @@ func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 	})
 
 	_, err := stageAgentRelease(context.Background(), payload, fastReleaseDownloadBackoff(releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
 	}))
 	if !errors.Is(err, errReleaseRedirectInsecure) {
 		t.Fatalf("expected errReleaseRedirectInsecure, got %v", err)
@@ -688,7 +698,7 @@ func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
 		t.Fatalf("Atoi() error = %v", err)
 	}
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    "https://releases.example.com/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -708,10 +718,11 @@ func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
 	}
 
 	_, err = stageAgentRelease(context.Background(), payload, fastReleaseDownloadBackoff(releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  httpClient,
-		GatewayAddr: gatewayURL.Host,
-		CommandID:   testReleaseCommandID,
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       httpClient,
+		GatewayAddr:      gatewayURL.Host,
+		CommandID:        testReleaseCommandID,
 	}))
 	if !errors.Is(err, errReleaseRedirectOriginChanged) {
 		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
@@ -740,7 +751,7 @@ func TestStageAgentReleaseUsesGatewayArtifactTransport(t *testing.T) {
 		t.Fatalf("Atoi() error = %v", err)
 	}
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+	payload, signingKey := signedReleasePayload(t, binaryData, releaseArtifactPayload{
 		URL:    "https://releases.example.com/serviceradar-agent",
 		SHA256: digestHex(binaryData),
 		OS:     runtime.GOOS,
@@ -754,30 +765,30 @@ func TestStageAgentReleaseUsesGatewayArtifactTransport(t *testing.T) {
 	}
 
 	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
-		RuntimeRoot: t.TempDir(),
-		HTTPClient:  server.Client(),
-		GatewayAddr: serverURL.Host,
-		CommandID:   testReleaseCommandID,
+		SigningPublicKey: signingKey,
+		RuntimeRoot:      t.TempDir(),
+		HTTPClient:       server.Client(),
+		GatewayAddr:      serverURL.Host,
+		CommandID:        testReleaseCommandID,
 	})
 	if err != nil {
 		t.Fatalf("expected gateway transport download to succeed, got %v", err)
 	}
 }
 
-func signedReleasePayload(t *testing.T, artifactData []byte, artifact releaseArtifactPayload) releaseUpdatePayload {
+// signedReleasePayload signs a payload with a fresh key and returns the
+// payload plus the base64 public key to inject as
+// releaseStageConfig.SigningPublicKey.
+func signedReleasePayload(t *testing.T, artifactData []byte, artifact releaseArtifactPayload) (releaseUpdatePayload, string) {
 	t.Helper()
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("ed25519.GenerateKey() error = %v", err)
 	}
-	originalKey := ReleaseSigningPublicKey
-	ReleaseSigningPublicKey = base64.StdEncoding.EncodeToString(publicKey)
-	t.Cleanup(func() {
-		ReleaseSigningPublicKey = originalKey
-	})
 
-	return signedReleasePayloadWithSigner(t, artifactData, artifact, privateKey)
+	return signedReleasePayloadWithSigner(t, artifactData, artifact, privateKey),
+		base64.StdEncoding.EncodeToString(publicKey)
 }
 
 func signedReleasePayloadWithSigner(t *testing.T, artifactData []byte, artifact releaseArtifactPayload, privateKey ed25519.PrivateKey) releaseUpdatePayload {
