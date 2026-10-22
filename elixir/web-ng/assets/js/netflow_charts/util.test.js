@@ -55,7 +55,15 @@ describe("outlierRobustMax", () => {
   it("lets peaks that recur in more than 5% of buckets keep defining the axis", () => {
     const scale = outlierRobustMax([...steady(56), 900_000_000, 950_000_000, 1_000_000_000, 980_000_000])
 
-    expect(scale).toEqual({clipped: false, fullMax: 1_000_000_000, max: 1_000_000_000})
+    expect(scale).toEqual({clipped: false, fullMax: 1_000_000_000, limit: 3_600_000_000, max: 1_000_000_000})
+  })
+
+  it("clips a single burst in a short window of 16 buckets", () => {
+    const scale = outlierRobustMax([...steady(15), 1_000_000_000])
+
+    expect(scale.clipped).toBe(true)
+    expect(scale.max).toBeLessThan(10_000_000)
+    expect(scale.limit).toBeLessThan(1_000_000_000)
   })
 
   it("does not clip sparse traffic or an empty window", () => {

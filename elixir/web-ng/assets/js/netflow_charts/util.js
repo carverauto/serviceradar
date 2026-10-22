@@ -222,28 +222,35 @@ export function yTickValues(scale, count = 4) {
 
 // A bucket above OUTLIER_FACTOR times the 95th-percentile bucket is an outlier:
 // one burst (a long flow exported as a single record) would otherwise set the
-// y-axis alone and press every other bucket onto the baseline. Up to 5% of the
-// buckets can be clipped; more spikes than that raise the percentile with them,
-// so recurring peaks keep defining the axis.
+// y-axis alone and press every other bucket onto the baseline. The percentile is
+// the bucket at rank floor((n - 1) * 0.95), not an interpolation, so a single
+// burst cannot pull the reference up in a short window. Up to 5% of the buckets
+// can be clipped; more spikes than that reach the reference rank themselves, so
+// recurring peaks keep defining the axis. Fewer than OUTLIER_MIN_BUCKETS
+// positive buckets are too few to call any of them an outlier.
 const OUTLIER_QUANTILE = 0.95
 const OUTLIER_FACTOR = 4
 const OUTLIER_HEADROOM = 1.1
+const OUTLIER_MIN_BUCKETS = 4
 
 // The y-axis top for `values` (one per bucket). `max` is where the axis should
-// end; `clipped` says whether some bucket rises above it, `fullMax` is the
-// largest bucket either way.
+// end; `clipped` says whether some bucket rises above `limit`, the outlier
+// threshold the axis must not exceed; `fullMax` is the largest bucket either way.
 export function outlierRobustMax(values) {
   const sorted = (Array.isArray(values) ? values : [])
     .map(Number)
     .filter((value) => Number.isFinite(value) && value > 0)
     .sort(d3.ascending)
   const fullMax = sorted.at(-1) || 0
-  const limit = (d3.quantileSorted(sorted, OUTLIER_QUANTILE) || 0) * OUTLIER_FACTOR
+  const reference = sorted[Math.floor((sorted.length - 1) * OUTLIER_QUANTILE)] || 0
+  const limit = reference * OUTLIER_FACTOR
 
-  if (limit <= 0 || fullMax <= limit) return {clipped: false, fullMax, max: fullMax}
+  if (sorted.length < OUTLIER_MIN_BUCKETS || fullMax <= limit) {
+    return {clipped: false, fullMax, limit, max: fullMax}
+  }
 
   const inlierMax = d3.max(sorted.filter((value) => value <= limit))
-  return {clipped: true, fullMax, max: inlierMax * OUTLIER_HEADROOM}
+  return {clipped: true, fullMax, limit, max: Math.min(inlierMax * OUTLIER_HEADROOM, limit)}
 }
 
 // Advance widths, in em, generous enough for the UI sans fonts at axis size, so

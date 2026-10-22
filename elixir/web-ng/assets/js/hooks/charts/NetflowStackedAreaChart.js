@@ -382,6 +382,7 @@ export function renderStackedFrame(
   const maxY = (fullScale ? scale.fullMax : scale.max) || 1
   // clamp: a clipped bucket draws to the top edge instead of off the chart.
   const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0]).clamp(true)
+  if (scale.clipped && !fullScale) y.domain([0, Math.min(y.domain()[1], scale.limit)])
   const formatY = (value) => nfFormatRateValue(el.dataset.units, value)
   const margin = {
     ...initialMargin,
@@ -470,8 +471,6 @@ export function renderStackedFrame(
 // Marks each bucket that rises above the axis and labels the largest with its
 // real total, so a clipped burst still reads as a burst. The tooltip keeps the
 // exact per-series values.
-const CLIPPED_LABEL_LIMIT = 3
-
 function renderClippedBuckets({clippedRows, formatY, g, iw, x}) {
   if (clippedRows.length === 0) return
 
@@ -486,14 +485,11 @@ function renderClippedBuckets({clippedRows, formatY, g, iw, x}) {
     .attr("fill", "currentColor")
     .attr("opacity", 0.75)
 
-  const labelled = clippedRows
-    .slice()
-    .sort((a, b) => b.total - a.total)
-    .slice(0, CLIPPED_LABEL_LIMIT)
+  const largest = d3.greatest(clippedRows, (row) => row.total)
 
   layer
     .selectAll("text")
-    .data(labelled)
+    .data([largest])
     .join("text")
     .attr("x", (row) => Math.max(28, Math.min(iw - 28, x(row.t))))
     .attr("y", 16)
