@@ -31,6 +31,22 @@ Dashboard **Matched IPs** is distinct live cache endpoints.
 **Indicator matches** is endpoint-to-indicator memberships, not flow
 occurrences.
 
+Every number on the dashboard Threat Intel card opens a filtered, paginated
+view of `/security/threat-intel`:
+
+| Card metric | View |
+|-------------|------|
+| IOCs | `?view=inventory` - imported indicators (inventory, not sightings) |
+| Objects | `?view=objects` - imported provider objects such as OTX pulses |
+| Matched IPs | default view - current matched endpoints, with match detail |
+| Indicator matches | `?view=indicator_matches` - one row per endpoint-to-indicator membership |
+| Max sev | `?sort=severity` - matched endpoints, highest severity first |
+
+Each view filters by source, and by observed IP, indicator or minimum
+severity where that applies; filters are in the URL, so a filtered view can be
+shared. The **Retrohunt** view lists recent runs and their historical
+findings.
+
 ### Current matches versus inventory
 
 `in:threat_intel_matches` joins live `ip_threat_intel_cache` rows to active

@@ -132,6 +132,42 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
     assert html =~ "/observability/netflows"
   end
 
+  test "every summary metric and listed match opens a filtered investigation view" do
+    html =
+      render_component(&ThreatPanel.render/1,
+        dashboard: %{
+          threat_intel_summary:
+            summary(%{
+              matched_ips: 4,
+              recent_matches:
+                Enum.map(1..4, fn n ->
+                  %{ip: "198.51.100.#{n}", match_count: 1, looked_up_at: nil, device_uid: nil, hostname: nil}
+                end)
+            })
+        }
+      )
+
+    document = LazyHTML.from_fragment(html)
+
+    hrefs =
+      document
+      |> LazyHTML.query("a.sr-ops-small-stat-link")
+      |> Enum.map(&(&1 |> LazyHTML.attribute("href") |> List.first()))
+
+    assert hrefs == [
+             "/security/threat-intel?view=inventory",
+             "/security/threat-intel?view=objects",
+             "/security/threat-intel",
+             "/security/threat-intel?view=indicator_matches",
+             "/security/threat-intel?sort=severity"
+           ]
+
+    assert html =~ ~s(href="/security/threat-intel?selected=198.51.100.1")
+
+    assert document |> LazyHTML.query(~s(a.sr-ops-threat-matches-more[href="/security/threat-intel"])) |> Enum.count() ==
+             1
+  end
+
   test "last success includes a calendar date" do
     html =
       render_component(&ThreatPanel.render/1,

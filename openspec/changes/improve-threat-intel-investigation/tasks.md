@@ -11,12 +11,12 @@
 - [x] 2.1 Add a project-owned threat-intel investigation query module that pages
   live `IpThreatIntelCache` endpoint matches and resolves individual active
   `ThreatIntelIndicator` rows without per-row queries.
-- [ ] 2.2 Return explicit fields for cache evaluation/expiry and indicator
+- [x] 2.2 Return explicit fields for cache evaluation/expiry and indicator
   identity/source/label/severity/confidence/validity; attach source-object context
   only when the relationship is unambiguous.
 - [x] 2.3 Keep current cache matches and `OTXRetrohuntFinding` evidence as distinct
   result kinds and labels.
-- [ ] 2.4 Add deterministic keyset pagination and bounded source, indicator,
+- [x] 2.4 Add deterministic keyset pagination and bounded source, indicator,
   observed-IP, severity, freshness, and status filters.
 - [ ] 2.5 Run `EXPLAIN (ANALYZE, BUFFERS)` on production-sized fixtures and add only
   the supporting live-cache/index migration proven necessary by the plan.
@@ -60,7 +60,7 @@
   evidence.
 - [x] 4.4 Add URL-backed filters and `View flows` / `View attributed flows` pivots
   that preserve endpoint, indicator/source, and time state.
-- [ ] 4.5 Add separate inventory and retrohunt evidence views without presenting
+- [x] 4.5 Add separate inventory and retrohunt evidence views without presenting
   imported-only IOCs as local sightings.
 - [x] 4.6 Change the dashboard Threat Intel summary body to open the investigation
   route; retain a separate `Manage` command to settings and preserve accessible

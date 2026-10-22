@@ -3,8 +3,10 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelInvestigation
+  alias ServiceRadar.Observability.ThreatIntelSourceObject
 
   setup do
     %{actor: SystemActor.system(:threat_intel_investigation_db_test)}
@@ -62,10 +64,10 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
       expires_at: DateTime.shift(now, minute: -1)
     })
 
-    assert {:ok, current} = ThreatIntelInvestigation.list_current_matches(scope, source: source)
-    assert current == []
+    assert {:ok, %{rows: []}} =
+             ThreatIntelInvestigation.list_current_matches(scope, source: source)
 
-    assert {:ok, [stale]} =
+    assert {:ok, %{rows: [stale]}} =
              ThreatIntelInvestigation.list_current_matches(scope, source: source, stale: true)
 
     assert stale.observed_ip == ip
@@ -107,6 +109,169 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
 
     assert Map.keys(summaries) == [live_ip]
     assert %{match_count: 2, max_severity: 5, sources: [^source]} = summaries[live_ip]
+  end
+
+  test "current matches page by keyset without duplicating or skipping rows", %{actor: actor} do
+    source = unique_source("page")
+    scope = %{actor: actor}
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    # Two rows share an evaluation time, so the IP tie-breaker decides the order.
+    rows = [
+      {"192.0.2.201", now, 9},
+      {"192.0.2.202", now, nil},
+      {"192.0.2.203", DateTime.shift(now, second: -5), 3}
+    ]
+
+    for {ip, at, severity} <- rows do
+      insert_cache!(actor, %{
+        ip: ip,
+        matched: true,
+        match_count: 1,
+        max_severity: severity,
+        sources: [source],
+        looked_up_at: at,
+        expires_at: DateTime.shift(now, hour: 1)
+      })
+    end
+
+    assert {:ok, %{rows: first, next_cursor: cursor}} =
+             ThreatIntelInvestigation.list_current_matches(scope, source: source, limit: 2)
+
+    assert Enum.map(first, & &1.observed_ip) == ["192.0.2.201", "192.0.2.202"]
+    assert is_binary(cursor)
+
+    assert {:ok, %{rows: second, next_cursor: nil}} =
+             ThreatIntelInvestigation.list_current_matches(scope,
+               source: source,
+               limit: 2,
+               cursor: cursor
+             )
+
+    assert Enum.map(second, & &1.observed_ip) == ["192.0.2.203"]
+
+    # Severity order puts unknown severity last and pages the same way.
+    assert {:ok, %{rows: by_severity, next_cursor: severity_cursor}} =
+             ThreatIntelInvestigation.list_current_matches(scope,
+               source: source,
+               sort: "severity",
+               limit: 2
+             )
+
+    assert Enum.map(by_severity, & &1.observed_ip) == ["192.0.2.201", "192.0.2.203"]
+
+    assert {:ok, %{rows: [%{observed_ip: "192.0.2.202"}]}} =
+             ThreatIntelInvestigation.list_current_matches(scope,
+               source: source,
+               sort: "severity",
+               limit: 2,
+               cursor: severity_cursor
+             )
+
+    assert {:ok, %{rows: [%{observed_ip: "192.0.2.201"}]}} =
+             ThreatIntelInvestigation.list_current_matches(scope,
+               source: source,
+               min_severity: "5"
+             )
+
+    assert {:error, :invalid_cursor} =
+             ThreatIntelInvestigation.list_current_matches(scope,
+               source: source,
+               cursor: "not-a-cursor"
+             )
+  end
+
+  test "indicator detail carries provider context only when one object matches", %{actor: actor} do
+    source = unique_source("context")
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    {ip, cidr} = unique_host()
+    other_ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    for indicator <- [cidr, "#{other_ip}/32"] do
+      insert_indicator!(actor, %{
+        indicator: indicator,
+        source: source,
+        label: "Synthetic #{indicator}",
+        severity: 50,
+        expires_at: DateTime.shift(now, hour: 1),
+        first_seen_at: now,
+        last_seen_at: now
+      })
+    end
+
+    insert_source_object!(actor, source, "pulse-a", ip)
+    insert_source_object!(actor, source, "pulse-b", other_ip)
+    insert_source_object!(actor, source, "pulse-c", other_ip)
+
+    scope = %{actor: actor}
+
+    assert {:ok, rows} = ThreatIntelInvestigation.indicators_for_ip(scope, ip)
+    assert [unique] = Enum.filter(rows, &(&1.source == source))
+
+    assert %{source_object_id: "pulse-a", source_label: "Synthetic pulse pulse-a"} =
+             unique.source_context
+
+    assert {:ok, other_rows} = ThreatIntelInvestigation.indicators_for_ip(scope, other_ip)
+    assert [ambiguous] = Enum.filter(other_rows, &(&1.source == source))
+    assert is_nil(ambiguous.source_context)
+  end
+
+  test "evidence pages separate inventory and retrohunt findings", %{actor: actor} do
+    source = unique_source("evidence")
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    scope = %{actor: actor}
+
+    for {cidr, offset} <- [
+          {"198.51.100.0/25", 0},
+          {"198.51.100.128/25", -10},
+          {"203.0.113.0/24", -20}
+        ] do
+      insert_indicator!(actor, %{
+        indicator: cidr,
+        source: source,
+        label: "Inventory #{cidr}",
+        severity: 10,
+        expires_at: DateTime.shift(now, hour: 1),
+        first_seen_at: now,
+        last_seen_at: DateTime.shift(now, second: offset)
+      })
+    end
+
+    assert {:ok, %{rows: [first], next_cursor: cursor}} =
+             ThreatIntelEvidence.page_indicators(scope, source: source, limit: 1)
+
+    assert first.indicator =~ "198.51.100.0"
+
+    assert {:ok, %{rows: rest, next_cursor: nil}} =
+             ThreatIntelEvidence.page_indicators(scope, source: source, limit: 5, cursor: cursor)
+
+    assert length(rest) == 2
+
+    assert {:ok, %{rows: [contained]}} =
+             ThreatIntelEvidence.page_indicators(scope,
+               source: source,
+               indicator: "198.51.100.200"
+             )
+
+    assert contained.indicator =~ "198.51.100.128"
+
+    assert {:error, :invalid_ip} =
+             ThreatIntelEvidence.page_indicators(scope, source: source, indicator: "not-an-ip")
+
+    assert {:ok, %{rows: []}} = ThreatIntelEvidence.page_retrohunt_findings(scope, source: source)
+  end
+
+  defp insert_source_object!(actor, source, object_id, indicator) do
+    ThreatIntelSourceObject
+    |> Ash.Changeset.for_create(:upsert, %{
+      provider: "alienvault_otx",
+      source: source,
+      collection_id: "synthetic",
+      object_id: object_id,
+      object_type: "otx-pulse",
+      metadata: %{"label" => "Synthetic pulse #{object_id}", "indicator" => indicator}
+    })
+    |> Ash.create!(actor: actor)
   end
 
   defp insert_indicator!(actor, attrs) do
