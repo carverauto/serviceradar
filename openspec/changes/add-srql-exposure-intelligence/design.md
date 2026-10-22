@@ -776,7 +776,8 @@ now owns its path.
 
 **Cost.** Results are cached per (process root, executable `dev`, `inode`). An entry is valid
 while the file's mtime and size and that root's package-database state are unchanged; a
-reused inode or a package change in that root re-resolves it. The cache and the number of
+reused inode or a package change in that root re-resolves it. A read where the kernel
+reports the executable deleted neither uses nor stores a cache entry. The cache and the number of
 cached package-database indexes are bounded. Resolution runs on netprobe's existing budgeted
 process-metadata path, so it happens once per cache entry and never once per connection or
 per event.
