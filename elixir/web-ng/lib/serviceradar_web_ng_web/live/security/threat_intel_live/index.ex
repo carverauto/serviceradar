@@ -173,7 +173,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
           <.ui_button
             :for={{view, label} <- view_tabs()}
             id={"threat-intel-view-#{view}"}
-            patch={view_path(view, carry_filters(view, @filters))}
+            patch={view_path(view, carry_filters(view, @view, @filters))}
             variant="ghost"
             size="sm"
             active={@view == view}
@@ -1122,6 +1122,9 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   defp run_badge(_status), do: "ghost"
 
   # Moving between views keeps only the filters that mean the same thing there.
+  defp carry_filters(view, view, filters), do: filters
+  defp carry_filters(view, _current, filters), do: carry_filters(view, filters)
+
   defp carry_filters("matches", filters), do: Map.take(filters, ~w(source ip min_severity))
   defp carry_filters("indicator_matches", filters), do: Map.take(filters, ~w(source ip min_severity indicator))
   defp carry_filters("inventory", filters), do: Map.take(filters, ~w(source indicator))

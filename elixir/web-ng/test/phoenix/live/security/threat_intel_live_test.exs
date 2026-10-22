@@ -31,6 +31,21 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     assert_patch(view, ~p"/security/threat-intel?#{[stale: "true"]}")
   end
 
+  test "the active view tab keeps its filters and another tab carries only shared ones", %{conn: conn} do
+    {:ok, view, _html} =
+      live(conn, ~p"/security/threat-intel?#{[sort: "severity", stale: "true", source: "synthetic-feed"]}")
+
+    assert has_element?(
+             view,
+             ~s(#threat-intel-view-matches[href="/security/threat-intel?sort=severity&source=synthetic-feed&stale=true"])
+           )
+
+    assert has_element?(
+             view,
+             ~s(#threat-intel-view-inventory[href="/security/threat-intel?source=synthetic-feed&view=inventory"])
+           )
+  end
+
   test "viewer can open investigation but not settings", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
