@@ -31,7 +31,7 @@ defmodule ServiceRadar.Inventory.SourceFactsTest do
 
   test "ignores named VLANs that are not identifiers" do
     assert SourceFacts.parse_explicit_facts(%{
-             "vlan_uid" => "DMZnonPCI-BE_FW_10.176.3.64/28"
+             "vlan_uid" => "lab-printers"
            }) == []
   end
 

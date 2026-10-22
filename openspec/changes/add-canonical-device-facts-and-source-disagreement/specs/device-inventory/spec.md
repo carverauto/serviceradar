@@ -29,7 +29,7 @@ The system SHALL populate `ocsf_devices.vlan_uid` from the winning VLAN fact whe
 - **AND** `metadata.armis_vlans` SHALL still equal `[200]`
 
 #### Scenario: Named VLAN does not clobber vlan_uid
-- **GIVEN** a source reports VLAN name `DMZnonPCI-BE_FW_10.176.3.64/28` and no numeric VLAN id
+- **GIVEN** a source reports VLAN name `lab-printers` and no numeric VLAN id
 - **WHEN** fact promotion runs
 - **THEN** `switch_port_attachment.vlan_name` MAY be set
 - **AND** `vlan_uid` SHALL NOT be replaced with that name
