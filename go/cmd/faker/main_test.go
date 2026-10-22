@@ -1,11 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+const testDevicesFile = "fake_armis_devices.json"
 
 func TestGenerateAllDevicesHasUniqueIPsAndHostnames(t *testing.T) {
 	if testing.Short() {
@@ -150,7 +154,7 @@ func TestGenerateMACAddressesDiffersAcrossSeeds(t *testing.T) {
 func TestSaveLoadRoundTripPreservesMacAddresses(t *testing.T) {
 	cfg := &Config{}
 	cfg.Storage.DataDir = t.TempDir()
-	cfg.Storage.DevicesFile = "fake_armis_devices.json"
+	cfg.Storage.DevicesFile = testDevicesFile
 	cfg.Storage.PersistChanges = true
 
 	faker := newFakeArmis(cfg)
@@ -173,4 +177,23 @@ func TestSaveLoadRoundTripPreservesMacAddresses(t *testing.T) {
 		require.Equal(t, original.MacAddresses, got.MacAddresses,
 			"device %d MAC set must survive the save/load round trip", i)
 	}
+}
+
+func TestLoadFromStorageRejectsSymlinkEscapingStorageDir(t *testing.T) {
+	storageDir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside_devices.json")
+	require.NoError(t, os.WriteFile(outside, []byte(`[{"id":1}]`), 0o600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(storageDir, testDevicesFile)))
+
+	cfg := &Config{}
+	cfg.Storage.DataDir = storageDir
+	cfg.Storage.DevicesFile = testDevicesFile
+
+	faker := newFakeArmis(cfg)
+	faker.totalDevices = 1
+
+	gen := NewDeviceGenerator()
+	require.False(t, faker.loadFromStorage(gen),
+		"a storage file symlinked outside the storage directory must not be loaded")
+	require.Empty(t, gen.allDevices)
 }

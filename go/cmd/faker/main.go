@@ -1968,7 +1968,7 @@ func rehydrateMacAddresses(devices []ArmisDevice) {
 func (f *fakeArmis) loadFromStorage(dg *DeviceGenerator) bool {
 	storageFile := f.getStorageFilePath()
 
-	data, err := os.ReadFile(storageFile)
+	data, err := readStorageFile(storageFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Printf("No existing device data found at %s, will generate new data", storageFile)
@@ -2033,6 +2033,19 @@ func (f *fakeArmis) saveToStorage(dg *DeviceGenerator) {
 	}
 
 	log.Printf("Successfully saved %d devices to persistent storage at %s", len(devicesCopy), storageFile)
+}
+
+// readStorageFile reads the persisted device file through an os.Root
+// anchored at the storage directory, so a symlink planted at the storage
+// path cannot redirect the load outside that directory.
+func readStorageFile(path string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return root.ReadFile(filepath.Base(path))
 }
 
 // getStorageFilePath returns the path where device data should be stored
