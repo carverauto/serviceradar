@@ -11,9 +11,11 @@ import {
   netflowDisplayTimeZone,
   netflowRangeSelectionStatus,
   normalizeTimeSeries as nfNormalizeTimeSeries,
+  outlierRobustMax,
   parseSeriesData as nfParseSeriesData,
   renderYGrid as nfRenderYGrid,
   styleChartAxis as nfStyleChartAxis,
+  yAxisGutter,
 } from "../../netflow_charts/util"
 import {yGridTicks} from "../../utils/chart_axis_grid"
 import {nfFormatRateValue} from "../../utils/formatters"
@@ -78,6 +80,7 @@ export default {
     this._resizeObserver = new ResizeObserver(() => this._render())
     this._resizeObserver.observe(this.el)
     this._hidden = this._hidden || new Set()
+    this._fullScale = false
     this._render()
   },
   updated() {
@@ -173,17 +176,25 @@ export default {
       const field = el.dataset.seriesField || ""
       if (field) this.pushEvent("netflow_stack_series", {field, value: key})
     }
+    const onScaleToggle = () => {
+      this._fullScale = !this._fullScale
+      this._render(true)
+      // The redraw replaced the focused toggle; hand focus to its replacement.
+      svg.querySelector("[data-netflow-scale-toggle]")?.focus?.()
+    }
     const frame = renderStackedFrame(
       {
         colors,
         data,
         el,
+        fullScale: this._fullScale,
         hidden: this._hidden,
         ih,
         iw,
         keys,
         margin: m,
         onLegendToggle,
+        onScaleToggle,
         onSeriesClick,
         overlays,
         svg,
@@ -195,7 +206,9 @@ export default {
       this._disableRangeSelection()
       return
     }
-    const {g, x} = frame
+    // The frame widens the left margin to fit the y-axis labels, so the plot
+    // geometry below comes from the frame, not from the initial dimensions.
+    const {g, x, margin: plotMargin, iw: plotWidth} = frame
 
     // Brush-zoom: opt-in via data-zoomable="true"
     let interaction = "static"
@@ -207,7 +220,7 @@ export default {
           g,
           height: ih,
           onZoom: ({start, end}) => this.pushEvent("chart_zoom", {start, end}),
-          width: iw,
+          width: plotWidth,
           x,
         },
         this._stackedRenderDependencies,
@@ -219,10 +232,10 @@ export default {
       this._updateRangeSelection({
         height: ih,
         intervals: parseRangeIntervals(el.dataset.rangeIntervals),
-        marginLeft: m.left,
-        marginTop: m.top,
+        marginLeft: plotMargin.left,
+        marginTop: plotMargin.top,
         overlay,
-        plotWidth: iw,
+        plotWidth,
         status: el.querySelector("[data-range-status]"),
         svg,
         x,
@@ -238,9 +251,9 @@ export default {
       keys: visibleKeys,
       timeZone: netflowDisplayTimeZone(el.dataset.timezone),
       x,
-      xOffset: m.left,
-      plotLeft: m.left,
-      plotWidth: iw,
+      xOffset: plotMargin.left,
+      plotLeft: plotMargin.left,
+      plotWidth,
       viewBoxWidth: width,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
@@ -335,12 +348,14 @@ export function renderStackedFrame(
     colors,
     data,
     el,
+    fullScale = false,
     hidden,
     ih,
-    iw,
+    iw: initialWidth,
     keys,
-    margin,
+    margin: initialMargin,
     onLegendToggle,
+    onScaleToggle = () => {},
     onSeriesClick,
     overlays,
     svg,
@@ -362,9 +377,19 @@ export function renderStackedFrame(
     .slice()
     .sort((a, b) => (keyTotals.get(b) || 0) - (keyTotals.get(a) || 0))
   const series = d3.stack().keys(stackKeys)(data)
-  const maxY = d3.max(series, (stackedSeries) => d3.max(stackedSeries, (point) => point[1])) || 1
+  const totals = data.map((row) => d3.sum(visibleKeys, (key) => Number(row?.[key] || 0)))
+  const scale = outlierRobustMax(totals)
+  const maxY = (fullScale ? scale.fullMax : scale.max) || 1
+  // clamp: a clipped bucket draws to the top edge instead of off the chart.
+  const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0]).clamp(true)
+  if (scale.clipped && !fullScale) y.domain([0, Math.min(y.domain()[1], scale.limit)])
+  const formatY = (value) => nfFormatRateValue(el.dataset.units, value)
+  const margin = {
+    ...initialMargin,
+    left: yAxisGutter(y.ticks(4).map(formatY), {min: initialMargin.left}),
+  }
+  const iw = Math.max(1, initialWidth + initialMargin.left - margin.left)
   const x = d3.scaleTime().domain(d3.extent(data, (row) => row.t)).range([0, iw])
-  const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0])
   const g = selectRoot(svg)
     .append("g")
     .attr("data-netflow-stacked-render-root", "")
@@ -406,8 +431,18 @@ export function renderStackedFrame(
 
   renderTotalOverlays({g, iw, overlays, x, y})
 
+  const top = y.domain()[1]
+  const clippedRows = data
+    .map((row, index) => ({t: row.t, total: totals[index]}))
+    .filter((row) => row.total > top)
+  renderClippedBuckets({clippedRows, formatY, g, iw, x})
+
   const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
   buildLegend(legend, keys, color, hidden, onLegendToggle)
+
+  if (scale.clipped) {
+    renderScaleToggle({clippedCount: clippedRows.length, fullScale, g, ih, iw, onScaleToggle})
+  }
 
   g.append("g")
     .attr("transform", `translate(0,${ih})`)
@@ -425,12 +460,78 @@ export function renderStackedFrame(
       d3
         .axisLeft(y)
         .ticks(4)
-        .tickFormat((value) => nfFormatRateValue(el.dataset.units, value))
+        .tickFormat(formatY)
         .tickSizeOuter(0),
     )
     .call(nfStyleChartAxis)
 
-  return {g, x}
+  return {g, iw, margin, x}
+}
+
+// Marks each bucket that rises above the axis and labels the largest with its
+// real total, so a clipped burst still reads as a burst. The tooltip keeps the
+// exact per-series values.
+function renderClippedBuckets({clippedRows, formatY, g, iw, x}) {
+  if (clippedRows.length === 0) return
+
+  const layer = g.append("g").attr("data-netflow-clipped-buckets", "").attr("pointer-events", "none")
+
+  layer
+    .selectAll("path")
+    .data(clippedRows)
+    .join("path")
+    .attr("d", d3.symbol(d3.symbolTriangle, 30)())
+    .attr("transform", (row) => `translate(${x(row.t)},4)`)
+    .attr("fill", "currentColor")
+    .attr("opacity", 0.75)
+
+  const largest = d3.greatest(clippedRows, (row) => row.total)
+
+  layer
+    .selectAll("text")
+    .data([largest])
+    .join("text")
+    .attr("x", (row) => Math.max(28, Math.min(iw - 28, x(row.t))))
+    .attr("y", 16)
+    .attr("text-anchor", "middle")
+    .attr("font-size", 10)
+    .attr("fill", "currentColor")
+    .attr("opacity", 0.85)
+    .text((row) => formatY(row.total))
+}
+
+// Switches between the outlier-robust axis and the full range. Shown only when
+// the robust axis clips something; it sits in the legend column, where the range
+// selection does not start.
+function renderScaleToggle({clippedCount, fullScale, g, ih, iw, onScaleToggle}) {
+  const buckets = clippedCount === 1 ? "bucket" : "buckets"
+  const label = fullScale ? "Clip outliers" : "Show full scale"
+  const description = fullScale
+    ? "Clip outlier buckets so the rest of the chart is readable"
+    : `Show the full y-axis range, including ${clippedCount} clipped ${buckets}`
+  const activate = (event) => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    onScaleToggle()
+  }
+
+  g.append("g")
+    .attr("data-netflow-scale-toggle", fullScale ? "full" : "fit")
+    .attr("role", "button")
+    .attr("tabindex", 0)
+    .attr("aria-label", description)
+    .attr("transform", `translate(${iw + 12}, ${Math.max(0, ih - 4)})`)
+    .style("cursor", "pointer")
+    .on("click", activate)
+    .on("keydown", (event) => {
+      if (event?.key === "Enter" || event?.key === " ") activate(event)
+    })
+    .append("text")
+    .attr("font-size", 10)
+    .attr("fill", "currentColor")
+    .attr("opacity", 0.8)
+    .attr("text-decoration", "underline")
+    .text(label)
 }
 
 function renderTotalOverlays({g, iw, overlays, x, y}) {
