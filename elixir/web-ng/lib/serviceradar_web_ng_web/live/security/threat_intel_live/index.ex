@@ -892,7 +892,11 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
       with {:ok, query} <- indicator_match_query(socket.assigns.filters) do
         case srql_module().query(query, opts) do
           {:ok, %{"results" => rows} = response} when is_list(rows) ->
-            {:ok, %{rows: rows, next_cursor: get_in(response, ["pagination", "next_cursor"])}}
+            {:ok,
+             %{
+               rows: Enum.map(rows, &match_row/1),
+               next_cursor: get_in(response, ["pagination", "next_cursor"])
+             }}
 
           {:ok, _other} ->
             {:ok, %{rows: [], next_cursor: nil}}
@@ -991,6 +995,9 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
       {:ok, query}
     end
   end
+
+  defp match_row(%{"payload" => %{} = payload}), do: payload
+  defp match_row(row), do: row
 
   defp match_ip_filter(nil), do: {:ok, nil}
   defp match_ip_filter(ip), do: ThreatIntelEvidence.parse_address(ip, :ip)
@@ -1151,6 +1158,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
     end
   end
 
+  defp blank_to_nil([_ | _] = values), do: values |> List.last() |> blank_to_nil()
   defp blank_to_nil(_), do: nil
 
   defp dom_id(ip), do: ip |> to_string() |> String.replace(~r/[^A-Za-z0-9]/, "-")
