@@ -13,9 +13,8 @@ import (
 )
 
 func TestBulkCustomPropertiesHandlerSupportsBulkCustomPropertiesPayload(t *testing.T) {
-	resetNorthboundUpdates()
-
-	deviceGen = &DeviceGenerator{
+	faker := newFakeArmis(&Config{})
+	faker.deviceGen = &DeviceGenerator{
 		allDevices: []ArmisDevice{{ID: 101, Name: "device-101"}},
 	}
 
@@ -33,15 +32,15 @@ func TestBulkCustomPropertiesHandlerSupportsBulkCustomPropertiesPayload(t *testi
 	req.Header.Set("Authorization", "Bearer fake-token-test")
 
 	rr := httptest.NewRecorder()
-	bulkCustomPropertiesHandler(rr, req)
+	faker.bulkCustomPropertiesHandler(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	props, ok := deviceGen.allDevices[0].CustomProperties.(map[string]interface{})
+	props, ok := faker.deviceGen.allDevices[0].CustomProperties.(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, true, props["availability"])
 
-	updates := northboundUpdatesSnapshot()
+	updates := faker.northboundUpdatesSnapshot()
 	require.True(t, updates.Success)
 	require.Equal(t, 1, updates.Data.Total)
 	require.Equal(t, 1, updates.Data.Updated)
@@ -54,9 +53,8 @@ func TestBulkCustomPropertiesHandlerSupportsBulkCustomPropertiesPayload(t *testi
 }
 
 func TestBulkCustomPropertiesHandlerSupportsLegacyUpsertPayload(t *testing.T) {
-	resetNorthboundUpdates()
-
-	deviceGen = &DeviceGenerator{
+	faker := newFakeArmis(&Config{})
+	faker.deviceGen = &DeviceGenerator{
 		allDevices: []ArmisDevice{{ID: 202, Name: "device-202"}},
 	}
 
@@ -79,15 +77,15 @@ func TestBulkCustomPropertiesHandlerSupportsLegacyUpsertPayload(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer fake-token-test")
 
 	rr := httptest.NewRecorder()
-	bulkCustomPropertiesHandler(rr, req)
+	faker.bulkCustomPropertiesHandler(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	props, ok := deviceGen.allDevices[0].CustomProperties.(map[string]interface{})
+	props, ok := faker.deviceGen.allDevices[0].CustomProperties.(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, false, props["availability"])
 
-	updates := northboundUpdatesSnapshot()
+	updates := faker.northboundUpdatesSnapshot()
 	require.Equal(t, 1, updates.Data.Total)
 	require.Equal(t, 1, updates.Data.Updated)
 	require.Equal(t, "202", updates.Data.Results[0].DeviceID)
@@ -96,13 +94,13 @@ func TestBulkCustomPropertiesHandlerSupportsLegacyUpsertPayload(t *testing.T) {
 }
 
 func TestNorthboundUpdatesHandlerExposesAndResetsCapturedBulkUpdates(t *testing.T) {
-	resetNorthboundUpdates()
-	recordNorthboundUpdate("303", map[string]interface{}{"OT_Isolation_Compliant": true}, true, "upsert", fixedTestTime())
-	recordNorthboundUpdate("404", map[string]interface{}{"OT_Isolation_Compliant": false}, false, "customProperties", fixedTestTime())
+	faker := newFakeArmis(&Config{})
+	faker.recordNorthboundUpdate("303", map[string]interface{}{"OT_Isolation_Compliant": true}, true, "upsert", fixedTestTime())
+	faker.recordNorthboundUpdate("404", map[string]interface{}{"OT_Isolation_Compliant": false}, false, "customProperties", fixedTestTime())
 
 	getReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/armis/northbound/updates", nil)
 	getRecorder := httptest.NewRecorder()
-	northboundUpdatesHandler(getRecorder, getReq)
+	faker.northboundUpdatesHandler(getRecorder, getReq)
 
 	require.Equal(t, http.StatusOK, getRecorder.Code)
 
@@ -119,10 +117,10 @@ func TestNorthboundUpdatesHandlerExposesAndResetsCapturedBulkUpdates(t *testing.
 
 	deleteReq := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/debug/armis/northbound/updates", nil)
 	deleteRecorder := httptest.NewRecorder()
-	northboundUpdatesHandler(deleteRecorder, deleteReq)
+	faker.northboundUpdatesHandler(deleteRecorder, deleteReq)
 	require.Equal(t, http.StatusOK, deleteRecorder.Code)
 
-	require.Equal(t, 0, northboundUpdatesSnapshot().Data.Total)
+	require.Equal(t, 0, faker.northboundUpdatesSnapshot().Data.Total)
 }
 
 func fixedTestTime() time.Time {

@@ -39,7 +39,7 @@ type gobgpRunner struct {
 	cmd *exec.Cmd
 }
 
-func runBGPSimulator(cfg BGPSimulationConfig) {
+func runBGPSimulator(cfg BGPSimulationConfig, dataDir string) {
 	if !cfg.Enabled {
 		return
 	}
@@ -85,7 +85,7 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 	}
 
 	rng := newDeterministicRNG(cfg.Seed)
-	runner, err := newGoBGPRunner(cfg)
+	runner, err := newGoBGPRunner(cfg, dataDir)
 	if err != nil {
 		log.Printf("BGP simulation disabled: %v", err)
 		return
@@ -164,10 +164,10 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 	}
 }
 
-func newGoBGPRunner(cfg BGPSimulationConfig) (*gobgpRunner, error) {
+func newGoBGPRunner(cfg BGPSimulationConfig, dataDir string) (*gobgpRunner, error) {
 	storageDir := "/tmp"
-	if config != nil && strings.TrimSpace(config.Storage.DataDir) != "" {
-		storageDir = config.Storage.DataDir
+	if strings.TrimSpace(dataDir) != "" {
+		storageDir = dataDir
 	}
 
 	workDir := filepath.Join(storageDir, "bgp-sim")
