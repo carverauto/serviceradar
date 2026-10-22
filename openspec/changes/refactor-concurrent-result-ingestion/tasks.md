@@ -38,6 +38,12 @@
 - [x] 4.2 Move actual batch writes into workers and preserve persistence-before-completion publication.
 - [x] 4.3 Give SyncIngestorQueue bounded reply-bearing raw-payload admission, in-worker decoding, caller rejection handling, and run/chunk ordering.
 - [ ] 4.4 Prove rejected or unattributable chunks cannot activate partial snapshots; persist available incompleteness outside callbacks and preserve the existing population guard across restart/replay.
+  `sync_ingestor_queue_db_test.exs` covers a rejected middle chunk
+  ("a rejected middle chunk cannot activate or retire an earlier collection")
+  and a receipt replay that leaves the run incomplete
+  ("receipt replay does not clear rejection and a missing index fails closed").
+  Still open: an unattributable chunk, and the population guard across a
+  process restart.
 - [x] 4.5 Add stale-tick, queue-full-while-in-flight, byte-cap, malformed payload, interleaved incomplete/complete run, and no-retirement-on-overflow regressions.
 
 ## 5. JetStream telemetry
@@ -59,8 +65,18 @@
 
 ## 7. Lane metrics publication and visibility (last PR)
 
-- [ ] 7.1 Add a periodic aggregator that publishes one `serviceradar.metric.v1` MetricBatch per interval on `metrics.ingestion_lanes` via `ServiceRadar.NATS.JetStreamPublish`, following `ServiceRadar.FlowAttribution.PassMetrics`; log and ignore publish failures.
-- [ ] 7.2 Test that the published envelope is accepted and persisted by the EventWriter `Metrics` processor, that a publish failure leaves ingestion unaffected, and that many admissions in one interval yield one batch.
+- [x] 7.1 Add a periodic aggregator that publishes one `serviceradar.metric.v1` MetricBatch per interval on `metrics.ingestion_lanes` via `ServiceRadar.NATS.JetStreamPublish`, following `ServiceRadar.FlowAttribution.PassMetrics`; log and ignore publish failures.
+  `Ingestion.RuntimeMetrics` publishes that subject on a timer
+  (`runtime_metrics.ex` `handle_info(:publish, ...)` calls
+  `JetStreamPublish.publish/3`). A failed publish is logged and the same frame
+  is held for the next tick. Producers write ETS slots and do not wait on NATS.
+- [x] 7.2 Test that the published envelope is accepted and persisted by the EventWriter `Metrics` processor, that a publish failure leaves ingestion unaffected, and that many admissions in one interval yield one batch.
+  `AdmissionLaneTest` "JetStream metrics publish interval deltas with PubAck-gated watermarks"
+  puts many records into one frame, admits an independent lane result while the
+  PubAck is outstanding, and keeps the retried frame byte-identical across two
+  transport failures. `ResultsRouterTest` "ingestion metric envelopes persist
+  through exactly the configured EventWriter backend" decodes that frame with
+  the Metrics processor and reads the rows back from `platform.timeseries_metrics`.
 - [ ] 7.3 Register the lane `:telemetry` events as `Telemetry.Metrics` in core-elx's metrics (depth last_value; admitted, rejected, NACK, incomplete-run counters; lane/class tags only) and add Grafana panels to the chart's ingestion dashboards, validated as parsed dashboard JSON.
 - [ ] 7.4 Seed a ServiceRadar dashboard in web-ng charting the persisted lane metrics from `timeseries_metrics` via SRQL (depth, reject and NACK rates).
 - [ ] 7.5 Add an Ingestion card and table to Settings -> Cluster Status fed by a lane-stats call on the page's existing refresh timer (no query or RPC in the disconnected mount), with LiveView tests for lane values and the unavailable state.
