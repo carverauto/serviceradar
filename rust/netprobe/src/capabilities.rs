@@ -90,6 +90,8 @@ fn drop_privileges_unix(user: Option<&str>, allow_root: bool) -> Result<()> {
     initialize_supplementary_groups(&c_user, target.gid)
         .with_context(|| format!("failed to initialize supplementary groups for {user}"))?;
     #[cfg(target_os = "linux")]
+    let _drop_gate = retained::block_inline_jobs();
+    #[cfg(target_os = "linux")]
     retained::keep_across_setuid(true)?;
     setgid(target.gid).with_context(|| format!("failed to set gid for {user}"))?;
     setuid(target.uid).with_context(|| format!("failed to set uid for {user}"))?;
@@ -110,6 +112,10 @@ fn drop_privileges_unix(user: Option<&str>, allow_root: bool) -> Result<()> {
 /// keeps `CAP_SYS_PTRACE`, so the drop spawns one executor thread from it, which inherits
 /// it. Before the drop, when running as root, or off Linux, `job` runs inline. Returns
 /// `None` only if the executor thread is gone.
+///
+/// The drop waits for every inline job already running to finish before its `setuid`, so
+/// none of them straddles the drop; a job submitted while the drop is in progress waits
+/// for it and then runs on the executor, never inline without the capability.
 #[cfg(target_os = "linux")]
 pub fn run_privileged<R: Send + 'static>(job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
     retained::run(job)
@@ -129,19 +135,25 @@ pub fn run_privileged<R: Send + 'static>(job: impl FnOnce() -> R + Send + 'stati
 /// receives it.
 #[cfg(target_os = "linux")]
 pub mod retained {
-    use std::sync::OnceLock;
     use std::sync::mpsc::{SyncSender, sync_channel};
+    use std::sync::{OnceLock, PoisonError, RwLock, RwLockWriteGuard};
 
     use anyhow::{Context, Result};
 
     type Job = Box<dyn FnOnce() + Send>;
 
     static EXECUTOR: OnceLock<SyncSender<Job>> = OnceLock::new();
+    /// Held shared by inline jobs and exclusively by the privilege drop.
+    static DROP_GATE: RwLock<()> = RwLock::new(());
 
     pub(super) fn run<R: Send + 'static>(job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+        let gate = DROP_GATE.read().unwrap_or_else(PoisonError::into_inner);
         let Some(executor) = EXECUTOR.get() else {
-            return Some(job());
+            let result = job();
+            drop(gate);
+            return Some(result);
         };
+        drop(gate);
         let (reply, result) = sync_channel(1);
         executor
             .send(Box::new(move || {
@@ -149,6 +161,11 @@ pub mod retained {
             }))
             .ok()?;
         result.recv().ok()
+    }
+
+    /// Waits for running inline jobs and holds new ones until the returned guard drops.
+    pub(super) fn block_inline_jobs() -> RwLockWriteGuard<'static, ()> {
+        DROP_GATE.write().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Spawns the executor thread from the calling (dropping) thread, so it inherits that
