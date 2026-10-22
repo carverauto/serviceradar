@@ -173,7 +173,8 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   - Every transition carries the complete after-image of every fact column except
     `snapshot_generation`, never only the changed fields. A greater `transition_seq`
     applies the after-image; an equal sequence may replay the identical after-image.
-    Changed content requires a new sequence at the producer, under the assessment lock.
+    Changed content requires a new sequence at the producer, serialized on the full fact
+    key (Decision 20), with the assessment row locked when present.
     An older sequence is rejected. Live Stream Load uses row-mode partial updates with
     every event-owned column explicitly listed, excluding `snapshot_generation`, so
     replay preserves the snapshot marker. A newly inserted fact defaults that marker to 0.
@@ -192,12 +193,14 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
     outbox row must be younger than 10 minutes, and the transitions stream keeps messages
     for at most 7 days (`max_age`). Exceeding either raises a health alert. Relayed outbox
     rows are deleted once acknowledged.
-- **`transition_seq`** comes from one CNPG sequence. The matcher draws it in the same
-  transaction as the assessment change, while holding that assessment row's lock, and
-  stores it on the assessment row as its last transition sequence. Two transactions that
-  change the same row are serialized by the lock, so per row the sequence follows commit
-  order. Across rows it does not, which is why the snapshot fence (Decision 14) uses the
-  database snapshot rather than a sequence threshold.
+- **`transition_seq`** comes from one CNPG sequence. The producer draws it in the same
+  transaction as the assessment change or terminal watermark. Every creation, update,
+  deletion and repair serializes on the full fact key, even when no assessment exists;
+  an existing assessment row is also locked. The sequence is stored on the assessment
+  or terminal watermark. This serialization makes the sequence follow commit order per
+  fact, including deletion and re-creation (Decision 20). Across facts it does not, which
+  is why the snapshot fence (Decision 14) uses the database snapshot rather than a
+  sequence threshold.
 - **`transition_xid`** is `pg_current_xact_id()` of the producing transaction, recorded on
   the outbox row and carried on the transition. It is 64-bit and does not wrap.
 - **`ORDER BY (cve_ord, device_ord)`** makes "devices exposed to CVE-X" a prefix-index
@@ -666,9 +669,11 @@ snapshots.
   - A snapshot row is compared with the stored row on sequence, state and content.
     A greater sequence applies the source after-image. An equal sequence with matching
     content changes only `snapshot_generation`. An equal-sequence state or content
-    mismatch is counted and repaired through a new source transition, drawn under the assessment lock after
-    re-reading the current source state. Repair never changes content under an existing
-    sequence. The source watermark path owns repairs for deleted assessment keys.
+    mismatch is counted and repaired through a new source transition, drawn under the
+    full fact-key serialization after re-reading the current source state and locking
+    any existing assessment. Repair never changes content under an existing sequence.
+    The source watermark path owns repairs for deleted assessment keys; Decision 20
+    covers keys with neither an assessment nor a watermark.
   - Example (deletion): an active fact at sequence 10 has its assessment row deleted; the
     deleting transaction draws sequence 11 and records `resolved` at 11. A warehouse still
     holding the fact active at 10 receives the watermark at 11, which is greater, so the
@@ -676,12 +681,15 @@ snapshots.
   - The outbox keeps relaying live transitions throughout. A transition whose
     `transition_xid` is not visible in `V` (in flight or committed after `V` was taken) is
     applied normally whenever it arrives. Its per-row sequence is above the one the
-    snapshot read, because it was drawn under the row lock after the visible change
-    committed, so the merge condition lets it win in either arrival order.
+    snapshot read, because it was drawn under the fact-key serialization after the
+    visible change committed, so the merge condition lets it win in either arrival order.
   - On `SNAPSHOT_END`, rows with `snapshot_generation < G` whose `transition_xid` is
     visible in `V` (`xid < xmin`, or `xid < xmax` and not in `xip`) are reconciled
     through the same source-locked repair path with a new sequence when resolution is
-    still required. A source recheck protects a change committed after `V`. Rows last
+    still required. A source recheck protects a change committed after `V`. If neither
+    an assessment nor a watermark exists, the repair records a terminal watermark and
+    outbox transition atomically under the same fact-key serialization as creation,
+    with a sequence greater than the stored warehouse fact (Decision 20). Rows last
     written by a transition not visible in `V` are left
     as they are. Live transitions write their complete after-image except
     `snapshot_generation`, which only the snapshot manages, so a delayed redelivery of a
@@ -883,6 +891,29 @@ All assertions passed, and the disposable database was dropped and its absence c
 The scale test was then repeated with `BIGINT` keys at 50 million rows, including
 the synthetic JDBC join, bitmap counts and full refreshes described below.
 
+### Decision 20: Missing-source snapshot repair
+
+The product owner approved publishing a new terminal watermark when a snapshot finds
+an active warehouse fact but a current CNPG recheck finds neither an assessment nor a
+deletion watermark. The repair records the watermark and complete terminal outbox
+after-image in one CNPG transaction. It serializes on the full fact key with assessment
+creation as well as update/deletion, including when no assessment row exists. A row
+lock on an absent assessment is not sufficient.
+
+After obtaining that serialization, re-read the assessment and watermark. If a source
+row now exists, use its current state through the normal repair path. Otherwise record
+`resolved` under a new transition sequence greater than the stored warehouse fact's
+sequence and publish that watermark through JetStream. Never rewrite the warehouse
+fact at its old sequence. Concurrent creation must obtain the same serialization and
+draw a later sequence, so it wins in either
+delivery order. Re-creation removes the terminal watermark in the same transaction as
+the new assessment transition. The repair carries its producing transaction's
+`transition_xid`, like any other transition.
+
+This extends the producer contract beyond the delivered row-trigger implementation
+recorded below; the fact-key serialization and missing-source repair remain work in
+task 1.6. No implementation of this path is part of this documentation change.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike
@@ -1074,7 +1105,8 @@ Refresh budgets:
 | Case | Intended handling |
 |---|---|
 | A transition for a retired ordinal arrives after the retirement | Dropped at the ingestion boundary and counted; the ordinal's facts stay retired. |
-| A deleted assessment key is re-created later | The re-creating transaction draws a new sequence above the deletion's and removes the key's row from `platform.exposure_fact_watermarks` in the same transaction. |
+| A deleted assessment key is re-created later | Under the shared full fact-key serialization, the re-creating transaction draws a new sequence above the terminal watermark's and removes the key's row from `platform.exposure_fact_watermarks` in the same transaction. |
+| An active warehouse fact has neither an assessment nor a source watermark | Snapshot repair rechecks under the same fact-key serialization as creation, then records a new terminal watermark and outbox transition atomically if the source is still absent (Decision 20). |
 | A transitions-stream message expires (`max_age`) before it is consumed | Freshness is lost and the stream-age health alert fires; the daily reconciliation finds the device mismatched and a per-device snapshot repairs it. Watermarks still prevent any older state from winning. |
 | A warehouse is restored from a backup taken after compaction | Compacted tombstones in the backup still carry their watermark; the snapshot supplies every newer watermark. |
 | A `network_only` candidate's tolerance range crosses an hour boundary | It is evaluated with the later hour, the hour containing `flow_end + tolerance`. |
