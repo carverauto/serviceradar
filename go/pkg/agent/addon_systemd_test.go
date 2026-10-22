@@ -1528,3 +1528,42 @@ func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
 		t.Fatalf("resource drop-in = %q, want previous bytes", gotPrev)
 	}
 }
+
+// An empty SigningPublicKey is how agent-updater calls InstallAddonSystemdUnits.
+// It must resolve to the committed release key, not to the environment variable,
+// so an artifact signed by a key the operator environment trusts is still
+// rejected before anything is materialized.
+func TestInstallAddonSystemdUnitsEmptyKeyUsesEmbeddedKeyOverEnvironment(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	artPath, sha, sig, otherKey := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	data, err := os.ReadFile(artPath)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	if err := verifyAddonArtifactSignature(data, sig, otherKey); err != nil {
+		t.Fatalf("control: artifact must verify under its own key, got %v", err)
+	}
+
+	t.Setenv("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY", otherKey)
+	err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if !errors.Is(err, ErrAddonSignatureInvalid) {
+		t.Fatalf("want ErrAddonSignatureInvalid from the embedded key, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(priv, "np")); !os.IsNotExist(statErr) {
+		t.Fatalf("artifact materialized despite failed verification: %v", statErr)
+	}
+}
