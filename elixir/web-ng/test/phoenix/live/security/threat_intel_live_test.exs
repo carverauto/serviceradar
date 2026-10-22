@@ -21,6 +21,16 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     refute html =~ "otx-liveview-secret"
   end
 
+  test "a repeated stale field submits its checked value", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/security/threat-intel")
+
+    view
+    |> element("#threat-intel-filters")
+    |> render_submit(%{"filters" => %{"stale" => ["", "true"]}})
+
+    assert_patch(view, ~p"/security/threat-intel?#{[stale: "true"]}")
+  end
+
   test "viewer can open investigation but not settings", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
