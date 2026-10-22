@@ -219,6 +219,8 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
     end
   end
 
+  # Erlang reads a zero-padded IPv4 octet as octal, which PostgreSQL rejects;
+  # requiring the canonical spelling refuses it instead of reinterpreting it.
   defp strict_address(text) do
     case :inet.parse_strict_address(String.to_charlist(text)) do
       {:ok, parsed} when tuple_size(parsed) == 4 ->
