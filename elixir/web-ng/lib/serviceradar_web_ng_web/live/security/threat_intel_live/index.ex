@@ -69,20 +69,22 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
          |> push_navigate(to: ~p"/dashboard")}
 
       not connected?(socket) ->
-        {:noreply, assign(socket, :loading, true)}
+        {:noreply, socket |> assign_params(params) |> assign(:loading, true)}
 
       true ->
-        view = normalize_view(params["view"])
-        filters = params |> Map.take(@filter_keys) |> reject_blank()
-
-        {:noreply,
-         socket
-         |> keep_page_if(view == socket.assigns.view and filters == socket.assigns.filters)
-         |> assign(:view, view)
-         |> assign(:filters, filters)
-         |> assign(:selected_ip, blank_to_nil(params["selected"]) || blank_to_nil(params["ip"]))
-         |> load_page()}
+        {:noreply, socket |> assign_params(params) |> load_page()}
     end
+  end
+
+  defp assign_params(socket, params) do
+    view = normalize_view(params["view"])
+    filters = params |> Map.take(@filter_keys) |> reject_blank()
+
+    socket
+    |> keep_page_if(view == socket.assigns.view and filters == socket.assigns.filters)
+    |> assign(:view, view)
+    |> assign(:filters, filters)
+    |> assign(:selected_ip, blank_to_nil(params["selected"]) || blank_to_nil(params["ip"]))
   end
 
   defp keep_page_if(socket, true), do: socket

@@ -112,6 +112,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
           "198.51.100.1/31",
           "2001:db8::1/64",
           "198.51.100.0/33",
+          "198.51.100.0/-10000000000",
           "not-an-ip"
         ] do
       assert {:error, :invalid_cidr} = ThreatIntelEvidence.parse_address(rejected, :cidr)
