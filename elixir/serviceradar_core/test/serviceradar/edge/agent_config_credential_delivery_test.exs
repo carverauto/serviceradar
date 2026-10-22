@@ -447,6 +447,97 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
              {AgentConfigGenerator, :plugin_assignment_skipped, assignment_id},
              :none
            ) == :none
+
+    Repo.query!("DELETE FROM platform.plugin_assignments WHERE id = $1", [
+      Ecto.UUID.dump!(assignment_id)
+    ])
+
+    second_node = "pve-node-#{System.unique_integer([:positive])}"
+    second_device_uid = "sr:device:#{second_node}"
+
+    mixed_assignment_id =
+      insert_proxmox_console_assignment!(rule, secret, agent_uid, [
+        device_uid,
+        second_device_uid
+      ])
+
+    first_drop_log =
+      capture_log([level: :debug], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+        assert [%{plugin_id: "proxmox-console"} = plugin] = config.plugins
+        assert [%{"items" => [delivered_item]}] = plugin.params["inputs"]
+        assert delivered_item["device_uid"] == device_uid
+        assert [delivered_target] = plugin.params["targets"]
+        assert delivered_target["device_uid"] == device_uid
+        assert [binding] = plugin.host_params["bindings"]
+        assert binding["target_ids"]["device_uid"] == device_uid
+      end)
+
+    assert first_drop_log =~
+             "Dropping unresolvable Proxmox console target(s) from plugin assignment #{mixed_assignment_id}"
+
+    assert first_drop_log =~ second_device_uid
+    assert first_drop_log =~ ":console_target_device_not_found"
+
+    assert {:dropped_targets, _} =
+             :persistent_term.get(
+               {AgentConfigGenerator, :plugin_assignment_skipped, mixed_assignment_id},
+               :none
+             )
+
+    repeat_drop_log =
+      capture_log([level: :debug], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+        assert [%{plugin_id: "proxmox-console"} = plugin] = config.plugins
+        assert [%{"items" => [%{"device_uid" => ^device_uid}]}] = plugin.params["inputs"]
+        assert [%{"device_uid" => ^device_uid}] = plugin.params["targets"]
+      end)
+
+    refute repeat_drop_log =~
+             "Dropping unresolvable Proxmox console target(s) from plugin assignment #{mixed_assignment_id}"
+
+    assert repeat_drop_log =~
+             "Still dropping unresolvable Proxmox console target(s) from plugin assignment #{mixed_assignment_id}"
+
+    insert_pve_device!("192.0.2.21", second_node, second_device_uid)
+
+    changed_reason_log =
+      capture_log([level: :debug], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+        assert [%{plugin_id: "proxmox-console"}] = config.plugins
+      end)
+
+    assert changed_reason_log =~
+             "Dropping unresolvable Proxmox console target(s) from plugin assignment #{mixed_assignment_id}"
+
+    assert changed_reason_log =~ second_device_uid
+    assert changed_reason_log =~ ":unsupported_console_target"
+
+    insert_legacy_pve_host_row!(system, second_node, second_device_uid)
+
+    cleared_drop_log =
+      capture_log([level: :info], fn ->
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+        assert [%{plugin_id: "proxmox-console"} = plugin] = config.plugins
+        assert [%{"items" => items}] = plugin.params["inputs"]
+        assert Enum.map(items, & &1["device_uid"]) == [device_uid, second_device_uid]
+
+        assert Enum.map(plugin.params["targets"], & &1["device_uid"]) == [
+                 device_uid,
+                 second_device_uid
+               ]
+      end)
+
+    assert cleared_drop_log =~
+             "Proxmox console target drops cleared for plugin assignment #{mixed_assignment_id}"
+
+    assert :persistent_term.get(
+             {AgentConfigGenerator, :plugin_assignment_skipped, mixed_assignment_id},
+             :none
+           ) == :none
   end
 
   test "fresh policy broker grant is reused and still resolves with an audit row",
@@ -1008,9 +1099,13 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   # source scope, as rows written before the v3 insert guard do. The guard is
   # disabled only for this insert.
   defp insert_pve_device!(ip) do
-    now = DateTime.utc_now()
     node = "pve-node-#{System.unique_integer([:positive])}"
     device_uid = "sr:device:#{node}"
+    insert_pve_device!(ip, node, device_uid)
+  end
+
+  defp insert_pve_device!(ip, node, device_uid) do
+    now = DateTime.utc_now()
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -1057,12 +1152,17 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
 
   # The console form PluginAssignmentMaterializer writes: a ":console_access"
   # policy id and a template holding the grant's scope and no grant.
-  defp insert_proxmox_console_assignment!(rule, secret, agent_uid, device_uid) do
+  defp insert_proxmox_console_assignment!(rule, secret, agent_uid, device_uids) do
     now = DateTime.utc_now()
     package_id = Ecto.UUID.generate()
     assignment_id = Ecto.UUID.generate()
     policy_id = "network-credential-rule:#{rule.id}:console_access"
     secret_ref = SecretRefs.network_credential_ref(to_string(secret.id))
+
+    items =
+      device_uids
+      |> List.wrap()
+      |> Enum.map(&%{"device_uid" => &1, "target_kind" => "pve_host"})
 
     scope =
       CredentialBrokerGrant.scope_payload(%{
@@ -1130,6 +1230,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
           "credential_rule_id" => to_string(rule.id),
           "agent_id" => agent_uid,
           "generated_at" => DateTime.to_iso8601(now),
+          "targets" => items,
           "inputs" => [
             %{
               "name" => "targets",
@@ -1138,7 +1239,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
               "chunk_index" => 0,
               "chunk_total" => 1,
               "chunk_hash" => String.duplicate("b", 64),
-              "items" => [%{"device_uid" => device_uid, "target_kind" => "pve_host"}]
+              "items" => items
             }
           ],
           "template" => %{"credential_broker" => scope, "api_token_secret_ref" => secret_ref}

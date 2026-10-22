@@ -1300,7 +1300,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     with {:ok, source_scope} <- resolve_proxmox_assignment_scope(assignment, package),
          resolved_params =
            resolve_plugin_params(config_schema, assignment.params, assignment, grant_mode),
-         {:ok, resolved_params} <-
+         {:ok, resolved_params, dropped_targets} <-
            maybe_enrich_proxmox_host_authority_targets(
              resolved_params,
              package.plugin_id,
@@ -1321,7 +1321,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
              package.entrypoint,
              host_params
            ) do
-      note_plugin_assignment_delivered(assignment, package)
+      note_plugin_assignment_delivered(assignment, package, dropped_targets)
 
       %{
         assignment_id: to_string(assignment.id),
@@ -1396,7 +1396,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp note_plugin_assignment_delivered(assignment, package) do
+  defp note_plugin_assignment_delivered(assignment, package, []) do
     assignment_id = to_string(assignment.id)
     marker_key = plugin_assignment_skip_marker_key(assignment_id)
 
@@ -1410,8 +1410,37 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
             "agent=#{assignment.agent_uid}"
         )
 
+      {:dropped_targets, _fingerprint} ->
+        erase_plugin_assignment_skip_marker(assignment_id)
+
+        Logger.info(
+          "Proxmox console target drops cleared for plugin assignment #{assignment_id}: " <>
+            "plugin=#{package.plugin_id} entrypoint=#{package.entrypoint} " <>
+            "agent=#{assignment.agent_uid}"
+        )
+
       _ ->
         :ok
+    end
+  end
+
+  defp note_plugin_assignment_delivered(assignment, package, dropped_reasons)
+       when is_list(dropped_reasons) do
+    assignment_id = to_string(assignment.id)
+    marker_key = plugin_assignment_skip_marker_key(assignment_id)
+    reason = collapse_dropped_console_target_reasons(dropped_reasons)
+    fingerprint = {:dropped_targets, :erlang.phash2(reason)}
+
+    message =
+      "unresolvable Proxmox console target(s) from plugin assignment #{assignment_id}: " <>
+        "plugin=#{package.plugin_id} entrypoint=#{package.entrypoint} " <>
+        "agent=#{assignment.agent_uid} reason=#{inspect(reason)}"
+
+    if :persistent_term.get(marker_key, :none) == fingerprint do
+      Logger.debug("Still dropping " <> message)
+    else
+      record_plugin_assignment_skip_marker(assignment_id, fingerprint)
+      Logger.warning("Dropping " <> message)
     end
   end
 
@@ -1652,7 +1681,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # and its immutable credential rule. Result-owned or SRQL-projected provenance
   # is overwritten before host authority is built. Console items additionally
   # resolve the authoritative v3 guest -> owner PVE chain; any missing,
-  # ambiguous, or cross-source item rejects the whole assignment.
+  # ambiguous, or cross-source item is dropped from the assignment's targets and
+  # inputs[].items with its reason logged, and the assignment is rejected only
+  # when no resolvable console targets remain.
   defp maybe_enrich_proxmox_host_authority_targets(
          params,
          "proxmox-inventory",
@@ -1663,12 +1694,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
        when is_map(params) and is_map(source_scope) do
     params = normalize_map(params)
 
-    with :ok <- ensure_proxmox_target_collection(params) do
-      params
-      |> stamp_proxmox_source_scope(source_scope, assignment)
-      |> map_proxmox_target_collections(fn item ->
-        {:ok, stamp_proxmox_source_scope(item, source_scope, assignment)}
-      end)
+    with :ok <- ensure_proxmox_target_collection(params),
+         {:ok, enriched_params} <-
+           params
+           |> stamp_proxmox_source_scope(source_scope, assignment)
+           |> map_proxmox_target_collections(fn item ->
+             {:ok, stamp_proxmox_source_scope(item, source_scope, assignment)}
+           end) do
+      {:ok, enriched_params, []}
     end
   end
 
@@ -1683,12 +1716,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     params = normalize_map(params)
     actor = SystemActor.system(:proxmox_host_authority_target)
 
-    with :ok <- ensure_proxmox_target_collection(params) do
-      params
-      |> stamp_proxmox_source_scope(source_scope, assignment)
-      |> map_proxmox_target_collections(
-        &enrich_proxmox_console_target(&1, actor, source_scope, assignment)
-      )
+    with :ok <- ensure_proxmox_target_collection(params),
+         {:ok, enriched_params, dropped_reasons} <-
+           params
+           |> stamp_proxmox_source_scope(source_scope, assignment)
+           |> filter_proxmox_console_target_collections(
+             &enrich_proxmox_console_target(&1, actor, source_scope, assignment)
+           ) do
+      dropped_reasons = Enum.uniq(dropped_reasons)
+
+      case ensure_proxmox_target_collection(enriched_params) do
+        :ok ->
+          {:ok, enriched_params, dropped_reasons}
+
+        {:error, _reason} ->
+          {:error, collapse_dropped_console_target_reasons(dropped_reasons)}
+      end
     end
   end
 
@@ -1710,7 +1753,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          _assignment,
          _source_scope
        ),
-       do: {:ok, params}
+       do: {:ok, params, []}
+
+  defp collapse_dropped_console_target_reasons([reason]), do: reason
+
+  defp collapse_dropped_console_target_reasons([_ | _] = reasons),
+    do: {:authoritative_proxmox_console_target_unavailable, reasons}
+
+  defp collapse_dropped_console_target_reasons(_reasons), do: :proxmox_assignment_targets_missing
 
   defp stamp_proxmox_source_scope(map, source_scope, assignment) when is_map(map) do
     map
@@ -1743,6 +1793,79 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     with {:ok, params} <- map_proxmox_input_items(params, mapper) do
       map_proxmox_direct_targets(params, mapper)
     end
+  end
+
+  defp filter_proxmox_console_target_collections(params, mapper) when is_function(mapper, 1) do
+    with {:ok, params, input_dropped} <- filter_proxmox_console_input_items(params, mapper),
+         {:ok, params, target_dropped} <- filter_proxmox_console_direct_targets(params, mapper) do
+      {:ok, params, input_dropped ++ target_dropped}
+    end
+  end
+
+  defp filter_proxmox_console_input_items(params, mapper) do
+    case Map.get(params, "inputs") do
+      nil ->
+        {:ok, params, []}
+
+      inputs when is_list(inputs) ->
+        with {:ok, {mapped_inputs, dropped}} <-
+               Enum.reduce_while(inputs, {:ok, {[], []}}, fn
+                 %{} = input, {:ok, {inputs_acc, dropped_acc}} ->
+                   input = normalize_map(input)
+
+                   case Map.get(input, "items") do
+                     nil ->
+                       {:cont, {:ok, {[input | inputs_acc], dropped_acc}}}
+
+                     items when is_list(items) ->
+                       {kept_items, dropped_items} =
+                         partition_proxmox_console_items(items, mapper)
+
+                       {:cont,
+                        {:ok,
+                         {[Map.put(input, "items", kept_items) | inputs_acc],
+                          dropped_acc ++ dropped_items}}}
+
+                     _items ->
+                       {:halt, {:error, :invalid_proxmox_input_items}}
+                   end
+
+                 _input, _acc ->
+                   {:halt, {:error, :invalid_proxmox_input}}
+               end) do
+          {:ok, Map.put(params, "inputs", Enum.reverse(mapped_inputs)), dropped}
+        end
+
+      _inputs ->
+        {:error, :invalid_proxmox_inputs}
+    end
+  end
+
+  defp filter_proxmox_console_direct_targets(params, mapper) do
+    case Map.get(params, "targets") do
+      nil ->
+        {:ok, params, []}
+
+      targets when is_list(targets) ->
+        {kept_targets, dropped_targets} = partition_proxmox_console_items(targets, mapper)
+        {:ok, Map.put(params, "targets", kept_targets), dropped_targets}
+
+      _targets ->
+        {:error, :invalid_proxmox_targets}
+    end
+  end
+
+  defp partition_proxmox_console_items(items, mapper)
+       when is_list(items) and is_function(mapper, 1) do
+    {kept_reversed, dropped_reversed} =
+      Enum.reduce(items, {[], []}, fn item, {kept, dropped} ->
+        case mapper.(item) do
+          {:ok, mapped} -> {[mapped | kept], dropped}
+          {:error, reason} -> {kept, [reason | dropped]}
+        end
+      end)
+
+    {Enum.reverse(kept_reversed), Enum.reverse(dropped_reversed)}
   end
 
   defp map_proxmox_input_items(params, mapper) do
