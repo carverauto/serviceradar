@@ -523,6 +523,15 @@ mtr_stage_enabled = fn env_name ->
   end
 end
 
+# Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
+# relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, ExposureTransitionRelay,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
+      ExposureTransitionRelay.default_max_bytes()
+    )
+
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
@@ -603,15 +612,6 @@ config :serviceradar_core, StreamPublisher,
     StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
       StreamPublisher.default_max_bytes()
-    )
-
-# Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
-# relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
-config :serviceradar_core, ExposureTransitionRelay,
-  max_bytes:
-    StateBucketSizing.bytes_from_env!(
-      "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
-      ExposureTransitionRelay.default_max_bytes()
     )
 
 config :serviceradar_core, ThreatIntelRawPayloadStore,
