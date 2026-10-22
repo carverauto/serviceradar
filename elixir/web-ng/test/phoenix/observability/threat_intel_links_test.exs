@@ -25,5 +25,18 @@ defmodule ServiceRadarWebNGWeb.Observability.ThreatIntelLinksTest do
       assert ThreatIntelLinks.toggle_threat_matched(query) ==
                "in:attributed_flows time:last_1h threat_matched:true"
     end
+
+    test "treats the field name case-insensitively, as the SRQL parser does" do
+      negated = "in:attributed_flows time:last_24h THREAT_MATCHED:false"
+
+      assert ThreatIntelLinks.toggle_threat_matched(negated) ==
+               "in:attributed_flows time:last_24h threat_matched:true"
+
+      narrowed = "in:attributed_flows time:last_24h Threat_Matched:true"
+      assert ThreatIntelLinks.threat_matched?(narrowed)
+
+      assert ThreatIntelLinks.toggle_threat_matched(narrowed) ==
+               "in:attributed_flows time:last_24h"
+    end
   end
 end

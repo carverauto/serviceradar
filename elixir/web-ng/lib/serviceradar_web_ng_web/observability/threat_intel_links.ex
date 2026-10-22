@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Observability.ThreatIntelLinks do
     query = to_string(query || "")
 
     stripped =
-      ~r/(?:^|\s)threat_matched:(?:"[^"]*"|\S+)/
+      ~r/(?:^|\s)threat_matched:(?:"[^"]*"|\S+)/i
       |> Regex.replace(query, "")
       |> String.replace(~r/\s+/, " ")
       |> String.trim()
