@@ -61,7 +61,7 @@ The agent SHALL resolve the executable of each listening or attributed process t
 - **THEN** package ownership is resolved at most once for that inode
 
 #### Scenario: Unowned executable stays unknown
-- **GIVEN** an executable that no package manager owns
+- **GIVEN** an executable that is still linked on disk, in a root where every present package database is supported and was read completely, and no listed path has its inode
 - **WHEN** it is resolved
 - **THEN** the reference state is `NOT_FOUND`, it names no package, and no name-based guess is made
 

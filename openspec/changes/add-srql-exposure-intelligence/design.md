@@ -750,17 +750,23 @@ Netprobe therefore keeps exactly one capability after the drop: `CAP_SYS_PTRACE`
 permitted and effective sets only. It sets `PR_SET_KEEPCAPS` across `setuid`, reduces the
 permitted and effective sets to `CAP_SYS_PTRACE`, leaves the inheritable and ambient sets
 empty, and clears `PR_SET_KEEPCAPS` again. The service unit adds `CAP_SYS_PTRACE` to its
-bounding set and not to its ambient set. Netprobe uses it only for ptrace-read access to
-procfs. The same access lets the listener snapshot read the socket descriptors of
-processes owned by other users.
+bounding set and not to its ambient set. Capabilities are per thread, and netprobe's tokio
+workers and eBPF reader threads start before the drop and lose all capabilities in the
+`setuid`. The dropping thread therefore keeps `CAP_SYS_PTRACE` and spawns one dedicated
+executor thread, which inherits it and runs every ownership resolution; no other thread
+holds it. Netprobe uses it only for ptrace-read access to procfs.
 
 **Resolution.** For a process, netprobe stats `/proc/<pid>/exe` for the executable's
 `(dev, inode)`, which works for a deleted or replaced binary. It reads the package
 databases inside the process's own root (`/proc/<pid>/root`), so a containerized process
 resolves against its image's package database and reports `source_scope = container`.
-Supported databases are dpkg (`status` plus `info/*.list`), apk (`installed`) and the rpm
-sqlite backend (`rpmdb.sqlite`). The older rpm BerkeleyDB and NDB backends are reported as
-`UNSUPPORTED_DB`. A package owns the executable when one of its listed paths, resolved
+Inventory rows are host-scoped, so a containerized process's reference deliberately never
+joins host exposure facts and stays `package_unknown` until container packages are
+inventoried; this is intended, not a miss. Supported databases are dpkg (`status` plus
+`info/*.list`), apk (`installed`) and the rpm sqlite backend (`rpmdb.sqlite`). The older rpm
+BerkeleyDB and NDB backends are reported as `UNSUPPORTED_DB` only when no supported database
+is present; a root with `rpmdb.sqlite` next to a leftover BerkeleyDB `Packages` file reads
+the sqlite database. A package owns the executable when one of its listed paths, resolved
 inside the process root with symlinks followed but never allowed to leave that root, has the
 executable's `(dev, inode)`. Comparing inodes, not path strings, handles merged `/usr`
 layouts and other directory symlinks. It also means that a binary whose package was
@@ -795,17 +801,28 @@ is ever filled in from the process name or the command line.
   `package_type`, `package_manager`, `namespace`, `release`, `ecosystem`,
   `binary_package`, `source_package` and `architecture`;
 - the installed version;
-- provenance: the resolver (`dpkg`, `rpm` or `apk`), the executable path, `dev` and `inode`.
+- provenance: the resolver, the executable path, `dev` and `inode`. The resolver names
+  which database answered (`dpkg`, `rpm` or `apk`) and is distinct from `package_type`
+  (`deb` for dpkg).
 
 Netprobe fills the identity fields from the database it read and from the root's
-`os-release`, with the inventory producer's conventions: `namespace` from the os-release
-`ID`, `release` in the package-URL distro form, and `source_package` as the package-URL
-`source` qualifier would carry it, otherwise the binary name. It does not compute the
-`pkgid:v1:` key. Core does not match the reference against inventory rows. It derives
+`os-release`, mirroring the live endpoint inventory producer, the ScaLibr add-on
+(`go/pkg/scalibrinventory`), whose package URLs come from osv-scalibr. Those URLs carry a
+namespace (the os-release `ID`; rpm maps `sles` to `suse` and `mariner`/`azurelinux` to
+`azurelinux`) and a `distro` qualifier, so core's canonicalization keeps them; its
+debian/alpine/rpm namespace default applies only to a package URL without a namespace.
+
+| Database | `package_type`, `package_manager`, `ecosystem` | `namespace` | `release` | `binary_package` / `source_package` | Installed version |
+|---|---|---|---|---|---|
+| dpkg | `deb`, `dpkg`, `deb` | os-release `ID` (default `linux`) | `VERSION_CODENAME`, else `VERSION_ID` | package name / the `Source` field's package name when present, else the binary name | the status `Version` |
+| apk | `apk`, `apk`, `apk` | `ID` (default `alpine`) | `VERSION_ID` | the lower-cased package name for both (apk URLs carry `origin`, not `source`) | the installed version |
+| rpm | `rpm`, `rpm`, `rpm` | as above, with the rpm mapping | `<ID>-<VERSION_ID>`, `VERSION_ID` falling back to `BUILD_ID` | package name / the binary name (rpm URLs carry `sourcerpm`, not `source`) | `<version>-<release>` |
+
+Netprobe does not compute the `pkgid:v1:` key. Core does not match the reference against inventory rows. It derives
 `package_identity_key` by applying `EndpointPackageAssessmentIdentity` to the reference's
 identity fields, the same derivation the matcher applies to inventory packages. The
 installed version is evidence and is not part of the key, so an upgrade does not change the
-key. A reference whose key has no assessment simply has no exposure facts.
+key. A reference whose derived key matches no assessment simply has no exposure facts.
 
 **Placement.** Until #5738 lands the lease and summary messages of
 `stream-flow-attribution-via-ownership-index`, netprobe attaches `ExecutableOwnership` to
