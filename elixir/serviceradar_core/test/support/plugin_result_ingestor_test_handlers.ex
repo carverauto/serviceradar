@@ -90,22 +90,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest.ReplayHandler do
   end
 end
 
-defmodule ServiceRadar.Observability.PluginResultIngestorTest.InterruptingHandler do
-  @moduledoc false
-
-  # Stands in for the admission lane killing a worker at its budget: the
-  # delivering process dies mid-handler, before any outcome is recorded.
-  def supports?(_payload, _status), do: true
-
-  def ingest(_payload, _status, _opts) do
-    if pid = Application.get_env(:serviceradar_core, :plugin_result_ingestor_test_pid) do
-      send(pid, {:interrupting_handler_ingest, self()})
-    end
-
-    Process.exit(self(), :kill)
-  end
-end
-
 defmodule ServiceRadar.Observability.PluginResultIngestorTest.SecondaryReplayHandler do
   @moduledoc false
 

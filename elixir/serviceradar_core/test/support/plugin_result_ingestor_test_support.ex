@@ -22,7 +22,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTestSupport do
       alias ServiceRadar.Observability.PluginResultIngestorTest.AcceptingStateRegistry
       alias ServiceRadar.Observability.PluginResultIngestorTest.ExitingHandler
       alias ServiceRadar.Observability.PluginResultIngestorTest.FailingHandler
-      alias ServiceRadar.Observability.PluginResultIngestorTest.InterruptingHandler
       alias ServiceRadar.Observability.PluginResultIngestorTest.LongErrorHandler
       alias ServiceRadar.Observability.PluginResultIngestorTest.RaisingSupportHandler
       alias ServiceRadar.Observability.PluginResultIngestorTest.RejectingStateRegistry
@@ -44,7 +43,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTestSupport do
           [
             ExitingHandler,
             FailingHandler,
-            InterruptingHandler,
             AcceptingStateRegistry,
             LongErrorHandler,
             RaisingSupportHandler,
