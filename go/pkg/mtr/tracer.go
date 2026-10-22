@@ -85,7 +85,7 @@ type Tracer struct {
 	probesMu       sync.Mutex
 	pendingProbes  atomic.Int32
 	probeUpdateCh  chan struct{}
-	nextSeq        int
+	nextSeq        uint32
 	icmpID         int
 	payload        []byte
 	expiredScratch []probeRecord
@@ -407,12 +407,12 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 
 			seq := t.allocateSeq()
 			ttl := hopIdx + 1
-			probeKey := seq
+			probeKey := int(seq)
 
 			t.probesMu.Lock()
 			t.probes[probeKey] = probeRecord{
 				hopIndex: hopIdx,
-				seq:      seq,
+				seq:      probeKey,
 				sentAt:   loopNow,
 			}
 			t.hops[hopIdx].mu.Lock()
@@ -429,12 +429,12 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			case ProtocolUDP:
 				// UDP correlation uses the quoted destination port from ICMP errors.
 				// Encode the full probe sequence into destination port to avoid key mismatch.
-				srcPort := MinPort + seq%udpProbeSrcPortSpan
-				dstPort := seq
+				srcPort := MinPort + probeKey%udpProbeSrcPortSpan
+				dstPort := probeKey
 				probeKey = dstPort
 				sendErr = t.sock.SendUDP(t.targetIP, ttl, srcPort, dstPort, t.makePayload())
 			case ProtocolICMP:
-				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
+				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, probeKey, t.makePayload())
 			case ProtocolTCP:
 				// The flow identifies the probe on the wire; the tracer keys it by seq.
 				sendErr = t.tcpFlow.SendSYN(ttl, seq)
@@ -1018,7 +1018,7 @@ func (t *Tracer) signalProbeStateChanged() {
 }
 
 // allocateSeq returns the next unique sequence number, wrapping at MaxPort.
-func (t *Tracer) allocateSeq() int {
+func (t *Tracer) allocateSeq() uint32 {
 	seq := t.nextSeq
 	t.nextSeq++
 
@@ -1041,19 +1041,23 @@ func nextICMPID() int {
 	return id
 }
 
-func nextProbeSeqStart() int {
+func nextProbeSeqStart() uint32 {
 	span := MaxPort - MinPort + 1
 	if span <= 0 {
 		return MinPort
 	}
 
-	offset := int(time.Now().UnixNano() % int64(span))
-	start := MinPort + offset
+	offset := time.Now().UnixNano() % int64(span)
+	if offset < 0 {
+		return MinPort
+	}
+
+	start := int64(MinPort) + offset
 	if start < MinPort || start > MaxPort {
 		return MinPort
 	}
 
-	return start
+	return uint32(start)
 }
 
 func (t *Tracer) makePayload() []byte {

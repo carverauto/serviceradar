@@ -231,7 +231,7 @@ type simNetwork struct {
 type simSend struct {
 	flow *simTCPFlow
 	ttl  int
-	seq  int
+	seq  uint32
 }
 
 var (
@@ -288,7 +288,7 @@ const (
 	simDstPort = 443
 )
 
-func (f *simTCPFlow) SendSYN(ttl, seq int) error {
+func (f *simTCPFlow) SendSYN(ttl int, seq uint32) error {
 	if f.net.sendErr != nil {
 		return f.net.sendErr
 	}
@@ -309,9 +309,9 @@ func (f *simTCPFlow) SendSYN(ttl, seq int) error {
 	case ttl < f.net.pathLen:
 		f.net.icmp <- f.quotedError(net.IPv4(192, 0, 2, byte(ttl)), 11, 0, seq, now)
 	case f.net.mode == "synack":
-		f.replies <- &TCPReply{Seq: seq, SYNACK: true, RecvTime: answered}
+		f.replies <- &TCPReply{Seq: int(seq), SYNACK: true, RecvTime: answered}
 	case f.net.mode == "rst":
-		f.replies <- &TCPReply{Seq: seq, RST: true, RecvTime: answered}
+		f.replies <- &TCPReply{Seq: int(seq), RST: true, RecvTime: answered}
 	case f.net.mode == "unreachable":
 		// A firewall at the last hop answers "administratively prohibited".
 		f.net.icmp <- f.quotedError(net.IPv4(192, 0, 2, byte(ttl)), 3, 13, seq, now)
@@ -320,7 +320,7 @@ func (f *simTCPFlow) SendSYN(ttl, seq int) error {
 	return nil
 }
 
-func (f *simTCPFlow) quotedError(from net.IP, icmpType, code, seq int, now time.Time) *ICMPResponse {
+func (f *simTCPFlow) quotedError(from net.IP, icmpType, code int, seq uint32, now time.Time) *ICMPResponse {
 	return &ICMPResponse{
 		SrcAddr:      from.To4(),
 		Type:         icmpType,
@@ -329,7 +329,7 @@ func (f *simTCPFlow) quotedError(from net.IP, icmpType, code, seq int, now time.
 		InnerProto:   ipProtoTCP,
 		InnerSrcPort: simSrcPort,
 		InnerDstPort: simDstPort,
-		InnerTCPSeq:  uint32(seq), //nolint:gosec
+		InnerTCPSeq:  seq,
 		RecvTime:     now,
 	}
 }
@@ -470,7 +470,7 @@ func TestTracerTCP_EveryTTLIsSentOnOneStableFlow(t *testing.T) {
 	}
 
 	ttls := map[int]bool{}
-	seqs := map[int]bool{}
+	seqs := map[uint32]bool{}
 
 	for _, send := range sim.sends {
 		if send.flow != sim.flow {

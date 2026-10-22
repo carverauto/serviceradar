@@ -67,7 +67,7 @@ func checkTCPFlowTarget(dst net.IP) error {
 type connectTCPFlow struct {
 	ipv6    bool
 	dst     net.IP
-	dstPort int
+	dstPort uint16
 	timeout time.Duration
 
 	replies chan *TCPReply
@@ -83,6 +83,11 @@ func newConnectTCPFlow(
 		return nil, err
 	}
 
+	port, err := uint16FromInt(dstPort)
+	if err != nil {
+		return nil, fmt.Errorf("TCP destination port: %w", err)
+	}
+
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -90,7 +95,7 @@ func newConnectTCPFlow(
 	return &connectTCPFlow{
 		ipv6:    ipv6,
 		dst:     append(net.IP(nil), dst...),
-		dstPort: dstPort,
+		dstPort: port,
 		timeout: timeout,
 		replies: make(chan *TCPReply, connectReplyQueueSize),
 		closed:  make(chan struct{}),
@@ -99,20 +104,20 @@ func newConnectTCPFlow(
 
 func (f *connectTCPFlow) Crafted() bool { return false }
 
-func (f *connectTCPFlow) SendSYN(ttl, seq int) error {
+func (f *connectTCPFlow) SendSYN(ttl int, seq uint32) error {
 	fd, err := f.openProbeSocket(ttl, seq)
 	if err != nil {
 		return err
 	}
 
-	err = syscall.Connect(fd, f.dstSockaddr())
+	err = syscall.Connect(int(fd), f.dstSockaddr())
 
 	switch {
 	case err == nil:
-		f.emit(seq, true, false)
+		f.emit(int(seq), true, false)
 		closeAbortive(fd)
 	case errors.Is(err, syscall.ECONNREFUSED):
-		f.emit(seq, false, true)
+		f.emit(int(seq), false, true)
 		closeAbortive(fd)
 	case errors.Is(err, syscall.EINPROGRESS), errors.Is(err, syscall.EINTR):
 		f.wg.Add(1)
@@ -126,48 +131,57 @@ func (f *connectTCPFlow) SendSYN(ttl, seq int) error {
 	return nil
 }
 
-func (f *connectTCPFlow) openProbeSocket(ttl, seq int) (int, error) {
+func (f *connectTCPFlow) openProbeSocket(ttl int, seq uint32) (int32, error) {
 	family := syscall.AF_INET
 	if f.ipv6 {
 		family = syscall.AF_INET6
 	}
 
-	fd, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+	rawFD, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
 		return -1, fmt.Errorf("create TCP socket: %w", err)
 	}
 
+	fd, err := int32FromInt(rawFD)
+	if err != nil {
+		_ = syscall.Close(rawFD)
+		return -1, fmt.Errorf("TCP probe descriptor: %w", err)
+	}
+
 	if err := f.configureProbeSocket(fd, ttl, seq); err != nil {
-		_ = syscall.Close(fd)
+		_ = syscall.Close(rawFD)
 		return -1, err
 	}
 
 	return fd, nil
 }
 
-func (f *connectTCPFlow) configureProbeSocket(fd, ttl, seq int) error {
+func (f *connectTCPFlow) configureProbeSocket(fd int32, ttl int, seq uint32) error {
+	rawFD := int(fd)
+
 	if f.ipv6 {
-		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
+		if err := syscall.SetsockoptInt(rawFD, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
 			return fmt.Errorf("set TCP hop limit: %w", err)
 		}
-	} else if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
+	} else if err := syscall.SetsockoptInt(rawFD, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
 		return fmt.Errorf("set TCP TTL: %w", err)
 	}
 
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
+	if err := syscall.SetsockoptInt(rawFD, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
 		return fmt.Errorf("set TCP reuseaddr: %w", err)
 	}
 
-	if err := syscall.SetNonblock(fd, true); err != nil {
+	if err := syscall.SetNonblock(rawFD, true); err != nil {
 		return fmt.Errorf("set TCP nonblock: %w", err)
 	}
 
-	var local syscall.Sockaddr = &syscall.SockaddrInet4{Port: seq}
+	port := int(seq)
+	var local syscall.Sockaddr = &syscall.SockaddrInet4{Port: port}
 	if f.ipv6 {
-		local = &syscall.SockaddrInet6{Port: seq}
+		local = &syscall.SockaddrInet6{Port: port}
 	}
 
-	if err := syscall.Bind(fd, local); err != nil {
+	if err := syscall.Bind(rawFD, local); err != nil {
 		return fmt.Errorf("bind TCP probe port %d: %w", seq, err)
 	}
 
@@ -175,14 +189,16 @@ func (f *connectTCPFlow) configureProbeSocket(fd, ttl, seq int) error {
 }
 
 func (f *connectTCPFlow) dstSockaddr() syscall.Sockaddr {
+	port := int(f.dstPort)
+
 	if f.ipv6 {
-		sa := &syscall.SockaddrInet6{Port: f.dstPort}
+		sa := &syscall.SockaddrInet6{Port: port}
 		copy(sa.Addr[:], f.dst.To16())
 
 		return sa
 	}
 
-	sa := &syscall.SockaddrInet4{Port: f.dstPort}
+	sa := &syscall.SockaddrInet4{Port: port}
 	copy(sa.Addr[:], f.dst.To4())
 
 	return sa
@@ -190,7 +206,7 @@ func (f *connectTCPFlow) dstSockaddr() syscall.Sockaddr {
 
 // await waits for a pending connect to resolve, then reports it and closes the
 // socket abortively so the kernel neither retransmits nor lingers.
-func (f *connectTCPFlow) await(fd, seq int) {
+func (f *connectTCPFlow) await(fd int32, seq uint32) {
 	defer f.wg.Done()
 	defer closeAbortive(fd)
 
@@ -204,7 +220,7 @@ func (f *connectTCPFlow) await(fd, seq int) {
 		}
 
 		wait := min(time.Until(deadline), connectPollSlice)
-		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}} //nolint:gosec
+		fds := []unix.PollFd{{Fd: fd, Events: unix.POLLOUT}}
 
 		n, err := unix.Poll(fds, int(wait.Milliseconds()))
 		if err != nil && !errors.Is(err, unix.EINTR) {
@@ -215,7 +231,7 @@ func (f *connectTCPFlow) await(fd, seq int) {
 			continue
 		}
 
-		soErr, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_ERROR)
+		soErr, err := syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_ERROR)
 		if err != nil {
 			return
 		}
@@ -223,9 +239,9 @@ func (f *connectTCPFlow) await(fd, seq int) {
 		// Any other error (host or network unreachable, timeout) produced an
 		// ICMP error or nothing; the ICMP receiver accounts for it.
 		if soErr == 0 {
-			f.emit(seq, true, false)
+			f.emit(int(seq), true, false)
 		} else if soErr == int(syscall.ECONNREFUSED) {
-			f.emit(seq, false, true)
+			f.emit(int(seq), false, true)
 		}
 
 		return
@@ -256,7 +272,7 @@ func (f *connectTCPFlow) Receive(deadline time.Time) (*TCPReply, error) {
 }
 
 func (f *connectTCPFlow) MatchQuoted(resp *ICMPResponse) (int, bool) {
-	if resp.InnerProto != ipProtoTCP || resp.InnerDstPort != f.dstPort {
+	if resp.InnerProto != ipProtoTCP || resp.InnerDstPort != int(f.dstPort) {
 		return 0, false
 	}
 
@@ -278,7 +294,8 @@ func (f *connectTCPFlow) Close() error {
 // closeAbortive closes a probe socket with SO_LINGER 0, which discards any
 // connection state (sending RST if the handshake completed) instead of leaving
 // the port in TIME_WAIT for the next trace.
-func closeAbortive(fd int) {
-	_ = syscall.SetsockoptLinger(fd, syscall.SOL_SOCKET, syscall.SO_LINGER, &syscall.Linger{Onoff: 1, Linger: 0})
-	_ = syscall.Close(fd)
+func closeAbortive(fd int32) {
+	rawFD := int(fd)
+	_ = syscall.SetsockoptLinger(rawFD, syscall.SOL_SOCKET, syscall.SO_LINGER, &syscall.Linger{Onoff: 1, Linger: 0})
+	_ = syscall.Close(rawFD)
 }

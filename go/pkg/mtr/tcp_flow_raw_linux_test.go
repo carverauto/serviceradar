@@ -22,15 +22,15 @@ func testRawFlow() *rawTCPFlow {
 
 // ipv4TCPPacket builds what an IPv4 raw TCP socket delivers: an IP header
 // followed by the TCP header.
-func ipv4TCPPacket(src net.IP, srcPort, dstPort int, ack uint32, flags byte) []byte {
+func ipv4TCPPacket(src net.IP, srcPort, dstPort uint16, ack uint32, flags byte) []byte {
 	pkt := make([]byte, ipv4HeaderMinLen+tcpHeaderMinLen)
 	pkt[0] = 0x45
 	pkt[9] = ipProtoTCP
 	copy(pkt[12:16], src.To4())
 
 	seg := pkt[ipv4HeaderMinLen:]
-	binary.BigEndian.PutUint16(seg[0:2], uint16(srcPort))
-	binary.BigEndian.PutUint16(seg[2:4], uint16(dstPort))
+	binary.BigEndian.PutUint16(seg[0:2], srcPort)
+	binary.BigEndian.PutUint16(seg[2:4], dstPort)
 	binary.BigEndian.PutUint32(seg[8:12], ack)
 	seg[13] = flags
 
@@ -41,16 +41,16 @@ func TestRawTCPFlow_ParseCreditsTheAcknowledgedProbe(t *testing.T) {
 	t.Parallel()
 
 	flow := testRawFlow()
-	seq := MinPort + 7
-	ack := flow.isnBase + uint32(seq) + 1
+	seq := uint32(MinPort + 7)
+	ack := flow.isnBase + seq + 1
 
 	reply, ok := flow.parse(ipv4TCPPacket(flow.dst, 443, 40001, ack, tcpFlagSYN|tcpFlagACK), nil, time.Now())
-	if !ok || reply.Seq != seq || !reply.SYNACK || reply.RST {
+	if !ok || reply.Seq != int(seq) || !reply.SYNACK || reply.RST {
 		t.Fatalf("expected a SYN-ACK for probe %d, got %+v ok=%v", seq, reply, ok)
 	}
 
 	reply, ok = flow.parse(ipv4TCPPacket(flow.dst, 443, 40001, ack, tcpFlagRST|tcpFlagACK), nil, time.Now())
-	if !ok || reply.Seq != seq || !reply.RST {
+	if !ok || reply.Seq != int(seq) || !reply.RST {
 		t.Fatalf("expected an RST for probe %d, got %+v ok=%v", seq, reply, ok)
 	}
 }
@@ -91,20 +91,20 @@ func TestRawTCPFlow_MatchQuotedUsesSequenceOnTheFlow(t *testing.T) {
 	t.Parallel()
 
 	flow := testRawFlow()
-	seq := MinPort + 42
+	seq := uint32(MinPort + 42)
 
 	resp := &ICMPResponse{
 		InnerProto:   ipProtoTCP,
-		InnerSrcPort: flow.srcPort,
-		InnerDstPort: flow.dstPort,
-		InnerTCPSeq:  flow.isnBase + uint32(seq),
+		InnerSrcPort: int(flow.srcPort),
+		InnerDstPort: int(flow.dstPort),
+		InnerTCPSeq:  flow.isnBase + seq,
 	}
 
-	if got, ok := flow.MatchQuoted(resp); !ok || got != seq {
+	if got, ok := flow.MatchQuoted(resp); !ok || got != int(seq) {
 		t.Fatalf("expected quoted probe %d, got %d ok=%v", seq, got, ok)
 	}
 
-	resp.InnerSrcPort = flow.srcPort + 1
+	resp.InnerSrcPort = int(flow.srcPort) + 1
 	if _, ok := flow.MatchQuoted(resp); ok {
 		t.Fatal("expected a quote from another flow's source port to be ignored")
 	}
@@ -142,17 +142,17 @@ func TestRawTCPFlow_EveryProbeSharesTheFlowFiveTuple(t *testing.T) {
 			var first []byte
 
 			// One probe per TTL, as sendProbes allocates them: TTL n gets the next seq.
-			for ttl := 1; ttl <= 6; ttl++ {
-				seq := MinPort + ttl - 1
+			for ttl := uint32(1); ttl <= 6; ttl++ {
+				seq := uint32(MinPort) + ttl - 1
 				seg := append([]byte(nil), flow.synSegment(seq)...)
 
-				if got := int(binary.BigEndian.Uint16(seg[0:2])); got != flow.srcPort {
+				if got := binary.BigEndian.Uint16(seg[0:2]); got != flow.srcPort {
 					t.Fatalf("TTL %d: source port %d, want the reserved %d", ttl, got, flow.srcPort)
 				}
-				if got := int(binary.BigEndian.Uint16(seg[2:4])); got != flow.dstPort {
+				if got := binary.BigEndian.Uint16(seg[2:4]); got != flow.dstPort {
 					t.Fatalf("TTL %d: destination port %d, want %d", ttl, got, flow.dstPort)
 				}
-				if got := binary.BigEndian.Uint32(seg[4:8]); got != flow.isnBase+uint32(seq) { //nolint:gosec
+				if got := binary.BigEndian.Uint32(seg[4:8]); got != flow.isnBase+seq {
 					t.Fatalf("TTL %d: sequence %#x, want isn base + %d", ttl, got, seq)
 				}
 				// The checksum only verifies over the flow's own pseudo-header

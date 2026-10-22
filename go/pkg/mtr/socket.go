@@ -106,8 +106,9 @@ type RawSocket interface {
 // Implementations decide how a probe is identified on the wire; the tracer only
 // deals in probe sequence numbers.
 type TCPFlow interface {
-	// SendSYN sends the SYN for probe seq with the given TTL.
-	SendSYN(ttl, seq int) error
+	// SendSYN sends the SYN for probe seq with the given TTL. seq is the probe
+	// identifier, carried at the width of a TCP sequence number.
+	SendSYN(ttl int, seq uint32) error
 
 	// Receive returns the next SYN-ACK or RST from the target on this flow,
 	// blocking up to deadline. A timeout returns an error whose Timeout() is true.
@@ -207,7 +208,7 @@ func parseQuotedTransport(resp *ICMPResponse, proto byte, data []byte) {
 // buildTCPSyn writes a SYN segment (with an MSS option) into buf and returns it.
 // src and dst must be the addresses the packet will actually carry, because
 // they are part of the checksum pseudo-header.
-func buildTCPSyn(buf []byte, src, dst net.IP, srcPort, dstPort int, seq uint32) []byte {
+func buildTCPSyn(buf []byte, src, dst net.IP, srcPort, dstPort uint16, seq uint32) []byte {
 	if cap(buf) < tcpSynLen {
 		buf = make([]byte, tcpSynLen)
 	}
@@ -215,8 +216,8 @@ func buildTCPSyn(buf []byte, src, dst net.IP, srcPort, dstPort int, seq uint32) 
 	seg := buf[:tcpSynLen]
 	clear(seg)
 
-	binary.BigEndian.PutUint16(seg[0:2], uint16(srcPort))
-	binary.BigEndian.PutUint16(seg[2:4], uint16(dstPort))
+	binary.BigEndian.PutUint16(seg[0:2], srcPort)
+	binary.BigEndian.PutUint16(seg[2:4], dstPort)
 	binary.BigEndian.PutUint32(seg[4:8], seq)
 	seg[12] = tcpSynDataOffset
 	seg[13] = tcpFlagSYN
@@ -259,8 +260,8 @@ func tcpChecksum(src, dst net.IP, seg []byte) uint16 {
 
 // tcpSegment is the subset of a received TCP header the tracer needs.
 type tcpSegment struct {
-	srcPort int
-	dstPort int
+	srcPort uint16
+	dstPort uint16
 	ack     uint32
 	flags   byte
 }
@@ -273,8 +274,8 @@ func parseTCPSegment(b []byte) (tcpSegment, bool) {
 	}
 
 	return tcpSegment{
-		srcPort: int(binary.BigEndian.Uint16(b[0:2])),
-		dstPort: int(binary.BigEndian.Uint16(b[2:4])),
+		srcPort: binary.BigEndian.Uint16(b[0:2]),
+		dstPort: binary.BigEndian.Uint16(b[2:4]),
 		ack:     binary.BigEndian.Uint32(b[8:12]),
 		flags:   b[13],
 	}, true
